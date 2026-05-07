@@ -26,7 +26,7 @@ public class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorHandling
             ArgumentNullException or ArgumentException => (HttpStatusCode.BadRequest, "ValidationException", exception.Message),
             UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "UnauthorizedException", exception.Message),
             KeyNotFoundException or FileNotFoundException => (HttpStatusCode.NotFound, "NotFoundException", exception.Message),
-            _ => (HttpStatusCode.InternalServerError, "InternalServerError", $"{exception.GetType().Name}: {exception.Message} | {exception.InnerException?.Message}")
+            _ => (HttpStatusCode.InternalServerError, "InternalServerError", "An error occurred while processing your request.")
         };
 
         var response = new ApiResponse<object>

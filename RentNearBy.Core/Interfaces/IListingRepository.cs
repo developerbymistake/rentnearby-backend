@@ -9,4 +9,5 @@ public interface IListingRepository : IRepository<Listing>
     Task<IEnumerable<Listing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax);
     Task<IEnumerable<Listing>> GetByUserIdAsync(Guid userId);
     Task<Listing?> GetByIdWithPhotosAsync(Guid id);
+    Task AddPhotoAsync(ListingPhoto photo);
 }

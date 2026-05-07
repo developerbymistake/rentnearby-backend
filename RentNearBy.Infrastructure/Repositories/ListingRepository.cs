@@ -61,12 +61,16 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
 
     public async Task<Listing?> GetByIdWithPhotosAsync(Guid id)
         => await _dbSet
+            .AsNoTracking()
             .Include(l => l.RoomType)
             .Include(l => l.District)
             .Include(l => l.City)
             .Include(l => l.User)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
             .FirstOrDefaultAsync(l => l.Id == id);
+
+    public async Task AddPhotoAsync(ListingPhoto photo)
+        => await context.ListingPhotos.AddAsync(photo);
 
     private static double Haversine(double lat1, double lng1, double lat2, double lng2)
     {

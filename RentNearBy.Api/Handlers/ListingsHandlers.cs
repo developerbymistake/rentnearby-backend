@@ -159,7 +159,7 @@ public static class ListingsHandlers
             UploadedAt = DateTime.UtcNow
         };
 
-        listing.Photos.Add(listingPhoto);
+        await unitOfWork.Listings.AddPhotoAsync(listingPhoto);
         await unitOfWork.SaveChangesAsync();
 
         return CreatedResponse(new { photoUrl = url, photoId = listingPhoto.Id }, url);
