@@ -6,9 +6,10 @@ obj/
 .vs/
 *.swp
 
-## Secrets — copy appsettings.example.json and fill in your values
+## Secrets — copy appsettings.example.json and .env.example and fill in values
 appsettings.json
 appsettings.Development.json
+.env
 
 ## Uploads (runtime-generated files)
 uploads/
