@@ -7,8 +7,7 @@ namespace RentNearBy.Infrastructure.Services;
 
 public class PhotoService(IConfiguration configuration) : IPhotoService
 {
-    private readonly string _uploadBasePath = configuration["Storage:UploadPath"]
-        ?? throw new InvalidOperationException("Storage:UploadPath not configured");
+    private readonly string _uploadBasePath = configuration["Storage:UploadPath"] ?? "/app/wwwroot/uploads";
 
     public async Task<(string url, string filePath)> SavePhotoAsync(Stream photoStream, string fileName, Guid userId, Guid listingId)
     {

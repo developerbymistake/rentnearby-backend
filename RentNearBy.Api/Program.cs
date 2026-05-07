@@ -70,9 +70,12 @@ using (var scope = app.Services.CreateScope())
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseCors("AllowAll");
 
-var uploadPath = app.Configuration["Storage:UploadPath"]
-    ?? throw new InvalidOperationException("Storage:UploadPath not configured");
+var uploadPath = app.Configuration["Storage:UploadPath"] ?? "/app/wwwroot/uploads";
 Directory.CreateDirectory(uploadPath);
+
+var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+startupLogger.LogInformation("Upload path: {Path}", uploadPath);
+
 app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadPath),
