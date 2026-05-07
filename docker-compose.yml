@@ -1,25 +1,10 @@
 services:
-  db:
-    image: postgis/postgis:16-3.4
-    container_name: rentnearby_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: rentnearby_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-
   api:
     build: .
     container_name: rentnearby_api
     restart: unless-stopped
-    depends_on:
-      - db
     environment:
-      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=rentnearby_db;Username=postgres;Password=${DB_PASSWORD}"
+      ConnectionStrings__DefaultConnection: ${DB_CONNECTION_STRING}
       Jwt__Key: ${JWT_KEY}
       Jwt__Issuer: RentNearBy
       Jwt__Audience: RentNearBy
@@ -31,5 +16,4 @@ services:
       - "5000:5000"
 
 volumes:
-  pgdata:
   uploads:
