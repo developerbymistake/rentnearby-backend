@@ -61,7 +61,6 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
 
     public async Task<Listing?> GetByIdWithPhotosAsync(Guid id)
         => await _dbSet
-            .AsNoTracking()
             .Include(l => l.RoomType)
             .Include(l => l.District)
             .Include(l => l.City)
