@@ -1,0 +1,116 @@
+using Microsoft.EntityFrameworkCore;
+using RentNearBy.Core.Entities;
+
+namespace RentNearBy.Infrastructure.Data;
+
+public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : DbContext(options)
+{
+    public DbSet<User> Users { get; set; }
+    public DbSet<Session> Sessions { get; set; }
+    public DbSet<Listing> Listings { get; set; }
+    public DbSet<ListingPhoto> ListingPhotos { get; set; }
+    public DbSet<City> Cities { get; set; }
+    public DbSet<District> Districts { get; set; }
+    public DbSet<RoomType> RoomTypes { get; set; }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<User>(e =>
+        {
+            e.HasKey(u => u.Id);
+            e.Property(u => u.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(u => u.PhoneNumber).IsUnique();
+            e.Property(u => u.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(u => u.UpdatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<Session>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(s => new { s.UserId, s.IsRevoked });
+            e.HasOne(s => s.User)
+             .WithMany()
+             .HasForeignKey(s => s.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<City>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(c => c.Name).IsUnique();
+            e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<District>(e =>
+        {
+            e.HasKey(d => d.Id);
+            e.Property(d => d.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(d => d.CreatedAt).HasDefaultValueSql("now()");
+            e.HasOne(d => d.City)
+             .WithMany(c => c.Districts)
+             .HasForeignKey(d => d.CityId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RoomType>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(r => r.Name).IsUnique();
+            e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<Listing>(e =>
+        {
+            e.HasKey(l => l.Id);
+            e.Property(l => l.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(l => l.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(l => l.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne(l => l.User)
+             .WithMany(u => u.Listings)
+             .HasForeignKey(l => l.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(l => l.RoomType)
+             .WithMany(r => r.Listings)
+             .HasForeignKey(l => l.RoomTypeId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(l => l.City)
+             .WithMany(c => c.Listings)
+             .HasForeignKey(l => l.CityId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(l => l.District)
+             .WithMany(d => d.Listings)
+             .HasForeignKey(l => l.DistrictId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // Performance indexes
+            e.HasIndex(l => l.CityId);
+            e.HasIndex(l => l.UserId);
+            e.HasIndex(l => l.IsActive);
+            e.HasIndex(l => new { l.Latitude, l.Longitude });
+            e.HasIndex(l => new { l.CityId, l.IsActive });
+        });
+
+        modelBuilder.Entity<ListingPhoto>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.UploadedAt).HasDefaultValueSql("now()");
+            e.HasOne(p => p.Listing)
+             .WithMany(l => l.Photos)
+             .HasForeignKey(p => p.ListingId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(p => p.ListingId);
+        });
+    }
+}
