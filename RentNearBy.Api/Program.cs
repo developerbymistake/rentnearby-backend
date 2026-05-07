@@ -54,17 +54,8 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>();
-    var resetDb = string.Equals(app.Configuration["RESET_DB"], "true", StringComparison.OrdinalIgnoreCase);
-
-    if (resetDb)
-    {
-        db.Database.EnsureDeleted();
-        db.Database.EnsureCreated();
-    }
-    else
-    {
-        db.Database.EnsureCreated();
-    }
+    db.Database.EnsureDeleted();
+    db.Database.EnsureCreated();
     await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
 }
 
