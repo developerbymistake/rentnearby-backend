@@ -70,17 +70,13 @@ using (var scope = app.Services.CreateScope())
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseCors("AllowAll");
 
-var uploadPath = app.Configuration["Storage:UploadPath"] ?? "/app/wwwroot/uploads";
-Directory.CreateDirectory(uploadPath);
+var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(Path.Combine(webRoot, "uploads"));
 
 var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
-startupLogger.LogInformation("Upload path: {Path}", uploadPath);
+startupLogger.LogInformation("WebRoot: {Path}", webRoot);
 
-app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
-{
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadPath),
-    RequestPath = "/uploads"
-});
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
