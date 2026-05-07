@@ -178,7 +178,7 @@ public static class ListingsHandlers
         if (photo == null) return NotFoundResponse("Photo not found");
 
         await photoService.DeletePhotoAsync(photo.FilePath);
-        listing.Photos.Remove(photo);
+        unitOfWork.Listings.RemovePhoto(photo);
         await unitOfWork.SaveChangesAsync();
 
         return NoContentResponse();

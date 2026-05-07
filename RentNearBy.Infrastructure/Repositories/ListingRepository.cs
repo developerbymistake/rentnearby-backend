@@ -72,6 +72,11 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
     public async Task AddPhotoAsync(ListingPhoto photo)
         => await context.ListingPhotos.AddAsync(photo);
 
+    public void RemovePhoto(ListingPhoto photo)
+    {
+        context.Entry(photo).State = Microsoft.EntityFrameworkCore.EntityState.Deleted;
+    }
+
     private static double Haversine(double lat1, double lng1, double lat2, double lng2)
     {
         const double R = 6371;

@@ -10,4 +10,5 @@ public interface IListingRepository : IRepository<Listing>
     Task<IEnumerable<Listing>> GetByUserIdAsync(Guid userId);
     Task<Listing?> GetByIdWithPhotosAsync(Guid id);
     Task AddPhotoAsync(ListingPhoto photo);
+    void RemovePhoto(ListingPhoto photo);
 }
