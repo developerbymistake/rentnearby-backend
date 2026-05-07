@@ -11,8 +11,12 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddApplicationServices(this IServiceCollection services, IConfiguration configuration)
     {
+        var connectionString = configuration["DATABASE_URL"]
+            ?? configuration.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException("DATABASE_URL not configured");
+
         services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
+            options.UseNpgsql(connectionString));
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IJwtService, JwtService>();
