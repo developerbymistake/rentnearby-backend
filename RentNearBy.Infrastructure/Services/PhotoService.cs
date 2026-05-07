@@ -1,17 +1,16 @@
-using Microsoft.AspNetCore.Hosting;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Processing;
 
 namespace RentNearBy.Infrastructure.Services;
 
-public class PhotoService(IWebHostEnvironment env) : IPhotoService
+public class PhotoService : IPhotoService
 {
-    private string WebRoot => env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot");
+    private const string UploadBasePath = "/app/wwwroot/uploads";
 
     public async Task<(string url, string filePath)> SavePhotoAsync(Stream photoStream, string fileName, Guid userId, Guid listingId)
     {
-        var folder = Path.Combine(WebRoot, "uploads", $"user_{userId}", $"listing_{listingId}");
+        var folder = Path.Combine(UploadBasePath, $"user_{userId}", $"listing_{listingId}");
         Directory.CreateDirectory(folder);
 
         var uniqueFileName = $"{Guid.NewGuid()}.jpg";
@@ -37,7 +36,7 @@ public class PhotoService(IWebHostEnvironment env) : IPhotoService
 
     public Task DeleteListingPhotosAsync(Guid userId, Guid listingId)
     {
-        var folder = Path.Combine(WebRoot, "uploads", $"user_{userId}", $"listing_{listingId}");
+        var folder = Path.Combine(UploadBasePath, $"user_{userId}", $"listing_{listingId}");
         if (Directory.Exists(folder))
             Directory.Delete(folder, recursive: true);
         return Task.CompletedTask;
