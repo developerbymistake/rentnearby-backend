@@ -1,4 +1,5 @@
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
 using RentNearBy.Api.Endpoints;
 using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Mappings;
