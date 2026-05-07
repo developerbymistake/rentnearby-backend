@@ -12,13 +12,24 @@ namespace RentNearBy.Api.Handlers;
 
 public static class ListingsHandlers
 {
-    public static async Task<IResult> GetNearby(double latitude, double longitude, double radius, Guid cityId, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetNearby(
+        double latitude, double longitude, double radius, Guid cityId,
+        IUnitOfWork unitOfWork,
+        int page = 1, int pageSize = 30)
     {
         if (radius <= 0 || radius > 50)
             return BadRequestResponse("Radius must be between 1 and 50 km");
+        if (pageSize < 1 || pageSize > 100) pageSize = 30;
+        if (page < 1) page = 1;
 
-        var results = await unitOfWork.Listings.GetNearbyAsync(latitude, longitude, radius, cityId);
-        return OkResponse(results.Select(r => r.Adapt<NearbyListingDto>()).ToList());
+        var allResults = (await unitOfWork.Listings.GetNearbyAsync(latitude, longitude, radius, cityId)).ToList();
+        var paged = allResults
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(r => r.Adapt<NearbyListingDto>())
+            .ToList();
+
+        return Results.Ok(new { status = "success", data = paged, hasMore = allResults.Count > page * pageSize });
     }
 
     public static async Task<IResult> Search(Guid? cityId, Guid? roomTypeId, int? priceMin, int? priceMax, IUnitOfWork unitOfWork)
@@ -113,11 +124,15 @@ public static class ListingsHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var listing = await unitOfWork.Listings.GetByIdWithPhotosAsync(id);
+        // Use tracked GetByIdAsync — AsNoTracking + Remove causes EF Core child-state conflicts
+        var listing = await unitOfWork.Listings.GetByIdAsync(id);
         if (listing == null) return NotFoundResponse("Listing not found");
         if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
 
+        // Delete physical photo files from disk
         await photoService.DeleteListingPhotosAsync(userId, id);
+
+        // Delete listing — DB cascade (DeleteBehavior.Cascade on ListingPhoto) removes photo rows
         await unitOfWork.Listings.DeleteAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
