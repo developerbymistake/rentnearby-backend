@@ -10,9 +10,6 @@ public class PhotoService(IConfiguration configuration) : IPhotoService
     private readonly string _uploadBasePath = configuration["Storage:UploadPath"]
         ?? throw new InvalidOperationException("Storage:UploadPath not configured");
 
-    private readonly string _baseUrl = configuration["Storage:BaseUrl"]
-        ?? throw new InvalidOperationException("Storage:BaseUrl not configured");
-
     public async Task<(string url, string filePath)> SavePhotoAsync(Stream photoStream, string fileName, Guid userId, Guid listingId)
     {
         var folder = Path.Combine(_uploadBasePath, $"user_{userId}", $"listing_{listingId}");
@@ -23,13 +20,12 @@ public class PhotoService(IConfiguration configuration) : IPhotoService
 
         using var image = await Image.LoadAsync(photoStream);
 
-        // Resize if wider than 1200px to save storage and bandwidth
         if (image.Width > 1200)
             image.Mutate(x => x.Resize(1200, 0));
 
         await image.SaveAsJpegAsync(filePath, new JpegEncoder { Quality = 80 });
 
-        var url = $"{_baseUrl}/uploads/user_{userId}/listing_{listingId}/{uniqueFileName}";
+        var url = $"/uploads/user_{userId}/listing_{listingId}/{uniqueFileName}";
         return (url, filePath);
     }
 

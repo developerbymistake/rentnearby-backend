@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.FileProviders;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
@@ -23,21 +22,5 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPhotoService, PhotoService>();
 
         return services;
-    }
-
-    public static WebApplication UsePhotoStorage(this WebApplication app)
-    {
-        var uploadPath = app.Configuration["Storage:UploadPath"]
-            ?? throw new InvalidOperationException("Storage:UploadPath not configured");
-
-        Directory.CreateDirectory(uploadPath);
-
-        app.UseStaticFiles(new StaticFileOptions
-        {
-            FileProvider = new PhysicalFileProvider(uploadPath),
-            RequestPath = "/uploads"
-        });
-
-        return app;
     }
 }
