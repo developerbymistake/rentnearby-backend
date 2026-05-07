@@ -33,7 +33,7 @@ public static class AuthHandlers
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        if (request.Otp != "0000")
+        if (request.Otp != "1234")
             return BadRequestResponse("Invalid OTP", "InvalidOtp");
 
         var user = await unitOfWork.Users.GetByPhoneAsync(request.PhoneNumber);
