@@ -54,8 +54,16 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>();
-    db.Database.EnsureDeleted();
-    db.Database.EnsureCreated();
+    // Drop all tables (works on managed PostgreSQL where DROP DATABASE is not permitted)
+    await db.Database.ExecuteSqlRawAsync("""
+        DO $$ DECLARE r RECORD;
+        BEGIN
+            FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+                EXECUTE 'DROP TABLE IF EXISTS public."' || r.tablename || '" CASCADE';
+            END LOOP;
+        END $$;
+    """);
+    await db.Database.EnsureCreatedAsync();
     await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
 }
 
