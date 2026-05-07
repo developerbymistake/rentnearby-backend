@@ -50,12 +50,20 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// Auto-create DB schema and seed master data on startup (dev: drops+recreates to apply schema changes)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>();
-    db.Database.EnsureDeleted();
-    db.Database.EnsureCreated();
+    if (app.Environment.IsDevelopment())
+    {
+        // Dev: drop + recreate so schema changes apply instantly without migrations
+        db.Database.EnsureDeleted();
+        db.Database.EnsureCreated();
+    }
+    else
+    {
+        // Production: apply pending migrations, never drop data
+        db.Database.Migrate();
+    }
     await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
 }
 
