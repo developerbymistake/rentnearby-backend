@@ -56,14 +56,12 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>();
     if (app.Environment.IsDevelopment())
     {
-        // Dev: drop + recreate so schema changes apply instantly without migrations
         db.Database.EnsureDeleted();
         db.Database.EnsureCreated();
     }
     else
     {
-        // Production: apply pending migrations, never drop data
-        db.Database.Migrate();
+        db.Database.EnsureCreated();
     }
     await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
 }
