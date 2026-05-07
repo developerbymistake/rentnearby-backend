@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Entities;
 
 namespace RentNearBy.Infrastructure.Data;
@@ -17,14 +17,14 @@ public static class DataSeeder
 
         var roomTypes = new[]
         {
-            new RoomType { Id = Guid.NewGuid(), Name = "Single Room",   Description = "One unfurnished/semi-furnished room",      CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "1 BHK",         Description = "1 bedroom, hall and kitchen apartment",    CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "2 BHK",         Description = "2 bedroom, hall and kitchen apartment",    CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "3 BHK",         Description = "3 bedroom, hall and kitchen apartment",    CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "PG",            Description = "Paying guest accommodation",              CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "Single Room",   Description = "One unfurnished/semi-furnished room",           CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "1 BHK",         Description = "1 bedroom, hall and kitchen apartment",         CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "2 BHK",         Description = "2 bedroom, hall and kitchen apartment",         CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "3 BHK",         Description = "3 bedroom, hall and kitchen apartment",         CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "PG",            Description = "Paying guest accommodation",                   CreatedAt = DateTime.UtcNow },
             new RoomType { Id = Guid.NewGuid(), Name = "Studio",        Description = "Compact single-room apartment with kitchenette", CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "Hostel",        Description = "Shared dormitory-style accommodation",    CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "Shared Room",   Description = "Room shared with one or more people",     CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "Hostel",        Description = "Shared dormitory-style accommodation",          CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "Shared Room",   Description = "Room shared with one or more people",           CreatedAt = DateTime.UtcNow },
         };
 
         db.RoomTypes.AddRange(roomTypes);
@@ -35,18 +35,61 @@ public static class DataSeeder
     {
         if (await db.Cities.AnyAsync()) return;
 
+        // All 13 districts of Uttarakhand as cities
         var cities = new[]
         {
-            new { Name = "Mumbai",     Lat = 19.0760m,  Lng = 72.8777m,  Districts = new[] { "Andheri", "Bandra", "Borivali", "Dadar", "Kurla", "Thane", "Navi Mumbai", "Powai" } },
-            new { Name = "Delhi",      Lat = 28.6139m,  Lng = 77.2090m,  Districts = new[] { "Dwarka", "Rohini", "Janakpuri", "Lajpat Nagar", "Karol Bagh", "Saket", "Vasant Kunj", "Noida" } },
-            new { Name = "Bangalore",  Lat = 12.9716m,  Lng = 77.5946m,  Districts = new[] { "Koramangala", "Indiranagar", "Whitefield", "HSR Layout", "JP Nagar", "Hebbal", "Electronic City", "Marathahalli" } },
-            new { Name = "Hyderabad",  Lat = 17.3850m,  Lng = 78.4867m,  Districts = new[] { "Hitech City", "Gachibowli", "Banjara Hills", "Madhapur", "Secunderabad", "Kukatpally", "Ameerpet", "LB Nagar" } },
-            new { Name = "Chennai",    Lat = 13.0827m,  Lng = 80.2707m,  Districts = new[] { "Anna Nagar", "T Nagar", "Adyar", "Velachery", "Porur", "Tambaram", "Sholinganallur", "Guindy" } },
-            new { Name = "Pune",       Lat = 18.5204m,  Lng = 73.8567m,  Districts = new[] { "Kothrud", "Baner", "Hinjewadi", "Viman Nagar", "Hadapsar", "Kharadi", "Wakad", "Pimpri" } },
-            new { Name = "Ahmedabad",  Lat = 23.0225m,  Lng = 72.5714m,  Districts = new[] { "Satellite", "Navrangpura", "Maninagar", "Bopal", "Chandkheda", "Gota", "Vastrapur", "CG Road" } },
-            new { Name = "Surat",      Lat = 21.1702m,  Lng = 72.8311m,  Districts = new[] { "Adajan", "Athwa", "Katargam", "Varachha", "Althan", "Piplod", "City Light", "Vesu" } },
-            new { Name = "Kolkata",    Lat = 22.5726m,  Lng = 88.3639m,  Districts = new[] { "Salt Lake", "Park Street", "New Town", "Howrah", "Dum Dum", "Jadavpur", "Garia", "Behala" } },
-            new { Name = "Jaipur",     Lat = 26.9124m,  Lng = 75.7873m,  Districts = new[] { "Malviya Nagar", "Vaishali Nagar", "Mansarovar", "Sodala", "Jagatpura", "Civil Lines", "C Scheme", "Murlipura" } },
+            new {
+                Name = "Nainital", Lat = 29.3803m, Lng = 79.4636m,
+                Districts = new[] { "Nainital", "Haldwani", "Ramnagar", "Bhimtal", "Ramgarh", "Mukteshwar", "Betalghat", "Dhari" }
+            },
+            new {
+                Name = "Dehradun", Lat = 30.3165m, Lng = 78.0322m,
+                Districts = new[] { "Dehradun", "Rishikesh", "Mussoorie", "Doiwala", "Vikasnagar", "Chakrata", "Sahaspur", "Raipur" }
+            },
+            new {
+                Name = "Haridwar", Lat = 29.9457m, Lng = 78.1642m,
+                Districts = new[] { "Haridwar", "Roorkee", "Laksar", "Jwalapur", "Manglaur", "Bhagwanpur", "Bahadrabad", "Narsan" }
+            },
+            new {
+                Name = "Almora", Lat = 29.5971m, Lng = 79.6491m,
+                Districts = new[] { "Almora", "Ranikhet", "Dwarahat", "Salt", "Bhikiyasain", "Bhainsiyachhana", "Hawalbagh", "Tarikhet" }
+            },
+            new {
+                Name = "Pauri Garhwal", Lat = 30.1500m, Lng = 78.7700m,
+                Districts = new[] { "Pauri", "Kotdwar", "Srinagar", "Lansdowne", "Yamkeshwar", "Dhumakot", "Satpuli", "Dugadda" }
+            },
+            new {
+                Name = "Tehri Garhwal", Lat = 30.3929m, Lng = 78.4823m,
+                Districts = new[] { "New Tehri", "Chamba", "Ghansali", "Dharasu", "Narendra Nagar", "Pratapnagar", "Devprayag", "Kirtinagar" }
+            },
+            new {
+                Name = "Chamoli", Lat = 30.3660m, Lng = 79.3160m,
+                Districts = new[] { "Gopeshwar", "Joshimath", "Karnaprayag", "Tharali", "Narayanbagar", "Gairsain", "Simli", "Dewal" }
+            },
+            new {
+                Name = "Uttarkashi", Lat = 30.7268m, Lng = 78.4354m,
+                Districts = new[] { "Uttarkashi", "Bhatwari", "Dunda", "Mori", "Naugaon", "Purola", "Chinyalisaur", "Barkot" }
+            },
+            new {
+                Name = "Rudraprayag", Lat = 30.2847m, Lng = 78.9808m,
+                Districts = new[] { "Rudraprayag", "Agastmuni", "Ukhimath", "Tilwara", "Jakhnidhar", "Augustmuni", "Bharasar", "Pokhri" }
+            },
+            new {
+                Name = "Pithoragarh", Lat = 29.5826m, Lng = 80.2177m,
+                Districts = new[] { "Pithoragarh", "Dharchula", "Didihat", "Gangolihat", "Munsiyari", "Berinag", "Kanalichhina", "Thal" }
+            },
+            new {
+                Name = "Udham Singh Nagar", Lat = 28.9981m, Lng = 79.4040m,
+                Districts = new[] { "Rudrapur", "Kashipur", "Kichha", "Sitarganj", "Bajpur", "Gadarpur", "Jaspur", "Khatima" }
+            },
+            new {
+                Name = "Bageshwar", Lat = 29.8360m, Lng = 79.7700m,
+                Districts = new[] { "Bageshwar", "Garur", "Kapkot", "Bhalikhan", "Kanda", "Sarwar", "Kafligair", "Baijnath" }
+            },
+            new {
+                Name = "Champawat", Lat = 29.3350m, Lng = 80.0900m,
+                Districts = new[] { "Champawat", "Lohaghat", "Pati", "Barakot", "Banbasa", "Tanakpur", "Shuklaphanta", "Pancheshwar" }
+            },
         };
 
         foreach (var c in cities)
@@ -67,8 +110,8 @@ public static class DataSeeder
                 Id = Guid.NewGuid(),
                 CityId = city.Id,
                 Name = d,
-                Latitude = c.Lat + (decimal)(Random.Shared.NextDouble() * 0.1 - 0.05),
-                Longitude = c.Lng + (decimal)(Random.Shared.NextDouble() * 0.1 - 0.05),
+                Latitude = c.Lat + (decimal)(Random.Shared.NextDouble() * 0.15 - 0.075),
+                Longitude = c.Lng + (decimal)(Random.Shared.NextDouble() * 0.15 - 0.075),
                 CreatedAt = DateTime.UtcNow
             });
             db.Districts.AddRange(districts);
