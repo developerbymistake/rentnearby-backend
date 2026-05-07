@@ -4,5 +4,5 @@ namespace RentNearBy.Core.Interfaces;
 
 public interface ICityRepository : IRepository<City>
 {
-    Task<IEnumerable<City>> GetAllWithDistrictsAsync();
+    Task<IEnumerable<City>> GetByDistrictIdAsync(Guid districtId);
 }

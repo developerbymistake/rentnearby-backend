@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -12,7 +12,7 @@ namespace RentNearBy.Infrastructure.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "Cities",
+                name: "Districts",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
@@ -23,7 +23,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Cities", x => x.Id);
+                    table.PrimaryKey("PK_Districts", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -59,11 +59,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Districts",
+                name: "Cities",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    CityId = table.Column<Guid>(type: "uuid", nullable: false),
+                    DistrictId = table.Column<Guid>(type: "uuid", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: false),
                     Latitude = table.Column<decimal>(type: "numeric", nullable: true),
                     Longitude = table.Column<decimal>(type: "numeric", nullable: true),
@@ -71,11 +71,32 @@ namespace RentNearBy.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Districts", x => x.Id);
+                    table.PrimaryKey("PK_Cities", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_Districts_Cities_CityId",
-                        column: x => x.CityId,
-                        principalTable: "Cities",
+                        name: "FK_Cities_Districts_DistrictId",
+                        column: x => x.DistrictId,
+                        principalTable: "Districts",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Sessions",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    IsRevoked = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    ExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Sessions", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Sessions_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -94,8 +115,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     Latitude = table.Column<decimal>(type: "numeric", nullable: false),
                     Longitude = table.Column<decimal>(type: "numeric", nullable: false),
                     Address = table.Column<string>(type: "text", nullable: true),
-                    CityId = table.Column<Guid>(type: "uuid", nullable: false),
-                    DistrictId = table.Column<Guid>(type: "uuid", nullable: true),
+                    DistrictId = table.Column<Guid>(type: "uuid", nullable: false),
+                    CityId = table.Column<Guid>(type: "uuid", nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
@@ -104,15 +125,15 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_Listings", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_Listings_Cities_CityId",
-                        column: x => x.CityId,
-                        principalTable: "Cities",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
                         name: "FK_Listings_Districts_DistrictId",
                         column: x => x.DistrictId,
                         principalTable: "Districts",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_Listings_Cities_CityId",
+                        column: x => x.CityId,
+                        principalTable: "Cities",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
@@ -152,55 +173,10 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Cities_Name",
-                table: "Cities",
+                name: "IX_Districts_Name",
+                table: "Districts",
                 column: "Name",
                 unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Districts_CityId",
-                table: "Districts",
-                column: "CityId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ListingPhotos_ListingId",
-                table: "ListingPhotos",
-                column: "ListingId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_CityId",
-                table: "Listings",
-                column: "CityId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_CityId_IsActive",
-                table: "Listings",
-                columns: new[] { "CityId", "IsActive" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_DistrictId",
-                table: "Listings",
-                column: "DistrictId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_IsActive",
-                table: "Listings",
-                column: "IsActive");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_Latitude_Longitude",
-                table: "Listings",
-                columns: new[] { "Latitude", "Longitude" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_RoomTypeId",
-                table: "Listings",
-                column: "RoomTypeId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_UserId",
-                table: "Listings",
-                column: "UserId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_RoomTypes_Name",
@@ -213,28 +189,68 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "Users",
                 column: "PhoneNumber",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Cities_DistrictId",
+                table: "Cities",
+                column: "DistrictId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Sessions_UserId_IsRevoked",
+                table: "Sessions",
+                columns: new[] { "UserId", "IsRevoked" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Listings_DistrictId",
+                table: "Listings",
+                column: "DistrictId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Listings_CityId",
+                table: "Listings",
+                column: "CityId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Listings_RoomTypeId",
+                table: "Listings",
+                column: "RoomTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Listings_UserId",
+                table: "Listings",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Listings_IsActive",
+                table: "Listings",
+                column: "IsActive");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Listings_Latitude_Longitude",
+                table: "Listings",
+                columns: new[] { "Latitude", "Longitude" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Listings_DistrictId_IsActive",
+                table: "Listings",
+                columns: new[] { "DistrictId", "IsActive" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ListingPhotos_ListingId",
+                table: "ListingPhotos",
+                column: "ListingId");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "ListingPhotos");
-
-            migrationBuilder.DropTable(
-                name: "Listings");
-
-            migrationBuilder.DropTable(
-                name: "Districts");
-
-            migrationBuilder.DropTable(
-                name: "RoomTypes");
-
-            migrationBuilder.DropTable(
-                name: "Users");
-
-            migrationBuilder.DropTable(
-                name: "Cities");
+            migrationBuilder.DropTable(name: "ListingPhotos");
+            migrationBuilder.DropTable(name: "Listings");
+            migrationBuilder.DropTable(name: "Cities");
+            migrationBuilder.DropTable(name: "Sessions");
+            migrationBuilder.DropTable(name: "Districts");
+            migrationBuilder.DropTable(name: "RoomTypes");
+            migrationBuilder.DropTable(name: "Users");
         }
     }
 }

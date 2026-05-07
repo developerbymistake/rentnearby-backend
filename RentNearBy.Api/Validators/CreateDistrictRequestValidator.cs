@@ -7,9 +7,6 @@ public class CreateDistrictRequestValidator : AbstractValidator<CreateDistrictRe
 {
     public CreateDistrictRequestValidator()
     {
-        RuleFor(x => x.CityId)
-            .NotEmpty().WithMessage("City is required");
-
         RuleFor(x => x.Name)
             .NotEmpty().WithMessage("District name is required")
             .MaximumLength(100).WithMessage("District name must not exceed 100 characters");

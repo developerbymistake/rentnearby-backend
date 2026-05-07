@@ -9,8 +9,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Session> Sessions { get; set; }
     public DbSet<Listing> Listings { get; set; }
     public DbSet<ListingPhoto> ListingPhotos { get; set; }
-    public DbSet<City> Cities { get; set; }
     public DbSet<District> Districts { get; set; }
+    public DbSet<City> Cities { get; set; }
     public DbSet<RoomType> RoomTypes { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -32,28 +32,31 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
             e.HasIndex(s => new { s.UserId, s.IsRevoked });
+            e.HasIndex(s => s.ExpiresAt);
             e.HasOne(s => s.User)
              .WithMany()
              .HasForeignKey(s => s.UserId)
              .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<City>(e =>
-        {
-            e.HasKey(c => c.Id);
-            e.Property(c => c.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(c => c.Name).IsUnique();
-            e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
-        });
-
         modelBuilder.Entity<District>(e =>
         {
             e.HasKey(d => d.Id);
             e.Property(d => d.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(d => d.Name).IsUnique();
             e.Property(d => d.CreatedAt).HasDefaultValueSql("now()");
-            e.HasOne(d => d.City)
-             .WithMany(c => c.Districts)
-             .HasForeignKey(d => d.CityId)
+        });
+
+        modelBuilder.Entity<City>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(c => c.DistrictId);
+            e.HasIndex(c => c.Name);
+            e.HasOne(c => c.District)
+             .WithMany(d => d.Cities)
+             .HasForeignKey(c => c.DistrictId)
              .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -82,23 +85,32 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasForeignKey(l => l.RoomTypeId)
              .OnDelete(DeleteBehavior.Restrict);
 
-            e.HasOne(l => l.City)
-             .WithMany(c => c.Listings)
-             .HasForeignKey(l => l.CityId)
-             .OnDelete(DeleteBehavior.Restrict);
-
             e.HasOne(l => l.District)
              .WithMany(d => d.Listings)
              .HasForeignKey(l => l.DistrictId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(l => l.City)
+             .WithMany(c => c.Listings)
+             .HasForeignKey(l => l.CityId)
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
 
-            // Performance indexes
+            // FK indexes (explicit — cascade + join performance)
+            e.HasIndex(l => l.DistrictId);
             e.HasIndex(l => l.CityId);
             e.HasIndex(l => l.UserId);
+            e.HasIndex(l => l.RoomTypeId);
+            // Filter indexes
             e.HasIndex(l => l.IsActive);
+            e.HasIndex(l => l.PriceMonthly);
+            e.HasIndex(l => l.CreatedAt);
+            // Geo bounding-box pre-filter for nearby query
             e.HasIndex(l => new { l.Latitude, l.Longitude });
-            e.HasIndex(l => new { l.CityId, l.IsActive });
+            // Composite: most common query — active listings in a district, newest first
+            e.HasIndex(l => new { l.DistrictId, l.IsActive, l.CreatedAt });
+            // Composite: search with room type filter
+            e.HasIndex(l => new { l.IsActive, l.RoomTypeId });
         });
 
         modelBuilder.Entity<ListingPhoto>(e =>

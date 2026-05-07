@@ -17,14 +17,15 @@ public static class DtoMappings
             .Map(dest => dest.IsAdmin, src => src.IsAdmin)
             .Map(dest => dest.CreatedAt, src => src.CreatedAt);
 
-        TypeAdapterConfig<City, CityDto>.NewConfig();
         TypeAdapterConfig<District, DistrictDto>.NewConfig();
+        TypeAdapterConfig<City, CityDto>.NewConfig();
         TypeAdapterConfig<RoomType, RoomTypeDto>.NewConfig();
 
         TypeAdapterConfig<Listing, ListingDto>.NewConfig()
-            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
             .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
+            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
             .Map(dest => dest.RoomTypeName, src => src.RoomType != null ? src.RoomType.Name : null)
+            .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
             .Map(dest => dest.OwnerPhone, src => src.User != null ? src.User.PhoneNumber : null)
             .Map(dest => dest.Photos, src => src.Photos != null
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()

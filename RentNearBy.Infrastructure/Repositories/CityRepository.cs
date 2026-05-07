@@ -7,9 +7,9 @@ namespace RentNearBy.Infrastructure.Repositories;
 
 public class CityRepository(ApplicationDbContext context) : Repository<City>(context), ICityRepository
 {
-    public async Task<IEnumerable<City>> GetAllWithDistrictsAsync()
+    public async Task<IEnumerable<City>> GetByDistrictIdAsync(Guid districtId)
         => await _dbSet.AsNoTracking()
-            .Include(c => c.Districts)
+            .Where(c => c.DistrictId == districtId)
             .OrderBy(c => c.Name)
             .ToListAsync();
 }

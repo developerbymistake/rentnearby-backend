@@ -8,9 +8,8 @@ namespace RentNearBy.Infrastructure.Repositories;
 
 public class ListingRepository(ApplicationDbContext context) : Repository<Listing>(context), IListingRepository
 {
-    public async Task<IEnumerable<NearbyListingResult>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid cityId)
+    public async Task<IEnumerable<NearbyListingResult>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId)
     {
-        // Bounding box pre-filter uses the (latitude, longitude) index — eliminates most rows cheaply
         double latDelta = radiusKm / 111.0;
         double lngDelta = radiusKm / (111.0 * Math.Cos(latitude * Math.PI / 180.0));
 
@@ -21,29 +20,28 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
             .Where(l =>
                 l.IsActive &&
-                l.CityId == cityId &&
+                l.DistrictId == districtId &&
                 (double)l.Latitude >= latitude - latDelta && (double)l.Latitude <= latitude + latDelta &&
                 (double)l.Longitude >= longitude - lngDelta && (double)l.Longitude <= longitude + lngDelta)
             .ToListAsync();
 
-        // Exact Haversine filter on the small bounding-box result set
         return candidates
             .Select(l => new NearbyListingResult(l, Haversine(latitude, longitude, (double)l.Latitude, (double)l.Longitude)))
             .Where(r => r.DistanceKm <= radiusKm)
             .OrderBy(r => r.DistanceKm);
     }
 
-    public async Task<IEnumerable<Listing>> SearchAsync(Guid? cityId, Guid? roomTypeId, int? priceMin, int? priceMax)
+    public async Task<IEnumerable<Listing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax)
         => await _dbSet
             .AsNoTracking()
             .Include(l => l.RoomType)
-            .Include(l => l.City)
             .Include(l => l.District)
+            .Include(l => l.City)
             .Include(l => l.User)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
             .Where(l =>
                 l.IsActive &&
-                (cityId == null || l.CityId == cityId) &&
+                (districtId == null || l.DistrictId == districtId) &&
                 (roomTypeId == null || l.RoomTypeId == roomTypeId) &&
                 (priceMin == null || l.PriceMonthly >= priceMin) &&
                 (priceMax == null || l.PriceMonthly <= priceMax))
@@ -54,8 +52,8 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
         => await _dbSet
             .AsNoTracking()
             .Include(l => l.RoomType)
-            .Include(l => l.City)
             .Include(l => l.District)
+            .Include(l => l.City)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
             .Where(l => l.UserId == userId)
             .OrderByDescending(l => l.CreatedAt)
@@ -65,8 +63,8 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
         => await _dbSet
             .AsNoTracking()
             .Include(l => l.RoomType)
-            .Include(l => l.City)
             .Include(l => l.District)
+            .Include(l => l.City)
             .Include(l => l.User)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
             .FirstOrDefaultAsync(l => l.Id == id);

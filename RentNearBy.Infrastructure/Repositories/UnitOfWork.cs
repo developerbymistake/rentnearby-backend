@@ -9,8 +9,8 @@ public class UnitOfWork : IUnitOfWork
     private IUserRepository? _users;
     private ISessionRepository? _sessions;
     private IListingRepository? _listings;
-    private ICityRepository? _cities;
     private IDistrictRepository? _districts;
+    private ICityRepository? _cities;
     private IRoomTypeRepository? _roomTypes;
 
     public UnitOfWork(ApplicationDbContext context)
@@ -21,8 +21,8 @@ public class UnitOfWork : IUnitOfWork
     public IUserRepository Users => _users ??= new UserRepository(_context);
     public ISessionRepository Sessions => _sessions ??= new SessionRepository(_context);
     public IListingRepository Listings => _listings ??= new ListingRepository(_context);
-    public ICityRepository Cities => _cities ??= new CityRepository(_context);
     public IDistrictRepository Districts => _districts ??= new DistrictRepository(_context);
+    public ICityRepository Cities => _cities ??= new CityRepository(_context);
     public IRoomTypeRepository RoomTypes => _roomTypes ??= new RoomTypeRepository(_context);
 
     public async Task<int> SaveChangesAsync()
