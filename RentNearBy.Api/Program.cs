@@ -54,7 +54,10 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>();
-    if (app.Environment.IsDevelopment())
+    var resetDb = app.Environment.IsDevelopment()
+        || string.Equals(app.Configuration["RESET_DB"], "true", StringComparison.OrdinalIgnoreCase);
+
+    if (resetDb)
     {
         db.Database.EnsureDeleted();
         db.Database.EnsureCreated();
