@@ -113,8 +113,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => l.IsActive);
             e.HasIndex(l => l.PriceMonthly);
             e.HasIndex(l => l.CreatedAt);
-            // Geo bounding-box pre-filter for nearby query
-            e.HasIndex(l => new { l.Latitude, l.Longitude });
+            // Geo index created as GiST via raw SQL in Program.cs startup
             // Composite: most common query — active listings in a district, newest first
             e.HasIndex(l => new { l.DistrictId, l.IsActive, l.CreatedAt });
             // Composite: search with room type filter
