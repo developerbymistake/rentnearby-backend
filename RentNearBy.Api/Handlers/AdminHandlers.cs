@@ -109,7 +109,7 @@ public static class AdminHandlers
         if (!cache.TryGetValue("room_types", out List<RoomTypeDto>? cached) || cached == null)
         {
             var types = await unitOfWork.RoomTypes.GetAllAsync();
-            cached = types.Select(r => r.Adapt<RoomTypeDto>()).ToList();
+            cached = types.OrderBy(r => r.SortOrder).Select(r => r.Adapt<RoomTypeDto>()).ToList();
             cache.Set("room_types", cached, CacheTtl);
         }
         return OkResponse(cached);
@@ -120,7 +120,7 @@ public static class AdminHandlers
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var roomType = new RoomType { Id = Guid.NewGuid(), Name = request.Name.Trim(), Description = request.Description, CreatedAt = DateTime.UtcNow };
+        var roomType = new RoomType { Id = Guid.NewGuid(), Name = request.Name.Trim(), Description = request.Description, SortOrder = request.SortOrder, CreatedAt = DateTime.UtcNow };
         await unitOfWork.RoomTypes.AddAsync(roomType);
         await unitOfWork.SaveChangesAsync();
 

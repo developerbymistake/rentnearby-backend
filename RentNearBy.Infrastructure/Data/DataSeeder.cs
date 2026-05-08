@@ -17,14 +17,12 @@ public static class DataSeeder
 
         var roomTypes = new[]
         {
-            new RoomType { Id = Guid.NewGuid(), Name = "Single Room",  Description = "One unfurnished/semi-furnished room",            CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "1 BHK",        Description = "1 bedroom, hall and kitchen apartment",          CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "2 BHK",        Description = "2 bedroom, hall and kitchen apartment",          CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "3 BHK",        Description = "3 bedroom, hall and kitchen apartment",          CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "PG",           Description = "Paying guest accommodation",                    CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "Studio",       Description = "Compact single-room apartment with kitchenette", CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "Hostel",       Description = "Shared dormitory-style accommodation",           CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "Shared Room",  Description = "Room shared with one or more people",            CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "1BHK",   SortOrder = 1, Description = "1 bedroom, hall and kitchen",           CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "2BHK",   SortOrder = 2, Description = "2 bedroom, hall and kitchen",           CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "3BHK",   SortOrder = 3, Description = "3 bedroom, hall and kitchen",           CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "1RK",    SortOrder = 4, Description = "Single room with kitchen",              CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "PG",     SortOrder = 5, Description = "Paying guest accommodation",            CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "Hostel", SortOrder = 6, Description = "Shared dormitory-style accommodation",  CreatedAt = DateTime.UtcNow },
         };
 
         db.RoomTypes.AddRange(roomTypes);
