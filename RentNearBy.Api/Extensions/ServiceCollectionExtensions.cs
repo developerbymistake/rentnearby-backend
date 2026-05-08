@@ -28,8 +28,18 @@ public static class ServiceCollectionExtensions
         {
             services.AddSingleton<IConnectionMultiplexer>(_ =>
             {
-                var options = ConfigurationOptions.Parse(redisUrl);
-                options.AbortOnConnectFail = false;
+                var uri = new Uri(redisUrl);
+                var options = new ConfigurationOptions { AbortOnConnectFail = false };
+                options.EndPoints.Add(uri.Host, uri.Port);
+                if (!string.IsNullOrEmpty(uri.UserInfo))
+                {
+                    var parts = uri.UserInfo.Split(':', 2);
+                    if (parts.Length == 2)
+                    {
+                        options.User = Uri.UnescapeDataString(parts[0]);
+                        options.Password = Uri.UnescapeDataString(parts[1]);
+                    }
+                }
                 return ConnectionMultiplexer.Connect(options);
             });
             services.AddSingleton<IRateLimitService, RedisRateLimitService>();
