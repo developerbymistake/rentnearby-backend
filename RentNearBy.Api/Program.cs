@@ -88,7 +88,28 @@ app.UseAuthorization();
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+app.MapGet("/health", async (IServiceProvider sp) =>
+{
+    var multiplexer = sp.GetService<StackExchange.Redis.IConnectionMultiplexer>();
+    string redisStatus;
+    if (multiplexer == null)
+    {
+        redisStatus = "not configured";
+    }
+    else
+    {
+        try
+        {
+            await multiplexer.GetDatabase().PingAsync();
+            redisStatus = "connected";
+        }
+        catch
+        {
+            redisStatus = "unavailable";
+        }
+    }
+    return Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow, redis = redisStatus });
+});
 
 app.MapGroup("/api/v1/auth")
     .WithTags("Authentication")

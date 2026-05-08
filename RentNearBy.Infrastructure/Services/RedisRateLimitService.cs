@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
 using StackExchange.Redis;
 
@@ -6,6 +7,7 @@ namespace RentNearBy.Infrastructure.Services;
 public class RedisRateLimitService : IRateLimitService
 {
     private readonly IConnectionMultiplexer _redis;
+    private readonly ILogger<RedisRateLimitService> _logger;
 
     // Atomically increments the counter. Sets expiry only on first increment so
     // the window doesn't reset on every call. Returns [count, ttl_seconds].
@@ -18,7 +20,11 @@ public class RedisRateLimitService : IRateLimitService
         return {current, ttl}
         """;
 
-    public RedisRateLimitService(IConnectionMultiplexer redis) => _redis = redis;
+    public RedisRateLimitService(IConnectionMultiplexer redis, ILogger<RedisRateLimitService> logger)
+    {
+        _redis = redis;
+        _logger = logger;
+    }
 
     public async Task<RateLimitResult> CheckAsync(string key, int maxAttempts, TimeSpan window)
     {
@@ -41,9 +47,9 @@ public class RedisRateLimitService : IRateLimitService
 
             return new RateLimitResult(true, (int)(maxAttempts - count), null);
         }
-        catch
+        catch (Exception ex)
         {
-            // Fail open — Redis down should never block login
+            _logger.LogWarning(ex, "Redis unavailable for key '{Key}' — failing open", key);
             return Allow(maxAttempts);
         }
     }
