@@ -7,17 +7,17 @@ namespace RentNearBy.Infrastructure.Repositories;
 
 public class SessionRepository(ApplicationDbContext context) : Repository<Session>(context), ISessionRepository
 {
-    public async Task RevokeAllUserSessionsAsync(Guid userId)
+    public async Task DeleteAllUserSessionsAsync(Guid userId)
     {
         await _context.Sessions
-            .Where(s => s.UserId == userId && !s.IsRevoked)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRevoked, true));
+            .Where(s => s.UserId == userId)
+            .ExecuteDeleteAsync();
     }
 
     public async Task<Session?> GetActiveSessionAsync(Guid sessionId)
     {
         return await _context.Sessions
             .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == sessionId && !s.IsRevoked && s.ExpiresAt > DateTime.UtcNow);
+            .FirstOrDefaultAsync(s => s.Id == sessionId && s.ExpiresAt > DateTime.UtcNow);
     }
 }

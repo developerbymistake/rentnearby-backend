@@ -6,8 +6,8 @@ public static class AuthEndpoints
 {
     public static RouteGroupBuilder MapAuthEndpoints(this RouteGroupBuilder group)
     {
-        group.MapPost("/send-otp", AuthHandlers.SendOtp);
-        group.MapPost("/verify-otp", AuthHandlers.VerifyOtp);
+        group.MapPost("/send-otp", AuthHandlers.SendOtp).RequireRateLimiting("otp");
+        group.MapPost("/verify-otp", AuthHandlers.VerifyOtp).RequireRateLimiting("otp");
         group.MapPost("/logout", AuthHandlers.Logout).RequireAuthorization();
 
         return group;

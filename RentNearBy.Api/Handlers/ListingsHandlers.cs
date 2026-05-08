@@ -15,6 +15,7 @@ public static class ListingsHandlers
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid districtId,
         IUnitOfWork unitOfWork,
+        ClaimsPrincipal principal,
         int page = 1, int pageSize = 30)
     {
         if (radius <= 0 || radius > 50)
@@ -23,10 +24,15 @@ public static class ListingsHandlers
         if (page < 1) page = 1;
 
         var allResults = (await unitOfWork.Listings.GetNearbyAsync(latitude, longitude, radius, districtId)).ToList();
+        var isAuthenticated = principal.Identity?.IsAuthenticated == true;
         var paged = allResults
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(r => r.Adapt<NearbyListingDto>())
+            .Select(r => {
+                var dto = r.Adapt<NearbyListingDto>();
+                if (!isAuthenticated) dto.OwnerPhone = null;
+                return dto;
+            })
             .ToList();
 
         return Results.Ok(new { status = "success", data = paged, hasMore = allResults.Count > page * pageSize });
@@ -38,11 +44,13 @@ public static class ListingsHandlers
         return OkResponse(listings.Select(l => l.Adapt<ListingDto>()).ToList());
     }
 
-    public static async Task<IResult> GetById(Guid id, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetById(Guid id, IUnitOfWork unitOfWork, ClaimsPrincipal principal)
     {
         var listing = await unitOfWork.Listings.GetByIdWithPhotosAsync(id);
         if (listing == null) return NotFoundResponse("Listing not found");
-        return OkResponse(listing.Adapt<ListingDto>());
+        var dto = listing.Adapt<ListingDto>();
+        if (principal.Identity?.IsAuthenticated != true) dto.OwnerPhone = null;
+        return OkResponse(dto);
     }
 
     public static async Task<IResult> GetMyListings(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
@@ -75,7 +83,6 @@ public static class ListingsHandlers
             Title = request.Title,
             Description = request.Description,
             PriceMonthly = request.PriceMonthly,
-            PricePerDay = request.PricePerDay,
             Latitude = request.Latitude,
             Longitude = request.Longitude,
             Address = request.Address,
@@ -105,11 +112,16 @@ public static class ListingsHandlers
         if (request.Title != null) listing.Title = request.Title;
         if (request.Description != null) listing.Description = request.Description;
         if (request.PriceMonthly.HasValue) listing.PriceMonthly = request.PriceMonthly.Value;
-        if (request.PricePerDay.HasValue) listing.PricePerDay = request.PricePerDay.Value;
         if (request.Latitude.HasValue) listing.Latitude = request.Latitude.Value;
         if (request.Longitude.HasValue) listing.Longitude = request.Longitude.Value;
         if (request.Address != null) listing.Address = request.Address;
-        if (request.CityId.HasValue) listing.CityId = request.CityId.Value;
+        if (request.CityId.HasValue)
+        {
+            listing.CityId = request.CityId.Value;
+            // Fix #15: auto-derive district from new city so they never mismatch
+            var city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);
+            if (city != null) listing.DistrictId = city.DistrictId;
+        }
         if (request.IsActive.HasValue) listing.IsActive = request.IsActive.Value;
         listing.UpdatedAt = DateTime.UtcNow;
 
@@ -147,6 +159,8 @@ public static class ListingsHandlers
         if (photo.Length > 10 * 1024 * 1024) return BadRequestResponse("Photo size must not exceed 10MB");
 
         using var stream = photo.OpenReadStream();
+        if (!IsValidImageMagicBytes(stream)) return BadRequestResponse("File must be a valid image (JPEG, PNG or WebP)");
+        stream.Position = 0;
         var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, id);
 
         var listingPhoto = new ListingPhoto
@@ -163,6 +177,21 @@ public static class ListingsHandlers
         await unitOfWork.SaveChangesAsync();
 
         return CreatedResponse(new { photoUrl = url, photoId = listingPhoto.Id }, url);
+    }
+
+    private static bool IsValidImageMagicBytes(Stream stream)
+    {
+        var header = new byte[12];
+        var read = stream.Read(header, 0, header.Length);
+        if (read < 3) return false;
+        // JPEG: FF D8 FF
+        if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) return true;
+        // PNG: 89 50 4E 47 0D 0A 1A 0A
+        if (read >= 8 && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47) return true;
+        // WebP: RIFF????WEBP
+        if (read >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
+            && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50) return true;
+        return false;
     }
 
     public static async Task<IResult> DeletePhoto(Guid id, Guid photoId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService)

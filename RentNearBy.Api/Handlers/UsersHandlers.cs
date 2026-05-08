@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using FluentValidation;
 using Mapster;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -23,8 +24,13 @@ public static class UsersHandlers
     public static async Task<IResult> UpdateProfile(
         UpdateProfileRequest request,
         ClaimsPrincipal principal,
+        IValidator<UpdateProfileRequest> validator,
         IUnitOfWork unitOfWork)
     {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
         if (!TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 

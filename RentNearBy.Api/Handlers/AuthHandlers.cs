@@ -40,7 +40,7 @@ public static class AuthHandlers
 
         if (user == null)
         {
-            user = new User
+            var newUser = new User
             {
                 Id = Guid.NewGuid(),
                 PhoneNumber = request.PhoneNumber,
@@ -48,23 +48,29 @@ public static class AuthHandlers
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
-            await unitOfWork.Users.AddAsync(user);
-            await unitOfWork.SaveChangesAsync();
+            await unitOfWork.Users.AddAsync(newUser);
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+                user = newUser;
+            }
+            catch (Microsoft.EntityFrameworkCore.DbUpdateException)
+            {
+                // Race condition: concurrent request created this user first.
+                // GetByPhoneAsync uses AsNoTracking so it reads fresh from DB.
+                user = (await unitOfWork.Users.GetByPhoneAsync(request.PhoneNumber))!;
+            }
         }
         else
         {
-            var tracked = await unitOfWork.Users.GetByIdAsync(user.Id);
-            if (tracked != null)
-            {
-                tracked.OtpVerified = true;
-                tracked.UpdatedAt = DateTime.UtcNow;
-                await unitOfWork.Users.UpdateAsync(tracked);
-                user = tracked;
-            }
+            user.OtpVerified = true;
+            user.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.Users.UpdateAsync(user);
+            await unitOfWork.SaveChangesAsync();
         }
 
-        // Revoke all previous sessions → single device enforcement
-        await unitOfWork.Sessions.RevokeAllUserSessionsAsync(user.Id);
+        // Hard delete all previous sessions — single device enforcement
+        await unitOfWork.Sessions.DeleteAllUserSessionsAsync(user.Id);
 
         var session = new Session
         {
@@ -82,14 +88,16 @@ public static class AuthHandlers
 
     public static async Task<IResult> Logout(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
     {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
         var sessionIdClaim = principal.FindFirst("session_id")?.Value;
         if (Guid.TryParse(sessionIdClaim, out var sessionId))
         {
             var session = await unitOfWork.Sessions.GetByIdAsync(sessionId);
-            if (session != null)
+            if (session != null && session.UserId == userId)
             {
-                session.IsRevoked = true;
-                await unitOfWork.Sessions.UpdateAsync(session);
+                await unitOfWork.Sessions.DeleteAsync(session);
                 await unitOfWork.SaveChangesAsync();
             }
         }

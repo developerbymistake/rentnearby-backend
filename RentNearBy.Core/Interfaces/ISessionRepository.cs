@@ -2,6 +2,6 @@
 
 public interface ISessionRepository : IRepository<Entities.Session>
 {
-    Task RevokeAllUserSessionsAsync(Guid userId);
+    Task DeleteAllUserSessionsAsync(Guid userId);
     Task<Entities.Session?> GetActiveSessionAsync(Guid sessionId);
 }

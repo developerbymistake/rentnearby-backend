@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using System.Threading.RateLimiting;
 using RentNearBy.Api.Endpoints;
 using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Mappings;
@@ -18,7 +19,30 @@ builder.Services.AddValidatorsFromAssemblyContaining<SendOtpRequestValidator>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
-        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+        policy.WithOrigins(
+            "https://rentnearby.in",
+            "http://localhost:3000",
+            "http://localhost:5000"
+        )
+        .AllowAnyHeader()
+        .AllowAnyMethod());
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("otp", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Request.RouteValues["phoneNumber"]?.ToString()
+                ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 3,
+                Window = TimeSpan.FromMinutes(15),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+    options.RejectionStatusCode = 429;
 });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -69,6 +93,7 @@ using (var scope = app.Services.CreateScope())
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseCors("AllowAll");
+app.UseRateLimiter();
 
 Directory.CreateDirectory("/app/wwwroot/uploads");
 
@@ -82,6 +107,8 @@ app.UseAuthorization();
 
 app.UseSwagger();
 app.UseSwaggerUI();
+
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
 app.MapGroup("/api/v1/auth")
     .WithTags("Authentication")

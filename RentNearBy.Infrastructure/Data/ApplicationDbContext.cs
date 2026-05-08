@@ -66,6 +66,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(r => r.Name).IsUnique();
             e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
+            e.HasData(
+                new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000001"), Name = "1BHK",        CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000002"), Name = "2BHK",        CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000003"), Name = "3BHK",        CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000007"), Name = "1RK",         CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000004"), Name = "Hostel",      CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000005"), Name = "PG",          CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000006"), Name = "Studio",      CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) }
+            );
         });
 
         modelBuilder.Entity<Listing>(e =>

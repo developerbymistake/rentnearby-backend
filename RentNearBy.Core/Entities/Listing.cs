@@ -7,8 +7,7 @@ public class Listing
     public Guid RoomTypeId { get; set; }
     public string? Title { get; set; }
     public string? Description { get; set; }
-    public int? PriceMonthly { get; set; }
-    public int? PricePerDay { get; set; }
+    public int PriceMonthly { get; set; }
     public decimal Latitude { get; set; }
     public decimal Longitude { get; set; }
     public string? Address { get; set; }

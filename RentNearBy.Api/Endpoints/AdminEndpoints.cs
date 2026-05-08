@@ -16,6 +16,7 @@ public static class AdminEndpoints
 
         group.MapGet("/room-types", AdminHandlers.GetRoomTypes);
         group.MapPost("/room-types", AdminHandlers.CreateRoomType).RequireAuthorization("AdminOnly");
+        group.MapPut("/room-types/{id:guid}", AdminHandlers.UpdateRoomType).RequireAuthorization("AdminOnly");
         group.MapDelete("/room-types/{id:guid}", AdminHandlers.DeleteRoomType).RequireAuthorization("AdminOnly");
 
         group.MapGet("/stats", AdminHandlers.GetStats).RequireAuthorization("AdminOnly");
