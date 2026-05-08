@@ -77,7 +77,12 @@ public static class AdminHandlers
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var city = new City { Id = Guid.NewGuid(), DistrictId = request.DistrictId, Name = request.Name.Trim(), Latitude = request.Latitude, Longitude = request.Longitude, CreatedAt = DateTime.UtcNow };
+        var trimmedName = request.Name.Trim();
+        var exists = await unitOfWork.Cities.GetByDistrictIdAsync(request.DistrictId);
+        if (exists.Any(c => string.Equals(c.Name, trimmedName, StringComparison.OrdinalIgnoreCase)))
+            return BadRequestResponse($"City '{trimmedName}' already exists in this district", "DuplicateCity");
+
+        var city = new City { Id = Guid.NewGuid(), DistrictId = request.DistrictId, Name = trimmedName, Latitude = request.Latitude, Longitude = request.Longitude, CreatedAt = DateTime.UtcNow };
         await unitOfWork.Cities.AddAsync(city);
         await unitOfWork.SaveChangesAsync();
 
@@ -171,8 +176,8 @@ public static class AdminHandlers
         var activeListings = await db.Listings.CountAsync(l => l.IsActive);
         var listingsByDistrict = await db.Listings
             .Where(l => l.IsActive)
-            .GroupBy(l => l.District.Name)
-            .Select(g => new { District = g.Key, Count = g.Count() })
+            .GroupBy(l => new { l.DistrictId, DistrictName = l.District.Name })
+            .Select(g => new { District = g.Key.DistrictName, Count = g.Count() })
             .ToListAsync();
 
         return OkResponse(new AdminStatsDto

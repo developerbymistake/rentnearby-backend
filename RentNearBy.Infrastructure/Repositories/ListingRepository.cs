@@ -54,7 +54,7 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .Include(l => l.RoomType)
             .Include(l => l.District)
             .Include(l => l.City)
-            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
+            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
             .Where(l => l.UserId == userId)
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync();

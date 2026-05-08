@@ -53,7 +53,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(c => c.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
             e.HasIndex(c => c.DistrictId);
-            e.HasIndex(c => c.Name);
+            e.HasIndex(c => new { c.DistrictId, c.Name }).IsUnique();
             e.HasOne(c => c.District)
              .WithMany(d => d.Cities)
              .HasForeignKey(c => c.DistrictId)
