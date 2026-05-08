@@ -46,4 +46,11 @@ public static class ApiResults
         }, statusCode: 404);
 
     public static IResult NoContentResponse() => Results.NoContent();
+
+    public static IResult TooManyRequestsResponse() =>
+        Results.Json(new ApiResponse<object>
+        {
+            Status = "429", Code = 429, Timestamp = Timestamp(),
+            Error = new ApiError { Message = "Too many attempts. Please try again later.", Type = "TooManyRequests" }
+        }, statusCode: 429);
 }

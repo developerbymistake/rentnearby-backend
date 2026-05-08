@@ -12,13 +12,26 @@ namespace RentNearBy.Api.Handlers;
 
 public static class AuthHandlers
 {
+    private static readonly TimeSpan OtpWindow = TimeSpan.FromHours(1);
+    private const int OtpSendMax = 3;
+    private const int OtpVerifyMax = 3;
+
     public static async Task<IResult> SendOtp(
         SendOtpRequest request,
-        IValidator<SendOtpRequest> validator)
+        IValidator<SendOtpRequest> validator,
+        IRateLimitService rateLimiter,
+        HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var rl = await rateLimiter.CheckAsync($"otp:send:{request.PhoneNumber}", OtpSendMax, OtpWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         return OkResponse(new { message = "OTP sent successfully" });
     }
@@ -27,11 +40,20 @@ public static class AuthHandlers
         VerifyOtpRequest request,
         IValidator<VerifyOtpRequest> validator,
         IUnitOfWork unitOfWork,
-        IJwtService jwtService)
+        IJwtService jwtService,
+        IRateLimitService rateLimiter,
+        HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var rl = await rateLimiter.CheckAsync($"otp:verify:{request.PhoneNumber}", OtpVerifyMax, OtpWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         if (request.Otp != "1234")
             return BadRequestResponse("Invalid OTP", "InvalidOtp");

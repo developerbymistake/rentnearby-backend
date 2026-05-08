@@ -1,6 +1,5 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
-using System.Threading.RateLimiting;
 using RentNearBy.Api.Endpoints;
 using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Mappings;
@@ -26,38 +25,6 @@ builder.Services.AddCors(options =>
         .AllowAnyMethod());
 });
 
-builder.Services.AddRateLimiter(options =>
-{
-    // Send OTP: max 3 sends per hour per phone number
-    options.AddPolicy("otp-send", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Items["phoneNumber"]?.ToString()
-                ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                ?? "unknown",
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 3,
-                Window = TimeSpan.FromHours(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = 0
-            }));
-
-    // Verify OTP: max 3 attempts per hour per phone number
-    options.AddPolicy("otp-verify", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Items["phoneNumber"]?.ToString()
-                ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                ?? "unknown",
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 3,
-                Window = TimeSpan.FromHours(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = 0
-            }));
-
-    options.RejectionStatusCode = 429;
-});
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -107,27 +74,6 @@ using (var scope = app.Services.CreateScope())
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseCors("AllowAll");
-
-// Extract phoneNumber from OTP request bodies so the rate limiter can partition by phone
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/api/v1/auth") && (context.Request.ContentLength ?? 0) > 0)
-    {
-        context.Request.EnableBuffering();
-        var body = await new System.IO.StreamReader(context.Request.Body, leaveOpen: true).ReadToEndAsync();
-        context.Request.Body.Position = 0;
-        try
-        {
-            var doc = System.Text.Json.JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("phoneNumber", out var phoneProp))
-                context.Items["phoneNumber"] = phoneProp.GetString();
-        }
-        catch { }
-    }
-    await next();
-});
-
-app.UseRateLimiter();
 
 Directory.CreateDirectory("/app/wwwroot/uploads");
 
