@@ -27,7 +27,11 @@ public static class ServiceCollectionExtensions
         if (!string.IsNullOrWhiteSpace(redisUrl))
         {
             services.AddSingleton<IConnectionMultiplexer>(_ =>
-                ConnectionMultiplexer.Connect(redisUrl));
+            {
+                var options = ConfigurationOptions.Parse(redisUrl);
+                options.AbortOnConnectFail = false;
+                return ConnectionMultiplexer.Connect(options);
+            });
             services.AddSingleton<IRateLimitService, RedisRateLimitService>();
         }
         else
