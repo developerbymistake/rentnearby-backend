@@ -23,7 +23,12 @@ public class CreateListingRequestValidator : AbstractValidator<CreateListingRequ
             .InclusiveBetween(-180, 180).WithMessage("Invalid longitude");
 
         RuleFor(x => x.PriceMonthly)
-            .GreaterThan(0).WithMessage("Monthly rent must be greater than 0");
+            .GreaterThan(0).WithMessage("Monthly rent must be greater than 0")
+            .LessThanOrEqualTo(9900000).WithMessage("Monthly rent cannot exceed ₹99,00,000");
+
+        RuleFor(x => x.Description)
+            .MaximumLength(300).WithMessage("Description must not exceed 300 characters")
+            .When(x => x.Description != null);
 
         RuleFor(x => x.Address)
             .NotEmpty().WithMessage("Address is required")
