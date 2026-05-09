@@ -31,7 +31,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
         policy.WithOrigins(
-            "http://a2kig7sikxlht7ag77g6eet9.187.127.162.91.sslip.io"
+            "https://developerbymistake.tech"
         )
         .AllowAnyHeader()
         .AllowAnyMethod());
