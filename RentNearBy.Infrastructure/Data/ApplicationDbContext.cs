@@ -114,8 +114,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => l.PriceMonthly);
             e.HasIndex(l => l.CreatedAt);
             // Geo index created as GiST via raw SQL in Program.cs startup
-            // Composite: most common query — active listings in a district, newest first
-            e.HasIndex(l => new { l.DistrictId, l.IsActive, l.CreatedAt });
+            // Composite: My Listings pagination — filter by user, sort newest first
+            e.HasIndex(l => new { l.UserId, l.CreatedAt });
+            // Composite: GetNearby secondary filter — city + active (GiST is primary spatial filter)
+            e.HasIndex(l => new { l.CityId, l.IsActive });
+            // Composite: city-based active listings newest first (replaces district composite)
+            e.HasIndex(l => new { l.CityId, l.IsActive, l.CreatedAt });
             // Composite: search with room type filter
             e.HasIndex(l => new { l.IsActive, l.RoomTypeId });
         });
