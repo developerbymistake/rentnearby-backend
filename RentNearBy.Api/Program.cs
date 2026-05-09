@@ -71,11 +71,20 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>();
-    // Drop all tables (works on managed PostgreSQL where DROP DATABASE is not permitted)
+    // Drop all non-extension tables (skips PostGIS/extension-owned tables like spatial_ref_sys)
     await db.Database.ExecuteSqlRawAsync("""
         DO $$ DECLARE r RECORD;
         BEGIN
-            FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+            FOR r IN (
+                SELECT t.tablename FROM pg_tables t
+                WHERE t.schemaname = 'public'
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_depend d
+                    JOIN pg_extension e ON d.refobjid = e.oid
+                    WHERE d.objid = (t.schemaname || '.' || t.tablename)::regclass
+                    AND d.deptype = 'e'
+                )
+            ) LOOP
                 EXECUTE 'DROP TABLE IF EXISTS public."' || r.tablename || '" CASCADE';
             END LOOP;
         END $$;
