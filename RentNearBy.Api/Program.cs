@@ -92,7 +92,7 @@ using (var scope = app.Services.CreateScope())
     await db.Database.EnsureCreatedAsync();
     await db.Database.ExecuteSqlRawAsync("""
         CREATE INDEX IF NOT EXISTS ix_listings_location_gist
-        ON "Listings" USING GIST (point("Longitude", "Latitude"));
+        ON "Listings" USING GIST (ST_MakePoint("Longitude"::float8, "Latitude"::float8)::geography);
     """);
     await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
 }

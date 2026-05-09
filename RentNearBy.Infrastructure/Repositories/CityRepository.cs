@@ -12,4 +12,5 @@ public class CityRepository(ApplicationDbContext context) : Repository<City>(con
             .Where(c => c.DistrictId == districtId)
             .OrderBy(c => c.Name)
             .ToListAsync();
+
 }

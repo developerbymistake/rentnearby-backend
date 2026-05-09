@@ -8,30 +8,39 @@ namespace RentNearBy.Infrastructure.Repositories;
 
 public class ListingRepository(ApplicationDbContext context) : Repository<Listing>(context), IListingRepository
 {
+    private record CandidateDistance(Guid Id, double DistanceKm);
+
     public async Task<IEnumerable<NearbyListingResult>> GetNearbyAsync(
         double latitude, double longitude, double radiusKm, Guid cityId)
     {
-        double latDelta = radiusKm / 111.0;
-        double lngDelta = radiusKm / (111.0 * Math.Cos(latitude * Math.PI / 180.0));
-        double latMin = latitude - latDelta, latMax = latitude + latDelta;
-        double lngMin = longitude - lngDelta, lngMax = longitude + lngDelta;
+        double radiusMeters = radiusKm * 1000.0;
 
-        // Step 1: GIST bounding-box pre-filter uses ix_listings_location_gist.
-        // point("Longitude","Latitude") <@ box(...) is the only operator EF does
-        // not translate, so raw SQL is required to activate the GIST index.
-        var candidateIds = await _dbSet
-            .FromSqlInterpolated($"""
-                SELECT * FROM "Listings"
-                WHERE "IsActive" = TRUE
-                  AND "CityId" = {cityId}
-                  AND point("Longitude", "Latitude") <@ box(point({lngMin},{latMin}),point({lngMax},{latMax}))
+        // Step 1: PostGIS ST_DWithin for exact geographic circle filter.
+        // Returns only listings within the radius and their DB-computed distances.
+        // Uses ix_listings_location_gist (geography GIST index).
+        var candidates = await context.Database
+            .SqlQuery<CandidateDistance>($"""
+                SELECT l."Id",
+                    ST_Distance(
+                        ST_MakePoint(l."Longitude"::float8, l."Latitude"::float8)::geography,
+                        ST_MakePoint({longitude}::float8, {latitude}::float8)::geography
+                    ) / 1000.0 AS "DistanceKm"
+                FROM "Listings" l
+                WHERE l."IsActive" = TRUE
+                  AND l."CityId" = {cityId}
+                  AND ST_DWithin(
+                        ST_MakePoint(l."Longitude"::float8, l."Latitude"::float8)::geography,
+                        ST_MakePoint({longitude}::float8, {latitude}::float8)::geography,
+                        {radiusMeters}
+                      )
                 """)
-            .AsNoTracking()
-            .Select(l => l.Id)
             .ToListAsync();
 
-        if (candidateIds.Count == 0)
+        if (candidates.Count == 0)
             return Enumerable.Empty<NearbyListingResult>();
+
+        var ids = candidates.Select(c => c.Id).ToList();
+        var distanceMap = candidates.ToDictionary(c => c.Id, c => c.DistanceKm);
 
         // Step 2: Load full entities with navigation properties for the candidate set.
         var listings = await _dbSet
@@ -39,13 +48,11 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .Include(l => l.RoomType)
             .Include(l => l.User)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
-            .Where(l => candidateIds.Contains(l.Id))
+            .Where(l => ids.Contains(l.Id))
             .ToListAsync();
 
         return listings
-            .Select(l => new NearbyListingResult(
-                l, Haversine(latitude, longitude, (double)l.Latitude, (double)l.Longitude)))
-            .Where(r => r.DistanceKm <= radiusKm)
+            .Select(l => new NearbyListingResult(l, distanceMap[l.Id]))
             .OrderBy(r => r.DistanceKm);
     }
 

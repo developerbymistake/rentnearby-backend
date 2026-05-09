@@ -50,28 +50,22 @@ public static class ListingsHandlers
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid cityId,
         IUnitOfWork unitOfWork,
-        ClaimsPrincipal principal,
-        int page = 1, int pageSize = 30)
+        ClaimsPrincipal principal)
     {
         if (radius <= 0 || radius > 50)
             return BadRequestResponse("Radius must be between 1 and 50 km");
-        if (pageSize < 1 || pageSize > 100) pageSize = 30;
-        if (page < 1) page = 1;
 
-        var allResults = (await unitOfWork.Listings.GetNearbyAsync(latitude, longitude, radius, cityId)).ToList();
+        var results = await unitOfWork.Listings.GetNearbyAsync(latitude, longitude, radius, cityId);
         var isAuthenticated = principal.Identity?.IsAuthenticated == true;
-        var paged = allResults
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(r =>
-            {
-                var dto = r.Adapt<NearbyListingDto>();
-                if (!isAuthenticated) dto.OwnerPhone = null;
-                return dto;
-            })
-            .ToList();
 
-        return OkResponse(new { items = paged, hasMore = allResults.Count > page * pageSize });
+        var items = results.Select(r =>
+        {
+            var dto = r.Adapt<NearbyListingDto>();
+            if (!isAuthenticated) dto.OwnerPhone = null;
+            return dto;
+        }).ToList();
+
+        return OkResponse(new { items });
     }
 
     public static async Task<IResult> Search(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, IUnitOfWork unitOfWork)
