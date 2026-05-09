@@ -23,6 +23,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IPhotoService, PhotoService>();
 
+        services.AddHttpClient<IGeocodingService, NominatimGeocodingService>(client =>
+        {
+            client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("RentNearBy/1.0 (admin@rentnearby.in)");
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+
         var redisUrl = configuration["REDIS_URL"];
         if (!string.IsNullOrWhiteSpace(redisUrl))
         {

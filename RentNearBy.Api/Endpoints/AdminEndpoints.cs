@@ -21,6 +21,8 @@ public static class AdminEndpoints
 
         group.MapGet("/stats", AdminHandlers.GetStats).RequireAuthorization("AdminOnly");
 
+        group.MapGet("/geocode", AdminHandlers.Geocode).RequireAuthorization("AdminOnly");
+
         return group;
     }
 }

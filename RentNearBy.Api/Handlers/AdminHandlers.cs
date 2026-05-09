@@ -26,12 +26,27 @@ public static class AdminHandlers
         return OkResponse(cached);
     }
 
-    public static async Task<IResult> CreateDistrict(CreateDistrictRequest request, IValidator<CreateDistrictRequest> validator, IUnitOfWork unitOfWork, IMemoryCache cache)
+    public static async Task<IResult> CreateDistrict(CreateDistrictRequest request, IValidator<CreateDistrictRequest> validator, IUnitOfWork unitOfWork, IGeocodingService geocoding, IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var district = new District { Id = Guid.NewGuid(), Name = request.Name.Trim(), Latitude = request.Latitude, Longitude = request.Longitude, CreatedAt = DateTime.UtcNow };
+        decimal lat, lng;
+        if (request.Latitude.HasValue && request.Longitude.HasValue)
+        {
+            lat = request.Latitude.Value;
+            lng = request.Longitude.Value;
+        }
+        else
+        {
+            var point = await geocoding.GeocodeAsync($"{request.Name.Trim()}, India");
+            if (point is null)
+                return BadRequestResponse($"Could not geocode '{request.Name}'. Provide coordinates manually.");
+            lat = point.Latitude;
+            lng = point.Longitude;
+        }
+
+        var district = new District { Id = Guid.NewGuid(), Name = request.Name.Trim(), Latitude = lat, Longitude = lng, CreatedAt = DateTime.UtcNow };
         await unitOfWork.Districts.AddAsync(district);
         await unitOfWork.SaveChangesAsync();
 
@@ -72,7 +87,7 @@ public static class AdminHandlers
         return OkResponse(cached);
     }
 
-    public static async Task<IResult> CreateCity(CreateCityRequest request, IValidator<CreateCityRequest> validator, IUnitOfWork unitOfWork, IMemoryCache cache)
+    public static async Task<IResult> CreateCity(CreateCityRequest request, IValidator<CreateCityRequest> validator, IUnitOfWork unitOfWork, IGeocodingService geocoding, IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -82,7 +97,25 @@ public static class AdminHandlers
         if (exists.Any(c => string.Equals(c.Name, trimmedName, StringComparison.OrdinalIgnoreCase)))
             return BadRequestResponse($"City '{trimmedName}' already exists in this district", "DuplicateCity");
 
-        var city = new City { Id = Guid.NewGuid(), DistrictId = request.DistrictId, Name = trimmedName, Latitude = request.Latitude, Longitude = request.Longitude, CreatedAt = DateTime.UtcNow };
+        decimal lat, lng;
+        if (request.Latitude.HasValue && request.Longitude.HasValue)
+        {
+            lat = request.Latitude.Value;
+            lng = request.Longitude.Value;
+        }
+        else
+        {
+            var district = await unitOfWork.Districts.GetByIdAsync(request.DistrictId);
+            if (district is null) return NotFoundResponse("District not found");
+
+            var point = await geocoding.GeocodeAsync($"{trimmedName}, {district.Name}, India");
+            if (point is null)
+                return BadRequestResponse($"Could not geocode '{trimmedName}'. Provide coordinates manually.");
+            lat = point.Latitude;
+            lng = point.Longitude;
+        }
+
+        var city = new City { Id = Guid.NewGuid(), DistrictId = request.DistrictId, Name = trimmedName, Latitude = lat, Longitude = lng, CreatedAt = DateTime.UtcNow };
         await unitOfWork.Cities.AddAsync(city);
         await unitOfWork.SaveChangesAsync();
 
@@ -90,6 +123,18 @@ public static class AdminHandlers
         cache.Remove("cities_all");
 
         return CreatedResponse(city.Adapt<CityDto>(), $"/api/v1/admin/cities/{city.Id}");
+    }
+
+    public static async Task<IResult> Geocode(string q, IGeocodingService geocoding)
+    {
+        if (string.IsNullOrWhiteSpace(q))
+            return BadRequestResponse("Query parameter 'q' is required");
+
+        var point = await geocoding.GeocodeAsync(q.Trim());
+        if (point is null)
+            return NotFoundResponse("No results found for the given query");
+
+        return OkResponse(new { latitude = point.Latitude, longitude = point.Longitude, displayName = point.DisplayName });
     }
 
     public static async Task<IResult> DeleteCity(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
