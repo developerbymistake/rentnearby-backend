@@ -13,6 +13,9 @@ public class CreateListingRequestValidator : AbstractValidator<CreateListingRequ
         RuleFor(x => x.DistrictId)
             .NotEmpty().WithMessage("District is required");
 
+        RuleFor(x => x.CityId)
+            .NotEmpty().WithMessage("City is required");
+
         RuleFor(x => x.Latitude)
             .InclusiveBetween(-90, 90).WithMessage("Invalid latitude");
 

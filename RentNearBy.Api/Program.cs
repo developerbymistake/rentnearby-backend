@@ -1,4 +1,5 @@
 using FluentValidation;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Api.Endpoints;
 using RentNearBy.Api.Extensions;
@@ -12,6 +13,17 @@ DtoMappings.ConfigureMappings();
 
 builder.Services.AddApplicationServices(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);
+
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(o =>
+    o.Level = System.IO.Compression.CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(o =>
+    o.Level = System.IO.Compression.CompressionLevel.Fastest);
 
 builder.Services.AddValidatorsFromAssemblyContaining<SendOtpRequestValidator>();
 
@@ -76,6 +88,7 @@ using (var scope = app.Services.CreateScope())
     await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
 }
 
+app.UseResponseCompression();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseCors("AllowAll");
 

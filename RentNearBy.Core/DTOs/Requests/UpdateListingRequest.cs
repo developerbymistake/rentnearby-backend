@@ -3,7 +3,6 @@ namespace RentNearBy.Core.DTOs.Requests;
 public class UpdateListingRequest
 {
     public Guid? RoomTypeId { get; set; }
-    public string? Title { get; set; }
     public string? Description { get; set; }
     public int? PriceMonthly { get; set; }
     public decimal? Latitude { get; set; }

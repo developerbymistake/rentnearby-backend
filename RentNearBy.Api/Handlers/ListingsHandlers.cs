@@ -13,7 +13,7 @@ namespace RentNearBy.Api.Handlers;
 public static class ListingsHandlers
 {
     public static async Task<IResult> GetNearby(
-        double latitude, double longitude, double radius, Guid districtId,
+        double latitude, double longitude, double radius, Guid cityId,
         IUnitOfWork unitOfWork,
         ClaimsPrincipal principal,
         int page = 1, int pageSize = 30)
@@ -23,19 +23,20 @@ public static class ListingsHandlers
         if (pageSize < 1 || pageSize > 100) pageSize = 30;
         if (page < 1) page = 1;
 
-        var allResults = (await unitOfWork.Listings.GetNearbyAsync(latitude, longitude, radius, districtId)).ToList();
+        var allResults = (await unitOfWork.Listings.GetNearbyAsync(latitude, longitude, radius, cityId)).ToList();
         var isAuthenticated = principal.Identity?.IsAuthenticated == true;
         var paged = allResults
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(r => {
+            .Select(r =>
+            {
                 var dto = r.Adapt<NearbyListingDto>();
                 if (!isAuthenticated) dto.OwnerPhone = null;
                 return dto;
             })
             .ToList();
 
-        return Results.Ok(new { status = "success", data = paged, hasMore = allResults.Count > page * pageSize });
+        return OkResponse(new { items = paged, hasMore = allResults.Count > page * pageSize });
     }
 
     public static async Task<IResult> Search(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, IUnitOfWork unitOfWork)
@@ -53,13 +54,16 @@ public static class ListingsHandlers
         return OkResponse(dto);
     }
 
-    public static async Task<IResult> GetMyListings(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetMyListings(
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 10)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
+        if (pageSize < 1 || pageSize > 50) pageSize = 10;
+        if (page < 1) page = 1;
 
-        var listings = await unitOfWork.Listings.GetByUserIdAsync(userId);
-        return OkResponse(listings.Select(l => l.Adapt<ListingDto>()).ToList());
+        var (items, hasMore) = await unitOfWork.Listings.GetByUserIdPagedAsync(userId, page, pageSize);
+        return OkResponse(new { items = items.Select(l => l.Adapt<ListingDto>()).ToList(), hasMore });
     }
 
     public static async Task<IResult> CreateListing(
@@ -75,12 +79,19 @@ public static class ListingsHandlers
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
+        if (request.CityId.HasValue)
+        {
+            var city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);
+            if (city == null) return BadRequestResponse("Selected city does not exist");
+            if (city.DistrictId != request.DistrictId)
+                return BadRequestResponse("Selected city does not belong to the selected district");
+        }
+
         var listing = new Listing
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             RoomTypeId = request.RoomTypeId,
-            Title = request.Title,
             Description = request.Description,
             PriceMonthly = request.PriceMonthly,
             Latitude = request.Latitude,
@@ -109,7 +120,6 @@ public static class ListingsHandlers
         if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
 
         if (request.RoomTypeId.HasValue) listing.RoomTypeId = request.RoomTypeId.Value;
-        if (request.Title != null) listing.Title = request.Title;
         if (request.Description != null) listing.Description = request.Description;
         if (request.PriceMonthly.HasValue) listing.PriceMonthly = request.PriceMonthly.Value;
         if (request.Latitude.HasValue) listing.Latitude = request.Latitude.Value;
@@ -118,7 +128,6 @@ public static class ListingsHandlers
         if (request.CityId.HasValue)
         {
             listing.CityId = request.CityId.Value;
-            // Fix #15: auto-derive district from new city so they never mismatch
             var city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);
             if (city != null) listing.DistrictId = city.DistrictId;
         }
@@ -184,11 +193,8 @@ public static class ListingsHandlers
         var header = new byte[12];
         var read = stream.Read(header, 0, header.Length);
         if (read < 3) return false;
-        // JPEG: FF D8 FF
         if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) return true;
-        // PNG: 89 50 4E 47 0D 0A 1A 0A
         if (read >= 8 && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47) return true;
-        // WebP: RIFF????WEBP
         if (read >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
             && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50) return true;
         return false;

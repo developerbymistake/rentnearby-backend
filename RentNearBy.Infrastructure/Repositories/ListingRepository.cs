@@ -8,25 +8,43 @@ namespace RentNearBy.Infrastructure.Repositories;
 
 public class ListingRepository(ApplicationDbContext context) : Repository<Listing>(context), IListingRepository
 {
-    public async Task<IEnumerable<NearbyListingResult>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId)
+    public async Task<IEnumerable<NearbyListingResult>> GetNearbyAsync(
+        double latitude, double longitude, double radiusKm, Guid cityId)
     {
         double latDelta = radiusKm / 111.0;
         double lngDelta = radiusKm / (111.0 * Math.Cos(latitude * Math.PI / 180.0));
+        double latMin = latitude - latDelta, latMax = latitude + latDelta;
+        double lngMin = longitude - lngDelta, lngMax = longitude + lngDelta;
 
-        var candidates = await _dbSet
+        // Step 1: GIST bounding-box pre-filter uses ix_listings_location_gist.
+        // point("Longitude","Latitude") <@ box(...) is the only operator EF does
+        // not translate, so raw SQL is required to activate the GIST index.
+        var candidateIds = await _dbSet
+            .FromSqlInterpolated($"""
+                SELECT * FROM "Listings"
+                WHERE "IsActive" = TRUE
+                  AND "CityId" = {cityId}
+                  AND point("Longitude", "Latitude") <@ box(point({lngMin},{latMin}),point({lngMax},{latMax}))
+                """)
+            .AsNoTracking()
+            .Select(l => l.Id)
+            .ToListAsync();
+
+        if (candidateIds.Count == 0)
+            return Enumerable.Empty<NearbyListingResult>();
+
+        // Step 2: Load full entities with navigation properties for the candidate set.
+        var listings = await _dbSet
             .AsNoTracking()
             .Include(l => l.RoomType)
             .Include(l => l.User)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
-            .Where(l =>
-                l.IsActive &&
-                l.DistrictId == districtId &&
-                (double)l.Latitude >= latitude - latDelta && (double)l.Latitude <= latitude + latDelta &&
-                (double)l.Longitude >= longitude - lngDelta && (double)l.Longitude <= longitude + lngDelta)
+            .Where(l => candidateIds.Contains(l.Id))
             .ToListAsync();
 
-        return candidates
-            .Select(l => new NearbyListingResult(l, Haversine(latitude, longitude, (double)l.Latitude, (double)l.Longitude)))
+        return listings
+            .Select(l => new NearbyListingResult(
+                l, Haversine(latitude, longitude, (double)l.Latitude, (double)l.Longitude)))
             .Where(r => r.DistanceKm <= radiusKm)
             .OrderBy(r => r.DistanceKm);
     }
@@ -58,6 +76,26 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .Where(l => l.UserId == userId)
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync();
+
+    public async Task<(IReadOnlyList<Listing> Items, bool HasMore)> GetByUserIdPagedAsync(
+        Guid userId, int page, int pageSize)
+    {
+        var take = pageSize + 1;
+        var items = await _dbSet
+            .AsNoTracking()
+            .Include(l => l.RoomType)
+            .Include(l => l.District)
+            .Include(l => l.City)
+            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
+            .Where(l => l.UserId == userId)
+            .OrderByDescending(l => l.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(take)
+            .ToListAsync();
+
+        var hasMore = items.Count > pageSize;
+        return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
+    }
 
     public async Task<Listing?> GetByIdWithPhotosAsync(Guid id)
         => await _dbSet
