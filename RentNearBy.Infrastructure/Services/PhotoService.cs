@@ -68,7 +68,7 @@ public class PhotoService : IPhotoService
         {
             image.Mutate(x => x.Resize(new ResizeOptions
             {
-                Size = new Size(MaxDimension, MaxDimension),
+                Size = new SixLabors.ImageSharp.Size(MaxDimension, MaxDimension),
                 Mode = ResizeMode.Max,
             }));
         }
