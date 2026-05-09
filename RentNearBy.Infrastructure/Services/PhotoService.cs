@@ -56,6 +56,19 @@ public class PhotoService : IPhotoService
         await _cloudinary.DeleteResourcesByPrefixAsync($"bakhli/user_{userId}/listing_{listingId}/");
     }
 
+    public async Task<bool> PingAsync()
+    {
+        try
+        {
+            var result = await _cloudinary.PingAsync();
+            return result.Error == null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     // --- Image processing pipeline ---
     // 1. Resize so neither dimension exceeds 1280 px (preserves aspect ratio)
     // 2. Strip EXIF / IPTC / XMP metadata (privacy + size)

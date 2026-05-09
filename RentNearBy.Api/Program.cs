@@ -118,7 +118,17 @@ app.MapGet("/health", async (IServiceProvider sp) =>
             redisStatus = "unavailable";
         }
     }
-    return Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow, redis = redisStatus });
+
+    var photoService = sp.GetRequiredService<RentNearBy.Infrastructure.Services.IPhotoService>();
+    var cloudinaryOk = await photoService.PingAsync();
+
+    return Results.Ok(new
+    {
+        status = "healthy",
+        timestamp = DateTime.UtcNow,
+        redis = redisStatus,
+        cloudinary = cloudinaryOk ? "connected" : "unavailable",
+    });
 });
 
 app.MapGroup("/api/v1/auth")
