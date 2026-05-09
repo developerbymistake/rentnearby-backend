@@ -12,6 +12,41 @@ namespace RentNearBy.Api.Handlers;
 
 public static class ListingsHandlers
 {
+    public static async Task<IResult> GetContext(double lat, double lng, IUnitOfWork unitOfWork)
+    {
+        var districts = (await unitOfWork.Districts.GetAllAsync()).ToList();
+        if (districts.Count == 0) return BadRequestResponse("No districts configured");
+
+        var nearestDistrict = districts
+            .Select(d => new { District = d, Dist = Haversine(lat, lng, (double)(d.Latitude ?? 0), (double)(d.Longitude ?? 0)) })
+            .MinBy(x => x.Dist)!.District;
+
+        var cities = (await unitOfWork.Cities.GetByDistrictIdAsync(nearestDistrict.Id)).ToList();
+
+        var nearestCity = cities
+            .Where(c => c.Latitude.HasValue && c.Longitude.HasValue)
+            .Select(c => new { City = c, Dist = Haversine(lat, lng, (double)c.Latitude!, (double)c.Longitude!) })
+            .MinBy(x => x.Dist)?.City ?? cities.FirstOrDefault();
+
+        return OkResponse(new
+        {
+            district = new { id = nearestDistrict.Id, name = nearestDistrict.Name, latitude = nearestDistrict.Latitude, longitude = nearestDistrict.Longitude },
+            nearestCityId = nearestCity?.Id,
+            cities = cities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
+        });
+    }
+
+    private static double Haversine(double lat1, double lng1, double lat2, double lng2)
+    {
+        const double R = 6371.0;
+        var dlat = (lat2 - lat1) * Math.PI / 180;
+        var dlng = (lng2 - lng1) * Math.PI / 180;
+        var a = Math.Sin(dlat / 2) * Math.Sin(dlat / 2) +
+                Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) *
+                Math.Sin(dlng / 2) * Math.Sin(dlng / 2);
+        return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+    }
+
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid cityId,
         IUnitOfWork unitOfWork,

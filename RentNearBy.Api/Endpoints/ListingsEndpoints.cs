@@ -6,6 +6,7 @@ public static class ListingsEndpoints
 {
     public static RouteGroupBuilder MapListingsEndpoints(this RouteGroupBuilder group)
     {
+        group.MapGet("/context", ListingsHandlers.GetContext);
         group.MapGet("/nearby", ListingsHandlers.GetNearby);
         group.MapGet("/search", ListingsHandlers.Search);
         group.MapGet("/{id:guid}", ListingsHandlers.GetById);
