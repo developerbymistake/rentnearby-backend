@@ -75,16 +75,19 @@ using (var scope = app.Services.CreateScope())
     await db.Database.ExecuteSqlRawAsync("""
         DO $$ DECLARE r RECORD;
         BEGIN
-            FOR r IN (
-                SELECT t.tablename FROM pg_tables t
-                WHERE t.schemaname = 'public'
+            FOR r IN
+                SELECT c.relname AS tablename
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'public'
+                AND c.relkind = 'r'
                 AND NOT EXISTS (
                     SELECT 1 FROM pg_depend d
                     JOIN pg_extension e ON d.refobjid = e.oid
-                    WHERE d.objid = (t.schemaname || '.' || t.tablename)::regclass
+                    WHERE d.objid = c.oid
                     AND d.deptype = 'e'
                 )
-            ) LOOP
+            LOOP
                 EXECUTE 'DROP TABLE IF EXISTS public."' || r.tablename || '" CASCADE';
             END LOOP;
         END $$;
