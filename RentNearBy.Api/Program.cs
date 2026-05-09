@@ -92,13 +92,6 @@ app.UseResponseCompression();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseCors("AllowAll");
 
-Directory.CreateDirectory("/app/wwwroot/uploads");
-
-app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
-{
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider("/app/wwwroot"),
-    RequestPath = ""
-});
 app.UseAuthentication();
 app.UseAuthorization();
 
