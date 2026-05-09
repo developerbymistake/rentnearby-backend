@@ -262,6 +262,10 @@ public static class DataSeeder
                     ("Naraingarh",          30.4575m, 77.0945m),
                     ("Mullana",             30.3985m, 77.0494m),
                     ("Barara",              30.3011m, 77.1823m),
+                    ("Shahzadpur",          30.4215m, 76.9398m),
+                    ("Saha",                30.2410m, 77.0421m),
+                    ("Tangri",              30.2752m, 77.1102m),
+                    ("Panjokhra Sahib",     30.3385m, 76.8623m),
                 }
             },
             new {
@@ -272,6 +276,10 @@ public static class DataSeeder
                     ("Tosham",       28.5922m, 75.9219m),
                     ("Siwani",       28.9556m, 75.6768m),
                     ("Bawani Khera", 28.8500m, 76.0500m),
+                    ("Behal",        28.6989m, 76.2487m),
+                    ("Kairu",        28.7340m, 76.3200m),
+                    ("Dulina",       28.6700m, 75.9800m),
+                    ("Jhanjra",      28.7200m, 76.0800m),
                 }
             },
             new {
@@ -280,6 +288,10 @@ public static class DataSeeder
                     ("Charkhi Dadri", 28.5921m, 76.2688m),
                     ("Badhra",        28.4459m, 76.0434m),
                     ("Jhojhu Kalan",  28.6614m, 76.1823m),
+                    ("Bond Kalan",    28.5527m, 76.1200m),
+                    ("Chhara",        28.4900m, 76.3400m),
+                    ("Jui",           28.6300m, 76.3000m),
+                    ("Dhanana",       28.5700m, 76.2000m),
                 }
             },
             new {
@@ -289,15 +301,23 @@ public static class DataSeeder
                     ("Ballabhgarh",  28.3387m, 77.3188m),
                     ("Palwal",       28.1429m, 77.3240m),
                     ("Hodal",        27.8956m, 77.3643m),
+                    ("Tigaon",       28.2741m, 77.3698m),
+                    ("Chhainsa",     28.1900m, 77.3400m),
+                    ("Pali",         28.2400m, 77.4500m),
+                    ("Prithla",      28.1500m, 77.4200m),
                 }
             },
             new {
                 Name = "Fatehabad", Lat = 29.5153m, Lng = 75.4549m,
                 Cities = new[] {
-                    ("Fatehabad", 29.5153m, 75.4549m),
-                    ("Ratia",     29.6847m, 75.5721m),
-                    ("Tohana",    29.6989m, 75.9055m),
-                    ("Jakhal",    29.7924m, 75.8218m),
+                    ("Fatehabad",    29.5153m, 75.4549m),
+                    ("Ratia",        29.6847m, 75.5721m),
+                    ("Tohana",       29.6989m, 75.9055m),
+                    ("Jakhal",       29.7924m, 75.8218m),
+                    ("Bhattu Kalan", 29.6067m, 75.3221m),
+                    ("Bhuna",        29.6200m, 75.7900m),
+                    ("Sigri",        29.5600m, 75.6200m),
+                    ("Nagaur",       29.4300m, 75.5800m),
                 }
             },
             new {
@@ -308,35 +328,51 @@ public static class DataSeeder
                     ("Pataudi",     28.3219m, 76.7956m),
                     ("Manesar",     28.3556m, 76.9321m),
                     ("Farukhnagar", 28.4542m, 76.8187m),
+                    ("Badshahpur",  28.3885m, 77.0463m),
+                    ("Wazirabad",   28.4800m, 77.0100m),
+                    ("Daultabad",   28.5100m, 76.9500m),
+                    ("Bilaspur",    28.4000m, 76.9500m),
                 }
             },
             new {
                 Name = "Hisar", Lat = 29.1500m, Lng = 75.7228m,
                 Cities = new[] {
-                    ("Hisar",   29.1500m, 75.7228m),
-                    ("Hansi",   29.1003m, 75.9656m),
-                    ("Uklana",  29.4823m, 75.9202m),
-                    ("Barwala", 29.3611m, 75.8894m),
-                    ("Adampur", 29.0632m, 75.7688m),
+                    ("Hisar",     29.1500m, 75.7228m),
+                    ("Hansi",     29.1003m, 75.9656m),
+                    ("Uklana",    29.4823m, 75.9202m),
+                    ("Barwala",   29.3611m, 75.8894m),
+                    ("Adampur",   29.0632m, 75.7688m),
+                    ("Narnaund",  29.1961m, 76.1148m),
+                    ("Agroha",    29.2800m, 75.6500m),
+                    ("Balsamand", 29.1900m, 75.5800m),
+                    ("Bass",      29.0500m, 76.0000m),
                 }
             },
             new {
                 Name = "Jhajjar", Lat = 28.6100m, Lng = 76.6548m,
                 Cities = new[] {
-                    ("Jhajjar",    28.6100m, 76.6548m),
-                    ("Bahadurgarh",28.6821m, 76.9357m),
-                    ("Beri",       28.7115m, 76.5819m),
-                    ("Machhrauli", 28.5002m, 76.7823m),
+                    ("Jhajjar",     28.6100m, 76.6548m),
+                    ("Bahadurgarh", 28.6821m, 76.9357m),
+                    ("Beri",        28.7115m, 76.5819m),
+                    ("Machhrauli",  28.5002m, 76.7823m),
+                    ("Dighal",      28.6212m, 76.5366m),
+                    ("Palhawas",    28.4800m, 76.7200m),
+                    ("Sahlawas",    28.6800m, 76.5000m),
+                    ("Matanhail",   28.5544m, 76.4945m),
                 }
             },
             new {
                 Name = "Jind", Lat = 29.3161m, Lng = 76.3187m,
                 Cities = new[] {
-                    ("Jind",    29.3161m, 76.3187m),
-                    ("Narwana", 29.6019m, 76.1106m),
-                    ("Safidon", 29.4077m, 76.6732m),
-                    ("Julana",  29.4273m, 76.3046m),
-                    ("Uchana",  29.4793m, 76.3142m),
+                    ("Jind",       29.3161m, 76.3187m),
+                    ("Narwana",    29.6019m, 76.1106m),
+                    ("Safidon",    29.4077m, 76.6732m),
+                    ("Julana",     29.4273m, 76.3046m),
+                    ("Uchana",     29.4793m, 76.3142m),
+                    ("Pillukhera", 29.2700m, 76.4600m),
+                    ("Alewa",      29.5700m, 76.1900m),
+                    ("Karsindhu",  29.1600m, 76.3200m),
+                    ("Pundi Kalan",29.2400m, 76.2400m),
                 }
             },
             new {
@@ -347,16 +383,24 @@ public static class DataSeeder
                     ("Kalayat", 29.7317m, 76.5612m),
                     ("Pundri",  29.7530m, 76.5499m),
                     ("Guhla",   29.9248m, 76.3213m),
+                    ("Siwan",   29.8600m, 76.6600m),
+                    ("Rajound", 29.8800m, 76.2300m),
+                    ("Dhand",   29.7700m, 76.4700m),
+                    ("Rawal",   29.9000m, 76.2800m),
                 }
             },
             new {
                 Name = "Karnal", Lat = 29.6857m, Lng = 76.9905m,
                 Cities = new[] {
                     ("Karnal",    29.6857m, 76.9905m),
-                    ("Panipat",   29.3909m, 76.9635m),
                     ("Assandh",   29.5010m, 76.5693m),
                     ("Gharaunda", 29.5420m, 76.9740m),
                     ("Nilokheri", 29.8445m, 76.9437m),
+                    ("Indri",     29.8477m, 77.1726m),
+                    ("Taraori",   29.7500m, 76.9200m),
+                    ("Nissing",   29.6200m, 76.8200m),
+                    ("Kunjpura",  29.6800m, 77.0600m),
+                    ("Issar",     29.7100m, 77.0200m),
                 }
             },
             new {
@@ -367,6 +411,10 @@ public static class DataSeeder
                     ("Shahabad",    30.1630m, 76.9173m),
                     ("Pehowa",      29.9827m, 76.5870m),
                     ("Ladwa",       29.9993m, 77.0497m),
+                    ("Pipli",       30.0166m, 76.8389m),
+                    ("Babain",      29.9400m, 77.0600m),
+                    ("Ismailabad",  30.0800m, 76.7200m),
+                    ("Sirsala",     29.8800m, 76.9500m),
                 }
             },
             new {
@@ -376,24 +424,36 @@ public static class DataSeeder
                     ("Mahendragarh",     28.2755m, 76.1490m),
                     ("Ateli",            28.1197m, 76.0474m),
                     ("Nangal Chaudhary", 28.0540m, 76.2353m),
+                    ("Kanina",           28.1600m, 76.0000m),
+                    ("Satnali",          28.1900m, 76.2800m),
+                    ("Nizampur",         28.0700m, 76.0400m),
+                    ("Siana",            28.1100m, 75.9900m),
                 }
             },
             new {
                 Name = "Nuh", Lat = 28.0954m, Lng = 77.0007m,
                 Cities = new[] {
-                    ("Nuh",               28.0954m, 77.0007m),
-                    ("Punhana",           28.1316m, 77.1155m),
-                    ("Ferozepur Jhirka",  27.9886m, 77.0450m),
-                    ("Tauru",             28.2303m, 77.0070m),
+                    ("Nuh",              28.0954m, 77.0007m),
+                    ("Punhana",          28.1316m, 77.1155m),
+                    ("Ferozepur Jhirka", 27.9886m, 77.0450m),
+                    ("Tauru",            28.2303m, 77.0070m),
+                    ("Nagina",           28.1000m, 77.2000m),
+                    ("Pinangwan",        27.9300m, 77.1200m),
+                    ("Shikrawa",         28.0500m, 77.0500m),
+                    ("Adbar",            28.1700m, 77.0600m),
                 }
             },
             new {
                 Name = "Palwal", Lat = 28.1429m, Lng = 77.3240m,
                 Cities = new[] {
-                    ("Palwal",    28.1429m, 77.3240m),
-                    ("Hodal",     27.8956m, 77.3643m),
-                    ("Hathin",    27.9937m, 77.2626m),
-                    ("Hassanpur", 28.0643m, 77.2791m),
+                    ("Palwal",      28.1429m, 77.3240m),
+                    ("Hodal",       27.8956m, 77.3643m),
+                    ("Hathin",      27.9937m, 77.2626m),
+                    ("Hassanpur",   28.0643m, 77.2791m),
+                    ("Aurangabad",  28.0982m, 77.1765m),
+                    ("Prithla",     28.1500m, 77.4200m),
+                    ("Palhawas",    28.0400m, 77.3400m),
+                    ("Asawati",     28.0200m, 77.2900m),
                 }
             },
             new {
@@ -404,6 +464,9 @@ public static class DataSeeder
                     ("Morni",       30.7037m, 77.1147m),
                     ("Raipur Rani", 30.5459m, 77.0523m),
                     ("Pinjore",     30.7980m, 76.9194m),
+                    ("Barwala",     30.6300m, 76.7800m),
+                    ("Chandimandir",30.7200m, 76.8300m),
+                    ("Ramgarh",     30.5900m, 77.0000m),
                 }
             },
             new {
@@ -413,6 +476,10 @@ public static class DataSeeder
                     ("Samalkha", 29.2381m, 77.0138m),
                     ("Israna",   29.4622m, 76.8527m),
                     ("Madlauda", 29.4774m, 77.0613m),
+                    ("Bapoli",   29.3700m, 77.1100m),
+                    ("Sanoli",   29.2700m, 76.8800m),
+                    ("Jaurasi",  29.4200m, 76.8000m),
+                    ("Naultha",  29.4600m, 77.0400m),
                 }
             },
             new {
@@ -422,6 +489,10 @@ public static class DataSeeder
                     ("Bawal",     28.0706m, 76.5787m),
                     ("Dharuhera", 28.2046m, 76.7927m),
                     ("Kosli",     28.4007m, 76.5249m),
+                    ("Jatusana",  28.0700m, 76.4700m),
+                    ("Nahar",     28.3300m, 76.6100m),
+                    ("Khol",      28.1500m, 76.6000m),
+                    ("Palhawas",  28.2600m, 76.4800m),
                 }
             },
             new {
@@ -431,15 +502,23 @@ public static class DataSeeder
                     ("Asthal Bohar", 28.8407m, 76.7012m),
                     ("Lakhan Majra", 28.9655m, 76.5148m),
                     ("Sampla",       28.8327m, 76.8281m),
+                    ("Maham",        28.9667m, 76.3165m),
+                    ("Kiloi",        28.9200m, 76.4500m),
+                    ("Kalanaur",     29.0600m, 76.4400m),
+                    ("Mokhra",       28.8300m, 76.4400m),
                 }
             },
             new {
                 Name = "Sirsa", Lat = 29.5328m, Lng = 75.0313m,
                 Cities = new[] {
-                    ("Sirsa",      29.5328m, 75.0313m),
-                    ("Dabwali",    29.9768m, 74.7258m),
-                    ("Ellenabad",  29.4520m, 74.6607m),
-                    ("Rania",      29.5398m, 74.8396m),
+                    ("Sirsa",            29.5328m, 75.0313m),
+                    ("Dabwali",          29.9768m, 74.7258m),
+                    ("Ellenabad",        29.4520m, 74.6607m),
+                    ("Rania",            29.5398m, 74.8396m),
+                    ("Kalanwali",        29.8100m, 74.9700m),
+                    ("Nathusari Chopta", 29.5600m, 75.1500m),
+                    ("Odhan",            29.6700m, 75.2300m),
+                    ("Sukhchain",        29.5200m, 74.7800m),
                 }
             },
             new {
@@ -450,6 +529,10 @@ public static class DataSeeder
                     ("Ganaur",   29.1801m, 77.0125m),
                     ("Kharkhoda",28.9230m, 76.9091m),
                     ("Rai",      28.9696m, 77.0972m),
+                    ("Murthal",  29.0800m, 77.1000m),
+                    ("Mundlana", 29.1300m, 76.8700m),
+                    ("Kathura",  28.8900m, 76.8600m),
+                    ("Gannaur",  29.0400m, 76.9500m),
                 }
             },
             new {
@@ -460,6 +543,10 @@ public static class DataSeeder
                     ("Radaur",       30.0426m, 77.2011m),
                     ("Bilaspur",     30.2616m, 77.3192m),
                     ("Chhachhrauli", 30.2527m, 77.4011m),
+                    ("Mustafabad",   30.1600m, 77.4900m),
+                    ("Sadhaura",     30.3800m, 77.3400m),
+                    ("Buria",        30.2200m, 77.1800m),
+                    ("Khizrabad",    30.0900m, 77.2600m),
                 }
             },
 
@@ -467,11 +554,15 @@ public static class DataSeeder
             new {
                 Name = "Agra", Lat = 27.1767m, Lng = 78.0081m,
                 Cities = new[] {
-                    ("Agra",       27.1767m, 78.0081m),
-                    ("Firozabad",  27.1522m, 78.3953m),
-                    ("Fatehabad",  27.1116m, 78.2370m),
-                    ("Kheragarh", 27.0561m, 78.5536m),
-                    ("Bah",        26.8810m, 78.5930m),
+                    ("Agra",           27.1767m, 78.0081m),
+                    ("Firozabad",      27.1522m, 78.3953m),
+                    ("Fatehabad",      27.1116m, 78.2370m),
+                    ("Kheragarh",      27.0561m, 78.5536m),
+                    ("Bah",            26.8810m, 78.5930m),
+                    ("Etmadpur",       27.2461m, 78.2399m),
+                    ("Fatehpur Sikri", 27.0949m, 77.6592m),
+                    ("Kiraoli",        27.0800m, 78.3200m),
+                    ("Shamsabad",      27.0800m, 78.1000m),
                 }
             },
             new {
@@ -482,15 +573,23 @@ public static class DataSeeder
                     ("Iglas",   27.7161m, 77.9467m),
                     ("Atrauli", 28.0407m, 78.2687m),
                     ("Khair",   27.9385m, 77.8435m),
+                    ("Tappal",  27.8900m, 77.7000m),
+                    ("Gabhana", 28.0900m, 78.0900m),
+                    ("Beswan",  28.0200m, 78.1600m),
+                    ("Akrabad", 27.7700m, 78.3400m),
                 }
             },
             new {
                 Name = "Ambedkar Nagar", Lat = 26.4315m, Lng = 82.5360m,
                 Cities = new[] {
-                    ("Akbarpur", 26.4315m, 82.5360m),
-                    ("Tanda",    26.5613m, 82.5927m),
-                    ("Jalalpur", 26.3274m, 82.7077m),
-                    ("Allapur",  26.3912m, 82.4509m),
+                    ("Akbarpur",    26.4315m, 82.5360m),
+                    ("Tanda",       26.5613m, 82.5927m),
+                    ("Jalalpur",    26.3274m, 82.7077m),
+                    ("Allapur",     26.3912m, 82.4509m),
+                    ("Bhiti",       26.4800m, 82.6400m),
+                    ("Katehri",     26.5200m, 82.4500m),
+                    ("Jahangirganj",26.4000m, 82.6700m),
+                    ("Shahpur",     26.3600m, 82.4900m),
                 }
             },
             new {
@@ -500,24 +599,36 @@ public static class DataSeeder
                     ("Gauriganj",    26.1967m, 81.8194m),
                     ("Musafirkhana", 26.3570m, 81.8006m),
                     ("Salon",        26.0316m, 81.4476m),
+                    ("Jagdishpur",   26.0200m, 81.6900m),
+                    ("Bazar Shukul", 26.2700m, 81.8900m),
+                    ("Sinhawal",     26.0700m, 81.6400m),
+                    ("Tikar",        26.2100m, 81.6200m),
                 }
             },
             new {
                 Name = "Amroha", Lat = 28.9045m, Lng = 78.4676m,
                 Cities = new[] {
-                    ("Amroha",   28.9045m, 78.4676m),
-                    ("Hasanpur", 28.7222m, 78.2792m),
-                    ("Dhanaura", 28.9514m, 78.2416m),
-                    ("Gajraula", 28.8295m, 78.2786m),
+                    ("Amroha",         28.9045m, 78.4676m),
+                    ("Hasanpur",       28.7222m, 78.2792m),
+                    ("Dhanaura",       28.9514m, 78.2416m),
+                    ("Gajraula",       28.8295m, 78.2786m),
+                    ("Naugawan Sadat", 28.9300m, 78.6000m),
+                    ("Joya",           28.8500m, 78.5500m),
+                    ("Tanda",          28.9700m, 78.9200m),
+                    ("Bachhraon",      29.1300m, 78.2100m),
                 }
             },
             new {
                 Name = "Auraiya", Lat = 26.4673m, Lng = 79.5098m,
                 Cities = new[] {
-                    ("Auraiya",  26.4673m, 79.5098m),
-                    ("Dibiyapur",26.5694m, 79.5295m),
-                    ("Bidhuna",  26.8016m, 79.5063m),
-                    ("Ajitmal",  26.6165m, 79.3530m),
+                    ("Auraiya",   26.4673m, 79.5098m),
+                    ("Dibiyapur", 26.5694m, 79.5295m),
+                    ("Bidhuna",   26.8016m, 79.5063m),
+                    ("Ajitmal",   26.6165m, 79.3530m),
+                    ("Phaphund",  26.6100m, 79.4600m),
+                    ("Chakarnagar",26.3600m, 79.3800m),
+                    ("Saurikh",   26.5700m, 79.6500m),
+                    ("Bhagyanagar",26.7100m, 79.5400m),
                 }
             },
             new {
@@ -528,6 +639,10 @@ public static class DataSeeder
                     ("Bikapur",  26.6584m, 82.1156m),
                     ("Sohawal",  26.6809m, 82.3029m),
                     ("Milkipur", 26.5821m, 82.1519m),
+                    ("Tanda",    26.5600m, 82.5800m),
+                    ("Rudauli",  26.7200m, 81.8900m),
+                    ("Maya Bazar",26.8200m, 82.0500m),
+                    ("Tarun",    26.7000m, 82.2500m),
                 }
             },
             new {
@@ -538,15 +653,23 @@ public static class DataSeeder
                     ("Sagri",    26.0451m, 83.0705m),
                     ("Nizamabad",25.6913m, 83.7814m),
                     ("Phulpur",  26.0800m, 83.0500m),
+                    ("Atraulia", 26.2200m, 83.0500m),
+                    ("Mehnagar", 26.1900m, 83.2800m),
+                    ("Jiyanpur", 26.0100m, 83.3200m),
+                    ("Tarwa",    26.0500m, 83.2300m),
                 }
             },
             new {
                 Name = "Baghpat", Lat = 28.9484m, Lng = 77.2165m,
                 Cities = new[] {
-                    ("Baghpat", 28.9484m, 77.2165m),
-                    ("Baraut",  29.0988m, 77.2645m),
-                    ("Khekra",  28.8612m, 77.2773m),
-                    ("Pilana",  29.0025m, 77.1469m),
+                    ("Baghpat",   28.9484m, 77.2165m),
+                    ("Baraut",    29.0988m, 77.2645m),
+                    ("Khekra",    28.8612m, 77.2773m),
+                    ("Pilana",    29.0025m, 77.1469m),
+                    ("Chhaprauli",29.0900m, 77.1700m),
+                    ("Siyana",    28.8800m, 77.3800m),
+                    ("Doghat",    28.9500m, 77.3200m),
+                    ("Patla",     28.9800m, 77.2800m),
                 }
             },
             new {
@@ -557,6 +680,10 @@ public static class DataSeeder
                     ("Kaiserganj",27.6626m, 81.6685m),
                     ("Mahsi",     27.7164m, 81.7742m),
                     ("Jarwal",    27.3793m, 81.4793m),
+                    ("Payagpur",  27.8400m, 81.7800m),
+                    ("Mihinpurwa",27.9800m, 81.6900m),
+                    ("Balha",     27.6100m, 81.7100m),
+                    ("Tejwapur",  27.7300m, 81.4700m),
                 }
             },
             new {
@@ -567,6 +694,10 @@ public static class DataSeeder
                     ("Bansdih",     25.8771m, 84.2210m),
                     ("Sikandarpur", 26.0379m, 84.0617m),
                     ("Bairia",      26.0040m, 84.0175m),
+                    ("Narhi",       26.0400m, 84.1900m),
+                    ("Reoti",       25.9600m, 84.0000m),
+                    ("Hanumanganj", 25.8200m, 84.0900m),
+                    ("Maniyar",     25.6900m, 84.2500m),
                 }
             },
             new {
@@ -576,6 +707,10 @@ public static class DataSeeder
                     ("Tulsipur",  27.5311m, 82.4076m),
                     ("Utraula",   27.3236m, 82.4192m),
                     ("Gaisdi",    27.4648m, 82.1253m),
+                    ("Gainsari",  27.2700m, 82.3600m),
+                    ("Rehra Bazar",27.5800m, 82.2900m),
+                    ("Pachperwa", 27.4500m, 82.3300m),
+                    ("Shravasti", 27.4800m, 81.9600m),
                 }
             },
             new {
@@ -586,26 +721,38 @@ public static class DataSeeder
                     ("Naraini",  25.2080m, 80.4789m),
                     ("Baberu",   25.5341m, 80.6851m),
                     ("Tindwari", 25.5543m, 80.5048m),
+                    ("Mataundh", 25.3400m, 80.2100m),
+                    ("Pailani",  25.0900m, 80.4600m),
+                    ("Bisanda",  25.4200m, 80.6200m),
+                    ("Kamasin",  25.3900m, 80.5400m),
                 }
             },
             new {
                 Name = "Barabanki", Lat = 26.9277m, Lng = 81.1848m,
                 Cities = new[] {
-                    ("Barabanki",  26.9277m, 81.1848m),
-                    ("Haidergarh", 26.8048m, 81.4388m),
-                    ("Ram Nagar",  26.9157m, 81.3501m),
-                    ("Nawabganj",  26.9323m, 81.2471m),
-                    ("Ramsanehihat",26.8900m, 81.5200m),
+                    ("Barabanki",    26.9277m, 81.1848m),
+                    ("Haidergarh",   26.8048m, 81.4388m),
+                    ("Ram Nagar",    26.9157m, 81.3501m),
+                    ("Nawabganj",    26.9323m, 81.2471m),
+                    ("Ramsanehihat", 26.8900m, 81.5200m),
+                    ("Fatehpur",     26.8800m, 81.3700m),
+                    ("Dewa",         26.7500m, 81.0200m),
+                    ("Sirauli",      26.9800m, 81.3900m),
+                    ("Masauli",      26.9000m, 81.5700m),
                 }
             },
             new {
                 Name = "Bareilly", Lat = 28.3670m, Lng = 79.4304m,
                 Cities = new[] {
-                    ("Bareilly",  28.3670m, 79.4304m),
-                    ("Pilibhit",  28.6311m, 79.8047m),
-                    ("Baheri",    28.7586m, 79.4912m),
-                    ("Aonla",     28.3985m, 79.3862m),
-                    ("Fatehganj", 28.4543m, 79.3501m),
+                    ("Bareilly",   28.3670m, 79.4304m),
+                    ("Pilibhit",   28.6311m, 79.8047m),
+                    ("Baheri",     28.7586m, 79.4912m),
+                    ("Aonla",      28.3985m, 79.3862m),
+                    ("Fatehganj",  28.4543m, 79.3501m),
+                    ("Mirganj",    28.2900m, 79.3100m),
+                    ("Nawabganj",  28.5300m, 79.6800m),
+                    ("Faridpur",   28.1600m, 79.5700m),
+                    ("Shergarh",   28.0800m, 79.5200m),
                 }
             },
             new {
@@ -615,6 +762,10 @@ public static class DataSeeder
                     ("Harraiya",   26.9058m, 82.9677m),
                     ("Kaptanganj", 26.9119m, 83.0564m),
                     ("Bhanpur",    26.8540m, 82.6978m),
+                    ("Rudhauli",   26.9700m, 82.8600m),
+                    ("Nawabganj",  26.7200m, 82.6200m),
+                    ("Bansi",      27.1800m, 83.0600m),
+                    ("Bakhira",    26.9400m, 83.1100m),
                 }
             },
             new {
@@ -624,6 +775,10 @@ public static class DataSeeder
                     ("Gyanpur",   25.3517m, 82.5946m),
                     ("Aurai",     25.3084m, 82.7152m),
                     ("Suriyawan", 25.3474m, 82.6427m),
+                    ("Gopiganj",  25.4600m, 82.4700m),
+                    ("Abholi",    25.3200m, 82.6100m),
+                    ("Dighwara",  25.4100m, 82.5200m),
+                    ("Khamaria",  25.3700m, 82.6900m),
                 }
             },
             new {
@@ -634,6 +789,10 @@ public static class DataSeeder
                     ("Najibabad", 29.6133m, 78.3427m),
                     ("Chandpur",  29.3041m, 78.2726m),
                     ("Kiratpur",  29.5394m, 78.5147m),
+                    ("Dhampur",   29.3100m, 78.5100m),
+                    ("Seohara",   29.2200m, 78.5700m),
+                    ("Noorpur",   29.1500m, 78.6500m),
+                    ("Haldaur",   29.4100m, 78.1100m),
                 }
             },
             new {
@@ -644,6 +803,10 @@ public static class DataSeeder
                     ("Sahaswan", 28.0726m, 78.7521m),
                     ("Dataganj", 28.1965m, 79.4619m),
                     ("Ujhani",   28.0013m, 79.0157m),
+                    ("Shedpur",  28.1600m, 79.0400m),
+                    ("Wazirganj",27.7500m, 79.0900m),
+                    ("Islamnagar",28.0500m, 79.0600m),
+                    ("Asafpur",  28.2500m, 79.2200m),
                 }
             },
             new {
@@ -654,15 +817,23 @@ public static class DataSeeder
                     ("Sikandrabad", 28.4511m, 77.6938m),
                     ("Anupshahr",   28.3699m, 78.2776m),
                     ("Shikarpur",   28.2824m, 78.0083m),
+                    ("Dibai",       28.2200m, 78.2300m),
+                    ("Jahangirabad",28.5700m, 78.0800m),
+                    ("Gulaothi",    28.4400m, 77.9700m),
+                    ("Danpur",      28.3200m, 78.0200m),
                 }
             },
             new {
                 Name = "Chandauli", Lat = 25.2706m, Lng = 83.2693m,
                 Cities = new[] {
-                    ("Chandauli",  25.2706m, 83.2693m),
+                    ("Chandauli",   25.2706m, 83.2693m),
                     ("Mughal Sarai",25.2816m, 83.1163m),
-                    ("Sakaldiha",  25.3671m, 83.0759m),
-                    ("Chahaniya",  25.1953m, 83.3826m),
+                    ("Sakaldiha",   25.3671m, 83.0759m),
+                    ("Chahaniya",   25.1953m, 83.3826m),
+                    ("Naugarh",     25.2000m, 83.5200m),
+                    ("Chakia",      25.0500m, 83.1800m),
+                    ("Barhani",     25.1600m, 83.4500m),
+                    ("Dhanapur",    25.2800m, 83.0400m),
                 }
             },
             new {
@@ -672,16 +843,24 @@ public static class DataSeeder
                     ("Karwi",      25.2025m, 80.9011m),
                     ("Manikpur",   25.0631m, 81.1024m),
                     ("Mau",        25.2800m, 80.8500m),
+                    ("Rajapur",    25.0600m, 80.7500m),
+                    ("Pahadi",     25.3400m, 80.9700m),
+                    ("Ramnagar",   25.1300m, 80.7900m),
+                    ("Bargarh",    25.1000m, 80.9500m),
                 }
             },
             new {
                 Name = "Deoria", Lat = 26.5044m, Lng = 83.7840m,
                 Cities = new[] {
-                    ("Deoria",       26.5044m, 83.7840m),
-                    ("Bhatpar Rani", 26.3023m, 83.9749m),
-                    ("Salempur",     26.3012m, 83.8754m),
-                    ("Barhaj",       26.2643m, 83.8098m),
-                    ("Rudrapur",     26.3800m, 83.9600m),
+                    ("Deoria",        26.5044m, 83.7840m),
+                    ("Bhatpar Rani",  26.3023m, 83.9749m),
+                    ("Salempur",      26.3012m, 83.8754m),
+                    ("Barhaj",        26.2643m, 83.8098m),
+                    ("Rudrapur",      26.3800m, 83.9600m),
+                    ("Gauri Bazar",   26.6800m, 83.6700m),
+                    ("Rampur Karkhana",26.3500m, 84.0900m),
+                    ("Tarwa",         26.5200m, 83.9200m),
+                    ("Lar",           26.2400m, 83.7500m),
                 }
             },
             new {
@@ -692,15 +871,23 @@ public static class DataSeeder
                     ("Jalesar", 27.4605m, 78.8005m),
                     ("Aliganj", 27.4946m, 79.1797m),
                     ("Patiali", 27.6942m, 79.0154m),
+                    ("Awankhurd",27.7800m, 78.7400m),
+                    ("Marehra", 27.6800m, 79.2800m),
+                    ("Nigoh",   27.5200m, 78.8900m),
+                    ("Sakeet",  27.4200m, 78.9700m),
                 }
             },
             new {
                 Name = "Etawah", Lat = 26.7828m, Lng = 79.0247m,
                 Cities = new[] {
-                    ("Etawah",      26.7828m, 79.0247m),
-                    ("Jaswantnagar",26.8935m, 79.2316m),
-                    ("Bharthana",   26.7399m, 79.3052m),
-                    ("Saifai",      26.9887m, 79.2843m),
+                    ("Etawah",       26.7828m, 79.0247m),
+                    ("Jaswantnagar", 26.8935m, 79.2316m),
+                    ("Bharthana",    26.7399m, 79.3052m),
+                    ("Saifai",       26.9887m, 79.2843m),
+                    ("Chakarnagar",  26.3600m, 79.3800m),
+                    ("Ekdil",        26.6200m, 79.1200m),
+                    ("Kadaura",      26.8400m, 79.3200m),
+                    ("Lakhaura",     26.7200m, 79.1500m),
                 }
             },
             new {
@@ -710,15 +897,23 @@ public static class DataSeeder
                     ("Fatehgarh",   27.3661m, 79.6326m),
                     ("Kaimganj",    27.5612m, 79.3456m),
                     ("Shamsabad",   27.3456m, 79.7113m),
+                    ("Rajpur",      27.4800m, 79.7600m),
+                    ("Mohammadabad",27.2800m, 79.4600m),
+                    ("Kamalganj",   27.5400m, 79.5900m),
+                    ("Amritpur",    27.5900m, 79.6700m),
                 }
             },
             new {
                 Name = "Fatehpur", Lat = 25.9280m, Lng = 80.8124m,
                 Cities = new[] {
-                    ("Fatehpur",   25.9280m, 80.8124m),
-                    ("Bindki",     25.9822m, 80.5799m),
-                    ("Khaga",      25.7749m, 81.0290m),
-                    ("Hussainganj",25.9010m, 80.8952m),
+                    ("Fatehpur",    25.9280m, 80.8124m),
+                    ("Bindki",      25.9822m, 80.5799m),
+                    ("Khaga",       25.7749m, 81.0290m),
+                    ("Hussainganj", 25.9010m, 80.8952m),
+                    ("Malwan",      25.7200m, 80.9200m),
+                    ("Hathgaon",    26.0600m, 80.7800m),
+                    ("Asothar",     25.8700m, 80.9600m),
+                    ("Teliyani",    26.0100m, 80.8200m),
                 }
             },
             new {
@@ -728,15 +923,23 @@ public static class DataSeeder
                     ("Shikohabad", 27.1074m, 78.5897m),
                     ("Tundla",     27.2104m, 78.2427m),
                     ("Jasrana",    27.2447m, 78.6530m),
+                    ("Sirsaganj",  27.0600m, 78.6900m),
+                    ("Narkhi",     27.1800m, 78.4800m),
+                    ("Madanpur",   27.3000m, 78.5600m),
+                    ("Araon",      27.2700m, 78.4200m),
                 }
             },
             new {
                 Name = "Gautam Buddha Nagar", Lat = 28.5355m, Lng = 77.3910m,
                 Cities = new[] {
-                    ("Noida",        28.5355m, 77.3910m),
-                    ("Greater Noida",28.4744m, 77.5040m),
-                    ("Dadri",        28.5557m, 77.5533m),
-                    ("Jewar",        28.1237m, 77.5547m),
+                    ("Noida",         28.5355m, 77.3910m),
+                    ("Greater Noida", 28.4744m, 77.5040m),
+                    ("Dadri",         28.5557m, 77.5533m),
+                    ("Jewar",         28.1237m, 77.5547m),
+                    ("Dankaur",       28.4400m, 77.5500m),
+                    ("Bisrakh",       28.4900m, 77.4300m),
+                    ("Rabupura",      28.3700m, 77.5900m),
+                    ("Jarcha",        28.4700m, 77.4800m),
                 }
             },
             new {
@@ -747,35 +950,51 @@ public static class DataSeeder
                     ("Modinagar", 28.8367m, 77.5769m),
                     ("Hapur",     28.7304m, 77.7763m),
                     ("Muradnagar",28.7817m, 77.4993m),
+                    ("Dasna",     28.7000m, 77.5300m),
+                    ("Tronica City",28.7200m, 77.4000m),
+                    ("Sikri",     28.7300m, 77.6200m),
+                    ("Khoda",     28.6500m, 77.4200m),
                 }
             },
             new {
                 Name = "Ghazipur", Lat = 25.5770m, Lng = 83.5753m,
                 Cities = new[] {
-                    ("Ghazipur",    25.5770m, 83.5753m),
-                    ("Zamania",     25.4220m, 83.5540m),
-                    ("Saidpur",     25.5463m, 83.6825m),
-                    ("Muhammadabad",25.5300m, 83.7730m),
+                    ("Ghazipur",     25.5770m, 83.5753m),
+                    ("Zamania",      25.4220m, 83.5540m),
+                    ("Saidpur",      25.5463m, 83.6825m),
+                    ("Muhammadabad", 25.5300m, 83.7730m),
+                    ("Jakhania",     25.4600m, 83.7200m),
+                    ("Jangipur",     25.5100m, 83.7000m),
+                    ("Yusufpur",     25.6600m, 83.6200m),
+                    ("Karanda",      25.4000m, 83.4800m),
                 }
             },
             new {
                 Name = "Gonda", Lat = 27.1344m, Lng = 81.9622m,
                 Cities = new[] {
-                    ("Gonda",      27.1344m, 81.9622m),
-                    ("Tarabganj",  27.3461m, 81.9153m),
-                    ("Mankapur",   27.0488m, 82.2115m),
-                    ("Colonelganj",27.1289m, 82.0952m),
-                    ("Nawabganj",  27.0600m, 81.8300m),
+                    ("Gonda",       27.1344m, 81.9622m),
+                    ("Tarabganj",   27.3461m, 81.9153m),
+                    ("Mankapur",    27.0488m, 82.2115m),
+                    ("Colonelganj", 27.1289m, 82.0952m),
+                    ("Nawabganj",   27.0600m, 81.8300m),
+                    ("Karna",       27.1000m, 82.0500m),
+                    ("Khajura",     27.2800m, 81.8800m),
+                    ("Itiyathok",   27.2100m, 82.2500m),
+                    ("Belsar",      27.3200m, 81.9700m),
                 }
             },
             new {
                 Name = "Gorakhpur", Lat = 26.7606m, Lng = 83.3732m,
                 Cities = new[] {
-                    ("Gorakhpur", 26.7606m, 83.3732m),
-                    ("Bhathat",   26.8121m, 83.5140m),
-                    ("Sahjanwa",  26.7298m, 83.4302m),
-                    ("Gola",      26.4500m, 83.5800m),
+                    ("Gorakhpur",  26.7606m, 83.3732m),
+                    ("Bhathat",    26.8121m, 83.5140m),
+                    ("Sahjanwa",   26.7298m, 83.4302m),
+                    ("Gola",       26.4500m, 83.5800m),
                     ("Campierganj",26.8900m, 83.2800m),
+                    ("Bansgaon",   26.5500m, 83.5100m),
+                    ("Barhalganj", 26.6000m, 83.5800m),
+                    ("Pipraich",   26.8100m, 83.5000m),
+                    ("Chauri Chaura",26.8200m, 83.1700m),
                 }
             },
             new {
@@ -785,25 +1004,37 @@ public static class DataSeeder
                     ("Maudaha",  25.7027m, 80.0124m),
                     ("Rath",     25.5907m, 79.5700m),
                     ("Sarila",   25.7686m, 79.6894m),
+                    ("Kurara",   25.8200m, 80.0400m),
+                    ("Sumerpur", 25.9800m, 79.6300m),
+                    ("Mustara",  25.7500m, 80.2100m),
+                    ("Gohand",   25.7000m, 79.9700m),
                 }
             },
             new {
                 Name = "Hapur", Lat = 28.7304m, Lng = 77.7763m,
                 Cities = new[] {
-                    ("Hapur",          28.7304m, 77.7763m),
-                    ("Pilkhuwa",       28.7072m, 77.6556m),
-                    ("Garh Mukteshwar",28.7848m, 78.1114m),
-                    ("Dhaulana",       28.7467m, 77.7117m),
+                    ("Hapur",           28.7304m, 77.7763m),
+                    ("Pilkhuwa",        28.7072m, 77.6556m),
+                    ("Garh Mukteshwar", 28.7848m, 78.1114m),
+                    ("Dhaulana",        28.7467m, 77.7117m),
+                    ("Simbhaoli",       28.7000m, 77.7900m),
+                    ("Pahsu",           28.6000m, 77.6700m),
+                    ("Asafpur",         28.7700m, 77.8700m),
+                    ("Dobhi",           28.8100m, 77.9200m),
                 }
             },
             new {
                 Name = "Hardoi", Lat = 27.3994m, Lng = 80.1274m,
                 Cities = new[] {
-                    ("Hardoi",  27.3994m, 80.1274m),
-                    ("Shahabad",27.6500m, 79.9300m),
-                    ("Sandila", 27.0706m, 80.5192m),
-                    ("Bilgram", 27.1979m, 80.0326m),
-                    ("Sandi",   27.2963m, 80.2928m),
+                    ("Hardoi",     27.3994m, 80.1274m),
+                    ("Shahabad",   27.6500m, 79.9300m),
+                    ("Sandila",    27.0706m, 80.5192m),
+                    ("Bilgram",    27.1979m, 80.0326m),
+                    ("Sandi",      27.2963m, 80.2928m),
+                    ("Bawan",      27.4800m, 80.3700m),
+                    ("Sawayajpur", 27.2100m, 80.1900m),
+                    ("Mallanwan",  27.1800m, 80.3000m),
+                    ("Madhoganj",  27.5100m, 80.3900m),
                 }
             },
             new {
@@ -813,25 +1044,37 @@ public static class DataSeeder
                     ("Sadabad",     27.4405m, 78.0361m),
                     ("Sikandrarau", 27.6968m, 78.3934m),
                     ("Mursan",      27.6551m, 77.9810m),
+                    ("Sasni",       27.7000m, 78.0200m),
+                    ("Mendu",       27.6000m, 78.1600m),
+                    ("Hasayan",     27.4900m, 78.1900m),
+                    ("Kwarsi",      27.7500m, 78.3200m),
                 }
             },
             new {
                 Name = "Jalaun", Lat = 25.9887m, Lng = 79.4579m,
                 Cities = new[] {
-                    ("Orai",   25.9887m, 79.4579m),
-                    ("Konch",  26.0003m, 79.6150m),
-                    ("Kalpi",  26.1176m, 79.7354m),
-                    ("Jalaun", 26.1467m, 79.3374m),
+                    ("Orai",      25.9887m, 79.4579m),
+                    ("Konch",     26.0003m, 79.6150m),
+                    ("Kalpi",     26.1176m, 79.7354m),
+                    ("Jalaun",    26.1467m, 79.3374m),
+                    ("Ramnagar",  26.0200m, 79.2300m),
+                    ("Madhogarh", 26.0700m, 79.3000m),
+                    ("Kona",      25.9000m, 79.4000m),
+                    ("Atarrha",   25.8500m, 79.5000m),
                 }
             },
             new {
                 Name = "Jaunpur", Lat = 25.7463m, Lng = 82.6836m,
                 Cities = new[] {
-                    ("Jaunpur",       25.7463m, 82.6836m),
-                    ("Machhalishahar",25.6723m, 82.5742m),
-                    ("Mariahu",       25.5829m, 82.8671m),
-                    ("Shahganj",      25.9013m, 82.6951m),
-                    ("Kerakat",       25.7891m, 82.9217m),
+                    ("Jaunpur",        25.7463m, 82.6836m),
+                    ("Machhalishahar", 25.6723m, 82.5742m),
+                    ("Mariahu",        25.5829m, 82.8671m),
+                    ("Shahganj",       25.9013m, 82.6951m),
+                    ("Kerakat",        25.7891m, 82.9217m),
+                    ("Badlapur",       25.5900m, 82.7700m),
+                    ("Sujanganj",      25.6900m, 82.9200m),
+                    ("Muftiganj",      25.8800m, 82.4900m),
+                    ("Dobhi",          25.5200m, 82.7100m),
                 }
             },
             new {
@@ -842,15 +1085,23 @@ public static class DataSeeder
                     ("Moth",       25.6044m, 78.9578m),
                     ("Chirgaon",   25.5508m, 78.7609m),
                     ("Bangra",     25.3701m, 78.8094m),
+                    ("Mau Ranipur",25.1800m, 79.0800m),
+                    ("Samthar",    25.2500m, 78.9400m),
+                    ("Garautha",   25.5000m, 79.2400m),
+                    ("Talbehat",   25.0200m, 78.8700m),
                 }
             },
             new {
                 Name = "Kannauj", Lat = 27.0555m, Lng = 79.9176m,
                 Cities = new[] {
-                    ("Kannauj",   27.0555m, 79.9176m),
-                    ("Chhibramau",27.1435m, 79.5153m),
-                    ("Tirwa",     27.3869m, 79.8174m),
-                    ("Umarda",    27.1193m, 79.7348m),
+                    ("Kannauj",    27.0555m, 79.9176m),
+                    ("Chhibramau", 27.1435m, 79.5153m),
+                    ("Tirwa",      27.3869m, 79.8174m),
+                    ("Umarda",     27.1193m, 79.7348m),
+                    ("Samapur",    27.1600m, 79.8300m),
+                    ("Gursahaiganj",27.0800m, 79.7900m),
+                    ("Talgram",    27.2400m, 79.7600m),
+                    ("Saurikh",    27.0000m, 79.8500m),
                 }
             },
             new {
@@ -860,25 +1111,37 @@ public static class DataSeeder
                     ("Rasulabad", 26.4051m, 79.7779m),
                     ("Bhognipur", 26.3044m, 79.8671m),
                     ("Derapur",   26.2748m, 79.7139m),
+                    ("Pukhrayan", 26.2300m, 79.8400m),
+                    ("Rura",      26.4000m, 79.5800m),
+                    ("Maitha",    26.3000m, 79.8900m),
+                    ("Sarsaul",   26.5200m, 80.0600m),
                 }
             },
             new {
                 Name = "Kanpur Nagar", Lat = 26.4499m, Lng = 80.3319m,
                 Cities = new[] {
-                    ("Kanpur",     26.4499m, 80.3319m),
-                    ("Kalyanpur",  26.4879m, 80.2277m),
-                    ("Ghatampur",  26.1501m, 80.1699m),
-                    ("Bilhaur",    26.8658m, 79.7538m),
-                    ("Shivrajpur", 26.5362m, 80.2956m),
+                    ("Kanpur",      26.4499m, 80.3319m),
+                    ("Kalyanpur",   26.4879m, 80.2277m),
+                    ("Ghatampur",   26.1501m, 80.1699m),
+                    ("Bilhaur",     26.8658m, 79.7538m),
+                    ("Shivrajpur",  26.5362m, 80.2956m),
+                    ("Armapur",     26.5000m, 80.3700m),
+                    ("Nawabganj",   26.6100m, 80.4100m),
+                    ("Chaubeypur",  26.5700m, 80.1200m),
+                    ("Panki",       26.4500m, 80.2800m),
                 }
             },
             new {
                 Name = "Kasganj", Lat = 27.8089m, Lng = 78.6484m,
                 Cities = new[] {
-                    ("Kasganj", 27.8089m, 78.6484m),
-                    ("Soron",   27.8827m, 78.7507m),
-                    ("Amanpur", 27.8234m, 79.0113m),
-                    ("Patiyali",27.6942m, 79.0154m),
+                    ("Kasganj",       27.8089m, 78.6484m),
+                    ("Soron",         27.8827m, 78.7507m),
+                    ("Amanpur",       27.8234m, 79.0113m),
+                    ("Patiyali",      27.6942m, 79.0154m),
+                    ("Ganjdundwara",  27.6700m, 79.0000m),
+                    ("Sahawar",       27.8000m, 79.1300m),
+                    ("Shandara",      27.9200m, 78.8500m),
+                    ("Sidhpura",      27.7500m, 79.1500m),
                 }
             },
             new {
@@ -888,6 +1151,10 @@ public static class DataSeeder
                     ("Sirathu",    25.6564m, 81.3149m),
                     ("Chail",      25.4893m, 81.5005m),
                     ("Sarsawan",   25.7823m, 81.4432m),
+                    ("Bharwari",   25.4600m, 81.4400m),
+                    ("Sarayaksha", 25.7100m, 81.3200m),
+                    ("Purwa",      25.5000m, 81.3000m),
+                    ("Chahniya",   25.4200m, 81.5500m),
                 }
             },
             new {
@@ -898,15 +1165,23 @@ public static class DataSeeder
                     ("Tamkuhi",    26.9234m, 84.1673m),
                     ("Hata",       26.7419m, 84.1268m),
                     ("Khadda",     26.9284m, 84.0831m),
+                    ("Ramkola",    26.6700m, 83.8700m),
+                    ("Seorahi",    26.5800m, 84.0100m),
+                    ("Kasaya",     26.6200m, 83.7500m),
+                    ("Sukulpur",   26.8700m, 83.8200m),
                 }
             },
             new {
                 Name = "Lakhimpur Kheri", Lat = 27.9462m, Lng = 80.7812m,
                 Cities = new[] {
-                    ("Lakhimpur",          27.9462m, 80.7812m),
-                    ("Gola Gokaran Nath",  28.0789m, 80.4666m),
-                    ("Dhaurahara",         28.2181m, 80.8035m),
-                    ("Nighasan",           27.9618m, 80.5213m),
+                    ("Lakhimpur",         27.9462m, 80.7812m),
+                    ("Gola Gokaran Nath", 28.0789m, 80.4666m),
+                    ("Dhaurahara",        28.2181m, 80.8035m),
+                    ("Nighasan",          27.9618m, 80.5213m),
+                    ("Mohammadi",         28.0700m, 80.6200m),
+                    ("Pallia Kalan",      28.3700m, 80.5800m),
+                    ("Phoolbehar",        27.8300m, 80.8800m),
+                    ("Nakaha",            28.0800m, 80.9500m),
                 }
             },
             new {
@@ -916,15 +1191,24 @@ public static class DataSeeder
                     ("Mehrauni",  24.7348m, 78.5623m),
                     ("Jakhaura",  24.7614m, 78.3874m),
                     ("Bar",       24.6091m, 78.2157m),
+                    ("Talbehat",  25.0200m, 78.8700m),
+                    ("Madawara",  24.8500m, 78.6300m),
+                    ("Pali",      24.5900m, 78.1500m),
+                    ("Bihariganj",24.7800m, 78.5100m),
                 }
             },
             new {
                 Name = "Lucknow", Lat = 26.8467m, Lng = 80.9462m,
                 Cities = new[] {
-                    ("Lucknow",         26.8467m, 80.9462m),
-                    ("Malihabad",       26.9216m, 80.7157m),
-                    ("Bakshi Ka Talab", 26.9417m, 80.9174m),
-                    ("Mohanlalganj",    26.6851m, 80.9729m),
+                    ("Lucknow",          26.8467m, 80.9462m),
+                    ("Malihabad",        26.9216m, 80.7157m),
+                    ("Bakshi Ka Talab",  26.9417m, 80.9174m),
+                    ("Mohanlalganj",     26.6851m, 80.9729m),
+                    ("Kakori",           26.9000m, 80.7800m),
+                    ("Gosainganj",       26.6300m, 81.0400m),
+                    ("Itaunja",          26.9700m, 80.5800m),
+                    ("Chinhat",          26.8800m, 81.0600m),
+                    ("Mal",              26.7500m, 80.8500m),
                 }
             },
             new {
@@ -934,6 +1218,10 @@ public static class DataSeeder
                     ("Nautanwa",    27.4254m, 83.4168m),
                     ("Siswa Bazar", 27.1462m, 83.6704m),
                     ("Nichlaul",    27.3271m, 83.6261m),
+                    ("Anandnagar",  27.2900m, 83.5500m),
+                    ("Ghughli",     27.0900m, 83.7200m),
+                    ("Farenda",     27.2100m, 83.3500m),
+                    ("Partawal",    27.3800m, 83.7800m),
                 }
             },
             new {
@@ -943,6 +1231,10 @@ public static class DataSeeder
                     ("Kulpahar", 25.3226m, 79.6345m),
                     ("Charkhari",25.4012m, 79.7442m),
                     ("Kabrai",   25.3780m, 79.9745m),
+                    ("Panwari",  25.3700m, 79.6700m),
+                    ("Srinagar", 25.2400m, 79.8300m),
+                    ("Jaitpur",  25.1800m, 79.9200m),
+                    ("Khanna",   25.3100m, 79.7600m),
                 }
             },
             new {
@@ -952,6 +1244,10 @@ public static class DataSeeder
                     ("Shikohabad",27.1074m, 78.5897m),
                     ("Karhal",    27.0349m, 79.1532m),
                     ("Bhongaon",  27.2527m, 79.1983m),
+                    ("Kishni",    27.1500m, 79.0100m),
+                    ("Kuraoli",   27.1200m, 79.2700m),
+                    ("Ghiror",    27.0400m, 79.0800m),
+                    ("Bewar",     27.3700m, 79.2500m),
                 }
             },
             new {
@@ -961,25 +1257,37 @@ public static class DataSeeder
                     ("Vrindavan", 27.5779m, 77.6964m),
                     ("Govardhan", 27.4992m, 77.4638m),
                     ("Baldeo",    27.3787m, 77.8224m),
+                    ("Mahaban",   27.4200m, 77.6100m),
+                    ("Chhata",    27.7300m, 77.5000m),
+                    ("Mant",      27.3300m, 77.7500m),
+                    ("Kosi Kalan",27.7900m, 77.4400m),
                 }
             },
             new {
                 Name = "Mau", Lat = 25.9462m, Lng = 83.5573m,
                 Cities = new[] {
-                    ("Mau",      25.9462m, 83.5573m),
-                    ("Ghosi",    26.0936m, 83.5360m),
-                    ("Kopaganj", 26.0209m, 83.6484m),
-                    ("Madhuban", 26.1421m, 83.6879m),
+                    ("Mau",        25.9462m, 83.5573m),
+                    ("Ghosi",      26.0936m, 83.5360m),
+                    ("Kopaganj",   26.0209m, 83.6484m),
+                    ("Madhuban",   26.1421m, 83.6879m),
+                    ("Ratanpura",  26.0500m, 83.4800m),
+                    ("Dohrighat",  26.0300m, 83.8200m),
+                    ("Mohanpur",   25.9800m, 83.6400m),
+                    ("Phephna",    26.0200m, 83.5500m),
                 }
             },
             new {
                 Name = "Meerut", Lat = 28.9845m, Lng = 77.7064m,
                 Cities = new[] {
-                    ("Meerut",   28.9845m, 77.7064m),
-                    ("Sardhana", 29.1460m, 77.6145m),
-                    ("Mawana",   29.1041m, 77.7703m),
-                    ("Hapur",    28.7304m, 77.7763m),
-                    ("Modinagar",28.8367m, 77.5769m),
+                    ("Meerut",      28.9845m, 77.7064m),
+                    ("Sardhana",    29.1460m, 77.6145m),
+                    ("Mawana",      29.1041m, 77.7703m),
+                    ("Hapur",       28.7304m, 77.7763m),
+                    ("Modinagar",   28.8367m, 77.5769m),
+                    ("Kithore",     28.7900m, 77.8100m),
+                    ("Garh",        29.1100m, 78.1700m),
+                    ("Parikshitgarh",29.0100m, 77.9100m),
+                    ("Daurala",     29.0200m, 77.7200m),
                 }
             },
             new {
@@ -989,16 +1297,24 @@ public static class DataSeeder
                     ("Chunar",   25.1270m, 82.8750m),
                     ("Ahraura",  25.0105m, 83.0580m),
                     ("Lalganj",  25.1700m, 82.3500m),
+                    ("Marihan",  24.9200m, 82.9500m),
+                    ("Hallia",   25.0800m, 82.5100m),
+                    ("Majhwan",  25.3000m, 82.8500m),
+                    ("Vindhyachal",25.1300m, 82.5800m),
                 }
             },
             new {
                 Name = "Moradabad", Lat = 28.8386m, Lng = 78.7733m,
                 Cities = new[] {
-                    ("Moradabad",  28.8386m, 78.7733m),
-                    ("Sambhal",    28.5873m, 78.5686m),
-                    ("Rampur",     28.8186m, 79.0259m),
-                    ("Thakurdwara",29.0423m, 78.6147m),
-                    ("Bilari",     28.6244m, 78.8323m),
+                    ("Moradabad",   28.8386m, 78.7733m),
+                    ("Sambhal",     28.5873m, 78.5686m),
+                    ("Rampur",      28.8186m, 79.0259m),
+                    ("Thakurdwara", 29.0423m, 78.6147m),
+                    ("Bilari",      28.6244m, 78.8323m),
+                    ("Kundarki",    28.7200m, 79.1000m),
+                    ("Kanth",       28.7900m, 78.6300m),
+                    ("Suar",        28.9000m, 79.0200m),
+                    ("Amroha",      28.9045m, 78.4676m),
                 }
             },
             new {
@@ -1009,6 +1325,10 @@ public static class DataSeeder
                     ("Budhana",      29.2882m, 77.4786m),
                     ("Kairana",      29.3964m, 77.2020m),
                     ("Khatauli",     29.2835m, 77.7292m),
+                    ("Jansath",      29.2900m, 77.7700m),
+                    ("Charthawal",   29.5300m, 77.5600m),
+                    ("Purqazi",      29.6200m, 77.8100m),
+                    ("Bhopa",        29.3200m, 77.8100m),
                 }
             },
             new {
@@ -1018,15 +1338,23 @@ public static class DataSeeder
                     ("Puranpur",  28.5149m, 80.1467m),
                     ("Bisalpur",  28.2974m, 79.8013m),
                     ("Barkhera",  28.5693m, 79.8829m),
+                    ("Kalinagar", 28.6500m, 79.6700m),
+                    ("Marori",    28.7300m, 80.0100m),
+                    ("Amariya",   28.4800m, 79.9400m),
+                    ("Bilsanda",  28.3900m, 79.7500m),
                 }
             },
             new {
                 Name = "Pratapgarh", Lat = 25.8996m, Lng = 81.9845m,
                 Cities = new[] {
-                    ("Pratapgarh",  25.8996m, 81.9845m),
-                    ("Kunda",       25.7191m, 81.5169m),
-                    ("Rampur Kunda",25.7438m, 81.8979m),
-                    ("Lalganj",     25.9200m, 81.9100m),
+                    ("Pratapgarh",   25.8996m, 81.9845m),
+                    ("Kunda",        25.7191m, 81.5169m),
+                    ("Rampur Kunda", 25.7438m, 81.8979m),
+                    ("Lalganj",      25.9200m, 81.9100m),
+                    ("Patti",        25.9200m, 82.2100m),
+                    ("Raniganj",     25.6200m, 82.0300m),
+                    ("Mandhata",     25.9700m, 82.0600m),
+                    ("Sandwa",       25.8100m, 81.8600m),
                 }
             },
             new {
@@ -1037,6 +1365,10 @@ public static class DataSeeder
                     ("Handia",    25.3641m, 82.2356m),
                     ("Meja",      25.2361m, 81.9502m),
                     ("Bara",      25.2041m, 81.9831m),
+                    ("Naini",     25.4200m, 81.8800m),
+                    ("Kareli",    25.5200m, 81.8600m),
+                    ("Soraon",    25.5900m, 81.9600m),
+                    ("Shankargarh",25.1900m, 81.7400m),
                 }
             },
             new {
@@ -1047,24 +1379,36 @@ public static class DataSeeder
                     ("Salon",     26.0316m, 81.4476m),
                     ("Dalmau",    26.0671m, 81.0417m),
                     ("Lalganj",   26.2400m, 81.4200m),
+                    ("Tiloi",     26.2800m, 81.5100m),
+                    ("Mahrajganj",26.0700m, 81.3800m),
+                    ("Khiron",    26.1600m, 81.1800m),
+                    ("Harchandpur",26.3600m, 81.3400m),
                 }
             },
             new {
                 Name = "Rampur", Lat = 28.8186m, Lng = 79.0259m,
                 Cities = new[] {
-                    ("Rampur", 28.8186m, 79.0259m),
-                    ("Milak",  28.6513m, 79.2367m),
-                    ("Swar",   28.7593m, 79.1854m),
-                    ("Bilaspur",29.1900m, 79.0200m),
+                    ("Rampur",   28.8186m, 79.0259m),
+                    ("Milak",    28.6513m, 79.2367m),
+                    ("Swar",     28.7593m, 79.1854m),
+                    ("Bilaspur", 29.1900m, 79.0200m),
+                    ("Tanda",    28.9700m, 78.9200m),
+                    ("Shahabad", 28.7600m, 79.1200m),
+                    ("Chamraua", 28.9400m, 79.0800m),
+                    ("Paswara",  28.8700m, 78.8900m),
                 }
             },
             new {
                 Name = "Saharanpur", Lat = 29.9680m, Lng = 77.5510m,
                 Cities = new[] {
-                    ("Saharanpur",     29.9680m, 77.5510m),
-                    ("Deoband",        29.6940m, 77.6790m),
-                    ("Gangoh",         29.7819m, 77.2611m),
+                    ("Saharanpur",      29.9680m, 77.5510m),
+                    ("Deoband",         29.6940m, 77.6790m),
+                    ("Gangoh",          29.7819m, 77.2611m),
                     ("Rampur Maniharan",29.8214m, 77.4012m),
+                    ("Behat",           30.3800m, 77.7600m),
+                    ("Nakur",           29.9200m, 77.3500m),
+                    ("Muzaffarabad",    30.0500m, 77.6700m),
+                    ("Sarsawa",         29.8400m, 77.4100m),
                 }
             },
             new {
@@ -1074,14 +1418,22 @@ public static class DataSeeder
                     ("Chandausi",28.4535m, 78.7768m),
                     ("Gunnaur",  28.5149m, 78.4523m),
                     ("Rajpura",  28.4918m, 78.6134m),
+                    ("Bahjoi",   28.4600m, 78.6300m),
+                    ("Asmaoli",  28.5400m, 78.4700m),
+                    ("Panwari",  28.6100m, 78.3900m),
+                    ("Sular",    28.6700m, 78.5200m),
                 }
             },
             new {
                 Name = "Sant Kabir Nagar", Lat = 26.7741m, Lng = 83.0757m,
                 Cities = new[] {
-                    ("Khalilabad", 26.7741m, 83.0757m),
-                    ("Mehdawal",   27.0015m, 83.1219m),
-                    ("Baghauli",   26.9134m, 83.0048m),
+                    ("Khalilabad",   26.7741m, 83.0757m),
+                    ("Mehdawal",     27.0015m, 83.1219m),
+                    ("Baghauli",     26.9134m, 83.0048m),
+                    ("Bakhira",      26.9400m, 83.1100m),
+                    ("Hainsar Bazar",27.0500m, 83.2100m),
+                    ("Sohagi",       27.0900m, 83.0700m),
+                    ("Semriyawan",   26.8500m, 83.0200m),
                 }
             },
             new {
@@ -1091,15 +1443,23 @@ public static class DataSeeder
                     ("Tilhar",      27.9648m, 79.7337m),
                     ("Powayan",     28.0836m, 79.9638m),
                     ("Jalalabad",   27.7284m, 79.6826m),
+                    ("Katra",       27.9100m, 79.9900m),
+                    ("Banda",       27.8200m, 80.3800m),
+                    ("Nigohi",      27.9700m, 79.8200m),
+                    ("Madnapur",    27.8600m, 80.2300m),
                 }
             },
             new {
                 Name = "Shamli", Lat = 29.4497m, Lng = 77.3128m,
                 Cities = new[] {
-                    ("Shamli",       29.4497m, 77.3128m),
-                    ("Kairana",      29.3964m, 77.2020m),
-                    ("Thana Bhawan", 29.5864m, 77.4005m),
-                    ("Budhana",      29.2882m, 77.4786m),
+                    ("Shamli",      29.4497m, 77.3128m),
+                    ("Kairana",     29.3964m, 77.2020m),
+                    ("Thana Bhawan",29.5864m, 77.4005m),
+                    ("Budhana",     29.2882m, 77.4786m),
+                    ("Kandhla",     29.3200m, 77.2600m),
+                    ("Lisari Gate", 29.4300m, 77.2600m),
+                    ("Un",          29.5400m, 77.3600m),
+                    ("Jhinjhana",   29.5100m, 77.2200m),
                 }
             },
             new {
@@ -1108,15 +1468,23 @@ public static class DataSeeder
                     ("Bhinga",    27.7023m, 81.9459m),
                     ("Ikauna",    27.5879m, 82.1083m),
                     ("Huzoorpur", 27.8834m, 81.7869m),
+                    ("Jamunaha",  27.9400m, 82.0800m),
+                    ("Gilaula",   27.7700m, 82.0300m),
+                    ("Sirsia",    27.6800m, 82.0500m),
+                    ("Rahimpur",  27.6200m, 81.9800m),
                 }
             },
             new {
                 Name = "Siddharthnagar", Lat = 27.3097m, Lng = 82.7411m,
                 Cities = new[] {
-                    ("Naugarh",     27.3459m, 83.1148m),
-                    ("Shohratgarh", 27.2481m, 83.1947m),
-                    ("Domariyaganj",27.3097m, 82.7411m),
-                    ("Banhara Ghat",27.2135m, 83.4529m),
+                    ("Naugarh",      27.3459m, 83.1148m),
+                    ("Shohratgarh",  27.2481m, 83.1947m),
+                    ("Domariyaganj", 27.3097m, 82.7411m),
+                    ("Banhara Ghat", 27.2135m, 83.4529m),
+                    ("Barhni",       27.4100m, 82.8200m),
+                    ("Itwa",         27.2100m, 83.0600m),
+                    ("Khunwa",       27.3400m, 83.3500m),
+                    ("Bansi",        27.1800m, 83.0600m),
                 }
             },
             new {
@@ -1127,6 +1495,10 @@ public static class DataSeeder
                     ("Biswan",     27.4960m, 80.9600m),
                     ("Mahmudabad", 27.3018m, 81.1202m),
                     ("Hargaon",    27.3945m, 80.9736m),
+                    ("Maholi",     27.3900m, 80.5500m),
+                    ("Reusa",      27.4500m, 80.8900m),
+                    ("Khairabad",  27.5300m, 80.7300m),
+                    ("Sidhauli",   27.4300m, 80.8300m),
                 }
             },
             new {
@@ -1136,6 +1508,10 @@ public static class DataSeeder
                     ("Obra",        24.4535m, 82.9879m),
                     ("Renukoot",    24.2068m, 83.0423m),
                     ("Pipri",       24.5183m, 83.2347m),
+                    ("Anpara",      24.1900m, 82.8200m),
+                    ("Chopan",      24.4100m, 82.4900m),
+                    ("Dudhi",       24.2000m, 83.2200m),
+                    ("Babhani",     24.5700m, 83.4100m),
                 }
             },
             new {
@@ -1145,26 +1521,38 @@ public static class DataSeeder
                     ("Lambua",    26.1979m, 82.1843m),
                     ("Kadipur",   26.1346m, 82.3179m),
                     ("Amethi",    26.1486m, 81.7007m),
+                    ("Dostpur",   26.3000m, 82.2700m),
+                    ("Motipur",   26.2100m, 82.1500m),
+                    ("Kurebhar",  26.2400m, 82.3400m),
+                    ("Baldirai",  26.1000m, 82.0200m),
                 }
             },
             new {
                 Name = "Unnao", Lat = 26.5468m, Lng = 80.4883m,
                 Cities = new[] {
-                    ("Unnao",      26.5468m, 80.4883m),
-                    ("Purwa",      26.4548m, 80.7826m),
-                    ("Bangarmau",  26.7284m, 80.2103m),
-                    ("Hasanganj",  26.7133m, 80.5248m),
-                    ("Safipur",    26.7349m, 80.3445m),
+                    ("Unnao",               26.5468m, 80.4883m),
+                    ("Purwa",               26.4548m, 80.7826m),
+                    ("Bangarmau",           26.7284m, 80.2103m),
+                    ("Hasanganj",           26.7133m, 80.5248m),
+                    ("Safipur",             26.7349m, 80.3445m),
+                    ("Nawabganj",           26.5600m, 80.3500m),
+                    ("Bighapur",            26.8200m, 80.3300m),
+                    ("Fatehpur Chaurasi",   26.6300m, 80.6400m),
+                    ("Auras",               26.6600m, 80.7900m),
                 }
             },
             new {
                 Name = "Varanasi", Lat = 25.3176m, Lng = 82.9739m,
                 Cities = new[] {
-                    ("Varanasi",   25.3176m, 82.9739m),
+                    ("Varanasi",    25.3176m, 82.9739m),
                     ("Mughal Sarai",25.2816m, 83.1163m),
-                    ("Ramnagar",   25.2777m, 83.0199m),
-                    ("Pindra",     25.3957m, 83.0779m),
-                    ("Cholapur",   25.2551m, 83.1864m),
+                    ("Ramnagar",    25.2777m, 83.0199m),
+                    ("Pindra",      25.3957m, 83.0779m),
+                    ("Cholapur",    25.2551m, 83.1864m),
+                    ("Sewapuri",    25.2200m, 83.0800m),
+                    ("Shivpur",     25.3000m, 83.0300m),
+                    ("Arajiline",   25.3500m, 82.9800m),
+                    ("Harahua",     25.4000m, 82.9200m),
                 }
             },
         };
