@@ -221,8 +221,20 @@ public static class ListingsHandlers
         await unitOfWork.Listings.AddAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
+        // Invalidate cache if city is specified
+        var redis = sp.GetService<IConnectionMultiplexer>();
         if (request.CityId.HasValue)
-            await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), request.CityId.Value);
+            await InvalidateNearbyCacheAsync(redis, request.CityId.Value);
+        else if (listing.DistrictId != Guid.Empty)
+        {
+            // If no city but district exists, invalidate all cities in district
+            var district = await unitOfWork.Districts.GetByIdAsync(listing.DistrictId);
+            if (district?.Cities != null)
+            {
+                foreach (var city in district.Cities)
+                    await InvalidateNearbyCacheAsync(redis, city.Id);
+            }
+        }
 
         return CreatedResponse(new { listingId = listing.Id }, $"/api/v1/listings/{listing.Id}");
     }
@@ -321,6 +333,11 @@ public static class ListingsHandlers
         await unitOfWork.Listings.AddPhotoAsync(listingPhoto);
         await unitOfWork.SaveChangesAsync();
 
+        // Invalidate cache after photo upload so thumbnail appears immediately
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        if (listing.CityId.HasValue)
+            await InvalidateNearbyCacheAsync(redis, listing.CityId.Value);
+
         return CreatedResponse(new { photoUrl = url, photoId = listingPhoto.Id }, url);
     }
 
@@ -336,7 +353,7 @@ public static class ListingsHandlers
         return false;
     }
 
-    public static async Task<IResult> DeletePhoto(Guid id, Guid photoId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService)
+    public static async Task<IResult> DeletePhoto(Guid id, Guid photoId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -351,6 +368,11 @@ public static class ListingsHandlers
         await photoService.DeletePhotoAsync(photo.FilePath);
         unitOfWork.Listings.RemovePhoto(photo);
         await unitOfWork.SaveChangesAsync();
+
+        // Invalidate cache after photo deletion so thumbnail updates
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        if (listing.CityId.HasValue)
+            await InvalidateNearbyCacheAsync(redis, listing.CityId.Value);
 
         return NoContentResponse();
     }
