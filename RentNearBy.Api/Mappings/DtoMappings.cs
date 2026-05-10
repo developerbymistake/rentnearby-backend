@@ -1,7 +1,6 @@
 using Mapster;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
-using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Mappings;
 
@@ -31,18 +30,5 @@ public static class DtoMappings
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
 
-        TypeAdapterConfig<NearbyListingResult, NearbyListingDto>.NewConfig()
-            .Map(dest => dest.Id, src => src.Listing.Id)
-            .Map(dest => dest.PriceMonthly, src => src.Listing.PriceMonthly)
-            .Map(dest => dest.Latitude, src => src.Listing.Latitude)
-            .Map(dest => dest.Longitude, src => src.Listing.Longitude)
-            .Map(dest => dest.RoomTypeName, src => src.Listing.RoomType != null ? src.Listing.RoomType.Name : null)
-            .Map(dest => dest.OwnerName, src => src.Listing.User != null ? src.Listing.User.Name : null)
-            .Map(dest => dest.OwnerPhone, src => src.Listing.User != null ? src.Listing.User.PhoneNumber : null)
-            .Map(dest => dest.ThumbnailUrl, src => src.Listing.Photos != null && src.Listing.Photos.Any()
-                ? src.Listing.Photos.OrderBy(p => p.PhotoOrder).First().PhotoUrl
-                : null)
-            .Map(dest => dest.DistanceKm, src => Math.Round(src.DistanceKm, 2))
-            .Map(dest => dest.IsActive, src => src.Listing.IsActive);
     }
 }

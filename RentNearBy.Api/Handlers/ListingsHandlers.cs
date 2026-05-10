@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using FluentValidation;
 using Mapster;
 using RentNearBy.Core.DTOs.Requests;
@@ -6,34 +7,69 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Services;
+using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
 
 public static class ListingsHandlers
 {
-    public static async Task<IResult> GetContext(double lat, double lng, IUnitOfWork unitOfWork)
+    private static readonly TimeSpan ContextCacheTtl = TimeSpan.FromMinutes(10);
+
+    private static string ContextCacheKey(double lat, double lng)
+        => $"context:{lat:F2}:{lng:F2}";
+
+    public static async Task<IResult> GetContext(double lat, double lng, IUnitOfWork unitOfWork, IServiceProvider sp)
     {
-        var districts = (await unitOfWork.Districts.GetAllAsync()).ToList();
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
+            return BadRequestResponse("Invalid coordinates");
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var cacheKey = ContextCacheKey(lat, lng);
+
+        if (redis != null)
+        {
+            RedisValue cached = default;
+            try { cached = await redis.GetDatabase().StringGetAsync(cacheKey); } catch { }
+            if (cached.HasValue)
+            {
+                try
+                {
+                    var element = JsonSerializer.Deserialize<JsonElement>(cached!);
+                    return OkResponse(element);
+                }
+                catch (JsonException) { /* corrupted cache entry — fall through to DB */ }
+            }
+        }
+
+        var districts = (await unitOfWork.Districts.GetAllWithCitiesAsync()).ToList();
         if (districts.Count == 0) return BadRequestResponse("No districts configured");
 
         var nearestDistrict = districts
             .Select(d => new { District = d, Dist = Haversine(lat, lng, (double)(d.Latitude ?? 0), (double)(d.Longitude ?? 0)) })
             .MinBy(x => x.Dist)!.District;
 
-        var cities = (await unitOfWork.Cities.GetByDistrictIdAsync(nearestDistrict.Id)).ToList();
+        var cities = nearestDistrict.Cities.ToList();
 
         var nearestCity = cities
             .Where(c => c.Latitude.HasValue && c.Longitude.HasValue)
             .Select(c => new { City = c, Dist = Haversine(lat, lng, (double)c.Latitude!, (double)c.Longitude!) })
             .MinBy(x => x.Dist)?.City ?? cities.FirstOrDefault();
 
-        return OkResponse(new
+        var result = new
         {
             district = new { id = nearestDistrict.Id, name = nearestDistrict.Name, latitude = nearestDistrict.Latitude, longitude = nearestDistrict.Longitude },
             nearestCityId = nearestCity?.Id,
             cities = cities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
-        });
+        };
+
+        if (redis != null)
+        {
+            var json = JsonSerializer.Serialize(result);
+            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, ContextCacheTtl, When.NotExists); } catch { }
+        }
+
+        return OkResponse(result);
     }
 
     private static double Haversine(double lat1, double lng1, double lat2, double lng2)
@@ -47,25 +83,73 @@ public static class ListingsHandlers
         return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
     }
 
+    private static readonly TimeSpan NearbyCacheTtl = TimeSpan.FromSeconds(60);
+
+    private static string NearbyCacheKey(Guid cityId, double radius, double lat, double lng)
+        => $"nearby:{cityId}:{radius:F1}:{lat:F3}:{lng:F3}";
+
+    private static string NearbyCityPattern(Guid cityId) => $"nearby:{cityId}:*";
+
+    private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid cityId)
+    {
+        if (redis == null) return;
+        try
+        {
+            var db = redis.GetDatabase();
+            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
+            if (server == null) return;
+            var pattern = NearbyCityPattern(cityId);
+            await foreach (var key in server.KeysAsync(pattern: pattern))
+                await db.KeyDeleteAsync(key);
+        }
+        catch { /* best-effort: TTL (60s) covers Redis failures */ }
+    }
+
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid cityId,
         IUnitOfWork unitOfWork,
-        ClaimsPrincipal principal)
+        ClaimsPrincipal principal,
+        IServiceProvider sp)
     {
-        if (radius <= 0 || radius > 50)
+        if (radius < 1 || radius > 50)
             return BadRequestResponse("Radius must be between 1 and 50 km");
+        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
+            return BadRequestResponse("Invalid coordinates");
 
-        var results = await unitOfWork.Listings.GetNearbyAsync(latitude, longitude, radius, cityId);
-        var isAuthenticated = principal.Identity?.IsAuthenticated == true;
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var isAuth = principal.Identity?.IsAuthenticated == true;
+        var cacheKey = NearbyCacheKey(cityId, radius, latitude, longitude);
 
-        var items = results.Select(r =>
+        if (redis != null)
         {
-            var dto = r.Adapt<NearbyListingDto>();
-            if (!isAuthenticated) dto.OwnerPhone = null;
-            return dto;
-        }).ToList();
+            var db = redis.GetDatabase();
+            RedisValue cached = default;
+            try { cached = await db.StringGetAsync(cacheKey); } catch { }
+            if (cached.HasValue)
+            {
+                try
+                {
+                    var items = JsonSerializer.Deserialize<List<NearbyListingDto>>(cached!);
+                    if (items != null)
+                    {
+                        if (!isAuth) items.ForEach(d => d.OwnerPhone = null);
+                        return OkResponse(new { items });
+                    }
+                }
+                catch (JsonException) { /* corrupted cache entry — fall through to DB */ }
+            }
+        }
 
-        return OkResponse(new { items });
+        var fetched = (await unitOfWork.Listings.GetNearbyAsync(latitude, longitude, radius, cityId)).ToList();
+
+        if (redis != null)
+        {
+            var json = JsonSerializer.Serialize(fetched);
+            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearbyCacheTtl, When.NotExists); } catch { }
+        }
+
+        if (!isAuth) fetched.ForEach(d => d.OwnerPhone = null);
+        return OkResponse(new { items = fetched });
     }
 
     public static async Task<IResult> Search(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, IUnitOfWork unitOfWork)
@@ -99,7 +183,8 @@ public static class ListingsHandlers
         CreateListingRequest request,
         ClaimsPrincipal principal,
         IValidator<CreateListingRequest> validator,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -136,17 +221,26 @@ public static class ListingsHandlers
         await unitOfWork.Listings.AddAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
+        if (request.CityId.HasValue)
+            await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), request.CityId.Value);
+
         return CreatedResponse(new { listingId = listing.Id }, $"/api/v1/listings/{listing.Id}");
     }
 
-    public static async Task<IResult> UpdateListing(Guid id, UpdateListingRequest request, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> UpdateListing(Guid id, UpdateListingRequest request, ClaimsPrincipal principal, IValidator<UpdateListingRequest> validator, IUnitOfWork unitOfWork, IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
         var listing = await unitOfWork.Listings.GetByIdAsync(id);
         if (listing == null) return NotFoundResponse("Listing not found");
         if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
+
+        var oldCityId = listing.CityId;
 
         if (request.RoomTypeId.HasValue) listing.RoomTypeId = request.RoomTypeId.Value;
         if (request.Description != null) listing.Description = request.Description;
@@ -156,9 +250,10 @@ public static class ListingsHandlers
         if (request.Address != null) listing.Address = request.Address;
         if (request.CityId.HasValue)
         {
-            listing.CityId = request.CityId.Value;
             var city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);
-            if (city != null) listing.DistrictId = city.DistrictId;
+            if (city == null) return BadRequestResponse("Selected city does not exist");
+            listing.CityId = request.CityId.Value;
+            listing.DistrictId = city.DistrictId;
         }
         if (request.IsActive.HasValue) listing.IsActive = request.IsActive.Value;
         listing.UpdatedAt = DateTime.UtcNow;
@@ -166,10 +261,17 @@ public static class ListingsHandlers
         await unitOfWork.Listings.UpdateAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var newCityId = listing.CityId;
+        if (newCityId.HasValue)
+            await InvalidateNearbyCacheAsync(redis, newCityId.Value);
+        if (oldCityId.HasValue && oldCityId != newCityId)
+            await InvalidateNearbyCacheAsync(redis, oldCityId.Value);
+
         return OkResponse(new { success = true });
     }
 
-    public static async Task<IResult> DeleteListing(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService)
+    public static async Task<IResult> DeleteListing(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -178,9 +280,14 @@ public static class ListingsHandlers
         if (listing == null) return NotFoundResponse("Listing not found");
         if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
 
+        var cityId = listing.CityId;
+
         await photoService.DeleteListingPhotosAsync(userId, id);
         await unitOfWork.Listings.DeleteAsync(listing);
         await unitOfWork.SaveChangesAsync();
+
+        if (cityId.HasValue)
+            await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), cityId.Value);
 
         return NoContentResponse();
     }

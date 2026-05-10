@@ -8,12 +8,9 @@ services:
       Jwt__Key: ${JWT_KEY}
       Jwt__Issuer: RentNearBy
       Jwt__Audience: RentNearBy
-      Storage__UploadPath: /app/uploads
-      Storage__BaseUrl: ${API_BASE_URL}
-    volumes:
-      - uploads:/app/uploads
+      REDIS_URL: ${REDIS_URL}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
     ports:
       - "5000:5000"
-
-volumes:
-  uploads:

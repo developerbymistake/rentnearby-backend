@@ -16,7 +16,7 @@ public static class ServiceCollectionExtensions
             ?? throw new InvalidOperationException("DATABASE_URL not configured");
 
         services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseNpgsql(connectionString));
+            options.UseNpgsql(connectionString, o => o.UseNetTopologySuite()));
 
         services.AddMemoryCache();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -36,7 +36,12 @@ public static class ServiceCollectionExtensions
             services.AddSingleton<IConnectionMultiplexer>(_ =>
             {
                 var uri = new Uri(redisUrl);
-                var options = new ConfigurationOptions { AbortOnConnectFail = false };
+                var options = new ConfigurationOptions
+                {
+                    AbortOnConnectFail = false,
+                    ConnectTimeout = 3000,
+                    AsyncTimeout = 1000
+                };
                 options.EndPoints.Add(uri.Host, uri.Port);
                 if (!string.IsNullOrEmpty(uri.UserInfo))
                 {

@@ -31,7 +31,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasKey(s => s.Id);
             e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
-            e.HasIndex(s => new { s.UserId, s.IsRevoked });
+            e.HasIndex(s => s.UserId);
             e.HasIndex(s => s.ExpiresAt);
             e.HasOne(s => s.User)
              .WithMany()
@@ -113,7 +113,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => l.IsActive);
             e.HasIndex(l => l.PriceMonthly);
             e.HasIndex(l => l.CreatedAt);
-            // Geo index created as GiST via raw SQL in Program.cs startup
+            // Stored geography column — auto-computed from Latitude/Longitude by PostgreSQL
+            e.Property<NetTopologySuite.Geometries.Point?>("Location")
+             .HasColumnType("geography(Point, 4326)")
+             .HasComputedColumnSql(
+                 "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography",
+                 stored: true);
+            e.HasIndex("Location")
+             .HasMethod("gist")
+             .HasDatabaseName("ix_listings_location_gist");
             // Composite: My Listings pagination — filter by user, sort newest first
             e.HasIndex(l => new { l.UserId, l.CreatedAt });
             // Composite: GetNearby secondary filter — city + active (GiST is primary spatial filter)

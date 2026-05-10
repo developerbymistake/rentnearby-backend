@@ -1,59 +1,81 @@
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
-using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
 
 public class ListingRepository(ApplicationDbContext context) : Repository<Listing>(context), IListingRepository
 {
-    private record CandidateDistance(Guid Id, double DistanceKm);
+    private record BoxQueryResult(
+        Guid Id, int? PriceMonthly, double Lat, double Lng,
+        string? RoomTypeName, string? OwnerName, string? OwnerPhone, string? ThumbnailUrl);
 
-    public async Task<IEnumerable<NearbyListingResult>> GetNearbyAsync(
+    private static (double MinLat, double MaxLat, double MinLng, double MaxLng)
+        GetBoundingBox(double lat, double lng, double radiusKm)
+    {
+        const double R = 6371.0;
+        var dLat = radiusKm / R * (180.0 / Math.PI);
+        var dLng = radiusKm / (R * Math.Cos(lat * Math.PI / 180.0)) * (180.0 / Math.PI);
+        return (lat - dLat, lat + dLat, lng - dLng, lng + dLng);
+    }
+
+    public async Task<IEnumerable<NearbyListingDto>> GetNearbyAsync(
         double latitude, double longitude, double radiusKm, Guid cityId)
     {
-        double radiusMeters = radiusKm * 1000.0;
+        var (minLat, maxLat, minLng, maxLng) = GetBoundingBox(latitude, longitude, radiusKm);
 
-        // Step 1: PostGIS ST_DWithin for exact geographic circle filter.
-        // Returns only listings within the radius and their DB-computed distances.
-        // Uses ix_listings_location_gist (geography GIST index).
-        var candidates = await context.Database
-            .SqlQuery<CandidateDistance>($"""
-                SELECT l."Id",
-                    ST_Distance(
-                        ST_MakePoint(l."Longitude"::float8, l."Latitude"::float8)::geography,
-                        ST_MakePoint({longitude}::float8, {latitude}::float8)::geography
-                    ) / 1000.0 AS "DistanceKm"
+        // Single DB query: GiST && bounding box (no spherical math, index-only filter)
+        // then project required columns. C# Haversine trims corners to exact circle.
+        var box = await context.Database
+            .SqlQuery<BoxQueryResult>($"""
+                SELECT
+                    l."Id",
+                    l."PriceMonthly",
+                    l."Latitude"::float8   AS "Lat",
+                    l."Longitude"::float8  AS "Lng",
+                    rt."Name"      AS "RoomTypeName",
+                    u."Name"       AS "OwnerName",
+                    u."PhoneNumber" AS "OwnerPhone",
+                    (
+                        SELECT p."PhotoUrl"
+                        FROM "ListingPhotos" p
+                        WHERE p."ListingId" = l."Id"
+                        ORDER BY p."PhotoOrder"
+                        LIMIT 1
+                    ) AS "ThumbnailUrl"
                 FROM "Listings" l
+                LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
+                LEFT JOIN "Users" u      ON u."Id"  = l."UserId"
                 WHERE l."IsActive" = TRUE
                   AND l."CityId" = {cityId}
-                  AND ST_DWithin(
-                        ST_MakePoint(l."Longitude"::float8, l."Latitude"::float8)::geography,
-                        ST_MakePoint({longitude}::float8, {latitude}::float8)::geography,
-                        {radiusMeters}
-                      )
+                  AND l."Location" && ST_MakeEnvelope({minLng}::float8, {minLat}::float8,
+                                                       {maxLng}::float8, {maxLat}::float8, 4326)::geography
                 """)
             .ToListAsync();
 
-        if (candidates.Count == 0)
-            return Enumerable.Empty<NearbyListingResult>();
+        if (box.Count == 0)
+            return Enumerable.Empty<NearbyListingDto>();
 
-        var ids = candidates.Select(c => c.Id).ToList();
-        var distanceMap = candidates.ToDictionary(c => c.Id, c => c.DistanceKm);
-
-        // Step 2: Load full entities with navigation properties for the candidate set.
-        var listings = await _dbSet
-            .AsNoTracking()
-            .Include(l => l.RoomType)
-            .Include(l => l.User)
-            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
-            .Where(l => ids.Contains(l.Id))
-            .ToListAsync();
-
-        return listings
-            .Select(l => new NearbyListingResult(l, distanceMap[l.Id]))
-            .OrderBy(r => r.DistanceKm);
+        return box
+            .Select(r => (Row: r, Dist: Haversine(latitude, longitude, r.Lat, r.Lng)))
+            .Where(x => x.Dist <= radiusKm)
+            .OrderBy(x => x.Dist)
+            .Select(x => new NearbyListingDto
+            {
+                Id = x.Row.Id,
+                PriceMonthly = x.Row.PriceMonthly,
+                Latitude = (decimal)x.Row.Lat,
+                Longitude = (decimal)x.Row.Lng,
+                IsActive = true,
+                RoomTypeName = x.Row.RoomTypeName,
+                OwnerName = x.Row.OwnerName,
+                OwnerPhone = x.Row.OwnerPhone,
+                ThumbnailUrl = x.Row.ThumbnailUrl,
+                DistanceKm = x.Dist
+            })
+            .ToList();
     }
 
     public async Task<IEnumerable<Listing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax)

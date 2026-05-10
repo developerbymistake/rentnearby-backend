@@ -9,7 +9,7 @@ public class DistrictRepository(ApplicationDbContext context) : Repository<Distr
 {
     public async Task<IEnumerable<District>> GetAllWithCitiesAsync()
         => await _dbSet.AsNoTracking()
-            .Include(d => d.Cities)
+            .Include(d => d.Cities.OrderBy(c => c.Name))
             .OrderBy(d => d.Name)
             .ToListAsync();
 }
