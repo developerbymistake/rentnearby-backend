@@ -1555,6 +1555,264 @@ public static class DataSeeder
                     ("Harahua",     25.4000m, 82.9200m),
                 }
             },
+
+            // ── WEST BENGAL ──────────────────────────────────────────────────────────
+            new {
+                Name = "Alipurduar", Lat = 26.4954m, Lng = 89.5352m,
+                Cities = new[] {
+                    ("Alipurduar",     26.4954m, 89.5352m),
+                    ("Madarihat",      26.3842m, 89.3211m),
+                    ("Kumargram",      26.3200m, 89.5700m),
+                    ("Falakata",       26.5670m, 88.9634m),
+                    ("Hoollongapur",   26.2400m, 89.7200m),
+                }
+            },
+            new {
+                Name = "Bankura", Lat = 23.8590m, Lng = 87.0688m,
+                Cities = new[] {
+                    ("Bankura",        23.8590m, 87.0688m),
+                    ("Bishnupur",      23.7522m, 87.3226m),
+                    ("Khatra",         24.0100m, 86.8600m),
+                    ("Saltora",        23.9500m, 87.1200m),
+                    ("Raipur",         23.7900m, 87.5600m),
+                    ("Taldangra",      24.1200m, 87.4500m),
+                    ("Vishnupur",      23.7500m, 87.3200m),
+                }
+            },
+            new {
+                Name = "Birbhum", Lat = 24.0989m, Lng = 87.2685m,
+                Cities = new[] {
+                    ("Suri",           24.0989m, 87.2685m),
+                    ("Bolpur",         23.9694m, 87.4737m),
+                    ("Santiniketan",   23.9556m, 87.6755m),
+                    ("Rampurhat",      24.3200m, 87.1500m),
+                    ("Nanoor",         24.2200m, 87.4300m),
+                    ("Khoyrasol",      24.1500m, 87.0800m),
+                    ("Nalhati",        24.1800m, 87.5200m),
+                }
+            },
+            new {
+                Name = "Cooch Behar", Lat = 26.3300m, Lng = 89.2400m,
+                Cities = new[] {
+                    ("Cooch Behar",    26.3300m, 89.2400m),
+                    ("Haldibari",      26.5263m, 88.9842m),
+                    ("Mathabhanga",    26.4700m, 89.5100m),
+                    ("Sitalkuchi",     26.1900m, 89.4500m),
+                    ("Dinhata",        26.3900m, 89.1500m),
+                    ("Tufanganj",      26.2000m, 88.9700m),
+                    ("Mekhliganj",     26.3600m, 89.3200m),
+                }
+            },
+            new {
+                Name = "Darjeeling", Lat = 27.0360m, Lng = 88.2605m,
+                Cities = new[] {
+                    ("Darjeeling",     27.0360m, 88.2605m),
+                    ("Kurseong",       26.8823m, 88.2704m),
+                    ("Kalimpong",      27.0731m, 88.4673m),
+                    ("Siliguri",       26.7271m, 88.3953m),
+                    ("Mirik",          27.0668m, 88.3219m),
+                    ("Rangli Rangliot", 27.1800m, 88.3200m),
+                    ("Matigara",       26.8000m, 88.4300m),
+                    ("Lebong",         27.0200m, 88.2800m),
+                    ("Bijanbari",      27.0900m, 88.1800m),
+                    ("Pankhabari",     26.9100m, 88.2700m),
+                }
+            },
+            new {
+                Name = "Dinajpur", Lat = 25.6271m, Lng = 88.6385m,
+                Cities = new[] {
+                    ("Dinajpur",       25.6271m, 88.6385m),
+                    ("Baishnab Nagar", 25.6700m, 88.5800m),
+                    ("Balurghat",      25.2305m, 88.7869m),
+                    ("Thakurgaon",     26.1500m, 88.4700m),
+                    ("Kalipur",        25.5200m, 88.7500m),
+                    ("Gangarampur",    25.4800m, 88.9200m),
+                    ("Birol",          25.6100m, 88.4300m),
+                }
+            },
+            new {
+                Name = "East Midnapore", Lat = 22.3985m, Lng = 88.1768m,
+                Cities = new[] {
+                    ("Medinipur",      22.3985m, 88.1768m),
+                    ("Contai",         21.9404m, 88.0042m),
+                    ("Egra",           22.4500m, 88.2400m),
+                    ("Ramnagar",       22.5800m, 88.1700m),
+                    ("Haldia",         22.1772m, 88.0556m),
+                    ("Tamluk",         22.2897m, 87.7559m),
+                    ("Nandigram",      22.1400m, 88.1600m),
+                }
+            },
+            new {
+                Name = "Howrah", Lat = 22.5958m, Lng = 88.2636m,
+                Cities = new[] {
+                    ("Howrah",         22.5958m, 88.2636m),
+                    ("Shibpur",        22.5660m, 88.2470m),
+                    ("Bally",          22.6156m, 88.3744m),
+                    ("Shyamnagar",     22.6200m, 88.4300m),
+                    ("Uttarpara Kotrung", 22.6544m, 88.3686m),
+                    ("Lalbag",         22.6000m, 88.3100m),
+                    ("Panchla",        22.6700m, 88.4400m),
+                    ("Amta",           22.5100m, 88.2500m),
+                }
+            },
+            new {
+                Name = "Hooghly", Lat = 23.0291m, Lng = 88.3947m,
+                Cities = new[] {
+                    ("Hooghly",        23.0291m, 88.3947m),
+                    ("Serampore",      22.7500m, 88.3700m),
+                    ("Chinsurah",      22.7608m, 88.3722m),
+                    ("Arambagh",       23.4000m, 88.3600m),
+                    ("Rishra",         22.8000m, 88.3800m),
+                    ("Tarakeswar",     23.3500m, 88.3200m),
+                    ("Pandua",         23.3800m, 88.5600m),
+                }
+            },
+            new {
+                Name = "Jalpaiguri", Lat = 26.5203m, Lng = 88.7253m,
+                Cities = new[] {
+                    ("Jalpaiguri",     26.5203m, 88.7253m),
+                    ("Rajganj",        26.5500m, 88.9600m),
+                    ("Mainaguri",      26.4500m, 88.8300m),
+                    ("Nagrakata",      26.6700m, 88.5600m),
+                    ("Dhupguri",       26.6100m, 88.7100m),
+                    ("Malbazar",       26.8700m, 88.8200m),
+                    ("Maynaguri",      26.4400m, 88.8500m),
+                }
+            },
+            new {
+                Name = "Jhargram", Lat = 22.8436m, Lng = 87.0836m,
+                Cities = new[] {
+                    ("Jhargram",       22.8436m, 87.0836m),
+                    ("Nayagram",       22.6700m, 87.1200m),
+                    ("Salboni",        22.7500m, 87.2300m),
+                    ("Raghunathpur",   22.9800m, 86.8700m),
+                    ("Sandilpur",      22.8300m, 87.3200m),
+                }
+            },
+            new {
+                Name = "Kolkata", Lat = 22.5726m, Lng = 88.3639m,
+                Cities = new[] {
+                    ("Kolkata",        22.5726m, 88.3639m),
+                    ("Alipore",        22.5339m, 88.3587m),
+                    ("Ballygunge",     22.5275m, 88.3750m),
+                    ("Behala",         22.4900m, 88.3500m),
+                    ("Bhowanipore",    22.5200m, 88.3600m),
+                    ("Chetla",         22.4800m, 88.3600m),
+                    ("Kalighat",       22.5141m, 88.3522m),
+                }
+            },
+            new {
+                Name = "Malda", Lat = 25.9545m, Lng = 88.1392m,
+                Cities = new[] {
+                    ("Malda",          25.9545m, 88.1392m),
+                    ("English Bazar",  25.3076m, 88.2745m),
+                    ("Haluaghat",      25.8600m, 88.5400m),
+                    ("Ratua",          25.8200m, 88.3300m),
+                    ("Kaliachak",      25.7700m, 88.0500m),
+                    ("Sahibganj",      24.6200m, 87.8200m),
+                }
+            },
+            new {
+                Name = "Murshidabad", Lat = 24.1733m, Lng = 88.2534m,
+                Cities = new[] {
+                    ("Murshidabad",    24.1733m, 88.2534m),
+                    ("Berhampore",     24.1019m, 88.2435m),
+                    ("Domkal",         24.4236m, 88.5909m),
+                    ("Khagra",         24.4100m, 88.4300m),
+                    ("Raghunathganj",  24.1600m, 88.4200m),
+                    ("Sagarbari",      24.3800m, 88.1700m),
+                    ("Jiaganj",        24.1800m, 88.3000m),
+                }
+            },
+            new {
+                Name = "Nadia", Lat = 23.6345m, Lng = 88.4329m,
+                Cities = new[] {
+                    ("Krishnanagar",   23.4016m, 88.4827m),
+                    ("Santipur",       23.6345m, 88.4329m),
+                    ("Ranaghat",       23.9433m, 88.6337m),
+                    ("Kalyani",        22.9700m, 88.4300m),
+                    ("Nabadwip",       23.5900m, 88.1900m),
+                    ("Majdia",         23.4600m, 88.7500m),
+                }
+            },
+            new {
+                Name = "North 24 Parganas", Lat = 22.9456m, Lng = 88.4749m,
+                Cities = new[] {
+                    ("Barrackpur",     22.7653m, 88.3742m),
+                    ("Barasat",        22.7192m, 88.4734m),
+                    ("Asansol",        23.6832m, 86.9697m),
+                    ("Bidhannagar",    22.5800m, 88.3800m),
+                    ("Bongaon",        22.8700m, 88.8100m),
+                    ("Garia",          22.5200m, 88.5100m),
+                    ("Dum Dum",        22.6400m, 88.4400m),
+                }
+            },
+            new {
+                Name = "Paschim Medinipur", Lat = 22.7927m, Lng = 87.5302m,
+                Cities = new[] {
+                    ("Medinipur",      22.7927m, 87.5302m),
+                    ("Ghatal",         23.2500m, 87.5600m),
+                    ("Debra",          22.6000m, 87.2500m),
+                    ("Kharagpur",      22.3268m, 87.3269m),
+                    ("Sabang",         22.4600m, 87.1800m),
+                    ("Rangpur",        22.8500m, 87.4200m),
+                }
+            },
+            new {
+                Name = "Purba Bardhaman", Lat = 23.8090m, Lng = 87.6585m,
+                Cities = new[] {
+                    ("Bardhaman",      23.8090m, 87.6585m),
+                    ("Asansol",        23.6832m, 86.9697m),
+                    ("Durgapur",       23.6214m, 87.3158m),
+                    ("Katwa",          23.9700m, 87.8900m),
+                    ("Kalna",          23.6300m, 88.1500m),
+                    ("Bolpur",         23.9694m, 87.4737m),
+                }
+            },
+            new {
+                Name = "Purulia", Lat = 23.5250m, Lng = 86.2658m,
+                Cities = new[] {
+                    ("Purulia",        23.5250m, 86.2658m),
+                    ("Manbazar",       23.4200m, 86.4600m),
+                    ("Raghunathpur",   23.6600m, 86.3900m),
+                    ("Jamshedpur",     22.8046m, 84.8304m),
+                    ("Para",           23.9100m, 86.2200m),
+                    ("Bagmundi",       23.7200m, 86.0700m),
+                }
+            },
+            new {
+                Name = "South 24 Parganas", Lat = 21.9850m, Lng = 88.4700m,
+                Cities = new[] {
+                    ("Alipur",         21.9850m, 88.4700m),
+                    ("Canning",        22.0400m, 88.5600m),
+                    ("Gosaba",         21.8300m, 88.7800m),
+                    ("Diamond Harbour", 22.1920m, 88.2066m),
+                    ("Jaynagar",       21.9600m, 88.3400m),
+                    ("Kakdwip",        21.8600m, 88.1100m),
+                    ("Falta",          22.1200m, 88.1600m),
+                }
+            },
+            new {
+                Name = "Uttar Dinajpur", Lat = 26.1500m, Lng = 88.4700m,
+                Cities = new[] {
+                    ("Thakurgaon",     26.1500m, 88.4700m),
+                    ("Raiganj",        25.5900m, 88.1200m),
+                    ("Itahar",         26.0800m, 88.5600m),
+                    ("Hemtabad",       26.1200m, 88.2300m),
+                    ("Kishangunj",     25.2800m, 87.9400m),
+                }
+            },
+            new {
+                Name = "Paschim Bardhaman", Lat = 23.2500m, Lng = 87.1200m,
+                Cities = new[] {
+                    ("Asansol",        23.6832m, 86.9697m),
+                    ("Durgapur",       23.6214m, 87.3158m),
+                    ("Kulti",          23.8500m, 86.9300m),
+                    ("Jamuria",        23.7700m, 86.8200m),
+                    ("Damodar",        23.6300m, 87.0400m),
+                    ("Pandabeswar",    23.4500m, 86.9900m),
+                }
+            },
         };
 
         foreach (var d in data)
