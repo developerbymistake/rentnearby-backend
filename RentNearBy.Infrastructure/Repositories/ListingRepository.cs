@@ -26,8 +26,9 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
     {
         var (minLat, maxLat, minLng, maxLng) = GetBoundingBox(latitude, longitude, radiusKm);
 
-        // Single DB query: GiST && bounding box (no spherical math, index-only filter)
-        // then project required columns. C# Haversine trims corners to exact circle.
+        // Single DB query: GiST && bounding box + LATERAL JOIN for photos (N+1 fix)
+        // LATERAL JOIN replaces correlated subquery - executes once instead of per-row
+        // Index on ListingPhotos(ListingId, PhotoOrder) enables efficient first-photo lookup
         var box = await context.Database
             .SqlQuery<BoxQueryResult>($"""
                 SELECT
@@ -38,16 +39,17 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
                     rt."Name"      AS "RoomTypeName",
                     u."Name"       AS "OwnerName",
                     u."PhoneNumber" AS "OwnerPhone",
-                    (
-                        SELECT p."PhotoUrl"
-                        FROM "ListingPhotos" p
-                        WHERE p."ListingId" = l."Id"
-                        ORDER BY p."PhotoOrder"
-                        LIMIT 1
-                    ) AS "ThumbnailUrl"
+                    p."PhotoUrl"   AS "ThumbnailUrl"
                 FROM "Listings" l
                 LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
                 LEFT JOIN "Users" u      ON u."Id"  = l."UserId"
+                LEFT JOIN LATERAL (
+                    SELECT p."PhotoUrl"
+                    FROM "ListingPhotos" p
+                    WHERE p."ListingId" = l."Id"
+                    ORDER BY p."PhotoOrder"
+                    LIMIT 1
+                ) p ON TRUE
                 WHERE l."IsActive" = TRUE
                   AND l."CityId" = {cityId}
                   AND l."Location" && ST_MakeEnvelope({minLng}::float8, {minLat}::float8,
