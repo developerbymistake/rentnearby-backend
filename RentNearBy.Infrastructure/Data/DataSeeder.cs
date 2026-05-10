@@ -1610,6 +1610,7 @@ public static class DataSeeder
                     ("Kurseong",       26.8823m, 88.2704m),
                     ("Kalimpong",      27.0731m, 88.4673m),
                     ("Siliguri",       26.7271m, 88.3953m),
+                    ("Bagdogra",       26.8833m, 88.3667m),
                     ("Mirik",          27.0668m, 88.3219m),
                     ("Rangli Rangliot", 27.1800m, 88.3200m),
                     ("Matigara",       26.8000m, 88.4300m),
