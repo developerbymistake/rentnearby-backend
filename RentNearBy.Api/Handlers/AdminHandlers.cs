@@ -233,4 +233,48 @@ public static class AdminHandlers
             ListingsByDistrict = listingsByDistrict.ToDictionary(x => x.District, x => x.Count)
         });
     }
+
+    public static async Task<IResult> GetPaymentFeature(IUnitOfWork unitOfWork)
+    {
+        var paymentFeature = await unitOfWork.PaymentFeature.GetAsync();
+        if (paymentFeature == null)
+        {
+            // Create default if doesn't exist
+            paymentFeature = new PaymentFeature
+            {
+                Id = Guid.NewGuid(),
+                IsEnabled = false,
+                FreePlanDays = 10,
+                FreePlanRoomLimit = 1,
+                PaidPlanPrice = 99,
+                PaidPlanDays = 30,
+                PaidPlanRoomLimit = 2,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await unitOfWork.PaymentFeature.AddAsync(paymentFeature);
+            await unitOfWork.SaveChangesAsync();
+        }
+        return OkResponse(paymentFeature);
+    }
+
+    public static async Task<IResult> UpdatePaymentFeature(PaymentFeatureUpdateRequest request, IUnitOfWork unitOfWork)
+    {
+        var paymentFeature = await unitOfWork.PaymentFeature.GetAsync();
+        if (paymentFeature == null)
+            return NotFoundResponse("Payment feature not configured");
+
+        paymentFeature.IsEnabled = request.IsEnabled;
+        if (request.FreePlanDays.HasValue) paymentFeature.FreePlanDays = request.FreePlanDays.Value;
+        if (request.FreePlanRoomLimit.HasValue) paymentFeature.FreePlanRoomLimit = request.FreePlanRoomLimit.Value;
+        if (request.PaidPlanPrice.HasValue) paymentFeature.PaidPlanPrice = request.PaidPlanPrice.Value;
+        if (request.PaidPlanDays.HasValue) paymentFeature.PaidPlanDays = request.PaidPlanDays.Value;
+        if (request.PaidPlanRoomLimit.HasValue) paymentFeature.PaidPlanRoomLimit = request.PaidPlanRoomLimit.Value;
+        paymentFeature.UpdatedAt = DateTime.UtcNow;
+
+        await unitOfWork.PaymentFeature.UpdateAsync(paymentFeature);
+        await unitOfWork.SaveChangesAsync();
+
+        return OkResponse(paymentFeature);
+    }
 }

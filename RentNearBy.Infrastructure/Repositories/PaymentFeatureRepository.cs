@@ -10,6 +10,11 @@ public class PaymentFeatureRepository(ApplicationDbContext context) : IPaymentFe
     public async Task<PaymentFeature?> GetAsync()
         => await context.PaymentFeatures.FirstOrDefaultAsync();
 
+    public async Task AddAsync(PaymentFeature feature)
+    {
+        await context.PaymentFeatures.AddAsync(feature);
+    }
+
     public async Task UpdateAsync(PaymentFeature feature)
     {
         var existing = await GetAsync();
