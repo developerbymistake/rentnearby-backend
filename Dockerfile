@@ -19,7 +19,7 @@ RUN dotnet build RentNearBy.Api.csproj -c Release --no-restore -o /app/build
 
 # Publish
 FROM build AS publish
-RUN dotnet publish RentNearBy.Api.csproj -c Release -o /app/publish
+RUN dotnet publish RentNearBy.Api.csproj -c Release --no-build -o /app/publish
 
 # Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
