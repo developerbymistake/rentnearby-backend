@@ -25,6 +25,11 @@ public class UserMembershipRepository(ApplicationDbContext context) : IUserMembe
         return user?.HasUsedFreePlan ?? false;
     }
 
+    public async Task<IEnumerable<UserMembership>> GetExpiredAsync(DateTime beforeDate)
+        => await context.UserMemberships
+            .Where(m => m.IsActive && m.ValidUntil < beforeDate)
+            .ToListAsync();
+
     public async Task SaveAsync()
         => await context.SaveChangesAsync();
 }

@@ -24,6 +24,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPhotoService, PhotoService>();
         services.AddScoped<IPaymentService, PaymentService>();
 
+        // Register background service for membership expiry (runs at 12:00 AM daily)
+        services.AddHostedService<MembershipExpiryService>();
+
         services.AddHttpClient<IRazorpayService, RazorpayService>();
 
         services.AddHttpClient<IGeocodingService, NominatimGeocodingService>(client =>

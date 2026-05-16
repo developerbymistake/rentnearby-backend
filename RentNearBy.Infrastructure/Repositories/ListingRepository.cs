@@ -25,10 +25,12 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
         double latitude, double longitude, double radiusKm, Guid cityId)
     {
         var (minLat, maxLat, minLng, maxLng) = GetBoundingBox(latitude, longitude, radiusKm);
+        var now = DateTime.UtcNow;
 
         // Single DB query: GiST && bounding box + LATERAL JOIN for photos (N+1 fix)
         // LATERAL JOIN replaces correlated subquery - executes once instead of per-row
         // Index on ListingPhotos(ListingId, PhotoOrder) enables efficient first-photo lookup
+        // INNER JOIN with UserMemberships validates that owner's membership is still active
         var box = await context.Database
             .SqlQuery<BoxQueryResult>($"""
                 SELECT
@@ -41,6 +43,9 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
                     u."PhoneNumber" AS "OwnerPhone",
                     p."PhotoUrl"   AS "ThumbnailUrl"
                 FROM "Listings" l
+                INNER JOIN "UserMemberships" um ON um."UserId" = l."UserId"
+                    AND um."IsActive" = TRUE
+                    AND um."ValidUntil" > {now}
                 LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
                 LEFT JOIN "Users" u      ON u."Id"  = l."UserId"
                 LEFT JOIN LATERAL (
@@ -82,7 +87,9 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
     }
 
     public async Task<IEnumerable<Listing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax)
-        => await _dbSet
+    {
+        var now = DateTime.UtcNow;
+        return await _dbSet
             .AsNoTracking()
             .Include(l => l.RoomType)
             .Include(l => l.District)
@@ -96,8 +103,14 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
                 (roomTypeId == null || l.RoomTypeId == roomTypeId) &&
                 (priceMin == null || l.PriceMonthly >= priceMin) &&
                 (priceMax == null || l.PriceMonthly <= priceMax))
+            .Join(
+                context.UserMemberships.Where(m => m.IsActive && m.ValidUntil > now),
+                listing => listing.UserId,
+                membership => membership.UserId,
+                (listing, membership) => listing)
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync();
+    }
 
     public async Task<IEnumerable<Listing>> GetByUserIdAsync(Guid userId)
         => await _dbSet
@@ -108,6 +121,13 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
             .Where(l => l.UserId == userId && !l.IsDeleted)
             .OrderByDescending(l => l.CreatedAt)
+            .ToListAsync();
+
+    public async Task<IEnumerable<Listing>> GetActiveByUserIdAsync(Guid userId)
+        => await _dbSet
+            .Include(l => l.RoomType)
+            .Include(l => l.City)
+            .Where(l => l.UserId == userId && l.IsActive)
             .ToListAsync();
 
     public async Task<(IReadOnlyList<Listing> Items, bool HasMore)> GetByUserIdPagedAsync(
