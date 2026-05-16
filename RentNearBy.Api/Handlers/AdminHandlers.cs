@@ -270,6 +270,8 @@ public static class AdminHandlers
         if (request.PaidPlanPrice.HasValue) paymentFeature.PaidPlanPrice = request.PaidPlanPrice.Value;
         if (request.PaidPlanDays.HasValue) paymentFeature.PaidPlanDays = request.PaidPlanDays.Value;
         if (request.PaidPlanRoomLimit.HasValue) paymentFeature.PaidPlanRoomLimit = request.PaidPlanRoomLimit.Value;
+        if (request.FreeListingDaysWhenDisabled.HasValue)
+            paymentFeature.FreeListingDaysWhenDisabled = request.FreeListingDaysWhenDisabled.Value;
         paymentFeature.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.PaymentFeature.UpdateAsync(paymentFeature);

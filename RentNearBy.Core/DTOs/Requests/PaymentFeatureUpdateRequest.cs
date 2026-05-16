@@ -8,4 +8,5 @@ public class PaymentFeatureUpdateRequest
     public int? PaidPlanPrice { get; set; }
     public int? PaidPlanDays { get; set; }
     public int? PaidPlanRoomLimit { get; set; }
+    public int? FreeListingDaysWhenDisabled { get; set; }
 }

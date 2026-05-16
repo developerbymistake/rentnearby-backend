@@ -169,15 +169,30 @@ public class PaymentService : IPaymentService
                 throw new InvalidOperationException("Payment system not configured.");
             }
 
+            // Determine ValidUntil based on payment feature status
+            DateTime validUntil;
+            if (!paymentFeature.IsEnabled)
+            {
+                // Payment disabled: use FreeListingDaysWhenDisabled (null = indefinite/year 2099)
+                var daysToAdd = paymentFeature.FreeListingDaysWhenDisabled ?? 365;
+                validUntil = DateTime.UtcNow.AddDays(daysToAdd);
+                _logger.LogInformation($"Payment disabled. Using FreeListingDaysWhenDisabled={paymentFeature.FreeListingDaysWhenDisabled} for listing validity");
+            }
+            else
+            {
+                // Payment enabled: use plan-based duration
+                validUntil = transaction.PlanType == "FREE"
+                    ? DateTime.UtcNow.AddDays(paymentFeature.FreePlanDays)
+                    : DateTime.UtcNow.AddDays(paymentFeature.PaidPlanDays);
+            }
+
             var membership = new UserMembership
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
                 PlanType = transaction.PlanType,
                 ValidFrom = DateTime.UtcNow,
-                ValidUntil = transaction.PlanType == "FREE"
-                    ? DateTime.UtcNow.AddDays(paymentFeature.FreePlanDays)
-                    : DateTime.UtcNow.AddDays(paymentFeature.PaidPlanDays),
+                ValidUntil = validUntil,
                 MaxRooms = transaction.PlanType == "FREE"
                     ? paymentFeature.FreePlanRoomLimit
                     : paymentFeature.PaidPlanRoomLimit,
