@@ -12,6 +12,7 @@ public class UnitOfWork : IUnitOfWork
     private IDistrictRepository? _districts;
     private ICityRepository? _cities;
     private IRoomTypeRepository? _roomTypes;
+    private IPlanRepository? _plans;
     private IUserMembershipRepository? _userMemberships;
     private IPaymentTransactionRepository? _paymentTransactions;
     private IPaymentFeatureRepository? _paymentFeature;
@@ -27,6 +28,7 @@ public class UnitOfWork : IUnitOfWork
     public IDistrictRepository Districts => _districts ??= new DistrictRepository(_context);
     public ICityRepository Cities => _cities ??= new CityRepository(_context);
     public IRoomTypeRepository RoomTypes => _roomTypes ??= new RoomTypeRepository(_context);
+    public IPlanRepository Plans => _plans ??= new PlanRepository(_context);
     public IUserMembershipRepository UserMemberships => _userMemberships ??= new UserMembershipRepository(_context);
     public IPaymentTransactionRepository PaymentTransactions => _paymentTransactions ??= new PaymentTransactionRepository(_context);
     public IPaymentFeatureRepository PaymentFeature => _paymentFeature ??= new PaymentFeatureRepository(_context);

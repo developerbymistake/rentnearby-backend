@@ -68,7 +68,11 @@ public class PaymentService : IPaymentService
             }
         }
 
-        var amount = planType == "FREE" ? 0 : paymentFeature.PaidPlanPrice;
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(planType);
+        if (plan == null)
+            throw new KeyNotFoundException($"Plan type '{planType}' not found.");
+
+        var amount = plan.Price;
         var transaction = new PaymentTransaction
         {
             Id = Guid.NewGuid(),
@@ -178,11 +182,11 @@ public class PaymentService : IPaymentService
             transaction.RazorpaySignature = request.RazorpaySignature;
             transaction.CompletedAt = DateTime.UtcNow;
 
-            var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
-            if (paymentFeature == null)
+            var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(transaction.PlanType);
+            if (plan == null)
             {
-                _logger.LogError($"Payment feature configuration not found");
-                throw new InvalidOperationException("Payment system not configured.");
+                _logger.LogError($"Plan '{transaction.PlanType}' not found");
+                throw new InvalidOperationException("Plan configuration not found.");
             }
 
             var membership = new UserMembership
@@ -191,12 +195,8 @@ public class PaymentService : IPaymentService
                 UserId = userId,
                 PlanType = transaction.PlanType,
                 ValidFrom = DateTime.UtcNow,
-                ValidUntil = transaction.PlanType == "FREE"
-                    ? DateTime.UtcNow.AddDays(paymentFeature.FreePlanDays)
-                    : DateTime.UtcNow.AddDays(paymentFeature.PaidPlanDays),
-                MaxRooms = transaction.PlanType == "FREE"
-                    ? paymentFeature.FreePlanRoomLimit
-                    : paymentFeature.PaidPlanRoomLimit,
+                ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+                MaxRooms = plan.RoomLimit,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -286,9 +286,9 @@ public class PaymentService : IPaymentService
         if (transaction == null)
             throw new KeyNotFoundException("Transaction not found.");
 
-        var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
-        if (paymentFeature == null)
-            throw new InvalidOperationException("Payment feature not configured.");
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync("FREE");
+        if (plan == null)
+            throw new InvalidOperationException("FREE plan not configured.");
 
         transaction.Status = "SUCCESS";
         transaction.CompletedAt = DateTime.UtcNow;
@@ -299,8 +299,8 @@ public class PaymentService : IPaymentService
             UserId = userId,
             PlanType = "FREE",
             ValidFrom = DateTime.UtcNow,
-            ValidUntil = DateTime.UtcNow.AddDays(paymentFeature.FreePlanDays),
-            MaxRooms = paymentFeature.FreePlanRoomLimit,
+            ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+            MaxRooms = plan.RoomLimit,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow

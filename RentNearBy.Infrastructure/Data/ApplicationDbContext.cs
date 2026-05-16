@@ -12,6 +12,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<District> Districts { get; set; }
     public DbSet<City> Cities { get; set; }
     public DbSet<RoomType> RoomTypes { get; set; }
+    public DbSet<Plan> Plans { get; set; }
     public DbSet<UserMembership> UserMemberships { get; set; }
     public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
     public DbSet<PaymentFeature> PaymentFeatures { get; set; }
@@ -76,6 +77,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000007"), Name = "1RK",    SortOrder = 4, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
                 new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000005"), Name = "PG",     SortOrder = 5, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
                 new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000004"), Name = "Hostel", SortOrder = 6, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) }
+            );
+        });
+
+        modelBuilder.Entity<Plan>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(p => p.PlanType).IsUnique();
+            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
+            e.HasData(
+                new Plan { Id = Guid.Parse("p0000000-0000-0000-0000-000000000001"), PlanType = "FREE", Days = 10, RoomLimit = 1, Price = 0, IsEnabled = true, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                new Plan { Id = Guid.Parse("p0000000-0000-0000-0000-000000000002"), PlanType = "PAID", Days = 30, RoomLimit = 2, Price = 99, IsEnabled = true, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) }
             );
         });
 

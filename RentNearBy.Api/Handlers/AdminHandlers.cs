@@ -244,11 +244,6 @@ public static class AdminHandlers
             {
                 Id = Guid.NewGuid(),
                 IsEnabled = false,
-                FreePlanDays = 10,
-                FreePlanRoomLimit = 1,
-                PaidPlanPrice = 99,
-                PaidPlanDays = 30,
-                PaidPlanRoomLimit = 2,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -265,11 +260,6 @@ public static class AdminHandlers
             return NotFoundResponse("Payment feature not configured");
 
         paymentFeature.IsEnabled = request.IsEnabled;
-        if (request.FreePlanDays.HasValue) paymentFeature.FreePlanDays = request.FreePlanDays.Value;
-        if (request.FreePlanRoomLimit.HasValue) paymentFeature.FreePlanRoomLimit = request.FreePlanRoomLimit.Value;
-        if (request.PaidPlanPrice.HasValue) paymentFeature.PaidPlanPrice = request.PaidPlanPrice.Value;
-        if (request.PaidPlanDays.HasValue) paymentFeature.PaidPlanDays = request.PaidPlanDays.Value;
-        if (request.PaidPlanRoomLimit.HasValue) paymentFeature.PaidPlanRoomLimit = request.PaidPlanRoomLimit.Value;
         paymentFeature.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.PaymentFeature.UpdateAsync(paymentFeature);

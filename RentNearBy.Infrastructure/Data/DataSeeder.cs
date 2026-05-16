@@ -8,8 +8,23 @@ public static class DataSeeder
     public static async Task SeedAsync(ApplicationDbContext db)
     {
         await SeedRoomTypesAsync(db);
+        await SeedPlansAsync(db);
         await SeedDistrictsAndCitiesAsync(db);
         await SeedPaymentFeatureAsync(db);
+    }
+
+    private static async Task SeedPlansAsync(ApplicationDbContext db)
+    {
+        if (await db.Plans.AnyAsync()) return;
+
+        var plans = new[]
+        {
+            new Plan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 10, RoomLimit = 1, Price = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new Plan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, RoomLimit = 2, Price = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+        };
+
+        db.Plans.AddRange(plans);
+        await db.SaveChangesAsync();
     }
 
     private static async Task SeedRoomTypesAsync(ApplicationDbContext db)
@@ -1851,12 +1866,7 @@ public static class DataSeeder
         var paymentFeature = new PaymentFeature
         {
             Id = Guid.NewGuid(),
-            IsEnabled = false,
-            FreePlanDays = 10,
-            FreePlanRoomLimit = 1,
-            PaidPlanPrice = 99,
-            PaidPlanDays = 30,
-            PaidPlanRoomLimit = 2,
+            IsEnabled = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };

@@ -8,6 +8,7 @@ public interface IUnitOfWork : IDisposable
     IDistrictRepository Districts { get; }
     ICityRepository Cities { get; }
     IRoomTypeRepository RoomTypes { get; }
+    IPlanRepository Plans { get; }
     IUserMembershipRepository UserMemberships { get; }
     IPaymentTransactionRepository PaymentTransactions { get; }
     IPaymentFeatureRepository PaymentFeature { get; }
