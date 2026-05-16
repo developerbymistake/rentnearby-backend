@@ -57,8 +57,8 @@ public class PaymentService : IPaymentService
             throw new InvalidOperationException("Payment already in progress for this listing. Please complete or cancel the previous payment.");
         }
 
-        // Prevent FREE plan reuse: check if user already used free plan
-        if (planType == "FREE")
+        // Prevent FREE plan reuse: only if payment is ENABLED
+        if (planType == "FREE" && paymentFeature.IsEnabled)
         {
             var user = await _unitOfWork.Users.GetByIdAsync(userId);
             if (user?.HasUsedFreePlan == true)
@@ -229,8 +229,9 @@ public class PaymentService : IPaymentService
                 throw new KeyNotFoundException("User not found.");
             }
 
-            // Mark user as used free plan (idempotent operation)
-            if (transaction.PlanType == "FREE" && !user.HasUsedFreePlan)
+            // Mark user as used free plan - ONLY if payment is ENABLED
+            // If payment disabled, user can use FREE plan unlimited times
+            if (transaction.PlanType == "FREE" && paymentFeature.IsEnabled && !user.HasUsedFreePlan)
             {
                 user.HasUsedFreePlan = true;
                 _logger.LogInformation($"User {userId} marked as used free plan");
@@ -320,10 +321,15 @@ public class PaymentService : IPaymentService
         }
 
         var user = await _unitOfWork.Users.GetByIdAsync(userId);
-        if (user != null && !user.HasUsedFreePlan)
+        if (user != null)
         {
-            user.HasUsedFreePlan = true;
-            _logger.LogInformation($"User {userId} marked as used free plan");
+            // Mark as used free plan ONLY if payment is ENABLED
+            var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
+            if (paymentFeature?.IsEnabled == true && !user.HasUsedFreePlan)
+            {
+                user.HasUsedFreePlan = true;
+                _logger.LogInformation($"User {userId} marked as used free plan");
+            }
         }
 
         await _unitOfWork.SaveChangesAsync();
