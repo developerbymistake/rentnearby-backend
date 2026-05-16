@@ -25,9 +25,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPaymentService, PaymentService>();
 
         // Register background service for membership expiry (runs at 12:00 AM daily)
-        services.AddSingleton<MembershipExpiryService>();
-        services.AddSingleton<IHostedService>(provider => provider.GetRequiredService<MembershipExpiryService>());
-        services.AddSingleton(provider => (IMembershipExpiryService)provider.GetRequiredService<MembershipExpiryService>());
+        services.AddHostedService<MembershipExpiryService>();
 
         services.AddHttpClient<IRazorpayService, RazorpayService>();
 

@@ -17,7 +17,7 @@ namespace RentNearBy.Infrastructure.Services;
 /// - Structured logging for monitoring
 /// - Graceful shutdown handling
 /// </summary>
-public class MembershipExpiryService : BackgroundService, IMembershipExpiryService
+public class MembershipExpiryService : BackgroundService
 {
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<MembershipExpiryService> _logger;
@@ -100,7 +100,7 @@ public class MembershipExpiryService : BackgroundService, IMembershipExpiryServi
     /// - Structured logging with context
     /// - Graceful error handling (continues on individual failures)
     /// </summary>
-    public async Task ProcessMembershipExpiryAsync(CancellationToken cancellationToken)
+    private async Task ProcessMembershipExpiryAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("=== MEMBERSHIP EXPIRY JOB STARTED ===");
 
