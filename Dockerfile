@@ -1,24 +1,35 @@
+# Build Stage
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-COPY RentNearBy.Core/RentNearBy.Core.csproj RentNearBy.Core/
-COPY RentNearBy.Infrastructure/RentNearBy.Infrastructure.csproj RentNearBy.Infrastructure/
-COPY RentNearBy.Api/RentNearBy.Api.csproj RentNearBy.Api/
+# Copy project files first
+COPY RentNearBy.Api/*.csproj RentNearBy.Api/
+COPY RentNearBy.Core/*.csproj RentNearBy.Core/
+COPY RentNearBy.Infrastructure/*.csproj RentNearBy.Infrastructure/
+
+# Restore dependencies (don't skip this)
 RUN dotnet restore RentNearBy.Api/RentNearBy.Api.csproj
 
+# Copy entire source code
 COPY . .
-RUN dotnet publish RentNearBy.Api/RentNearBy.Api.csproj -c Release -o /app/publish --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+# Build
+WORKDIR /src/RentNearBy.Api
+RUN dotnet build RentNearBy.Api.csproj -c Release --no-restore -o /app/build
+
+# Publish
+FROM build AS publish
+RUN dotnet publish RentNearBy.Api.csproj -c Release --no-build -o /app/publish
+
+# Runtime
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /app/wwwroot/uploads
+COPY --from=publish /app/publish .
 
-COPY --from=build /app/publish .
-
-ENV ASPNETCORE_URLS=http://+:5000
-ENV ASPNETCORE_ENVIRONMENT=Production
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
 
 EXPOSE 5000
-
 ENTRYPOINT ["dotnet", "RentNearBy.Api.dll"]
