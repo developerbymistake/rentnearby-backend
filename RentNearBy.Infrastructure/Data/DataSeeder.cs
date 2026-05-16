@@ -9,6 +9,7 @@ public static class DataSeeder
     {
         await SeedRoomTypesAsync(db);
         await SeedDistrictsAndCitiesAsync(db);
+        await SeedPaymentFeatureAsync(db);
     }
 
     private static async Task SeedRoomTypesAsync(ApplicationDbContext db)
@@ -1841,5 +1842,26 @@ public static class DataSeeder
             db.Cities.AddRange(cities);
             await db.SaveChangesAsync();
         }
+    }
+
+    private static async Task SeedPaymentFeatureAsync(ApplicationDbContext db)
+    {
+        if (await db.PaymentFeatures.AnyAsync()) return;
+
+        var paymentFeature = new PaymentFeature
+        {
+            Id = Guid.NewGuid(),
+            IsEnabled = true,
+            FreePlanDays = 10,
+            FreePlanRoomLimit = 1,
+            PaidPlanPrice = 99,
+            PaidPlanDays = 30,
+            PaidPlanRoomLimit = 2,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        db.PaymentFeatures.Add(paymentFeature);
+        await db.SaveChangesAsync();
     }
 }
