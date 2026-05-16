@@ -1851,7 +1851,7 @@ public static class DataSeeder
         var paymentFeature = new PaymentFeature
         {
             Id = Guid.NewGuid(),
-            IsEnabled = true,
+            IsEnabled = false,
             FreePlanDays = 10,
             FreePlanRoomLimit = 1,
             PaidPlanPrice = 99,

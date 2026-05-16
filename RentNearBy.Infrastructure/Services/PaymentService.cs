@@ -100,6 +100,22 @@ public class PaymentService : IPaymentService
 
         _logger.LogInformation($"Payment transaction initiated: {transaction.Id} for {planType} plan");
 
+        // Auto-activate FREE plans immediately (no Razorpay verification needed)
+        if (planType == "FREE")
+        {
+            _logger.LogInformation($"Auto-activating FREE plan for user {userId}, transaction {transaction.Id}");
+            try
+            {
+                await ActivateFreePlanAsync(userId, transaction.Id);
+                _logger.LogInformation($"FREE plan auto-activated for user {userId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error auto-activating FREE plan: {ex.Message}", ex);
+                throw;
+            }
+        }
+
         return new PaymentInitiateResponse
         {
             TransactionId = transaction.Id,
@@ -262,5 +278,54 @@ public class PaymentService : IPaymentService
         var listings = await _unitOfWork.Listings.GetByUserIdAsync(userId);
         var activeCount = listings.Count(l => l.IsActive && !l.IsDeleted);
         return activeCount;
+    }
+
+    private async Task ActivateFreePlanAsync(Guid userId, Guid transactionId)
+    {
+        var transaction = await _unitOfWork.PaymentTransactions.GetByIdAsync(transactionId);
+        if (transaction == null)
+            throw new KeyNotFoundException("Transaction not found.");
+
+        var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
+        if (paymentFeature == null)
+            throw new InvalidOperationException("Payment feature not configured.");
+
+        transaction.Status = "SUCCESS";
+        transaction.CompletedAt = DateTime.UtcNow;
+
+        var membership = new UserMembership
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            PlanType = "FREE",
+            ValidFrom = DateTime.UtcNow,
+            ValidUntil = DateTime.UtcNow.AddDays(paymentFeature.FreePlanDays),
+            MaxRooms = paymentFeature.FreePlanRoomLimit,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        await _unitOfWork.UserMemberships.AddAsync(membership);
+
+        if (transaction.ListingId.HasValue)
+        {
+            var listing = await _unitOfWork.Listings.GetByIdAsync(transaction.ListingId.Value);
+            if (listing != null && !listing.IsActive)
+            {
+                listing.IsActive = true;
+                listing.ValidUntil = membership.ValidUntil;
+                _logger.LogInformation($"Listing {listing.Id} activated with FREE plan valid until {membership.ValidUntil}");
+            }
+        }
+
+        var user = await _unitOfWork.Users.GetByIdAsync(userId);
+        if (user != null && !user.HasUsedFreePlan)
+        {
+            user.HasUsedFreePlan = true;
+            _logger.LogInformation($"User {userId} marked as used free plan");
+        }
+
+        await _unitOfWork.SaveChangesAsync();
     }
 }
