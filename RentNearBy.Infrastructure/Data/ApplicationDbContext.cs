@@ -87,10 +87,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => p.PlanType).IsUnique();
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
             e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
-            e.HasData(
-                new Plan { Id = Guid.Parse("p0000000-0000-0000-0000-000000000001"), PlanType = "FREE", Days = 10, RoomLimit = 1, Price = 0, IsEnabled = true, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
-                new Plan { Id = Guid.Parse("p0000000-0000-0000-0000-000000000002"), PlanType = "PAID", Days = 30, RoomLimit = 2, Price = 99, IsEnabled = true, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) }
-            );
         });
 
         modelBuilder.Entity<Listing>(e =>
