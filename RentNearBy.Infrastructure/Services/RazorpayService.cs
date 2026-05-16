@@ -45,8 +45,9 @@ public class RazorpayService : IRazorpayService
         var response = await _httpClient.PostAsync($"{BaseUrl}/orders", content);
         response.EnsureSuccessStatusCode();
 
-        var json = await response.Content.ReadAsAsync<dynamic>();
-        return (json.id.ToString(), json.amount / 100);
+        var jsonString = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(jsonString);
+        return (json.GetProperty("id").GetString()!, json.GetProperty("amount").GetInt32() / 100);
     }
 
     public bool VerifyPaymentSignature(string orderId, string paymentId, string signature)

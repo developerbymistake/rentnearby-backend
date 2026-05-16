@@ -53,4 +53,11 @@ public static class ApiResults
             Status = "429", Code = 429, Timestamp = Timestamp(),
             Error = new ApiError { Message = "Too many attempts. Please try again later.", Type = "TooManyRequests" }
         }, statusCode: 429);
+
+    public static IResult ServerErrorResponse(string message = "Internal server error") =>
+        Results.Json(new ApiResponse<object>
+        {
+            Status = "500", Code = 500, Timestamp = Timestamp(),
+            Error = new ApiError { Message = message, Type = "InternalServerError" }
+        }, statusCode: 500);
 }

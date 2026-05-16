@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using RentNearBy.Core.DTOs.Requests;
+using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
