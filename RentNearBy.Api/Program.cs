@@ -102,7 +102,6 @@ app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseMiddleware<RateLimitingMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
