@@ -16,9 +16,15 @@ public class PlanRepository(ApplicationDbContext context) : IPlanRepository
     public async Task AddAsync(Plan plan)
         => await context.Plans.AddAsync(plan);
 
-    public async Task UpdateAsync(Plan plan)
-        => context.Plans.Update(plan);
+    public Task UpdateAsync(Plan plan)
+    {
+        context.Plans.Update(plan);
+        return Task.CompletedTask;
+    }
 
-    public async Task DeleteAsync(Plan plan)
-        => context.Plans.Remove(plan);
+    public Task DeleteAsync(Plan plan)
+    {
+        context.Plans.Remove(plan);
+        return Task.CompletedTask;
+    }
 }

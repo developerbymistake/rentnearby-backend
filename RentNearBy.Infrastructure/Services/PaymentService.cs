@@ -182,6 +182,10 @@ public class PaymentService : IPaymentService
             transaction.RazorpaySignature = request.RazorpaySignature;
             transaction.CompletedAt = DateTime.UtcNow;
 
+            var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
+            if (paymentFeature == null)
+                throw new InvalidOperationException("Payment feature not configured.");
+
             var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(transaction.PlanType);
             if (plan == null)
             {

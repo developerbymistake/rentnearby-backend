@@ -21,11 +21,6 @@ public class PaymentFeatureRepository(ApplicationDbContext context) : IPaymentFe
         if (existing != null)
         {
             existing.IsEnabled = feature.IsEnabled;
-            existing.FreePlanDays = feature.FreePlanDays;
-            existing.FreePlanRoomLimit = feature.FreePlanRoomLimit;
-            existing.PaidPlanPrice = feature.PaidPlanPrice;
-            existing.PaidPlanDays = feature.PaidPlanDays;
-            existing.PaidPlanRoomLimit = feature.PaidPlanRoomLimit;
             existing.UpdatedAt = DateTime.UtcNow;
             context.PaymentFeatures.Update(existing);
         }
