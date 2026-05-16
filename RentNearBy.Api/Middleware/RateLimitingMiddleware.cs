@@ -6,26 +6,21 @@ namespace RentNearBy.Api.Middleware;
 public class RateLimitingMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly ILogger<RateLimitingMiddleware> _logger;
     private const string RateLimitKeyPrefix = "ratelimit:";
     private const string FailedAttemptsKeyPrefix = "failed_attempts:";
     private const int MaxRequestsPerMinute = 10;
     private const int MaxFailedAttempts = 5;
     private const int FailedAttemptLockoutMinutes = 15;
 
-    public RateLimitingMiddleware(RequestDelegate next)
+    public RateLimitingMiddleware(RequestDelegate next, ILogger<RateLimitingMiddleware> logger)
     {
         _next = next;
+        _logger = logger;
     }
 
-    public async Task InvokeAsync(HttpContext context, IDistributedCache? cache, ILogger<RateLimitingMiddleware> logger)
+    public async Task InvokeAsync(HttpContext context, IDistributedCache cache)
     {
-        // Skip rate limiting if cache is not configured
-        if (cache == null)
-        {
-            await _next(context);
-            return;
-        }
-
         // Only rate limit payment endpoints
         if (!IsPaymentEndpoint(context.Request.Path))
         {
@@ -48,7 +43,7 @@ public class RateLimitingMiddleware
             var failedCount = int.Parse(System.Text.Encoding.UTF8.GetString(failedAttemptsBytes));
             if (failedCount >= MaxFailedAttempts)
             {
-                logger.LogWarning($"User {userId} locked out due to failed payment attempts");
+                _logger.LogWarning($"User {userId} locked out due to failed payment attempts");
                 context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
                 await context.Response.WriteAsJsonAsync(new
                 {
@@ -73,7 +68,7 @@ public class RateLimitingMiddleware
 
         if (requestCount >= MaxRequestsPerMinute)
         {
-            logger.LogWarning($"User {userId} exceeded rate limit: {requestCount}/{MaxRequestsPerMinute} requests");
+            _logger.LogWarning($"User {userId} exceeded rate limit: {requestCount}/{MaxRequestsPerMinute} requests");
             context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
             await context.Response.WriteAsJsonAsync(new
             {
@@ -107,7 +102,7 @@ public class RateLimitingMiddleware
             await cache.SetAsync(failedAttemptsKey, System.Text.Encoding.UTF8.GetBytes(failedCount.ToString()),
                 new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(FailedAttemptLockoutMinutes) });
 
-            logger.LogWarning($"User {userId} failed payment attempt {failedCount}/{MaxFailedAttempts}");
+            _logger.LogWarning($"User {userId} failed payment attempt {failedCount}/{MaxFailedAttempts}");
         }
 
         // Copy response back
