@@ -12,6 +12,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<District> Districts { get; set; }
     public DbSet<City> Cities { get; set; }
     public DbSet<RoomType> RoomTypes { get; set; }
+    public DbSet<UserMembership> UserMemberships { get; set; }
+    public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
+    public DbSet<PaymentFeature> PaymentFeatures { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -142,6 +145,49 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasForeignKey(p => p.ListingId)
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(p => p.ListingId);
+        });
+
+        modelBuilder.Entity<UserMembership>(e =>
+        {
+            e.HasKey(m => m.Id);
+            e.Property(m => m.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(m => m.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(m => m.UpdatedAt).HasDefaultValueSql("now()");
+            e.HasOne(m => m.User)
+             .WithMany()
+             .HasForeignKey(m => m.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(m => m.UserId);
+            e.HasIndex(m => m.ValidUntil);
+            e.HasIndex(m => m.IsActive);
+        });
+
+        modelBuilder.Entity<PaymentTransaction>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
+            e.HasOne(t => t.User)
+             .WithMany()
+             .HasForeignKey(t => t.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(t => t.Listing)
+             .WithMany()
+             .HasForeignKey(t => t.ListingId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(t => t.UserId);
+            e.HasIndex(t => t.Status);
+            e.HasIndex(t => t.CreatedAt);
+            e.HasIndex(t => t.RazorpayOrderId);
+        });
+
+        modelBuilder.Entity<PaymentFeature>(e =>
+        {
+            e.HasKey(f => f.Id);
+            e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(f => f.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
         });
     }
 }

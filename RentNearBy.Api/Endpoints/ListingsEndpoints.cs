@@ -19,6 +19,11 @@ public static class ListingsEndpoints
         group.MapPost("/{id:guid}/photos", ListingsHandlers.UploadPhoto).RequireAuthorization().DisableAntiforgery();
         group.MapDelete("/{id:guid}/photos/{photoId:guid}", ListingsHandlers.DeletePhoto).RequireAuthorization();
 
+        // Payment endpoints
+        group.MapPost("/{id:guid}/go-live", PaymentHandlers.InitiatePayment).RequireAuthorization();
+        group.MapPost("/{id:guid}/verify-payment", PaymentHandlers.VerifyPayment).RequireAuthorization();
+        group.MapGet("/payment/status", PaymentHandlers.GetMembershipStatus).RequireAuthorization();
+
         return group;
     }
 }

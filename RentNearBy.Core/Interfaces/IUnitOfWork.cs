@@ -8,5 +8,8 @@ public interface IUnitOfWork : IDisposable
     IDistrictRepository Districts { get; }
     ICityRepository Cities { get; }
     IRoomTypeRepository RoomTypes { get; }
+    IUserMembershipRepository UserMemberships { get; }
+    IPaymentTransactionRepository PaymentTransactions { get; }
+    IPaymentFeatureRepository PaymentFeature { get; }
     Task<int> SaveChangesAsync();
 }

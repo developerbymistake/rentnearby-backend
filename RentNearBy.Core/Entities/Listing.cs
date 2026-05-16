@@ -12,9 +12,12 @@ public class Listing
     public string? Address { get; set; }
     public Guid DistrictId { get; set; }
     public Guid? CityId { get; set; }
-    public bool IsActive { get; set; } = true;
+    public bool IsActive { get; set; } = false;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
+    public DateTime? ValidUntil { get; set; }
 
     public User User { get; set; } = null!;
     public RoomType RoomType { get; set; } = null!;

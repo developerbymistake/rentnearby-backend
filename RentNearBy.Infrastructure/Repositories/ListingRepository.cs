@@ -51,6 +51,7 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
                     LIMIT 1
                 ) p ON TRUE
                 WHERE l."IsActive" = TRUE
+                  AND l."IsDeleted" = FALSE
                   AND l."CityId" = {cityId}
                   AND l."Location" && ST_MakeEnvelope({minLng}::float8, {minLat}::float8,
                                                        {maxLng}::float8, {maxLat}::float8, 4326)::geography
@@ -90,6 +91,7 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
             .Where(l =>
                 l.IsActive &&
+                !l.IsDeleted &&
                 (districtId == null || l.DistrictId == districtId) &&
                 (roomTypeId == null || l.RoomTypeId == roomTypeId) &&
                 (priceMin == null || l.PriceMonthly >= priceMin) &&
@@ -104,7 +106,7 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .Include(l => l.District)
             .Include(l => l.City)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
-            .Where(l => l.UserId == userId)
+            .Where(l => l.UserId == userId && !l.IsDeleted)
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync();
 
@@ -118,7 +120,7 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .Include(l => l.District)
             .Include(l => l.City)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
-            .Where(l => l.UserId == userId)
+            .Where(l => l.UserId == userId && !l.IsDeleted)
             .OrderByDescending(l => l.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(take)
@@ -136,7 +138,7 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .Include(l => l.City)
             .Include(l => l.User)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
-            .FirstOrDefaultAsync(l => l.Id == id);
+            .FirstOrDefaultAsync(l => l.Id == id && !l.IsDeleted);
 
     public async Task AddPhotoAsync(ListingPhoto photo)
         => await context.ListingPhotos.AddAsync(photo);

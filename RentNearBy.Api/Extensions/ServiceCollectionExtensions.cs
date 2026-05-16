@@ -22,6 +22,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IPhotoService, PhotoService>();
+        services.AddScoped<IPaymentService, PaymentService>();
+
+        services.AddHttpClient<IRazorpayService, RazorpayService>();
 
         services.AddHttpClient<IGeocodingService, NominatimGeocodingService>(client =>
         {

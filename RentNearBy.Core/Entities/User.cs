@@ -8,6 +8,7 @@ public class User
     public string? GmailId { get; set; }
     public bool IsAdmin { get; set; } = false;
     public bool OtpVerified { get; set; } = false;
+    public bool HasUsedFreePlan { get; set; } = false;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

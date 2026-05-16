@@ -213,7 +213,7 @@ public static class ListingsHandlers
             Address = request.Address,
             DistrictId = request.DistrictId,
             CityId = request.CityId,
-            IsActive = true,
+            IsActive = false,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -295,7 +295,10 @@ public static class ListingsHandlers
         var cityId = listing.CityId;
 
         await photoService.DeleteListingPhotosAsync(userId, id);
-        await unitOfWork.Listings.DeleteAsync(listing);
+
+        listing.IsDeleted = true;
+        listing.DeletedAt = DateTime.UtcNow;
+        await unitOfWork.Listings.UpdateAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
         if (cityId.HasValue)
