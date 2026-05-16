@@ -9,7 +9,6 @@ public class PaymentFeature
     public int PaidPlanPrice { get; set; } = 99;
     public int PaidPlanDays { get; set; } = 30;
     public int PaidPlanRoomLimit { get; set; } = 2;
-    public int? FreeListingDaysWhenDisabled { get; set; } = null;  // null = indefinite, or set days (e.g., 365)
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
