@@ -19,10 +19,16 @@ public class RateLimitingMiddleware
         _logger = logger;
     }
 
-    public async Task InvokeAsync(HttpContext context, IDistributedCache cache)
+    public async Task InvokeAsync(HttpContext context, IDistributedCache? cache)
     {
         // Only rate limit payment endpoints
         if (!IsPaymentEndpoint(context.Request.Path))
+        {
+            await _next(context);
+            return;
+        }
+
+        if (cache == null)
         {
             await _next(context);
             return;
