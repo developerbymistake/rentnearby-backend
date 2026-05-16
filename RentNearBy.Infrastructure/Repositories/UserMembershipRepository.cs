@@ -1,17 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
-
-public interface IUserMembershipRepository
-{
-    Task AddAsync(UserMembership membership);
-    Task<UserMembership?> GetActiveByUserIdAsync(Guid userId);
-    Task<UserMembership?> GetByIdAsync(Guid id);
-    Task<bool> HasUsedFreePlanAsync(Guid userId);
-    Task SaveAsync();
-}
 
 public class UserMembershipRepository(ApplicationDbContext context) : IUserMembershipRepository
 {

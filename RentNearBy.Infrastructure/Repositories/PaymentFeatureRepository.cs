@@ -1,15 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
-
-public interface IPaymentFeatureRepository
-{
-    Task<PaymentFeature?> GetAsync();
-    Task UpdateAsync(PaymentFeature feature);
-    Task SaveAsync();
-}
 
 public class PaymentFeatureRepository(ApplicationDbContext context) : IPaymentFeatureRepository
 {

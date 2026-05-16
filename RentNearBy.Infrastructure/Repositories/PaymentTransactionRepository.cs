@@ -1,17 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
-
-public interface IPaymentTransactionRepository
-{
-    Task AddAsync(PaymentTransaction transaction);
-    Task<PaymentTransaction?> GetByIdAsync(Guid id);
-    Task<PaymentTransaction?> GetByRazorpayOrderIdAsync(string orderId);
-    Task<IEnumerable<PaymentTransaction>> GetByUserIdAsync(Guid userId);
-    Task SaveAsync();
-}
 
 public class PaymentTransactionRepository(ApplicationDbContext context) : IPaymentTransactionRepository
 {
