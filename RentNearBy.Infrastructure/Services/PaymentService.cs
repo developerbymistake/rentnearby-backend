@@ -85,7 +85,26 @@ public class PaymentService : IPaymentService
             CreatedAt = DateTime.UtcNow
         };
 
-        // For FREE plan: Auto-activate immediately
+        // For PAID plan: Create Razorpay order first
+        if (planType == "PAID")
+        {
+            var (orderId, returnedAmount) = await _razorpay.CreateOrderAsync(amount, transaction.Id.ToString());
+
+            if (returnedAmount != amount)
+            {
+                _logger.LogError($"Amount mismatch for transaction {transaction.Id}: expected {amount}, got {returnedAmount}");
+                throw new InvalidOperationException("Payment amount mismatch. Please try again.");
+            }
+
+            transaction.RazorpayOrderId = orderId;
+            _logger.LogInformation($"Razorpay order created: {orderId} for amount {amount}");
+        }
+
+        // Save transaction to DB BEFORE activating (critical for ActivateFreePlanAsync to find it)
+        await _unitOfWork.PaymentTransactions.AddAsync(transaction);
+        await _unitOfWork.SaveChangesAsync();
+
+        // For FREE plan: Auto-activate immediately (now transaction is in DB)
         if (planType == "FREE")
         {
             _logger.LogInformation($"Auto-activating FREE plan for user {userId}, listing {listingId}");
@@ -100,25 +119,11 @@ public class PaymentService : IPaymentService
             };
         }
 
-        // For PAID plan: Create Razorpay order
-        var (orderId, returnedAmount) = await _razorpay.CreateOrderAsync(amount, transaction.Id.ToString());
-
-        if (returnedAmount != amount)
-        {
-            _logger.LogError($"Amount mismatch for transaction {transaction.Id}: expected {amount}, got {returnedAmount}");
-            throw new InvalidOperationException("Payment amount mismatch. Please try again.");
-        }
-
-        transaction.RazorpayOrderId = orderId;
-        _logger.LogInformation($"Razorpay order created: {orderId} for amount {amount}");
-
-        await _unitOfWork.PaymentTransactions.AddAsync(transaction);
-        await _unitOfWork.SaveChangesAsync();
-
+        // For PAID plan: Return Razorpay order details
         var keyId = _razorpay.GetKeyId();
         return new CreatePaymentOrderResponse
         {
-            OrderId = orderId,
+            OrderId = transaction.RazorpayOrderId!,
             Amount = amount,
             Currency = "INR",
             KeyId = keyId
@@ -315,7 +320,12 @@ public class PaymentService : IPaymentService
                     if (listing.IsActive)
                     {
                         _logger.LogWarning($"Listing {listing.Id} is already active");
-                        throw new InvalidOperationException("This listing is already active. No further action needed.");
+                        // Idempotent: return success if already active
+                        return new PaymentVerifyResponse
+                        {
+                            Success = true,
+                            Message = "This listing is already live."
+                        };
                     }
 
                     listing.IsActive = true;
