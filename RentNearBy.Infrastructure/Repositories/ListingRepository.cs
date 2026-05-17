@@ -25,12 +25,9 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
         double latitude, double longitude, double radiusKm, Guid cityId)
     {
         var (minLat, maxLat, minLng, maxLng) = GetBoundingBox(latitude, longitude, radiusKm);
-        var now = DateTime.UtcNow;
 
         // Single DB query: GiST && bounding box + LATERAL JOIN for photos (N+1 fix)
-        // LATERAL JOIN replaces correlated subquery - executes once instead of per-row
-        // Index on ListingPhotos(ListingId, PhotoOrder) enables efficient first-photo lookup
-        // INNER JOIN with UserMemberships validates that owner's membership is still active
+        // isActive flag alone controls visibility — MembershipExpiryService deactivates expired listings
         var box = await context.Database
             .SqlQuery<BoxQueryResult>($"""
                 SELECT
@@ -43,9 +40,6 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
                     u."PhoneNumber" AS "OwnerPhone",
                     p."PhotoUrl"   AS "ThumbnailUrl"
                 FROM "Listings" l
-                INNER JOIN "UserMemberships" um ON um."UserId" = l."UserId"
-                    AND um."IsActive" = TRUE
-                    AND um."ValidUntil" > {now}
                 LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
                 LEFT JOIN "Users" u      ON u."Id"  = l."UserId"
                 LEFT JOIN LATERAL (
