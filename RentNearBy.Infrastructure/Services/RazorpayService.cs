@@ -27,11 +27,15 @@ public class RazorpayService : IRazorpayService
 
     public RazorpayService(IConfiguration config, HttpClient httpClient, ILogger<RazorpayService> logger)
     {
-        _keyId = config["Razorpay:KeyId"] ?? throw new InvalidOperationException("Razorpay KeyId not configured");
-        _keySecret = config["Razorpay:KeySecret"] ?? throw new InvalidOperationException("Razorpay KeySecret not configured");
+        _keyId = config["Razorpay:KeyId"]
+                 ?? Environment.GetEnvironmentVariable("RAZORPAY_KEY_ID")
+                 ?? throw new InvalidOperationException("Razorpay KeyId not configured");
+        _keySecret = config["Razorpay:KeySecret"]
+                     ?? Environment.GetEnvironmentVariable("RAZORPAY_KEY_SECRET")
+                     ?? throw new InvalidOperationException("Razorpay KeySecret not configured");
         _httpClient = httpClient;
         _logger = logger;
-        
+
         SetupHttpClient();
         _retryPolicy = CreateRetryPolicy();
     }
