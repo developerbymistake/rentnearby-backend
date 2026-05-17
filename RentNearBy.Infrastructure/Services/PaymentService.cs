@@ -3,6 +3,7 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using StackExchange.Redis;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -20,12 +21,27 @@ public class PaymentService : IPaymentService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IRazorpayService _razorpay;
     private readonly ILogger<PaymentService> _logger;
+    private readonly IConnectionMultiplexer _redis;
 
-    public PaymentService(IUnitOfWork unitOfWork, IRazorpayService razorpay, ILogger<PaymentService> logger)
+    public PaymentService(IUnitOfWork unitOfWork, IRazorpayService razorpay, ILogger<PaymentService> logger, IConnectionMultiplexer redis)
     {
         _unitOfWork = unitOfWork;
         _razorpay = razorpay;
         _logger = logger;
+        _redis = redis;
+    }
+
+    private async Task InvalidateNearbyCacheAsync(Guid? cityId)
+    {
+        if (cityId == null) return;
+        try
+        {
+            var db = _redis.GetDatabase();
+            var server = _redis.GetServer(_redis.GetEndPoints()[0]);
+            var keys = server.Keys(pattern: $"nearby:{cityId}:*").ToArray();
+            if (keys.Length > 0) await db.KeyDeleteAsync(keys);
+        }
+        catch { }
     }
 
     public async Task<CreatePaymentOrderResponse> CreateOrderAsync(Guid userId, Guid listingId, string planType)
@@ -340,6 +356,7 @@ public class PaymentService : IPaymentService
             await _unitOfWork.UserMemberships.AddAsync(membership);
 
             // Validate and activate listing: check it hasn't been activated already
+            Guid? activatedListingCityId = null;
             if (transaction.ListingId.HasValue)
             {
                 var listing = await _unitOfWork.Listings.GetByIdAsync(transaction.ListingId.Value);
@@ -358,6 +375,7 @@ public class PaymentService : IPaymentService
 
                     listing.IsActive = true;
                     listing.ValidUntil = membership.ValidUntil;
+                    activatedListingCityId = listing.CityId;
                     _logger.LogInformation($"Listing {listing.Id} activated with membership valid until {membership.ValidUntil}");
                 }
             }
@@ -378,6 +396,7 @@ public class PaymentService : IPaymentService
             }
 
             await _unitOfWork.SaveChangesAsync();
+            await InvalidateNearbyCacheAsync(activatedListingCityId);
 
             _logger.LogInformation($"Payment verified and activated: transaction {transaction.Id}, membership {membership.Id}");
 
@@ -449,6 +468,7 @@ public class PaymentService : IPaymentService
 
         await _unitOfWork.UserMemberships.AddAsync(membership);
 
+        Guid? freePlanCityId = null;
         if (transaction.ListingId.HasValue)
         {
             var listing = await _unitOfWork.Listings.GetByIdAsync(transaction.ListingId.Value);
@@ -456,6 +476,7 @@ public class PaymentService : IPaymentService
             {
                 listing.IsActive = true;
                 listing.ValidUntil = membership.ValidUntil;
+                freePlanCityId = listing.CityId;
                 _logger.LogInformation($"Listing {listing.Id} activated with FREE plan valid until {membership.ValidUntil}");
             }
         }
@@ -473,5 +494,6 @@ public class PaymentService : IPaymentService
         }
 
         await _unitOfWork.SaveChangesAsync();
+        await InvalidateNearbyCacheAsync(freePlanCityId);
     }
 }
