@@ -31,6 +31,16 @@ public class PaymentService : IPaymentService
         _redis = redis;
     }
 
+    private async Task DeactivateExistingMembershipsAsync(Guid userId)
+    {
+        var existing = await _unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
+        if (existing != null)
+        {
+            existing.IsActive = false;
+            existing.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
     private async Task InvalidateNearbyCacheAsync(Guid? cityId)
     {
         if (cityId == null) return;
@@ -353,6 +363,7 @@ public class PaymentService : IPaymentService
                 UpdatedAt = DateTime.UtcNow
             };
 
+            await DeactivateExistingMembershipsAsync(userId);
             await _unitOfWork.UserMemberships.AddAsync(membership);
 
             // Validate and activate listing: check it hasn't been activated already
@@ -466,6 +477,7 @@ public class PaymentService : IPaymentService
             UpdatedAt = DateTime.UtcNow
         };
 
+        await DeactivateExistingMembershipsAsync(userId);
         await _unitOfWork.UserMemberships.AddAsync(membership);
 
         Guid? freePlanCityId = null;
