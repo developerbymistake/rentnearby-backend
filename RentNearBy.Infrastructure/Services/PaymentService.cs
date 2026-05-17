@@ -73,14 +73,14 @@ public class PaymentService : IPaymentService
                 // Reuse existing Razorpay order from previous attempt (avoids double charge)
                 if (!string.IsNullOrEmpty(existingPendingTransaction.RazorpayOrderId))
                 {
-                    var keyId = _razorpay.GetKeyId();
+                    var retryKeyId = _razorpay.GetKeyId();
                     var existingPlan = await _unitOfWork.Plans.GetByPlanTypeAsync("PAID");
                     return new CreatePaymentOrderResponse
                     {
                         OrderId = existingPendingTransaction.RazorpayOrderId!,
                         Amount = existingPlan!.Price,
                         Currency = "INR",
-                        KeyId = keyId
+                        KeyId = retryKeyId
                     };
                 }
             }
