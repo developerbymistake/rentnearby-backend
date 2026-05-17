@@ -12,6 +12,7 @@ public interface IRazorpayService
 {
     Task<(string OrderId, int Amount)> CreateOrderAsync(int amount, string receipt);
     bool VerifyPaymentSignature(string orderId, string paymentId, string signature);
+    string GetKeyId();
 }
 
 public class RazorpayService : IRazorpayService
@@ -138,8 +139,8 @@ public class RazorpayService : IRazorpayService
 
     public bool VerifyPaymentSignature(string orderId, string paymentId, string signature)
     {
-        if (string.IsNullOrWhiteSpace(orderId) || 
-            string.IsNullOrWhiteSpace(paymentId) || 
+        if (string.IsNullOrWhiteSpace(orderId) ||
+            string.IsNullOrWhiteSpace(paymentId) ||
             string.IsNullOrWhiteSpace(signature))
         {
             _logger.LogWarning("Signature verification attempted with missing parameters");
@@ -152,9 +153,9 @@ public class RazorpayService : IRazorpayService
             using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_keySecret));
             var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(text));
             var computedSignature = BitConverter.ToString(hash).Replace("-", "").ToLower();
-            
+
             var isValid = computedSignature == signature.ToLower();
-            
+
             if (!isValid)
             {
                 _logger.LogWarning($"Signature verification failed for order: {orderId}");
@@ -167,5 +168,10 @@ public class RazorpayService : IRazorpayService
             _logger.LogError($"Error verifying signature: {ex.Message}");
             return false;
         }
+    }
+
+    public string GetKeyId()
+    {
+        return _keyId;
     }
 }

@@ -20,6 +20,7 @@ public static class ListingsEndpoints
         group.MapDelete("/{id:guid}/photos/{photoId:guid}", ListingsHandlers.DeletePhoto).RequireAuthorization();
 
         // Payment endpoints
+        group.MapPost("/{listingId:guid}/create-order", PaymentHandlers.CreateOrder).RequireAuthorization();
         group.MapPost("/{listingId:guid}/go-live", PaymentHandlers.InitiatePayment).RequireAuthorization();
         group.MapPost("/{listingId:guid}/verify-payment", PaymentHandlers.VerifyPayment).RequireAuthorization();
         group.MapGet("/payment/status", PaymentHandlers.GetMembershipStatus).RequireAuthorization();

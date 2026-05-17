@@ -8,6 +8,7 @@ namespace RentNearBy.Infrastructure.Services;
 
 public interface IPaymentService
 {
+    Task<CreatePaymentOrderResponse> CreateOrderAsync(Guid userId, Guid listingId, string planType);
     Task<PaymentInitiateResponse> InitiatePaymentAsync(Guid userId, Guid listingId, string planType);
     Task<PaymentVerifyResponse> VerifyAndActivateAsync(Guid userId, VerifyPaymentRequest request);
     Task<bool> CanUserActivateListingAsync(Guid userId);
@@ -25,6 +26,103 @@ public class PaymentService : IPaymentService
         _unitOfWork = unitOfWork;
         _razorpay = razorpay;
         _logger = logger;
+    }
+
+    public async Task<CreatePaymentOrderResponse> CreateOrderAsync(Guid userId, Guid listingId, string planType)
+    {
+        if (planType != "FREE" && planType != "PAID")
+            throw new ArgumentException("Invalid plan type. Must be FREE or PAID.");
+
+        var listing = await _unitOfWork.Listings.GetByIdAsync(listingId);
+        if (listing == null)
+            throw new KeyNotFoundException("Listing not found.");
+        if (listing.UserId != userId)
+            throw new UnauthorizedAccessException("You don't own this listing.");
+
+        var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
+        if (paymentFeature == null)
+            throw new InvalidOperationException("Payment feature not configured.");
+
+        if (!paymentFeature.IsEnabled && planType == "PAID")
+            throw new InvalidOperationException("Payment feature is not enabled yet.");
+
+        _logger.LogInformation($"Creating order for {planType} plan, user {userId}, listing {listingId}");
+
+        // Prevent duplicate transactions
+        var existingPendingTransaction = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+            .FirstOrDefault(t => t.ListingId == listingId && t.Status == "PENDING");
+
+        if (existingPendingTransaction != null)
+        {
+            _logger.LogWarning($"User {userId} already has PENDING transaction for listing {listingId}");
+            throw new InvalidOperationException("Payment already in progress. Please complete or cancel the previous payment.");
+        }
+
+        // Check FREE plan reuse
+        if (planType == "FREE" && paymentFeature.IsEnabled)
+        {
+            var user = await _unitOfWork.Users.GetByIdAsync(userId);
+            if (user?.HasUsedFreePlan == true)
+            {
+                _logger.LogWarning($"User {userId} attempted to reuse FREE plan");
+                throw new InvalidOperationException("You have already used the free plan. Please use the paid plan.");
+            }
+        }
+
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(planType);
+        if (plan == null)
+            throw new KeyNotFoundException($"Plan '{planType}' not found.");
+
+        var amount = plan.Price;
+        var transaction = new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ListingId = listingId,
+            PlanType = planType,
+            Amount = amount,
+            Status = "PENDING",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        // For FREE plan: Auto-activate immediately
+        if (planType == "FREE")
+        {
+            _logger.LogInformation($"Auto-activating FREE plan for user {userId}, listing {listingId}");
+            await ActivateFreePlanAsync(userId, transaction.Id);
+
+            return new CreatePaymentOrderResponse
+            {
+                OrderId = transaction.Id.ToString(),
+                Amount = amount,
+                Currency = "INR",
+                KeyId = string.Empty
+            };
+        }
+
+        // For PAID plan: Create Razorpay order
+        var (orderId, returnedAmount) = await _razorpay.CreateOrderAsync(amount, transaction.Id.ToString());
+
+        if (returnedAmount != amount)
+        {
+            _logger.LogError($"Amount mismatch for transaction {transaction.Id}: expected {amount}, got {returnedAmount}");
+            throw new InvalidOperationException("Payment amount mismatch. Please try again.");
+        }
+
+        transaction.RazorpayOrderId = orderId;
+        _logger.LogInformation($"Razorpay order created: {orderId} for amount {amount}");
+
+        await _unitOfWork.PaymentTransactions.AddAsync(transaction);
+        await _unitOfWork.SaveChangesAsync();
+
+        var keyId = _razorpay.GetKeyId();
+        return new CreatePaymentOrderResponse
+        {
+            OrderId = orderId,
+            Amount = amount,
+            Currency = "INR",
+            KeyId = keyId
+        };
     }
 
     public async Task<PaymentInitiateResponse> InitiatePaymentAsync(Guid userId, Guid listingId, string planType)

@@ -9,6 +9,48 @@ namespace RentNearBy.Api.Handlers;
 
 public static class PaymentHandlers
 {
+    public static async Task<IResult> CreateOrder(
+        Guid listingId,
+        [FromBody] PaymentPlanRequest request,
+        ClaimsPrincipal principal,
+        IPaymentService paymentService)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
+            return BadRequestResponse("Plan type is required");
+
+        if (request.PlanType != "FREE" && request.PlanType != "PAID")
+            return BadRequestResponse("Plan type must be FREE or PAID");
+
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        try
+        {
+            var response = await paymentService.CreateOrderAsync(userId, listingId, request.PlanType);
+            return OkResponse(response);
+        }
+        catch (ArgumentException)
+        {
+            return BadRequestResponse("Invalid payment parameters");
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFoundResponse("Listing or plan not found");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return UnauthorizedResponse("You don't have permission to create order for this listing");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequestResponse(ex.Message);
+        }
+        catch (Exception)
+        {
+            return ServerErrorResponse();
+        }
+    }
+
     public static async Task<IResult> InitiatePayment(
         Guid listingId,
         [FromBody] PaymentPlanRequest request,
