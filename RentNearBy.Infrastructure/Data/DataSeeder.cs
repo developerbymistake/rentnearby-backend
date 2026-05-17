@@ -19,7 +19,7 @@ public static class DataSeeder
 
         var plans = new[]
         {
-            new Plan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 10, RoomLimit = 1, Price = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new Plan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 2, RoomLimit = 1, Price = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
             new Plan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, RoomLimit = 2, Price = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
         };
 
