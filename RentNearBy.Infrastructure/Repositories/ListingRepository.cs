@@ -82,7 +82,6 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
 
     public async Task<IEnumerable<Listing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax)
     {
-        var now = DateTime.UtcNow;
         return await _dbSet
             .AsNoTracking()
             .Include(l => l.RoomType)
@@ -97,11 +96,6 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
                 (roomTypeId == null || l.RoomTypeId == roomTypeId) &&
                 (priceMin == null || l.PriceMonthly >= priceMin) &&
                 (priceMax == null || l.PriceMonthly <= priceMax))
-            .Join(
-                context.UserMemberships.Where(m => m.IsActive && m.ValidUntil > now),
-                listing => listing.UserId,
-                membership => membership.UserId,
-                (listing, membership) => listing)
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync();
     }
