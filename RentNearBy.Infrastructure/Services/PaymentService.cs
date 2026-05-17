@@ -59,12 +59,6 @@ public class PaymentService : IPaymentService
         if (planType != "FREE" && planType != "PAID")
             throw new ArgumentException("Invalid plan type. Must be FREE or PAID.");
 
-        var listing = await _unitOfWork.Listings.GetByIdAsync(listingId);
-        if (listing == null)
-            throw new KeyNotFoundException("Listing not found.");
-        if (listing.UserId != userId)
-            throw new UnauthorizedAccessException("You don't own this listing.");
-
         var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
         if (paymentFeature == null)
             throw new InvalidOperationException("Payment feature not configured.");
@@ -72,11 +66,25 @@ public class PaymentService : IPaymentService
         if (!paymentFeature.IsEnabled && planType == "PAID")
             throw new InvalidOperationException("Payment feature is not enabled yet.");
 
-        _logger.LogInformation($"Creating order for {planType} plan, user {userId}, listing {listingId}");
+        // Skip listing validation for plan-upgrade-only payments (listingId == Guid.Empty)
+        if (listingId != Guid.Empty)
+        {
+            var listing = await _unitOfWork.Listings.GetByIdAsync(listingId);
+            if (listing == null)
+                throw new KeyNotFoundException("Listing not found.");
+            if (listing.UserId != userId)
+                throw new UnauthorizedAccessException("You don't own this listing.");
+        }
 
-        // Handle existing PENDING transactions
-        var existingPendingTransaction = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
-            .FirstOrDefault(t => t.ListingId == listingId && t.Status == "PENDING");
+        _logger.LogInformation($"Creating order for {planType} plan, user {userId}, listing {(listingId == Guid.Empty ? "none (plan upgrade)" : listingId)}");
+
+        // Handle existing PENDING transactions (only when tied to a specific listing)
+        PaymentTransaction? existingPendingTransaction = null;
+        if (listingId != Guid.Empty)
+        {
+            existingPendingTransaction = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+                .FirstOrDefault(t => t.ListingId == listingId && t.Status == "PENDING");
+        }
 
         if (existingPendingTransaction != null)
         {
@@ -132,7 +140,7 @@ public class PaymentService : IPaymentService
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            ListingId = listingId,
+            ListingId = listingId == Guid.Empty ? (Guid?)null : listingId,
             PlanType = planType,
             Amount = amount,
             Status = "PENDING",
