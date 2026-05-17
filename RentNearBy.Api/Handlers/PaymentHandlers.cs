@@ -159,4 +159,45 @@ public static class PaymentHandlers
             return ServerErrorResponse();
         }
     }
+
+    public static async Task<IResult> CreateUpgradeOrder(
+        ClaimsPrincipal principal,
+        IPaymentService paymentService)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        try
+        {
+            var response = await paymentService.CreateUpgradeOrderAsync(userId);
+            return OkResponse(response);
+        }
+        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
+        catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
+        catch (Exception) { return ServerErrorResponse(); }
+    }
+
+    public static async Task<IResult> VerifyUpgradePayment(
+        [FromBody] VerifyPaymentRequest request,
+        ClaimsPrincipal principal,
+        IPaymentService paymentService)
+    {
+        if (string.IsNullOrWhiteSpace(request.RazorpayOrderId) ||
+            string.IsNullOrWhiteSpace(request.RazorpayPaymentId) ||
+            string.IsNullOrWhiteSpace(request.RazorpaySignature))
+            return BadRequestResponse("Missing payment verification details");
+
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        try
+        {
+            var response = await paymentService.VerifyUpgradePaymentAsync(userId, request);
+            return OkResponse(response);
+        }
+        catch (KeyNotFoundException) { return NotFoundResponse("Transaction not found"); }
+        catch (UnauthorizedAccessException) { return UnauthorizedResponse(); }
+        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
+        catch (Exception) { return ServerErrorResponse(); }
+    }
 }

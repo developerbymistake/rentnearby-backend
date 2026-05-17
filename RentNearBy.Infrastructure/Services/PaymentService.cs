@@ -14,6 +14,8 @@ public interface IPaymentService
     Task<PaymentVerifyResponse> VerifyAndActivateAsync(Guid userId, VerifyPaymentRequest request);
     Task<bool> CanUserActivateListingAsync(Guid userId);
     Task<int> GetActiveRoomCountAsync(Guid userId);
+    Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId);
+    Task<PaymentVerifyResponse> VerifyUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request);
 }
 
 public class PaymentService : IPaymentService
@@ -66,25 +68,17 @@ public class PaymentService : IPaymentService
         if (!paymentFeature.IsEnabled && planType == "PAID")
             throw new InvalidOperationException("Payment feature is not enabled yet.");
 
-        // Skip listing validation for plan-upgrade-only payments (listingId == Guid.Empty)
-        if (listingId != Guid.Empty)
-        {
-            var listing = await _unitOfWork.Listings.GetByIdAsync(listingId);
-            if (listing == null)
-                throw new KeyNotFoundException("Listing not found.");
-            if (listing.UserId != userId)
-                throw new UnauthorizedAccessException("You don't own this listing.");
-        }
+        var listing = await _unitOfWork.Listings.GetByIdAsync(listingId);
+        if (listing == null)
+            throw new KeyNotFoundException("Listing not found.");
+        if (listing.UserId != userId)
+            throw new UnauthorizedAccessException("You don't own this listing.");
 
-        _logger.LogInformation($"Creating order for {planType} plan, user {userId}, listing {(listingId == Guid.Empty ? "none (plan upgrade)" : listingId)}");
+        _logger.LogInformation($"Creating order for {planType} plan, user {userId}, listing {listingId}");
 
-        // Handle existing PENDING transactions (only when tied to a specific listing)
-        PaymentTransaction? existingPendingTransaction = null;
-        if (listingId != Guid.Empty)
-        {
-            existingPendingTransaction = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
-                .FirstOrDefault(t => t.ListingId == listingId && t.Status == "PENDING");
-        }
+        // Handle existing PENDING transactions
+        var existingPendingTransaction = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+            .FirstOrDefault(t => t.ListingId == listingId && t.Status == "PENDING");
 
         if (existingPendingTransaction != null)
         {
@@ -140,7 +134,7 @@ public class PaymentService : IPaymentService
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            ListingId = listingId == Guid.Empty ? (Guid?)null : listingId,
+            ListingId = listingId,
             PlanType = planType,
             Amount = amount,
             Status = "PENDING",
@@ -515,5 +509,112 @@ public class PaymentService : IPaymentService
 
         await _unitOfWork.SaveChangesAsync();
         await InvalidateNearbyCacheAsync(freePlanCityId);
+    }
+
+    public async Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId)
+    {
+        var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
+        if (paymentFeature == null || !paymentFeature.IsEnabled)
+            throw new InvalidOperationException("Payment feature is not enabled.");
+
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync("PAID");
+        if (plan == null) throw new KeyNotFoundException("PAID plan not configured.");
+
+        var existing = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+            .FirstOrDefault(t => t.ListingId == null && t.PlanType == "PAID" && t.Status == "PENDING");
+        if (existing != null && !string.IsNullOrEmpty(existing.RazorpayOrderId))
+        {
+            return new CreatePaymentOrderResponse
+            {
+                OrderId = existing.RazorpayOrderId!,
+                Amount = plan.Price,
+                Currency = "INR",
+                KeyId = _razorpay.GetKeyId()
+            };
+        }
+
+        var (orderId, _) = await _razorpay.CreateOrderAsync(plan.Price, Guid.NewGuid().ToString());
+        var transaction = new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ListingId = null,
+            PlanType = "PAID",
+            Amount = plan.Price,
+            Status = "PENDING",
+            RazorpayOrderId = orderId,
+            CreatedAt = DateTime.UtcNow
+        };
+        await _unitOfWork.PaymentTransactions.AddAsync(transaction);
+        await _unitOfWork.SaveChangesAsync();
+
+        return new CreatePaymentOrderResponse
+        {
+            OrderId = orderId,
+            Amount = plan.Price,
+            Currency = "INR",
+            KeyId = _razorpay.GetKeyId()
+        };
+    }
+
+    public async Task<PaymentVerifyResponse> VerifyUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request)
+    {
+        var transaction = await _unitOfWork.PaymentTransactions.GetByRazorpayOrderIdAsync(request.RazorpayOrderId);
+        if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
+        if (transaction.UserId != userId) throw new UnauthorizedAccessException("Not your transaction.");
+        if (transaction.Status == "SUCCESS") throw new InvalidOperationException("Already processed.");
+
+        if (!_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
+        {
+            transaction.Status = "FAILED";
+            transaction.FailureReason = "Signature verification failed";
+            await _unitOfWork.SaveChangesAsync();
+            throw new InvalidOperationException("Payment verification failed.");
+        }
+
+        transaction.Status = "SUCCESS";
+        transaction.RazorpayPaymentId = request.RazorpayPaymentId;
+        transaction.RazorpaySignature = request.RazorpaySignature;
+        transaction.CompletedAt = DateTime.UtcNow;
+
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync("PAID");
+        var membership = new UserMembership
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            PlanType = "PAID",
+            ValidFrom = DateTime.UtcNow,
+            ValidUntil = DateTime.UtcNow.AddDays(plan!.Days),
+            MaxRooms = plan.RoomLimit,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        await DeactivateExistingMembershipsAsync(userId);
+        await _unitOfWork.UserMemberships.AddAsync(membership);
+
+        var listings = await _unitOfWork.Listings.GetByUserIdAsync(userId);
+        var cityIds = new HashSet<Guid?>();
+        foreach (var listing in listings.Where(l => l.IsActive && !l.IsDeleted))
+        {
+            listing.ValidUntil = membership.ValidUntil;
+            cityIds.Add(listing.CityId);
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+        foreach (var cityId in cityIds)
+            await InvalidateNearbyCacheAsync(cityId);
+
+        _logger.LogInformation($"Plan upgrade verified for user {userId}, membership {membership.Id}");
+        return new PaymentVerifyResponse
+        {
+            Success = true,
+            Message = "Plan upgraded! Your existing rooms are extended to 30 days.",
+            UserMembershipId = membership.Id,
+            ValidUntil = membership.ValidUntil,
+            PlanType = "PAID",
+            MaxRooms = membership.MaxRooms
+        };
     }
 }

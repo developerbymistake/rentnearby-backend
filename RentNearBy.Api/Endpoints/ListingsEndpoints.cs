@@ -24,6 +24,8 @@ public static class ListingsEndpoints
         group.MapPost("/{listingId:guid}/go-live", PaymentHandlers.InitiatePayment).RequireAuthorization();
         group.MapPost("/{listingId:guid}/verify-payment", PaymentHandlers.VerifyPayment).RequireAuthorization();
         group.MapGet("/payment/status", PaymentHandlers.GetMembershipStatus).RequireAuthorization();
+        group.MapPost("/upgrade-plan/create-order", PaymentHandlers.CreateUpgradeOrder).RequireAuthorization();
+        group.MapPost("/upgrade-plan/verify", PaymentHandlers.VerifyUpgradePayment).RequireAuthorization();
 
         return group;
     }

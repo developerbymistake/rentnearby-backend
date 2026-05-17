@@ -184,6 +184,7 @@ public static class ListingsHandlers
         ClaimsPrincipal principal,
         IValidator<CreateListingRequest> validator,
         IUnitOfWork unitOfWork,
+        IPaymentService paymentService,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -217,6 +218,18 @@ public static class ListingsHandlers
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
+
+        // Auto-activate for PAID members with available capacity — no extra charge
+        var activeMembership = await unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
+        if (activeMembership != null && activeMembership.IsActive && activeMembership.PlanType == "PAID")
+        {
+            var canActivate = await paymentService.CanUserActivateListingAsync(userId);
+            if (canActivate)
+            {
+                listing.IsActive = true;
+                listing.ValidUntil = activeMembership.ValidUntil;
+            }
+        }
 
         await unitOfWork.Listings.AddAsync(listing);
         await unitOfWork.SaveChangesAsync();
