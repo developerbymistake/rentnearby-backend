@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Services;
@@ -10,14 +11,14 @@ public static class PaymentHandlers
 {
     public static async Task<IResult> InitiatePayment(
         Guid listingId,
-        string planType,
+        [FromBody] PaymentPlanRequest request,
         ClaimsPrincipal principal,
         IPaymentService paymentService)
     {
-        if (string.IsNullOrWhiteSpace(planType))
+        if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
             return BadRequestResponse("Plan type is required");
 
-        if (planType != "FREE" && planType != "PAID")
+        if (request.PlanType != "FREE" && request.PlanType != "PAID")
             return BadRequestResponse("Plan type must be FREE or PAID");
 
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -25,7 +26,7 @@ public static class PaymentHandlers
 
         try
         {
-            var response = await paymentService.InitiatePaymentAsync(userId, listingId, planType);
+            var response = await paymentService.InitiatePaymentAsync(userId, listingId, request.PlanType);
             return OkResponse(response);
         }
         catch (ArgumentException)
