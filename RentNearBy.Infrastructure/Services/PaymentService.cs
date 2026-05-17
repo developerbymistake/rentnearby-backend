@@ -48,14 +48,42 @@ public class PaymentService : IPaymentService
 
         _logger.LogInformation($"Creating order for {planType} plan, user {userId}, listing {listingId}");
 
-        // Prevent duplicate transactions
+        // Handle existing PENDING transactions
         var existingPendingTransaction = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
             .FirstOrDefault(t => t.ListingId == listingId && t.Status == "PENDING");
 
         if (existingPendingTransaction != null)
         {
-            _logger.LogWarning($"User {userId} already has PENDING transaction for listing {listingId}");
-            throw new InvalidOperationException("Payment already in progress. Please complete or cancel the previous payment.");
+            _logger.LogInformation($"Existing PENDING transaction {existingPendingTransaction.Id} found for listing {listingId}, plan {planType}");
+
+            if (planType == "FREE")
+            {
+                // Reuse existing PENDING transaction — activate it now
+                await ActivateFreePlanAsync(userId, existingPendingTransaction.Id);
+                return new CreatePaymentOrderResponse
+                {
+                    OrderId = existingPendingTransaction.Id.ToString(),
+                    Amount = 0,
+                    Currency = "INR",
+                    KeyId = string.Empty
+                };
+            }
+            else // PAID
+            {
+                // Reuse existing Razorpay order from previous attempt (avoids double charge)
+                if (!string.IsNullOrEmpty(existingPendingTransaction.RazorpayOrderId))
+                {
+                    var keyId = _razorpay.GetKeyId();
+                    var existingPlan = await _unitOfWork.Plans.GetByPlanTypeAsync("PAID");
+                    return new CreatePaymentOrderResponse
+                    {
+                        OrderId = existingPendingTransaction.RazorpayOrderId!,
+                        Amount = existingPlan!.Price,
+                        Currency = "INR",
+                        KeyId = keyId
+                    };
+                }
+            }
         }
 
         // Check FREE plan reuse
