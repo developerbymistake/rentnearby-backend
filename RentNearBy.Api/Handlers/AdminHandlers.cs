@@ -226,12 +226,24 @@ public static class AdminHandlers
             .Select(g => new { District = g.Key.DistrictName, Count = g.Count() })
             .ToListAsync();
 
+        var now = DateTime.UtcNow;
+        var totalEarnings = await db.PaymentTransactions
+            .Where(t => t.Status == "SUCCESS")
+            .SumAsync(t => (int?)t.Amount) ?? 0;
+        var currentMonthEarnings = await db.PaymentTransactions
+            .Where(t => t.Status == "SUCCESS" && t.CompletedAt.HasValue &&
+                        t.CompletedAt.Value.Year == now.Year &&
+                        t.CompletedAt.Value.Month == now.Month)
+            .SumAsync(t => (int?)t.Amount) ?? 0;
+
         return OkResponse(new AdminStatsDto
         {
             TotalUsers = totalUsers,
             TotalListings = totalListings,
             ActiveListings = activeListings,
-            ListingsByDistrict = listingsByDistrict.ToDictionary(x => x.District, x => x.Count)
+            ListingsByDistrict = listingsByDistrict.ToDictionary(x => x.District, x => x.Count),
+            TotalEarnings = totalEarnings,
+            CurrentMonthEarnings = currentMonthEarnings,
         });
     }
 
