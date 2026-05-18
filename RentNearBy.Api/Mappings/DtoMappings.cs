@@ -30,5 +30,13 @@ public static class DtoMappings
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
 
+        TypeAdapterConfig<Plot, PlotDto>.NewConfig()
+            .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
+            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
+            .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
+            .Map(dest => dest.OwnerPhone, src => src.User != null ? src.User.PhoneNumber : null)
+            .Map(dest => dest.Photos, src => src.Photos != null
+                ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
+                : new List<string>());
     }
 }

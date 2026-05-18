@@ -12,5 +12,6 @@ public interface IUnitOfWork : IDisposable
     IUserMembershipRepository UserMemberships { get; }
     IPaymentTransactionRepository PaymentTransactions { get; }
     IPaymentFeatureRepository PaymentFeature { get; }
+    IPlotRepository Plots { get; }
     Task<int> SaveChangesAsync();
 }

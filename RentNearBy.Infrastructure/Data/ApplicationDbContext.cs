@@ -16,6 +16,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<UserMembership> UserMemberships { get; set; }
     public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
     public DbSet<PaymentFeature> PaymentFeatures { get; set; }
+    public DbSet<Plot> Plots { get; set; }
+    public DbSet<PlotPhoto> PlotPhotos { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -198,6 +200,62 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(f => f.CreatedAt).HasDefaultValueSql("now()");
             e.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<Plot>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne(p => p.User)
+             .WithMany()
+             .HasForeignKey(p => p.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(p => p.District)
+             .WithMany()
+             .HasForeignKey(p => p.DistrictId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(p => p.City)
+             .WithMany()
+             .HasForeignKey(p => p.CityId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(p => p.UserId);
+            e.HasIndex(p => p.DistrictId);
+            e.HasIndex(p => p.CityId);
+            e.HasIndex(p => p.IsActive);
+            e.HasIndex(p => p.CreatedAt);
+            e.HasIndex(p => p.AreaSqft);
+
+            e.Property<NetTopologySuite.Geometries.Point?>("Location")
+             .HasColumnType("geography(Point, 4326)")
+             .HasComputedColumnSql(
+                 "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography",
+                 stored: true);
+            e.HasIndex("Location")
+             .HasMethod("gist")
+             .HasDatabaseName("ix_plots_location_gist");
+
+            e.HasIndex(p => new { p.UserId, p.CreatedAt });
+            e.HasIndex(p => new { p.CityId, p.IsActive });
+            e.HasIndex(p => new { p.CityId, p.IsActive, p.CreatedAt });
+        });
+
+        modelBuilder.Entity<PlotPhoto>(e =>
+        {
+            e.HasKey(ph => ph.Id);
+            e.Property(ph => ph.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(ph => ph.UploadedAt).HasDefaultValueSql("now()");
+            e.HasOne(ph => ph.Plot)
+             .WithMany(p => p.Photos)
+             .HasForeignKey(ph => ph.PlotId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(ph => ph.PlotId);
         });
     }
 }

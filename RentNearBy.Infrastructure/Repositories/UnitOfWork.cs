@@ -16,6 +16,7 @@ public class UnitOfWork : IUnitOfWork
     private IUserMembershipRepository? _userMemberships;
     private IPaymentTransactionRepository? _paymentTransactions;
     private IPaymentFeatureRepository? _paymentFeature;
+    private IPlotRepository? _plots;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -32,6 +33,7 @@ public class UnitOfWork : IUnitOfWork
     public IUserMembershipRepository UserMemberships => _userMemberships ??= new UserMembershipRepository(_context);
     public IPaymentTransactionRepository PaymentTransactions => _paymentTransactions ??= new PaymentTransactionRepository(_context);
     public IPaymentFeatureRepository PaymentFeature => _paymentFeature ??= new PaymentFeatureRepository(_context);
+    public IPlotRepository Plots => _plots ??= new PlotRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();
