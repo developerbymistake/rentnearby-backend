@@ -12,9 +12,9 @@ namespace RentNearBy.Api.Handlers;
 
 public static class AuthHandlers
 {
-    private static readonly TimeSpan OtpWindow = TimeSpan.FromHours(1);
+    private static readonly TimeSpan OtpWindow = TimeSpan.FromMinutes(10);
     private const int OtpSendMax = 3;
-    private const int OtpVerifyMax = 3;
+    private const int OtpVerifyMax = 5;
 
     public static async Task<IResult> SendOtp(
         SendOtpRequest request,
