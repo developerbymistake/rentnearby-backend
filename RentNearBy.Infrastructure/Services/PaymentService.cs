@@ -98,18 +98,25 @@ public class PaymentService : IPaymentService
             }
             else // PAID
             {
-                // Reuse existing Razorpay order from previous attempt (avoids double charge)
                 if (!string.IsNullOrEmpty(existingPendingTransaction.RazorpayOrderId))
                 {
-                    var retryKeyId = _razorpay.GetKeyId();
-                    var existingPlan = await _unitOfWork.Plans.GetByPlanTypeAsync("PAID");
-                    return new CreatePaymentOrderResponse
+                    // Razorpay orders expire after 15 minutes — reuse only within that window
+                    if (existingPendingTransaction.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
                     {
-                        OrderId = existingPendingTransaction.RazorpayOrderId!,
-                        Amount = existingPlan!.Price,
-                        Currency = "INR",
-                        KeyId = retryKeyId
-                    };
+                        var retryKeyId = _razorpay.GetKeyId();
+                        var existingPlan = await _unitOfWork.Plans.GetByPlanTypeAsync("PAID");
+                        return new CreatePaymentOrderResponse
+                        {
+                            OrderId = existingPendingTransaction.RazorpayOrderId!,
+                            Amount = existingPlan!.Price,
+                            Currency = "INR",
+                            KeyId = retryKeyId
+                        };
+                    }
+                    // Order expired: mark as FAILED so a fresh one can be created
+                    existingPendingTransaction.Status = "FAILED";
+                    existingPendingTransaction.FailureReason = "Razorpay order expired — superseded by retry";
+                    await _unitOfWork.SaveChangesAsync();
                 }
             }
         }
@@ -524,13 +531,19 @@ public class PaymentService : IPaymentService
             .FirstOrDefault(t => t.ListingId == null && t.PlanType == "PAID" && t.Status == "PENDING");
         if (existing != null && !string.IsNullOrEmpty(existing.RazorpayOrderId))
         {
-            return new CreatePaymentOrderResponse
+            if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
             {
-                OrderId = existing.RazorpayOrderId!,
-                Amount = plan.Price,
-                Currency = "INR",
-                KeyId = _razorpay.GetKeyId()
-            };
+                return new CreatePaymentOrderResponse
+                {
+                    OrderId = existing.RazorpayOrderId!,
+                    Amount = plan.Price,
+                    Currency = "INR",
+                    KeyId = _razorpay.GetKeyId()
+                };
+            }
+            existing.Status = "FAILED";
+            existing.FailureReason = "Razorpay order expired — superseded by retry";
+            await _unitOfWork.SaveChangesAsync();
         }
 
         var (orderId, _) = await _razorpay.CreateOrderAsync(plan.Price, Guid.NewGuid().ToString());
