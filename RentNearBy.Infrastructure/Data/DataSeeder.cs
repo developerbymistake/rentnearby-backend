@@ -1878,30 +1878,34 @@ public static class DataSeeder
 
     private static async Task SeedAdminUserAsync(ApplicationDbContext db)
     {
-        const string adminPhone = "7060023511";
-        var admin = await db.Users.FirstOrDefaultAsync(u => u.PhoneNumber == adminPhone);
-        if (admin == null)
+        var adminPhones = new[] { "7060023511", "9720565640" };
+        bool changed = false;
+
+        foreach (var phone in adminPhones)
         {
-            db.Users.Add(new User
+            var admin = await db.Users.FirstOrDefaultAsync(u => u.PhoneNumber == phone);
+            if (admin == null)
             {
-                Id = Guid.NewGuid(),
-                PhoneNumber = adminPhone,
-                Name = "Admin",
-                IsAdmin = true,
-                OtpVerified = true,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-            });
+                db.Users.Add(new User
+                {
+                    Id = Guid.NewGuid(),
+                    PhoneNumber = phone,
+                    Name = "Admin",
+                    IsAdmin = true,
+                    OtpVerified = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                });
+                changed = true;
+            }
+            else if (!admin.IsAdmin)
+            {
+                admin.IsAdmin = true;
+                admin.UpdatedAt = DateTime.UtcNow;
+                changed = true;
+            }
         }
-        else if (!admin.IsAdmin)
-        {
-            admin.IsAdmin = true;
-            admin.UpdatedAt = DateTime.UtcNow;
-        }
-        else
-        {
-            return;
-        }
-        await db.SaveChangesAsync();
+
+        if (changed) await db.SaveChangesAsync();
     }
 }
