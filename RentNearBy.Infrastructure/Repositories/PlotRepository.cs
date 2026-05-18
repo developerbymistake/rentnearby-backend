@@ -118,6 +118,35 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder))
             .FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
 
+    public async Task<(IReadOnlyList<Plot> Items, bool HasMore)> GetAllAsync(
+        int page, int pageSize,
+        string? plotType = null,
+        bool? isActive = null,
+        Guid? districtId = null)
+    {
+        var take = pageSize + 1;
+        var query = _dbSet
+            .AsNoTracking()
+            .Include(p => p.District)
+            .Include(p => p.City)
+            .Include(p => p.User)
+            .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder).Take(1))
+            .Where(p => !p.IsDeleted);
+
+        if (plotType != null) query = query.Where(p => p.PlotType == plotType);
+        if (isActive.HasValue) query = query.Where(p => p.IsActive == isActive.Value);
+        if (districtId.HasValue) query = query.Where(p => p.DistrictId == districtId.Value);
+
+        var items = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(take)
+            .ToListAsync();
+
+        var hasMore = items.Count > pageSize;
+        return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
+    }
+
     public async Task AddPhotoAsync(PlotPhoto photo)
         => await context.PlotPhotos.AddAsync(photo);
 

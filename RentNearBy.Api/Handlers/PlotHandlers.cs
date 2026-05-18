@@ -384,4 +384,86 @@ public static class PlotHandlers
             && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50) return true;
         return false;
     }
+
+    // ── Admin Plot endpoints ───────────────────────────────────────────────────
+
+    public record AdminTogglePlotRequest(bool IsActive);
+
+    public record AdminPlotDto(
+        string Id, string UserId, string? OwnerName, string? OwnerPhone,
+        string PlotType, double AreaValue, string AreaUnit, double AreaSqft,
+        bool IsActive, string? DistrictName, string? CityName, string? Address,
+        string? ThumbnailUrl, int PhotoCount, DateTime CreatedAt);
+
+    public static async Task<IResult> GetAdminPlots(
+        IUnitOfWork unitOfWork,
+        int page = 1, int pageSize = 20,
+        string? plotType = null, bool? isActive = null, Guid? districtId = null)
+    {
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+        if (page < 1) page = 1;
+
+        var (items, hasMore) = await unitOfWork.Plots.GetAllAsync(page, pageSize, plotType, isActive, districtId);
+        var dtos = items.Select(p => new AdminPlotDto(
+            Id: p.Id.ToString(),
+            UserId: p.UserId.ToString(),
+            OwnerName: p.User?.Name,
+            OwnerPhone: p.User?.PhoneNumber,
+            PlotType: p.PlotType,
+            AreaValue: (double)p.AreaValue,
+            AreaUnit: p.AreaUnit,
+            AreaSqft: (double)p.AreaSqft,
+            IsActive: p.IsActive,
+            DistrictName: p.District?.Name,
+            CityName: p.City?.Name,
+            Address: p.Address,
+            ThumbnailUrl: p.Photos.FirstOrDefault()?.PhotoUrl,
+            PhotoCount: p.Photos.Count,
+            CreatedAt: p.CreatedAt
+        )).ToList();
+
+        return OkResponse(new { items = dtos, hasMore });
+    }
+
+    public static async Task<IResult> AdminTogglePlot(
+        Guid id, AdminTogglePlotRequest request,
+        IUnitOfWork unitOfWork, IServiceProvider sp)
+    {
+        var plot = await unitOfWork.Plots.GetByIdAsync(id);
+        if (plot == null) return NotFoundResponse("Plot not found");
+
+        plot.IsActive = request.IsActive;
+        plot.UpdatedAt = DateTime.UtcNow;
+        await unitOfWork.Plots.UpdateAsync(plot);
+        await unitOfWork.SaveChangesAsync();
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        if (plot.CityId.HasValue)
+            await InvalidateNearbyCacheAsync(redis, plot.CityId.Value);
+
+        return OkResponse(new { success = true, isActive = plot.IsActive });
+    }
+
+    public static async Task<IResult> AdminDeletePlot(
+        Guid id, IUnitOfWork unitOfWork,
+        IPhotoService photoService, IServiceProvider sp)
+    {
+        var plot = await unitOfWork.Plots.GetByIdWithPhotosAsync(id);
+        if (plot == null) return NotFoundResponse("Plot not found");
+
+        var cityId = plot.CityId;
+
+        foreach (var photo in plot.Photos)
+            await photoService.DeletePhotoAsync(photo.FilePath);
+
+        plot.IsDeleted = true;
+        plot.DeletedAt = DateTime.UtcNow;
+        await unitOfWork.Plots.UpdateAsync(plot);
+        await unitOfWork.SaveChangesAsync();
+
+        if (cityId.HasValue)
+            await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), cityId.Value);
+
+        return NoContentResponse();
+    }
 }

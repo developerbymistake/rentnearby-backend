@@ -9,6 +9,11 @@ public interface IPlotRepository : IRepository<Plot>
     Task<IEnumerable<Plot>> GetByUserIdAsync(Guid userId);
     Task<(IReadOnlyList<Plot> Items, bool HasMore)> GetByUserIdPagedAsync(Guid userId, int page, int pageSize);
     Task<Plot?> GetByIdWithPhotosAsync(Guid id);
+    Task<(IReadOnlyList<Plot> Items, bool HasMore)> GetAllAsync(
+        int page, int pageSize,
+        string? plotType = null,
+        bool? isActive = null,
+        Guid? districtId = null);
     Task AddPhotoAsync(PlotPhoto photo);
     void RemovePhoto(PlotPhoto photo);
 }

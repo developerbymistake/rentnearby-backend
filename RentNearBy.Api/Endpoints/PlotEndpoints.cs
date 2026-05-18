@@ -20,4 +20,12 @@ public static class PlotEndpoints
 
         return group;
     }
+
+    public static IEndpointRouteBuilder MapAdminPlotEndpoints(this IEndpointRouteBuilder app)
+    {
+        app.MapGet("/", PlotHandlers.GetAdminPlots).RequireAuthorization("AdminOnly");
+        app.MapPut("/{id:guid}", PlotHandlers.AdminTogglePlot).RequireAuthorization("AdminOnly");
+        app.MapDelete("/{id:guid}", PlotHandlers.AdminDeletePlot).RequireAuthorization("AdminOnly");
+        return app;
+    }
 }
