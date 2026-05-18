@@ -437,11 +437,8 @@ public static class AdminHandlers
         if (planType != "FREE" && planType != "PAID")
             return BadRequestResponse("PlanType must be FREE or PAID");
 
-        if (request.Days <= 0)
-            return BadRequestResponse("Days must be greater than 0");
-
         var plan = await db.Plans.FirstOrDefaultAsync(p => p.PlanType == planType);
-        if (plan == null) return BadRequestResponse("Plan not found");
+        if (plan == null) return NotFoundResponse("Plan not found");
 
         var now = DateTime.UtcNow;
 
@@ -457,7 +454,7 @@ public static class AdminHandlers
             UserId = id,
             PlanType = planType,
             ValidFrom = now,
-            ValidUntil = now.AddDays(request.Days),
+            ValidUntil = now.AddDays(plan.Days),
             MaxRooms = plan.RoomLimit,
             IsActive = true,
             CreatedAt = now,
@@ -480,6 +477,64 @@ public static class AdminHandlers
             ValidUntil = membership.ValidUntil,
             MaxRooms = membership.MaxRooms,
             IsActive = membership.IsActive,
+        });
+    }
+
+    public static async Task<IResult> GetPlans(ApplicationDbContext db)
+    {
+        var plans = await db.Plans
+            .OrderBy(p => p.Price)
+            .Select(p => new
+            {
+                id = p.Id,
+                planType = p.PlanType,
+                days = p.Days,
+                price = p.Price,
+                roomLimit = p.RoomLimit,
+                isEnabled = p.IsEnabled,
+            })
+            .ToListAsync();
+
+        return OkResponse(plans);
+    }
+
+    public static async Task<IResult> UpdatePlan(
+        Guid id,
+        UpdatePlanRequest request,
+        ApplicationDbContext db)
+    {
+        var plan = await db.Plans.FindAsync(id);
+        if (plan == null) return NotFoundResponse("Plan not found");
+
+        if (request.Days.HasValue)
+        {
+            if (request.Days.Value <= 0) return BadRequestResponse("Days must be greater than 0");
+            plan.Days = request.Days.Value;
+        }
+        if (request.Price.HasValue)
+        {
+            if (request.Price.Value < 0) return BadRequestResponse("Price cannot be negative");
+            plan.Price = request.Price.Value;
+        }
+        if (request.RoomLimit.HasValue)
+        {
+            if (request.RoomLimit.Value <= 0) return BadRequestResponse("Room limit must be greater than 0");
+            plan.RoomLimit = request.RoomLimit.Value;
+        }
+        if (request.IsEnabled.HasValue)
+            plan.IsEnabled = request.IsEnabled.Value;
+
+        plan.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return OkResponse(new
+        {
+            id = plan.Id,
+            planType = plan.PlanType,
+            days = plan.Days,
+            price = plan.Price,
+            roomLimit = plan.RoomLimit,
+            isEnabled = plan.IsEnabled,
         });
     }
 }

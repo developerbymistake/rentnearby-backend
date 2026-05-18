@@ -32,6 +32,9 @@ public static class AdminEndpoints
 
         group.MapGet("/transactions", AdminHandlers.GetTransactions).RequireAuthorization("AdminOnly");
 
+        group.MapGet("/plans", AdminHandlers.GetPlans).RequireAuthorization("AdminOnly");
+        group.MapPut("/plans/{id:guid}", AdminHandlers.UpdatePlan).RequireAuthorization("AdminOnly");
+
         return group;
     }
 }

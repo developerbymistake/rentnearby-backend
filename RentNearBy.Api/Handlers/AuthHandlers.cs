@@ -85,6 +85,9 @@ public static class AuthHandlers
         }
         else
         {
+            if (!user.IsActive)
+                return ForbiddenResponse("Your account has been blocked. Contact admin.");
+
             user.OtpVerified = true;
             user.UpdatedAt = DateTime.UtcNow;
             await unitOfWork.Users.UpdateAsync(user);
