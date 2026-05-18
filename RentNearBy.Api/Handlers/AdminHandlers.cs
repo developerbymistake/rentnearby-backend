@@ -8,6 +8,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
 using static RentNearBy.Api.Extensions.ApiResults;
+using System.Security.Claims;
 
 namespace RentNearBy.Api.Handlers;
 
@@ -266,5 +267,219 @@ public static class AdminHandlers
         await unitOfWork.SaveChangesAsync();
 
         return OkResponse(paymentFeature);
+    }
+
+    public static async Task<IResult> GetUsers(
+        ApplicationDbContext db,
+        int page = 1,
+        int pageSize = 20,
+        bool? isActive = null,
+        string? search = null,
+        Guid? districtId = null,
+        Guid? cityId = null)
+    {
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        page = Math.Max(1, page);
+
+        var query = db.Users
+            .Include(u => u.Listings)
+            .Include(u => u.Memberships.OrderByDescending(m => m.CreatedAt).Take(1))
+            .AsQueryable();
+
+        if (isActive.HasValue)
+            query = query.Where(u => u.IsActive == isActive.Value);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            query = query.Where(u =>
+                u.PhoneNumber.Contains(s) ||
+                (u.Name != null && u.Name.ToLower().Contains(s)));
+        }
+
+        if (districtId.HasValue)
+            query = query.Where(u => u.Listings.Any(l => l.DistrictId == districtId.Value && !l.IsDeleted));
+
+        if (cityId.HasValue)
+            query = query.Where(u => u.Listings.Any(l => l.CityId == cityId.Value && !l.IsDeleted));
+
+        var totalCount = await query.CountAsync();
+
+        var users = await query
+            .OrderByDescending(u => u.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var items = users.Select(u =>
+        {
+            var nonDeleted = u.Listings.Where(l => !l.IsDeleted).ToList();
+            var membership = u.Memberships
+                .OrderByDescending(m => m.CreatedAt)
+                .FirstOrDefault();
+
+            return new AdminUserDto
+            {
+                Id = u.Id,
+                PhoneNumber = u.PhoneNumber,
+                Name = u.Name,
+                IsAdmin = u.IsAdmin,
+                IsActive = u.IsActive,
+                HasUsedFreePlan = u.HasUsedFreePlan,
+                CreatedAt = u.CreatedAt,
+                TotalListings = nonDeleted.Count,
+                ActiveListings = nonDeleted.Count(l => l.IsActive),
+                CurrentMembership = membership == null ? null : new AdminMembershipDto
+                {
+                    Id = membership.Id,
+                    PlanType = membership.PlanType,
+                    ValidFrom = membership.ValidFrom,
+                    ValidUntil = membership.ValidUntil,
+                    MaxRooms = membership.MaxRooms,
+                    IsActive = membership.IsActive,
+                },
+            };
+        }).ToList();
+
+        return OkResponse(new PagedResult<AdminUserDto>
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            HasMore = (page * pageSize) < totalCount,
+        });
+    }
+
+    public static async Task<IResult> UpdateUserStatus(
+        Guid id,
+        UpdateUserStatusRequest request,
+        ApplicationDbContext db)
+    {
+        var user = await db.Users
+            .Include(u => u.Listings.Where(l => !l.IsDeleted))
+            .FirstOrDefaultAsync(u => u.Id == id);
+
+        if (user == null) return NotFoundResponse("User not found");
+
+        user.IsActive = request.IsActive;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        foreach (var listing in user.Listings.Where(l => !l.IsDeleted))
+        {
+            listing.IsActive = request.IsActive;
+            listing.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync();
+
+        return OkResponse(new { id = user.Id, isActive = user.IsActive });
+    }
+
+    public static async Task<IResult> GetTransactions(
+        ApplicationDbContext db,
+        int page = 1,
+        int pageSize = 20,
+        string? status = null)
+    {
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        page = Math.Max(1, page);
+
+        var query = db.PaymentTransactions
+            .Include(t => t.User)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(status) && status.ToUpper() != "ALL")
+            query = query.Where(t => t.Status == status.ToUpper());
+
+        var totalCount = await query.CountAsync();
+
+        var transactions = await query
+            .OrderByDescending(t => t.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(t => new AdminTransactionDto
+            {
+                Id = t.Id,
+                UserId = t.UserId,
+                UserName = t.User.Name,
+                UserPhone = t.User.PhoneNumber,
+                PlanType = t.PlanType,
+                Amount = t.Amount,
+                Currency = t.Currency,
+                Status = t.Status,
+                RazorpayPaymentId = t.RazorpayPaymentId,
+                FailureReason = t.FailureReason,
+                CreatedAt = t.CreatedAt,
+                CompletedAt = t.CompletedAt,
+            })
+            .ToListAsync();
+
+        return OkResponse(new PagedResult<AdminTransactionDto>
+        {
+            Items = transactions,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            HasMore = (page * pageSize) < totalCount,
+        });
+    }
+
+    public static async Task<IResult> ActivateMembership(
+        Guid id,
+        ActivateMembershipRequest request,
+        ApplicationDbContext db)
+    {
+        var user = await db.Users.FindAsync(id);
+        if (user == null) return NotFoundResponse("User not found");
+
+        var planType = request.PlanType.ToUpper();
+        if (planType != "FREE" && planType != "PAID")
+            return BadRequestResponse("PlanType must be FREE or PAID");
+
+        if (request.Days <= 0)
+            return BadRequestResponse("Days must be greater than 0");
+
+        var plan = await db.Plans.FirstOrDefaultAsync(p => p.PlanType == planType);
+        if (plan == null) return BadRequestResponse("Plan not found");
+
+        var now = DateTime.UtcNow;
+
+        await db.UserMemberships
+            .Where(m => m.UserId == id && m.IsActive)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.IsActive, false)
+                .SetProperty(m => m.UpdatedAt, now));
+
+        var membership = new UserMembership
+        {
+            Id = Guid.NewGuid(),
+            UserId = id,
+            PlanType = planType,
+            ValidFrom = now,
+            ValidUntil = now.AddDays(request.Days),
+            MaxRooms = plan.RoomLimit,
+            IsActive = true,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+
+        db.UserMemberships.Add(membership);
+
+        if (planType == "FREE")
+            user.HasUsedFreePlan = true;
+
+        user.UpdatedAt = now;
+        await db.SaveChangesAsync();
+
+        return OkResponse(new AdminMembershipDto
+        {
+            Id = membership.Id,
+            PlanType = membership.PlanType,
+            ValidFrom = membership.ValidFrom,
+            ValidUntil = membership.ValidUntil,
+            MaxRooms = membership.MaxRooms,
+            IsActive = membership.IsActive,
+        });
     }
 }

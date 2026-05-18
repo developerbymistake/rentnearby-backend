@@ -11,6 +11,7 @@ public static class DataSeeder
         await SeedPlansAsync(db);
         await SeedDistrictsAndCitiesAsync(db);
         await SeedPaymentFeatureAsync(db);
+        await SeedAdminUserAsync(db);
     }
 
     private static async Task SeedPlansAsync(ApplicationDbContext db)
@@ -1872,6 +1873,35 @@ public static class DataSeeder
         };
 
         db.PaymentFeatures.Add(paymentFeature);
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedAdminUserAsync(ApplicationDbContext db)
+    {
+        const string adminPhone = "7060023511";
+        var admin = await db.Users.FirstOrDefaultAsync(u => u.PhoneNumber == adminPhone);
+        if (admin == null)
+        {
+            db.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                PhoneNumber = adminPhone,
+                Name = "Admin",
+                IsAdmin = true,
+                OtpVerified = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            });
+        }
+        else if (!admin.IsAdmin)
+        {
+            admin.IsAdmin = true;
+            admin.UpdatedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            return;
+        }
         await db.SaveChangesAsync();
     }
 }

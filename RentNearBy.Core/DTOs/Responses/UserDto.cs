@@ -7,5 +7,7 @@ public class UserDto
     public string? Name { get; set; }
     public string? GmailId { get; set; }
     public bool IsAdmin { get; set; }
+    public bool IsActive { get; set; }
+    public bool HasUsedFreePlan { get; set; }
     public DateTime CreatedAt { get; set; }
 }
