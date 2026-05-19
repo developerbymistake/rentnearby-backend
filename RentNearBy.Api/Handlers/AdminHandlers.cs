@@ -7,6 +7,8 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Extensions;
+using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 using System.Security.Claims;
 
@@ -315,52 +317,39 @@ public static class AdminHandlers
         if (cityId.HasValue)
             query = query.Where(u => u.Listings.Any(l => l.CityId == cityId.Value && !l.IsDeleted));
 
-        var totalCount = await query.CountAsync();
-
-        var users = await query
+        var result = await query
             .OrderByDescending(u => u.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync();
-
-        var items = users.Select(u =>
-        {
-            var nonDeleted = u.Listings.Where(l => !l.IsDeleted).ToList();
-            var membership = u.Memberships
-                .OrderByDescending(m => m.CreatedAt)
-                .FirstOrDefault();
-
-            return new AdminUserDto
+            .ToPagedResultAsync(page, pageSize, u =>
             {
-                Id = u.Id,
-                PhoneNumber = u.PhoneNumber,
-                Name = u.Name,
-                IsAdmin = u.IsAdmin,
-                IsActive = u.IsActive,
-                HasUsedFreePlan = u.HasUsedFreePlan,
-                CreatedAt = u.CreatedAt,
-                TotalListings = nonDeleted.Count,
-                ActiveListings = nonDeleted.Count(l => l.IsActive),
-                CurrentMembership = membership == null ? null : new AdminMembershipDto
-                {
-                    Id = membership.Id,
-                    PlanType = membership.PlanType,
-                    ValidFrom = membership.ValidFrom,
-                    ValidUntil = membership.ValidUntil,
-                    MaxRooms = membership.MaxRooms,
-                    IsActive = membership.IsActive,
-                },
-            };
-        }).ToList();
+                var nonDeleted = u.Listings.Where(l => !l.IsDeleted).ToList();
+                var membership = u.Memberships
+                    .OrderByDescending(m => m.CreatedAt)
+                    .FirstOrDefault();
 
-        return OkResponse(new PagedResult<AdminUserDto>
-        {
-            Items = items,
-            TotalCount = totalCount,
-            Page = page,
-            PageSize = pageSize,
-            HasMore = (page * pageSize) < totalCount,
-        });
+                return new AdminUserDto
+                {
+                    Id = u.Id,
+                    PhoneNumber = u.PhoneNumber,
+                    Name = u.Name,
+                    IsAdmin = u.IsAdmin,
+                    IsActive = u.IsActive,
+                    HasUsedFreePlan = u.HasUsedFreePlan,
+                    CreatedAt = u.CreatedAt,
+                    TotalListings = nonDeleted.Count,
+                    ActiveListings = nonDeleted.Count(l => l.IsActive),
+                    CurrentMembership = membership == null ? null : new AdminMembershipDto
+                    {
+                        Id = membership.Id,
+                        PlanType = membership.PlanType,
+                        ValidFrom = membership.ValidFrom,
+                        ValidUntil = membership.ValidUntil,
+                        MaxRooms = membership.MaxRooms,
+                        IsActive = membership.IsActive,
+                    },
+                };
+            });
+
+        return OkResponse(result);
     }
 
     public static async Task<IResult> UpdateUserStatus(
@@ -404,12 +393,8 @@ public static class AdminHandlers
         if (!string.IsNullOrWhiteSpace(status) && status.ToUpper() != "ALL")
             query = query.Where(t => t.Status == status.ToUpper());
 
-        var totalCount = await query.CountAsync();
-
-        var transactions = await query
+        var result = await query
             .OrderByDescending(t => t.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
             .Select(t => new AdminTransactionDto
             {
                 Id = t.Id,
@@ -425,16 +410,9 @@ public static class AdminHandlers
                 CreatedAt = t.CreatedAt,
                 CompletedAt = t.CompletedAt,
             })
-            .ToListAsync();
+            .ToPagedResultAsync(page, pageSize);
 
-        return OkResponse(new PagedResult<AdminTransactionDto>
-        {
-            Items = transactions,
-            TotalCount = totalCount,
-            Page = page,
-            PageSize = pageSize,
-            HasMore = (page * pageSize) < totalCount,
-        });
+        return OkResponse(result);
     }
 
     public static async Task<IResult> ActivateMembership(
@@ -590,5 +568,87 @@ public static class AdminHandlers
             roomLimit = plan.RoomLimit,
             isEnabled = plan.IsEnabled,
         });
+    }
+
+    // ── Admin Listing endpoints ───────────────────────────────────────────────
+
+    public record AdminToggleListingRequest(bool IsActive);
+
+    public static async Task<IResult> GetAdminListings(
+        ApplicationDbContext db,
+        int page = 1,
+        int pageSize = 20,
+        Guid? districtId = null,
+        Guid? cityId = null,
+        Guid? roomTypeId = null,
+        bool? isActive = null)
+    {
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        page = Math.Max(1, page);
+
+        var query = db.Listings
+            .Include(l => l.District)
+            .Include(l => l.City)
+            .Include(l => l.RoomType)
+            .Include(l => l.User)
+            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
+            .Where(l => !l.IsDeleted);
+
+        if (districtId.HasValue) query = query.Where(l => l.DistrictId == districtId.Value);
+        if (cityId.HasValue) query = query.Where(l => l.CityId == cityId.Value);
+        if (roomTypeId.HasValue) query = query.Where(l => l.RoomTypeId == roomTypeId.Value);
+        if (isActive.HasValue) query = query.Where(l => l.IsActive == isActive.Value);
+
+        var result = await query
+            .OrderByDescending(l => l.CreatedAt)
+            .ToPagedResultAsync(page, pageSize, l => new AdminListingDto
+            {
+                Id = l.Id,
+                UserId = l.UserId,
+                OwnerName = l.User?.Name,
+                OwnerPhone = l.User?.PhoneNumber,
+                DistrictName = l.District?.Name,
+                CityName = l.City?.Name,
+                RoomTypeName = l.RoomType?.Name,
+                PriceMonthly = l.PriceMonthly,
+                IsActive = l.IsActive,
+                Address = l.Address,
+                ThumbnailUrl = l.Photos.FirstOrDefault()?.PhotoUrl,
+                PhotoCount = l.Photos.Count,
+                CreatedAt = l.CreatedAt,
+            });
+
+        return OkResponse(result);
+    }
+
+    public static async Task<IResult> ToggleAdminListingStatus(
+        Guid id, AdminToggleListingRequest request, ApplicationDbContext db)
+    {
+        var listing = await db.Listings.FindAsync(id);
+        if (listing == null || listing.IsDeleted) return NotFoundResponse("Listing not found");
+
+        listing.IsActive = request.IsActive;
+        listing.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return OkResponse(new { success = true, isActive = listing.IsActive });
+    }
+
+    public static async Task<IResult> DeleteAdminListing(
+        Guid id, ApplicationDbContext db, IPhotoService photoService)
+    {
+        var listing = await db.Listings
+            .Include(l => l.Photos)
+            .FirstOrDefaultAsync(l => l.Id == id && !l.IsDeleted);
+        if (listing == null) return NotFoundResponse("Listing not found");
+
+        foreach (var photo in listing.Photos)
+            await photoService.DeletePhotoAsync(photo.FilePath);
+
+        listing.IsDeleted = true;
+        listing.DeletedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return NoContentResponse();
     }
 }

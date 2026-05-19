@@ -122,7 +122,8 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
         int page, int pageSize,
         string? plotType = null,
         bool? isActive = null,
-        Guid? districtId = null)
+        Guid? districtId = null,
+        Guid? cityId = null)
     {
         var take = pageSize + 1;
         var query = _dbSet
@@ -136,6 +137,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
         if (plotType != null) query = query.Where(p => p.PlotType == plotType);
         if (isActive.HasValue) query = query.Where(p => p.IsActive == isActive.Value);
         if (districtId.HasValue) query = query.Where(p => p.DistrictId == districtId.Value);
+        if (cityId.HasValue) query = query.Where(p => p.CityId == cityId.Value);
 
         var items = await query
             .OrderByDescending(p => p.CreatedAt)

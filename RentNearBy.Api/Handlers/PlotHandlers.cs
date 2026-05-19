@@ -398,12 +398,12 @@ public static class PlotHandlers
     public static async Task<IResult> GetAdminPlots(
         IUnitOfWork unitOfWork,
         int page = 1, int pageSize = 20,
-        string? plotType = null, bool? isActive = null, Guid? districtId = null)
+        string? plotType = null, bool? isActive = null, Guid? districtId = null, Guid? cityId = null)
     {
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
         if (page < 1) page = 1;
 
-        var (items, hasMore) = await unitOfWork.Plots.GetAllAsync(page, pageSize, plotType, isActive, districtId);
+        var (items, hasMore) = await unitOfWork.Plots.GetAllAsync(page, pageSize, plotType, isActive, districtId, cityId);
         var dtos = items.Select(p => new AdminPlotDto(
             Id: p.Id.ToString(),
             UserId: p.UserId.ToString(),

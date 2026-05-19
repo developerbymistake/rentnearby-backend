@@ -13,7 +13,8 @@ public interface IPlotRepository : IRepository<Plot>
         int page, int pageSize,
         string? plotType = null,
         bool? isActive = null,
-        Guid? districtId = null);
+        Guid? districtId = null,
+        Guid? cityId = null);
     Task AddPhotoAsync(PlotPhoto photo);
     void RemovePhoto(PlotPhoto photo);
 }
