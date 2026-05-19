@@ -18,15 +18,12 @@ public static class PaymentHandlers
         if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
             return BadRequestResponse("Plan type is required");
 
-        if (request.PlanType != "FREE" && request.PlanType != "PAID")
-            return BadRequestResponse("Plan type must be FREE or PAID");
-
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
         try
         {
-            var response = await paymentService.CreateOrderAsync(userId, listingId, request.PlanType);
+            var response = await paymentService.CreateOrderAsync(userId, listingId, request.PlanType.Trim().ToUpperInvariant());
             return OkResponse(response);
         }
         catch (ArgumentException)
@@ -60,15 +57,12 @@ public static class PaymentHandlers
         if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
             return BadRequestResponse("Plan type is required");
 
-        if (request.PlanType != "FREE" && request.PlanType != "PAID")
-            return BadRequestResponse("Plan type must be FREE or PAID");
-
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
         try
         {
-            var response = await paymentService.InitiatePaymentAsync(userId, listingId, request.PlanType);
+            var response = await paymentService.InitiatePaymentAsync(userId, listingId, request.PlanType.Trim().ToUpperInvariant());
             return OkResponse(response);
         }
         catch (ArgumentException)
@@ -161,17 +155,22 @@ public static class PaymentHandlers
     }
 
     public static async Task<IResult> CreateUpgradeOrder(
+        [FromBody] PaymentPlanRequest request,
         ClaimsPrincipal principal,
         IPaymentService paymentService)
     {
+        if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
+            return BadRequestResponse("Plan type is required");
+
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
         try
         {
-            var response = await paymentService.CreateUpgradeOrderAsync(userId);
+            var response = await paymentService.CreateUpgradeOrderAsync(userId, request.PlanType.Trim().ToUpperInvariant());
             return OkResponse(response);
         }
+        catch (ArgumentException ex) { return BadRequestResponse(ex.Message); }
         catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
         catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
         catch (Exception) { return ServerErrorResponse(); }

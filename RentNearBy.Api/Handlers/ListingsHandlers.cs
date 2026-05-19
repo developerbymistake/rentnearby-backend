@@ -219,15 +219,19 @@ public static class ListingsHandlers
             UpdatedAt = DateTime.UtcNow
         };
 
-        // Auto-activate for PAID members with available capacity — no extra charge
+        // Auto-activate for paid members with available capacity — routing by plan price, not plan name
         var activeMembership = await unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
-        if (activeMembership != null && activeMembership.IsActive && activeMembership.PlanType == "PAID")
+        if (activeMembership != null && activeMembership.IsActive)
         {
-            var canActivate = await paymentService.CanUserActivateListingAsync(userId);
-            if (canActivate)
+            var activePlan = await unitOfWork.Plans.GetByPlanTypeAsync(activeMembership.PlanType);
+            if (activePlan?.Price > 0)
             {
-                listing.IsActive = true;
-                listing.ValidUntil = activeMembership.ValidUntil;
+                var canActivate = await paymentService.CanUserActivateListingAsync(userId);
+                if (canActivate)
+                {
+                    listing.IsActive = true;
+                    listing.ValidUntil = activeMembership.ValidUntil;
+                }
             }
         }
 

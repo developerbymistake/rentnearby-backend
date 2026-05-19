@@ -445,13 +445,11 @@ public static class AdminHandlers
         var user = await db.Users.FindAsync(id);
         if (user == null) return NotFoundResponse("User not found");
 
-        var planType = request.PlanType.ToUpper();
-        if (planType != "FREE" && planType != "PAID")
-            return BadRequestResponse("PlanType must be FREE or PAID");
+        var planType = request.PlanType.Trim().ToUpperInvariant();
+        var plan = await db.Plans.FirstOrDefaultAsync(p => p.PlanType == planType && p.IsEnabled);
+        if (plan == null) return BadRequestResponse($"Plan '{planType}' not found or disabled.");
 
-        var plan = await db.Plans.FirstOrDefaultAsync(p => p.PlanType == planType);
-        if (plan == null) return NotFoundResponse("Plan not found");
-
+        bool isFree = plan.Price == 0;
         var now = DateTime.UtcNow;
 
         await db.UserMemberships
@@ -475,7 +473,8 @@ public static class AdminHandlers
 
         db.UserMemberships.Add(membership);
 
-        if (planType == "FREE")
+        // Mark as used free plan for any price=0 plan
+        if (isFree)
             user.HasUsedFreePlan = true;
 
         user.UpdatedAt = now;
@@ -508,6 +507,49 @@ public static class AdminHandlers
             .ToListAsync();
 
         return OkResponse(plans);
+    }
+
+    public static async Task<IResult> CreatePlan(
+        CreatePlanRequest request,
+        ApplicationDbContext db)
+    {
+        if (string.IsNullOrWhiteSpace(request.PlanType))
+            return BadRequestResponse("Plan type name is required.");
+        if (request.Price < 0)
+            return BadRequestResponse("Price cannot be negative.");
+        if (request.Days <= 0)
+            return BadRequestResponse("Days must be greater than 0.");
+        if (request.RoomLimit <= 0)
+            return BadRequestResponse("Room limit must be greater than 0.");
+
+        var key = request.PlanType.Trim().ToUpperInvariant();
+        if (await db.Plans.AnyAsync(p => p.PlanType == key))
+            return BadRequestResponse($"Plan '{key}' already exists.", "DuplicatePlan");
+
+        var plan = new Plan
+        {
+            Id = Guid.NewGuid(),
+            PlanType = key,
+            Price = request.Price,
+            Days = request.Days,
+            RoomLimit = request.RoomLimit,
+            IsEnabled = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        db.Plans.Add(plan);
+        await db.SaveChangesAsync();
+
+        return CreatedResponse(new
+        {
+            id = plan.Id,
+            planType = plan.PlanType,
+            days = plan.Days,
+            price = plan.Price,
+            roomLimit = plan.RoomLimit,
+            isEnabled = plan.IsEnabled,
+        }, $"/api/v1/admin/plans/{plan.Id}");
     }
 
     public static async Task<IResult> UpdatePlan(

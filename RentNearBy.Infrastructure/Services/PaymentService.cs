@@ -14,7 +14,7 @@ public interface IPaymentService
     Task<PaymentVerifyResponse> VerifyAndActivateAsync(Guid userId, VerifyPaymentRequest request);
     Task<bool> CanUserActivateListingAsync(Guid userId);
     Task<int> GetActiveRoomCountAsync(Guid userId);
-    Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId);
+    Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId, string planType);
     Task<PaymentVerifyResponse> VerifyUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request);
 }
 
@@ -58,14 +58,17 @@ public class PaymentService : IPaymentService
 
     public async Task<CreatePaymentOrderResponse> CreateOrderAsync(Guid userId, Guid listingId, string planType)
     {
-        if (planType != "FREE" && planType != "PAID")
-            throw new ArgumentException("Invalid plan type. Must be FREE or PAID.");
+        // Validate plan exists and is enabled — routing is by plan.Price, not plan type name
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(planType);
+        if (plan == null || !plan.IsEnabled)
+            throw new ArgumentException($"Plan '{planType}' does not exist or is disabled.");
+        bool isFree = plan.Price == 0;
 
         var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
         if (paymentFeature == null)
             throw new InvalidOperationException("Payment feature not configured.");
 
-        if (!paymentFeature.IsEnabled && planType == "PAID")
+        if (!paymentFeature.IsEnabled && !isFree)
             throw new InvalidOperationException("Payment feature is not enabled yet.");
 
         var listing = await _unitOfWork.Listings.GetByIdAsync(listingId);
@@ -84,10 +87,10 @@ public class PaymentService : IPaymentService
         {
             _logger.LogInformation($"Existing PENDING transaction {existingPendingTransaction.Id} found for listing {listingId}, plan {planType}");
 
-            if (planType == "FREE")
+            if (isFree)
             {
                 // Reuse existing PENDING transaction — activate it now
-                await ActivateFreePlanAsync(userId, existingPendingTransaction.Id);
+                await ActivateZeroPricePlanAsync(userId, existingPendingTransaction.Id);
                 return new CreatePaymentOrderResponse
                 {
                     OrderId = existingPendingTransaction.Id.ToString(),
@@ -96,21 +99,19 @@ public class PaymentService : IPaymentService
                     KeyId = string.Empty
                 };
             }
-            else // PAID
+            else // requires Razorpay payment
             {
                 if (!string.IsNullOrEmpty(existingPendingTransaction.RazorpayOrderId))
                 {
                     // Razorpay orders expire after 15 minutes — reuse only within that window
                     if (existingPendingTransaction.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
                     {
-                        var retryKeyId = _razorpay.GetKeyId();
-                        var existingPlan = await _unitOfWork.Plans.GetByPlanTypeAsync("PAID");
                         return new CreatePaymentOrderResponse
                         {
                             OrderId = existingPendingTransaction.RazorpayOrderId!,
-                            Amount = existingPlan!.Price,
+                            Amount = plan.Price,
                             Currency = "INR",
-                            KeyId = retryKeyId
+                            KeyId = _razorpay.GetKeyId()
                         };
                     }
                     // Order expired: mark as FAILED so a fresh one can be created
@@ -121,20 +122,16 @@ public class PaymentService : IPaymentService
             }
         }
 
-        // Check FREE plan reuse
-        if (planType == "FREE" && paymentFeature.IsEnabled)
+        // Free plans can only be used once per user (when payment feature is enabled)
+        if (isFree && paymentFeature.IsEnabled)
         {
             var user = await _unitOfWork.Users.GetByIdAsync(userId);
             if (user?.HasUsedFreePlan == true)
             {
-                _logger.LogWarning($"User {userId} attempted to reuse FREE plan");
+                _logger.LogWarning($"User {userId} attempted to reuse free plan");
                 throw new InvalidOperationException("You have already used the free plan. Please use the paid plan.");
             }
         }
-
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(planType);
-        if (plan == null)
-            throw new KeyNotFoundException($"Plan '{planType}' not found.");
 
         var amount = plan.Price;
         var transaction = new PaymentTransaction
@@ -148,8 +145,8 @@ public class PaymentService : IPaymentService
             CreatedAt = DateTime.UtcNow
         };
 
-        // For PAID plan: Create Razorpay order first
-        if (planType == "PAID")
+        // For paid plans: Create Razorpay order first
+        if (!isFree)
         {
             var (orderId, returnedAmount) = await _razorpay.CreateOrderAsync(amount, transaction.Id.ToString());
 
@@ -163,15 +160,15 @@ public class PaymentService : IPaymentService
             _logger.LogInformation($"Razorpay order created: {orderId} for amount {amount}");
         }
 
-        // Save transaction to DB BEFORE activating (critical for ActivateFreePlanAsync to find it)
+        // Save transaction to DB BEFORE activating (critical for ActivateZeroPricePlanAsync to find it)
         await _unitOfWork.PaymentTransactions.AddAsync(transaction);
         await _unitOfWork.SaveChangesAsync();
 
-        // For FREE plan: Auto-activate immediately (now transaction is in DB)
-        if (planType == "FREE")
+        // For free plans: Auto-activate immediately (now transaction is in DB)
+        if (isFree)
         {
-            _logger.LogInformation($"Auto-activating FREE plan for user {userId}, listing {listingId}");
-            await ActivateFreePlanAsync(userId, transaction.Id);
+            _logger.LogInformation($"Auto-activating {planType} plan for user {userId}, listing {listingId}");
+            await ActivateZeroPricePlanAsync(userId, transaction.Id);
 
             return new CreatePaymentOrderResponse
             {
@@ -182,21 +179,23 @@ public class PaymentService : IPaymentService
             };
         }
 
-        // For PAID plan: Return Razorpay order details
-        var keyId = _razorpay.GetKeyId();
+        // For paid plans: Return Razorpay order details
         return new CreatePaymentOrderResponse
         {
             OrderId = transaction.RazorpayOrderId!,
             Amount = amount,
             Currency = "INR",
-            KeyId = keyId
+            KeyId = _razorpay.GetKeyId()
         };
     }
 
     public async Task<PaymentInitiateResponse> InitiatePaymentAsync(Guid userId, Guid listingId, string planType)
     {
-        if (planType != "FREE" && planType != "PAID")
-            throw new ArgumentException("Invalid plan type. Must be FREE or PAID.");
+        // Validate plan exists and is enabled
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(planType);
+        if (plan == null || !plan.IsEnabled)
+            throw new ArgumentException($"Plan '{planType}' does not exist or is disabled.");
+        bool isFree = plan.Price == 0;
 
         var listing = await _unitOfWork.Listings.GetByIdAsync(listingId);
         if (listing == null)
@@ -208,12 +207,12 @@ public class PaymentService : IPaymentService
         if (paymentFeature == null)
             throw new InvalidOperationException("Payment feature not configured.");
 
-        if (!paymentFeature.IsEnabled && planType == "PAID")
+        if (!paymentFeature.IsEnabled && !isFree)
             throw new InvalidOperationException("Payment feature is not enabled yet.");
 
         _logger.LogInformation($"Initiating {planType} payment for user {userId}, listing {listingId}");
 
-        // Prevent duplicate transactions: check if user already has a PENDING transaction for this listing
+        // Prevent duplicate transactions
         var existingPendingTransaction = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
             .FirstOrDefault(t => t.ListingId == listingId && t.Status == "PENDING");
 
@@ -223,20 +222,16 @@ public class PaymentService : IPaymentService
             throw new InvalidOperationException("Payment already in progress for this listing. Please complete or cancel the previous payment.");
         }
 
-        // Prevent FREE plan reuse: only if payment is ENABLED
-        if (planType == "FREE" && paymentFeature.IsEnabled)
+        // Free plans can only be used once per user (when payment feature is enabled)
+        if (isFree && paymentFeature.IsEnabled)
         {
             var user = await _unitOfWork.Users.GetByIdAsync(userId);
             if (user?.HasUsedFreePlan == true)
             {
-                _logger.LogWarning($"User {userId} attempted to use FREE plan again");
+                _logger.LogWarning($"User {userId} attempted to use free plan again");
                 throw new InvalidOperationException("You have already used the free plan. Please use the paid plan.");
             }
         }
-
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(planType);
-        if (plan == null)
-            throw new KeyNotFoundException($"Plan type '{planType}' not found.");
 
         var amount = plan.Price;
         var transaction = new PaymentTransaction
@@ -250,11 +245,10 @@ public class PaymentService : IPaymentService
             CreatedAt = DateTime.UtcNow
         };
 
-        if (planType == "PAID")
+        if (!isFree)
         {
             var (orderId, returnedAmount) = await _razorpay.CreateOrderAsync(amount, transaction.Id.ToString());
 
-            // Amount validation: ensure returned amount matches expected amount
             if (returnedAmount != amount)
             {
                 _logger.LogError($"Amount mismatch for transaction {transaction.Id}: expected {amount}, got {returnedAmount}");
@@ -270,18 +264,18 @@ public class PaymentService : IPaymentService
 
         _logger.LogInformation($"Payment transaction initiated: {transaction.Id} for {planType} plan");
 
-        // Auto-activate FREE plans immediately (no Razorpay verification needed)
-        if (planType == "FREE")
+        // Auto-activate free plans immediately (no Razorpay verification needed)
+        if (isFree)
         {
-            _logger.LogInformation($"Auto-activating FREE plan for user {userId}, transaction {transaction.Id}");
+            _logger.LogInformation($"Auto-activating {planType} plan for user {userId}, transaction {transaction.Id}");
             try
             {
-                await ActivateFreePlanAsync(userId, transaction.Id);
-                _logger.LogInformation($"FREE plan auto-activated for user {userId}");
+                await ActivateZeroPricePlanAsync(userId, transaction.Id);
+                _logger.LogInformation($"{planType} plan auto-activated for user {userId}");
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error auto-activating FREE plan: {ex.Message}", ex);
+                _logger.LogError($"Error auto-activating {planType} plan: {ex.Message}", ex);
                 throw;
             }
         }
@@ -325,8 +319,12 @@ public class PaymentService : IPaymentService
             throw new InvalidOperationException("Transaction previously failed. Please start a new payment.");
         }
 
-        // Verify signature for PAID plans (FREE plans skip payment gateway verification)
-        if (transaction.PlanType == "PAID")
+        // Look up plan to determine routing (price-based, not name-based)
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(transaction.PlanType);
+        bool isFree = plan?.Price == 0;
+
+        // Verify Razorpay signature for paid plans only
+        if (!isFree)
         {
             if (!_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
             {
@@ -340,7 +338,6 @@ public class PaymentService : IPaymentService
             _logger.LogInformation($"Signature verified for transaction {transaction.Id}");
         }
 
-        // Use database transaction to prevent race conditions: lock the transaction for exclusive update
         try
         {
             transaction.Status = "SUCCESS";
@@ -352,7 +349,6 @@ public class PaymentService : IPaymentService
             if (paymentFeature == null)
                 throw new InvalidOperationException("Payment feature not configured.");
 
-            var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(transaction.PlanType);
             if (plan == null)
             {
                 _logger.LogError($"Plan '{transaction.PlanType}' not found");
@@ -375,7 +371,6 @@ public class PaymentService : IPaymentService
             await DeactivateExistingMembershipsAsync(userId);
             await _unitOfWork.UserMemberships.AddAsync(membership);
 
-            // Validate and activate listing: check it hasn't been activated already
             Guid? activatedListingCityId = null;
             if (transaction.ListingId.HasValue)
             {
@@ -385,7 +380,6 @@ public class PaymentService : IPaymentService
                     if (listing.IsActive)
                     {
                         _logger.LogWarning($"Listing {listing.Id} is already active");
-                        // Idempotent: return success if already active
                         return new PaymentVerifyResponse
                         {
                             Success = true,
@@ -407,9 +401,8 @@ public class PaymentService : IPaymentService
                 throw new KeyNotFoundException("User not found.");
             }
 
-            // Mark user as used free plan - ONLY if payment is ENABLED
-            // If payment disabled, user can use FREE plan unlimited times
-            if (transaction.PlanType == "FREE" && paymentFeature.IsEnabled && !user.HasUsedFreePlan)
+            // Mark as used free plan for any price=0 plan (when payment feature is enabled)
+            if (isFree && paymentFeature.IsEnabled && !user.HasUsedFreePlan)
             {
                 user.HasUsedFreePlan = true;
                 _logger.LogInformation($"User {userId} marked as used free plan");
@@ -460,15 +453,16 @@ public class PaymentService : IPaymentService
         return activeCount;
     }
 
-    private async Task ActivateFreePlanAsync(Guid userId, Guid transactionId)
+    // Activates any plan with price == 0 — name is irrelevant, routing is by price
+    private async Task ActivateZeroPricePlanAsync(Guid userId, Guid transactionId)
     {
         var transaction = await _unitOfWork.PaymentTransactions.GetByIdAsync(transactionId);
         if (transaction == null)
             throw new KeyNotFoundException("Transaction not found.");
 
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync("FREE");
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(transaction.PlanType);
         if (plan == null)
-            throw new InvalidOperationException("FREE plan not configured.");
+            throw new InvalidOperationException($"Plan '{transaction.PlanType}' not configured.");
 
         transaction.Status = "SUCCESS";
         transaction.CompletedAt = DateTime.UtcNow;
@@ -477,7 +471,7 @@ public class PaymentService : IPaymentService
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            PlanType = "FREE",
+            PlanType = transaction.PlanType,
             ValidFrom = DateTime.UtcNow,
             ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
             MaxRooms = plan.RoomLimit,
@@ -489,7 +483,7 @@ public class PaymentService : IPaymentService
         await DeactivateExistingMembershipsAsync(userId);
         await _unitOfWork.UserMemberships.AddAsync(membership);
 
-        Guid? freePlanCityId = null;
+        Guid? cityId = null;
         if (transaction.ListingId.HasValue)
         {
             var listing = await _unitOfWork.Listings.GetByIdAsync(transaction.ListingId.Value);
@@ -497,15 +491,15 @@ public class PaymentService : IPaymentService
             {
                 listing.IsActive = true;
                 listing.ValidUntil = membership.ValidUntil;
-                freePlanCityId = listing.CityId;
-                _logger.LogInformation($"Listing {listing.Id} activated with FREE plan valid until {membership.ValidUntil}");
+                cityId = listing.CityId;
+                _logger.LogInformation($"Listing {listing.Id} activated with {transaction.PlanType} plan valid until {membership.ValidUntil}");
             }
         }
 
         var user = await _unitOfWork.Users.GetByIdAsync(userId);
         if (user != null)
         {
-            // Mark as used free plan ONLY if payment is ENABLED
+            // Mark as used free plan for any price=0 plan (when payment feature is enabled)
             var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
             if (paymentFeature?.IsEnabled == true && !user.HasUsedFreePlan)
             {
@@ -515,20 +509,23 @@ public class PaymentService : IPaymentService
         }
 
         await _unitOfWork.SaveChangesAsync();
-        await InvalidateNearbyCacheAsync(freePlanCityId);
+        await InvalidateNearbyCacheAsync(cityId);
     }
 
-    public async Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId)
+    public async Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId, string planType)
     {
         var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
         if (paymentFeature == null || !paymentFeature.IsEnabled)
             throw new InvalidOperationException("Payment feature is not enabled.");
 
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync("PAID");
-        if (plan == null) throw new KeyNotFoundException("PAID plan not configured.");
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(planType);
+        if (plan == null || !plan.IsEnabled)
+            throw new ArgumentException($"Plan '{planType}' does not exist or is disabled.");
+        if (plan.Price == 0)
+            throw new ArgumentException("Upgrade requires a paid plan (price must be greater than 0).");
 
         var existing = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
-            .FirstOrDefault(t => t.ListingId == null && t.PlanType == "PAID" && t.Status == "PENDING");
+            .FirstOrDefault(t => t.ListingId == null && t.PlanType == planType && t.Status == "PENDING");
         if (existing != null && !string.IsNullOrEmpty(existing.RazorpayOrderId))
         {
             if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
@@ -552,7 +549,7 @@ public class PaymentService : IPaymentService
             Id = Guid.NewGuid(),
             UserId = userId,
             ListingId = null,
-            PlanType = "PAID",
+            PlanType = planType,
             Amount = plan.Price,
             Status = "PENDING",
             RazorpayOrderId = orderId,
@@ -590,14 +587,18 @@ public class PaymentService : IPaymentService
         transaction.RazorpaySignature = request.RazorpaySignature;
         transaction.CompletedAt = DateTime.UtcNow;
 
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync("PAID");
+        // Use the plan stored on the transaction — supports any paid plan type
+        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(transaction.PlanType);
+        if (plan == null)
+            throw new InvalidOperationException($"Plan '{transaction.PlanType}' not configured.");
+
         var membership = new UserMembership
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            PlanType = "PAID",
+            PlanType = transaction.PlanType,
             ValidFrom = DateTime.UtcNow,
-            ValidUntil = DateTime.UtcNow.AddDays(plan!.Days),
+            ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
             MaxRooms = plan.RoomLimit,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
@@ -623,10 +624,10 @@ public class PaymentService : IPaymentService
         return new PaymentVerifyResponse
         {
             Success = true,
-            Message = "Plan upgraded! Your existing rooms are extended to 30 days.",
+            Message = $"Plan upgraded! Your existing rooms are extended to {plan.Days} days.",
             UserMembershipId = membership.Id,
             ValidUntil = membership.ValidUntil,
-            PlanType = "PAID",
+            PlanType = transaction.PlanType,
             MaxRooms = membership.MaxRooms
         };
     }
