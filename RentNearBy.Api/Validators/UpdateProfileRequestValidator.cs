@@ -8,13 +8,13 @@ public class UpdateProfileRequestValidator : AbstractValidator<UpdateProfileRequ
     public UpdateProfileRequestValidator()
     {
         RuleFor(x => x.Name)
-            .NotEmpty().WithMessage("Name cannot be empty")
-            .MaximumLength(100).WithMessage("Name cannot exceed 100 characters")
-            .When(x => x.Name != null);
+            .NotNull().WithMessage("Name is required.")
+            .NotEmpty().WithMessage("Name cannot be blank.")
+            .MaximumLength(100).WithMessage("Name cannot exceed 100 characters.");
 
         RuleFor(x => x.GmailId)
-            .EmailAddress().WithMessage("Invalid email address")
-            .MaximumLength(200).WithMessage("Email cannot exceed 200 characters")
+            .EmailAddress().WithMessage("Invalid email address.")
+            .MaximumLength(200).WithMessage("Email cannot exceed 200 characters.")
             .When(x => x.GmailId != null);
     }
 }
