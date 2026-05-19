@@ -167,6 +167,23 @@ public static class ListingsHandlers
         return OkResponse(dto);
     }
 
+    public static async Task<IResult> GetPlans(IUnitOfWork unitOfWork)
+    {
+        var plans = await unitOfWork.Plans.GetAllAsync();
+        var result = plans
+            .Where(p => p.IsEnabled)
+            .OrderBy(p => p.Price)
+            .Select(p => new
+            {
+                planType  = p.PlanType,
+                days      = p.Days,
+                price     = p.Price,
+                roomLimit = p.RoomLimit,
+            })
+            .ToList();
+        return OkResponse(result);
+    }
+
     public static async Task<IResult> GetMyListings(
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 10)
     {

@@ -9,6 +9,7 @@ public static class ListingsEndpoints
         group.MapGet("/context", ListingsHandlers.GetContext);
         group.MapGet("/nearby", ListingsHandlers.GetNearby);
         group.MapGet("/search", ListingsHandlers.Search);
+        group.MapGet("/plans", ListingsHandlers.GetPlans);
         group.MapGet("/{id:guid}", ListingsHandlers.GetById);
 
         group.MapGet("/my", ListingsHandlers.GetMyListings).RequireAuthorization();
