@@ -570,6 +570,152 @@ public static class AdminHandlers
         });
     }
 
+    // ── Admin Plot Plan endpoints ─────────────────────────────────────────────
+
+    public record CreatePlotPlanRequest(string PlanType, int Price, int Days, int PlotLimit);
+    public record UpdatePlotPlanRequest(int? Days, int? Price, int? PlotLimit, bool? IsEnabled);
+    public record ActivatePlotMembershipRequest(string PlanType);
+
+    public static async Task<IResult> GetPlotPlans(ApplicationDbContext db)
+    {
+        var plans = await db.PlotPlans
+            .OrderBy(p => p.Price)
+            .Select(p => new
+            {
+                id = p.Id,
+                planType = p.PlanType,
+                days = p.Days,
+                price = p.Price,
+                plotLimit = p.PlotLimit,
+                isEnabled = p.IsEnabled,
+            })
+            .ToListAsync();
+        return OkResponse(plans);
+    }
+
+    public static async Task<IResult> CreatePlotPlan(CreatePlotPlanRequest request, ApplicationDbContext db)
+    {
+        if (string.IsNullOrWhiteSpace(request.PlanType))
+            return BadRequestResponse("Plan type name is required.");
+        if (request.Price < 0)
+            return BadRequestResponse("Price cannot be negative.");
+        if (request.Days <= 0)
+            return BadRequestResponse("Days must be greater than 0.");
+        if (request.PlotLimit <= 0)
+            return BadRequestResponse("Plot limit must be greater than 0.");
+
+        var key = request.PlanType.Trim().ToUpperInvariant();
+        if (await db.PlotPlans.AnyAsync(p => p.PlanType == key))
+            return BadRequestResponse($"Plan '{key}' already exists.", "DuplicatePlan");
+
+        var plan = new PlotPlan
+        {
+            Id = Guid.NewGuid(),
+            PlanType = key,
+            Price = request.Price,
+            Days = request.Days,
+            PlotLimit = request.PlotLimit,
+            IsEnabled = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        db.PlotPlans.Add(plan);
+        await db.SaveChangesAsync();
+
+        return CreatedResponse(new
+        {
+            id = plan.Id,
+            planType = plan.PlanType,
+            days = plan.Days,
+            price = plan.Price,
+            plotLimit = plan.PlotLimit,
+            isEnabled = plan.IsEnabled,
+        }, $"/api/v1/admin/plot-plans/{plan.Id}");
+    }
+
+    public static async Task<IResult> UpdatePlotPlan(Guid id, UpdatePlotPlanRequest request, ApplicationDbContext db)
+    {
+        var plan = await db.PlotPlans.FindAsync(id);
+        if (plan == null) return NotFoundResponse("Plot plan not found");
+
+        if (request.Days.HasValue)
+        {
+            if (request.Days.Value <= 0) return BadRequestResponse("Days must be greater than 0");
+            plan.Days = request.Days.Value;
+        }
+        if (request.Price.HasValue)
+        {
+            if (request.Price.Value < 0) return BadRequestResponse("Price cannot be negative");
+            plan.Price = request.Price.Value;
+        }
+        if (request.PlotLimit.HasValue)
+        {
+            if (request.PlotLimit.Value <= 0) return BadRequestResponse("Plot limit must be greater than 0");
+            plan.PlotLimit = request.PlotLimit.Value;
+        }
+        if (request.IsEnabled.HasValue)
+            plan.IsEnabled = request.IsEnabled.Value;
+
+        plan.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return OkResponse(new
+        {
+            id = plan.Id,
+            planType = plan.PlanType,
+            days = plan.Days,
+            price = plan.Price,
+            plotLimit = plan.PlotLimit,
+            isEnabled = plan.IsEnabled,
+        });
+    }
+
+    public static async Task<IResult> ActivatePlotMembership(
+        Guid id, ActivatePlotMembershipRequest request, ApplicationDbContext db)
+    {
+        var user = await db.Users.FindAsync(id);
+        if (user == null) return NotFoundResponse("User not found");
+
+        var planType = request.PlanType.Trim().ToUpperInvariant();
+        var plan = await db.PlotPlans.FirstOrDefaultAsync(p => p.PlanType == planType && p.IsEnabled);
+        if (plan == null) return BadRequestResponse($"Plot plan '{planType}' not found or disabled.");
+
+        var now = DateTime.UtcNow;
+
+        await db.PlotMemberships
+            .Where(m => m.UserId == id && m.IsActive)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.IsActive, false)
+                .SetProperty(m => m.UpdatedAt, now));
+
+        var membership = new PlotMembership
+        {
+            Id = Guid.NewGuid(),
+            UserId = id,
+            PlanType = planType,
+            ValidFrom = now,
+            ValidUntil = now.AddDays(plan.Days),
+            MaxPlots = plan.PlotLimit,
+            IsActive = true,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+
+        db.PlotMemberships.Add(membership);
+        await db.SaveChangesAsync();
+
+        return OkResponse(new
+        {
+            id = membership.Id,
+            planType = membership.PlanType,
+            validFrom = membership.ValidFrom,
+            validUntil = membership.ValidUntil,
+            maxPlots = membership.MaxPlots,
+            isActive = membership.IsActive,
+        });
+    }
+
     // ── Admin Listing endpoints ───────────────────────────────────────────────
 
     public record AdminToggleListingRequest(bool IsActive);

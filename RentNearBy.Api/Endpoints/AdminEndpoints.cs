@@ -36,6 +36,11 @@ public static class AdminEndpoints
         group.MapPost("/plans", AdminHandlers.CreatePlan).RequireAuthorization("AdminOnly");
         group.MapPut("/plans/{id:guid}", AdminHandlers.UpdatePlan).RequireAuthorization("AdminOnly");
 
+        group.MapGet("/plot-plans", AdminHandlers.GetPlotPlans).RequireAuthorization("AdminOnly");
+        group.MapPost("/plot-plans", AdminHandlers.CreatePlotPlan).RequireAuthorization("AdminOnly");
+        group.MapPut("/plot-plans/{id:guid}", AdminHandlers.UpdatePlotPlan).RequireAuthorization("AdminOnly");
+        group.MapPost("/users/{id:guid}/activate-plot-membership", AdminHandlers.ActivatePlotMembership).RequireAuthorization("AdminOnly");
+
         group.MapGet("/listings", AdminHandlers.GetAdminListings).RequireAuthorization("AdminOnly");
         group.MapPut("/listings/{id:guid}/status", AdminHandlers.ToggleAdminListingStatus).RequireAuthorization("AdminOnly");
         group.MapDelete("/listings/{id:guid}", AdminHandlers.DeleteAdminListing).RequireAuthorization("AdminOnly");
