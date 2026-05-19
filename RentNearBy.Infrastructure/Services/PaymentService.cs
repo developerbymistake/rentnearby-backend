@@ -380,10 +380,15 @@ public class PaymentService : IPaymentService
                     if (listing.IsActive)
                     {
                         _logger.LogWarning($"Listing {listing.Id} is already active");
+                        await _unitOfWork.SaveChangesAsync();
                         return new PaymentVerifyResponse
                         {
                             Success = true,
-                            Message = "This listing is already live."
+                            Message = "Payment successful. Your listing is now live!",
+                            UserMembershipId = membership.Id,
+                            ValidUntil = membership.ValidUntil,
+                            PlanType = transaction.PlanType,
+                            MaxRooms = membership.MaxRooms
                         };
                     }
 
