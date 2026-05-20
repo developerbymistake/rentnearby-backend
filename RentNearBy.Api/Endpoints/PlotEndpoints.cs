@@ -6,6 +6,7 @@ public static class PlotEndpoints
 {
     public static RouteGroupBuilder MapPlotEndpoints(this RouteGroupBuilder group)
     {
+        group.MapGet("/plans", PlotHandlers.GetPublicPlotPlans);
         group.MapGet("/context", PlotHandlers.GetContext);
         group.MapGet("/nearby", PlotHandlers.GetNearby);
         group.MapGet("/{id:guid}", PlotHandlers.GetById);

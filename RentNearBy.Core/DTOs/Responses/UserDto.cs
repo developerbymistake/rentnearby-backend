@@ -9,5 +9,6 @@ public class UserDto
     public bool IsAdmin { get; set; }
     public bool IsActive { get; set; }
     public bool HasUsedFreePlan { get; set; }
+    public bool HasUsedFreePlotPlan { get; set; }
     public DateTime CreatedAt { get; set; }
 }

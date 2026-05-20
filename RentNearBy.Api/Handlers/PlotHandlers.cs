@@ -569,6 +569,15 @@ public static class PlotHandlers
         catch (Exception) { return ServerErrorResponse(); }
     }
 
+    public static async Task<IResult> GetPublicPlotPlans(IUnitOfWork unitOfWork)
+    {
+        var plans = await unitOfWork.PlotPlans.GetAllAsync();
+        var result = plans.Where(p => p.IsEnabled).OrderBy(p => p.Price)
+            .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, plotLimit = p.PlotLimit })
+            .ToList();
+        return OkResponse(result);
+    }
+
     public static async Task<IResult> GetPlotMembershipStatus(
         ClaimsPrincipal principal,
         IPaymentService paymentService,

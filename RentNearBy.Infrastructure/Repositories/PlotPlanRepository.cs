@@ -9,4 +9,7 @@ public class PlotPlanRepository(ApplicationDbContext context) : IPlotPlanReposit
 {
     public async Task<PlotPlan?> GetByPlanTypeAsync(string planType)
         => await context.PlotPlans.FirstOrDefaultAsync(p => p.PlanType == planType);
+
+    public async Task<IEnumerable<PlotPlan>> GetAllAsync()
+        => await context.PlotPlans.OrderBy(p => p.Price).ToListAsync();
 }

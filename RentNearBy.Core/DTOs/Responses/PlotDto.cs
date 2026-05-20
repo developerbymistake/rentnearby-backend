@@ -20,6 +20,7 @@ public class PlotDto
     public string? OwnerName { get; set; }
     public string? OwnerPhone { get; set; }
     public List<string> Photos { get; set; } = new();
+    public DateTime? ValidUntil { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
