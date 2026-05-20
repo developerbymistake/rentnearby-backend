@@ -16,6 +16,13 @@ public interface IPaymentService
     Task<int> GetActiveRoomCountAsync(Guid userId);
     Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId, string planType);
     Task<PaymentVerifyResponse> VerifyUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request);
+
+    // Plot payment methods
+    Task<CreatePaymentOrderResponse> CreatePlotOrderAsync(Guid userId, Guid plotId, string planType);
+    Task<PlotPaymentVerifyResponse> VerifyPlotPaymentAsync(Guid userId, VerifyPaymentRequest request);
+    Task<bool> CanUserActivatePlotAsync(Guid userId);
+    Task<CreatePaymentOrderResponse> CreatePlotUpgradeOrderAsync(Guid userId, string planType);
+    Task<PlotPaymentVerifyResponse> VerifyPlotUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request);
 }
 
 public class PaymentService : IPaymentService
@@ -635,5 +642,345 @@ public class PaymentService : IPaymentService
             PlanType = transaction.PlanType,
             MaxRooms = membership.MaxRooms
         };
+    }
+
+    // ── Plot payment methods ──────────────────────────────────────────────────
+
+    private async Task DeactivateExistingPlotMembershipsAsync(Guid userId)
+    {
+        var existing = await _unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
+        if (existing != null)
+        {
+            existing.IsActive = false;
+            existing.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    public async Task<CreatePaymentOrderResponse> CreatePlotOrderAsync(Guid userId, Guid plotId, string planType)
+    {
+        var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(planType);
+        if (plan == null || !plan.IsEnabled)
+            throw new ArgumentException($"Plot plan '{planType}' does not exist or is disabled.");
+        bool isFree = plan.Price == 0;
+
+        var plotPaymentFeature = await _unitOfWork.PlotPaymentFeature.GetAsync();
+        if (plotPaymentFeature == null)
+            throw new InvalidOperationException("Plot payment feature not configured.");
+
+        if (!plotPaymentFeature.IsEnabled && !isFree)
+            throw new InvalidOperationException("Plot payment feature is not enabled yet.");
+
+        var plot = await _unitOfWork.Plots.GetByIdAsync(plotId);
+        if (plot == null)
+            throw new KeyNotFoundException("Plot not found.");
+        if (plot.UserId != userId)
+            throw new UnauthorizedAccessException("You don't own this plot.");
+
+        _logger.LogInformation($"Creating plot order for {planType} plan, user {userId}, plot {plotId}");
+
+        var existingPending = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+            .FirstOrDefault(t => t.PlotId == plotId && t.Status == "PENDING");
+
+        if (existingPending != null)
+        {
+            if (isFree)
+            {
+                await ActivateZeroPricePlotPlanAsync(userId, existingPending.Id);
+                return new CreatePaymentOrderResponse { OrderId = existingPending.Id.ToString(), Amount = 0, Currency = "INR", KeyId = string.Empty };
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(existingPending.RazorpayOrderId))
+                {
+                    if (existingPending.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
+                        return new CreatePaymentOrderResponse { OrderId = existingPending.RazorpayOrderId!, Amount = plan.Price, Currency = "INR", KeyId = _razorpay.GetKeyId() };
+                    existingPending.Status = "FAILED";
+                    existingPending.FailureReason = "Razorpay order expired — superseded by retry";
+                    await _unitOfWork.SaveChangesAsync();
+                }
+            }
+        }
+
+        if (isFree && plotPaymentFeature.IsEnabled)
+        {
+            var user = await _unitOfWork.Users.GetByIdAsync(userId);
+            if (user?.HasUsedFreePlotPlan == true)
+            {
+                _logger.LogWarning($"User {userId} attempted to reuse free plot plan");
+                throw new InvalidOperationException("You have already used the free plot plan. Please use the paid plan.");
+            }
+        }
+
+        var transaction = new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            PlotId = plotId,
+            PlanType = planType,
+            Amount = plan.Price,
+            Status = "PENDING",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        if (!isFree)
+        {
+            var (orderId, returnedAmount) = await _razorpay.CreateOrderAsync(plan.Price, transaction.Id.ToString());
+            if (returnedAmount != plan.Price)
+                throw new InvalidOperationException("Payment amount mismatch. Please try again.");
+            transaction.RazorpayOrderId = orderId;
+        }
+
+        await _unitOfWork.PaymentTransactions.AddAsync(transaction);
+        await _unitOfWork.SaveChangesAsync();
+
+        if (isFree)
+        {
+            await ActivateZeroPricePlotPlanAsync(userId, transaction.Id);
+            return new CreatePaymentOrderResponse { OrderId = transaction.Id.ToString(), Amount = 0, Currency = "INR", KeyId = string.Empty };
+        }
+
+        return new CreatePaymentOrderResponse { OrderId = transaction.RazorpayOrderId!, Amount = plan.Price, Currency = "INR", KeyId = _razorpay.GetKeyId() };
+    }
+
+    public async Task<PlotPaymentVerifyResponse> VerifyPlotPaymentAsync(Guid userId, VerifyPaymentRequest request)
+    {
+        _logger.LogInformation($"Verifying plot payment for user {userId}, order {request.RazorpayOrderId}");
+
+        var transaction = await _unitOfWork.PaymentTransactions.GetByRazorpayOrderIdAsync(request.RazorpayOrderId);
+        if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
+        if (transaction.UserId != userId) throw new UnauthorizedAccessException("Transaction doesn't belong to you.");
+        if (transaction.Status == "SUCCESS") throw new InvalidOperationException("Transaction already processed.");
+        if (transaction.Status == "FAILED") throw new InvalidOperationException("Transaction previously failed. Please start a new payment.");
+
+        var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(transaction.PlanType);
+        bool isFree = plan?.Price == 0;
+
+        if (!isFree)
+        {
+            if (!_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
+            {
+                transaction.Status = "FAILED";
+                transaction.FailureReason = "Signature verification failed";
+                await _unitOfWork.SaveChangesAsync();
+                throw new InvalidOperationException("Payment verification failed.");
+            }
+        }
+
+        transaction.Status = "SUCCESS";
+        transaction.RazorpayPaymentId = request.RazorpayPaymentId;
+        transaction.RazorpaySignature = request.RazorpaySignature;
+        transaction.CompletedAt = DateTime.UtcNow;
+
+        var plotPaymentFeature = await _unitOfWork.PlotPaymentFeature.GetAsync();
+        if (plan == null) throw new InvalidOperationException("Plan configuration not found.");
+
+        var membership = new PlotMembership
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            PlanType = transaction.PlanType,
+            ValidFrom = DateTime.UtcNow,
+            ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+            MaxPlots = plan.PlotLimit,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        await DeactivateExistingPlotMembershipsAsync(userId);
+        await _unitOfWork.PlotMemberships.AddAsync(membership);
+
+        if (transaction.PlotId.HasValue)
+        {
+            var plot = await _unitOfWork.Plots.GetByIdAsync(transaction.PlotId.Value);
+            if (plot != null && !plot.IsActive)
+            {
+                plot.IsActive = true;
+                plot.ValidUntil = membership.ValidUntil;
+                _logger.LogInformation($"Plot {plot.Id} activated with membership valid until {membership.ValidUntil}");
+            }
+        }
+
+        var user = await _unitOfWork.Users.GetByIdAsync(userId);
+        if (user == null) throw new KeyNotFoundException("User not found.");
+
+        if (isFree && plotPaymentFeature?.IsEnabled == true && !user.HasUsedFreePlotPlan)
+        {
+            user.HasUsedFreePlotPlan = true;
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+
+        return new PlotPaymentVerifyResponse
+        {
+            Success = true,
+            Message = "Payment successful. Your plot listing is now live!",
+            PlotMembershipId = membership.Id,
+            ValidUntil = membership.ValidUntil,
+            PlanType = transaction.PlanType,
+            MaxPlots = membership.MaxPlots
+        };
+    }
+
+    public async Task<bool> CanUserActivatePlotAsync(Guid userId)
+    {
+        var membership = await _unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
+        if (membership == null) return true;
+
+        var activePlots = await _unitOfWork.Plots.GetActiveByUserIdAsync(userId);
+        var activeCount = activePlots.Count(p => !p.IsDeleted);
+        var canActivate = activeCount < membership.MaxPlots;
+
+        _logger.LogInformation($"User {userId} has {activeCount} active plots, max allowed: {membership.MaxPlots}, can activate: {canActivate}");
+        return canActivate;
+    }
+
+    public async Task<CreatePaymentOrderResponse> CreatePlotUpgradeOrderAsync(Guid userId, string planType)
+    {
+        var plotPaymentFeature = await _unitOfWork.PlotPaymentFeature.GetAsync();
+        if (plotPaymentFeature == null || !plotPaymentFeature.IsEnabled)
+            throw new InvalidOperationException("Plot payment feature is not enabled.");
+
+        var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(planType);
+        if (plan == null || !plan.IsEnabled)
+            throw new ArgumentException($"Plot plan '{planType}' does not exist or is disabled.");
+        if (plan.Price == 0)
+            throw new ArgumentException("Upgrade requires a paid plan.");
+
+        var existing = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+            .FirstOrDefault(t => t.PlotId == null && t.ListingId == null && t.PlanType == planType && t.Status == "PENDING");
+        if (existing != null && !string.IsNullOrEmpty(existing.RazorpayOrderId))
+        {
+            if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
+                return new CreatePaymentOrderResponse { OrderId = existing.RazorpayOrderId!, Amount = plan.Price, Currency = "INR", KeyId = _razorpay.GetKeyId() };
+            existing.Status = "FAILED";
+            existing.FailureReason = "Razorpay order expired — superseded by retry";
+            await _unitOfWork.SaveChangesAsync();
+        }
+
+        var (orderId, _) = await _razorpay.CreateOrderAsync(plan.Price, Guid.NewGuid().ToString());
+        var transaction = new PaymentTransaction
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            PlotId = null,
+            ListingId = null,
+            PlanType = planType,
+            Amount = plan.Price,
+            Status = "PENDING",
+            RazorpayOrderId = orderId,
+            CreatedAt = DateTime.UtcNow
+        };
+        await _unitOfWork.PaymentTransactions.AddAsync(transaction);
+        await _unitOfWork.SaveChangesAsync();
+
+        return new CreatePaymentOrderResponse { OrderId = orderId, Amount = plan.Price, Currency = "INR", KeyId = _razorpay.GetKeyId() };
+    }
+
+    public async Task<PlotPaymentVerifyResponse> VerifyPlotUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request)
+    {
+        var transaction = await _unitOfWork.PaymentTransactions.GetByRazorpayOrderIdAsync(request.RazorpayOrderId);
+        if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
+        if (transaction.UserId != userId) throw new UnauthorizedAccessException("Not your transaction.");
+        if (transaction.Status == "SUCCESS") throw new InvalidOperationException("Already processed.");
+
+        if (!_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
+        {
+            transaction.Status = "FAILED";
+            transaction.FailureReason = "Signature verification failed";
+            await _unitOfWork.SaveChangesAsync();
+            throw new InvalidOperationException("Payment verification failed.");
+        }
+
+        transaction.Status = "SUCCESS";
+        transaction.RazorpayPaymentId = request.RazorpayPaymentId;
+        transaction.RazorpaySignature = request.RazorpaySignature;
+        transaction.CompletedAt = DateTime.UtcNow;
+
+        var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(transaction.PlanType);
+        if (plan == null) throw new InvalidOperationException($"Plan '{transaction.PlanType}' not configured.");
+
+        var membership = new PlotMembership
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            PlanType = transaction.PlanType,
+            ValidFrom = DateTime.UtcNow,
+            ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+            MaxPlots = plan.PlotLimit,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        await DeactivateExistingPlotMembershipsAsync(userId);
+        await _unitOfWork.PlotMemberships.AddAsync(membership);
+
+        var activePlots = await _unitOfWork.Plots.GetActiveByUserIdAsync(userId);
+        foreach (var plot in activePlots)
+            plot.ValidUntil = membership.ValidUntil;
+
+        await _unitOfWork.SaveChangesAsync();
+
+        _logger.LogInformation($"Plot plan upgrade verified for user {userId}, membership {membership.Id}");
+        return new PlotPaymentVerifyResponse
+        {
+            Success = true,
+            Message = $"Plot plan upgraded! Your existing plots are extended to {plan.Days} days.",
+            PlotMembershipId = membership.Id,
+            ValidUntil = membership.ValidUntil,
+            PlanType = transaction.PlanType,
+            MaxPlots = membership.MaxPlots
+        };
+    }
+
+    private async Task ActivateZeroPricePlotPlanAsync(Guid userId, Guid transactionId)
+    {
+        var transaction = await _unitOfWork.PaymentTransactions.GetByIdAsync(transactionId);
+        if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
+
+        var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(transaction.PlanType);
+        if (plan == null) throw new InvalidOperationException($"Plot plan '{transaction.PlanType}' not configured.");
+
+        transaction.Status = "SUCCESS";
+        transaction.CompletedAt = DateTime.UtcNow;
+
+        var membership = new PlotMembership
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            PlanType = transaction.PlanType,
+            ValidFrom = DateTime.UtcNow,
+            ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+            MaxPlots = plan.PlotLimit,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        await DeactivateExistingPlotMembershipsAsync(userId);
+        await _unitOfWork.PlotMemberships.AddAsync(membership);
+
+        if (transaction.PlotId.HasValue)
+        {
+            var plot = await _unitOfWork.Plots.GetByIdAsync(transaction.PlotId.Value);
+            if (plot != null && !plot.IsActive)
+            {
+                plot.IsActive = true;
+                plot.ValidUntil = membership.ValidUntil;
+            }
+        }
+
+        var user = await _unitOfWork.Users.GetByIdAsync(userId);
+        if (user != null)
+        {
+            var plotPaymentFeature = await _unitOfWork.PlotPaymentFeature.GetAsync();
+            if (plotPaymentFeature?.IsEnabled == true && !user.HasUsedFreePlotPlan)
+            {
+                user.HasUsedFreePlotPlan = true;
+            }
+        }
+
+        await _unitOfWork.SaveChangesAsync();
     }
 }

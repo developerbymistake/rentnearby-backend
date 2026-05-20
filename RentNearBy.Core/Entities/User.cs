@@ -10,6 +10,7 @@ public class User
     public bool IsActive { get; set; } = true;
     public bool OtpVerified { get; set; } = false;
     public bool HasUsedFreePlan { get; set; } = false;
+    public bool HasUsedFreePlotPlan { get; set; } = false;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

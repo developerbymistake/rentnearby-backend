@@ -570,6 +570,41 @@ public static class AdminHandlers
         });
     }
 
+    // ── Admin Plot Payment Feature endpoints ─────────────────────────────────
+
+    public static async Task<IResult> GetPlotPaymentFeature(IUnitOfWork unitOfWork)
+    {
+        var feature = await unitOfWork.PlotPaymentFeature.GetAsync();
+        if (feature == null)
+        {
+            feature = new PlotPaymentFeature
+            {
+                Id = Guid.NewGuid(),
+                IsEnabled = false,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            await unitOfWork.PlotPaymentFeature.AddAsync(feature);
+            await unitOfWork.SaveChangesAsync();
+        }
+        return OkResponse(feature);
+    }
+
+    public static async Task<IResult> UpdatePlotPaymentFeature(PaymentFeatureUpdateRequest request, IUnitOfWork unitOfWork)
+    {
+        var feature = await unitOfWork.PlotPaymentFeature.GetAsync();
+        if (feature == null)
+            return NotFoundResponse("Plot payment feature not configured");
+
+        feature.IsEnabled = request.IsEnabled;
+        feature.UpdatedAt = DateTime.UtcNow;
+
+        await unitOfWork.PlotPaymentFeature.UpdateAsync(feature);
+        await unitOfWork.SaveChangesAsync();
+
+        return OkResponse(feature);
+    }
+
     // ── Admin Plot Plan endpoints ─────────────────────────────────────────────
 
     public record CreatePlotPlanRequest(string PlanType, int Price, int Days, int PlotLimit);

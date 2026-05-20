@@ -26,6 +26,8 @@ public static class ServiceCollectionExtensions
 
         // Register background service for membership expiry (runs at 12:00 AM daily)
         services.AddHostedService<MembershipExpiryService>();
+        // Register background service for plot membership expiry (runs at 1:00 AM daily)
+        services.AddHostedService<PlotMembershipExpiryService>();
 
         services.AddHttpClient<IRazorpayService, RazorpayService>();
 

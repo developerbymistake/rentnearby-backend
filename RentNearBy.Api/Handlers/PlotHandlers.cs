@@ -185,6 +185,7 @@ public static class PlotHandlers
         ClaimsPrincipal principal,
         IValidator<CreatePlotRequest> validator,
         IUnitOfWork unitOfWork,
+        IPaymentService paymentService,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -220,6 +221,22 @@ public static class PlotHandlers
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
+
+        // Auto-activate for paid plot members with available capacity
+        var activeMembership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
+        if (activeMembership != null && activeMembership.IsActive)
+        {
+            var activePlan = await unitOfWork.PlotPlans.GetByPlanTypeAsync(activeMembership.PlanType);
+            if (activePlan?.Price > 0)
+            {
+                var canActivate = await paymentService.CanUserActivatePlotAsync(userId);
+                if (canActivate)
+                {
+                    plot.IsActive = true;
+                    plot.ValidUntil = activeMembership.ValidUntil;
+                }
+            }
+        }
 
         await unitOfWork.Plots.AddAsync(plot);
         await unitOfWork.SaveChangesAsync();
@@ -465,5 +482,79 @@ public static class PlotHandlers
             await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), cityId.Value);
 
         return NoContentResponse();
+    }
+
+    // ── Plot Payment handlers ────────────────────────────────────────────────
+
+    public static async Task<IResult> CreatePlotOrder(
+        Guid plotId, string planType,
+        ClaimsPrincipal principal,
+        IPaymentService paymentService)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        try
+        {
+            var response = await paymentService.CreatePlotOrderAsync(userId, plotId, planType.ToUpperInvariant());
+            return OkResponse(response);
+        }
+        catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
+        catch (UnauthorizedAccessException ex) { return ForbiddenResponse(ex.Message); }
+        catch (ArgumentException ex) { return BadRequestResponse(ex.Message); }
+        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
+    }
+
+    public static async Task<IResult> VerifyPlotPayment(
+        Guid plotId, VerifyPaymentRequest request,
+        ClaimsPrincipal principal,
+        IPaymentService paymentService)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        try
+        {
+            var response = await paymentService.VerifyPlotPaymentAsync(userId, request);
+            return OkResponse(response);
+        }
+        catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
+        catch (UnauthorizedAccessException ex) { return ForbiddenResponse(ex.Message); }
+        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
+    }
+
+    public static async Task<IResult> CreatePlotUpgradeOrder(
+        string planType,
+        ClaimsPrincipal principal,
+        IPaymentService paymentService)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        try
+        {
+            var response = await paymentService.CreatePlotUpgradeOrderAsync(userId, planType.ToUpperInvariant());
+            return OkResponse(response);
+        }
+        catch (ArgumentException ex) { return BadRequestResponse(ex.Message); }
+        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
+    }
+
+    public static async Task<IResult> VerifyPlotUpgradePayment(
+        VerifyPaymentRequest request,
+        ClaimsPrincipal principal,
+        IPaymentService paymentService)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        try
+        {
+            var response = await paymentService.VerifyPlotUpgradePaymentAsync(userId, request);
+            return OkResponse(response);
+        }
+        catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
+        catch (UnauthorizedAccessException ex) { return ForbiddenResponse(ex.Message); }
+        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
     }
 }

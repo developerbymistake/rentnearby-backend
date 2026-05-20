@@ -15,6 +15,7 @@ public interface IPlotRepository : IRepository<Plot>
         bool? isActive = null,
         Guid? districtId = null,
         Guid? cityId = null);
+    Task<IEnumerable<Plot>> GetActiveByUserIdAsync(Guid userId);
     Task AddPhotoAsync(PlotPhoto photo);
     void RemovePhoto(PlotPhoto photo);
 }

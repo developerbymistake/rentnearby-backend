@@ -15,6 +15,7 @@ public class Plot
     public Guid DistrictId { get; set; }
     public Guid? CityId { get; set; }
     public bool IsActive { get; set; } = false;
+    public DateTime? ValidUntil { get; set; }
     public bool IsDeleted { get; set; } = false;
     public DateTime? DeletedAt { get; set; }
     public DateTime CreatedAt { get; set; }

@@ -149,6 +149,11 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
     }
 
+    public async Task<IEnumerable<Plot>> GetActiveByUserIdAsync(Guid userId)
+        => await _dbSet
+            .Where(p => p.UserId == userId && p.IsActive && !p.IsDeleted)
+            .ToListAsync();
+
     public async Task AddPhotoAsync(PlotPhoto photo)
         => await context.PlotPhotos.AddAsync(photo);
 

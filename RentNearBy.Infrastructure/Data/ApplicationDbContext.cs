@@ -20,6 +20,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
     public DbSet<PlotPlan> PlotPlans { get; set; }
     public DbSet<PlotMembership> PlotMemberships { get; set; }
+    public DbSet<PlotPaymentFeature> PlotPaymentFeatures { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -190,6 +191,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasForeignKey(t => t.ListingId)
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(t => t.Plot)
+             .WithMany()
+             .HasForeignKey(t => t.PlotId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(t => t.UserId);
             e.HasIndex(t => t.Status);
             e.HasIndex(t => t.CreatedAt);
@@ -282,6 +288,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(m => m.UserId);
             e.HasIndex(m => m.IsActive);
             e.HasIndex(m => m.ValidUntil);
+        });
+
+        modelBuilder.Entity<PlotPaymentFeature>(e =>
+        {
+            e.HasKey(f => f.Id);
+            e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(f => f.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
         });
     }
 }

@@ -22,6 +22,9 @@ public static class AdminEndpoints
         group.MapGet("/payment-feature", AdminHandlers.GetPaymentFeature);
         group.MapPut("/payment-feature", AdminHandlers.UpdatePaymentFeature).RequireAuthorization("AdminOnly");
 
+        group.MapGet("/plot-payment-feature", AdminHandlers.GetPlotPaymentFeature);
+        group.MapPut("/plot-payment-feature", AdminHandlers.UpdatePlotPaymentFeature).RequireAuthorization("AdminOnly");
+
         group.MapGet("/stats", AdminHandlers.GetStats).RequireAuthorization("AdminOnly");
 
         group.MapGet("/geocode", AdminHandlers.Geocode).RequireAuthorization("AdminOnly");

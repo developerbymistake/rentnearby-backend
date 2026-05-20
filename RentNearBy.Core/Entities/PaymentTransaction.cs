@@ -5,6 +5,7 @@ public class PaymentTransaction
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
     public Guid? ListingId { get; set; }
+    public Guid? PlotId { get; set; }
     public string PlanType { get; set; } = string.Empty; // FREE or PAID
     public int Amount { get; set; } // In INR (0 for FREE, 99 for PAID)
     public string Currency { get; set; } = "INR";
@@ -18,4 +19,5 @@ public class PaymentTransaction
 
     public User User { get; set; } = null!;
     public Listing? Listing { get; set; }
+    public Plot? Plot { get; set; }
 }
