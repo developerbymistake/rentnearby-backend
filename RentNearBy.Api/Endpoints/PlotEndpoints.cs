@@ -18,6 +18,7 @@ public static class PlotEndpoints
         group.MapPost("/{id:guid}/photos", PlotHandlers.UploadPhoto).RequireAuthorization().DisableAntiforgery();
         group.MapDelete("/{id:guid}/photos/{photoId:guid}", PlotHandlers.DeletePhoto).RequireAuthorization();
 
+        group.MapGet("/payment/status", PlotHandlers.GetPlotMembershipStatus).RequireAuthorization();
         group.MapPost("/{plotId:guid}/create-order", PlotHandlers.CreatePlotOrder).RequireAuthorization();
         group.MapPost("/{plotId:guid}/verify-payment", PlotHandlers.VerifyPlotPayment).RequireAuthorization();
         group.MapPost("/upgrade-plan/create-order", PlotHandlers.CreatePlotUpgradeOrder).RequireAuthorization();

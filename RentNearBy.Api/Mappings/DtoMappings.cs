@@ -19,6 +19,7 @@ public static class DtoMappings
         TypeAdapterConfig<District, DistrictDto>.NewConfig();
         TypeAdapterConfig<City, CityDto>.NewConfig();
         TypeAdapterConfig<RoomType, RoomTypeDto>.NewConfig();
+        TypeAdapterConfig<PlotType, PlotTypeDto>.NewConfig();
 
         TypeAdapterConfig<Listing, ListingDto>.NewConfig()
             .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
@@ -31,6 +32,7 @@ public static class DtoMappings
                 : new List<string>());
 
         TypeAdapterConfig<Plot, PlotDto>.NewConfig()
+            .Map(dest => dest.PlotType, src => src.PlotType != null ? src.PlotType.Name : string.Empty)
             .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
             .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
             .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)

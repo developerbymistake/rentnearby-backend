@@ -8,6 +8,7 @@ public static class DataSeeder
     public static async Task SeedAsync(ApplicationDbContext db)
     {
         await SeedRoomTypesAsync(db);
+        await SeedPlotTypesAsync(db);
         await SeedPlansAsync(db);
         await SeedPlotPlansAsync(db);
         await SeedDistrictsAndCitiesAsync(db);
@@ -58,6 +59,21 @@ public static class DataSeeder
         };
 
         db.RoomTypes.AddRange(roomTypes);
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedPlotTypesAsync(ApplicationDbContext db)
+    {
+        if (await db.PlotTypes.AnyAsync()) return;
+
+        var plotTypes = new[]
+        {
+            new PlotType { Id = Guid.Parse("b1000000-0000-0000-0000-000000000001"), Name = "Residential",  SortOrder = 1, Description = "Residential land for housing",         CreatedAt = DateTime.UtcNow },
+            new PlotType { Id = Guid.Parse("b1000000-0000-0000-0000-000000000002"), Name = "Commercial",   SortOrder = 2, Description = "Commercial land for business use",      CreatedAt = DateTime.UtcNow },
+            new PlotType { Id = Guid.Parse("b1000000-0000-0000-0000-000000000003"), Name = "Agricultural", SortOrder = 3, Description = "Agricultural land for farming use",     CreatedAt = DateTime.UtcNow },
+        };
+
+        db.PlotTypes.AddRange(plotTypes);
         await db.SaveChangesAsync();
     }
 

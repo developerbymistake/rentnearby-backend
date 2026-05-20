@@ -19,6 +19,11 @@ public static class AdminEndpoints
         group.MapPut("/room-types/{id:guid}", AdminHandlers.UpdateRoomType).RequireAuthorization("AdminOnly");
         group.MapDelete("/room-types/{id:guid}", AdminHandlers.DeleteRoomType).RequireAuthorization("AdminOnly");
 
+        group.MapGet("/plot-types", AdminHandlers.GetPlotTypes);
+        group.MapPost("/plot-types", AdminHandlers.CreatePlotType).RequireAuthorization("AdminOnly");
+        group.MapPut("/plot-types/{id:guid}", AdminHandlers.UpdatePlotType).RequireAuthorization("AdminOnly");
+        group.MapDelete("/plot-types/{id:guid}", AdminHandlers.DeletePlotType).RequireAuthorization("AdminOnly");
+
         group.MapGet("/payment-feature", AdminHandlers.GetPaymentFeature);
         group.MapPut("/payment-feature", AdminHandlers.UpdatePaymentFeature).RequireAuthorization("AdminOnly");
 

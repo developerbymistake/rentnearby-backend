@@ -35,11 +35,12 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
                     p."Longitude"::float8  AS "Lng",
                     p."AreaValue"::float8  AS "AreaValue",
                     p."AreaUnit"           AS "AreaUnit",
-                    p."PlotType"           AS "PlotType",
+                    pt."Name"              AS "PlotType",
                     u."Name"               AS "OwnerName",
                     u."PhoneNumber"        AS "OwnerPhone",
                     ph."PhotoUrl"          AS "ThumbnailUrl"
                 FROM "Plots" p
+                INNER JOIN "PlotTypes" pt ON pt."Id" = p."PlotTypeId"
                 LEFT JOIN "Users" u ON u."Id" = p."UserId"
                 LEFT JOIN LATERAL (
                     SELECT ph."PhotoUrl"
@@ -83,6 +84,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
     public async Task<IEnumerable<Plot>> GetByUserIdAsync(Guid userId)
         => await _dbSet
             .AsNoTracking()
+            .Include(p => p.PlotType)
             .Include(p => p.District)
             .Include(p => p.City)
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder).Take(1))
@@ -96,6 +98,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
         var take = pageSize + 1;
         var items = await _dbSet
             .AsNoTracking()
+            .Include(p => p.PlotType)
             .Include(p => p.District)
             .Include(p => p.City)
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder).Take(1))
@@ -112,6 +115,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
     public async Task<Plot?> GetByIdWithPhotosAsync(Guid id)
         => await _dbSet
             .AsNoTracking()
+            .Include(p => p.PlotType)
             .Include(p => p.District)
             .Include(p => p.City)
             .Include(p => p.User)
@@ -128,13 +132,14 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
         var take = pageSize + 1;
         var query = _dbSet
             .AsNoTracking()
+            .Include(p => p.PlotType)
             .Include(p => p.District)
             .Include(p => p.City)
             .Include(p => p.User)
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder).Take(1))
             .Where(p => !p.IsDeleted);
 
-        if (plotType != null) query = query.Where(p => p.PlotType == plotType);
+        if (plotType != null) query = query.Where(p => p.PlotType.Name == plotType);
         if (isActive.HasValue) query = query.Where(p => p.IsActive == isActive.Value);
         if (districtId.HasValue) query = query.Where(p => p.DistrictId == districtId.Value);
         if (cityId.HasValue) query = query.Where(p => p.CityId == cityId.Value);

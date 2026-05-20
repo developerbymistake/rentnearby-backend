@@ -6,6 +6,7 @@ public class PaymentTransaction
     public Guid UserId { get; set; }
     public Guid? ListingId { get; set; }
     public Guid? PlotId { get; set; }
+    public string? TransactionKind { get; set; } // null = room, "PLOT" = plot
     public string PlanType { get; set; } = string.Empty; // FREE or PAID
     public int Amount { get; set; } // In INR (0 for FREE, 99 for PAID)
     public string Currency { get; set; } = "INR";

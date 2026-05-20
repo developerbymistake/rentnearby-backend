@@ -16,6 +16,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<UserMembership> UserMemberships { get; set; }
     public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
     public DbSet<PaymentFeature> PaymentFeatures { get; set; }
+    public DbSet<PlotType> PlotTypes { get; set; }
     public DbSet<Plot> Plots { get; set; }
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
     public DbSet<PlotPlan> PlotPlans { get; set; }
@@ -82,6 +83,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000007"), Name = "1RK",    SortOrder = 4, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
                 new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000005"), Name = "PG",     SortOrder = 5, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
                 new RoomType { Id = Guid.Parse("a1000000-0000-0000-0000-000000000004"), Name = "Hostel", SortOrder = 6, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) }
+            );
+        });
+
+        modelBuilder.Entity<PlotType>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(p => p.Name).IsUnique();
+            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+            e.HasData(
+                new PlotType { Id = Guid.Parse("b1000000-0000-0000-0000-000000000001"), Name = "Residential",  SortOrder = 1, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                new PlotType { Id = Guid.Parse("b1000000-0000-0000-0000-000000000002"), Name = "Commercial",   SortOrder = 2, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                new PlotType { Id = Guid.Parse("b1000000-0000-0000-0000-000000000003"), Name = "Agricultural", SortOrder = 3, CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) }
             );
         });
 
@@ -217,6 +231,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
             e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
 
+            e.HasOne(p => p.PlotType)
+             .WithMany(t => t.Plots)
+             .HasForeignKey(p => p.PlotTypeId)
+             .OnDelete(DeleteBehavior.Restrict);
+
             e.HasOne(p => p.User)
              .WithMany()
              .HasForeignKey(p => p.UserId)
@@ -233,6 +252,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
 
+            e.HasIndex(p => p.PlotTypeId);
             e.HasIndex(p => p.UserId);
             e.HasIndex(p => p.DistrictId);
             e.HasIndex(p => p.CityId);

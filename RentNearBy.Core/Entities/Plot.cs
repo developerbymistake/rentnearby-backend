@@ -7,7 +7,7 @@ public class Plot
     public decimal AreaValue { get; set; }
     public string AreaUnit { get; set; } = string.Empty;  // sqft/bigha/marla/acre/kanal
     public decimal AreaSqft { get; set; }                 // stored for sorting (approx conversion)
-    public string PlotType { get; set; } = string.Empty;  // Residential/Commercial/Agricultural
+    public Guid PlotTypeId { get; set; }
     public string? Description { get; set; }
     public decimal Latitude { get; set; }
     public decimal Longitude { get; set; }
@@ -21,6 +21,7 @@ public class Plot
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
+    public PlotType PlotType { get; set; } = null!;
     public User User { get; set; } = null!;
     public District District { get; set; } = null!;
     public City? City { get; set; }

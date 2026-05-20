@@ -4,7 +4,7 @@ public class UpdatePlotRequest
 {
     public decimal? AreaValue { get; set; }
     public string? AreaUnit { get; set; }
-    public string? PlotType { get; set; }
+    public Guid? PlotTypeId { get; set; }
     public string? Description { get; set; }
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }

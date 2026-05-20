@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260520135137_FixPlotTransactionKind")]
+    partial class FixPlotTransactionKind
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -411,8 +414,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<decimal>("Longitude")
                         .HasColumnType("numeric");
 
-                    b.Property<Guid>("PlotTypeId")
-                        .HasColumnType("uuid");
+                    b.Property<string>("PlotType")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
@@ -441,8 +445,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDatabaseName("ix_plots_location_gist");
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Location"), "gist");
-
-                    b.HasIndex("PlotTypeId");
 
                     b.HasIndex("UserId");
 
@@ -599,59 +601,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("PlotPlans");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.PlotType", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Name")
-                        .IsUnique();
-
-                    b.ToTable("PlotTypes");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = new Guid("b1000000-0000-0000-0000-000000000001"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "Residential",
-                            SortOrder = 1
-                        },
-                        new
-                        {
-                            Id = new Guid("b1000000-0000-0000-0000-000000000002"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "Commercial",
-                            SortOrder = 2
-                        },
-                        new
-                        {
-                            Id = new Guid("b1000000-0000-0000-0000-000000000003"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "Agricultural",
-                            SortOrder = 3
-                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomType", b =>
@@ -955,12 +904,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("RentNearBy.Core.Entities.PlotType", "PlotType")
-                        .WithMany("Plots")
-                        .HasForeignKey("PlotTypeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("RentNearBy.Core.Entities.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -970,8 +913,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("City");
 
                     b.Navigation("District");
-
-                    b.Navigation("PlotType");
 
                     b.Navigation("User");
                 });
@@ -1044,11 +985,6 @@ namespace RentNearBy.Infrastructure.Migrations
             modelBuilder.Entity("RentNearBy.Core.Entities.Plot", b =>
                 {
                     b.Navigation("Photos");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.PlotType", b =>
-                {
-                    b.Navigation("Plots");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomType", b =>

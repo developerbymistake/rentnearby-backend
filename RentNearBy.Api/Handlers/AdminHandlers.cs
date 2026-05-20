@@ -217,6 +217,68 @@ public static class AdminHandlers
         return NoContentResponse();
     }
 
+    // ── Plot Type CRUD ────────────────────────────────────────────────────────
+
+    public static async Task<IResult> GetPlotTypes(IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        if (!cache.TryGetValue("plot_types", out List<PlotTypeDto>? cached) || cached == null)
+        {
+            var types = await unitOfWork.PlotTypes.GetAllAsync();
+            cached = types.OrderBy(p => p.SortOrder).Select(p => p.Adapt<PlotTypeDto>()).ToList();
+            cache.Set("plot_types", cached, CacheTtl);
+        }
+        return OkResponse(cached);
+    }
+
+    public static async Task<IResult> CreatePlotType(CreatePlotTypeRequest request, IValidator<CreatePlotTypeRequest> validator, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var plotType = new PlotType { Id = Guid.NewGuid(), Name = request.Name.Trim(), Description = request.Description, SortOrder = request.SortOrder, CreatedAt = DateTime.UtcNow };
+        await unitOfWork.PlotTypes.AddAsync(plotType);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove("plot_types");
+
+        return CreatedResponse(plotType.Adapt<PlotTypeDto>(), $"/api/v1/admin/plot-types/{plotType.Id}");
+    }
+
+    public static async Task<IResult> UpdatePlotType(Guid id, UpdatePlotTypeRequest request, IValidator<UpdatePlotTypeRequest> validator, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var plotType = await unitOfWork.PlotTypes.GetByIdAsync(id);
+        if (plotType == null) return NotFoundResponse("Plot type not found");
+
+        if (request.Name != null) plotType.Name = request.Name.Trim();
+        if (request.Description != null) plotType.Description = request.Description;
+
+        await unitOfWork.PlotTypes.UpdateAsync(plotType);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove("plot_types");
+
+        return OkResponse(plotType.Adapt<PlotTypeDto>());
+    }
+
+    public static async Task<IResult> DeletePlotType(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
+    {
+        var plotType = await unitOfWork.PlotTypes.GetByIdAsync(id);
+        if (plotType == null) return NotFoundResponse("Plot type not found");
+
+        if (await db.Plots.AnyAsync(p => p.PlotTypeId == id && p.IsActive && !p.IsDeleted))
+            return BadRequestResponse("Cannot delete plot type with active plots");
+
+        await unitOfWork.PlotTypes.DeleteAsync(plotType);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove("plot_types");
+
+        return NoContentResponse();
+    }
+
     public static async Task<IResult> GetStats(ApplicationDbContext db)
     {
         var totalUsers = await db.Users.CountAsync();

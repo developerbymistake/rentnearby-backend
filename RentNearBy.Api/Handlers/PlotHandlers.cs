@@ -15,7 +15,6 @@ namespace RentNearBy.Api.Handlers;
 public static class PlotHandlers
 {
     private static readonly string[] AllowedAreaUnits = ["sqft", "sqm", "bigha", "marla", "acre", "kanal"];
-    private static readonly string[] AllowedPlotTypes = ["Residential", "Commercial", "Agricultural"];
 
     private static decimal ToSqft(decimal value, string unit) => unit switch
     {
@@ -195,6 +194,9 @@ public static class PlotHandlers
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
+        var plotType = await unitOfWork.PlotTypes.GetByIdAsync(request.PlotTypeId);
+        if (plotType == null) return BadRequestResponse("Invalid plot type");
+
         if (request.CityId.HasValue)
         {
             var city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);
@@ -210,7 +212,7 @@ public static class PlotHandlers
             AreaValue = request.AreaValue,
             AreaUnit = request.AreaUnit,
             AreaSqft = ToSqft(request.AreaValue, request.AreaUnit),
-            PlotType = request.PlotType,
+            PlotTypeId = request.PlotTypeId,
             Description = request.Description,
             Latitude = request.Latitude,
             Longitude = request.Longitude,
@@ -268,11 +270,16 @@ public static class PlotHandlers
 
         var oldCityId = plot.CityId;
 
+        if (request.PlotTypeId.HasValue)
+        {
+            var newPlotType = await unitOfWork.PlotTypes.GetByIdAsync(request.PlotTypeId.Value);
+            if (newPlotType == null) return BadRequestResponse("Invalid plot type");
+            plot.PlotTypeId = request.PlotTypeId.Value;
+        }
         if (request.AreaValue.HasValue) plot.AreaValue = request.AreaValue.Value;
         if (request.AreaUnit != null) plot.AreaUnit = request.AreaUnit;
         if (request.AreaValue.HasValue || request.AreaUnit != null)
             plot.AreaSqft = ToSqft(plot.AreaValue, plot.AreaUnit);
-        if (request.PlotType != null) plot.PlotType = request.PlotType;
         if (request.Description != null) plot.Description = request.Description;
         if (request.Latitude.HasValue) plot.Latitude = request.Latitude.Value;
         if (request.Longitude.HasValue) plot.Longitude = request.Longitude.Value;
@@ -426,7 +433,7 @@ public static class PlotHandlers
             UserId: p.UserId.ToString(),
             OwnerName: p.User?.Name,
             OwnerPhone: p.User?.PhoneNumber,
-            PlotType: p.PlotType,
+            PlotType: p.PlotType?.Name ?? string.Empty,
             AreaValue: (double)p.AreaValue,
             AreaUnit: p.AreaUnit,
             AreaSqft: (double)p.AreaSqft,
@@ -500,9 +507,10 @@ public static class PlotHandlers
             return OkResponse(response);
         }
         catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
-        catch (UnauthorizedAccessException ex) { return ForbiddenResponse(ex.Message); }
+        catch (UnauthorizedAccessException ex) { return UnauthorizedResponse(ex.Message); }
         catch (ArgumentException ex) { return BadRequestResponse(ex.Message); }
         catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
+        catch (Exception) { return ServerErrorResponse(); }
     }
 
     public static async Task<IResult> VerifyPlotPayment(
@@ -519,8 +527,9 @@ public static class PlotHandlers
             return OkResponse(response);
         }
         catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
-        catch (UnauthorizedAccessException ex) { return ForbiddenResponse(ex.Message); }
+        catch (UnauthorizedAccessException ex) { return UnauthorizedResponse(ex.Message); }
         catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
+        catch (Exception) { return ServerErrorResponse(); }
     }
 
     public static async Task<IResult> CreatePlotUpgradeOrder(
@@ -538,6 +547,7 @@ public static class PlotHandlers
         }
         catch (ArgumentException ex) { return BadRequestResponse(ex.Message); }
         catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
+        catch (Exception) { return ServerErrorResponse(); }
     }
 
     public static async Task<IResult> VerifyPlotUpgradePayment(
@@ -554,7 +564,38 @@ public static class PlotHandlers
             return OkResponse(response);
         }
         catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
-        catch (UnauthorizedAccessException ex) { return ForbiddenResponse(ex.Message); }
+        catch (UnauthorizedAccessException ex) { return UnauthorizedResponse(ex.Message); }
         catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
+        catch (Exception) { return ServerErrorResponse(); }
+    }
+
+    public static async Task<IResult> GetPlotMembershipStatus(
+        ClaimsPrincipal principal,
+        IPaymentService paymentService,
+        IUnitOfWork unitOfWork)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        try
+        {
+            var membership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
+            var activePlots = await paymentService.GetActivePlotCountAsync(userId);
+            var canActivate = await paymentService.CanUserActivatePlotAsync(userId);
+
+            return OkResponse(new
+            {
+                hasMembership = membership != null,
+                planType = membership?.PlanType,
+                validUntil = membership?.ValidUntil,
+                maxPlots = membership?.MaxPlots ?? 0,
+                activePlots,
+                canActivate
+            });
+        }
+        catch (Exception)
+        {
+            return ServerErrorResponse();
+        }
     }
 }

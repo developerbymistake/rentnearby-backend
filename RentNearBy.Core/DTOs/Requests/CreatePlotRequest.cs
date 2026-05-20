@@ -4,7 +4,7 @@ public class CreatePlotRequest
 {
     public decimal AreaValue { get; set; }
     public string AreaUnit { get; set; } = string.Empty;
-    public string PlotType { get; set; } = string.Empty;
+    public Guid PlotTypeId { get; set; }
     public string? Description { get; set; }
     public decimal Latitude { get; set; }
     public decimal Longitude { get; set; }

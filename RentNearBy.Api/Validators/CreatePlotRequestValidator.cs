@@ -6,7 +6,6 @@ namespace RentNearBy.Api.Validators;
 public class CreatePlotRequestValidator : AbstractValidator<CreatePlotRequest>
 {
     private static readonly string[] AllowedAreaUnits = ["sqft", "sqm", "bigha", "marla", "acre", "kanal"];
-    private static readonly string[] AllowedPlotTypes = ["Residential", "Commercial", "Agricultural"];
 
     public CreatePlotRequestValidator()
     {
@@ -17,9 +16,8 @@ public class CreatePlotRequestValidator : AbstractValidator<CreatePlotRequest>
             .NotEmpty().WithMessage("Area unit is required")
             .Must(u => AllowedAreaUnits.Contains(u)).WithMessage("Invalid area unit. Allowed: sqft, sqm, bigha, marla, acre, kanal");
 
-        RuleFor(x => x.PlotType)
-            .NotEmpty().WithMessage("Plot type is required")
-            .Must(t => AllowedPlotTypes.Contains(t)).WithMessage("Invalid plot type. Allowed: Residential, Commercial, Agricultural");
+        RuleFor(x => x.PlotTypeId)
+            .NotEmpty().WithMessage("Plot type is required");
 
         RuleFor(x => x.Latitude)
             .InclusiveBetween(-90, 90).WithMessage("Invalid latitude");

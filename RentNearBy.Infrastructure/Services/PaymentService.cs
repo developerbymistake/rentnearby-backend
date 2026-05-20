@@ -21,6 +21,7 @@ public interface IPaymentService
     Task<CreatePaymentOrderResponse> CreatePlotOrderAsync(Guid userId, Guid plotId, string planType);
     Task<PlotPaymentVerifyResponse> VerifyPlotPaymentAsync(Guid userId, VerifyPaymentRequest request);
     Task<bool> CanUserActivatePlotAsync(Guid userId);
+    Task<int> GetActivePlotCountAsync(Guid userId);
     Task<CreatePaymentOrderResponse> CreatePlotUpgradeOrderAsync(Guid userId, string planType);
     Task<PlotPaymentVerifyResponse> VerifyPlotUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request);
 }
@@ -58,6 +59,19 @@ public class PaymentService : IPaymentService
             var db = _redis.GetDatabase();
             var server = _redis.GetServer(_redis.GetEndPoints()[0]);
             var keys = server.Keys(pattern: $"nearby:{cityId}:*").ToArray();
+            if (keys.Length > 0) await db.KeyDeleteAsync(keys);
+        }
+        catch { }
+    }
+
+    private async Task InvalidatePlotNearbyCacheAsync(Guid? cityId)
+    {
+        if (cityId == null) return;
+        try
+        {
+            var db = _redis.GetDatabase();
+            var server = _redis.GetServer(_redis.GetEndPoints()[0]);
+            var keys = server.Keys(pattern: $"nearby_plot:{cityId}:*").ToArray();
             if (keys.Length > 0) await db.KeyDeleteAsync(keys);
         }
         catch { }
@@ -716,6 +730,7 @@ public class PaymentService : IPaymentService
             Id = Guid.NewGuid(),
             UserId = userId,
             PlotId = plotId,
+            TransactionKind = "PLOT",
             PlanType = planType,
             Amount = plan.Price,
             Status = "PENDING",
@@ -790,13 +805,29 @@ public class PaymentService : IPaymentService
         await DeactivateExistingPlotMembershipsAsync(userId);
         await _unitOfWork.PlotMemberships.AddAsync(membership);
 
+        Guid? activatedPlotCityId = null;
         if (transaction.PlotId.HasValue)
         {
             var plot = await _unitOfWork.Plots.GetByIdAsync(transaction.PlotId.Value);
-            if (plot != null && !plot.IsActive)
+            if (plot != null)
             {
+                if (plot.IsActive)
+                {
+                    _logger.LogWarning($"Plot {plot.Id} is already active");
+                    await _unitOfWork.SaveChangesAsync();
+                    return new PlotPaymentVerifyResponse
+                    {
+                        Success = true,
+                        Message = "Payment successful. Your plot listing is now live!",
+                        PlotMembershipId = membership.Id,
+                        ValidUntil = membership.ValidUntil,
+                        PlanType = transaction.PlanType,
+                        MaxPlots = membership.MaxPlots
+                    };
+                }
                 plot.IsActive = true;
                 plot.ValidUntil = membership.ValidUntil;
+                activatedPlotCityId = plot.CityId;
                 _logger.LogInformation($"Plot {plot.Id} activated with membership valid until {membership.ValidUntil}");
             }
         }
@@ -810,6 +841,7 @@ public class PaymentService : IPaymentService
         }
 
         await _unitOfWork.SaveChangesAsync();
+        await InvalidatePlotNearbyCacheAsync(activatedPlotCityId);
 
         return new PlotPaymentVerifyResponse
         {
@@ -835,6 +867,12 @@ public class PaymentService : IPaymentService
         return canActivate;
     }
 
+    public async Task<int> GetActivePlotCountAsync(Guid userId)
+    {
+        var plots = await _unitOfWork.Plots.GetActiveByUserIdAsync(userId);
+        return plots.Count(p => !p.IsDeleted);
+    }
+
     public async Task<CreatePaymentOrderResponse> CreatePlotUpgradeOrderAsync(Guid userId, string planType)
     {
         var plotPaymentFeature = await _unitOfWork.PlotPaymentFeature.GetAsync();
@@ -848,7 +886,7 @@ public class PaymentService : IPaymentService
             throw new ArgumentException("Upgrade requires a paid plan.");
 
         var existing = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
-            .FirstOrDefault(t => t.PlotId == null && t.ListingId == null && t.PlanType == planType && t.Status == "PENDING");
+            .FirstOrDefault(t => t.PlotId == null && t.ListingId == null && t.TransactionKind == "PLOT" && t.PlanType == planType && t.Status == "PENDING");
         if (existing != null && !string.IsNullOrEmpty(existing.RazorpayOrderId))
         {
             if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
@@ -865,6 +903,7 @@ public class PaymentService : IPaymentService
             UserId = userId,
             PlotId = null,
             ListingId = null,
+            TransactionKind = "PLOT",
             PlanType = planType,
             Amount = plan.Price,
             Status = "PENDING",
@@ -922,6 +961,10 @@ public class PaymentService : IPaymentService
 
         await _unitOfWork.SaveChangesAsync();
 
+        var cityIds = activePlots.Select(p => p.CityId).Where(c => c.HasValue).Distinct();
+        foreach (var cid in cityIds)
+            await InvalidatePlotNearbyCacheAsync(cid);
+
         _logger.LogInformation($"Plot plan upgrade verified for user {userId}, membership {membership.Id}");
         return new PlotPaymentVerifyResponse
         {
@@ -961,6 +1004,7 @@ public class PaymentService : IPaymentService
         await DeactivateExistingPlotMembershipsAsync(userId);
         await _unitOfWork.PlotMemberships.AddAsync(membership);
 
+        Guid? freePlotCityId = null;
         if (transaction.PlotId.HasValue)
         {
             var plot = await _unitOfWork.Plots.GetByIdAsync(transaction.PlotId.Value);
@@ -968,6 +1012,7 @@ public class PaymentService : IPaymentService
             {
                 plot.IsActive = true;
                 plot.ValidUntil = membership.ValidUntil;
+                freePlotCityId = plot.CityId;
             }
         }
 
@@ -982,5 +1027,6 @@ public class PaymentService : IPaymentService
         }
 
         await _unitOfWork.SaveChangesAsync();
+        await InvalidatePlotNearbyCacheAsync(freePlotCityId);
     }
 }
