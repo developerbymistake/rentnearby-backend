@@ -2,10 +2,13 @@ using System.Security.Claims;
 using System.Text.Json;
 using FluentValidation;
 using Mapster;
+using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
@@ -205,6 +208,17 @@ public static class PlotHandlers
                 return BadRequestResponse("Selected city does not belong to the selected district");
         }
 
+        var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
+        if (plotFeature == null || !plotFeature.IsEnabled)
+        {
+            var db = sp.GetRequiredService<ApplicationDbContext>();
+            var activeCount = await db.Plots
+                .Where(p => p.UserId == userId && p.IsActive && !p.IsDeleted)
+                .CountAsync();
+            if (activeCount >= 2)
+                return BadRequestResponse("Free mode limit: you can have at most 2 active plots. Deactivate one to add more.");
+        }
+
         var plot = new Plot
         {
             Id = Guid.NewGuid(),
@@ -291,7 +305,24 @@ public static class PlotHandlers
             plot.CityId = request.CityId.Value;
             plot.DistrictId = city.DistrictId;
         }
-        if (request.IsActive.HasValue) plot.IsActive = request.IsActive.Value;
+        if (request.IsActive.HasValue)
+        {
+            if (request.IsActive.Value == true)
+            {
+                var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
+                if (plotFeature == null || !plotFeature.IsEnabled)
+                {
+                    var db = sp.GetRequiredService<ApplicationDbContext>();
+                    var activeCount = await db.Plots
+                        .Where(p => p.UserId == userId && p.IsActive && !p.IsDeleted && p.Id != id)
+                        .CountAsync();
+                    if (activeCount >= 2)
+                        return BadRequestResponse("Free mode limit: you can have at most 2 active plots.");
+                    plot.ValidUntil = DateTime.UtcNow.AddDays(2);
+                }
+            }
+            plot.IsActive = request.IsActive.Value;
+        }
         plot.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.Plots.UpdateAsync(plot);

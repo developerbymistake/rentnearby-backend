@@ -12,10 +12,9 @@ public interface IUnitOfWork : IDisposable
     IPlanRepository Plans { get; }
     IUserMembershipRepository UserMemberships { get; }
     IPaymentTransactionRepository PaymentTransactions { get; }
-    IPaymentFeatureRepository PaymentFeature { get; }
+    IFeatureRepository Features { get; }
     IPlotRepository Plots { get; }
     IPlotMembershipRepository PlotMemberships { get; }
-    IPlotPaymentFeatureRepository PlotPaymentFeature { get; }
     IPlotPlanRepository PlotPlans { get; }
     Task<int> SaveChangesAsync();
 }

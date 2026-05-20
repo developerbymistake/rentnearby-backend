@@ -12,7 +12,7 @@ public static class DataSeeder
         await SeedPlansAsync(db);
         await SeedPlotPlansAsync(db);
         await SeedDistrictsAndCitiesAsync(db);
-        await SeedPaymentFeatureAsync(db);
+        await SeedFeaturesAsync(db);
         await SeedAdminUserAsync(db);
     }
 
@@ -1891,19 +1891,30 @@ public static class DataSeeder
         }
     }
 
-    private static async Task SeedPaymentFeatureAsync(ApplicationDbContext db)
+    private static async Task SeedFeaturesAsync(ApplicationDbContext db)
     {
-        if (await db.PaymentFeatures.AnyAsync()) return;
+        if (await db.AppFeatures.AnyAsync()) return;
 
-        var paymentFeature = new PaymentFeature
-        {
-            Id = Guid.NewGuid(),
-            IsEnabled = true,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        db.PaymentFeatures.Add(paymentFeature);
+        db.AppFeatures.AddRange(
+            new AppFeature
+            {
+                Id = Guid.NewGuid(),
+                Key = "room_payment",
+                DisplayName = "Room Payment",
+                IsEnabled = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new AppFeature
+            {
+                Id = Guid.NewGuid(),
+                Key = "plot_payment",
+                DisplayName = "Plot Payment",
+                IsEnabled = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            }
+        );
         await db.SaveChangesAsync();
     }
 

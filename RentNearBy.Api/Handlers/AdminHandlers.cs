@@ -6,6 +6,7 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Extensions;
 using RentNearBy.Infrastructure.Services;
@@ -311,38 +312,23 @@ public static class AdminHandlers
         });
     }
 
-    public static async Task<IResult> GetPaymentFeature(IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetAllFeatures(IUnitOfWork unitOfWork)
     {
-        var paymentFeature = await unitOfWork.PaymentFeature.GetAsync();
-        if (paymentFeature == null)
-        {
-            // Create default if doesn't exist
-            paymentFeature = new PaymentFeature
-            {
-                Id = Guid.NewGuid(),
-                IsEnabled = false,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-            await unitOfWork.PaymentFeature.AddAsync(paymentFeature);
-            await unitOfWork.SaveChangesAsync();
-        }
-        return OkResponse(paymentFeature);
+        var features = await unitOfWork.Features.GetAllAsync();
+        return OkResponse(features.Select(f => new { f.Key, f.DisplayName, f.IsEnabled }));
     }
 
-    public static async Task<IResult> UpdatePaymentFeature(PaymentFeatureUpdateRequest request, IUnitOfWork unitOfWork)
+    public static async Task<IResult> UpdateFeature(string key, PaymentFeatureUpdateRequest request, IUnitOfWork unitOfWork)
     {
-        var paymentFeature = await unitOfWork.PaymentFeature.GetAsync();
-        if (paymentFeature == null)
-            return NotFoundResponse("Payment feature not configured");
+        var feature = await unitOfWork.Features.GetByKeyAsync(key);
+        if (feature == null)
+            return NotFoundResponse("Feature not found");
 
-        paymentFeature.IsEnabled = request.IsEnabled;
-        paymentFeature.UpdatedAt = DateTime.UtcNow;
+        feature.IsEnabled = request.IsEnabled;
+        feature.UpdatedAt = DateTime.UtcNow;
+        await unitOfWork.Features.UpdateAsync(feature);
 
-        await unitOfWork.PaymentFeature.UpdateAsync(paymentFeature);
-        await unitOfWork.SaveChangesAsync();
-
-        return OkResponse(paymentFeature);
+        return OkResponse(new { feature.Key, feature.IsEnabled });
     }
 
     public static async Task<IResult> GetUsers(
@@ -632,40 +618,6 @@ public static class AdminHandlers
         });
     }
 
-    // ── Admin Plot Payment Feature endpoints ─────────────────────────────────
-
-    public static async Task<IResult> GetPlotPaymentFeature(IUnitOfWork unitOfWork)
-    {
-        var feature = await unitOfWork.PlotPaymentFeature.GetAsync();
-        if (feature == null)
-        {
-            feature = new PlotPaymentFeature
-            {
-                Id = Guid.NewGuid(),
-                IsEnabled = false,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-            await unitOfWork.PlotPaymentFeature.AddAsync(feature);
-            await unitOfWork.SaveChangesAsync();
-        }
-        return OkResponse(feature);
-    }
-
-    public static async Task<IResult> UpdatePlotPaymentFeature(PaymentFeatureUpdateRequest request, IUnitOfWork unitOfWork)
-    {
-        var feature = await unitOfWork.PlotPaymentFeature.GetAsync();
-        if (feature == null)
-            return NotFoundResponse("Plot payment feature not configured");
-
-        feature.IsEnabled = request.IsEnabled;
-        feature.UpdatedAt = DateTime.UtcNow;
-
-        await unitOfWork.PlotPaymentFeature.UpdateAsync(feature);
-        await unitOfWork.SaveChangesAsync();
-
-        return OkResponse(feature);
-    }
 
     // ── Admin Plot Plan endpoints ─────────────────────────────────────────────
 

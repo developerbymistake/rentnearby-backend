@@ -3,6 +3,7 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using StackExchange.Redis;
 
 namespace RentNearBy.Infrastructure.Services;
@@ -85,7 +86,7 @@ public class PaymentService : IPaymentService
             throw new ArgumentException($"Plan '{planType}' does not exist or is disabled.");
         bool isFree = plan.Price == 0;
 
-        var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
+        var paymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
         if (paymentFeature == null)
             throw new InvalidOperationException("Payment feature not configured.");
 
@@ -224,7 +225,7 @@ public class PaymentService : IPaymentService
         if (listing.UserId != userId)
             throw new UnauthorizedAccessException("You don't own this listing.");
 
-        var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
+        var paymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
         if (paymentFeature == null)
             throw new InvalidOperationException("Payment feature not configured.");
 
@@ -366,7 +367,7 @@ public class PaymentService : IPaymentService
             transaction.RazorpaySignature = request.RazorpaySignature;
             transaction.CompletedAt = DateTime.UtcNow;
 
-            var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
+            var paymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
             if (paymentFeature == null)
                 throw new InvalidOperationException("Payment feature not configured.");
 
@@ -526,7 +527,7 @@ public class PaymentService : IPaymentService
         if (user != null)
         {
             // Mark as used free plan for any price=0 plan (when payment feature is enabled)
-            var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
+            var paymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
             if (paymentFeature?.IsEnabled == true && !user.HasUsedFreePlan)
             {
                 user.HasUsedFreePlan = true;
@@ -540,7 +541,7 @@ public class PaymentService : IPaymentService
 
     public async Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId, string planType)
     {
-        var paymentFeature = await _unitOfWork.PaymentFeature.GetAsync();
+        var paymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
         if (paymentFeature == null || !paymentFeature.IsEnabled)
             throw new InvalidOperationException("Payment feature is not enabled.");
 
@@ -677,7 +678,7 @@ public class PaymentService : IPaymentService
             throw new ArgumentException($"Plot plan '{planType}' does not exist or is disabled.");
         bool isFree = plan.Price == 0;
 
-        var plotPaymentFeature = await _unitOfWork.PlotPaymentFeature.GetAsync();
+        var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
         if (plotPaymentFeature == null)
             throw new InvalidOperationException("Plot payment feature not configured.");
 
@@ -786,7 +787,7 @@ public class PaymentService : IPaymentService
         transaction.RazorpaySignature = request.RazorpaySignature;
         transaction.CompletedAt = DateTime.UtcNow;
 
-        var plotPaymentFeature = await _unitOfWork.PlotPaymentFeature.GetAsync();
+        var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
         if (plan == null) throw new InvalidOperationException("Plan configuration not found.");
 
         var membership = new PlotMembership
@@ -875,7 +876,7 @@ public class PaymentService : IPaymentService
 
     public async Task<CreatePaymentOrderResponse> CreatePlotUpgradeOrderAsync(Guid userId, string planType)
     {
-        var plotPaymentFeature = await _unitOfWork.PlotPaymentFeature.GetAsync();
+        var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
         if (plotPaymentFeature == null || !plotPaymentFeature.IsEnabled)
             throw new InvalidOperationException("Plot payment feature is not enabled.");
 
@@ -1019,7 +1020,7 @@ public class PaymentService : IPaymentService
         var user = await _unitOfWork.Users.GetByIdAsync(userId);
         if (user != null)
         {
-            var plotPaymentFeature = await _unitOfWork.PlotPaymentFeature.GetAsync();
+            var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
             if (plotPaymentFeature?.IsEnabled == true && !user.HasUsedFreePlotPlan)
             {
                 user.HasUsedFreePlotPlan = true;

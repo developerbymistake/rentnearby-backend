@@ -1,9 +1,0 @@
-namespace RentNearBy.Core.Entities;
-
-public class PaymentFeature
-{
-    public Guid Id { get; set; }
-    public bool IsEnabled { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
-}

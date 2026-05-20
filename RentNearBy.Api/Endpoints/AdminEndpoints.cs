@@ -24,11 +24,8 @@ public static class AdminEndpoints
         group.MapPut("/plot-types/{id:guid}", AdminHandlers.UpdatePlotType).RequireAuthorization("AdminOnly");
         group.MapDelete("/plot-types/{id:guid}", AdminHandlers.DeletePlotType).RequireAuthorization("AdminOnly");
 
-        group.MapGet("/payment-feature", AdminHandlers.GetPaymentFeature);
-        group.MapPut("/payment-feature", AdminHandlers.UpdatePaymentFeature).RequireAuthorization("AdminOnly");
-
-        group.MapGet("/plot-payment-feature", AdminHandlers.GetPlotPaymentFeature);
-        group.MapPut("/plot-payment-feature", AdminHandlers.UpdatePlotPaymentFeature).RequireAuthorization("AdminOnly");
+        group.MapGet("/features", AdminHandlers.GetAllFeatures);
+        group.MapPut("/features/{key}", AdminHandlers.UpdateFeature).RequireAuthorization("AdminOnly");
 
         group.MapGet("/stats", AdminHandlers.GetStats).RequireAuthorization("AdminOnly");
 

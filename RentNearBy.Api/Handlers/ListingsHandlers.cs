@@ -2,10 +2,13 @@ using System.Security.Claims;
 using System.Text.Json;
 using FluentValidation;
 using Mapster;
+using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
@@ -219,6 +222,17 @@ public static class ListingsHandlers
                 return BadRequestResponse("Selected city does not belong to the selected district");
         }
 
+        var roomFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
+        if (roomFeature == null || !roomFeature.IsEnabled)
+        {
+            var db = sp.GetRequiredService<ApplicationDbContext>();
+            var activeCount = await db.Listings
+                .Where(l => l.UserId == userId && l.IsActive && !l.IsDeleted)
+                .CountAsync();
+            if (activeCount >= 2)
+                return BadRequestResponse("Free mode limit: you can have at most 2 active listings. Deactivate one to add more.");
+        }
+
         var listing = new Listing
         {
             Id = Guid.NewGuid(),
@@ -301,7 +315,24 @@ public static class ListingsHandlers
             listing.CityId = request.CityId.Value;
             listing.DistrictId = city.DistrictId;
         }
-        if (request.IsActive.HasValue) listing.IsActive = request.IsActive.Value;
+        if (request.IsActive.HasValue)
+        {
+            if (request.IsActive.Value == true)
+            {
+                var roomFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
+                if (roomFeature == null || !roomFeature.IsEnabled)
+                {
+                    var db = sp.GetRequiredService<ApplicationDbContext>();
+                    var activeCount = await db.Listings
+                        .Where(l => l.UserId == userId && l.IsActive && !l.IsDeleted && l.Id != id)
+                        .CountAsync();
+                    if (activeCount >= 2)
+                        return BadRequestResponse("Free mode limit: you can have at most 2 active listings.");
+                    listing.ValidUntil = DateTime.UtcNow.AddDays(2);
+                }
+            }
+            listing.IsActive = request.IsActive.Value;
+        }
         listing.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.Listings.UpdateAsync(listing);

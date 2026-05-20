@@ -15,13 +15,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Plan> Plans { get; set; }
     public DbSet<UserMembership> UserMemberships { get; set; }
     public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
-    public DbSet<PaymentFeature> PaymentFeatures { get; set; }
+    public DbSet<AppFeature> AppFeatures { get; set; }
     public DbSet<PlotType> PlotTypes { get; set; }
     public DbSet<Plot> Plots { get; set; }
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
     public DbSet<PlotPlan> PlotPlans { get; set; }
     public DbSet<PlotMembership> PlotMemberships { get; set; }
-    public DbSet<PlotPaymentFeature> PlotPaymentFeatures { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -216,10 +215,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(t => t.RazorpayOrderId);
         });
 
-        modelBuilder.Entity<PaymentFeature>(e =>
+        modelBuilder.Entity<AppFeature>(e =>
         {
             e.HasKey(f => f.Id);
             e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(f => f.Key).IsUnique();
             e.Property(f => f.CreatedAt).HasDefaultValueSql("now()");
             e.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
         });
@@ -310,12 +310,5 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(m => m.ValidUntil);
         });
 
-        modelBuilder.Entity<PlotPaymentFeature>(e =>
-        {
-            e.HasKey(f => f.Id);
-            e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property(f => f.CreatedAt).HasDefaultValueSql("now()");
-            e.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
-        });
     }
 }
