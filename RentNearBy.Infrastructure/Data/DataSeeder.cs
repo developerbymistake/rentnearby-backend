@@ -9,6 +9,7 @@ public static class DataSeeder
     {
         await SeedRoomTypesAsync(db);
         await SeedPlansAsync(db);
+        await SeedPlotPlansAsync(db);
         await SeedDistrictsAndCitiesAsync(db);
         await SeedPaymentFeatureAsync(db);
         await SeedAdminUserAsync(db);
@@ -25,6 +26,20 @@ public static class DataSeeder
         };
 
         db.Plans.AddRange(plans);
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedPlotPlansAsync(ApplicationDbContext db)
+    {
+        if (await db.PlotPlans.AnyAsync()) return;
+
+        var plans = new[]
+        {
+            new PlotPlan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 2, PlotLimit = 1, Price = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new PlotPlan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, PlotLimit = 2, Price = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+        };
+
+        db.PlotPlans.AddRange(plans);
         await db.SaveChangesAsync();
     }
 
