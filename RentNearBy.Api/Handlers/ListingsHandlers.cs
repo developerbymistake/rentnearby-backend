@@ -225,12 +225,26 @@ public static class ListingsHandlers
         var roomFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
         if (roomFeature == null || !roomFeature.IsEnabled)
         {
+            var freeLimit = roomFeature?.FreeLimit ?? 1;
             var db = sp.GetRequiredService<ApplicationDbContext>();
-            var activeCount = await db.Listings
-                .Where(l => l.UserId == userId && l.IsActive && !l.IsDeleted)
+            var totalCount = await db.Listings
+                .Where(l => l.UserId == userId && !l.IsDeleted)
                 .CountAsync();
-            if (activeCount >= 2)
-                return BadRequestResponse("Free mode limit: you can have at most 2 active listings. Deactivate one to add more.");
+            if (totalCount >= freeLimit)
+                return BadRequestResponse($"Free mode limit: you can have at most {freeLimit} listing(s). Delete one to add more.");
+        }
+        else
+        {
+            var membership = await unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
+            if (membership != null && membership.IsActive)
+            {
+                var db = sp.GetRequiredService<ApplicationDbContext>();
+                var totalCount = await db.Listings
+                    .Where(l => l.UserId == userId && !l.IsDeleted)
+                    .CountAsync();
+                if (totalCount >= membership.MaxRooms)
+                    return BadRequestResponse($"You have reached your plan limit of {membership.MaxRooms} listing(s). Upgrade your plan to add more.");
+            }
         }
 
         var listing = new Listing
@@ -322,13 +336,25 @@ public static class ListingsHandlers
                 var roomFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
                 if (roomFeature == null || !roomFeature.IsEnabled)
                 {
+                    var freeLimit = roomFeature?.FreeLimit ?? 1;
+                    var freeDays = roomFeature?.FreeDays ?? 2;
                     var db = sp.GetRequiredService<ApplicationDbContext>();
-                    var activeCount = await db.Listings
-                        .Where(l => l.UserId == userId && l.IsActive && !l.IsDeleted && l.Id != id)
+                    var totalCount = await db.Listings
+                        .Where(l => l.UserId == userId && !l.IsDeleted && l.Id != id)
                         .CountAsync();
-                    if (activeCount >= 2)
-                        return BadRequestResponse("Free mode limit: you can have at most 2 active listings.");
-                    listing.ValidUntil = DateTime.UtcNow.AddDays(2);
+                    if (totalCount >= freeLimit)
+                        return BadRequestResponse($"Free mode limit: you can have at most {freeLimit} listing(s).");
+                    listing.ValidUntil = DateTime.UtcNow.AddDays(freeDays);
+                }
+                else
+                {
+                    var membership = await unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
+                    if (membership == null || !membership.IsActive)
+                        return BadRequestResponse("You need an active plan to go live. Please purchase a plan.");
+                    var svc = sp.GetRequiredService<IPaymentService>();
+                    var canActivate = await svc.CanUserActivateListingAsync(userId);
+                    if (!canActivate)
+                        return BadRequestResponse($"You have reached your active listing limit of {membership.MaxRooms}. Upgrade your plan.");
                 }
             }
             listing.IsActive = request.IsActive.Value;

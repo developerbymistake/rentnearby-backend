@@ -315,7 +315,7 @@ public static class AdminHandlers
     public static async Task<IResult> GetAllFeatures(IUnitOfWork unitOfWork)
     {
         var features = await unitOfWork.Features.GetAllAsync();
-        return OkResponse(features.Select(f => new { f.Key, f.DisplayName, f.IsEnabled }));
+        return OkResponse(features.Select(f => new { f.Key, f.DisplayName, f.IsEnabled, f.FreeLimit, f.FreeDays }));
     }
 
     public static async Task<IResult> GetFeatureByKey(string key, IUnitOfWork unitOfWork)
@@ -323,20 +323,48 @@ public static class AdminHandlers
         var feature = await unitOfWork.Features.GetByKeyAsync(key);
         if (feature == null)
             return NotFoundResponse("Feature not found");
-        return OkResponse(new { feature.Key, feature.DisplayName, feature.IsEnabled });
+        return OkResponse(new { feature.Key, feature.DisplayName, feature.IsEnabled, feature.FreeLimit, feature.FreeDays });
     }
 
-    public static async Task<IResult> UpdateFeature(string key, PaymentFeatureUpdateRequest request, IUnitOfWork unitOfWork)
+    public static async Task<IResult> UpdateFeature(string key, PaymentFeatureUpdateRequest request, IUnitOfWork unitOfWork, ApplicationDbContext db)
     {
         var feature = await unitOfWork.Features.GetByKeyAsync(key);
         if (feature == null)
             return NotFoundResponse("Feature not found");
 
         feature.IsEnabled = request.IsEnabled;
+        if (request.FreeLimit.HasValue && request.FreeLimit.Value > 0)
+            feature.FreeLimit = request.FreeLimit.Value;
+        if (request.FreeDays.HasValue && request.FreeDays.Value > 0)
+            feature.FreeDays = request.FreeDays.Value;
         feature.UpdatedAt = DateTime.UtcNow;
         await unitOfWork.Features.UpdateAsync(feature);
 
-        return OkResponse(new { feature.Key, feature.IsEnabled });
+        var now = DateTime.UtcNow;
+        var yesterday = now.AddDays(-1);
+
+        if (key == FeatureKeys.RoomPayment)
+        {
+            await db.Listings
+                .Where(l => l.IsActive && !l.IsDeleted &&
+                            !db.UserMemberships.Any(m => m.UserId == l.UserId && m.IsActive && m.ValidUntil > now))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(l => l.IsActive, false)
+                    .SetProperty(l => l.ValidUntil, yesterday)
+                    .SetProperty(l => l.UpdatedAt, now));
+        }
+        else if (key == FeatureKeys.PlotPayment)
+        {
+            await db.Plots
+                .Where(p => p.IsActive && !p.IsDeleted &&
+                            !db.PlotMemberships.Any(m => m.UserId == p.UserId && m.IsActive && m.ValidUntil > now))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(p => p.IsActive, false)
+                    .SetProperty(p => p.ValidUntil, yesterday)
+                    .SetProperty(p => p.UpdatedAt, now));
+        }
+
+        return OkResponse(new { feature.Key, feature.IsEnabled, feature.FreeLimit, feature.FreeDays });
     }
 
     public static async Task<IResult> GetUsers(

@@ -211,21 +211,25 @@ public static class PlotHandlers
         var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
         if (plotFeature == null || !plotFeature.IsEnabled)
         {
+            var freeLimit = plotFeature?.FreeLimit ?? 1;
             var db = sp.GetRequiredService<ApplicationDbContext>();
-            var activeCount = await db.Plots
-                .Where(p => p.UserId == userId && p.IsActive && !p.IsDeleted)
+            var totalCount = await db.Plots
+                .Where(p => p.UserId == userId && !p.IsDeleted)
                 .CountAsync();
-            if (activeCount >= 2)
-                return BadRequestResponse("Free mode limit: you can have at most 2 active plots. Deactivate one to add more.");
+            if (totalCount >= freeLimit)
+                return BadRequestResponse($"Free mode limit: you can have at most {freeLimit} plot(s). Delete one to add more.");
         }
         else
         {
-            var existingMembership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
-            if (existingMembership != null)
+            var membership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
+            if (membership != null && membership.IsActive)
             {
-                var canActivate = await paymentService.CanUserActivatePlotAsync(userId);
-                if (!canActivate)
-                    return BadRequestResponse($"You have reached your plot plan limit of {existingMembership.MaxPlots} active plot(s). Please upgrade your plan.");
+                var db = sp.GetRequiredService<ApplicationDbContext>();
+                var totalCount = await db.Plots
+                    .Where(p => p.UserId == userId && !p.IsDeleted)
+                    .CountAsync();
+                if (totalCount >= membership.MaxPlots)
+                    return BadRequestResponse($"You have reached your plan limit of {membership.MaxPlots} plot(s). Upgrade your plan to add more.");
             }
         }
 
@@ -322,13 +326,25 @@ public static class PlotHandlers
                 var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
                 if (plotFeature == null || !plotFeature.IsEnabled)
                 {
+                    var freeLimit = plotFeature?.FreeLimit ?? 1;
+                    var freeDays = plotFeature?.FreeDays ?? 2;
                     var db = sp.GetRequiredService<ApplicationDbContext>();
-                    var activeCount = await db.Plots
-                        .Where(p => p.UserId == userId && p.IsActive && !p.IsDeleted && p.Id != id)
+                    var totalCount = await db.Plots
+                        .Where(p => p.UserId == userId && !p.IsDeleted && p.Id != id)
                         .CountAsync();
-                    if (activeCount >= 2)
-                        return BadRequestResponse("Free mode limit: you can have at most 2 active plots.");
-                    plot.ValidUntil = DateTime.UtcNow.AddDays(2);
+                    if (totalCount >= freeLimit)
+                        return BadRequestResponse($"Free mode limit: you can have at most {freeLimit} plot(s).");
+                    plot.ValidUntil = DateTime.UtcNow.AddDays(freeDays);
+                }
+                else
+                {
+                    var membership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
+                    if (membership == null || !membership.IsActive)
+                        return BadRequestResponse("You need an active plan to go live. Please purchase a plan.");
+                    var svc = sp.GetRequiredService<IPaymentService>();
+                    var canActivate = await svc.CanUserActivatePlotAsync(userId);
+                    if (!canActivate)
+                        return BadRequestResponse($"You have reached your active plot limit of {membership.MaxPlots}. Upgrade your plan.");
                 }
             }
             plot.IsActive = request.IsActive.Value;

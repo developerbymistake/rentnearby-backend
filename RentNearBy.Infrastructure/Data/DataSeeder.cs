@@ -1902,6 +1902,8 @@ public static class DataSeeder
                 Key = "room_payment",
                 DisplayName = "Room Payment",
                 IsEnabled = true,
+                FreeLimit = 1,
+                FreeDays = 2,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             },
@@ -1911,6 +1913,8 @@ public static class DataSeeder
                 Key = "plot_payment",
                 DisplayName = "Plot Payment",
                 IsEnabled = true,
+                FreeLimit = 1,
+                FreeDays = 2,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             }
