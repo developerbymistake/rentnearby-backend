@@ -218,6 +218,16 @@ public static class PlotHandlers
             if (activeCount >= 2)
                 return BadRequestResponse("Free mode limit: you can have at most 2 active plots. Deactivate one to add more.");
         }
+        else
+        {
+            var existingMembership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
+            if (existingMembership != null)
+            {
+                var canActivate = await paymentService.CanUserActivatePlotAsync(userId);
+                if (!canActivate)
+                    return BadRequestResponse($"You have reached your plot plan limit of {existingMembership.MaxPlots} active plot(s). Please upgrade your plan.");
+            }
+        }
 
         var plot = new Plot
         {
