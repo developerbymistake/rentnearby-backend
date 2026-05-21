@@ -25,6 +25,7 @@ public static class AdminEndpoints
         group.MapDelete("/plot-types/{id:guid}", AdminHandlers.DeletePlotType).RequireAuthorization("AdminOnly");
 
         group.MapGet("/features", AdminHandlers.GetAllFeatures);
+        group.MapGet("/features/{key}", AdminHandlers.GetFeatureByKey);
         group.MapPut("/features/{key}", AdminHandlers.UpdateFeature).RequireAuthorization("AdminOnly");
 
         group.MapGet("/stats", AdminHandlers.GetStats).RequireAuthorization("AdminOnly");

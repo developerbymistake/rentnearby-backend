@@ -318,6 +318,14 @@ public static class AdminHandlers
         return OkResponse(features.Select(f => new { f.Key, f.DisplayName, f.IsEnabled }));
     }
 
+    public static async Task<IResult> GetFeatureByKey(string key, IUnitOfWork unitOfWork)
+    {
+        var feature = await unitOfWork.Features.GetByKeyAsync(key);
+        if (feature == null)
+            return NotFoundResponse("Feature not found");
+        return OkResponse(new { feature.Key, feature.DisplayName, feature.IsEnabled });
+    }
+
     public static async Task<IResult> UpdateFeature(string key, PaymentFeatureUpdateRequest request, IUnitOfWork unitOfWork)
     {
         var feature = await unitOfWork.Features.GetByKeyAsync(key);
