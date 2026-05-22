@@ -52,7 +52,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         {
             e.HasKey(d => d.Id);
             e.Property(d => d.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(d => d.Name).IsUnique();
+            e.HasIndex(d => new { d.StateName, d.Name }).IsUnique(); // district name unique per state (same name can exist in different states)
             e.Property(d => d.CreatedAt).HasDefaultValueSql("now()");
             e.Property(d => d.StateName).IsRequired();
             e.Property(d => d.IsActive).HasDefaultValue(false);
