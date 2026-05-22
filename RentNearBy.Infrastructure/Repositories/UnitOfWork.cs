@@ -8,6 +8,8 @@ public class UnitOfWork : IUnitOfWork
     private readonly ApplicationDbContext _context;
     private IUserRepository? _users;
     private ISessionRepository? _sessions;
+    private IAdminRepository? _admins;
+    private IAdminSessionRepository? _adminSessions;
     private IListingRepository? _listings;
     private IDistrictRepository? _districts;
     private ICityRepository? _cities;
@@ -28,6 +30,8 @@ public class UnitOfWork : IUnitOfWork
 
     public IUserRepository Users => _users ??= new UserRepository(_context);
     public ISessionRepository Sessions => _sessions ??= new SessionRepository(_context);
+    public IAdminRepository Admins => _admins ??= new AdminRepository(_context);
+    public IAdminSessionRepository AdminSessions => _adminSessions ??= new AdminSessionRepository(_context);
     public IListingRepository Listings => _listings ??= new ListingRepository(_context);
     public IDistrictRepository Districts => _districts ??= new DistrictRepository(_context);
     public ICityRepository Cities => _cities ??= new CityRepository(_context);

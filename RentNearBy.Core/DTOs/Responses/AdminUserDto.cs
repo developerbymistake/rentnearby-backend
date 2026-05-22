@@ -5,7 +5,6 @@ public class AdminUserDto
     public Guid Id { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string? Name { get; set; }
-    public bool IsAdmin { get; set; }
     public bool IsActive { get; set; }
     public bool HasUsedFreePlan { get; set; }
     public DateTime CreatedAt { get; set; }

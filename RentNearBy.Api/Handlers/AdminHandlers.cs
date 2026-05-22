@@ -468,7 +468,6 @@ public static class AdminHandlers
                     Id = u.Id,
                     PhoneNumber = u.PhoneNumber,
                     Name = u.Name,
-                    IsAdmin = u.IsAdmin,
                     IsActive = u.IsActive,
                     HasUsedFreePlan = u.HasUsedFreePlan,
                     CreatedAt = u.CreatedAt,

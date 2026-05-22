@@ -13,7 +13,7 @@ public static class DtoMappings
             .Map(dest => dest.PhoneNumber, src => src.PhoneNumber)
             .Map(dest => dest.Name, src => src.Name)
             .Map(dest => dest.GmailId, src => src.GmailId)
-            .Map(dest => dest.IsAdmin, src => src.IsAdmin)
+            .Map(dest => dest.IsAdmin, _ => false)
             .Map(dest => dest.CreatedAt, src => src.CreatedAt);
 
         TypeAdapterConfig<District, DistrictDto>.NewConfig();

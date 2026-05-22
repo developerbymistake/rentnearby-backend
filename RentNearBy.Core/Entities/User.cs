@@ -6,7 +6,6 @@ public class User
     public string PhoneNumber { get; set; } = string.Empty;
     public string? Name { get; set; }
     public string? GmailId { get; set; }
-    public bool IsAdmin { get; set; } = false;
     public bool IsActive { get; set; } = true;
     public bool OtpVerified { get; set; } = false;
     public bool HasUsedFreePlan { get; set; } = false;

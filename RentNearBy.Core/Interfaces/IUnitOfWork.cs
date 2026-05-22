@@ -4,6 +4,8 @@ public interface IUnitOfWork : IDisposable
 {
     IUserRepository Users { get; }
     ISessionRepository Sessions { get; }
+    IAdminRepository Admins { get; }
+    IAdminSessionRepository AdminSessions { get; }
     IListingRepository Listings { get; }
     IDistrictRepository Districts { get; }
     ICityRepository Cities { get; }

@@ -7,6 +7,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 {
     public DbSet<User> Users { get; set; }
     public DbSet<Session> Sessions { get; set; }
+    public DbSet<Admin> Admins { get; set; }
+    public DbSet<AdminSession> AdminSessions { get; set; }
     public DbSet<Listing> Listings { get; set; }
     public DbSet<ListingPhoto> ListingPhotos { get; set; }
     public DbSet<District> Districts { get; set; }
@@ -25,6 +27,28 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<Admin>(e =>
+        {
+            e.HasKey(a => a.Id);
+            e.Property(a => a.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(a => a.PhoneNumber).IsUnique();
+            e.Property(a => a.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(a => a.UpdatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<AdminSession>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+            e.HasOne(s => s.Admin)
+             .WithMany(a => a.Sessions)
+             .HasForeignKey(s => s.AdminId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(s => s.AdminId);
+            e.HasIndex(s => s.ExpiresAt);
+        });
 
         modelBuilder.Entity<User>(e =>
         {

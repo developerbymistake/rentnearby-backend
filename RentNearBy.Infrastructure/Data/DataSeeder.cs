@@ -16,7 +16,7 @@ public static class DataSeeder
         await SeedPlotPlansAsync(db);
         await SeedDistrictsFromGadmAsync(db);
         await SeedFeaturesAsync(db);
-        await SeedAdminUserAsync(db);
+        await SeedAdminsAsync(db);
     }
 
     private static async Task SeedPlansAsync(ApplicationDbContext db)
@@ -214,32 +214,25 @@ public static class DataSeeder
         await db.SaveChangesAsync();
     }
 
-    private static async Task SeedAdminUserAsync(ApplicationDbContext db)
+    private static async Task SeedAdminsAsync(ApplicationDbContext db)
     {
         var adminPhones = new[] { "7060023511", "9720565640" };
         bool changed = false;
 
         foreach (var phone in adminPhones)
         {
-            var admin = await db.Users.FirstOrDefaultAsync(u => u.PhoneNumber == phone);
-            if (admin == null)
+            var exists = await db.Admins.AnyAsync(a => a.PhoneNumber == phone);
+            if (!exists)
             {
-                db.Users.Add(new User
+                db.Admins.Add(new Admin
                 {
                     Id = Guid.NewGuid(),
                     PhoneNumber = phone,
                     Name = "Admin",
-                    IsAdmin = true,
-                    OtpVerified = true,
+                    IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow,
                 });
-                changed = true;
-            }
-            else if (!admin.IsAdmin)
-            {
-                admin.IsAdmin = true;
-                admin.UpdatedAt = DateTime.UtcNow;
                 changed = true;
             }
         }

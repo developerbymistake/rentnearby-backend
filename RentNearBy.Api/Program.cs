@@ -146,6 +146,10 @@ app.MapGroup("/api/v1/auth")
     .WithTags("Authentication")
     .MapAuthEndpoints();
 
+app.MapGroup("/api/v1/admin-auth")
+    .WithTags("AdminAuth")
+    .MapAdminAuthEndpoints();
+
 app.MapGroup("/api/v1/users")
     .WithTags("Users")
     .MapUsersEndpoints();

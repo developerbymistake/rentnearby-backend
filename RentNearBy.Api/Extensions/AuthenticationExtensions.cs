@@ -42,11 +42,20 @@ public static class AuthenticationExtensions
                         return;
                     }
 
+                    var actorType = context.Principal?.FindFirst("actor_type")?.Value;
                     var unitOfWork = context.HttpContext.RequestServices.GetRequiredService<IUnitOfWork>();
-                    var session = await unitOfWork.Sessions.GetActiveSessionAsync(sessionId);
-                    if (session == null)
+
+                    if (actorType == "admin")
                     {
-                        context.Fail("Session revoked or expired");
+                        var adminSession = await unitOfWork.AdminSessions.GetActiveAdminSessionAsync(sessionId);
+                        if (adminSession == null)
+                            context.Fail("Session revoked or expired");
+                    }
+                    else
+                    {
+                        var session = await unitOfWork.Sessions.GetActiveSessionAsync(sessionId);
+                        if (session == null)
+                            context.Fail("Session revoked or expired");
                     }
                 }
             };
@@ -55,7 +64,7 @@ public static class AuthenticationExtensions
         services.AddAuthorization(options =>
         {
             options.AddPolicy("AdminOnly", policy =>
-                policy.RequireClaim("is_admin", "true"));
+                policy.RequireClaim("actor_type", "admin"));
         });
 
         return services;
