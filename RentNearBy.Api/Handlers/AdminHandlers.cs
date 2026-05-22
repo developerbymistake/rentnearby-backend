@@ -10,6 +10,7 @@ using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Extensions;
 using RentNearBy.Infrastructure.Services;
+using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 using System.Security.Claims;
 
@@ -32,9 +33,24 @@ public static class AdminHandlers
 
     public record ToggleDistrictRequest(bool IsActive);
 
+    private static async Task FlushContextCacheAsync(IConnectionMultiplexer? redis)
+    {
+        if (redis == null) return;
+        try
+        {
+            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
+            if (server == null) return;
+            var redisDb = redis.GetDatabase();
+            await foreach (var key in server.KeysAsync(pattern: "context:*"))
+                await redisDb.KeyDeleteAsync(key);
+        }
+        catch { /* best-effort: TTL (10 min) covers Redis failures */ }
+    }
+
     public static async Task<IResult> ToggleDistrictActive(
         Guid id, ToggleDistrictRequest request,
-        ApplicationDbContext db, IOverpassService overpass, IMemoryCache cache)
+        ApplicationDbContext db, IOverpassService overpass, IMemoryCache cache,
+        IServiceProvider sp)
     {
         var district = await db.Districts.FindAsync(id);
         if (district == null) return NotFoundResponse("District not found");
@@ -44,6 +60,7 @@ public static class AdminHandlers
         cache.Remove("districts");
         cache.Remove($"cities_{id}");
         cache.Remove("cities_all");
+        await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
         string? message = null;
         if (request.IsActive)
@@ -90,7 +107,7 @@ public static class AdminHandlers
         return OkResponse(new { success = true, isActive = district.IsActive, message });
     }
 
-    public static async Task<IResult> DeleteDistrict(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
+    public static async Task<IResult> DeleteDistrict(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db, IServiceProvider sp)
     {
         var district = await unitOfWork.Districts.GetByIdAsync(id);
         if (district == null) return NotFoundResponse("District not found");
@@ -104,6 +121,7 @@ public static class AdminHandlers
         cache.Remove("districts");
         cache.Remove($"cities_{id}");
         cache.Remove("cities_all");
+        await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
         return NoContentResponse();
     }
