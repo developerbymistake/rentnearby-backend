@@ -102,6 +102,7 @@ public static class DataSeeder
         Console.WriteLine($"[DataSeeder] Seeding {features.Count} districts from GADM...");
 
         var batch = new List<District>(50);
+        var seen  = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seeded = 0;
 
         foreach (var feature in features)
@@ -110,6 +111,7 @@ public static class DataSeeder
             var name      = props.GetProperty("NAME_2").GetString()?.Trim() ?? "";
             var stateName = props.GetProperty("NAME_1").GetString()?.Trim() ?? "";
             if (string.IsNullOrEmpty(name)) continue;
+            if (!seen.Add($"{stateName}|{name}")) continue; // skip GADM duplicates
 
             var boundary = ParseGeometry(feature.GetProperty("geometry"));
 
