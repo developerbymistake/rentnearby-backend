@@ -61,6 +61,8 @@ public static class AdminHandlers
                     .ToListAsync()).ToHashSet();
 
                 var toAdd = cities
+                    .GroupBy(c => c.Name.ToLower())
+                    .Select(g => g.First())
                     .Where(c => !existingLower.Contains(c.Name.ToLower()))
                     .Select(c => new City
                     {
