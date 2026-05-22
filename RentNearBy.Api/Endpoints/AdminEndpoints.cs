@@ -8,6 +8,7 @@ public static class AdminEndpoints
     {
         group.MapGet("/districts", AdminHandlers.GetDistricts);
         group.MapPut("/districts/{id:guid}/active", AdminHandlers.ToggleDistrictActive).RequireAuthorization("AdminOnly");
+        group.MapPut("/districts/{id:guid}/force-active", AdminHandlers.ForceActivateDistrict).RequireAuthorization("AdminOnly");
         group.MapDelete("/districts/{id:guid}", AdminHandlers.DeleteDistrict).RequireAuthorization("AdminOnly");
 
         group.MapGet("/cities", AdminHandlers.GetCities);

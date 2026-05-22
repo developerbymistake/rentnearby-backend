@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpClient<IOverpassService, OverpassService>(client =>
         {
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("RentNearBy/1.0 (admin@rentnearby.in)");
             client.Timeout = TimeSpan.FromSeconds(70); // query timeout=60 + buffer
         });
 

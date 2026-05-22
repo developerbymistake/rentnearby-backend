@@ -17,12 +17,17 @@ public static class AdminAuthHandlers
     public static async Task<IResult> SendAdminOtp(
         SendOtpRequest request,
         IValidator<SendOtpRequest> validator,
+        IUnitOfWork unitOfWork,
         IRateLimitService rateLimiter,
         HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var admin = await unitOfWork.Admins.GetByPhoneAsync(request.PhoneNumber);
+        if (admin == null)
+            return NotFoundResponse("Admin not found");
 
         var rl = await rateLimiter.CheckAsync($"admin_otp:send:{request.PhoneNumber}", OtpSendMax, OtpWindow);
         if (!rl.IsAllowed)

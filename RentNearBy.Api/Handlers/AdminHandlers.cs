@@ -62,49 +62,67 @@ public static class AdminHandlers
         cache.Remove("cities_all");
         await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
-        string? message = null;
+        // Seed cities in background — don't block the response waiting for Overpass
         if (request.IsActive)
         {
-            var cities = await overpass.FetchCitiesAsync(district.Name, district.StateName);
-            if (cities.Count == 0)
+            var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+            var districtName = district.Name;
+            var stateName = district.StateName;
+            _ = Task.Run(async () =>
             {
-                message = "Cities could not be seeded automatically. Please add cities manually.";
-            }
-            else
-            {
-                var existingLower = (await db.Cities
-                    .Where(c => c.DistrictId == id)
-                    .Select(c => c.Name.ToLower())
-                    .ToListAsync()).ToHashSet();
+                try
+                {
+                    using var scope = scopeFactory.CreateScope();
+                    var bgDb = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                    var bgOverpass = scope.ServiceProvider.GetRequiredService<IOverpassService>();
 
-                var toAdd = cities
-                    .GroupBy(c => c.Name.ToLower())
-                    .Select(g => g.First())
-                    .Where(c => !existingLower.Contains(c.Name.ToLower()))
-                    .Select(c => new City
+                    var cities = await bgOverpass.FetchCitiesAsync(districtName, stateName);
+                    if (cities.Count == 0) return;
+
+                    var existingLower = (await bgDb.Cities
+                        .Where(c => c.DistrictId == id)
+                        .Select(c => c.Name.ToLower())
+                        .ToListAsync()).ToHashSet();
+
+                    var toAdd = cities
+                        .GroupBy(c => c.Name.ToLower())
+                        .Select(g => g.First())
+                        .Where(c => !existingLower.Contains(c.Name.ToLower()))
+                        .Select(c => new City
+                        {
+                            Id         = Guid.NewGuid(),
+                            DistrictId = id,
+                            Name       = c.Name,
+                            Latitude   = (decimal)c.Lat,
+                            Longitude  = (decimal)c.Lng,
+                            CreatedAt  = DateTime.UtcNow,
+                        }).ToList();
+
+                    if (toAdd.Count > 0)
                     {
-                        Id         = Guid.NewGuid(),
-                        DistrictId = id,
-                        Name       = c.Name,
-                        Latitude   = (decimal)c.Lat,
-                        Longitude  = (decimal)c.Lng,
-                        CreatedAt  = DateTime.UtcNow,
-                    }).ToList();
-
-                if (toAdd.Count > 0)
-                {
-                    db.Cities.AddRange(toAdd);
-                    await db.SaveChangesAsync();
-                    message = $"{toAdd.Count} cities seeded automatically.";
+                        bgDb.Cities.AddRange(toAdd);
+                        await bgDb.SaveChangesAsync();
+                    }
                 }
-                else
-                {
-                    message = "No new cities found to seed.";
-                }
-            }
+                catch { /* background task — swallow errors */ }
+            });
         }
 
-        return OkResponse(new { success = true, isActive = district.IsActive, message });
+        return OkResponse(new { success = true, isActive = district.IsActive });
+    }
+
+    public static async Task<IResult> ForceActivateDistrict(
+        Guid id, ApplicationDbContext db, IMemoryCache cache, IServiceProvider sp)
+    {
+        var district = await db.Districts.FindAsync(id);
+        if (district == null) return NotFoundResponse("District not found");
+        district.IsActive = true;
+        await db.SaveChangesAsync();
+        cache.Remove("districts");
+        cache.Remove($"cities_{id}");
+        cache.Remove("cities_all");
+        await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
+        return OkResponse(new { success = true, isActive = true });
     }
 
     public static async Task<IResult> DeleteDistrict(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db, IServiceProvider sp)
