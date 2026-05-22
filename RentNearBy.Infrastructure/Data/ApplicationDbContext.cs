@@ -54,6 +54,18 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(d => d.Id).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(d => d.Name).IsUnique();
             e.Property(d => d.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(d => d.StateName).IsRequired();
+            e.Property(d => d.IsActive).HasDefaultValue(false);
+            e.HasIndex(d => d.IsActive);
+            e.HasIndex(d => d.StateName);
+            e.Property(d => d.Boundary).HasColumnType("geometry(Geometry, 4326)");
+            // Partial spatial index — only active districts in the GiST tree.
+            // GetContext does: WHERE IsActive = true AND ST_Contains(Boundary, point)
+            // Smaller index (active-only) means faster R-tree traversal than indexing all 700.
+            e.HasIndex(d => d.Boundary)
+             .HasMethod("gist")
+             .HasDatabaseName("ix_districts_boundary_active_gist")
+             .HasFilter("\"IsActive\" = true");
         });
 
         modelBuilder.Entity<City>(e =>
@@ -144,6 +156,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => l.IsActive);
             e.HasIndex(l => l.PriceMonthly);
             e.HasIndex(l => l.CreatedAt);
+            // Composite: DeleteDistrict guard — AnyAsync(l.DistrictId == id && l.IsActive)
+            e.HasIndex(l => new { l.DistrictId, l.IsActive });
             // Stored geography column — auto-computed from Latitude/Longitude by PostgreSQL
             e.Property<NetTopologySuite.Geometries.Point?>("Location")
              .HasColumnType("geography(Point, 4326)")
@@ -259,6 +273,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => p.IsActive);
             e.HasIndex(p => p.CreatedAt);
             e.HasIndex(p => p.AreaSqft);
+            // Composite: DeleteDistrict guard — AnyAsync(p.DistrictId == id && p.IsActive)
+            e.HasIndex(p => new { p.DistrictId, p.IsActive });
 
             e.Property<NetTopologySuite.Geometries.Point?>("Location")
              .HasColumnType("geography(Point, 4326)")

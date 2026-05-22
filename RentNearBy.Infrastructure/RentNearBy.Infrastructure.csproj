@@ -25,5 +25,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Data\gadm41_IND_2.json" />
+  </ItemGroup>
+
 
 </Project>

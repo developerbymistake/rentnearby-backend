@@ -4,6 +4,6 @@ public class DistrictDto
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
-    public decimal? Latitude { get; set; }
-    public decimal? Longitude { get; set; }
+    public string StateName { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
 }

@@ -30,33 +30,62 @@ public static class AdminHandlers
         return OkResponse(cached);
     }
 
-    public static async Task<IResult> CreateDistrict(CreateDistrictRequest request, IValidator<CreateDistrictRequest> validator, IUnitOfWork unitOfWork, IGeocodingService geocoding, IMemoryCache cache)
+    public record ToggleDistrictRequest(bool IsActive);
+
+    public static async Task<IResult> ToggleDistrictActive(
+        Guid id, ToggleDistrictRequest request,
+        ApplicationDbContext db, IOverpassService overpass, IMemoryCache cache)
     {
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+        var district = await db.Districts.FindAsync(id);
+        if (district == null) return NotFoundResponse("District not found");
 
-        decimal lat, lng;
-        if (request.Latitude.HasValue && request.Longitude.HasValue)
-        {
-            lat = request.Latitude.Value;
-            lng = request.Longitude.Value;
-        }
-        else
-        {
-            var point = await geocoding.GeocodeAsync($"{request.Name.Trim()}, India");
-            if (point is null)
-                return BadRequestResponse($"Could not geocode '{request.Name}'. Provide coordinates manually.");
-            lat = point.Latitude;
-            lng = point.Longitude;
-        }
-
-        var district = new District { Id = Guid.NewGuid(), Name = request.Name.Trim(), Latitude = lat, Longitude = lng, CreatedAt = DateTime.UtcNow };
-        await unitOfWork.Districts.AddAsync(district);
-        await unitOfWork.SaveChangesAsync();
-
+        district.IsActive = request.IsActive;
+        await db.SaveChangesAsync();
         cache.Remove("districts");
+        cache.Remove($"cities_{id}");
+        cache.Remove("cities_all");
 
-        return CreatedResponse(district.Adapt<DistrictDto>(), $"/api/v1/admin/districts/{district.Id}");
+        string? message = null;
+        if (request.IsActive)
+        {
+            var cities = await overpass.FetchCitiesAsync(district.Name, district.StateName);
+            if (cities.Count == 0)
+            {
+                message = "Cities could not be seeded automatically. Please add cities manually.";
+            }
+            else
+            {
+                var existingLower = (await db.Cities
+                    .Where(c => c.DistrictId == id)
+                    .Select(c => c.Name.ToLower())
+                    .ToListAsync()).ToHashSet();
+
+                var toAdd = cities
+                    .Where(c => !existingLower.Contains(c.Name.ToLower()))
+                    .Select(c => new City
+                    {
+                        Id         = Guid.NewGuid(),
+                        DistrictId = id,
+                        Name       = c.Name,
+                        Latitude   = (decimal)c.Lat,
+                        Longitude  = (decimal)c.Lng,
+                        CreatedAt  = DateTime.UtcNow,
+                    }).ToList();
+
+                if (toAdd.Count > 0)
+                {
+                    db.Cities.AddRange(toAdd);
+                    await db.SaveChangesAsync();
+                    message = $"{toAdd.Count} cities seeded automatically.";
+                }
+                else
+                {
+                    message = "No new cities found to seed.";
+                }
+            }
+        }
+
+        return OkResponse(new { success = true, isActive = district.IsActive, message });
     }
 
     public static async Task<IResult> DeleteDistrict(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)

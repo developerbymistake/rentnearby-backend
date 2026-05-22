@@ -38,6 +38,11 @@ public static class ServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(10);
         });
 
+        services.AddHttpClient<IOverpassService, OverpassService>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(70); // query timeout=60 + buffer
+        });
+
         var redisUrl = configuration["REDIS_URL"];
         if (!string.IsNullOrWhiteSpace(redisUrl))
         {

@@ -7,7 +7,7 @@ public static class AdminEndpoints
     public static RouteGroupBuilder MapAdminEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/districts", AdminHandlers.GetDistricts);
-        group.MapPost("/districts", AdminHandlers.CreateDistrict).RequireAuthorization("AdminOnly");
+        group.MapPut("/districts/{id:guid}/active", AdminHandlers.ToggleDistrictActive).RequireAuthorization("AdminOnly");
         group.MapDelete("/districts/{id:guid}", AdminHandlers.DeleteDistrict).RequireAuthorization("AdminOnly");
 
         group.MapGet("/cities", AdminHandlers.GetCities);

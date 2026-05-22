@@ -22,7 +22,7 @@ public static class ListingsHandlers
     private static string ContextCacheKey(double lat, double lng)
         => $"context:{lat:F2}:{lng:F2}";
 
-    public static async Task<IResult> GetContext(double lat, double lng, IUnitOfWork unitOfWork, IServiceProvider sp)
+    public static async Task<IResult> GetContext(double lat, double lng, IServiceProvider sp)
     {
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
             return BadRequestResponse("Invalid coordinates");
@@ -45,15 +45,18 @@ public static class ListingsHandlers
             }
         }
 
-        var districts = (await unitOfWork.Districts.GetAllWithCitiesAsync()).ToList();
-        if (districts.Count == 0) return BadRequestResponse("No districts configured");
+        var db = sp.GetRequiredService<ApplicationDbContext>();
+        var point = new NetTopologySuite.Geometries.Point(lng, lat) { SRID = 4326 };
 
-        var nearestDistrict = districts
-            .Select(d => new { District = d, Dist = Haversine(lat, lng, (double)(d.Latitude ?? 0), (double)(d.Longitude ?? 0)) })
-            .MinBy(x => x.Dist)!.District;
+        var match = await db.Districts
+            .AsNoTracking()
+            .Include(d => d.Cities.OrderBy(c => c.Name))
+            .FirstOrDefaultAsync(d => d.IsActive && d.Boundary != null && d.Boundary.Contains(point));
 
-        var cities = nearestDistrict.Cities.ToList();
+        if (match == null)
+            return NotFoundResponse("No district found for given coordinates");
 
+        var cities = match.Cities.ToList();
         var nearestCity = cities
             .Where(c => c.Latitude.HasValue && c.Longitude.HasValue)
             .Select(c => new { City = c, Dist = Haversine(lat, lng, (double)c.Latitude!, (double)c.Longitude!) })
@@ -61,7 +64,7 @@ public static class ListingsHandlers
 
         var result = new
         {
-            district = new { id = nearestDistrict.Id, name = nearestDistrict.Name, latitude = nearestDistrict.Latitude, longitude = nearestDistrict.Longitude },
+            district = new { id = match.Id, name = match.Name, stateName = match.StateName },
             nearestCityId = nearestCity?.Id,
             cities = cities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
         };
