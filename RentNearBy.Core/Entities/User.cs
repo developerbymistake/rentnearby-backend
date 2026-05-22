@@ -16,5 +16,6 @@ public class User
 
     public ICollection<Listing> Listings { get; set; } = new List<Listing>();
     public ICollection<UserMembership> Memberships { get; set; } = new List<UserMembership>();
+    public ICollection<PlotMembership> PlotMemberships { get; set; } = new List<PlotMembership>();
     public ICollection<PaymentTransaction> PaymentTransactions { get; set; } = new List<PaymentTransaction>();
 }

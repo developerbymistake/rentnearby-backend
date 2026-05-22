@@ -11,6 +11,7 @@ public class OverpassService : IOverpassService
 
     private static readonly string[] Endpoints =
     [
+        "https://overpass-api.de/api/interpreter",
         "https://overpass.kumi.systems/api/interpreter",
         "https://overpass.openstreetmap.ru/api/interpreter",
     ];

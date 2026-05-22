@@ -431,6 +431,7 @@ public static class AdminHandlers
         var query = db.Users
             .Include(u => u.Listings)
             .Include(u => u.Memberships.OrderByDescending(m => m.CreatedAt).Take(1))
+            .Include(u => u.PlotMemberships.OrderByDescending(m => m.CreatedAt).Take(1))
             .AsQueryable();
 
         if (isActive.HasValue)
@@ -458,6 +459,9 @@ public static class AdminHandlers
                 var membership = u.Memberships
                     .OrderByDescending(m => m.CreatedAt)
                     .FirstOrDefault();
+                var plotMembership = u.PlotMemberships
+                    .OrderByDescending(m => m.CreatedAt)
+                    .FirstOrDefault();
 
                 return new AdminUserDto
                 {
@@ -478,6 +482,15 @@ public static class AdminHandlers
                         ValidUntil = membership.ValidUntil,
                         MaxRooms = membership.MaxRooms,
                         IsActive = membership.IsActive,
+                    },
+                    CurrentPlotMembership = plotMembership == null ? null : new AdminPlotMembershipDto
+                    {
+                        Id = plotMembership.Id,
+                        PlanType = plotMembership.PlanType,
+                        ValidFrom = plotMembership.ValidFrom,
+                        ValidUntil = plotMembership.ValidUntil,
+                        MaxPlots = plotMembership.MaxPlots,
+                        IsActive = plotMembership.IsActive,
                     },
                 };
             });
