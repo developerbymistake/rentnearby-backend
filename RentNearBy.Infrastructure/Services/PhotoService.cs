@@ -56,6 +56,11 @@ public class PhotoService : IPhotoService
         await _cloudinary.DeleteResourcesByPrefixAsync($"bakhli/user_{userId}/listing_{listingId}/");
     }
 
+    public async Task DeleteAllUserPhotosAsync(Guid userId)
+    {
+        await _cloudinary.DeleteResourcesByPrefixAsync($"bakhli/user_{userId}/");
+    }
+
     public async Task<bool> PingAsync()
     {
         try

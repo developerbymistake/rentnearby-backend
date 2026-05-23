@@ -12,8 +12,6 @@ public static class DtoMappings
             .Map(dest => dest.Id, src => src.Id)
             .Map(dest => dest.PhoneNumber, src => src.PhoneNumber)
             .Map(dest => dest.Name, src => src.Name)
-            .Map(dest => dest.GmailId, src => src.GmailId)
-            .Map(dest => dest.IsAdmin, _ => false)
             .Map(dest => dest.CreatedAt, src => src.CreatedAt);
 
         TypeAdapterConfig<District, DistrictDto>.NewConfig();
@@ -26,7 +24,7 @@ public static class DtoMappings
             .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
             .Map(dest => dest.RoomTypeName, src => src.RoomType != null ? src.RoomType.Name : null)
             .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
-            .Map(dest => dest.OwnerPhone, src => src.User != null ? src.User.PhoneNumber : null)
+            .Map(dest => dest.OwnerPhone, src => src.User != null && src.User.IsContactVisible ? src.User.PhoneNumber : null)
             .Map(dest => dest.Photos, src => src.Photos != null
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
@@ -36,7 +34,7 @@ public static class DtoMappings
             .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
             .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
             .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
-            .Map(dest => dest.OwnerPhone, src => src.User != null ? src.User.PhoneNumber : null)
+            .Map(dest => dest.OwnerPhone, src => src.User != null && src.User.IsContactVisible ? src.User.PhoneNumber : null)
             .Map(dest => dest.Photos, src => src.Photos != null
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());

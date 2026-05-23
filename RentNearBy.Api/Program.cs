@@ -170,4 +170,8 @@ app.MapGroup("/api/v1/admin/plots")
     .WithTags("AdminPlots")
     .MapAdminPlotEndpoints();
 
+app.MapGroup("/api/v1/account")
+    .WithTags("Account")
+    .MapAccountEndpoints();
+
 app.Run();

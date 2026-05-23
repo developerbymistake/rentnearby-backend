@@ -144,11 +144,12 @@ public class PaymentService : IPaymentService
             }
         }
 
+        var txUser = await _unitOfWork.Users.GetByIdAsync(userId);
+
         // Free plans can only be used once per user (when payment feature is enabled)
         if (isFree && paymentFeature.IsEnabled)
         {
-            var user = await _unitOfWork.Users.GetByIdAsync(userId);
-            if (user?.HasUsedFreePlan == true)
+            if (txUser?.HasUsedFreePlan == true)
             {
                 _logger.LogWarning($"User {userId} attempted to reuse free plan");
                 throw new InvalidOperationException("You have already used the free plan. Please use the paid plan.");
@@ -160,6 +161,7 @@ public class PaymentService : IPaymentService
         {
             Id = Guid.NewGuid(),
             UserId = userId,
+            PhoneNumber = txUser?.PhoneNumber ?? string.Empty,
             ListingId = listingId,
             PlanType = planType,
             Amount = amount,
@@ -244,11 +246,12 @@ public class PaymentService : IPaymentService
             throw new InvalidOperationException("Payment already in progress for this listing. Please complete or cancel the previous payment.");
         }
 
+        var txUser2 = await _unitOfWork.Users.GetByIdAsync(userId);
+
         // Free plans can only be used once per user (when payment feature is enabled)
         if (isFree && paymentFeature.IsEnabled)
         {
-            var user = await _unitOfWork.Users.GetByIdAsync(userId);
-            if (user?.HasUsedFreePlan == true)
+            if (txUser2?.HasUsedFreePlan == true)
             {
                 _logger.LogWarning($"User {userId} attempted to use free plan again");
                 throw new InvalidOperationException("You have already used the free plan. Please use the paid plan.");
@@ -260,6 +263,7 @@ public class PaymentService : IPaymentService
         {
             Id = Guid.NewGuid(),
             UserId = userId,
+            PhoneNumber = txUser2?.PhoneNumber ?? string.Empty,
             ListingId = listingId,
             PlanType = planType,
             Amount = amount,
@@ -580,11 +584,13 @@ public class PaymentService : IPaymentService
             await _unitOfWork.SaveChangesAsync();
         }
 
+        var upgradeUser = await _unitOfWork.Users.GetByIdAsync(userId);
         var (orderId, _) = await _razorpay.CreateOrderAsync(plan.Price, Guid.NewGuid().ToString());
         var transaction = new PaymentTransaction
         {
             Id = Guid.NewGuid(),
             UserId = userId,
+            PhoneNumber = upgradeUser?.PhoneNumber ?? string.Empty,
             ListingId = null,
             PlanType = planType,
             Amount = plan.Price,
@@ -726,10 +732,11 @@ public class PaymentService : IPaymentService
             }
         }
 
+        var plotTxUser = await _unitOfWork.Users.GetByIdAsync(userId);
+
         if (isFree && plotPaymentFeature.IsEnabled)
         {
-            var user = await _unitOfWork.Users.GetByIdAsync(userId);
-            if (user?.HasUsedFreePlotPlan == true)
+            if (plotTxUser?.HasUsedFreePlotPlan == true)
             {
                 _logger.LogWarning($"User {userId} attempted to reuse free plot plan");
                 throw new InvalidOperationException("You have already used the free plot plan. Please use the paid plan.");
@@ -740,6 +747,7 @@ public class PaymentService : IPaymentService
         {
             Id = Guid.NewGuid(),
             UserId = userId,
+            PhoneNumber = plotTxUser?.PhoneNumber ?? string.Empty,
             PlotId = plotId,
             TransactionKind = "PLOT",
             PlanType = planType,
@@ -917,11 +925,13 @@ public class PaymentService : IPaymentService
             await _unitOfWork.SaveChangesAsync();
         }
 
+        var plotUpgradeUser = await _unitOfWork.Users.GetByIdAsync(userId);
         var (orderId, _) = await _razorpay.CreateOrderAsync(plan.Price, Guid.NewGuid().ToString());
         var transaction = new PaymentTransaction
         {
             Id = Guid.NewGuid(),
             UserId = userId,
+            PhoneNumber = plotUpgradeUser?.PhoneNumber ?? string.Empty,
             PlotId = null,
             ListingId = null,
             TransactionKind = "PLOT",

@@ -236,7 +236,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasOne(t => t.User)
              .WithMany()
              .HasForeignKey(t => t.UserId)
-             .OnDelete(DeleteBehavior.Cascade);
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
             e.HasOne(t => t.Listing)
              .WithMany()
              .HasForeignKey(t => t.ListingId)

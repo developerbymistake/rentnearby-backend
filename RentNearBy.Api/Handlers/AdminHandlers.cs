@@ -562,8 +562,8 @@ public static class AdminHandlers
             {
                 Id = t.Id,
                 UserId = t.UserId,
-                UserName = t.User.Name,
-                UserPhone = t.User.PhoneNumber,
+                UserName = t.User != null ? t.User.Name : null,
+                UserPhone = t.PhoneNumber,
                 PlanType = t.PlanType,
                 Amount = t.Amount,
                 Currency = t.Currency,

@@ -23,6 +23,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IPhotoService, PhotoService>();
         services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<IAccountDeletionService, AccountDeletionService>();
 
         // Register background service for membership expiry (runs at 12:00 AM daily)
         services.AddHostedService<MembershipExpiryService>();
@@ -33,14 +34,14 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpClient<IGeocodingService, NominatimGeocodingService>(client =>
         {
-            client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("RentNearBy/1.0 (admin@rentnearby.in)");
+            client.BaseAddress = new Uri("https://nominatim.developerbymistake.tech/");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Bakhli/1.0 (support@bakhli.in)");
             client.Timeout = TimeSpan.FromSeconds(10);
         });
 
         services.AddHttpClient<IOverpassService, OverpassService>(client =>
         {
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("RentNearBy/1.0 (admin@rentnearby.in)");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Bakhli/1.0 (support@bakhli.in)");
             client.Timeout = TimeSpan.FromSeconds(70); // query timeout=60 + buffer
         });
 

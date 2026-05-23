@@ -38,7 +38,7 @@ public static class UsersHandlers
         if (user == null) return NotFoundResponse("User not found");
 
         if (request.Name != null) user.Name = request.Name;
-        if (request.GmailId != null) user.GmailId = request.GmailId;
+        if (request.IsContactVisible.HasValue) user.IsContactVisible = request.IsContactVisible.Value;
         user.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.Users.UpdateAsync(user);

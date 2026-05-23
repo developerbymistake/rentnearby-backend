@@ -52,8 +52,8 @@ public class OverpassService : IOverpassService
                 area["boundary"="administrative"]["name"="{escapedState}"]["admin_level"="4"]->.state;
                 area(area.state)["boundary"="administrative"]["name"="{escapedDistrict}"]["admin_level"="{adminLevel}"]->.d;
                 (
-                  node(area.d)["place"~"city|town|village"];
-                  way(area.d)["place"~"city|town|village"];
+                  node(area.d)["place"~"city|town"];
+                  way(area.d)["place"~"city|town"];
                 );
                 out center;
                 """;
@@ -63,8 +63,8 @@ public class OverpassService : IOverpassService
             [out:json][timeout:60];
             area["boundary"="administrative"]["name"="{escapedDistrict}"]["admin_level"="{adminLevel}"]->.d;
             (
-              node(area.d)["place"~"city|town|village"];
-              way(area.d)["place"~"city|town|village"];
+              node(area.d)["place"~"city|town"];
+              way(area.d)["place"~"city|town"];
             );
             out center;
             """;

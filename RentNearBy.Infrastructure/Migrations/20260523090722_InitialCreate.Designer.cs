@@ -13,8 +13,8 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260520133816_AddPlotPaymentSystem")]
-    partial class AddPlotPaymentSystem
+    [Migration("20260523090722_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -26,6 +26,110 @@ namespace RentNearBy.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "postgis");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Admin", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PhoneNumber")
+                        .IsUnique();
+
+                    b.ToTable("Admins");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.AdminSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("AdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AdminId");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.ToTable("AdminSessions");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.AppFeature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("FreeDays")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("FreeLimit")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key")
+                        .IsUnique();
+
+                    b.ToTable("AppFeatures");
+                });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.City", b =>
                 {
@@ -69,24 +173,40 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<Geometry>("Boundary")
+                        .HasColumnType("geometry(Geometry, 4326)");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<decimal?>("Latitude")
-                        .HasColumnType("numeric");
-
-                    b.Property<decimal?>("Longitude")
-                        .HasColumnType("numeric");
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("StateName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
+                    b.HasIndex("Boundary")
+                        .HasDatabaseName("ix_districts_boundary_active_gist")
+                        .HasFilter("\"IsActive\" = true");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Boundary"), "gist");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("StateName");
+
+                    b.HasIndex("StateName", "Name")
                         .IsUnique();
 
                     b.ToTable("Districts");
@@ -176,6 +296,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CityId", "IsActive");
 
+                    b.HasIndex("DistrictId", "IsActive");
+
                     b.HasIndex("IsActive", "RoomTypeId");
 
                     b.HasIndex("UserId", "CreatedAt");
@@ -218,31 +340,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("ListingPhotos");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.PaymentFeature", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("PaymentFeatures");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.PaymentTransaction", b =>
                 {
                     b.Property<Guid>("Id")
@@ -271,6 +368,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid?>("ListingId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("PlanType")
                         .IsRequired()
                         .HasColumnType("text");
@@ -291,7 +392,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<Guid>("UserId")
+                    b.Property<string>("TransactionKind")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("UserId1")
@@ -411,9 +515,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<decimal>("Longitude")
                         .HasColumnType("numeric");
 
-                    b.Property<string>("PlotType")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<Guid>("PlotTypeId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
@@ -443,9 +546,13 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Location"), "gist");
 
+                    b.HasIndex("PlotTypeId");
+
                     b.HasIndex("UserId");
 
                     b.HasIndex("CityId", "IsActive");
+
+                    b.HasIndex("DistrictId", "IsActive");
 
                     b.HasIndex("UserId", "CreatedAt");
 
@@ -499,31 +606,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("ValidUntil");
 
                     b.ToTable("PlotMemberships");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.PlotPaymentFeature", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("PlotPaymentFeatures");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotPhoto", b =>
@@ -598,6 +680,59 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("PlotPlans");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlotType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("PlotTypes");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("b1000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Name = "Residential",
+                            SortOrder = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("b1000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Name = "Commercial",
+                            SortOrder = 2
+                        },
+                        new
+                        {
+                            Id = new Guid("b1000000-0000-0000-0000-000000000003"),
+                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Name = "Agricultural",
+                            SortOrder = 3
+                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomType", b =>
@@ -713,9 +848,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<string>("GmailId")
-                        .HasColumnType("text");
-
                     b.Property<bool>("HasUsedFreePlan")
                         .HasColumnType("boolean");
 
@@ -725,7 +857,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
-                    b.Property<bool>("IsAdmin")
+                    b.Property<bool>("IsContactVisible")
                         .HasColumnType("boolean");
 
                     b.Property<string>("Name")
@@ -803,6 +935,17 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("UserMemberships");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.AdminSession", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Admin", "Admin")
+                        .WithMany("Sessions")
+                        .HasForeignKey("AdminId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Admin");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.City", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.District", "District")
@@ -874,8 +1017,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasOne("RentNearBy.Core.Entities.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("RentNearBy.Core.Entities.User", null)
                         .WithMany("PaymentTransactions")
@@ -901,6 +1043,12 @@ namespace RentNearBy.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("RentNearBy.Core.Entities.PlotType", "PlotType")
+                        .WithMany("Plots")
+                        .HasForeignKey("PlotTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("RentNearBy.Core.Entities.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -911,13 +1059,15 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Navigation("District");
 
+                    b.Navigation("PlotType");
+
                     b.Navigation("User");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotMembership", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.User", "User")
-                        .WithMany()
+                        .WithMany("PlotMemberships")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -962,6 +1112,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.Admin", b =>
+                {
+                    b.Navigation("Sessions");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.City", b =>
                 {
                     b.Navigation("Listings");
@@ -984,6 +1139,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("Photos");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlotType", b =>
+                {
+                    b.Navigation("Plots");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomType", b =>
                 {
                     b.Navigation("Listings");
@@ -996,6 +1156,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("Memberships");
 
                     b.Navigation("PaymentTransactions");
+
+                    b.Navigation("PlotMemberships");
                 });
 #pragma warning restore 612, 618
         }

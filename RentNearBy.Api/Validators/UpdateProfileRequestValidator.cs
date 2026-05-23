@@ -12,9 +12,5 @@ public class UpdateProfileRequestValidator : AbstractValidator<UpdateProfileRequ
             .NotEmpty().WithMessage("Name cannot be blank.")
             .MaximumLength(100).WithMessage("Name cannot exceed 100 characters.");
 
-        RuleFor(x => x.GmailId)
-            .EmailAddress().WithMessage("Invalid email address.")
-            .MaximumLength(200).WithMessage("Email cannot exceed 200 characters.")
-            .When(x => x.GmailId != null);
     }
 }
