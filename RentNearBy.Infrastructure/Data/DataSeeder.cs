@@ -1,8 +1,7 @@
-using System.Reflection;
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 using RentNearBy.Core.Entities;
+using System.Text.Json;
 
 namespace RentNearBy.Infrastructure.Data;
 
@@ -102,13 +101,13 @@ public static class DataSeeder
         Console.WriteLine($"[DataSeeder] Seeding {features.Count} districts from GADM...");
 
         var batch = new List<District>(50);
-        var seen  = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seeded = 0;
 
         foreach (var feature in features)
         {
             var props = feature.GetProperty("properties");
-            var name      = props.GetProperty("NAME_2").GetString()?.Trim() ?? "";
+            var name = props.GetProperty("NAME_2").GetString()?.Trim() ?? "";
             var stateName = props.GetProperty("NAME_1").GetString()?.Trim() ?? "";
             if (string.IsNullOrEmpty(name)) continue;
             if (!seen.Add($"{stateName}|{name}")) continue; // skip GADM duplicates
@@ -117,11 +116,11 @@ public static class DataSeeder
 
             batch.Add(new District
             {
-                Id        = Guid.NewGuid(),
-                Name      = name,
+                Id = Guid.NewGuid(),
+                Name = name,
                 StateName = stateName,
-                IsActive  = false,
-                Boundary  = boundary,
+                IsActive = false,
+                Boundary = boundary,
                 CreatedAt = DateTime.UtcNow,
             });
 
@@ -146,13 +145,13 @@ public static class DataSeeder
 
     private static Geometry? ParseGeometry(JsonElement geom)
     {
-        var type   = geom.GetProperty("type").GetString();
+        var type = geom.GetProperty("type").GetString();
         var coords = geom.GetProperty("coordinates");
         return type switch
         {
-            "Polygon"      => ParsePolygon(coords),
+            "Polygon" => ParsePolygon(coords),
             "MultiPolygon" => ParseMultiPolygon(coords),
-            _              => null,
+            _ => null,
         };
     }
 
@@ -193,9 +192,9 @@ public static class DataSeeder
                 Id = Guid.NewGuid(),
                 Key = "room_payment",
                 DisplayName = "Room Payment",
-                IsEnabled = true,
+                IsEnabled = false,
                 FreeLimit = 1,
-                FreeDays = 2,
+                FreeDays = 30,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             },
@@ -204,9 +203,9 @@ public static class DataSeeder
                 Id = Guid.NewGuid(),
                 Key = "plot_payment",
                 DisplayName = "Plot Payment",
-                IsEnabled = true,
+                IsEnabled = false,
                 FreeLimit = 1,
-                FreeDays = 2,
+                FreeDays = 30,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             }
