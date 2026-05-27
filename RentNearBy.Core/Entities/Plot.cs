@@ -5,7 +5,7 @@ public class Plot
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
     public decimal AreaValue { get; set; }
-    public string AreaUnit { get; set; } = string.Empty;  // sqft/bigha/marla/acre/kanal
+    public string AreaUnit { get; set; } = string.Empty;  // sqft/bigha/acre/nali
     public decimal AreaSqft { get; set; }                 // stored for sorting (approx conversion)
     public Guid PlotTypeId { get; set; }
     public string? Description { get; set; }

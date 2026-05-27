@@ -17,16 +17,14 @@ namespace RentNearBy.Api.Handlers;
 
 public static class PlotHandlers
 {
-    private static readonly string[] AllowedAreaUnits = ["sqft", "sqm", "bigha", "marla", "acre", "kanal"];
+    private static readonly string[] AllowedAreaUnits = ["sqft", "bigha", "acre", "nali"];
 
     private static decimal ToSqft(decimal value, string unit) => unit switch
     {
         "sqft"  => value,
-        "sqm"   => value * 10.764m,
-        "marla" => value * 272.25m,
         "bigha" => value * 27000m,
         "acre"  => value * 43560m,
-        "kanal" => value * 5445m,
+        "nali"  => value * 2152.78m,
         _       => value
     };
 

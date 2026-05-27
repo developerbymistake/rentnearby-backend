@@ -5,7 +5,7 @@ namespace RentNearBy.Api.Validators;
 
 public class UpdatePlotRequestValidator : AbstractValidator<UpdatePlotRequest>
 {
-    private static readonly string[] AllowedAreaUnits = ["sqft", "sqm", "bigha", "marla", "acre", "kanal"];
+    private static readonly string[] AllowedAreaUnits = ["sqft", "bigha", "acre", "nali"];
 
     public UpdatePlotRequestValidator()
     {
@@ -14,7 +14,7 @@ public class UpdatePlotRequestValidator : AbstractValidator<UpdatePlotRequest>
             .When(x => x.AreaValue.HasValue);
 
         RuleFor(x => x.AreaUnit)
-            .Must(u => AllowedAreaUnits.Contains(u!)).WithMessage("Invalid area unit. Allowed: sqft, sqm, bigha, marla, acre, kanal")
+            .Must(u => AllowedAreaUnits.Contains(u!)).WithMessage("Invalid area unit. Allowed: sqft, bigha, acre, nali")
             .When(x => x.AreaUnit != null);
 
         RuleFor(x => x.PlotTypeId)
