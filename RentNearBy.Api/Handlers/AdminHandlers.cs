@@ -352,6 +352,8 @@ public static class AdminHandlers
         var totalUsers = await db.Users.CountAsync();
         var totalListings = await db.RoomListings.CountAsync();
         var activeListings = await db.RoomListings.CountAsync(l => l.IsActive);
+        var totalPlotListings = await db.PlotListings.CountAsync(l => !l.IsDeleted);
+        var activePlotListings = await db.PlotListings.CountAsync(l => l.IsActive && !l.IsDeleted);
         var activeDistricts = await db.Districts.CountAsync(d => d.IsActive);
         var listingsByDistrict = await db.RoomListings
             .Where(l => l.IsActive)
@@ -374,6 +376,8 @@ public static class AdminHandlers
             TotalUsers = totalUsers,
             TotalListings = totalListings,
             ActiveListings = activeListings,
+            TotalPlotListings = totalPlotListings,
+            ActivePlotListings = activePlotListings,
             ActiveDistricts = activeDistricts,
             RoomListingsByDistrict = listingsByDistrict.ToDictionary(x => x.District, x => x.Count),
             TotalEarnings = totalEarnings,
@@ -476,6 +480,8 @@ public static class AdminHandlers
             User = u,
             TotalListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted),
             ActiveListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted && l.IsActive),
+            TotalPlotListings = db.PlotListings.Count(l => l.UserId == u.Id && !l.IsDeleted),
+            ActivePlotListings = db.PlotListings.Count(l => l.UserId == u.Id && !l.IsDeleted && l.IsActive),
         });
 
         var result = await projected
@@ -499,6 +505,8 @@ public static class AdminHandlers
                     CreatedAt = u.CreatedAt,
                     TotalListings = x.TotalListings,
                     ActiveListings = x.ActiveListings,
+                    TotalPlotListings = x.TotalPlotListings,
+                    ActivePlotListings = x.ActivePlotListings,
                     CurrentMembership = membership == null ? null : new AdminMembershipDto
                     {
                         Id = membership.Id,
@@ -521,6 +529,57 @@ public static class AdminHandlers
             });
 
         return OkResponse(result);
+    }
+
+    public static async Task<IResult> GetUserById(Guid id, ApplicationDbContext db)
+    {
+        var u = await db.Users
+            .AsNoTracking()
+            .Include(u => u.Memberships.OrderByDescending(m => m.CreatedAt).Take(1))
+            .Include(u => u.PlotMemberships.OrderByDescending(m => m.CreatedAt).Take(1))
+            .FirstOrDefaultAsync(u => u.Id == id);
+
+        if (u == null) return NotFoundResponse("User not found");
+
+        var membership = u.Memberships.OrderByDescending(m => m.CreatedAt).FirstOrDefault();
+        var plotMembership = u.PlotMemberships.OrderByDescending(m => m.CreatedAt).FirstOrDefault();
+
+        var dto = new AdminUserDto
+        {
+            Id = u.Id,
+            GoogleEmail = u.GoogleEmail,
+            ProfilePhotoUrl = u.ProfilePhotoUrl,
+            PhoneNumber = u.PhoneNumber,
+            IsPhoneVerified = u.IsPhoneVerified,
+            Name = u.Name,
+            IsActive = u.IsActive,
+            HasUsedFreePlan = u.HasUsedFreePlan,
+            CreatedAt = u.CreatedAt,
+            TotalListings = await db.RoomListings.CountAsync(l => l.UserId == id && !l.IsDeleted),
+            ActiveListings = await db.RoomListings.CountAsync(l => l.UserId == id && !l.IsDeleted && l.IsActive),
+            TotalPlotListings = await db.PlotListings.CountAsync(l => l.UserId == id && !l.IsDeleted),
+            ActivePlotListings = await db.PlotListings.CountAsync(l => l.UserId == id && !l.IsDeleted && l.IsActive),
+            CurrentMembership = membership == null ? null : new AdminMembershipDto
+            {
+                Id = membership.Id,
+                PlanType = membership.PlanType,
+                ValidFrom = membership.ValidFrom,
+                ValidUntil = membership.ValidUntil,
+                MaxRooms = membership.MaxRooms,
+                IsActive = membership.IsActive,
+            },
+            CurrentPlotMembership = plotMembership == null ? null : new AdminPlotMembershipDto
+            {
+                Id = plotMembership.Id,
+                PlanType = plotMembership.PlanType,
+                ValidFrom = plotMembership.ValidFrom,
+                ValidUntil = plotMembership.ValidUntil,
+                MaxPlotListings = plotMembership.MaxPlotListings,
+                IsActive = plotMembership.IsActive,
+            },
+        };
+
+        return OkResponse(dto);
     }
 
     public static async Task<IResult> UpdateUserStatus(

@@ -13,6 +13,8 @@ public class AdminUserDto
     public DateTime CreatedAt { get; set; }
     public int TotalListings { get; set; }
     public int ActiveListings { get; set; }
+    public int TotalPlotListings { get; set; }
+    public int ActivePlotListings { get; set; }
     public AdminMembershipDto? CurrentMembership { get; set; }
     public AdminPlotMembershipDto? CurrentPlotMembership { get; set; }
 }
