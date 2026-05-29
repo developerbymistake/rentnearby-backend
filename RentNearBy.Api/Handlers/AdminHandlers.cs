@@ -352,6 +352,7 @@ public static class AdminHandlers
         var totalUsers = await db.Users.CountAsync();
         var totalListings = await db.RoomListings.CountAsync();
         var activeListings = await db.RoomListings.CountAsync(l => l.IsActive);
+        var activeDistricts = await db.Districts.CountAsync(d => d.IsActive);
         var listingsByDistrict = await db.RoomListings
             .Where(l => l.IsActive)
             .GroupBy(l => new { l.DistrictId, DistrictName = l.District.Name })
@@ -373,6 +374,7 @@ public static class AdminHandlers
             TotalUsers = totalUsers,
             TotalListings = totalListings,
             ActiveListings = activeListings,
+            ActiveDistricts = activeDistricts,
             RoomListingsByDistrict = listingsByDistrict.ToDictionary(x => x.District, x => x.Count),
             TotalEarnings = totalEarnings,
             CurrentMonthEarnings = currentMonthEarnings,
