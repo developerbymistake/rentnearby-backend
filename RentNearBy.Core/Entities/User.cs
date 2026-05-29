@@ -3,10 +3,13 @@ namespace RentNearBy.Core.Entities;
 public class User
 {
     public Guid Id { get; set; }
+    public string GoogleId { get; set; } = string.Empty;
+    public string GoogleEmail { get; set; } = string.Empty;
+    public string? ProfilePhotoUrl { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string? Name { get; set; }
     public bool IsActive { get; set; } = true;
-    public bool OtpVerified { get; set; } = false;
+    public bool IsPhoneVerified { get; set; } = false;
     public bool HasUsedFreePlan { get; set; } = false;
     public bool HasUsedFreePlotPlan { get; set; } = false;
     public bool IsContactVisible { get; set; } = true;

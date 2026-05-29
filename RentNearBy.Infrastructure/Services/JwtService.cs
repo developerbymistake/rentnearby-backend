@@ -18,7 +18,7 @@ public class JwtService(IConfiguration configuration) : IJwtService
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim("session_id", sessionId.ToString()),
-            new Claim(ClaimTypes.MobilePhone, user.PhoneNumber),
+            new Claim(ClaimTypes.Email, user.GoogleEmail),
             new Claim(ClaimTypes.Name, user.Name ?? string.Empty),
             new Claim("actor_type", "user"),
         };

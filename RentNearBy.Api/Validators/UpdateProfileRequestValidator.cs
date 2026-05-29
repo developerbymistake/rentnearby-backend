@@ -12,5 +12,8 @@ public class UpdateProfileRequestValidator : AbstractValidator<UpdateProfileRequ
             .NotEmpty().WithMessage("Name cannot be blank.")
             .MaximumLength(100).WithMessage("Name cannot exceed 100 characters.");
 
+        RuleFor(x => x.PhoneNumber)
+            .Matches(@"^\d{10}$").WithMessage("Phone number must be 10 digits")
+            .When(x => x.PhoneNumber != null);
     }
 }

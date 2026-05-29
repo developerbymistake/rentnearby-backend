@@ -39,6 +39,11 @@ public static class UsersHandlers
 
         if (request.Name != null) user.Name = request.Name;
         if (request.IsContactVisible.HasValue) user.IsContactVisible = request.IsContactVisible.Value;
+        if (request.PhoneNumber != null && request.PhoneNumber != user.PhoneNumber)
+        {
+            user.PhoneNumber = request.PhoneNumber;
+            user.IsPhoneVerified = false;
+        }
         user.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.Users.UpdateAsync(user);

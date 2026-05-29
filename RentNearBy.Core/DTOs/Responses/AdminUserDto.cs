@@ -3,7 +3,9 @@ namespace RentNearBy.Core.DTOs.Responses;
 public class AdminUserDto
 {
     public Guid Id { get; set; }
+    public string GoogleEmail { get; set; } = string.Empty;
     public string PhoneNumber { get; set; } = string.Empty;
+    public bool IsPhoneVerified { get; set; }
     public string? Name { get; set; }
     public bool IsActive { get; set; }
     public bool HasUsedFreePlan { get; set; }

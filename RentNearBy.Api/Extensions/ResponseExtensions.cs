@@ -45,6 +45,13 @@ public static class ApiResults
             Error = new ApiError { Message = message, Type = "NotFound" }
         }, statusCode: 404);
 
+    public static IResult ConflictResponse(string message, string type = "Conflict") =>
+        Results.Json(new ApiResponse<object>
+        {
+            Status = "409", Code = 409, Timestamp = Timestamp(),
+            Error = new ApiError { Message = message, Type = type }
+        }, statusCode: 409);
+
     public static IResult NoContentResponse() => Results.NoContent();
 
     public static IResult TooManyRequestsResponse() =>
