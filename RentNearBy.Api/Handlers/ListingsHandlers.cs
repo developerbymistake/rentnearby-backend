@@ -72,7 +72,7 @@ public static class RoomListingsHandlers
         if (redis != null)
         {
             var json = JsonSerializer.Serialize(result);
-            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, ContextCacheTtl, When.NotExists); } catch { }
+            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, ContextCacheTtl); } catch { }
         }
 
         return OkResponse(result);

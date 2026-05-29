@@ -68,6 +68,7 @@ public static class AdminHandlers
             var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
             var districtName = district.Name;
             var stateName = district.StateName;
+            var redis = sp.GetService<IConnectionMultiplexer>();
             _ = Task.Run(async () =>
             {
                 try
@@ -102,6 +103,9 @@ public static class AdminHandlers
                     {
                         bgDb.Cities.AddRange(toAdd);
                         await bgDb.SaveChangesAsync();
+                        // Flush context cache after cities are seeded so stale
+                        // "no cities" entries don't persist for the full 10-min TTL
+                        await FlushContextCacheAsync(redis);
                     }
                 }
                 catch { /* background task — swallow errors */ }
