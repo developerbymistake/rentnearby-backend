@@ -152,22 +152,22 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(l => l.UpdatedAt).HasDefaultValueSql("now()");
 
             e.HasOne(l => l.User)
-             .WithMany(u => u.RoomListings)
+             .WithMany()
              .HasForeignKey(l => l.UserId)
              .OnDelete(DeleteBehavior.Cascade);
 
             e.HasOne(l => l.RoomType)
-             .WithMany(r => r.RoomListings)
+             .WithMany()
              .HasForeignKey(l => l.RoomTypeId)
              .OnDelete(DeleteBehavior.Restrict);
 
             e.HasOne(l => l.District)
-             .WithMany(d => d.RoomListings)
+             .WithMany()
              .HasForeignKey(l => l.DistrictId)
              .OnDelete(DeleteBehavior.Restrict);
 
             e.HasOne(l => l.City)
-             .WithMany(c => c.RoomListings)
+             .WithMany()
              .HasForeignKey(l => l.CityId)
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);

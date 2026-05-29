@@ -447,7 +447,6 @@ public static class AdminHandlers
         page = Math.Max(1, page);
 
         var query = db.Users
-            .Include(u => u.RoomListings)
             .Include(u => u.Memberships.OrderByDescending(m => m.CreatedAt).Take(1))
             .Include(u => u.PlotMemberships.OrderByDescending(m => m.CreatedAt).Take(1))
             .AsQueryable();
@@ -465,22 +464,25 @@ public static class AdminHandlers
         }
 
         if (districtId.HasValue)
-            query = query.Where(u => u.RoomListings.Any(l => l.DistrictId == districtId.Value && !l.IsDeleted));
+            query = query.Where(u => db.RoomListings.Any(l => l.UserId == u.Id && l.DistrictId == districtId.Value && !l.IsDeleted));
 
         if (cityId.HasValue)
-            query = query.Where(u => u.RoomListings.Any(l => l.CityId == cityId.Value && !l.IsDeleted));
+            query = query.Where(u => db.RoomListings.Any(l => l.UserId == u.Id && l.CityId == cityId.Value && !l.IsDeleted));
 
-        var result = await query
-            .OrderByDescending(u => u.CreatedAt)
-            .ToPagedResultAsync(page, pageSize, u =>
+        var projected = query.Select(u => new
+        {
+            User = u,
+            TotalListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted),
+            ActiveListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted && l.IsActive),
+        });
+
+        var result = await projected
+            .OrderByDescending(x => x.User.CreatedAt)
+            .ToPagedResultAsync(page, pageSize, x =>
             {
-                var nonDeleted = u.RoomListings.Where(l => !l.IsDeleted).ToList();
-                var membership = u.Memberships
-                    .OrderByDescending(m => m.CreatedAt)
-                    .FirstOrDefault();
-                var plotMembership = u.PlotMemberships
-                    .OrderByDescending(m => m.CreatedAt)
-                    .FirstOrDefault();
+                var u = x.User;
+                var membership = u.Memberships.OrderByDescending(m => m.CreatedAt).FirstOrDefault();
+                var plotMembership = u.PlotMemberships.OrderByDescending(m => m.CreatedAt).FirstOrDefault();
 
                 return new AdminUserDto
                 {
@@ -492,8 +494,8 @@ public static class AdminHandlers
                     IsActive = u.IsActive,
                     HasUsedFreePlan = u.HasUsedFreePlan,
                     CreatedAt = u.CreatedAt,
-                    TotalListings = nonDeleted.Count,
-                    ActiveListings = nonDeleted.Count(l => l.IsActive),
+                    TotalListings = x.TotalListings,
+                    ActiveListings = x.ActiveListings,
                     CurrentMembership = membership == null ? null : new AdminMembershipDto
                     {
                         Id = membership.Id,
@@ -523,16 +525,15 @@ public static class AdminHandlers
         UpdateUserStatusRequest request,
         ApplicationDbContext db)
     {
-        var user = await db.Users
-            .Include(u => u.RoomListings.Where(l => !l.IsDeleted))
-            .FirstOrDefaultAsync(u => u.Id == id);
-
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return NotFoundResponse("User not found");
+
+        var listings = await db.RoomListings.Where(l => l.UserId == id && !l.IsDeleted).ToListAsync();
 
         user.IsActive = request.IsActive;
         user.UpdatedAt = DateTime.UtcNow;
 
-        foreach (var listing in user.RoomListings.Where(l => !l.IsDeleted))
+        foreach (var listing in listings)
         {
             listing.IsActive = request.IsActive;
             listing.UpdatedAt = DateTime.UtcNow;

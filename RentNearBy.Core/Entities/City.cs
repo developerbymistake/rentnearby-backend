@@ -10,5 +10,4 @@ public class City
     public DateTime CreatedAt { get; set; }
 
     public District District { get; set; } = null!;
-    public ICollection<RoomListing> RoomListings { get; set; } = new List<RoomListing>();
 }

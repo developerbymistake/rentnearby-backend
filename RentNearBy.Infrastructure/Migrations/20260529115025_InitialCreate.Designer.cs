@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260529114206_InitialCreate")]
+    [Migration("20260529115025_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -1070,24 +1070,24 @@ namespace RentNearBy.Infrastructure.Migrations
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomListing", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.City", "City")
-                        .WithMany("RoomListings")
+                        .WithMany()
                         .HasForeignKey("CityId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("RentNearBy.Core.Entities.District", "District")
-                        .WithMany("RoomListings")
+                        .WithMany()
                         .HasForeignKey("DistrictId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("RentNearBy.Core.Entities.RoomType", "RoomType")
-                        .WithMany("RoomListings")
+                        .WithMany()
                         .HasForeignKey("RoomTypeId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("RentNearBy.Core.Entities.User", "User")
-                        .WithMany("RoomListings")
+                        .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -1143,16 +1143,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("Sessions");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.City", b =>
-                {
-                    b.Navigation("RoomListings");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.District", b =>
                 {
                     b.Navigation("Cities");
-
-                    b.Navigation("RoomListings");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
@@ -1170,11 +1163,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("Photos");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.RoomType", b =>
-                {
-                    b.Navigation("RoomListings");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
                 {
                     b.Navigation("Memberships");
@@ -1182,8 +1170,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("PaymentTransactions");
 
                     b.Navigation("PlotMemberships");
-
-                    b.Navigation("RoomListings");
                 });
 #pragma warning restore 612, 618
         }

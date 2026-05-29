@@ -16,7 +16,6 @@ public class User
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    public ICollection<RoomListing> RoomListings { get; set; } = new List<RoomListing>();
     public ICollection<RoomMembership> Memberships { get; set; } = new List<RoomMembership>();
     public ICollection<PlotMembership> PlotMemberships { get; set; } = new List<PlotMembership>();
     public ICollection<PaymentTransaction> PaymentTransactions { get; set; } = new List<PaymentTransaction>();

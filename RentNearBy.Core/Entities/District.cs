@@ -12,5 +12,4 @@ public class District
     public Geometry? Boundary { get; set; }
 
     public ICollection<City> Cities { get; set; } = new List<City>();
-    public ICollection<RoomListing> RoomListings { get; set; } = new List<RoomListing>();
 }
