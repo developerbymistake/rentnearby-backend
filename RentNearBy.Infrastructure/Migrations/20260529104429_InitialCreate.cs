@@ -76,8 +76,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     Days = table.Column<int>(type: "integer", nullable: false),
                     RoomLimit = table.Column<int>(type: "integer", nullable: false),
                     Price = table.Column<int>(type: "integer", nullable: false),
-                    OriginalPrice = table.Column<int>(type: "integer", nullable: false),
                     DiscountPercent = table.Column<int>(type: "integer", nullable: false),
+                    OriginalPrice = table.Column<int>(type: "integer", nullable: false),
                     IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
@@ -96,8 +96,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     Days = table.Column<int>(type: "integer", nullable: false),
                     PlotLimit = table.Column<int>(type: "integer", nullable: false),
                     Price = table.Column<int>(type: "integer", nullable: false),
-                    OriginalPrice = table.Column<int>(type: "integer", nullable: false),
                     DiscountPercent = table.Column<int>(type: "integer", nullable: false),
+                    OriginalPrice = table.Column<int>(type: "integer", nullable: false),
                     IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
