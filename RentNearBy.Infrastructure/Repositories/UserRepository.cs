@@ -23,4 +23,7 @@ public class UserRepository(ApplicationDbContext context) : Repository<User>(con
 
     public async Task<bool> IsPhoneVerifiedByOtherUserAsync(string phoneNumber, Guid currentUserId)
         => await _dbSet.AnyAsync(u => u.PhoneNumber == phoneNumber && u.IsPhoneVerified && u.Id != currentUserId);
+
+    public async Task<bool> IsPhoneVerifiedByAnyUserAsync(string phoneNumber)
+        => await _dbSet.AnyAsync(u => u.PhoneNumber == phoneNumber && u.IsPhoneVerified);
 }

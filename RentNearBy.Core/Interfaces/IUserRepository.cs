@@ -9,4 +9,5 @@ public interface IUserRepository : IRepository<User>
     Task<User?> GetByGoogleIdAsync(string googleId);
     Task<bool> GoogleIdExistsAsync(string googleId);
     Task<bool> IsPhoneVerifiedByOtherUserAsync(string phoneNumber, Guid currentUserId);
+    Task<bool> IsPhoneVerifiedByAnyUserAsync(string phoneNumber);
 }

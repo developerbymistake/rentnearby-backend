@@ -108,6 +108,10 @@ public static class AuthHandlers
         if (await unitOfWork.Users.GoogleIdExistsAsync(payload.Subject))
             return BadRequestResponse("Account already exists. Please sign in.", "AlreadyExists");
 
+        // Guard: if phone is already verified by another user, reject
+        if (await unitOfWork.Users.IsPhoneVerifiedByAnyUserAsync(request.PhoneNumber))
+            return ConflictResponse("This phone number is already registered in our system. Please use a different number.", "PhoneExists");
+
         var newUser = new User
         {
             Id = Guid.NewGuid(),
