@@ -24,8 +24,8 @@ public static class DataSeeder
 
         var plans = new[]
         {
-            new RoomPlan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 2, RoomLimit = 1, Price = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
-            new RoomPlan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, RoomLimit = 2, Price = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new RoomPlan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 2, RoomLimit = 1, Price = 99, DiscountPercent = 100, OriginalPrice = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new RoomPlan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, RoomLimit = 2, Price = 199, DiscountPercent = 50, OriginalPrice = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
         };
 
         db.RoomPlans.AddRange(plans);
@@ -38,8 +38,8 @@ public static class DataSeeder
 
         var plans = new[]
         {
-            new PlotPlan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 2, PlotListingLimit = 1, Price = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
-            new PlotPlan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, PlotListingLimit = 2, Price = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new PlotPlan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 2, PlotListingLimit = 1, Price = 99, DiscountPercent = 100, OriginalPrice = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new PlotPlan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, PlotListingLimit = 2, Price = 199, DiscountPercent = 50, OriginalPrice = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
         };
 
         db.PlotPlans.AddRange(plans);
