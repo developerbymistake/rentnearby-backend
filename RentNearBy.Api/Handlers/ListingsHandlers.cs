@@ -181,10 +181,12 @@ public static class ListingsHandlers
             .OrderBy(p => p.Price)
             .Select(p => new
             {
-                planType  = p.PlanType,
-                days      = p.Days,
-                price     = p.Price,
-                roomLimit = p.RoomLimit,
+                planType      = p.PlanType,
+                days          = p.Days,
+                price         = p.Price,
+                originalPrice = p.OriginalPrice,
+                discountPercent = p.DiscountPercent,
+                roomLimit     = p.RoomLimit,
             })
             .ToList();
         return OkResponse(result);

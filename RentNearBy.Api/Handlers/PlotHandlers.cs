@@ -632,7 +632,7 @@ public static class PlotHandlers
     {
         var plans = await unitOfWork.PlotPlans.GetAllAsync();
         var result = plans.Where(p => p.IsEnabled).OrderBy(p => p.Price)
-            .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, plotLimit = p.PlotLimit })
+            .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, originalPrice = p.OriginalPrice, discountPercent = p.DiscountPercent, plotLimit = p.PlotLimit })
             .ToList();
         return OkResponse(result);
     }

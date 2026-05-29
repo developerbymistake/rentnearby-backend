@@ -645,6 +645,8 @@ public static class AdminHandlers
                 planType = p.PlanType,
                 days = p.Days,
                 price = p.Price,
+                originalPrice = p.OriginalPrice,
+                discountPercent = p.DiscountPercent,
                 roomLimit = p.RoomLimit,
                 isEnabled = p.IsEnabled,
             })
@@ -677,6 +679,8 @@ public static class AdminHandlers
             Price = request.Price,
             Days = request.Days,
             RoomLimit = request.RoomLimit,
+            OriginalPrice = request.OriginalPrice,
+            DiscountPercent = request.DiscountPercent,
             IsEnabled = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
@@ -691,6 +695,8 @@ public static class AdminHandlers
             planType = plan.PlanType,
             days = plan.Days,
             price = plan.Price,
+            originalPrice = plan.OriginalPrice,
+            discountPercent = plan.DiscountPercent,
             roomLimit = plan.RoomLimit,
             isEnabled = plan.IsEnabled,
         }, $"/api/v1/admin/plans/{plan.Id}");
@@ -721,6 +727,10 @@ public static class AdminHandlers
         }
         if (request.IsEnabled.HasValue)
             plan.IsEnabled = request.IsEnabled.Value;
+        if (request.OriginalPrice.HasValue)
+            plan.OriginalPrice = request.OriginalPrice.Value;
+        if (request.DiscountPercent.HasValue)
+            plan.DiscountPercent = request.DiscountPercent.Value;
 
         plan.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
@@ -731,6 +741,8 @@ public static class AdminHandlers
             planType = plan.PlanType,
             days = plan.Days,
             price = plan.Price,
+            originalPrice = plan.OriginalPrice,
+            discountPercent = plan.DiscountPercent,
             roomLimit = plan.RoomLimit,
             isEnabled = plan.IsEnabled,
         });
@@ -739,8 +751,8 @@ public static class AdminHandlers
 
     // ── Admin Plot Plan endpoints ─────────────────────────────────────────────
 
-    public record CreatePlotPlanRequest(string PlanType, int Price, int Days, int PlotLimit);
-    public record UpdatePlotPlanRequest(int? Days, int? Price, int? PlotLimit, bool? IsEnabled);
+    public record CreatePlotPlanRequest(string PlanType, int Price, int Days, int PlotLimit, int OriginalPrice = 0, int DiscountPercent = 0);
+    public record UpdatePlotPlanRequest(int? Days, int? Price, int? PlotLimit, bool? IsEnabled, int? OriginalPrice, int? DiscountPercent);
     public record ActivatePlotMembershipRequest(string PlanType);
 
     public static async Task<IResult> GetPlotPlans(ApplicationDbContext db)
@@ -753,6 +765,8 @@ public static class AdminHandlers
                 planType = p.PlanType,
                 days = p.Days,
                 price = p.Price,
+                originalPrice = p.OriginalPrice,
+                discountPercent = p.DiscountPercent,
                 plotLimit = p.PlotLimit,
                 isEnabled = p.IsEnabled,
             })
@@ -782,6 +796,8 @@ public static class AdminHandlers
             Price = request.Price,
             Days = request.Days,
             PlotLimit = request.PlotLimit,
+            OriginalPrice = request.OriginalPrice,
+            DiscountPercent = request.DiscountPercent,
             IsEnabled = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
@@ -796,6 +812,8 @@ public static class AdminHandlers
             planType = plan.PlanType,
             days = plan.Days,
             price = plan.Price,
+            originalPrice = plan.OriginalPrice,
+            discountPercent = plan.DiscountPercent,
             plotLimit = plan.PlotLimit,
             isEnabled = plan.IsEnabled,
         }, $"/api/v1/admin/plot-plans/{plan.Id}");
@@ -823,6 +841,10 @@ public static class AdminHandlers
         }
         if (request.IsEnabled.HasValue)
             plan.IsEnabled = request.IsEnabled.Value;
+        if (request.OriginalPrice.HasValue)
+            plan.OriginalPrice = request.OriginalPrice.Value;
+        if (request.DiscountPercent.HasValue)
+            plan.DiscountPercent = request.DiscountPercent.Value;
 
         plan.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
@@ -833,6 +855,8 @@ public static class AdminHandlers
             planType = plan.PlanType,
             days = plan.Days,
             price = plan.Price,
+            originalPrice = plan.OriginalPrice,
+            discountPercent = plan.DiscountPercent,
             plotLimit = plan.PlotLimit,
             isEnabled = plan.IsEnabled,
         });

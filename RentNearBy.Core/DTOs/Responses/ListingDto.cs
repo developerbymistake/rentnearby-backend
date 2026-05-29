@@ -18,6 +18,7 @@ public class ListingDto
     public bool IsActive { get; set; }
     public string? OwnerName { get; set; }
     public string? OwnerPhone { get; set; }
+    public string? OwnerEmail { get; set; }
     public List<string> Photos { get; set; } = new();
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

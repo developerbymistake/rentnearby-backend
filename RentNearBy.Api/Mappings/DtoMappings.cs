@@ -25,6 +25,7 @@ public static class DtoMappings
             .Map(dest => dest.RoomTypeName, src => src.RoomType != null ? src.RoomType.Name : null)
             .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
             .Map(dest => dest.OwnerPhone, src => src.User != null && src.User.IsContactVisible ? src.User.PhoneNumber : null)
+            .Map(dest => dest.OwnerEmail, src => src.User != null ? src.User.GoogleEmail : null)
             .Map(dest => dest.Photos, src => src.Photos != null
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
@@ -35,6 +36,7 @@ public static class DtoMappings
             .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
             .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
             .Map(dest => dest.OwnerPhone, src => src.User != null && src.User.IsContactVisible ? src.User.PhoneNumber : null)
+            .Map(dest => dest.OwnerEmail, src => src.User != null ? src.User.GoogleEmail : null)
             .Map(dest => dest.Photos, src => src.Photos != null
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
