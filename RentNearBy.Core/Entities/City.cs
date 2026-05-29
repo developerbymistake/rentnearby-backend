@@ -1,4 +1,4 @@
-namespace RentNearBy.Core.Entities;
+﻿namespace RentNearBy.Core.Entities;
 
 public class City
 {
@@ -10,5 +10,5 @@ public class City
     public DateTime CreatedAt { get; set; }
 
     public District District { get; set; } = null!;
-    public ICollection<Listing> Listings { get; set; } = new List<Listing>();
+    public ICollection<RoomListing> RoomListings { get; set; } = new List<RoomListing>();
 }

@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Text.Json;
 using FluentValidation;
 using Mapster;
@@ -15,7 +15,7 @@ using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
 
-public static class ListingsHandlers
+public static class RoomListingsHandlers
 {
     private static readonly TimeSpan ContextCacheTtl = TimeSpan.FromMinutes(10);
 
@@ -146,7 +146,7 @@ public static class ListingsHandlers
             }
         }
 
-        var fetched = (await unitOfWork.Listings.GetNearbyAsync(latitude, longitude, radius, cityId)).ToList();
+        var fetched = (await unitOfWork.RoomListings.GetNearbyAsync(latitude, longitude, radius, cityId)).ToList();
 
         if (redis != null)
         {
@@ -160,22 +160,22 @@ public static class ListingsHandlers
 
     public static async Task<IResult> Search(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, IUnitOfWork unitOfWork)
     {
-        var listings = await unitOfWork.Listings.SearchAsync(districtId, roomTypeId, priceMin, priceMax);
-        return OkResponse(listings.Select(l => l.Adapt<ListingDto>()).ToList());
+        var listings = await unitOfWork.RoomListings.SearchAsync(districtId, roomTypeId, priceMin, priceMax);
+        return OkResponse(listings.Select(l => l.Adapt<RoomListingDto>()).ToList());
     }
 
     public static async Task<IResult> GetById(Guid id, IUnitOfWork unitOfWork, ClaimsPrincipal principal)
     {
-        var listing = await unitOfWork.Listings.GetByIdWithPhotosAsync(id);
-        if (listing == null) return NotFoundResponse("Listing not found");
-        var dto = listing.Adapt<ListingDto>();
+        var listing = await unitOfWork.RoomListings.GetByIdWithPhotosAsync(id);
+        if (listing == null) return NotFoundResponse("RoomListing not found");
+        var dto = listing.Adapt<RoomListingDto>();
         if (principal.Identity?.IsAuthenticated != true) dto.OwnerPhone = null;
         return OkResponse(dto);
     }
 
     public static async Task<IResult> GetPlans(IUnitOfWork unitOfWork)
     {
-        var plans = await unitOfWork.Plans.GetAllAsync();
+        var plans = await unitOfWork.RoomPlans.GetAllAsync();
         var result = plans
             .Where(p => p.IsEnabled)
             .OrderBy(p => p.Price)
@@ -200,8 +200,8 @@ public static class ListingsHandlers
         if (pageSize < 1 || pageSize > 50) pageSize = 10;
         if (page < 1) page = 1;
 
-        var (items, hasMore) = await unitOfWork.Listings.GetByUserIdPagedAsync(userId, page, pageSize);
-        return OkResponse(new { items = items.Select(l => l.Adapt<ListingDto>()).ToList(), hasMore });
+        var (items, hasMore) = await unitOfWork.RoomListings.GetByUserIdPagedAsync(userId, page, pageSize);
+        return OkResponse(new { items = items.Select(l => l.Adapt<RoomListingDto>()).ToList(), hasMore });
     }
 
     public static async Task<IResult> CreateListing(
@@ -232,7 +232,7 @@ public static class ListingsHandlers
         {
             var freeLimit = roomFeature?.FreeLimit ?? 1;
             var db = sp.GetRequiredService<ApplicationDbContext>();
-            var totalCount = await db.Listings
+            var totalCount = await db.RoomListings
                 .Where(l => l.UserId == userId && !l.IsDeleted)
                 .CountAsync();
             if (totalCount >= freeLimit)
@@ -240,11 +240,11 @@ public static class ListingsHandlers
         }
         else
         {
-            var membership = await unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
+            var membership = await unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
             if (membership != null && membership.IsActive)
             {
                 var db = sp.GetRequiredService<ApplicationDbContext>();
-                var totalCount = await db.Listings
+                var totalCount = await db.RoomListings
                     .Where(l => l.UserId == userId && !l.IsDeleted)
                     .CountAsync();
                 if (totalCount >= membership.MaxRooms)
@@ -252,7 +252,7 @@ public static class ListingsHandlers
             }
         }
 
-        var listing = new Listing
+        var listing = new RoomListing
         {
             Id = Guid.NewGuid(),
             UserId = userId,
@@ -270,10 +270,10 @@ public static class ListingsHandlers
         };
 
         // Auto-activate for paid members with available capacity — routing by plan price, not plan name
-        var activeMembership = await unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
+        var activeMembership = await unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
         if (activeMembership != null && activeMembership.IsActive)
         {
-            var activePlan = await unitOfWork.Plans.GetByPlanTypeAsync(activeMembership.PlanType);
+            var activePlan = await unitOfWork.RoomPlans.GetByPlanTypeAsync(activeMembership.PlanType);
             if (activePlan?.Price > 0)
             {
                 var canActivate = await paymentService.CanUserActivateListingAsync(userId);
@@ -285,7 +285,7 @@ public static class ListingsHandlers
             }
         }
 
-        await unitOfWork.Listings.AddAsync(listing);
+        await unitOfWork.RoomListings.AddAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
         // Invalidate cache if city is specified
@@ -315,8 +315,8 @@ public static class ListingsHandlers
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var listing = await unitOfWork.Listings.GetByIdAsync(id);
-        if (listing == null) return NotFoundResponse("Listing not found");
+        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
+        if (listing == null) return NotFoundResponse("RoomListing not found");
         if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
 
         var oldCityId = listing.CityId;
@@ -344,7 +344,7 @@ public static class ListingsHandlers
                     var freeLimit = roomFeature?.FreeLimit ?? 1;
                     var freeDays = roomFeature?.FreeDays ?? 2;
                     var db = sp.GetRequiredService<ApplicationDbContext>();
-                    var totalCount = await db.Listings
+                    var totalCount = await db.RoomListings
                         .Where(l => l.UserId == userId && !l.IsDeleted && l.Id != id)
                         .CountAsync();
                     if (totalCount >= freeLimit)
@@ -353,7 +353,7 @@ public static class ListingsHandlers
                 }
                 else
                 {
-                    var membership = await unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
+                    var membership = await unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
                     if (membership == null || !membership.IsActive)
                         return BadRequestResponse("You need an active plan to go live. Please purchase a plan.");
                     var svc = sp.GetRequiredService<IPaymentService>();
@@ -366,7 +366,7 @@ public static class ListingsHandlers
         }
         listing.UpdatedAt = DateTime.UtcNow;
 
-        await unitOfWork.Listings.UpdateAsync(listing);
+        await unitOfWork.RoomListings.UpdateAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
         var redis = sp.GetService<IConnectionMultiplexer>();
@@ -384,17 +384,17 @@ public static class ListingsHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var listing = await unitOfWork.Listings.GetByIdAsync(id);
-        if (listing == null) return NotFoundResponse("Listing not found");
+        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
+        if (listing == null) return NotFoundResponse("RoomListing not found");
         if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
 
         var cityId = listing.CityId;
 
-        await photoService.DeleteListingPhotosAsync(userId, id);
+        await photoService.DeleteRoomPhotosAsync(userId, id);
 
         listing.IsDeleted = true;
         listing.DeletedAt = DateTime.UtcNow;
-        await unitOfWork.Listings.UpdateAsync(listing);
+        await unitOfWork.RoomListings.UpdateAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
         if (cityId.HasValue)
@@ -408,8 +408,8 @@ public static class ListingsHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var listing = await unitOfWork.Listings.GetByIdWithPhotosAsync(id);
-        if (listing == null) return NotFoundResponse("Listing not found");
+        var listing = await unitOfWork.RoomListings.GetByIdWithPhotosAsync(id);
+        if (listing == null) return NotFoundResponse("RoomListing not found");
         if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
         if (listing.Photos.Count >= 5) return BadRequestResponse("Maximum 5 photos allowed per listing");
         if (photo.Length > 10 * 1024 * 1024) return BadRequestResponse("Photo size must not exceed 10MB");
@@ -419,17 +419,17 @@ public static class ListingsHandlers
         stream.Position = 0;
         var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, id);
 
-        var listingPhoto = new ListingPhoto
+        var listingPhoto = new RoomPhoto
         {
             Id = Guid.NewGuid(),
-            ListingId = id,
+            RoomListingId = id,
             PhotoUrl = url,
             FilePath = filePath,
             PhotoOrder = listing.Photos.Count,
             UploadedAt = DateTime.UtcNow
         };
 
-        await unitOfWork.Listings.AddPhotoAsync(listingPhoto);
+        await unitOfWork.RoomListings.AddPhotoAsync(listingPhoto);
         await unitOfWork.SaveChangesAsync();
 
         // Invalidate cache after photo upload so thumbnail appears immediately
@@ -457,15 +457,15 @@ public static class ListingsHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var listing = await unitOfWork.Listings.GetByIdWithPhotosAsync(id);
-        if (listing == null) return NotFoundResponse("Listing not found");
+        var listing = await unitOfWork.RoomListings.GetByIdWithPhotosAsync(id);
+        if (listing == null) return NotFoundResponse("RoomListing not found");
         if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
 
         var photo = listing.Photos.FirstOrDefault(p => p.Id == photoId);
         if (photo == null) return NotFoundResponse("Photo not found");
 
         await photoService.DeletePhotoAsync(photo.FilePath);
-        unitOfWork.Listings.RemovePhoto(photo);
+        unitOfWork.RoomListings.RemovePhoto(photo);
         await unitOfWork.SaveChangesAsync();
 
         // Invalidate cache after photo deletion so thumbnail updates

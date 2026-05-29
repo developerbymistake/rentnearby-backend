@@ -1,24 +1,24 @@
-using RentNearBy.Api.Handlers;
+﻿using RentNearBy.Api.Handlers;
 
 namespace RentNearBy.Api.Endpoints;
 
-public static class ListingsEndpoints
+public static class RoomListingsEndpoints
 {
     public static RouteGroupBuilder MapListingsEndpoints(this RouteGroupBuilder group)
     {
-        group.MapGet("/context", ListingsHandlers.GetContext);
-        group.MapGet("/nearby", ListingsHandlers.GetNearby);
-        group.MapGet("/search", ListingsHandlers.Search);
-        group.MapGet("/plans", ListingsHandlers.GetPlans);
-        group.MapGet("/{id:guid}", ListingsHandlers.GetById);
+        group.MapGet("/context", RoomListingsHandlers.GetContext);
+        group.MapGet("/nearby", RoomListingsHandlers.GetNearby);
+        group.MapGet("/search", RoomListingsHandlers.Search);
+        group.MapGet("/plans", RoomListingsHandlers.GetPlans);
+        group.MapGet("/{id:guid}", RoomListingsHandlers.GetById);
 
-        group.MapGet("/my", ListingsHandlers.GetMyListings).RequireAuthorization();
-        group.MapPost("/", ListingsHandlers.CreateListing).RequireAuthorization().DisableAntiforgery();
-        group.MapPut("/{id:guid}", ListingsHandlers.UpdateListing).RequireAuthorization();
-        group.MapDelete("/{id:guid}", ListingsHandlers.DeleteListing).RequireAuthorization();
+        group.MapGet("/my", RoomListingsHandlers.GetMyListings).RequireAuthorization();
+        group.MapPost("/", RoomListingsHandlers.CreateListing).RequireAuthorization().DisableAntiforgery();
+        group.MapPut("/{id:guid}", RoomListingsHandlers.UpdateListing).RequireAuthorization();
+        group.MapDelete("/{id:guid}", RoomListingsHandlers.DeleteListing).RequireAuthorization();
 
-        group.MapPost("/{id:guid}/photos", ListingsHandlers.UploadPhoto).RequireAuthorization().DisableAntiforgery();
-        group.MapDelete("/{id:guid}/photos/{photoId:guid}", ListingsHandlers.DeletePhoto).RequireAuthorization();
+        group.MapPost("/{id:guid}/photos", RoomListingsHandlers.UploadPhoto).RequireAuthorization().DisableAntiforgery();
+        group.MapDelete("/{id:guid}/photos/{photoId:guid}", RoomListingsHandlers.DeletePhoto).RequireAuthorization();
 
         // Payment endpoints
         group.MapPost("/{listingId:guid}/create-order", PaymentHandlers.CreateOrder).RequireAuthorization();

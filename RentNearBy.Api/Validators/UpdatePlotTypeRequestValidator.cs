@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
 
 namespace RentNearBy.Api.Validators;
@@ -8,7 +8,7 @@ public class UpdatePlotTypeRequestValidator : AbstractValidator<UpdatePlotTypeRe
     public UpdatePlotTypeRequestValidator()
     {
         RuleFor(x => x.Name)
-            .NotEmpty().WithMessage("Plot type name cannot be empty")
+            .NotEmpty().WithMessage("PlotListing type name cannot be empty")
             .MaximumLength(100).WithMessage("Name must not exceed 100 characters")
             .When(x => x.Name != null);
 

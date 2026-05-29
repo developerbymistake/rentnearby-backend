@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -130,7 +130,7 @@ public static class AdminHandlers
         var district = await unitOfWork.Districts.GetByIdAsync(id);
         if (district == null) return NotFoundResponse("District not found");
 
-        if (await db.Listings.AnyAsync(l => l.DistrictId == id && l.IsActive))
+        if (await db.RoomListings.AnyAsync(l => l.DistrictId == id && l.IsActive))
             return BadRequestResponse("Cannot delete district with active listings");
 
         await unitOfWork.Districts.DeleteAsync(district);
@@ -213,7 +213,7 @@ public static class AdminHandlers
         var city = await unitOfWork.Cities.GetByIdAsync(id);
         if (city == null) return NotFoundResponse("City not found");
 
-        if (await db.Listings.AnyAsync(l => l.CityId == id && l.IsActive))
+        if (await db.RoomListings.AnyAsync(l => l.CityId == id && l.IsActive))
             return BadRequestResponse("Cannot delete city with active listings");
 
         await unitOfWork.Cities.DeleteAsync(city);
@@ -274,7 +274,7 @@ public static class AdminHandlers
         var roomType = await unitOfWork.RoomTypes.GetByIdAsync(id);
         if (roomType == null) return NotFoundResponse("Room type not found");
 
-        if (await db.Listings.AnyAsync(l => l.RoomTypeId == id && l.IsActive))
+        if (await db.RoomListings.AnyAsync(l => l.RoomTypeId == id && l.IsActive))
             return BadRequestResponse("Cannot delete room type with active listings");
 
         await unitOfWork.RoomTypes.DeleteAsync(roomType);
@@ -285,7 +285,7 @@ public static class AdminHandlers
         return NoContentResponse();
     }
 
-    // ── Plot Type CRUD ────────────────────────────────────────────────────────
+    // ── PlotListing Type CRUD ────────────────────────────────────────────────────────
 
     public static async Task<IResult> GetPlotTypes(IUnitOfWork unitOfWork, IMemoryCache cache)
     {
@@ -318,7 +318,7 @@ public static class AdminHandlers
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
         var plotType = await unitOfWork.PlotTypes.GetByIdAsync(id);
-        if (plotType == null) return NotFoundResponse("Plot type not found");
+        if (plotType == null) return NotFoundResponse("PlotListing type not found");
 
         if (request.Name != null) plotType.Name = request.Name.Trim();
         if (request.Description != null) plotType.Description = request.Description;
@@ -334,9 +334,9 @@ public static class AdminHandlers
     public static async Task<IResult> DeletePlotType(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
     {
         var plotType = await unitOfWork.PlotTypes.GetByIdAsync(id);
-        if (plotType == null) return NotFoundResponse("Plot type not found");
+        if (plotType == null) return NotFoundResponse("PlotListing type not found");
 
-        if (await db.Plots.AnyAsync(p => p.PlotTypeId == id && p.IsActive && !p.IsDeleted))
+        if (await db.PlotListings.AnyAsync(p => p.PlotTypeId == id && p.IsActive && !p.IsDeleted))
             return BadRequestResponse("Cannot delete plot type with active plots");
 
         await unitOfWork.PlotTypes.DeleteAsync(plotType);
@@ -350,9 +350,9 @@ public static class AdminHandlers
     public static async Task<IResult> GetStats(ApplicationDbContext db)
     {
         var totalUsers = await db.Users.CountAsync();
-        var totalListings = await db.Listings.CountAsync();
-        var activeListings = await db.Listings.CountAsync(l => l.IsActive);
-        var listingsByDistrict = await db.Listings
+        var totalListings = await db.RoomListings.CountAsync();
+        var activeListings = await db.RoomListings.CountAsync(l => l.IsActive);
+        var listingsByDistrict = await db.RoomListings
             .Where(l => l.IsActive)
             .GroupBy(l => new { l.DistrictId, DistrictName = l.District.Name })
             .Select(g => new { District = g.Key.DistrictName, Count = g.Count() })
@@ -373,7 +373,7 @@ public static class AdminHandlers
             TotalUsers = totalUsers,
             TotalListings = totalListings,
             ActiveListings = activeListings,
-            ListingsByDistrict = listingsByDistrict.ToDictionary(x => x.District, x => x.Count),
+            RoomListingsByDistrict = listingsByDistrict.ToDictionary(x => x.District, x => x.Count),
             TotalEarnings = totalEarnings,
             CurrentMonthEarnings = currentMonthEarnings,
         });
@@ -412,17 +412,17 @@ public static class AdminHandlers
 
         if (key == FeatureKeys.RoomPayment)
         {
-            await db.Listings
+            await db.RoomListings
                 .Where(l => l.IsActive && !l.IsDeleted &&
-                            !db.UserMemberships.Any(m => m.UserId == l.UserId && m.IsActive && m.ValidUntil > now))
+                            !db.RoomMemberships.Any(m => m.UserId == l.UserId && m.IsActive && m.ValidUntil > now))
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(l => l.IsActive, false)
                     .SetProperty(l => l.ValidUntil, yesterday)
                     .SetProperty(l => l.UpdatedAt, now));
         }
-        else if (key == FeatureKeys.PlotPayment)
+        else if (key == FeatureKeys.PlotListingPayment)
         {
-            await db.Plots
+            await db.PlotListings
                 .Where(p => p.IsActive && !p.IsDeleted &&
                             !db.PlotMemberships.Any(m => m.UserId == p.UserId && m.IsActive && m.ValidUntil > now))
                 .ExecuteUpdateAsync(s => s
@@ -447,7 +447,7 @@ public static class AdminHandlers
         page = Math.Max(1, page);
 
         var query = db.Users
-            .Include(u => u.Listings)
+            .Include(u => u.RoomListings)
             .Include(u => u.Memberships.OrderByDescending(m => m.CreatedAt).Take(1))
             .Include(u => u.PlotMemberships.OrderByDescending(m => m.CreatedAt).Take(1))
             .AsQueryable();
@@ -465,16 +465,16 @@ public static class AdminHandlers
         }
 
         if (districtId.HasValue)
-            query = query.Where(u => u.Listings.Any(l => l.DistrictId == districtId.Value && !l.IsDeleted));
+            query = query.Where(u => u.RoomListings.Any(l => l.DistrictId == districtId.Value && !l.IsDeleted));
 
         if (cityId.HasValue)
-            query = query.Where(u => u.Listings.Any(l => l.CityId == cityId.Value && !l.IsDeleted));
+            query = query.Where(u => u.RoomListings.Any(l => l.CityId == cityId.Value && !l.IsDeleted));
 
         var result = await query
             .OrderByDescending(u => u.CreatedAt)
             .ToPagedResultAsync(page, pageSize, u =>
             {
-                var nonDeleted = u.Listings.Where(l => !l.IsDeleted).ToList();
+                var nonDeleted = u.RoomListings.Where(l => !l.IsDeleted).ToList();
                 var membership = u.Memberships
                     .OrderByDescending(m => m.CreatedAt)
                     .FirstOrDefault();
@@ -509,7 +509,7 @@ public static class AdminHandlers
                         PlanType = plotMembership.PlanType,
                         ValidFrom = plotMembership.ValidFrom,
                         ValidUntil = plotMembership.ValidUntil,
-                        MaxPlots = plotMembership.MaxPlots,
+                        MaxPlotListings = plotMembership.MaxPlotListings,
                         IsActive = plotMembership.IsActive,
                     },
                 };
@@ -524,7 +524,7 @@ public static class AdminHandlers
         ApplicationDbContext db)
     {
         var user = await db.Users
-            .Include(u => u.Listings.Where(l => !l.IsDeleted))
+            .Include(u => u.RoomListings.Where(l => !l.IsDeleted))
             .FirstOrDefaultAsync(u => u.Id == id);
 
         if (user == null) return NotFoundResponse("User not found");
@@ -532,7 +532,7 @@ public static class AdminHandlers
         user.IsActive = request.IsActive;
         user.UpdatedAt = DateTime.UtcNow;
 
-        foreach (var listing in user.Listings.Where(l => !l.IsDeleted))
+        foreach (var listing in user.RoomListings.Where(l => !l.IsDeleted))
         {
             listing.IsActive = request.IsActive;
             listing.UpdatedAt = DateTime.UtcNow;
@@ -590,19 +590,19 @@ public static class AdminHandlers
         if (user == null) return NotFoundResponse("User not found");
 
         var planType = request.PlanType.Trim().ToUpperInvariant();
-        var plan = await db.Plans.FirstOrDefaultAsync(p => p.PlanType == planType && p.IsEnabled);
-        if (plan == null) return BadRequestResponse($"Plan '{planType}' not found or disabled.");
+        var plan = await db.RoomPlans.FirstOrDefaultAsync(p => p.PlanType == planType && p.IsEnabled);
+        if (plan == null) return BadRequestResponse($"RoomPlan '{planType}' not found or disabled.");
 
         bool isFree = plan.Price == 0;
         var now = DateTime.UtcNow;
 
-        await db.UserMemberships
+        await db.RoomMemberships
             .Where(m => m.UserId == id && m.IsActive)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(m => m.IsActive, false)
                 .SetProperty(m => m.UpdatedAt, now));
 
-        var membership = new UserMembership
+        var membership = new RoomMembership
         {
             Id = Guid.NewGuid(),
             UserId = id,
@@ -615,7 +615,7 @@ public static class AdminHandlers
             UpdatedAt = now,
         };
 
-        db.UserMemberships.Add(membership);
+        db.RoomMemberships.Add(membership);
 
         // Mark as used free plan for any price=0 plan
         if (isFree)
@@ -637,7 +637,7 @@ public static class AdminHandlers
 
     public static async Task<IResult> GetPlans(ApplicationDbContext db)
     {
-        var plans = await db.Plans
+        var plans = await db.RoomPlans
             .OrderBy(p => p.Price)
             .Select(p => new
             {
@@ -660,7 +660,7 @@ public static class AdminHandlers
         ApplicationDbContext db)
     {
         if (string.IsNullOrWhiteSpace(request.PlanType))
-            return BadRequestResponse("Plan type name is required.");
+            return BadRequestResponse("RoomPlan type name is required.");
         if (request.Price < 0)
             return BadRequestResponse("Price cannot be negative.");
         if (request.Days <= 0)
@@ -669,10 +669,10 @@ public static class AdminHandlers
             return BadRequestResponse("Room limit must be greater than 0.");
 
         var key = request.PlanType.Trim().ToUpperInvariant();
-        if (await db.Plans.AnyAsync(p => p.PlanType == key))
-            return BadRequestResponse($"Plan '{key}' already exists.", "DuplicatePlan");
+        if (await db.RoomPlans.AnyAsync(p => p.PlanType == key))
+            return BadRequestResponse($"RoomPlan '{key}' already exists.", "DuplicatePlan");
 
-        var plan = new Plan
+        var plan = new RoomPlan
         {
             Id = Guid.NewGuid(),
             PlanType = key,
@@ -686,7 +686,7 @@ public static class AdminHandlers
             UpdatedAt = DateTime.UtcNow,
         };
 
-        db.Plans.Add(plan);
+        db.RoomPlans.Add(plan);
         await db.SaveChangesAsync();
 
         return CreatedResponse(new
@@ -707,8 +707,8 @@ public static class AdminHandlers
         UpdatePlanRequest request,
         ApplicationDbContext db)
     {
-        var plan = await db.Plans.FindAsync(id);
-        if (plan == null) return NotFoundResponse("Plan not found");
+        var plan = await db.RoomPlans.FindAsync(id);
+        if (plan == null) return NotFoundResponse("RoomPlan not found");
 
         if (request.Days.HasValue)
         {
@@ -749,10 +749,10 @@ public static class AdminHandlers
     }
 
 
-    // ── Admin Plot Plan endpoints ─────────────────────────────────────────────
+    // ── Admin PlotListing RoomPlan endpoints ─────────────────────────────────────────────
 
-    public record CreatePlotPlanRequest(string PlanType, int Price, int Days, int PlotLimit, int OriginalPrice = 0, int DiscountPercent = 0);
-    public record UpdatePlotPlanRequest(int? Days, int? Price, int? PlotLimit, bool? IsEnabled, int? OriginalPrice, int? DiscountPercent);
+    public record CreatePlotPlanRequest(string PlanType, int Price, int Days, int PlotListingLimit, int OriginalPrice = 0, int DiscountPercent = 0);
+    public record UpdatePlotPlanRequest(int? Days, int? Price, int? PlotListingLimit, bool? IsEnabled, int? OriginalPrice, int? DiscountPercent);
     public record ActivatePlotMembershipRequest(string PlanType);
 
     public static async Task<IResult> GetPlotPlans(ApplicationDbContext db)
@@ -767,7 +767,7 @@ public static class AdminHandlers
                 price = p.Price,
                 originalPrice = p.OriginalPrice,
                 discountPercent = p.DiscountPercent,
-                plotLimit = p.PlotLimit,
+                plotLimit = p.PlotListingLimit,
                 isEnabled = p.IsEnabled,
             })
             .ToListAsync();
@@ -777,17 +777,17 @@ public static class AdminHandlers
     public static async Task<IResult> CreatePlotPlan(CreatePlotPlanRequest request, ApplicationDbContext db)
     {
         if (string.IsNullOrWhiteSpace(request.PlanType))
-            return BadRequestResponse("Plan type name is required.");
+            return BadRequestResponse("RoomPlan type name is required.");
         if (request.Price < 0)
             return BadRequestResponse("Price cannot be negative.");
         if (request.Days <= 0)
             return BadRequestResponse("Days must be greater than 0.");
-        if (request.PlotLimit <= 0)
-            return BadRequestResponse("Plot limit must be greater than 0.");
+        if (request.PlotListingLimit <= 0)
+            return BadRequestResponse("PlotListing limit must be greater than 0.");
 
         var key = request.PlanType.Trim().ToUpperInvariant();
         if (await db.PlotPlans.AnyAsync(p => p.PlanType == key))
-            return BadRequestResponse($"Plan '{key}' already exists.", "DuplicatePlan");
+            return BadRequestResponse($"RoomPlan '{key}' already exists.", "DuplicatePlan");
 
         var plan = new PlotPlan
         {
@@ -795,7 +795,7 @@ public static class AdminHandlers
             PlanType = key,
             Price = request.Price,
             Days = request.Days,
-            PlotLimit = request.PlotLimit,
+            PlotListingLimit = request.PlotListingLimit,
             OriginalPrice = request.OriginalPrice,
             DiscountPercent = request.DiscountPercent,
             IsEnabled = true,
@@ -814,7 +814,7 @@ public static class AdminHandlers
             price = plan.Price,
             originalPrice = plan.OriginalPrice,
             discountPercent = plan.DiscountPercent,
-            plotLimit = plan.PlotLimit,
+            plotLimit = plan.PlotListingLimit,
             isEnabled = plan.IsEnabled,
         }, $"/api/v1/admin/plot-plans/{plan.Id}");
     }
@@ -822,7 +822,7 @@ public static class AdminHandlers
     public static async Task<IResult> UpdatePlotPlan(Guid id, UpdatePlotPlanRequest request, ApplicationDbContext db)
     {
         var plan = await db.PlotPlans.FindAsync(id);
-        if (plan == null) return NotFoundResponse("Plot plan not found");
+        if (plan == null) return NotFoundResponse("PlotListing plan not found");
 
         if (request.Days.HasValue)
         {
@@ -834,10 +834,10 @@ public static class AdminHandlers
             if (request.Price.Value < 0) return BadRequestResponse("Price cannot be negative");
             plan.Price = request.Price.Value;
         }
-        if (request.PlotLimit.HasValue)
+        if (request.PlotListingLimit.HasValue)
         {
-            if (request.PlotLimit.Value <= 0) return BadRequestResponse("Plot limit must be greater than 0");
-            plan.PlotLimit = request.PlotLimit.Value;
+            if (request.PlotListingLimit.Value <= 0) return BadRequestResponse("PlotListing limit must be greater than 0");
+            plan.PlotListingLimit = request.PlotListingLimit.Value;
         }
         if (request.IsEnabled.HasValue)
             plan.IsEnabled = request.IsEnabled.Value;
@@ -857,7 +857,7 @@ public static class AdminHandlers
             price = plan.Price,
             originalPrice = plan.OriginalPrice,
             discountPercent = plan.DiscountPercent,
-            plotLimit = plan.PlotLimit,
+            plotLimit = plan.PlotListingLimit,
             isEnabled = plan.IsEnabled,
         });
     }
@@ -870,7 +870,7 @@ public static class AdminHandlers
 
         var planType = request.PlanType.Trim().ToUpperInvariant();
         var plan = await db.PlotPlans.FirstOrDefaultAsync(p => p.PlanType == planType && p.IsEnabled);
-        if (plan == null) return BadRequestResponse($"Plot plan '{planType}' not found or disabled.");
+        if (plan == null) return BadRequestResponse($"PlotListing plan '{planType}' not found or disabled.");
 
         var now = DateTime.UtcNow;
 
@@ -887,7 +887,7 @@ public static class AdminHandlers
             PlanType = planType,
             ValidFrom = now,
             ValidUntil = now.AddDays(plan.Days),
-            MaxPlots = plan.PlotLimit,
+            MaxPlotListings = plan.PlotListingLimit,
             IsActive = true,
             CreatedAt = now,
             UpdatedAt = now,
@@ -902,12 +902,12 @@ public static class AdminHandlers
             planType = membership.PlanType,
             validFrom = membership.ValidFrom,
             validUntil = membership.ValidUntil,
-            maxPlots = membership.MaxPlots,
+            maxPlotListings = membership.MaxPlotListings,
             isActive = membership.IsActive,
         });
     }
 
-    // ── Admin Listing endpoints ───────────────────────────────────────────────
+    // ── Admin RoomListing endpoints ───────────────────────────────────────────────
 
     public record AdminToggleListingRequest(bool IsActive);
 
@@ -923,7 +923,7 @@ public static class AdminHandlers
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
 
-        var query = db.Listings
+        var query = db.RoomListings
             .Include(l => l.District)
             .Include(l => l.City)
             .Include(l => l.RoomType)
@@ -961,8 +961,8 @@ public static class AdminHandlers
     public static async Task<IResult> ToggleAdminListingStatus(
         Guid id, AdminToggleListingRequest request, ApplicationDbContext db)
     {
-        var listing = await db.Listings.FindAsync(id);
-        if (listing == null || listing.IsDeleted) return NotFoundResponse("Listing not found");
+        var listing = await db.RoomListings.FindAsync(id);
+        if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
 
         listing.IsActive = request.IsActive;
         listing.UpdatedAt = DateTime.UtcNow;
@@ -974,10 +974,10 @@ public static class AdminHandlers
     public static async Task<IResult> DeleteAdminListing(
         Guid id, ApplicationDbContext db, IPhotoService photoService)
     {
-        var listing = await db.Listings
+        var listing = await db.RoomListings
             .Include(l => l.Photos)
             .FirstOrDefaultAsync(l => l.Id == id && !l.IsDeleted);
-        if (listing == null) return NotFoundResponse("Listing not found");
+        if (listing == null) return NotFoundResponse("RoomListing not found");
 
         foreach (var photo in listing.Photos)
             await photoService.DeletePhotoAsync(photo.FilePath);

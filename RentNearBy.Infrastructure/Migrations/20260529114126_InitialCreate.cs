@@ -68,33 +68,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Plans",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    PlanType = table.Column<string>(type: "text", nullable: false),
-                    Days = table.Column<int>(type: "integer", nullable: false),
-                    RoomLimit = table.Column<int>(type: "integer", nullable: false),
-                    Price = table.Column<int>(type: "integer", nullable: false),
-                    DiscountPercent = table.Column<int>(type: "integer", nullable: false),
-                    OriginalPrice = table.Column<int>(type: "integer", nullable: false),
-                    IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Plans", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "PlotPlans",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     PlanType = table.Column<string>(type: "text", nullable: false),
                     Days = table.Column<int>(type: "integer", nullable: false),
-                    PlotLimit = table.Column<int>(type: "integer", nullable: false),
+                    PlotListingLimit = table.Column<int>(type: "integer", nullable: false),
                     Price = table.Column<int>(type: "integer", nullable: false),
                     DiscountPercent = table.Column<int>(type: "integer", nullable: false),
                     OriginalPrice = table.Column<int>(type: "integer", nullable: false),
@@ -120,6 +100,26 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_PlotTypes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "RoomPlans",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    PlanType = table.Column<string>(type: "text", nullable: false),
+                    Days = table.Column<int>(type: "integer", nullable: false),
+                    RoomLimit = table.Column<int>(type: "integer", nullable: false),
+                    Price = table.Column<int>(type: "integer", nullable: false),
+                    DiscountPercent = table.Column<int>(type: "integer", nullable: false),
+                    OriginalPrice = table.Column<int>(type: "integer", nullable: false),
+                    IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_RoomPlans", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -211,7 +211,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     PlanType = table.Column<string>(type: "text", nullable: false),
                     ValidFrom = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     ValidUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    MaxPlots = table.Column<int>(type: "integer", nullable: false),
+                    MaxPlotListings = table.Column<int>(type: "integer", nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
@@ -225,6 +225,37 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "RoomMemberships",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    PlanType = table.Column<string>(type: "text", nullable: false),
+                    ValidFrom = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    ValidUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    MaxRooms = table.Column<int>(type: "integer", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UserId1 = table.Column<Guid>(type: "uuid", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_RoomMemberships", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_RoomMemberships_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_RoomMemberships_Users_UserId1",
+                        column: x => x.UserId1,
+                        principalTable: "Users",
+                        principalColumn: "Id");
                 });
 
             migrationBuilder.CreateTable(
@@ -248,89 +279,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "UserMemberships",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    PlanType = table.Column<string>(type: "text", nullable: false),
-                    ValidFrom = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    ValidUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    MaxRooms = table.Column<int>(type: "integer", nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UserId1 = table.Column<Guid>(type: "uuid", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_UserMemberships", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_UserMemberships_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_UserMemberships_Users_UserId1",
-                        column: x => x.UserId1,
-                        principalTable: "Users",
-                        principalColumn: "Id");
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Listings",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    RoomTypeId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Description = table.Column<string>(type: "text", nullable: true),
-                    PriceMonthly = table.Column<int>(type: "integer", nullable: false),
-                    Latitude = table.Column<decimal>(type: "numeric", nullable: false),
-                    Longitude = table.Column<decimal>(type: "numeric", nullable: false),
-                    Address = table.Column<string>(type: "text", nullable: true),
-                    DistrictId = table.Column<Guid>(type: "uuid", nullable: false),
-                    CityId = table.Column<Guid>(type: "uuid", nullable: true),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
-                    DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    ValidUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    Location = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", stored: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Listings", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_Listings_Cities_CityId",
-                        column: x => x.CityId,
-                        principalTable: "Cities",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
-                    table.ForeignKey(
-                        name: "FK_Listings_Districts_DistrictId",
-                        column: x => x.DistrictId,
-                        principalTable: "Districts",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_Listings_RoomTypes_RoomTypeId",
-                        column: x => x.RoomTypeId,
-                        principalTable: "RoomTypes",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_Listings_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Plots",
+                name: "PlotListings",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
@@ -355,27 +304,27 @@ namespace RentNearBy.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Plots", x => x.Id);
+                    table.PrimaryKey("PK_PlotListings", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_Plots_Cities_CityId",
+                        name: "FK_PlotListings_Cities_CityId",
                         column: x => x.CityId,
                         principalTable: "Cities",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
-                        name: "FK_Plots_Districts_DistrictId",
+                        name: "FK_PlotListings_Districts_DistrictId",
                         column: x => x.DistrictId,
                         principalTable: "Districts",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_Plots_PlotTypes_PlotTypeId",
+                        name: "FK_PlotListings_PlotTypes_PlotTypeId",
                         column: x => x.PlotTypeId,
                         principalTable: "PlotTypes",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_Plots_Users_UserId",
+                        name: "FK_PlotListings_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
                         principalColumn: "Id",
@@ -383,11 +332,62 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "ListingPhotos",
+                name: "RoomListings",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    ListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    RoomTypeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: true),
+                    PriceMonthly = table.Column<int>(type: "integer", nullable: false),
+                    Latitude = table.Column<decimal>(type: "numeric", nullable: false),
+                    Longitude = table.Column<decimal>(type: "numeric", nullable: false),
+                    Address = table.Column<string>(type: "text", nullable: true),
+                    DistrictId = table.Column<Guid>(type: "uuid", nullable: false),
+                    CityId = table.Column<Guid>(type: "uuid", nullable: true),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
+                    DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ValidUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    Location = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", stored: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_RoomListings", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_RoomListings_Cities_CityId",
+                        column: x => x.CityId,
+                        principalTable: "Cities",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_RoomListings_Districts_DistrictId",
+                        column: x => x.DistrictId,
+                        principalTable: "Districts",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_RoomListings_RoomTypes_RoomTypeId",
+                        column: x => x.RoomTypeId,
+                        principalTable: "RoomTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_RoomListings_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "PlotPhotos",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    PlotId = table.Column<Guid>(type: "uuid", nullable: false),
                     PhotoUrl = table.Column<string>(type: "text", nullable: false),
                     FilePath = table.Column<string>(type: "text", nullable: false),
                     PhotoOrder = table.Column<int>(type: "integer", nullable: false),
@@ -395,11 +395,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_ListingPhotos", x => x.Id);
+                    table.PrimaryKey("PK_PlotPhotos", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_ListingPhotos_Listings_ListingId",
-                        column: x => x.ListingId,
-                        principalTable: "Listings",
+                        name: "FK_PlotPhotos_PlotListings_PlotId",
+                        column: x => x.PlotId,
+                        principalTable: "PlotListings",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -411,7 +411,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     UserId = table.Column<Guid>(type: "uuid", nullable: true),
                     PhoneNumber = table.Column<string>(type: "text", nullable: false),
-                    ListingId = table.Column<Guid>(type: "uuid", nullable: true),
+                    RoomListingId = table.Column<Guid>(type: "uuid", nullable: true),
                     PlotId = table.Column<Guid>(type: "uuid", nullable: true),
                     TransactionKind = table.Column<string>(type: "text", nullable: true),
                     PlanType = table.Column<string>(type: "text", nullable: false),
@@ -430,15 +430,15 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_PaymentTransactions", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_PaymentTransactions_Listings_ListingId",
-                        column: x => x.ListingId,
-                        principalTable: "Listings",
+                        name: "FK_PaymentTransactions_PlotListings_PlotId",
+                        column: x => x.PlotId,
+                        principalTable: "PlotListings",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
-                        name: "FK_PaymentTransactions_Plots_PlotId",
-                        column: x => x.PlotId,
-                        principalTable: "Plots",
+                        name: "FK_PaymentTransactions_RoomListings_RoomListingId",
+                        column: x => x.RoomListingId,
+                        principalTable: "RoomListings",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
@@ -455,11 +455,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "PlotPhotos",
+                name: "RoomPhotos",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    PlotId = table.Column<Guid>(type: "uuid", nullable: false),
+                    RoomListingId = table.Column<Guid>(type: "uuid", nullable: false),
                     PhotoUrl = table.Column<string>(type: "text", nullable: false),
                     FilePath = table.Column<string>(type: "text", nullable: false),
                     PhotoOrder = table.Column<int>(type: "integer", nullable: false),
@@ -467,11 +467,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_PlotPhotos", x => x.Id);
+                    table.PrimaryKey("PK_RoomPhotos", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_PlotPhotos_Plots_PlotId",
-                        column: x => x.PlotId,
-                        principalTable: "Plots",
+                        name: "FK_RoomPhotos_RoomListings_RoomListingId",
+                        column: x => x.RoomListingId,
+                        principalTable: "RoomListings",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -556,85 +556,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_ListingPhotos_ListingId",
-                table: "ListingPhotos",
-                column: "ListingId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_CityId",
-                table: "Listings",
-                column: "CityId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_CityId_IsActive",
-                table: "Listings",
-                columns: new[] { "CityId", "IsActive" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_CityId_IsActive_CreatedAt",
-                table: "Listings",
-                columns: new[] { "CityId", "IsActive", "CreatedAt" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_CreatedAt",
-                table: "Listings",
-                column: "CreatedAt");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_DistrictId",
-                table: "Listings",
-                column: "DistrictId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_DistrictId_IsActive",
-                table: "Listings",
-                columns: new[] { "DistrictId", "IsActive" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_IsActive",
-                table: "Listings",
-                column: "IsActive");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_IsActive_RoomTypeId",
-                table: "Listings",
-                columns: new[] { "IsActive", "RoomTypeId" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_listings_location_gist",
-                table: "Listings",
-                column: "Location")
-                .Annotation("Npgsql:IndexMethod", "gist");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_PriceMonthly",
-                table: "Listings",
-                column: "PriceMonthly");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_RoomTypeId",
-                table: "Listings",
-                column: "RoomTypeId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_UserId",
-                table: "Listings",
-                column: "UserId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Listings_UserId_CreatedAt",
-                table: "Listings",
-                columns: new[] { "UserId", "CreatedAt" });
-
-            migrationBuilder.CreateIndex(
                 name: "IX_PaymentTransactions_CreatedAt",
                 table: "PaymentTransactions",
                 column: "CreatedAt");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_PaymentTransactions_ListingId",
-                table: "PaymentTransactions",
-                column: "ListingId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_PaymentTransactions_PlotId",
@@ -645,6 +569,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_PaymentTransactions_RazorpayOrderId",
                 table: "PaymentTransactions",
                 column: "RazorpayOrderId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PaymentTransactions_RoomListingId",
+                table: "PaymentTransactions",
+                column: "RoomListingId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_PaymentTransactions_Status",
@@ -662,10 +591,65 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "UserId1");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Plans_PlanType",
-                table: "Plans",
-                column: "PlanType",
-                unique: true);
+                name: "IX_PlotListings_AreaSqft",
+                table: "PlotListings",
+                column: "AreaSqft");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_CityId",
+                table: "PlotListings",
+                column: "CityId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_CityId_IsActive",
+                table: "PlotListings",
+                columns: new[] { "CityId", "IsActive" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_CityId_IsActive_CreatedAt",
+                table: "PlotListings",
+                columns: new[] { "CityId", "IsActive", "CreatedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_CreatedAt",
+                table: "PlotListings",
+                column: "CreatedAt");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_DistrictId",
+                table: "PlotListings",
+                column: "DistrictId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_DistrictId_IsActive",
+                table: "PlotListings",
+                columns: new[] { "DistrictId", "IsActive" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_IsActive",
+                table: "PlotListings",
+                column: "IsActive");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_PlotTypeId",
+                table: "PlotListings",
+                column: "PlotTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_UserId",
+                table: "PlotListings",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_UserId_CreatedAt",
+                table: "PlotListings",
+                columns: new[] { "UserId", "CreatedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_plots_location_gist",
+                table: "PlotListings",
+                column: "Location")
+                .Annotation("Npgsql:IndexMethod", "gist");
 
             migrationBuilder.CreateIndex(
                 name: "IX_PlotMemberships_IsActive",
@@ -694,70 +678,106 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_Plots_AreaSqft",
-                table: "Plots",
-                column: "AreaSqft");
+                name: "IX_PlotTypes_Name",
+                table: "PlotTypes",
+                column: "Name",
+                unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_Plots_CityId",
-                table: "Plots",
-                column: "CityId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Plots_CityId_IsActive",
-                table: "Plots",
-                columns: new[] { "CityId", "IsActive" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Plots_CityId_IsActive_CreatedAt",
-                table: "Plots",
-                columns: new[] { "CityId", "IsActive", "CreatedAt" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Plots_CreatedAt",
-                table: "Plots",
-                column: "CreatedAt");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Plots_DistrictId",
-                table: "Plots",
-                column: "DistrictId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Plots_DistrictId_IsActive",
-                table: "Plots",
-                columns: new[] { "DistrictId", "IsActive" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Plots_IsActive",
-                table: "Plots",
-                column: "IsActive");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_plots_location_gist",
-                table: "Plots",
+                name: "ix_listings_location_gist",
+                table: "RoomListings",
                 column: "Location")
                 .Annotation("Npgsql:IndexMethod", "gist");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Plots_PlotTypeId",
-                table: "Plots",
-                column: "PlotTypeId");
+                name: "IX_RoomListings_CityId",
+                table: "RoomListings",
+                column: "CityId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Plots_UserId",
-                table: "Plots",
+                name: "IX_RoomListings_CityId_IsActive",
+                table: "RoomListings",
+                columns: new[] { "CityId", "IsActive" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_CityId_IsActive_CreatedAt",
+                table: "RoomListings",
+                columns: new[] { "CityId", "IsActive", "CreatedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_CreatedAt",
+                table: "RoomListings",
+                column: "CreatedAt");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_DistrictId",
+                table: "RoomListings",
+                column: "DistrictId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_DistrictId_IsActive",
+                table: "RoomListings",
+                columns: new[] { "DistrictId", "IsActive" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_IsActive",
+                table: "RoomListings",
+                column: "IsActive");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_IsActive_RoomTypeId",
+                table: "RoomListings",
+                columns: new[] { "IsActive", "RoomTypeId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_PriceMonthly",
+                table: "RoomListings",
+                column: "PriceMonthly");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_RoomTypeId",
+                table: "RoomListings",
+                column: "RoomTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_UserId",
+                table: "RoomListings",
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Plots_UserId_CreatedAt",
-                table: "Plots",
+                name: "IX_RoomListings_UserId_CreatedAt",
+                table: "RoomListings",
                 columns: new[] { "UserId", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlotTypes_Name",
-                table: "PlotTypes",
-                column: "Name",
+                name: "IX_RoomMemberships_IsActive",
+                table: "RoomMemberships",
+                column: "IsActive");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomMemberships_UserId",
+                table: "RoomMemberships",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomMemberships_UserId1",
+                table: "RoomMemberships",
+                column: "UserId1");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomMemberships_ValidUntil",
+                table: "RoomMemberships",
+                column: "ValidUntil");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomPhotos_RoomListingId",
+                table: "RoomPhotos",
+                column: "RoomListingId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomPlans_PlanType",
+                table: "RoomPlans",
+                column: "PlanType",
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -775,26 +795,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_Sessions_UserId",
                 table: "Sessions",
                 column: "UserId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_UserMemberships_IsActive",
-                table: "UserMemberships",
-                column: "IsActive");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_UserMemberships_UserId",
-                table: "UserMemberships",
-                column: "UserId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_UserMemberships_UserId1",
-                table: "UserMemberships",
-                column: "UserId1");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_UserMemberships_ValidUntil",
-                table: "UserMemberships",
-                column: "ValidUntil");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_GoogleEmail",
@@ -819,13 +819,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "AppFeatures");
 
             migrationBuilder.DropTable(
-                name: "ListingPhotos");
-
-            migrationBuilder.DropTable(
                 name: "PaymentTransactions");
-
-            migrationBuilder.DropTable(
-                name: "Plans");
 
             migrationBuilder.DropTable(
                 name: "PlotMemberships");
@@ -837,28 +831,34 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "PlotPlans");
 
             migrationBuilder.DropTable(
-                name: "Sessions");
+                name: "RoomMemberships");
 
             migrationBuilder.DropTable(
-                name: "UserMemberships");
+                name: "RoomPhotos");
+
+            migrationBuilder.DropTable(
+                name: "RoomPlans");
+
+            migrationBuilder.DropTable(
+                name: "Sessions");
 
             migrationBuilder.DropTable(
                 name: "Admins");
 
             migrationBuilder.DropTable(
-                name: "Listings");
+                name: "PlotListings");
 
             migrationBuilder.DropTable(
-                name: "Plots");
+                name: "RoomListings");
 
             migrationBuilder.DropTable(
-                name: "RoomTypes");
+                name: "PlotTypes");
 
             migrationBuilder.DropTable(
                 name: "Cities");
 
             migrationBuilder.DropTable(
-                name: "PlotTypes");
+                name: "RoomTypes");
 
             migrationBuilder.DropTable(
                 name: "Users");

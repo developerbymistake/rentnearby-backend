@@ -1,23 +1,23 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
 
-public class UserMembershipRepository(ApplicationDbContext context) : IUserMembershipRepository
+public class RoomMembershipRepository(ApplicationDbContext context) : IRoomMembershipRepository
 {
-    public async Task AddAsync(UserMembership membership)
-        => await context.UserMemberships.AddAsync(membership);
+    public async Task AddAsync(RoomMembership membership)
+        => await context.RoomMemberships.AddAsync(membership);
 
-    public async Task<UserMembership?> GetActiveByUserIdAsync(Guid userId)
-        => await context.UserMemberships
+    public async Task<RoomMembership?> GetActiveByUserIdAsync(Guid userId)
+        => await context.RoomMemberships
             .Where(m => m.UserId == userId && m.IsActive && m.ValidUntil > DateTime.UtcNow)
             .OrderByDescending(m => m.ValidUntil)
             .FirstOrDefaultAsync();
 
-    public async Task<UserMembership?> GetByIdAsync(Guid id)
-        => await context.UserMemberships.FirstOrDefaultAsync(m => m.Id == id);
+    public async Task<RoomMembership?> GetByIdAsync(Guid id)
+        => await context.RoomMemberships.FirstOrDefaultAsync(m => m.Id == id);
 
     public async Task<bool> HasUsedFreePlanAsync(Guid userId)
     {
@@ -25,8 +25,8 @@ public class UserMembershipRepository(ApplicationDbContext context) : IUserMembe
         return user?.HasUsedFreePlan ?? false;
     }
 
-    public async Task<IEnumerable<UserMembership>> GetExpiredAsync(DateTime beforeDate)
-        => await context.UserMemberships
+    public async Task<IEnumerable<RoomMembership>> GetExpiredAsync(DateTime beforeDate)
+        => await context.RoomMemberships
             .Where(m => m.IsActive && m.ValidUntil < beforeDate)
             .ToListAsync();
 

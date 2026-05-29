@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -18,13 +18,13 @@ public interface IPaymentService
     Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId, string planType);
     Task<PaymentVerifyResponse> VerifyUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request);
 
-    // Plot payment methods
-    Task<CreatePaymentOrderResponse> CreatePlotOrderAsync(Guid userId, Guid plotId, string planType);
-    Task<PlotPaymentVerifyResponse> VerifyPlotPaymentAsync(Guid userId, VerifyPaymentRequest request);
-    Task<bool> CanUserActivatePlotAsync(Guid userId);
-    Task<int> GetActivePlotCountAsync(Guid userId);
-    Task<CreatePaymentOrderResponse> CreatePlotUpgradeOrderAsync(Guid userId, string planType);
-    Task<PlotPaymentVerifyResponse> VerifyPlotUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request);
+    // PlotListing payment methods
+    Task<CreatePaymentOrderResponse> CreatePlotListingOrderAsync(Guid userId, Guid plotId, string planType);
+    Task<PlotListingPaymentVerifyResponse> VerifyPlotListingPaymentAsync(Guid userId, VerifyPaymentRequest request);
+    Task<bool> CanUserActivatePlotListingAsync(Guid userId);
+    Task<int> GetActivePlotListingCountAsync(Guid userId);
+    Task<CreatePaymentOrderResponse> CreatePlotListingUpgradeOrderAsync(Guid userId, string planType);
+    Task<PlotListingPaymentVerifyResponse> VerifyPlotListingUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request);
 }
 
 public class PaymentService : IPaymentService
@@ -44,7 +44,7 @@ public class PaymentService : IPaymentService
 
     private async Task DeactivateExistingMembershipsAsync(Guid userId)
     {
-        var existing = await _unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
+        var existing = await _unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
         if (existing != null)
         {
             existing.IsActive = false;
@@ -65,7 +65,7 @@ public class PaymentService : IPaymentService
         catch { }
     }
 
-    private async Task InvalidatePlotNearbyCacheAsync(Guid? cityId)
+    private async Task InvalidatePlotListingNearbyCacheAsync(Guid? cityId)
     {
         if (cityId == null) return;
         try
@@ -81,9 +81,9 @@ public class PaymentService : IPaymentService
     public async Task<CreatePaymentOrderResponse> CreateOrderAsync(Guid userId, Guid listingId, string planType)
     {
         // Validate plan exists and is enabled — routing is by plan.Price, not plan type name
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(planType);
+        var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(planType);
         if (plan == null || !plan.IsEnabled)
-            throw new ArgumentException($"Plan '{planType}' does not exist or is disabled.");
+            throw new ArgumentException($"RoomPlan '{planType}' does not exist or is disabled.");
         bool isFree = plan.Price == 0;
 
         var paymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
@@ -93,9 +93,9 @@ public class PaymentService : IPaymentService
         if (!paymentFeature.IsEnabled && !isFree)
             throw new InvalidOperationException("Payment feature is not enabled yet.");
 
-        var listing = await _unitOfWork.Listings.GetByIdAsync(listingId);
+        var listing = await _unitOfWork.RoomListings.GetByIdAsync(listingId);
         if (listing == null)
-            throw new KeyNotFoundException("Listing not found.");
+            throw new KeyNotFoundException("RoomListing not found.");
         if (listing.UserId != userId)
             throw new UnauthorizedAccessException("You don't own this listing.");
 
@@ -103,7 +103,7 @@ public class PaymentService : IPaymentService
 
         // Handle existing PENDING transactions
         var existingPendingTransaction = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
-            .FirstOrDefault(t => t.ListingId == listingId && t.Status == "PENDING");
+            .FirstOrDefault(t => t.RoomListingId == listingId && t.Status == "PENDING");
 
         if (existingPendingTransaction != null)
         {
@@ -162,7 +162,7 @@ public class PaymentService : IPaymentService
             Id = Guid.NewGuid(),
             UserId = userId,
             PhoneNumber = txUser?.PhoneNumber ?? string.Empty,
-            ListingId = listingId,
+            RoomListingId = listingId,
             PlanType = planType,
             Amount = amount,
             Status = "PENDING",
@@ -216,14 +216,14 @@ public class PaymentService : IPaymentService
     public async Task<PaymentInitiateResponse> InitiatePaymentAsync(Guid userId, Guid listingId, string planType)
     {
         // Validate plan exists and is enabled
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(planType);
+        var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(planType);
         if (plan == null || !plan.IsEnabled)
-            throw new ArgumentException($"Plan '{planType}' does not exist or is disabled.");
+            throw new ArgumentException($"RoomPlan '{planType}' does not exist or is disabled.");
         bool isFree = plan.Price == 0;
 
-        var listing = await _unitOfWork.Listings.GetByIdAsync(listingId);
+        var listing = await _unitOfWork.RoomListings.GetByIdAsync(listingId);
         if (listing == null)
-            throw new KeyNotFoundException("Listing not found.");
+            throw new KeyNotFoundException("RoomListing not found.");
         if (listing.UserId != userId)
             throw new UnauthorizedAccessException("You don't own this listing.");
 
@@ -238,7 +238,7 @@ public class PaymentService : IPaymentService
 
         // Prevent duplicate transactions
         var existingPendingTransaction = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
-            .FirstOrDefault(t => t.ListingId == listingId && t.Status == "PENDING");
+            .FirstOrDefault(t => t.RoomListingId == listingId && t.Status == "PENDING");
 
         if (existingPendingTransaction != null)
         {
@@ -264,7 +264,7 @@ public class PaymentService : IPaymentService
             Id = Guid.NewGuid(),
             UserId = userId,
             PhoneNumber = txUser2?.PhoneNumber ?? string.Empty,
-            ListingId = listingId,
+            RoomListingId = listingId,
             PlanType = planType,
             Amount = amount,
             Status = "PENDING",
@@ -346,7 +346,7 @@ public class PaymentService : IPaymentService
         }
 
         // Look up plan to determine routing (price-based, not name-based)
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(transaction.PlanType);
+        var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(transaction.PlanType);
         bool isFree = plan?.Price == 0;
 
         // Verify Razorpay signature for paid plans only
@@ -377,11 +377,11 @@ public class PaymentService : IPaymentService
 
             if (plan == null)
             {
-                _logger.LogError($"Plan '{transaction.PlanType}' not found");
-                throw new InvalidOperationException("Plan configuration not found.");
+                _logger.LogError($"RoomPlan '{transaction.PlanType}' not found");
+                throw new InvalidOperationException("RoomPlan configuration not found.");
             }
 
-            var membership = new UserMembership
+            var membership = new RoomMembership
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
@@ -395,23 +395,23 @@ public class PaymentService : IPaymentService
             };
 
             await DeactivateExistingMembershipsAsync(userId);
-            await _unitOfWork.UserMemberships.AddAsync(membership);
+            await _unitOfWork.RoomMemberships.AddAsync(membership);
 
             var roomCityIds = new HashSet<Guid?>();
-            if (transaction.ListingId.HasValue)
+            if (transaction.RoomListingId.HasValue)
             {
-                var listing = await _unitOfWork.Listings.GetByIdAsync(transaction.ListingId.Value);
+                var listing = await _unitOfWork.RoomListings.GetByIdAsync(transaction.RoomListingId.Value);
                 if (listing != null)
                 {
                     if (listing.IsActive)
                     {
-                        _logger.LogWarning($"Listing {listing.Id} is already active");
+                        _logger.LogWarning($"RoomListing {listing.Id} is already active");
                         await _unitOfWork.SaveChangesAsync();
                         return new PaymentVerifyResponse
                         {
                             Success = true,
                             Message = "Payment successful. Your listing is now live!",
-                            UserMembershipId = membership.Id,
+                            RoomMembershipId = membership.Id,
                             ValidUntil = membership.ValidUntil,
                             PlanType = transaction.PlanType,
                             MaxRooms = membership.MaxRooms
@@ -421,13 +421,13 @@ public class PaymentService : IPaymentService
                     listing.IsActive = true;
                     listing.ValidUntil = membership.ValidUntil;
                     roomCityIds.Add(listing.CityId);
-                    _logger.LogInformation($"Listing {listing.Id} activated with membership valid until {membership.ValidUntil}");
+                    _logger.LogInformation($"RoomListing {listing.Id} activated with membership valid until {membership.ValidUntil}");
                 }
             }
 
             // Extend ValidUntil on all other existing active listings to match the new membership
-            var allListings = await _unitOfWork.Listings.GetByUserIdAsync(userId);
-            foreach (var l in allListings.Where(l => l.IsActive && !l.IsDeleted && l.Id != transaction.ListingId))
+            var allListings = await _unitOfWork.RoomListings.GetByUserIdAsync(userId);
+            foreach (var l in allListings.Where(l => l.IsActive && !l.IsDeleted && l.Id != transaction.RoomListingId))
             {
                 l.ValidUntil = membership.ValidUntil;
                 roomCityIds.Add(l.CityId);
@@ -458,7 +458,7 @@ public class PaymentService : IPaymentService
             {
                 Success = true,
                 Message = "Payment successful. Your listing is now live!",
-                UserMembershipId = membership.Id,
+                RoomMembershipId = membership.Id,
                 ValidUntil = membership.ValidUntil,
                 PlanType = transaction.PlanType,
                 MaxRooms = membership.MaxRooms
@@ -473,7 +473,7 @@ public class PaymentService : IPaymentService
 
     public async Task<bool> CanUserActivateListingAsync(Guid userId)
     {
-        var membership = await _unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
+        var membership = await _unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
         if (membership == null)
         {
             _logger.LogInformation($"User {userId} has no active membership - can activate a listing");
@@ -489,7 +489,7 @@ public class PaymentService : IPaymentService
 
     public async Task<int> GetActiveRoomCountAsync(Guid userId)
     {
-        var listings = await _unitOfWork.Listings.GetByUserIdAsync(userId);
+        var listings = await _unitOfWork.RoomListings.GetByUserIdAsync(userId);
         var activeCount = listings.Count(l => l.IsActive && !l.IsDeleted);
         return activeCount;
     }
@@ -501,14 +501,14 @@ public class PaymentService : IPaymentService
         if (transaction == null)
             throw new KeyNotFoundException("Transaction not found.");
 
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(transaction.PlanType);
+        var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(transaction.PlanType);
         if (plan == null)
-            throw new InvalidOperationException($"Plan '{transaction.PlanType}' not configured.");
+            throw new InvalidOperationException($"RoomPlan '{transaction.PlanType}' not configured.");
 
         transaction.Status = "SUCCESS";
         transaction.CompletedAt = DateTime.UtcNow;
 
-        var membership = new UserMembership
+        var membership = new RoomMembership
         {
             Id = Guid.NewGuid(),
             UserId = userId,
@@ -522,18 +522,18 @@ public class PaymentService : IPaymentService
         };
 
         await DeactivateExistingMembershipsAsync(userId);
-        await _unitOfWork.UserMemberships.AddAsync(membership);
+        await _unitOfWork.RoomMemberships.AddAsync(membership);
 
         Guid? cityId = null;
-        if (transaction.ListingId.HasValue)
+        if (transaction.RoomListingId.HasValue)
         {
-            var listing = await _unitOfWork.Listings.GetByIdAsync(transaction.ListingId.Value);
+            var listing = await _unitOfWork.RoomListings.GetByIdAsync(transaction.RoomListingId.Value);
             if (listing != null && !listing.IsActive)
             {
                 listing.IsActive = true;
                 listing.ValidUntil = membership.ValidUntil;
                 cityId = listing.CityId;
-                _logger.LogInformation($"Listing {listing.Id} activated with {transaction.PlanType} plan valid until {membership.ValidUntil}");
+                _logger.LogInformation($"RoomListing {listing.Id} activated with {transaction.PlanType} plan valid until {membership.ValidUntil}");
             }
         }
 
@@ -559,14 +559,14 @@ public class PaymentService : IPaymentService
         if (paymentFeature == null || !paymentFeature.IsEnabled)
             throw new InvalidOperationException("Payment feature is not enabled.");
 
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(planType);
+        var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(planType);
         if (plan == null || !plan.IsEnabled)
-            throw new ArgumentException($"Plan '{planType}' does not exist or is disabled.");
+            throw new ArgumentException($"RoomPlan '{planType}' does not exist or is disabled.");
         if (plan.Price == 0)
             throw new ArgumentException("Upgrade requires a paid plan (price must be greater than 0).");
 
         var existing = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
-            .FirstOrDefault(t => t.ListingId == null && t.PlanType == planType && t.Status == "PENDING");
+            .FirstOrDefault(t => t.RoomListingId == null && t.PlanType == planType && t.Status == "PENDING");
         if (existing != null && !string.IsNullOrEmpty(existing.RazorpayOrderId))
         {
             if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
@@ -591,7 +591,7 @@ public class PaymentService : IPaymentService
             Id = Guid.NewGuid(),
             UserId = userId,
             PhoneNumber = upgradeUser?.PhoneNumber ?? string.Empty,
-            ListingId = null,
+            RoomListingId = null,
             PlanType = planType,
             Amount = plan.Price,
             Status = "PENDING",
@@ -631,11 +631,11 @@ public class PaymentService : IPaymentService
         transaction.CompletedAt = DateTime.UtcNow;
 
         // Use the plan stored on the transaction — supports any paid plan type
-        var plan = await _unitOfWork.Plans.GetByPlanTypeAsync(transaction.PlanType);
+        var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(transaction.PlanType);
         if (plan == null)
-            throw new InvalidOperationException($"Plan '{transaction.PlanType}' not configured.");
+            throw new InvalidOperationException($"RoomPlan '{transaction.PlanType}' not configured.");
 
-        var membership = new UserMembership
+        var membership = new RoomMembership
         {
             Id = Guid.NewGuid(),
             UserId = userId,
@@ -649,9 +649,9 @@ public class PaymentService : IPaymentService
         };
 
         await DeactivateExistingMembershipsAsync(userId);
-        await _unitOfWork.UserMemberships.AddAsync(membership);
+        await _unitOfWork.RoomMemberships.AddAsync(membership);
 
-        var listings = await _unitOfWork.Listings.GetByUserIdAsync(userId);
+        var listings = await _unitOfWork.RoomListings.GetByUserIdAsync(userId);
         var cityIds = new HashSet<Guid?>();
         foreach (var listing in listings.Where(l => l.IsActive && !l.IsDeleted))
         {
@@ -663,19 +663,19 @@ public class PaymentService : IPaymentService
         foreach (var cityId in cityIds)
             await InvalidateNearbyCacheAsync(cityId);
 
-        _logger.LogInformation($"Plan upgrade verified for user {userId}, membership {membership.Id}");
+        _logger.LogInformation($"RoomPlan upgrade verified for user {userId}, membership {membership.Id}");
         return new PaymentVerifyResponse
         {
             Success = true,
-            Message = $"Plan upgraded! Your existing rooms are extended to {plan.Days} days.",
-            UserMembershipId = membership.Id,
+            Message = $"RoomPlan upgraded! Your existing rooms are extended to {plan.Days} days.",
+            RoomMembershipId = membership.Id,
             ValidUntil = membership.ValidUntil,
             PlanType = transaction.PlanType,
             MaxRooms = membership.MaxRooms
         };
     }
 
-    // ── Plot payment methods ──────────────────────────────────────────────────
+    // ── PlotListing payment methods ──────────────────────────────────────────────────
 
     private async Task DeactivateExistingPlotMembershipsAsync(Guid userId)
     {
@@ -687,23 +687,23 @@ public class PaymentService : IPaymentService
         }
     }
 
-    public async Task<CreatePaymentOrderResponse> CreatePlotOrderAsync(Guid userId, Guid plotId, string planType)
+    public async Task<CreatePaymentOrderResponse> CreatePlotListingOrderAsync(Guid userId, Guid plotId, string planType)
     {
         var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(planType);
         if (plan == null || !plan.IsEnabled)
-            throw new ArgumentException($"Plot plan '{planType}' does not exist or is disabled.");
+            throw new ArgumentException($"PlotListing plan '{planType}' does not exist or is disabled.");
         bool isFree = plan.Price == 0;
 
-        var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
+        var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
         if (plotPaymentFeature == null)
-            throw new InvalidOperationException("Plot payment feature not configured.");
+            throw new InvalidOperationException("PlotListing payment feature not configured.");
 
         if (!plotPaymentFeature.IsEnabled && !isFree)
-            throw new InvalidOperationException("Plot payment feature is not enabled yet.");
+            throw new InvalidOperationException("PlotListing payment feature is not enabled yet.");
 
-        var plot = await _unitOfWork.Plots.GetByIdAsync(plotId);
+        var plot = await _unitOfWork.PlotListings.GetByIdAsync(plotId);
         if (plot == null)
-            throw new KeyNotFoundException("Plot not found.");
+            throw new KeyNotFoundException("PlotListing not found.");
         if (plot.UserId != userId)
             throw new UnauthorizedAccessException("You don't own this plot.");
 
@@ -776,7 +776,7 @@ public class PaymentService : IPaymentService
         return new CreatePaymentOrderResponse { OrderId = transaction.RazorpayOrderId!, Amount = plan.Price, Currency = "INR", KeyId = _razorpay.GetKeyId() };
     }
 
-    public async Task<PlotPaymentVerifyResponse> VerifyPlotPaymentAsync(Guid userId, VerifyPaymentRequest request)
+    public async Task<PlotListingPaymentVerifyResponse> VerifyPlotListingPaymentAsync(Guid userId, VerifyPaymentRequest request)
     {
         _logger.LogInformation($"Verifying plot payment for user {userId}, order {request.RazorpayOrderId}");
 
@@ -805,8 +805,8 @@ public class PaymentService : IPaymentService
         transaction.RazorpaySignature = request.RazorpaySignature;
         transaction.CompletedAt = DateTime.UtcNow;
 
-        var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
-        if (plan == null) throw new InvalidOperationException("Plan configuration not found.");
+        var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
+        if (plan == null) throw new InvalidOperationException("RoomPlan configuration not found.");
 
         var membership = new PlotMembership
         {
@@ -815,7 +815,7 @@ public class PaymentService : IPaymentService
             PlanType = transaction.PlanType,
             ValidFrom = DateTime.UtcNow,
             ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
-            MaxPlots = plan.PlotLimit,
+            MaxPlotListings = plan.PlotListingLimit,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -827,33 +827,33 @@ public class PaymentService : IPaymentService
         var plotCityIds = new HashSet<Guid?>();
         if (transaction.PlotId.HasValue)
         {
-            var plot = await _unitOfWork.Plots.GetByIdAsync(transaction.PlotId.Value);
+            var plot = await _unitOfWork.PlotListings.GetByIdAsync(transaction.PlotId.Value);
             if (plot != null)
             {
                 if (plot.IsActive)
                 {
-                    _logger.LogWarning($"Plot {plot.Id} is already active");
+                    _logger.LogWarning($"PlotListing {plot.Id} is already active");
                     await _unitOfWork.SaveChangesAsync();
-                    return new PlotPaymentVerifyResponse
+                    return new PlotListingPaymentVerifyResponse
                     {
                         Success = true,
                         Message = "Payment successful. Your plot listing is now live!",
                         PlotMembershipId = membership.Id,
                         ValidUntil = membership.ValidUntil,
                         PlanType = transaction.PlanType,
-                        MaxPlots = membership.MaxPlots
+                        MaxPlotListings = membership.MaxPlotListings
                     };
                 }
                 plot.IsActive = true;
                 plot.ValidUntil = membership.ValidUntil;
                 plotCityIds.Add(plot.CityId);
-                _logger.LogInformation($"Plot {plot.Id} activated with membership valid until {membership.ValidUntil}");
+                _logger.LogInformation($"PlotListing {plot.Id} activated with membership valid until {membership.ValidUntil}");
             }
         }
 
         // Extend ValidUntil on all other existing active plots to match the new membership
-        var allPlots = await _unitOfWork.Plots.GetActiveByUserIdAsync(userId);
-        foreach (var p in allPlots.Where(p => !p.IsDeleted && p.Id != transaction.PlotId))
+        var allPlotListings = await _unitOfWork.PlotListings.GetActiveByUserIdAsync(userId);
+        foreach (var p in allPlotListings.Where(p => !p.IsDeleted && p.Id != transaction.PlotId))
         {
             p.ValidUntil = membership.ValidUntil;
             plotCityIds.Add(p.CityId);
@@ -870,52 +870,52 @@ public class PaymentService : IPaymentService
 
         await _unitOfWork.SaveChangesAsync();
         foreach (var cityId in plotCityIds)
-            await InvalidatePlotNearbyCacheAsync(cityId);
+            await InvalidatePlotListingNearbyCacheAsync(cityId);
 
-        return new PlotPaymentVerifyResponse
+        return new PlotListingPaymentVerifyResponse
         {
             Success = true,
             Message = "Payment successful. Your plot listing is now live!",
             PlotMembershipId = membership.Id,
             ValidUntil = membership.ValidUntil,
             PlanType = transaction.PlanType,
-            MaxPlots = membership.MaxPlots
+            MaxPlotListings = membership.MaxPlotListings
         };
     }
 
-    public async Task<bool> CanUserActivatePlotAsync(Guid userId)
+    public async Task<bool> CanUserActivatePlotListingAsync(Guid userId)
     {
         var membership = await _unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
         if (membership == null) return true;
 
-        var activePlots = await _unitOfWork.Plots.GetActiveByUserIdAsync(userId);
-        var activeCount = activePlots.Count(p => !p.IsDeleted);
-        var canActivate = activeCount < membership.MaxPlots;
+        var activePlotListings = await _unitOfWork.PlotListings.GetActiveByUserIdAsync(userId);
+        var activeCount = activePlotListings.Count(p => !p.IsDeleted);
+        var canActivate = activeCount < membership.MaxPlotListings;
 
-        _logger.LogInformation($"User {userId} has {activeCount} active plots, max allowed: {membership.MaxPlots}, can activate: {canActivate}");
+        _logger.LogInformation($"User {userId} has {activeCount} active plots, max allowed: {membership.MaxPlotListings}, can activate: {canActivate}");
         return canActivate;
     }
 
-    public async Task<int> GetActivePlotCountAsync(Guid userId)
+    public async Task<int> GetActivePlotListingCountAsync(Guid userId)
     {
-        var plots = await _unitOfWork.Plots.GetActiveByUserIdAsync(userId);
+        var plots = await _unitOfWork.PlotListings.GetActiveByUserIdAsync(userId);
         return plots.Count(p => !p.IsDeleted);
     }
 
-    public async Task<CreatePaymentOrderResponse> CreatePlotUpgradeOrderAsync(Guid userId, string planType)
+    public async Task<CreatePaymentOrderResponse> CreatePlotListingUpgradeOrderAsync(Guid userId, string planType)
     {
-        var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
+        var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
         if (plotPaymentFeature == null || !plotPaymentFeature.IsEnabled)
-            throw new InvalidOperationException("Plot payment feature is not enabled.");
+            throw new InvalidOperationException("PlotListing payment feature is not enabled.");
 
         var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(planType);
         if (plan == null || !plan.IsEnabled)
-            throw new ArgumentException($"Plot plan '{planType}' does not exist or is disabled.");
+            throw new ArgumentException($"PlotListing plan '{planType}' does not exist or is disabled.");
         if (plan.Price == 0)
             throw new ArgumentException("Upgrade requires a paid plan.");
 
         var existing = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
-            .FirstOrDefault(t => t.PlotId == null && t.ListingId == null && t.TransactionKind == "PLOT" && t.PlanType == planType && t.Status == "PENDING");
+            .FirstOrDefault(t => t.PlotId == null && t.RoomListingId == null && t.TransactionKind == "PLOT" && t.PlanType == planType && t.Status == "PENDING");
         if (existing != null && !string.IsNullOrEmpty(existing.RazorpayOrderId))
         {
             if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
@@ -933,7 +933,7 @@ public class PaymentService : IPaymentService
             UserId = userId,
             PhoneNumber = plotUpgradeUser?.PhoneNumber ?? string.Empty,
             PlotId = null,
-            ListingId = null,
+            RoomListingId = null,
             TransactionKind = "PLOT",
             PlanType = planType,
             Amount = plan.Price,
@@ -947,7 +947,7 @@ public class PaymentService : IPaymentService
         return new CreatePaymentOrderResponse { OrderId = orderId, Amount = plan.Price, Currency = "INR", KeyId = _razorpay.GetKeyId() };
     }
 
-    public async Task<PlotPaymentVerifyResponse> VerifyPlotUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request)
+    public async Task<PlotListingPaymentVerifyResponse> VerifyPlotListingUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request)
     {
         var transaction = await _unitOfWork.PaymentTransactions.GetByRazorpayOrderIdAsync(request.RazorpayOrderId);
         if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
@@ -968,7 +968,7 @@ public class PaymentService : IPaymentService
         transaction.CompletedAt = DateTime.UtcNow;
 
         var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(transaction.PlanType);
-        if (plan == null) throw new InvalidOperationException($"Plan '{transaction.PlanType}' not configured.");
+        if (plan == null) throw new InvalidOperationException($"RoomPlan '{transaction.PlanType}' not configured.");
 
         var membership = new PlotMembership
         {
@@ -977,7 +977,7 @@ public class PaymentService : IPaymentService
             PlanType = transaction.PlanType,
             ValidFrom = DateTime.UtcNow,
             ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
-            MaxPlots = plan.PlotLimit,
+            MaxPlotListings = plan.PlotListingLimit,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -986,25 +986,25 @@ public class PaymentService : IPaymentService
         await DeactivateExistingPlotMembershipsAsync(userId);
         await _unitOfWork.PlotMemberships.AddAsync(membership);
 
-        var activePlots = await _unitOfWork.Plots.GetActiveByUserIdAsync(userId);
-        foreach (var plot in activePlots)
+        var activePlotListings = await _unitOfWork.PlotListings.GetActiveByUserIdAsync(userId);
+        foreach (var plot in activePlotListings)
             plot.ValidUntil = membership.ValidUntil;
 
         await _unitOfWork.SaveChangesAsync();
 
-        var cityIds = activePlots.Select(p => p.CityId).Where(c => c.HasValue).Distinct();
+        var cityIds = activePlotListings.Select(p => p.CityId).Where(c => c.HasValue).Distinct();
         foreach (var cid in cityIds)
-            await InvalidatePlotNearbyCacheAsync(cid);
+            await InvalidatePlotListingNearbyCacheAsync(cid);
 
-        _logger.LogInformation($"Plot plan upgrade verified for user {userId}, membership {membership.Id}");
-        return new PlotPaymentVerifyResponse
+        _logger.LogInformation($"PlotListing plan upgrade verified for user {userId}, membership {membership.Id}");
+        return new PlotListingPaymentVerifyResponse
         {
             Success = true,
-            Message = $"Plot plan upgraded! Your existing plots are extended to {plan.Days} days.",
+            Message = $"PlotListing plan upgraded! Your existing plots are extended to {plan.Days} days.",
             PlotMembershipId = membership.Id,
             ValidUntil = membership.ValidUntil,
             PlanType = transaction.PlanType,
-            MaxPlots = membership.MaxPlots
+            MaxPlotListings = membership.MaxPlotListings
         };
     }
 
@@ -1014,7 +1014,7 @@ public class PaymentService : IPaymentService
         if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
 
         var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(transaction.PlanType);
-        if (plan == null) throw new InvalidOperationException($"Plot plan '{transaction.PlanType}' not configured.");
+        if (plan == null) throw new InvalidOperationException($"PlotListing plan '{transaction.PlanType}' not configured.");
 
         transaction.Status = "SUCCESS";
         transaction.CompletedAt = DateTime.UtcNow;
@@ -1026,7 +1026,7 @@ public class PaymentService : IPaymentService
             PlanType = transaction.PlanType,
             ValidFrom = DateTime.UtcNow,
             ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
-            MaxPlots = plan.PlotLimit,
+            MaxPlotListings = plan.PlotListingLimit,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -1035,22 +1035,22 @@ public class PaymentService : IPaymentService
         await DeactivateExistingPlotMembershipsAsync(userId);
         await _unitOfWork.PlotMemberships.AddAsync(membership);
 
-        Guid? freePlotCityId = null;
+        Guid? freePlotListingCityId = null;
         if (transaction.PlotId.HasValue)
         {
-            var plot = await _unitOfWork.Plots.GetByIdAsync(transaction.PlotId.Value);
+            var plot = await _unitOfWork.PlotListings.GetByIdAsync(transaction.PlotId.Value);
             if (plot != null && !plot.IsActive)
             {
                 plot.IsActive = true;
                 plot.ValidUntil = membership.ValidUntil;
-                freePlotCityId = plot.CityId;
+                freePlotListingCityId = plot.CityId;
             }
         }
 
         var user = await _unitOfWork.Users.GetByIdAsync(userId);
         if (user != null)
         {
-            var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
+            var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
             if (plotPaymentFeature?.IsEnabled == true && !user.HasUsedFreePlotPlan)
             {
                 user.HasUsedFreePlotPlan = true;
@@ -1058,6 +1058,6 @@ public class PaymentService : IPaymentService
         }
 
         await _unitOfWork.SaveChangesAsync();
-        await InvalidatePlotNearbyCacheAsync(freePlotCityId);
+        await InvalidatePlotListingNearbyCacheAsync(freePlotListingCityId);
     }
 }

@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260529104429_InitialCreate")]
+    [Migration("20260529114126_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -212,134 +212,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("Districts");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.Listing", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<string>("Address")
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("CityId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("DistrictId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<decimal>("Latitude")
-                        .HasColumnType("numeric");
-
-                    b.Property<Point>("Location")
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("geography(Point, 4326)")
-                        .HasComputedColumnSql("ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", true);
-
-                    b.Property<decimal>("Longitude")
-                        .HasColumnType("numeric");
-
-                    b.Property<int>("PriceMonthly")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("RoomTypeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("ValidUntil")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CityId");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("DistrictId");
-
-                    b.HasIndex("IsActive");
-
-                    b.HasIndex("Location")
-                        .HasDatabaseName("ix_listings_location_gist");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Location"), "gist");
-
-                    b.HasIndex("PriceMonthly");
-
-                    b.HasIndex("RoomTypeId");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("CityId", "IsActive");
-
-                    b.HasIndex("DistrictId", "IsActive");
-
-                    b.HasIndex("IsActive", "RoomTypeId");
-
-                    b.HasIndex("UserId", "CreatedAt");
-
-                    b.HasIndex("CityId", "IsActive", "CreatedAt");
-
-                    b.ToTable("Listings");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.ListingPhoto", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<string>("FilePath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("ListingId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("PhotoOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("PhotoUrl")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("UploadedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ListingId");
-
-                    b.ToTable("ListingPhotos");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.PaymentTransaction", b =>
                 {
                     b.Property<Guid>("Id")
@@ -365,9 +237,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<string>("FailureReason")
                         .HasColumnType("text");
 
-                    b.Property<Guid?>("ListingId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("PhoneNumber")
                         .IsRequired()
                         .HasColumnType("text");
@@ -388,6 +257,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<string>("RazorpaySignature")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("RoomListingId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("text");
@@ -405,11 +277,11 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.HasIndex("ListingId");
-
                     b.HasIndex("PlotId");
 
                     b.HasIndex("RazorpayOrderId");
+
+                    b.HasIndex("RoomListingId");
 
                     b.HasIndex("Status");
 
@@ -420,54 +292,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("PaymentTransactions");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.Plan", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<int>("Days")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("DiscountPercent")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("OriginalPrice")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("PlanType")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("Price")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("RoomLimit")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PlanType")
-                        .IsUnique();
-
-                    b.ToTable("Plans");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.Plot", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -564,7 +389,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CityId", "IsActive", "CreatedAt");
 
-                    b.ToTable("Plots");
+                    b.ToTable("PlotListings");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotMembership", b =>
@@ -582,7 +407,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
-                    b.Property<int>("MaxPlots")
+                    b.Property<int>("MaxPlotListings")
                         .HasColumnType("integer");
 
                     b.Property<string>("PlanType")
@@ -675,7 +500,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int>("PlotLimit")
+                    b.Property<int>("PlotListingLimit")
                         .HasColumnType("integer");
 
                     b.Property<int>("Price")
@@ -745,6 +570,233 @@ namespace RentNearBy.Infrastructure.Migrations
                             Name = "Agricultural",
                             SortOrder = 3
                         });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.RoomListing", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Address")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("CityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("DistrictId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal>("Latitude")
+                        .HasColumnType("numeric");
+
+                    b.Property<Point>("Location")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("geography(Point, 4326)")
+                        .HasComputedColumnSql("ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", true);
+
+                    b.Property<decimal>("Longitude")
+                        .HasColumnType("numeric");
+
+                    b.Property<int>("PriceMonthly")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("RoomTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ValidUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CityId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("DistrictId");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("Location")
+                        .HasDatabaseName("ix_listings_location_gist");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Location"), "gist");
+
+                    b.HasIndex("PriceMonthly");
+
+                    b.HasIndex("RoomTypeId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("CityId", "IsActive");
+
+                    b.HasIndex("DistrictId", "IsActive");
+
+                    b.HasIndex("IsActive", "RoomTypeId");
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.HasIndex("CityId", "IsActive", "CreatedAt");
+
+                    b.ToTable("RoomListings");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.RoomMembership", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("MaxRooms")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PlanType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("UserId1")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ValidFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ValidUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("UserId1");
+
+                    b.HasIndex("ValidUntil");
+
+                    b.ToTable("RoomMemberships");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.RoomPhoto", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("PhotoOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PhotoUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("RoomListingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoomListingId");
+
+                    b.ToTable("RoomPhotos");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.RoomPlan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int>("Days")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DiscountPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("OriginalPrice")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PlanType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Price")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RoomLimit")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlanType")
+                        .IsUnique();
+
+                    b.ToTable("RoomPlans");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomType", b =>
@@ -909,58 +961,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.UserMembership", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("MaxRooms")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("PlanType")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("UserId1")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("ValidFrom")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("ValidUntil")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("IsActive");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("UserId1");
-
-                    b.HasIndex("ValidUntil");
-
-                    b.ToTable("UserMemberships");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.AdminSession", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Admin", "Admin")
@@ -983,61 +983,16 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("District");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.Listing", b =>
-                {
-                    b.HasOne("RentNearBy.Core.Entities.City", "City")
-                        .WithMany("Listings")
-                        .HasForeignKey("CityId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("RentNearBy.Core.Entities.District", "District")
-                        .WithMany("Listings")
-                        .HasForeignKey("DistrictId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("RentNearBy.Core.Entities.RoomType", "RoomType")
-                        .WithMany("Listings")
-                        .HasForeignKey("RoomTypeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("RentNearBy.Core.Entities.User", "User")
-                        .WithMany("Listings")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("City");
-
-                    b.Navigation("District");
-
-                    b.Navigation("RoomType");
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.ListingPhoto", b =>
-                {
-                    b.HasOne("RentNearBy.Core.Entities.Listing", "Listing")
-                        .WithMany("Photos")
-                        .HasForeignKey("ListingId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Listing");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.PaymentTransaction", b =>
                 {
-                    b.HasOne("RentNearBy.Core.Entities.Listing", "Listing")
-                        .WithMany()
-                        .HasForeignKey("ListingId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("RentNearBy.Core.Entities.Plot", "Plot")
+                    b.HasOne("RentNearBy.Core.Entities.PlotListing", "PlotListing")
                         .WithMany()
                         .HasForeignKey("PlotId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.RoomListing", "RoomListing")
+                        .WithMany()
+                        .HasForeignKey("RoomListingId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("RentNearBy.Core.Entities.User", "User")
@@ -1049,14 +1004,14 @@ namespace RentNearBy.Infrastructure.Migrations
                         .WithMany("PaymentTransactions")
                         .HasForeignKey("UserId1");
 
-                    b.Navigation("Listing");
+                    b.Navigation("PlotListing");
 
-                    b.Navigation("Plot");
+                    b.Navigation("RoomListing");
 
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.Plot", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.City", "City")
                         .WithMany()
@@ -1070,7 +1025,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired();
 
                     b.HasOne("RentNearBy.Core.Entities.PlotType", "PlotType")
-                        .WithMany("Plots")
+                        .WithMany("PlotListings")
                         .HasForeignKey("PlotTypeId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
@@ -1103,27 +1058,50 @@ namespace RentNearBy.Infrastructure.Migrations
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotPhoto", b =>
                 {
-                    b.HasOne("RentNearBy.Core.Entities.Plot", "Plot")
+                    b.HasOne("RentNearBy.Core.Entities.PlotListing", "PlotListing")
                         .WithMany("Photos")
                         .HasForeignKey("PlotId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("Plot");
+                    b.Navigation("PlotListing");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.Session", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.RoomListing", b =>
                 {
+                    b.HasOne("RentNearBy.Core.Entities.City", "City")
+                        .WithMany("RoomListings")
+                        .HasForeignKey("CityId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.District", "District")
+                        .WithMany("RoomListings")
+                        .HasForeignKey("DistrictId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.RoomType", "RoomType")
+                        .WithMany("RoomListings")
+                        .HasForeignKey("RoomTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("RentNearBy.Core.Entities.User", "User")
-                        .WithMany()
+                        .WithMany("RoomListings")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("City");
+
+                    b.Navigation("District");
+
+                    b.Navigation("RoomType");
+
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.UserMembership", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.RoomMembership", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.User", "User")
                         .WithMany()
@@ -1138,6 +1116,28 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.RoomPhoto", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.RoomListing", "RoomListing")
+                        .WithMany("Photos")
+                        .HasForeignKey("RoomListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("RoomListing");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Session", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.Admin", b =>
                 {
                     b.Navigation("Sessions");
@@ -1145,45 +1145,45 @@ namespace RentNearBy.Infrastructure.Migrations
 
             modelBuilder.Entity("RentNearBy.Core.Entities.City", b =>
                 {
-                    b.Navigation("Listings");
+                    b.Navigation("RoomListings");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.District", b =>
                 {
                     b.Navigation("Cities");
 
-                    b.Navigation("Listings");
+                    b.Navigation("RoomListings");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.Listing", b =>
-                {
-                    b.Navigation("Photos");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.Plot", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
                 {
                     b.Navigation("Photos");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotType", b =>
                 {
-                    b.Navigation("Plots");
+                    b.Navigation("PlotListings");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.RoomListing", b =>
+                {
+                    b.Navigation("Photos");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomType", b =>
                 {
-                    b.Navigation("Listings");
+                    b.Navigation("RoomListings");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
                 {
-                    b.Navigation("Listings");
-
                     b.Navigation("Memberships");
 
                     b.Navigation("PaymentTransactions");
 
                     b.Navigation("PlotMemberships");
+
+                    b.Navigation("RoomListings");
                 });
 #pragma warning restore 612, 618
         }

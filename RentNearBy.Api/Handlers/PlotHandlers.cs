@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Text.Json;
 using FluentValidation;
 using Mapster;
@@ -15,7 +15,7 @@ using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
 
-public static class PlotHandlers
+public static class PlotListingHandlers
 {
     private static readonly string[] AllowedAreaUnits = ["sqft", "bigha", "acre", "nali"];
 
@@ -140,7 +140,7 @@ public static class PlotHandlers
             {
                 try
                 {
-                    var items = JsonSerializer.Deserialize<List<NearbyPlotDto>>(cached!);
+                    var items = JsonSerializer.Deserialize<List<NearbyPlotListingDto>>(cached!);
                     if (items != null)
                     {
                         if (!isAuth) items.ForEach(d => d.OwnerPhone = null);
@@ -151,7 +151,7 @@ public static class PlotHandlers
             }
         }
 
-        var fetched = (await unitOfWork.Plots.GetNearbyAsync(latitude, longitude, radius, cityId)).ToList();
+        var fetched = (await unitOfWork.PlotListings.GetNearbyAsync(latitude, longitude, radius, cityId)).ToList();
 
         if (redis != null)
         {
@@ -165,14 +165,14 @@ public static class PlotHandlers
 
     public static async Task<IResult> GetById(Guid id, IUnitOfWork unitOfWork, ClaimsPrincipal principal)
     {
-        var plot = await unitOfWork.Plots.GetByIdWithPhotosAsync(id);
-        if (plot == null) return NotFoundResponse("Plot not found");
-        var dto = plot.Adapt<PlotDto>();
+        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
+        var dto = plot.Adapt<PlotListingDto>();
         if (principal.Identity?.IsAuthenticated != true) dto.OwnerPhone = null;
         return OkResponse(dto);
     }
 
-    public static async Task<IResult> GetMyPlots(
+    public static async Task<IResult> GetMyPlotListings(
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 10)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -180,14 +180,14 @@ public static class PlotHandlers
         if (pageSize < 1 || pageSize > 50) pageSize = 10;
         if (page < 1) page = 1;
 
-        var (items, hasMore) = await unitOfWork.Plots.GetByUserIdPagedAsync(userId, page, pageSize);
-        return OkResponse(new { items = items.Select(p => p.Adapt<PlotDto>()).ToList(), hasMore });
+        var (items, hasMore) = await unitOfWork.PlotListings.GetByUserIdPagedAsync(userId, page, pageSize);
+        return OkResponse(new { items = items.Select(p => p.Adapt<PlotListingDto>()).ToList(), hasMore });
     }
 
-    public static async Task<IResult> CreatePlot(
-        CreatePlotRequest request,
+    public static async Task<IResult> CreatePlotListing(
+        CreatePlotListingRequest request,
         ClaimsPrincipal principal,
-        IValidator<CreatePlotRequest> validator,
+        IValidator<CreatePlotListingRequest> validator,
         IUnitOfWork unitOfWork,
         IPaymentService paymentService,
         IServiceProvider sp)
@@ -210,12 +210,12 @@ public static class PlotHandlers
                 return BadRequestResponse("Selected city does not belong to the selected district");
         }
 
-        var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
+        var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
         if (plotFeature == null || !plotFeature.IsEnabled)
         {
             var freeLimit = plotFeature?.FreeLimit ?? 1;
             var db = sp.GetRequiredService<ApplicationDbContext>();
-            var totalCount = await db.Plots
+            var totalCount = await db.PlotListings
                 .Where(p => p.UserId == userId && !p.IsDeleted)
                 .CountAsync();
             if (totalCount >= freeLimit)
@@ -227,15 +227,15 @@ public static class PlotHandlers
             if (membership != null && membership.IsActive)
             {
                 var db = sp.GetRequiredService<ApplicationDbContext>();
-                var totalCount = await db.Plots
+                var totalCount = await db.PlotListings
                     .Where(p => p.UserId == userId && !p.IsDeleted)
                     .CountAsync();
-                if (totalCount >= membership.MaxPlots)
-                    return BadRequestResponse($"You have reached your plan limit of {membership.MaxPlots} plot(s). Upgrade your plan to add more.");
+                if (totalCount >= membership.MaxPlotListings)
+                    return BadRequestResponse($"You have reached your plan limit of {membership.MaxPlotListings} plot(s). Upgrade your plan to add more.");
             }
         }
 
-        var plot = new Plot
+        var plot = new PlotListing
         {
             Id = Guid.NewGuid(),
             UserId = userId,
@@ -261,7 +261,7 @@ public static class PlotHandlers
             var activePlan = await unitOfWork.PlotPlans.GetByPlanTypeAsync(activeMembership.PlanType);
             if (activePlan?.Price > 0)
             {
-                var canActivate = await paymentService.CanUserActivatePlotAsync(userId);
+                var canActivate = await paymentService.CanUserActivatePlotListingAsync(userId);
                 if (canActivate)
                 {
                     plot.IsActive = true;
@@ -270,7 +270,7 @@ public static class PlotHandlers
             }
         }
 
-        await unitOfWork.Plots.AddAsync(plot);
+        await unitOfWork.PlotListings.AddAsync(plot);
         await unitOfWork.SaveChangesAsync();
 
         var redis = sp.GetService<IConnectionMultiplexer>();
@@ -280,10 +280,10 @@ public static class PlotHandlers
         return CreatedResponse(new { plotId = plot.Id }, $"/api/v1/plots/{plot.Id}");
     }
 
-    public static async Task<IResult> UpdatePlot(
-        Guid id, UpdatePlotRequest request,
+    public static async Task<IResult> UpdatePlotListing(
+        Guid id, UpdatePlotListingRequest request,
         ClaimsPrincipal principal,
-        IValidator<UpdatePlotRequest> validator,
+        IValidator<UpdatePlotListingRequest> validator,
         IUnitOfWork unitOfWork,
         IServiceProvider sp)
     {
@@ -294,8 +294,8 @@ public static class PlotHandlers
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var plot = await unitOfWork.Plots.GetByIdAsync(id);
-        if (plot == null) return NotFoundResponse("Plot not found");
+        var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
         if (plot.UserId != userId) return ForbiddenResponse("You do not own this plot");
 
         var oldCityId = plot.CityId;
@@ -325,13 +325,13 @@ public static class PlotHandlers
         {
             if (request.IsActive.Value == true)
             {
-                var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotPayment);
+                var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
                 if (plotFeature == null || !plotFeature.IsEnabled)
                 {
                     var freeLimit = plotFeature?.FreeLimit ?? 1;
                     var freeDays = plotFeature?.FreeDays ?? 2;
                     var db = sp.GetRequiredService<ApplicationDbContext>();
-                    var totalCount = await db.Plots
+                    var totalCount = await db.PlotListings
                         .Where(p => p.UserId == userId && !p.IsDeleted && p.Id != id)
                         .CountAsync();
                     if (totalCount >= freeLimit)
@@ -344,16 +344,16 @@ public static class PlotHandlers
                     if (membership == null || !membership.IsActive)
                         return BadRequestResponse("You need an active plan to go live. Please purchase a plan.");
                     var svc = sp.GetRequiredService<IPaymentService>();
-                    var canActivate = await svc.CanUserActivatePlotAsync(userId);
+                    var canActivate = await svc.CanUserActivatePlotListingAsync(userId);
                     if (!canActivate)
-                        return BadRequestResponse($"You have reached your active plot limit of {membership.MaxPlots}. Upgrade your plan.");
+                        return BadRequestResponse($"You have reached your active plot limit of {membership.MaxPlotListings}. Upgrade your plan.");
                 }
             }
             plot.IsActive = request.IsActive.Value;
         }
         plot.UpdatedAt = DateTime.UtcNow;
 
-        await unitOfWork.Plots.UpdateAsync(plot);
+        await unitOfWork.PlotListings.UpdateAsync(plot);
         await unitOfWork.SaveChangesAsync();
 
         var redis = sp.GetService<IConnectionMultiplexer>();
@@ -364,15 +364,15 @@ public static class PlotHandlers
         return OkResponse(new { success = true });
     }
 
-    public static async Task<IResult> DeletePlot(
+    public static async Task<IResult> DeletePlotListing(
         Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
         IPhotoService photoService, IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var plot = await unitOfWork.Plots.GetByIdWithPhotosAsync(id);
-        if (plot == null) return NotFoundResponse("Plot not found");
+        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
         if (plot.UserId != userId) return ForbiddenResponse("You do not own this plot");
 
         var cityId = plot.CityId;
@@ -382,7 +382,7 @@ public static class PlotHandlers
 
         plot.IsDeleted = true;
         plot.DeletedAt = DateTime.UtcNow;
-        await unitOfWork.Plots.UpdateAsync(plot);
+        await unitOfWork.PlotListings.UpdateAsync(plot);
         await unitOfWork.SaveChangesAsync();
 
         if (cityId.HasValue)
@@ -399,8 +399,8 @@ public static class PlotHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var plot = await unitOfWork.Plots.GetByIdWithPhotosAsync(id);
-        if (plot == null) return NotFoundResponse("Plot not found");
+        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
         if (plot.UserId != userId) return ForbiddenResponse("You do not own this plot");
         if (plot.Photos.Count >= 5) return BadRequestResponse("Maximum 5 photos allowed per plot");
         if (photo.Length > 10 * 1024 * 1024) return BadRequestResponse("Photo size must not exceed 10MB");
@@ -420,7 +420,7 @@ public static class PlotHandlers
             UploadedAt = DateTime.UtcNow
         };
 
-        await unitOfWork.Plots.AddPhotoAsync(plotPhoto);
+        await unitOfWork.PlotListings.AddPhotoAsync(plotPhoto);
         await unitOfWork.SaveChangesAsync();
 
         var redis = sp.GetService<IConnectionMultiplexer>();
@@ -438,15 +438,15 @@ public static class PlotHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var plot = await unitOfWork.Plots.GetByIdWithPhotosAsync(id);
-        if (plot == null) return NotFoundResponse("Plot not found");
+        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
         if (plot.UserId != userId) return ForbiddenResponse("You do not own this plot");
 
         var photo = plot.Photos.FirstOrDefault(p => p.Id == photoId);
         if (photo == null) return NotFoundResponse("Photo not found");
 
         await photoService.DeletePhotoAsync(photo.FilePath);
-        unitOfWork.Plots.RemovePhoto(photo);
+        unitOfWork.PlotListings.RemovePhoto(photo);
         await unitOfWork.SaveChangesAsync();
 
         var redis = sp.GetService<IConnectionMultiplexer>();
@@ -468,17 +468,17 @@ public static class PlotHandlers
         return false;
     }
 
-    // ── Admin Plot endpoints ───────────────────────────────────────────────────
+    // ── Admin PlotListing endpoints ───────────────────────────────────────────────────
 
-    public record AdminTogglePlotRequest(bool IsActive);
+    public record AdminTogglePlotListingRequest(bool IsActive);
 
-    public record AdminPlotDto(
+    public record AdminPlotListingDto(
         string Id, string UserId, string? OwnerName, string? OwnerPhone,
         string PlotType, double AreaValue, string AreaUnit, double AreaSqft,
         bool IsActive, string? DistrictName, string? CityName, string? Address,
         string? ThumbnailUrl, int PhotoCount, DateTime CreatedAt);
 
-    public static async Task<IResult> GetAdminPlots(
+    public static async Task<IResult> GetAdminPlotListings(
         IUnitOfWork unitOfWork,
         int page = 1, int pageSize = 20,
         string? plotType = null, bool? isActive = null, Guid? districtId = null, Guid? cityId = null)
@@ -486,8 +486,8 @@ public static class PlotHandlers
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
         if (page < 1) page = 1;
 
-        var (items, hasMore) = await unitOfWork.Plots.GetAllAsync(page, pageSize, plotType, isActive, districtId, cityId);
-        var dtos = items.Select(p => new AdminPlotDto(
+        var (items, hasMore) = await unitOfWork.PlotListings.GetAllAsync(page, pageSize, plotType, isActive, districtId, cityId);
+        var dtos = items.Select(p => new AdminPlotListingDto(
             Id: p.Id.ToString(),
             UserId: p.UserId.ToString(),
             OwnerName: p.User?.Name,
@@ -508,16 +508,16 @@ public static class PlotHandlers
         return OkResponse(new { items = dtos, hasMore });
     }
 
-    public static async Task<IResult> AdminTogglePlot(
-        Guid id, AdminTogglePlotRequest request,
+    public static async Task<IResult> AdminTogglePlotListing(
+        Guid id, AdminTogglePlotListingRequest request,
         IUnitOfWork unitOfWork, IServiceProvider sp)
     {
-        var plot = await unitOfWork.Plots.GetByIdAsync(id);
-        if (plot == null) return NotFoundResponse("Plot not found");
+        var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
 
         plot.IsActive = request.IsActive;
         plot.UpdatedAt = DateTime.UtcNow;
-        await unitOfWork.Plots.UpdateAsync(plot);
+        await unitOfWork.PlotListings.UpdateAsync(plot);
         await unitOfWork.SaveChangesAsync();
 
         var redis = sp.GetService<IConnectionMultiplexer>();
@@ -527,12 +527,12 @@ public static class PlotHandlers
         return OkResponse(new { success = true, isActive = plot.IsActive });
     }
 
-    public static async Task<IResult> AdminDeletePlot(
+    public static async Task<IResult> AdminDeletePlotListing(
         Guid id, IUnitOfWork unitOfWork,
         IPhotoService photoService, IServiceProvider sp)
     {
-        var plot = await unitOfWork.Plots.GetByIdWithPhotosAsync(id);
-        if (plot == null) return NotFoundResponse("Plot not found");
+        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
 
         var cityId = plot.CityId;
 
@@ -541,7 +541,7 @@ public static class PlotHandlers
 
         plot.IsDeleted = true;
         plot.DeletedAt = DateTime.UtcNow;
-        await unitOfWork.Plots.UpdateAsync(plot);
+        await unitOfWork.PlotListings.UpdateAsync(plot);
         await unitOfWork.SaveChangesAsync();
 
         if (cityId.HasValue)
@@ -550,9 +550,9 @@ public static class PlotHandlers
         return NoContentResponse();
     }
 
-    // ── Plot Payment handlers ────────────────────────────────────────────────
+    // ── PlotListing Payment handlers ────────────────────────────────────────────────
 
-    public static async Task<IResult> CreatePlotOrder(
+    public static async Task<IResult> CreatePlotListingOrder(
         Guid plotId, string planType,
         ClaimsPrincipal principal,
         IPaymentService paymentService)
@@ -562,7 +562,7 @@ public static class PlotHandlers
 
         try
         {
-            var response = await paymentService.CreatePlotOrderAsync(userId, plotId, planType.ToUpperInvariant());
+            var response = await paymentService.CreatePlotListingOrderAsync(userId, plotId, planType.ToUpperInvariant());
             return OkResponse(response);
         }
         catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
@@ -572,7 +572,7 @@ public static class PlotHandlers
         catch (Exception) { return ServerErrorResponse(); }
     }
 
-    public static async Task<IResult> VerifyPlotPayment(
+    public static async Task<IResult> VerifyPlotListingPayment(
         Guid plotId, VerifyPaymentRequest request,
         ClaimsPrincipal principal,
         IPaymentService paymentService)
@@ -582,7 +582,7 @@ public static class PlotHandlers
 
         try
         {
-            var response = await paymentService.VerifyPlotPaymentAsync(userId, request);
+            var response = await paymentService.VerifyPlotListingPaymentAsync(userId, request);
             return OkResponse(response);
         }
         catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
@@ -591,7 +591,7 @@ public static class PlotHandlers
         catch (Exception) { return ServerErrorResponse(); }
     }
 
-    public static async Task<IResult> CreatePlotUpgradeOrder(
+    public static async Task<IResult> CreatePlotListingUpgradeOrder(
         string planType,
         ClaimsPrincipal principal,
         IPaymentService paymentService)
@@ -601,7 +601,7 @@ public static class PlotHandlers
 
         try
         {
-            var response = await paymentService.CreatePlotUpgradeOrderAsync(userId, planType.ToUpperInvariant());
+            var response = await paymentService.CreatePlotListingUpgradeOrderAsync(userId, planType.ToUpperInvariant());
             return OkResponse(response);
         }
         catch (ArgumentException ex) { return BadRequestResponse(ex.Message); }
@@ -609,7 +609,7 @@ public static class PlotHandlers
         catch (Exception) { return ServerErrorResponse(); }
     }
 
-    public static async Task<IResult> VerifyPlotUpgradePayment(
+    public static async Task<IResult> VerifyPlotListingUpgradePayment(
         VerifyPaymentRequest request,
         ClaimsPrincipal principal,
         IPaymentService paymentService)
@@ -619,7 +619,7 @@ public static class PlotHandlers
 
         try
         {
-            var response = await paymentService.VerifyPlotUpgradePaymentAsync(userId, request);
+            var response = await paymentService.VerifyPlotListingUpgradePaymentAsync(userId, request);
             return OkResponse(response);
         }
         catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
@@ -632,7 +632,7 @@ public static class PlotHandlers
     {
         var plans = await unitOfWork.PlotPlans.GetAllAsync();
         var result = plans.Where(p => p.IsEnabled).OrderBy(p => p.Price)
-            .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, originalPrice = p.OriginalPrice, discountPercent = p.DiscountPercent, plotLimit = p.PlotLimit })
+            .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, originalPrice = p.OriginalPrice, discountPercent = p.DiscountPercent, plotLimit = p.PlotListingLimit })
             .ToList();
         return OkResponse(result);
     }
@@ -648,16 +648,16 @@ public static class PlotHandlers
         try
         {
             var membership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
-            var activePlots = await paymentService.GetActivePlotCountAsync(userId);
-            var canActivate = await paymentService.CanUserActivatePlotAsync(userId);
+            var activePlotListings = await paymentService.GetActivePlotListingCountAsync(userId);
+            var canActivate = await paymentService.CanUserActivatePlotListingAsync(userId);
 
             return OkResponse(new
             {
                 hasMembership = membership != null,
                 planType = membership?.PlanType,
                 validUntil = membership?.ValidUntil,
-                maxPlots = membership?.MaxPlots ?? 0,
-                activePlots,
+                maxPlotListings = membership?.MaxPlotListings ?? 0,
+                activePlotListings,
                 canActivate
             });
         }

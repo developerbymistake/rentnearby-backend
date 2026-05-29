@@ -1,4 +1,4 @@
-namespace RentNearBy.Core.Entities;
+﻿namespace RentNearBy.Core.Entities;
 
 public class RoomType
 {
@@ -8,5 +8,5 @@ public class RoomType
     public int SortOrder { get; set; } = 999;
     public DateTime CreatedAt { get; set; }
 
-    public ICollection<Listing> Listings { get; set; } = new List<Listing>();
+    public ICollection<RoomListing> RoomListings { get; set; } = new List<RoomListing>();
 }

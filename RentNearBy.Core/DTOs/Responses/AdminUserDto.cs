@@ -1,4 +1,4 @@
-namespace RentNearBy.Core.DTOs.Responses;
+﻿namespace RentNearBy.Core.DTOs.Responses;
 
 public class AdminUserDto
 {
@@ -32,6 +32,6 @@ public class AdminPlotMembershipDto
     public string PlanType { get; set; } = string.Empty;
     public DateTime ValidFrom { get; set; }
     public DateTime ValidUntil { get; set; }
-    public int MaxPlots { get; set; }
+    public int MaxPlotListings { get; set; }
     public bool IsActive { get; set; }
 }

@@ -1,4 +1,4 @@
-namespace RentNearBy.Core.Entities;
+﻿namespace RentNearBy.Core.Entities;
 
 public class PlotType
 {
@@ -8,5 +8,5 @@ public class PlotType
     public int SortOrder { get; set; } = 999;
     public DateTime CreatedAt { get; set; }
 
-    public ICollection<Plot> Plots { get; set; } = new List<Plot>();
+    public ICollection<PlotListing> PlotListings { get; set; } = new List<PlotListing>();
 }

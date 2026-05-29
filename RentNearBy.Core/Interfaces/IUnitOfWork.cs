@@ -1,4 +1,4 @@
-namespace RentNearBy.Core.Interfaces;
+﻿namespace RentNearBy.Core.Interfaces;
 
 public interface IUnitOfWork : IDisposable
 {
@@ -6,16 +6,16 @@ public interface IUnitOfWork : IDisposable
     ISessionRepository Sessions { get; }
     IAdminRepository Admins { get; }
     IAdminSessionRepository AdminSessions { get; }
-    IListingRepository Listings { get; }
+    IRoomRoomListingRepository RoomListings { get; }
     IDistrictRepository Districts { get; }
     ICityRepository Cities { get; }
     IRoomTypeRepository RoomTypes { get; }
     IPlotTypeRepository PlotTypes { get; }
-    IPlanRepository Plans { get; }
-    IUserMembershipRepository UserMemberships { get; }
+    IRoomPlanRepository RoomPlans { get; }
+    IRoomMembershipRepository RoomMemberships { get; }
     IPaymentTransactionRepository PaymentTransactions { get; }
     IFeatureRepository Features { get; }
-    IPlotRepository Plots { get; }
+    IPlotListingRoomListingRepository PlotListings { get; }
     IPlotMembershipRepository PlotMemberships { get; }
     IPlotPlanRepository PlotPlans { get; }
     Task<int> SaveChangesAsync();

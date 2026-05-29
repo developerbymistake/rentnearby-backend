@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 using RentNearBy.Core.Entities;
 using System.Text.Json;
@@ -20,15 +20,15 @@ public static class DataSeeder
 
     private static async Task SeedPlansAsync(ApplicationDbContext db)
     {
-        if (await db.Plans.AnyAsync()) return;
+        if (await db.RoomPlans.AnyAsync()) return;
 
         var plans = new[]
         {
-            new Plan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 2, RoomLimit = 1, Price = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
-            new Plan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, RoomLimit = 2, Price = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new RoomPlan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 2, RoomLimit = 1, Price = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new RoomPlan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, RoomLimit = 2, Price = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
         };
 
-        db.Plans.AddRange(plans);
+        db.RoomPlans.AddRange(plans);
         await db.SaveChangesAsync();
     }
 
@@ -38,8 +38,8 @@ public static class DataSeeder
 
         var plans = new[]
         {
-            new PlotPlan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 2, PlotLimit = 1, Price = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
-            new PlotPlan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, PlotLimit = 2, Price = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new PlotPlan { Id = Guid.NewGuid(), PlanType = "FREE", Days = 2, PlotListingLimit = 1, Price = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new PlotPlan { Id = Guid.NewGuid(), PlanType = "PAID", Days = 30, PlotListingLimit = 2, Price = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
         };
 
         db.PlotPlans.AddRange(plans);
@@ -202,7 +202,7 @@ public static class DataSeeder
             {
                 Id = Guid.NewGuid(),
                 Key = "plot_payment",
-                DisplayName = "Plot Payment",
+                DisplayName = "PlotListing Payment",
                 IsEnabled = false,
                 FreeLimit = 1,
                 FreeDays = 30,

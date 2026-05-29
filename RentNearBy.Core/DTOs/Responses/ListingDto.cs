@@ -1,6 +1,6 @@
-namespace RentNearBy.Core.DTOs.Responses;
+﻿namespace RentNearBy.Core.DTOs.Responses;
 
-public class ListingDto
+public class RoomListingDto
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }

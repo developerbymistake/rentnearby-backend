@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Api.Endpoints;
@@ -155,7 +155,7 @@ app.MapGroup("/api/v1/users")
     .MapUsersEndpoints();
 
 app.MapGroup("/api/v1/listings")
-    .WithTags("Listings")
+    .WithTags("RoomListings")
     .MapListingsEndpoints();
 
 app.MapGroup("/api/v1/admin")
@@ -163,12 +163,12 @@ app.MapGroup("/api/v1/admin")
     .MapAdminEndpoints();
 
 app.MapGroup("/api/v1/plots")
-    .WithTags("Plots")
-    .MapPlotEndpoints();
+    .WithTags("PlotListings")
+    .MapPlotListingEndpoints();
 
 app.MapGroup("/api/v1/admin/plots")
-    .WithTags("AdminPlots")
-    .MapAdminPlotEndpoints();
+    .WithTags("AdminPlotListings")
+    .MapAdminPlotListingEndpoints();
 
 app.MapGroup("/api/v1/account")
     .WithTags("Account")

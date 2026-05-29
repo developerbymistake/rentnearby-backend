@@ -1,6 +1,6 @@
-namespace RentNearBy.Core.DTOs.Requests;
+﻿namespace RentNearBy.Core.DTOs.Requests;
 
-public class CreatePlotRequest
+public class CreatePlotListingRequest
 {
     public decimal AreaValue { get; set; }
     public string AreaUnit { get; set; } = string.Empty;

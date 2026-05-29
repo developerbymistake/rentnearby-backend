@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
@@ -19,7 +19,7 @@ public class AccountDeletionService(ApplicationDbContext context, IPhotoService 
             .Where(s => s.UserId == userId)
             .ExecuteDeleteAsync();
 
-        await context.UserMemberships
+        await context.RoomMemberships
             .Where(m => m.UserId == userId)
             .ExecuteDeleteAsync();
 
@@ -27,19 +27,19 @@ public class AccountDeletionService(ApplicationDbContext context, IPhotoService 
             .Where(m => m.UserId == userId)
             .ExecuteDeleteAsync();
 
-        await context.ListingPhotos
-            .Where(p => p.Listing.UserId == userId)
+        await context.RoomPhotos
+            .Where(p => p.RoomListing.UserId == userId)
             .ExecuteDeleteAsync();
 
-        await context.Listings
+        await context.RoomListings
             .Where(l => l.UserId == userId)
             .ExecuteDeleteAsync();
 
         await context.Set<PlotPhoto>()
-            .Where(p => p.Plot.UserId == userId)
+            .Where(p => p.PlotListing.UserId == userId)
             .ExecuteDeleteAsync();
 
-        await context.Plots
+        await context.PlotListings
             .Where(p => p.UserId == userId)
             .ExecuteDeleteAsync();
 

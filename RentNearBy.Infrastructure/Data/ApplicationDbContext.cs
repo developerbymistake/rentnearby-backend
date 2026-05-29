@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Entities;
 
 namespace RentNearBy.Infrastructure.Data;
@@ -9,17 +9,17 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Session> Sessions { get; set; }
     public DbSet<Admin> Admins { get; set; }
     public DbSet<AdminSession> AdminSessions { get; set; }
-    public DbSet<Listing> Listings { get; set; }
-    public DbSet<ListingPhoto> ListingPhotos { get; set; }
+    public DbSet<RoomListing> RoomListings { get; set; }
+    public DbSet<RoomPhoto> RoomPhotos { get; set; }
     public DbSet<District> Districts { get; set; }
     public DbSet<City> Cities { get; set; }
     public DbSet<RoomType> RoomTypes { get; set; }
-    public DbSet<Plan> Plans { get; set; }
-    public DbSet<UserMembership> UserMemberships { get; set; }
+    public DbSet<RoomPlan> RoomPlans { get; set; }
+    public DbSet<RoomMembership> RoomMemberships { get; set; }
     public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
     public DbSet<AppFeature> AppFeatures { get; set; }
     public DbSet<PlotType> PlotTypes { get; set; }
-    public DbSet<Plot> Plots { get; set; }
+    public DbSet<PlotListing> PlotListings { get; set; }
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
     public DbSet<PlotPlan> PlotPlans { get; set; }
     public DbSet<PlotMembership> PlotMemberships { get; set; }
@@ -135,7 +135,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             );
         });
 
-        modelBuilder.Entity<Plan>(e =>
+        modelBuilder.Entity<RoomPlan>(e =>
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
@@ -144,7 +144,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
         });
 
-        modelBuilder.Entity<Listing>(e =>
+        modelBuilder.Entity<RoomListing>(e =>
         {
             e.HasKey(l => l.Id);
             e.Property(l => l.Id).HasDefaultValueSql("gen_random_uuid()");
@@ -152,22 +152,22 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(l => l.UpdatedAt).HasDefaultValueSql("now()");
 
             e.HasOne(l => l.User)
-             .WithMany(u => u.Listings)
+             .WithMany(u => u.RoomListings)
              .HasForeignKey(l => l.UserId)
              .OnDelete(DeleteBehavior.Cascade);
 
             e.HasOne(l => l.RoomType)
-             .WithMany(r => r.Listings)
+             .WithMany(r => r.RoomListings)
              .HasForeignKey(l => l.RoomTypeId)
              .OnDelete(DeleteBehavior.Restrict);
 
             e.HasOne(l => l.District)
-             .WithMany(d => d.Listings)
+             .WithMany(d => d.RoomListings)
              .HasForeignKey(l => l.DistrictId)
              .OnDelete(DeleteBehavior.Restrict);
 
             e.HasOne(l => l.City)
-             .WithMany(c => c.Listings)
+             .WithMany(c => c.RoomListings)
              .HasForeignKey(l => l.CityId)
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
@@ -192,7 +192,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex("Location")
              .HasMethod("gist")
              .HasDatabaseName("ix_listings_location_gist");
-            // Composite: My Listings pagination — filter by user, sort newest first
+            // Composite: My RoomListings pagination — filter by user, sort newest first
             e.HasIndex(l => new { l.UserId, l.CreatedAt });
             // Composite: GetNearby secondary filter — city + active (GiST is primary spatial filter)
             e.HasIndex(l => new { l.CityId, l.IsActive });
@@ -202,19 +202,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => new { l.IsActive, l.RoomTypeId });
         });
 
-        modelBuilder.Entity<ListingPhoto>(e =>
+        modelBuilder.Entity<RoomPhoto>(e =>
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(p => p.UploadedAt).HasDefaultValueSql("now()");
-            e.HasOne(p => p.Listing)
+            e.HasOne(p => p.RoomListing)
              .WithMany(l => l.Photos)
-             .HasForeignKey(p => p.ListingId)
+             .HasForeignKey(p => p.RoomListingId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(p => p.ListingId);
+            e.HasIndex(p => p.RoomListingId);
         });
 
-        modelBuilder.Entity<UserMembership>(e =>
+        modelBuilder.Entity<RoomMembership>(e =>
         {
             e.HasKey(m => m.Id);
             e.Property(m => m.Id).HasDefaultValueSql("gen_random_uuid()");
@@ -239,12 +239,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasForeignKey(t => t.UserId)
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
-            e.HasOne(t => t.Listing)
+            e.HasOne(t => t.RoomListing)
              .WithMany()
-             .HasForeignKey(t => t.ListingId)
+             .HasForeignKey(t => t.RoomListingId)
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
-            e.HasOne(t => t.Plot)
+            e.HasOne(t => t.PlotListing)
              .WithMany()
              .HasForeignKey(t => t.PlotId)
              .IsRequired(false)
@@ -264,7 +264,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
         });
 
-        modelBuilder.Entity<Plot>(e =>
+        modelBuilder.Entity<PlotListing>(e =>
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
@@ -272,7 +272,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
 
             e.HasOne(p => p.PlotType)
-             .WithMany(t => t.Plots)
+             .WithMany(t => t.PlotListings)
              .HasForeignKey(p => p.PlotTypeId)
              .OnDelete(DeleteBehavior.Restrict);
 
@@ -321,7 +321,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasKey(ph => ph.Id);
             e.Property(ph => ph.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(ph => ph.UploadedAt).HasDefaultValueSql("now()");
-            e.HasOne(ph => ph.Plot)
+            e.HasOne(ph => ph.PlotListing)
              .WithMany(p => p.Photos)
              .HasForeignKey(ph => ph.PlotId)
              .OnDelete(DeleteBehavior.Cascade);

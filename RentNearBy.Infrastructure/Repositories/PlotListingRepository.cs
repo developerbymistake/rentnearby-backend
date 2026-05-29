@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
@@ -6,7 +6,7 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
 
-public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(context), IPlotRepository
+public class PlotListingRepository(ApplicationDbContext context) : Repository<PlotListing>(context), IPlotListingRoomListingRepository
 {
     private record BoxQueryResult(
         Guid Id, double Lat, double Lng,
@@ -22,7 +22,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
         return (lat - dLat, lat + dLat, lng - dLng, lng + dLng);
     }
 
-    public async Task<IEnumerable<NearbyPlotDto>> GetNearbyAsync(
+    public async Task<IEnumerable<NearbyPlotListingDto>> GetNearbyAsync(
         double latitude, double longitude, double radiusKm, Guid cityId)
     {
         var (minLat, maxLat, minLng, maxLng) = GetBoundingBox(latitude, longitude, radiusKm);
@@ -39,7 +39,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
                     u."Name"               AS "OwnerName",
                     u."PhoneNumber"        AS "OwnerPhone",
                     ph."PhotoUrl"          AS "ThumbnailUrl"
-                FROM "Plots" p
+                FROM "PlotListings" p
                 INNER JOIN "PlotTypes" pt ON pt."Id" = p."PlotTypeId"
                 LEFT JOIN "Users" u ON u."Id" = p."UserId"
                 LEFT JOIN LATERAL (
@@ -58,13 +58,13 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
             .ToListAsync();
 
         if (box.Count == 0)
-            return Enumerable.Empty<NearbyPlotDto>();
+            return Enumerable.Empty<NearbyPlotListingDto>();
 
         return box
             .Select(r => (Row: r, Dist: Haversine(latitude, longitude, r.Lat, r.Lng)))
             .Where(x => x.Dist <= radiusKm)
             .OrderBy(x => x.Dist)
-            .Select(x => new NearbyPlotDto
+            .Select(x => new NearbyPlotListingDto
             {
                 Id = x.Row.Id,
                 Latitude = (decimal)x.Row.Lat,
@@ -81,7 +81,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
             .ToList();
     }
 
-    public async Task<IEnumerable<Plot>> GetByUserIdAsync(Guid userId)
+    public async Task<IEnumerable<PlotListing>> GetByUserIdAsync(Guid userId)
         => await _dbSet
             .AsNoTracking()
             .Include(p => p.PlotType)
@@ -92,7 +92,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();
 
-    public async Task<(IReadOnlyList<Plot> Items, bool HasMore)> GetByUserIdPagedAsync(
+    public async Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetByUserIdPagedAsync(
         Guid userId, int page, int pageSize)
     {
         var take = pageSize + 1;
@@ -112,7 +112,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
     }
 
-    public async Task<Plot?> GetByIdWithPhotosAsync(Guid id)
+    public async Task<PlotListing?> GetByIdWithPhotosAsync(Guid id)
         => await _dbSet
             .AsNoTracking()
             .Include(p => p.PlotType)
@@ -122,7 +122,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder))
             .FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
 
-    public async Task<(IReadOnlyList<Plot> Items, bool HasMore)> GetAllAsync(
+    public async Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetAllAsync(
         int page, int pageSize,
         string? plotType = null,
         bool? isActive = null,
@@ -154,7 +154,7 @@ public class PlotRepository(ApplicationDbContext context) : Repository<Plot>(con
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
     }
 
-    public async Task<IEnumerable<Plot>> GetActiveByUserIdAsync(Guid userId)
+    public async Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId)
         => await _dbSet
             .Where(p => p.UserId == userId && p.IsActive && !p.IsDeleted)
             .ToListAsync();

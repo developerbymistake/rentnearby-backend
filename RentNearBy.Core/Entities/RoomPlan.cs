@@ -1,6 +1,6 @@
-namespace RentNearBy.Core.Entities;
+﻿namespace RentNearBy.Core.Entities;
 
-public class Plan
+public class RoomPlan
 {
     public Guid Id { get; set; }
     public string PlanType { get; set; } // "FREE" or "PAID"

@@ -1,13 +1,13 @@
-using FluentValidation;
+﻿using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
 
 namespace RentNearBy.Api.Validators;
 
-public class CreatePlotRequestValidator : AbstractValidator<CreatePlotRequest>
+public class CreatePlotListingRequestValidator : AbstractValidator<CreatePlotListingRequest>
 {
     private static readonly string[] AllowedAreaUnits = ["sqft", "bigha", "acre", "nali"];
 
-    public CreatePlotRequestValidator()
+    public CreatePlotListingRequestValidator()
     {
         RuleFor(x => x.AreaValue)
             .GreaterThan(0).WithMessage("Area must be greater than 0");
@@ -17,7 +17,7 @@ public class CreatePlotRequestValidator : AbstractValidator<CreatePlotRequest>
             .Must(u => AllowedAreaUnits.Contains(u)).WithMessage("Invalid area unit. Allowed: sqft, bigha, acre, nali");
 
         RuleFor(x => x.PlotTypeId)
-            .NotEmpty().WithMessage("Plot type is required");
+            .NotEmpty().WithMessage("PlotListing type is required");
 
         RuleFor(x => x.Latitude)
             .InclusiveBetween(-90, 90).WithMessage("Invalid latitude");

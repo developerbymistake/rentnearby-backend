@@ -1,6 +1,6 @@
-namespace RentNearBy.Core.DTOs.Responses;
+﻿namespace RentNearBy.Core.DTOs.Responses;
 
-public class PlotDto
+public class PlotListingDto
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }

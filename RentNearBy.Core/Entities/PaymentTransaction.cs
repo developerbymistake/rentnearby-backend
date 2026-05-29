@@ -1,11 +1,11 @@
-namespace RentNearBy.Core.Entities;
+﻿namespace RentNearBy.Core.Entities;
 
 public class PaymentTransaction
 {
     public Guid Id { get; set; }
     public Guid? UserId { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
-    public Guid? ListingId { get; set; }
+    public Guid? RoomListingId { get; set; }
     public Guid? PlotId { get; set; }
     public string? TransactionKind { get; set; } // null = room, "PLOT" = plot
     public string PlanType { get; set; } = string.Empty; // FREE or PAID
@@ -20,6 +20,6 @@ public class PaymentTransaction
     public DateTime? CompletedAt { get; set; }
 
     public User? User { get; set; }
-    public Listing? Listing { get; set; }
-    public Plot? Plot { get; set; }
+    public RoomListing? RoomListing { get; set; }
+    public PlotListing? PlotListing { get; set; }
 }

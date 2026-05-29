@@ -1,4 +1,4 @@
-using NetTopologySuite.Geometries;
+﻿using NetTopologySuite.Geometries;
 
 namespace RentNearBy.Core.Entities;
 
@@ -12,5 +12,5 @@ public class District
     public Geometry? Boundary { get; set; }
 
     public ICollection<City> Cities { get; set; } = new List<City>();
-    public ICollection<Listing> Listings { get; set; } = new List<Listing>();
+    public ICollection<RoomListing> RoomListings { get; set; } = new List<RoomListing>();
 }

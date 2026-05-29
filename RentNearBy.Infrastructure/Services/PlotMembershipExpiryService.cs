@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
@@ -88,7 +88,7 @@ public class PlotMembershipExpiryService : BackgroundService
 
             _logger.LogInformation("Found {ExpiredMembershipCount} expired plot memberships", expiredList.Count);
 
-            var disabledPlotsCount = 0;
+            var disabledPlotListingsCount = 0;
             var now = DateTime.UtcNow;
 
             foreach (var membership in expiredList)
@@ -102,12 +102,12 @@ public class PlotMembershipExpiryService : BackgroundService
                         "Deactivating plot membership {MembershipId} for user {UserId} (ValidUntil: {ValidUntil})",
                         membership.Id, membership.UserId, membership.ValidUntil);
 
-                    var userPlots = await unitOfWork.Plots.GetActiveByUserIdAsync(membership.UserId);
-                    foreach (var plot in userPlots.Where(p => !p.IsDeleted))
+                    var userPlotListings = await unitOfWork.PlotListings.GetActiveByUserIdAsync(membership.UserId);
+                    foreach (var plot in userPlotListings.Where(p => !p.IsDeleted))
                     {
                         plot.IsActive = false;
                         plot.UpdatedAt = now;
-                        disabledPlotsCount++;
+                        disabledPlotListingsCount++;
 
                         _logger.LogInformation("Disabled plot {PlotId} for user {UserId}", plot.Id, membership.UserId);
                     }
@@ -122,8 +122,8 @@ public class PlotMembershipExpiryService : BackgroundService
             {
                 await unitOfWork.SaveChangesAsync();
                 _logger.LogInformation(
-                    "Plot expiry job completed. Processed: {ProcessedCount} memberships, Disabled: {DisabledCount} plots",
-                    expiredList.Count, disabledPlotsCount);
+                    "PlotListing expiry job completed. Processed: {ProcessedCount} memberships, Disabled: {DisabledCount} plots",
+                    expiredList.Count, disabledPlotListingsCount);
             }
             catch (Exception ex)
             {

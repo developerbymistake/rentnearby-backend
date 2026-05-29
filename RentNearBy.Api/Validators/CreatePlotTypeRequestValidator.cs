@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
 
 namespace RentNearBy.Api.Validators;
@@ -8,7 +8,7 @@ public class CreatePlotTypeRequestValidator : AbstractValidator<CreatePlotTypeRe
     public CreatePlotTypeRequestValidator()
     {
         RuleFor(x => x.Name)
-            .NotEmpty().WithMessage("Plot type name is required")
+            .NotEmpty().WithMessage("PlotListing type name is required")
             .MaximumLength(100).WithMessage("Name must not exceed 100 characters");
 
         RuleFor(x => x.Description)

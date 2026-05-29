@@ -1,4 +1,4 @@
-using CloudinaryDotNet;
+﻿using CloudinaryDotNet;
 using CloudinaryDotNet.Actions;
 using Microsoft.Extensions.Configuration;
 using SixLabors.ImageSharp;
@@ -51,7 +51,7 @@ public class PhotoService : IPhotoService
         await _cloudinary.DestroyAsync(new DeletionParams(filePath));
     }
 
-    public async Task DeleteListingPhotosAsync(Guid userId, Guid listingId)
+    public async Task DeleteRoomPhotosAsync(Guid userId, Guid listingId)
     {
         await _cloudinary.DeleteResourcesByPrefixAsync($"bakhli/user_{userId}/listing_{listingId}/");
     }

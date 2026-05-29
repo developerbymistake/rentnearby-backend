@@ -1,6 +1,6 @@
-namespace RentNearBy.Core.Entities;
+﻿namespace RentNearBy.Core.Entities;
 
-public class UserMembership
+public class RoomMembership
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }

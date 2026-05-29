@@ -1,0 +1,16 @@
+﻿using RentNearBy.Core.DTOs.Responses;
+using RentNearBy.Core.Entities;
+
+namespace RentNearBy.Core.Interfaces;
+
+public interface IRoomRoomListingRepository : IRepository<RoomListing>
+{
+    Task<IEnumerable<NearbyListingDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid cityId);
+    Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax);
+    Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId);
+    Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId);
+    Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> GetByUserIdPagedAsync(Guid userId, int page, int pageSize);
+    Task<RoomListing?> GetByIdWithPhotosAsync(Guid id);
+    Task AddPhotoAsync(RoomPhoto photo);
+    void RemovePhoto(RoomPhoto photo);
+}

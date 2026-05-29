@@ -1,13 +1,13 @@
-using FluentValidation;
+﻿using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
 
 namespace RentNearBy.Api.Validators;
 
-public class UpdatePlotRequestValidator : AbstractValidator<UpdatePlotRequest>
+public class UpdatePlotListingRequestValidator : AbstractValidator<UpdatePlotListingRequest>
 {
     private static readonly string[] AllowedAreaUnits = ["sqft", "bigha", "acre", "nali"];
 
-    public UpdatePlotRequestValidator()
+    public UpdatePlotListingRequestValidator()
     {
         RuleFor(x => x.AreaValue)
             .GreaterThan(0).WithMessage("Area must be greater than 0")
@@ -18,7 +18,7 @@ public class UpdatePlotRequestValidator : AbstractValidator<UpdatePlotRequest>
             .When(x => x.AreaUnit != null);
 
         RuleFor(x => x.PlotTypeId)
-            .NotEmpty().WithMessage("Plot type ID cannot be empty")
+            .NotEmpty().WithMessage("PlotListing type ID cannot be empty")
             .When(x => x.PlotTypeId.HasValue);
 
         RuleFor(x => x.Latitude)

@@ -1,4 +1,4 @@
-using Mapster;
+﻿using Mapster;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 
@@ -19,7 +19,7 @@ public static class DtoMappings
         TypeAdapterConfig<RoomType, RoomTypeDto>.NewConfig();
         TypeAdapterConfig<PlotType, PlotTypeDto>.NewConfig();
 
-        TypeAdapterConfig<Listing, ListingDto>.NewConfig()
+        TypeAdapterConfig<RoomListing, RoomListingDto>.NewConfig()
             .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
             .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
             .Map(dest => dest.RoomTypeName, src => src.RoomType != null ? src.RoomType.Name : null)
@@ -30,7 +30,7 @@ public static class DtoMappings
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
 
-        TypeAdapterConfig<Plot, PlotDto>.NewConfig()
+        TypeAdapterConfig<PlotListing, PlotListingDto>.NewConfig()
             .Map(dest => dest.PlotType, src => src.PlotType != null ? src.PlotType.Name : string.Empty)
             .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
             .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)

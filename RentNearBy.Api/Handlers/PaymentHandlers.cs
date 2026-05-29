@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Interfaces;
@@ -16,7 +16,7 @@ public static class PaymentHandlers
         IPaymentService paymentService)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
-            return BadRequestResponse("Plan type is required");
+            return BadRequestResponse("RoomPlan type is required");
 
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -32,7 +32,7 @@ public static class PaymentHandlers
         }
         catch (KeyNotFoundException)
         {
-            return NotFoundResponse("Listing or plan not found");
+            return NotFoundResponse("RoomListing or plan not found");
         }
         catch (UnauthorizedAccessException)
         {
@@ -55,7 +55,7 @@ public static class PaymentHandlers
         IPaymentService paymentService)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
-            return BadRequestResponse("Plan type is required");
+            return BadRequestResponse("RoomPlan type is required");
 
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -71,7 +71,7 @@ public static class PaymentHandlers
         }
         catch (KeyNotFoundException)
         {
-            return NotFoundResponse("Listing not found");
+            return NotFoundResponse("RoomListing not found");
         }
         catch (UnauthorizedAccessException)
         {
@@ -134,7 +134,7 @@ public static class PaymentHandlers
 
         try
         {
-            var membership = await unitOfWork.UserMemberships.GetActiveByUserIdAsync(userId);
+            var membership = await unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
             var activeRooms = await paymentService.GetActiveRoomCountAsync(userId);
             var canActivate = await paymentService.CanUserActivateListingAsync(userId);
 
@@ -160,7 +160,7 @@ public static class PaymentHandlers
         IPaymentService paymentService)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
-            return BadRequestResponse("Plan type is required");
+            return BadRequestResponse("RoomPlan type is required");
 
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
@@ -112,7 +112,7 @@ public class MembershipExpiryService : BackgroundService
             var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
             var expiredDate = DateTime.UtcNow.Date;
-            var expiredMemberships = await unitOfWork.UserMemberships.GetExpiredAsync(expiredDate);
+            var expiredMemberships = await unitOfWork.RoomMemberships.GetExpiredAsync(expiredDate);
             var expiredList = expiredMemberships.ToList();
 
             if (expiredList.Count == 0)
@@ -141,7 +141,7 @@ public class MembershipExpiryService : BackgroundService
                         membership.Id, membership.UserId, membership.ValidUntil);
 
                     // Get and disable all active listings for this user
-                    var userListings = await unitOfWork.Listings.GetActiveByUserIdAsync(membership.UserId);
+                    var userListings = await unitOfWork.RoomListings.GetActiveByUserIdAsync(membership.UserId);
                     var listingsToDisable = userListings.Where(l => !l.IsDeleted).ToList();
 
                     foreach (var listing in listingsToDisable)
@@ -151,7 +151,7 @@ public class MembershipExpiryService : BackgroundService
                         disabledListingsCount++;
 
                         _logger.LogInformation(
-                            "Disabled listing {ListingId} (Room: {RoomType}, City: {City})",
+                            "Disabled listing {RoomListingId} (Room: {RoomType}, City: {City})",
                             listing.Id,
                             listing.RoomType?.Name ?? "Unknown",
                             listing.City?.Name ?? "Unknown");

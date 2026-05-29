@@ -1,6 +1,6 @@
-namespace RentNearBy.Core.DTOs.Responses;
+﻿namespace RentNearBy.Core.DTOs.Responses;
 
-public class NearbyPlotDto
+public class NearbyPlotListingDto
 {
     public Guid Id { get; set; }
     public decimal Latitude { get; set; }

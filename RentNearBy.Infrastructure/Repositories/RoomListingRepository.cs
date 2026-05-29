@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
@@ -6,7 +6,7 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
 
-public class ListingRepository(ApplicationDbContext context) : Repository<Listing>(context), IListingRepository
+public class RoomListingRepository(ApplicationDbContext context) : Repository<RoomListing>(context), IRoomRoomListingRepository
 {
     private record BoxQueryResult(
         Guid Id, int? PriceMonthly, double Lat, double Lng,
@@ -39,13 +39,13 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
                     u."Name"       AS "OwnerName",
                     u."PhoneNumber" AS "OwnerPhone",
                     p."PhotoUrl"   AS "ThumbnailUrl"
-                FROM "Listings" l
+                FROM "RoomListings" l
                 LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
                 LEFT JOIN "Users" u      ON u."Id"  = l."UserId"
                 LEFT JOIN LATERAL (
                     SELECT p."PhotoUrl"
-                    FROM "ListingPhotos" p
-                    WHERE p."ListingId" = l."Id"
+                    FROM "RoomPhotos" p
+                    WHERE p."RoomListingId" = l."Id"
                     ORDER BY p."PhotoOrder"
                     LIMIT 1
                 ) p ON TRUE
@@ -80,7 +80,7 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .ToList();
     }
 
-    public async Task<IEnumerable<Listing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax)
+    public async Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax)
     {
         return await _dbSet
             .AsNoTracking()
@@ -100,7 +100,7 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .ToListAsync();
     }
 
-    public async Task<IEnumerable<Listing>> GetByUserIdAsync(Guid userId)
+    public async Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId)
         => await _dbSet
             .AsNoTracking()
             .Include(l => l.RoomType)
@@ -111,14 +111,14 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync();
 
-    public async Task<IEnumerable<Listing>> GetActiveByUserIdAsync(Guid userId)
+    public async Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId)
         => await _dbSet
             .Include(l => l.RoomType)
             .Include(l => l.City)
             .Where(l => l.UserId == userId && l.IsActive)
             .ToListAsync();
 
-    public async Task<(IReadOnlyList<Listing> Items, bool HasMore)> GetByUserIdPagedAsync(
+    public async Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> GetByUserIdPagedAsync(
         Guid userId, int page, int pageSize)
     {
         var take = pageSize + 1;
@@ -138,7 +138,7 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
     }
 
-    public async Task<Listing?> GetByIdWithPhotosAsync(Guid id)
+    public async Task<RoomListing?> GetByIdWithPhotosAsync(Guid id)
         => await _dbSet
             .AsNoTracking()
             .Include(l => l.RoomType)
@@ -148,10 +148,10 @@ public class ListingRepository(ApplicationDbContext context) : Repository<Listin
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
             .FirstOrDefaultAsync(l => l.Id == id && !l.IsDeleted);
 
-    public async Task AddPhotoAsync(ListingPhoto photo)
-        => await context.ListingPhotos.AddAsync(photo);
+    public async Task AddPhotoAsync(RoomPhoto photo)
+        => await context.RoomPhotos.AddAsync(photo);
 
-    public void RemovePhoto(ListingPhoto photo)
+    public void RemovePhoto(RoomPhoto photo)
     {
         context.Entry(photo).State = Microsoft.EntityFrameworkCore.EntityState.Deleted;
     }

@@ -1,4 +1,4 @@
-namespace RentNearBy.Core.Entities;
+﻿namespace RentNearBy.Core.Entities;
 
 public class PlotPhoto
 {
@@ -9,5 +9,5 @@ public class PlotPhoto
     public int PhotoOrder { get; set; }
     public DateTime UploadedAt { get; set; }
 
-    public Plot Plot { get; set; } = null!;
+    public PlotListing PlotListing { get; set; } = null!;
 }
