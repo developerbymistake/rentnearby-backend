@@ -345,9 +345,9 @@ public class PaymentService : IPaymentService
             throw new InvalidOperationException("Transaction previously failed. Please start a new payment.");
         }
 
-        // Look up plan to determine routing (price-based, not name-based)
+        // Look up plan to determine routing (originalPrice-based, not name-based)
         var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(transaction.PlanType);
-        bool isFree = plan?.Price == 0;
+        bool isFree = plan?.OriginalPrice == 0;
 
         // Verify Razorpay signature for paid plans only
         if (!isFree)
@@ -759,7 +759,7 @@ public class PaymentService : IPaymentService
         if (!isFree)
         {
             var (orderId, returnedAmount) = await _razorpay.CreateOrderAsync(plan.OriginalPrice, transaction.Id.ToString());
-            if (returnedAmount != plan.Price)
+            if (returnedAmount != plan.OriginalPrice)
                 throw new InvalidOperationException("Payment amount mismatch. Please try again.");
             transaction.RazorpayOrderId = orderId;
         }
@@ -787,7 +787,7 @@ public class PaymentService : IPaymentService
         if (transaction.Status == "FAILED") throw new InvalidOperationException("Transaction previously failed. Please start a new payment.");
 
         var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(transaction.PlanType);
-        bool isFree = plan?.Price == 0;
+        bool isFree = plan?.OriginalPrice == 0;
 
         if (!isFree)
         {
