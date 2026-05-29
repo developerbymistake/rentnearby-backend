@@ -84,7 +84,7 @@ public class PaymentService : IPaymentService
         var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(planType);
         if (plan == null || !plan.IsEnabled)
             throw new ArgumentException($"RoomPlan '{planType}' does not exist or is disabled.");
-        bool isFree = plan.Price == 0;
+        bool isFree = plan.OriginalPrice == 0;
 
         var paymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
         if (paymentFeature == null)
@@ -131,7 +131,7 @@ public class PaymentService : IPaymentService
                         return new CreatePaymentOrderResponse
                         {
                             OrderId = existingPendingTransaction.RazorpayOrderId!,
-                            Amount = plan.Price,
+                            Amount = plan.OriginalPrice,
                             Currency = "INR",
                             KeyId = _razorpay.GetKeyId()
                         };
@@ -156,7 +156,7 @@ public class PaymentService : IPaymentService
             }
         }
 
-        var amount = plan.Price;
+        var amount = plan.OriginalPrice;
         var transaction = new PaymentTransaction
         {
             Id = Guid.NewGuid(),
@@ -219,7 +219,7 @@ public class PaymentService : IPaymentService
         var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(planType);
         if (plan == null || !plan.IsEnabled)
             throw new ArgumentException($"RoomPlan '{planType}' does not exist or is disabled.");
-        bool isFree = plan.Price == 0;
+        bool isFree = plan.OriginalPrice == 0;
 
         var listing = await _unitOfWork.RoomListings.GetByIdAsync(listingId);
         if (listing == null)
@@ -258,7 +258,7 @@ public class PaymentService : IPaymentService
             }
         }
 
-        var amount = plan.Price;
+        var amount = plan.OriginalPrice;
         var transaction = new PaymentTransaction
         {
             Id = Guid.NewGuid(),
@@ -562,7 +562,7 @@ public class PaymentService : IPaymentService
         var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(planType);
         if (plan == null || !plan.IsEnabled)
             throw new ArgumentException($"RoomPlan '{planType}' does not exist or is disabled.");
-        if (plan.Price == 0)
+        if (plan.OriginalPrice == 0)
             throw new ArgumentException("Upgrade requires a paid plan (price must be greater than 0).");
 
         var existing = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
@@ -574,7 +574,7 @@ public class PaymentService : IPaymentService
                 return new CreatePaymentOrderResponse
                 {
                     OrderId = existing.RazorpayOrderId!,
-                    Amount = plan.Price,
+                    Amount = plan.OriginalPrice,
                     Currency = "INR",
                     KeyId = _razorpay.GetKeyId()
                 };
@@ -585,7 +585,7 @@ public class PaymentService : IPaymentService
         }
 
         var upgradeUser = await _unitOfWork.Users.GetByIdAsync(userId);
-        var (orderId, _) = await _razorpay.CreateOrderAsync(plan.Price, Guid.NewGuid().ToString());
+        var (orderId, _) = await _razorpay.CreateOrderAsync(plan.OriginalPrice, Guid.NewGuid().ToString());
         var transaction = new PaymentTransaction
         {
             Id = Guid.NewGuid(),
@@ -593,7 +593,7 @@ public class PaymentService : IPaymentService
             PhoneNumber = upgradeUser?.PhoneNumber ?? string.Empty,
             RoomListingId = null,
             PlanType = planType,
-            Amount = plan.Price,
+            Amount = plan.OriginalPrice,
             Status = "PENDING",
             RazorpayOrderId = orderId,
             CreatedAt = DateTime.UtcNow
@@ -604,7 +604,7 @@ public class PaymentService : IPaymentService
         return new CreatePaymentOrderResponse
         {
             OrderId = orderId,
-            Amount = plan.Price,
+            Amount = plan.OriginalPrice,
             Currency = "INR",
             KeyId = _razorpay.GetKeyId()
         };
@@ -692,7 +692,7 @@ public class PaymentService : IPaymentService
         var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(planType);
         if (plan == null || !plan.IsEnabled)
             throw new ArgumentException($"PlotListing plan '{planType}' does not exist or is disabled.");
-        bool isFree = plan.Price == 0;
+        bool isFree = plan.OriginalPrice == 0;
 
         var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
         if (plotPaymentFeature == null)
@@ -724,7 +724,7 @@ public class PaymentService : IPaymentService
                 if (!string.IsNullOrEmpty(existingPending.RazorpayOrderId))
                 {
                     if (existingPending.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
-                        return new CreatePaymentOrderResponse { OrderId = existingPending.RazorpayOrderId!, Amount = plan.Price, Currency = "INR", KeyId = _razorpay.GetKeyId() };
+                        return new CreatePaymentOrderResponse { OrderId = existingPending.RazorpayOrderId!, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
                     existingPending.Status = "FAILED";
                     existingPending.FailureReason = "Razorpay order expired — superseded by retry";
                     await _unitOfWork.SaveChangesAsync();
@@ -751,14 +751,14 @@ public class PaymentService : IPaymentService
             PlotId = plotId,
             TransactionKind = "PLOT",
             PlanType = planType,
-            Amount = plan.Price,
+            Amount = plan.OriginalPrice,
             Status = "PENDING",
             CreatedAt = DateTime.UtcNow
         };
 
         if (!isFree)
         {
-            var (orderId, returnedAmount) = await _razorpay.CreateOrderAsync(plan.Price, transaction.Id.ToString());
+            var (orderId, returnedAmount) = await _razorpay.CreateOrderAsync(plan.OriginalPrice, transaction.Id.ToString());
             if (returnedAmount != plan.Price)
                 throw new InvalidOperationException("Payment amount mismatch. Please try again.");
             transaction.RazorpayOrderId = orderId;
@@ -773,7 +773,7 @@ public class PaymentService : IPaymentService
             return new CreatePaymentOrderResponse { OrderId = transaction.Id.ToString(), Amount = 0, Currency = "INR", KeyId = string.Empty };
         }
 
-        return new CreatePaymentOrderResponse { OrderId = transaction.RazorpayOrderId!, Amount = plan.Price, Currency = "INR", KeyId = _razorpay.GetKeyId() };
+        return new CreatePaymentOrderResponse { OrderId = transaction.RazorpayOrderId!, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
     }
 
     public async Task<PlotListingPaymentVerifyResponse> VerifyPlotListingPaymentAsync(Guid userId, VerifyPaymentRequest request)
@@ -911,7 +911,7 @@ public class PaymentService : IPaymentService
         var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(planType);
         if (plan == null || !plan.IsEnabled)
             throw new ArgumentException($"PlotListing plan '{planType}' does not exist or is disabled.");
-        if (plan.Price == 0)
+        if (plan.OriginalPrice == 0)
             throw new ArgumentException("Upgrade requires a paid plan.");
 
         var existing = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
@@ -919,14 +919,14 @@ public class PaymentService : IPaymentService
         if (existing != null && !string.IsNullOrEmpty(existing.RazorpayOrderId))
         {
             if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
-                return new CreatePaymentOrderResponse { OrderId = existing.RazorpayOrderId!, Amount = plan.Price, Currency = "INR", KeyId = _razorpay.GetKeyId() };
+                return new CreatePaymentOrderResponse { OrderId = existing.RazorpayOrderId!, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
             existing.Status = "FAILED";
             existing.FailureReason = "Razorpay order expired — superseded by retry";
             await _unitOfWork.SaveChangesAsync();
         }
 
         var plotUpgradeUser = await _unitOfWork.Users.GetByIdAsync(userId);
-        var (orderId, _) = await _razorpay.CreateOrderAsync(plan.Price, Guid.NewGuid().ToString());
+        var (orderId, _) = await _razorpay.CreateOrderAsync(plan.OriginalPrice, Guid.NewGuid().ToString());
         var transaction = new PaymentTransaction
         {
             Id = Guid.NewGuid(),
@@ -936,7 +936,7 @@ public class PaymentService : IPaymentService
             RoomListingId = null,
             TransactionKind = "PLOT",
             PlanType = planType,
-            Amount = plan.Price,
+            Amount = plan.OriginalPrice,
             Status = "PENDING",
             RazorpayOrderId = orderId,
             CreatedAt = DateTime.UtcNow
@@ -944,7 +944,7 @@ public class PaymentService : IPaymentService
         await _unitOfWork.PaymentTransactions.AddAsync(transaction);
         await _unitOfWork.SaveChangesAsync();
 
-        return new CreatePaymentOrderResponse { OrderId = orderId, Amount = plan.Price, Currency = "INR", KeyId = _razorpay.GetKeyId() };
+        return new CreatePaymentOrderResponse { OrderId = orderId, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
     }
 
     public async Task<PlotListingPaymentVerifyResponse> VerifyPlotListingUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request)
