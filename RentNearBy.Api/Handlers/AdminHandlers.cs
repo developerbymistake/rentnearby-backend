@@ -488,6 +488,7 @@ public static class AdminHandlers
                 {
                     Id = u.Id,
                     GoogleEmail = u.GoogleEmail,
+                    ProfilePhotoUrl = u.ProfilePhotoUrl,
                     PhoneNumber = u.PhoneNumber,
                     IsPhoneVerified = u.IsPhoneVerified,
                     Name = u.Name,
