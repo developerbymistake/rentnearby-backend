@@ -194,6 +194,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasDatabaseName("ix_listings_location_gist");
             // Composite: My RoomListings pagination — filter by user, sort newest first
             e.HasIndex(l => new { l.UserId, l.CreatedAt });
+            // Composite: admin count queries — COUNT(UserId = x AND !IsDeleted)
+            e.HasIndex(l => new { l.UserId, l.IsDeleted });
             // Composite: GetNearby secondary filter — city + active (GiST is primary spatial filter)
             e.HasIndex(l => new { l.CityId, l.IsActive });
             // Composite: city-based active listings newest first (replaces district composite)
@@ -227,6 +229,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(m => m.UserId);
             e.HasIndex(m => m.ValidUntil);
             e.HasIndex(m => m.IsActive);
+            // Composite: get active membership for user (called on every listing activation)
+            e.HasIndex(m => new { m.UserId, m.IsActive });
+            // Composite: expiry background job — find expired active memberships
+            e.HasIndex(m => new { m.IsActive, m.ValidUntil });
         });
 
         modelBuilder.Entity<PaymentTransaction>(e =>
@@ -314,6 +320,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => new { p.UserId, p.CreatedAt });
             e.HasIndex(p => new { p.CityId, p.IsActive });
             e.HasIndex(p => new { p.CityId, p.IsActive, p.CreatedAt });
+            // Composite: admin count queries — COUNT(UserId = x AND !IsDeleted)
+            e.HasIndex(p => new { p.UserId, p.IsDeleted });
         });
 
         modelBuilder.Entity<PlotPhoto>(e =>
@@ -350,6 +358,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(m => m.UserId);
             e.HasIndex(m => m.IsActive);
             e.HasIndex(m => m.ValidUntil);
+            // Composite: get active membership for user (called on every plot activation)
+            e.HasIndex(m => new { m.UserId, m.IsActive });
+            // Composite: expiry background job
+            e.HasIndex(m => new { m.IsActive, m.ValidUntil });
         });
 
     }

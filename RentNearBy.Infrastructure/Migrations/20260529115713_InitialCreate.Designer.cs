@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260529115025_InitialCreate")]
+    [Migration("20260529115713_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -387,6 +387,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("UserId", "CreatedAt");
 
+                    b.HasIndex("UserId", "IsDeleted");
+
                     b.HasIndex("CityId", "IsActive", "CreatedAt");
 
                     b.ToTable("PlotListings");
@@ -435,6 +437,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.HasIndex("ValidUntil");
+
+                    b.HasIndex("IsActive", "ValidUntil");
+
+                    b.HasIndex("UserId", "IsActive");
 
                     b.ToTable("PlotMemberships");
                 });
@@ -662,6 +668,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("UserId", "CreatedAt");
 
+                    b.HasIndex("UserId", "IsDeleted");
+
                     b.HasIndex("CityId", "IsActive", "CreatedAt");
 
                     b.ToTable("RoomListings");
@@ -715,6 +723,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("UserId1");
 
                     b.HasIndex("ValidUntil");
+
+                    b.HasIndex("IsActive", "ValidUntil");
+
+                    b.HasIndex("UserId", "IsActive");
 
                     b.ToTable("RoomMemberships");
                 });

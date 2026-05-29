@@ -646,6 +646,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: new[] { "UserId", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_UserId_IsDeleted",
+                table: "PlotListings",
+                columns: new[] { "UserId", "IsDeleted" });
+
+            migrationBuilder.CreateIndex(
                 name: "ix_plots_location_gist",
                 table: "PlotListings",
                 column: "Location")
@@ -657,9 +662,19 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "IsActive");
 
             migrationBuilder.CreateIndex(
+                name: "IX_PlotMemberships_IsActive_ValidUntil",
+                table: "PlotMemberships",
+                columns: new[] { "IsActive", "ValidUntil" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PlotMemberships_UserId",
                 table: "PlotMemberships",
                 column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlotMemberships_UserId_IsActive",
+                table: "PlotMemberships",
+                columns: new[] { "UserId", "IsActive" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_PlotMemberships_ValidUntil",
@@ -750,14 +765,29 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: new[] { "UserId", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_UserId_IsDeleted",
+                table: "RoomListings",
+                columns: new[] { "UserId", "IsDeleted" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_RoomMemberships_IsActive",
                 table: "RoomMemberships",
                 column: "IsActive");
 
             migrationBuilder.CreateIndex(
+                name: "IX_RoomMemberships_IsActive_ValidUntil",
+                table: "RoomMemberships",
+                columns: new[] { "IsActive", "ValidUntil" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_RoomMemberships_UserId",
                 table: "RoomMemberships",
                 column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomMemberships_UserId_IsActive",
+                table: "RoomMemberships",
+                columns: new[] { "UserId", "IsActive" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_RoomMemberships_UserId1",
