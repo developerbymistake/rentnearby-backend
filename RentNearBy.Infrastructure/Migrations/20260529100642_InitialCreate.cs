@@ -76,6 +76,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     Days = table.Column<int>(type: "integer", nullable: false),
                     RoomLimit = table.Column<int>(type: "integer", nullable: false),
                     Price = table.Column<int>(type: "integer", nullable: false),
+                    OriginalPrice = table.Column<int>(type: "integer", nullable: false),
+                    DiscountPercent = table.Column<int>(type: "integer", nullable: false),
                     IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
@@ -94,6 +96,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     Days = table.Column<int>(type: "integer", nullable: false),
                     PlotLimit = table.Column<int>(type: "integer", nullable: false),
                     Price = table.Column<int>(type: "integer", nullable: false),
+                    OriginalPrice = table.Column<int>(type: "integer", nullable: false),
+                    DiscountPercent = table.Column<int>(type: "integer", nullable: false),
                     IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
@@ -138,10 +142,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    GoogleId = table.Column<string>(type: "text", nullable: false),
+                    GoogleEmail = table.Column<string>(type: "text", nullable: false),
+                    ProfilePhotoUrl = table.Column<string>(type: "text", nullable: true),
                     PhoneNumber = table.Column<string>(type: "text", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    OtpVerified = table.Column<bool>(type: "boolean", nullable: false),
+                    IsPhoneVerified = table.Column<bool>(type: "boolean", nullable: false),
                     HasUsedFreePlan = table.Column<bool>(type: "boolean", nullable: false),
                     HasUsedFreePlotPlan = table.Column<bool>(type: "boolean", nullable: false),
                     IsContactVisible = table.Column<bool>(type: "boolean", nullable: false),
@@ -790,9 +797,15 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "ValidUntil");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Users_PhoneNumber",
+                name: "IX_Users_GoogleEmail",
                 table: "Users",
-                column: "PhoneNumber",
+                column: "GoogleEmail",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Users_GoogleId",
+                table: "Users",
+                column: "GoogleId",
                 unique: true);
         }
 

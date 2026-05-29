@@ -13,8 +13,8 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260529065327_AddGoogleAuth")]
-    partial class AddGoogleAuth
+    [Migration("20260529100642_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -435,8 +435,14 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<int>("Days")
                         .HasColumnType("integer");
 
+                    b.Property<int>("DiscountPercent")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
+
+                    b.Property<int>("OriginalPrice")
+                        .HasColumnType("integer");
 
                     b.Property<string>("PlanType")
                         .IsRequired()
@@ -656,8 +662,14 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<int>("Days")
                         .HasColumnType("integer");
 
+                    b.Property<int>("DiscountPercent")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
+
+                    b.Property<int>("OriginalPrice")
+                        .HasColumnType("integer");
 
                     b.Property<string>("PlanType")
                         .IsRequired()
