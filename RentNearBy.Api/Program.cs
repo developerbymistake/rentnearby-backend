@@ -114,21 +114,23 @@ app.MapGet("/delete-account", () => Results.Content("""
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Delete Account – Bakhli</title>
-<style>body{font-family:sans-serif;max-width:600px;margin:48px auto;padding:0 24px;color:#1e293b}h1{color:#1e3a8a}a{color:#2563eb}.card{background:#f1f5f9;border-radius:12px;padding:24px;margin:24px 0}</style>
+<style>body{font-family:sans-serif;max-width:600px;margin:48px auto;padding:0 24px;color:#1e293b}h1{color:#1e3a8a}a{color:#2563eb}.card{background:#f1f5f9;border-radius:12px;padding:24px;margin:24px 0}.step{display:flex;align-items:flex-start;margin:12px 0}.num{background:#1e3a8a;color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:bold;margin-right:12px;flex-shrink:0}.warn{background:#fef2f2;border-left:4px solid #ef4444;padding:16px;border-radius:8px;margin:24px 0}</style>
 </head>
 <body>
 <h1>Delete Your Bakhli Account</h1>
-<p>To request deletion of your account and all associated data, you can:</p>
+<p>You can delete your account directly from the Bakhli app. The deletion is <strong>immediate and permanent</strong>.</p>
 <div class="card">
-<strong>Option 1 — In-app (recommended)</strong><br><br>
-Open the Bakhli app → Profile → Settings → Delete Account
+<strong>Steps to delete your account in the app:</strong><br><br>
+<div class="step"><div class="num">1</div><span>Open the Bakhli app and sign in</span></div>
+<div class="step"><div class="num">2</div><span>Go to <strong>Profile</strong> (bottom navigation)</span></div>
+<div class="step"><div class="num">3</div><span>Scroll down and tap <strong>"Delete Account"</strong></span></div>
+<div class="step"><div class="num">4</div><span>Type <strong>DELETE</strong> to confirm</span></div>
+<div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> — your account is deleted instantly</span></div>
 </div>
-<div class="card">
-<strong>Option 2 — Email request</strong><br><br>
-Send an email to <a href="mailto:supportbakhli@gmail.com">supportbakhli@gmail.com</a> with subject <em>"Account Deletion Request"</em> and your registered email address.
+<div class="warn">
+<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, photos, bookings, and membership data will be permanently removed.
 </div>
-<p>We will delete your account and all associated data within <strong>30 days</strong> of receiving your request.</p>
-<p>Data deleted includes: profile, listings, booking history, payment records, and location data.</p>
+<p>If you are unable to access the app, contact us at <a href="mailto:supportbakhli@gmail.com">supportbakhli@gmail.com</a> with subject <em>"Account Deletion Request"</em>.</p>
 <p><a href="https://developerbymistake.github.io/bakhli-privacy-policy/">Privacy Policy</a></p>
 </body></html>
 """, "text/html"));
