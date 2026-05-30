@@ -49,7 +49,7 @@ public static class AuthHandlers
         }
 
         var googleId = payload.Subject;
-        var user = await unitOfWork.Users.GetByGoogleIdAsync(googleId);
+        var user = await unitOfWork.Users.GetByProviderIdAsync(googleId);
 
         // New user — do not create yet, phone number required at onboarding
         if (user == null)
@@ -106,8 +106,8 @@ public static class AuthHandlers
             return BadRequestResponse("Invalid Google token", "InvalidToken");
         }
 
-        // Guard: if user already exists with this GoogleId, redirect to normal login
-        if (await unitOfWork.Users.GoogleIdExistsAsync(payload.Subject))
+        // Guard: if user already exists with this ProviderId, redirect to normal login
+        if (await unitOfWork.Users.ProviderIdExistsAsync(payload.Subject))
             return BadRequestResponse("Account already exists. Please sign in.", "AlreadyExists");
 
         // Guard: if phone is already verified by another user, reject
@@ -117,8 +117,9 @@ public static class AuthHandlers
         var newUser = new User
         {
             Id = Guid.NewGuid(),
-            GoogleId = payload.Subject,
-            GoogleEmail = payload.Email,
+            ProviderId = payload.Subject,
+            AuthProvider = "Google",
+            Email = payload.Email,
             Name = request.Name,
             ProfilePhotoUrl = payload.Picture,
             PhoneNumber = request.PhoneNumber,
