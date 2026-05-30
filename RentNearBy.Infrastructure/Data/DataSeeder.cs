@@ -24,7 +24,7 @@ public static class DataSeeder
 
         var plans = new[]
         {
-            new RoomPlan { Id = Guid.NewGuid(), PlanType = "BASIC", Days = 15, RoomLimit = 1, Price = 99, DiscountPercent = 100, OriginalPrice = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new RoomPlan { Id = Guid.NewGuid(), PlanType = "BASIC", Days = 5, RoomLimit = 1, Price = 99, DiscountPercent = 100, OriginalPrice = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
             new RoomPlan { Id = Guid.NewGuid(), PlanType = "STANDARD", Days = 30, RoomLimit = 2, Price = 199, DiscountPercent = 50, OriginalPrice = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
         };
 
@@ -38,7 +38,7 @@ public static class DataSeeder
 
         var plans = new[]
         {
-            new PlotPlan { Id = Guid.NewGuid(), PlanType = "BASIC", Days = 15, PlotListingLimit = 1, Price = 99, DiscountPercent = 100, OriginalPrice = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new PlotPlan { Id = Guid.NewGuid(), PlanType = "BASIC", Days = 5, PlotListingLimit = 1, Price = 99, DiscountPercent = 100, OriginalPrice = 0, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
             new PlotPlan { Id = Guid.NewGuid(), PlanType = "STANDARD", Days = 30, PlotListingLimit = 2, Price = 199, DiscountPercent = 50, OriginalPrice = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
         };
 
@@ -192,9 +192,9 @@ public static class DataSeeder
                 Id = Guid.NewGuid(),
                 Key = "room_payment",
                 DisplayName = "Room Payment",
-                IsEnabled = false,
+                IsEnabled = true,
                 FreeLimit = 1,
-                FreeDays = 30,
+                FreeDays = 5,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             },
@@ -203,9 +203,9 @@ public static class DataSeeder
                 Id = Guid.NewGuid(),
                 Key = "plot_payment",
                 DisplayName = "PlotListing Payment",
-                IsEnabled = false,
+                IsEnabled = true,
                 FreeLimit = 1,
-                FreeDays = 30,
+                FreeDays = 5,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             }
