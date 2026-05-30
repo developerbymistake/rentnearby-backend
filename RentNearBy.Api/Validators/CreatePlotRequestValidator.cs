@@ -14,7 +14,7 @@ public class CreatePlotListingRequestValidator : AbstractValidator<CreatePlotLis
 
         RuleFor(x => x.AreaUnit)
             .NotEmpty().WithMessage("Area unit is required")
-            .Must(u => AllowedAreaUnits.Contains(u)).WithMessage("Invalid area unit. Allowed: sqft, bigha, acre, nali");
+            .Must(u => AllowedAreaUnits.Contains(u.ToLower())).WithMessage("Area unit must be one of: sqft, bigha, acre, nali");
 
         RuleFor(x => x.PlotTypeId)
             .NotEmpty().WithMessage("PlotListing type is required");
@@ -27,7 +27,7 @@ public class CreatePlotListingRequestValidator : AbstractValidator<CreatePlotLis
 
         RuleFor(x => x.Address)
             .NotEmpty().WithMessage("Address is required")
-            .MaximumLength(500).WithMessage("Address must not exceed 500 characters");
+            .MaximumLength(300).WithMessage("Address must not exceed 300 characters");
 
         RuleFor(x => x.DistrictId)
             .NotEmpty().WithMessage("District is required");

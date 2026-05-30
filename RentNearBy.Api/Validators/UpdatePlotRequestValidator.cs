@@ -14,7 +14,7 @@ public class UpdatePlotListingRequestValidator : AbstractValidator<UpdatePlotLis
             .When(x => x.AreaValue.HasValue);
 
         RuleFor(x => x.AreaUnit)
-            .Must(u => AllowedAreaUnits.Contains(u!)).WithMessage("Invalid area unit. Allowed: sqft, bigha, acre, nali")
+            .Must(u => AllowedAreaUnits.Contains(u!.ToLower())).WithMessage("Area unit must be one of: sqft, bigha, acre, nali")
             .When(x => x.AreaUnit != null);
 
         RuleFor(x => x.PlotTypeId)
@@ -30,7 +30,7 @@ public class UpdatePlotListingRequestValidator : AbstractValidator<UpdatePlotLis
             .When(x => x.Longitude.HasValue);
 
         RuleFor(x => x.Address)
-            .MaximumLength(500).WithMessage("Address must not exceed 500 characters")
+            .MaximumLength(300).WithMessage("Address must not exceed 300 characters")
             .When(x => x.Address != null);
 
         RuleFor(x => x.Description)
