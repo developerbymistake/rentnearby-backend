@@ -111,7 +111,8 @@ public class MembershipExpiryService : BackgroundService
             using var scope = _serviceScopeFactory.CreateScope();
             var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-            var expiredDate = DateTime.UtcNow.Date;
+            // AddDays(1) so query captures memberships expiring today (ValidUntil < tomorrow midnight)
+            var expiredDate = DateTime.UtcNow.Date.AddDays(1);
             var expiredMemberships = await unitOfWork.RoomMemberships.GetExpiredAsync(expiredDate);
             var expiredList = expiredMemberships.ToList();
 
@@ -200,10 +201,13 @@ public class MembershipExpiryService : BackgroundService
     ///
     /// For local time, use DateTime.Now instead of DateTime.UtcNow.
     /// </summary>
+    // 18:30 UTC = 00:00 IST (UTC+5:30)
+    private static readonly TimeSpan RunTimeUtc = new(18, 30, 0);
+
     private static DateTime GetNextRunTime()
     {
         var now = DateTime.UtcNow;
-        var nextRun = now.Date.AddDays(1);
-        return nextRun;
+        var todayTarget = now.Date.Add(RunTimeUtc);
+        return now < todayTarget ? todayTarget : todayTarget.AddDays(1);
     }
 }

@@ -75,7 +75,8 @@ public class PlotMembershipExpiryService : BackgroundService
             using var scope = _serviceScopeFactory.CreateScope();
             var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-            var expiredDate = DateTime.UtcNow.Date;
+            // AddDays(1) so query captures memberships expiring today (ValidUntil < tomorrow midnight)
+            var expiredDate = DateTime.UtcNow.Date.AddDays(1);
             var expiredMemberships = await unitOfWork.PlotMemberships.GetExpiredAsync(expiredDate);
             var expiredList = expiredMemberships.ToList();
 
@@ -143,12 +144,13 @@ public class PlotMembershipExpiryService : BackgroundService
         }
     }
 
-    // Runs at 1:00 AM UTC (room expiry job runs at 12:00 AM UTC)
+    // 18:35 UTC = 00:05 IST — staggered 5 min after room expiry job (18:30 UTC)
+    private static readonly TimeSpan RunTimeUtc = new(18, 35, 0);
+
     private static DateTime GetNextRunTime()
     {
         var now = DateTime.UtcNow;
-        var nextRun = now.Date.AddDays(1).AddHours(1);
-        if (now.Hour < 1) nextRun = now.Date.AddHours(1);
-        return nextRun;
+        var todayTarget = now.Date.Add(RunTimeUtc);
+        return now < todayTarget ? todayTarget : todayTarget.AddDays(1);
     }
 }
