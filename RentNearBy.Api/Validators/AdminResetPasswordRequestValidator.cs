@@ -7,9 +7,9 @@ public class AdminResetPasswordRequestValidator : AbstractValidator<AdminResetPa
 {
     public AdminResetPasswordRequestValidator()
     {
-        RuleFor(x => x.PhoneNumber)
-            .NotEmpty().WithMessage("Phone number is required")
-            .Matches(@"^\d{10}$").WithMessage("Phone number must be 10 digits");
+        RuleFor(x => x.Email)
+            .NotEmpty().WithMessage("Email is required")
+            .EmailAddress().WithMessage("Invalid email format");
 
         RuleFor(x => x.Otp)
             .NotEmpty().WithMessage("OTP is required")

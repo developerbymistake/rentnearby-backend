@@ -34,6 +34,35 @@ public static class AdminAuthHandlers
         return await CreateAdminSessionAndRespond(admin, unitOfWork, jwtService);
     }
 
+    public static async Task<IResult> AdminSendResetOtp(
+        AdminSendResetOtpRequest request,
+        IValidator<AdminSendResetOtpRequest> validator,
+        IUnitOfWork unitOfWork,
+        IRateLimitService rateLimiter,
+        IOtpService otpService,
+        HttpContext httpContext)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var admin = await unitOfWork.Admins.GetByEmailAsync(request.Email);
+
+        // Always return 200 — never reveal whether email is registered
+        if (admin == null || !admin.IsActive)
+            return OkResponse(new { message = "If this email is registered, an OTP has been sent." });
+
+        var rl = await rateLimiter.CheckAsync($"admin_otp:send:{admin.PhoneNumber}", OtpSendMax, OtpWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
+
+        await otpService.SendOtpAsync(admin.PhoneNumber);
+        return OkResponse(new { message = "If this email is registered, an OTP has been sent." });
+    }
+
     public static async Task<IResult> AdminResetPassword(
         AdminResetPasswordRequest request,
         IValidator<AdminResetPasswordRequest> validator,
@@ -47,19 +76,19 @@ public static class AdminAuthHandlers
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var rl = await rateLimiter.CheckAsync($"admin_otp:verify:{request.PhoneNumber}", OtpVerifyMax, OtpWindow);
+        var admin = await unitOfWork.Admins.GetByEmailAsync(request.Email);
+        if (admin == null || !admin.IsActive)
+            return BadRequestResponse("Invalid request", "InvalidCredentials");
+
+        var rl = await rateLimiter.CheckAsync($"admin_otp:verify:{admin.PhoneNumber}", OtpVerifyMax, OtpWindow);
         if (!rl.IsAllowed)
         {
             httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
             return TooManyRequestsResponse();
         }
 
-        if (!await otpService.VerifyOtpAsync(request.PhoneNumber, request.Otp))
+        if (!await otpService.VerifyOtpAsync(admin.PhoneNumber, request.Otp))
             return BadRequestResponse("Invalid OTP", "InvalidOtp");
-
-        var admin = await unitOfWork.Admins.GetByPhoneAsync(request.PhoneNumber);
-        if (admin == null || !admin.IsActive)
-            return NotFoundResponse("Admin not found");
 
         admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword, 12);
         admin.UpdatedAt = DateTime.UtcNow;
