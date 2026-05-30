@@ -10,4 +10,8 @@ public class AdminRepository(ApplicationDbContext context) : Repository<Admin>(c
     public async Task<Admin?> GetByPhoneAsync(string phoneNumber)
         => await _dbSet.AsNoTracking()
             .FirstOrDefaultAsync(a => a.PhoneNumber == phoneNumber);
+
+    public async Task<Admin?> GetByEmailAsync(string email)
+        => await _dbSet.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Email.ToLower() == email.ToLower());
 }

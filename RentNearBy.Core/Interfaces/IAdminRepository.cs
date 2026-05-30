@@ -5,4 +5,5 @@ namespace RentNearBy.Core.Interfaces;
 public interface IAdminRepository : IRepository<Admin>
 {
     Task<Admin?> GetByPhoneAsync(string phoneNumber);
+    Task<Admin?> GetByEmailAsync(string email);
 }

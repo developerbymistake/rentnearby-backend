@@ -215,27 +215,26 @@ public static class DataSeeder
 
     private static async Task SeedAdminsAsync(ApplicationDbContext db)
     {
-        var adminPhones = new[] { "7060023511", "9720565640" };
-        bool changed = false;
+        const string adminEmail = "developerbymistake@gmail.com";
+        const string adminPhone = "9720565640";
+        // BCrypt hash (cost 12) — plain text password never stored in code
+        const string adminPasswordHash = "$2a$12$Gabyh5O/zi1Q7kMhPhLThOwR5pcJEoV7/dbMAFD6CZnd8TTbTf.Bi";
 
-        foreach (var phone in adminPhones)
+        var exists = await db.Admins.AnyAsync(a => a.Email == adminEmail);
+        if (!exists)
         {
-            var exists = await db.Admins.AnyAsync(a => a.PhoneNumber == phone);
-            if (!exists)
+            db.Admins.Add(new Admin
             {
-                db.Admins.Add(new Admin
-                {
-                    Id = Guid.NewGuid(),
-                    PhoneNumber = phone,
-                    Name = "Admin",
-                    IsActive = true,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow,
-                });
-                changed = true;
-            }
+                Id = Guid.NewGuid(),
+                Email = adminEmail,
+                PasswordHash = adminPasswordHash,
+                PhoneNumber = adminPhone,
+                Name = "Admin",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
         }
-
-        if (changed) await db.SaveChangesAsync();
     }
 }

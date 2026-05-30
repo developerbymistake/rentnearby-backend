@@ -14,37 +14,62 @@ public static class AdminAuthHandlers
     private const int OtpSendMax = 3;
     private const int OtpVerifyMax = 5;
 
-    public static async Task<IResult> SendAdminOtp(
-        SendOtpRequest request,
-        IValidator<SendOtpRequest> validator,
+    public static async Task<IResult> AdminLogin(
+        AdminLoginRequest request,
+        IValidator<AdminLoginRequest> validator,
+        IUnitOfWork unitOfWork,
+        IJwtService jwtService)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var admin = await unitOfWork.Admins.GetByEmailAsync(request.Email);
+        if (admin == null || !BCrypt.Net.BCrypt.Verify(request.Password, admin.PasswordHash))
+            return BadRequestResponse("Invalid email or password", "InvalidCredentials");
+
+        if (!admin.IsActive)
+            return ForbiddenResponse("Admin account is inactive. Contact support.");
+
+        return await CreateAdminSessionAndRespond(admin, unitOfWork, jwtService);
+    }
+
+    public static async Task<IResult> AdminForgotPassword(
+        AdminForgotPasswordRequest request,
+        IValidator<AdminForgotPasswordRequest> validator,
         IUnitOfWork unitOfWork,
         IRateLimitService rateLimiter,
+        IOtpService otpService,
         HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var admin = await unitOfWork.Admins.GetByPhoneAsync(request.PhoneNumber);
-        if (admin == null)
-            return NotFoundResponse("Admin not found");
+        var admin = await unitOfWork.Admins.GetByEmailAsync(request.Email);
 
-        var rl = await rateLimiter.CheckAsync($"admin_otp:send:{request.PhoneNumber}", OtpSendMax, OtpWindow);
+        // Always return 200 — don't reveal if email exists
+        if (admin == null || !admin.IsActive)
+            return OkResponse(new { message = "If this email is registered, an OTP has been sent." });
+
+        var rl = await rateLimiter.CheckAsync($"admin_otp:send:{admin.PhoneNumber}", OtpSendMax, OtpWindow);
         if (!rl.IsAllowed)
         {
             httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
             return TooManyRequestsResponse();
         }
 
-        return OkResponse(new { message = "OTP sent successfully" });
+        await otpService.SendOtpAsync(admin.PhoneNumber);
+        return OkResponse(new { message = "If this email is registered, an OTP has been sent." });
     }
 
-    public static async Task<IResult> VerifyAdminOtp(
-        VerifyOtpRequest request,
-        IValidator<VerifyOtpRequest> validator,
+    public static async Task<IResult> AdminResetPassword(
+        AdminResetPasswordRequest request,
+        IValidator<AdminResetPasswordRequest> validator,
         IUnitOfWork unitOfWork,
         IJwtService jwtService,
         IRateLimitService rateLimiter,
+        IOtpService otpService,
         HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
@@ -58,16 +83,42 @@ public static class AdminAuthHandlers
             return TooManyRequestsResponse();
         }
 
-        if (request.Otp != "1234")
+        if (!await otpService.VerifyOtpAsync(request.PhoneNumber, request.Otp))
             return BadRequestResponse("Invalid OTP", "InvalidOtp");
 
         var admin = await unitOfWork.Admins.GetByPhoneAsync(request.PhoneNumber);
-        if (admin == null)
+        if (admin == null || !admin.IsActive)
             return NotFoundResponse("Admin not found");
 
-        if (!admin.IsActive)
-            return ForbiddenResponse("Admin account is inactive. Contact support.");
+        admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword, 12);
+        admin.UpdatedAt = DateTime.UtcNow;
+        await unitOfWork.Admins.UpdateAsync(admin);
+        await unitOfWork.SaveChangesAsync();
 
+        return await CreateAdminSessionAndRespond(admin, unitOfWork, jwtService);
+    }
+
+    public static async Task<IResult> AdminLogout(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    {
+        var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(adminIdClaim, out var adminId))
+            return UnauthorizedResponse();
+
+        var sessionIdClaim = principal.FindFirst("session_id")?.Value;
+        if (Guid.TryParse(sessionIdClaim, out var sessionId))
+        {
+            var session = await unitOfWork.AdminSessions.GetByIdAsync(sessionId);
+            if (session != null && session.AdminId == adminId)
+            {
+                await unitOfWork.AdminSessions.DeleteAsync(session);
+                await unitOfWork.SaveChangesAsync();
+            }
+        }
+        return OkResponse(new { message = "Logged out successfully" });
+    }
+
+    private static async Task<IResult> CreateAdminSessionAndRespond(Admin admin, IUnitOfWork unitOfWork, IJwtService jwtService)
+    {
         await unitOfWork.AdminSessions.DeleteAllAdminSessionsAsync(admin.Id);
 
         var session = new AdminSession
@@ -84,26 +135,7 @@ public static class AdminAuthHandlers
         return OkResponse(new
         {
             token,
-            admin = new { id = admin.Id, phoneNumber = admin.PhoneNumber, name = admin.Name }
+            admin = new { id = admin.Id, email = admin.Email, phoneNumber = admin.PhoneNumber, name = admin.Name }
         });
-    }
-
-    public static async Task<IResult> AdminLogout(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
-    {
-        var adminIdClaim = principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (!Guid.TryParse(adminIdClaim, out var adminId))
-            return UnauthorizedResponse();
-
-        var sessionIdClaim = principal.FindFirst("session_id")?.Value;
-        if (Guid.TryParse(sessionIdClaim, out var sessionId))
-        {
-            var session = await unitOfWork.AdminSessions.GetByIdAsync(sessionId);
-            if (session != null && session.AdminId == adminId)
-            {
-                await unitOfWork.AdminSessions.DeleteAsync(session);
-                await unitOfWork.SaveChangesAsync();
-            }
-        }
-        return OkResponse(new { message = "Logged out successfully" });
     }
 }
