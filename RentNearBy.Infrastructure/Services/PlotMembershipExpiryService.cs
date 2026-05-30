@@ -144,8 +144,8 @@ public class PlotMembershipExpiryService : BackgroundService
         }
     }
 
-    // 18:35 UTC = 00:05 IST — staggered 5 min after room expiry job (18:30 UTC)
-    private static readonly TimeSpan RunTimeUtc = new(18, 35, 0);
+    // 19:30 UTC = 01:00 IST — runs 1 hour after room expiry job (18:30 UTC)
+    private static readonly TimeSpan RunTimeUtc = new(19, 30, 0);
 
     private static DateTime GetNextRunTime()
     {
