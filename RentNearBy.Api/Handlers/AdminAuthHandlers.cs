@@ -34,35 +34,6 @@ public static class AdminAuthHandlers
         return await CreateAdminSessionAndRespond(admin, unitOfWork, jwtService);
     }
 
-    public static async Task<IResult> AdminForgotPassword(
-        AdminForgotPasswordRequest request,
-        IValidator<AdminForgotPasswordRequest> validator,
-        IUnitOfWork unitOfWork,
-        IRateLimitService rateLimiter,
-        IOtpService otpService,
-        HttpContext httpContext)
-    {
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid)
-            return BadRequestResponse(validation.Errors[0].ErrorMessage);
-
-        var admin = await unitOfWork.Admins.GetByEmailAsync(request.Email);
-
-        // Always return 200 — don't reveal if email exists
-        if (admin == null || !admin.IsActive)
-            return OkResponse(new { message = "If this email is registered, an OTP has been sent." });
-
-        var rl = await rateLimiter.CheckAsync($"admin_otp:send:{admin.PhoneNumber}", OtpSendMax, OtpWindow);
-        if (!rl.IsAllowed)
-        {
-            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
-            return TooManyRequestsResponse();
-        }
-
-        await otpService.SendOtpAsync(admin.PhoneNumber);
-        return OkResponse(new { message = "If this email is registered, an OTP has been sent." });
-    }
-
     public static async Task<IResult> AdminResetPassword(
         AdminResetPasswordRequest request,
         IValidator<AdminResetPasswordRequest> validator,
