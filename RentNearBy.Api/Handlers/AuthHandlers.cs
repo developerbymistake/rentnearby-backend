@@ -48,8 +48,8 @@ public static class AuthHandlers
             return BadRequestResponse("Invalid Google token", "InvalidToken");
         }
 
-        var googleId = payload.Subject;
-        var user = await unitOfWork.Users.GetByProviderIdAsync(googleId);
+        var providerId = payload.Subject;
+        var user = await unitOfWork.Users.GetByProviderIdAsync(providerId);
 
         // New user — do not create yet, phone number required at onboarding
         if (user == null)
@@ -107,7 +107,7 @@ public static class AuthHandlers
         }
 
         // Guard: if user already exists with this ProviderId, redirect to normal login
-        if (await unitOfWork.Users.ProviderIdExistsAsync(payload.Subject))
+        if (await unitOfWork.Users.ProviderIdExistsAsync(payload.Subject)) // payload.Subject = Google's unique user ID
             return BadRequestResponse("Account already exists. Please sign in.", "AlreadyExists");
 
         // Guard: if phone is already verified by another user, reject
@@ -117,7 +117,7 @@ public static class AuthHandlers
         var newUser = new User
         {
             Id = Guid.NewGuid(),
-            ProviderId = payload.Subject,
+            ProviderId = payload.Subject, // Google's unique user ID
             AuthProvider = "Google",
             Email = payload.Email,
             Name = request.Name,
@@ -134,7 +134,7 @@ public static class AuthHandlers
         }
         catch (Microsoft.EntityFrameworkCore.DbUpdateException)
         {
-            // Race condition: googleId unique constraint violated
+            // Race condition: providerId unique constraint violated
             return BadRequestResponse("Account already exists. Please sign in.", "AlreadyExists");
         }
 
