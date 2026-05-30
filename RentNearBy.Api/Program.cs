@@ -109,6 +109,30 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.MapGet("/delete-account", () => Results.Content("""
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Delete Account – Bakhli</title>
+<style>body{font-family:sans-serif;max-width:600px;margin:48px auto;padding:0 24px;color:#1e293b}h1{color:#1e3a8a}a{color:#2563eb}.card{background:#f1f5f9;border-radius:12px;padding:24px;margin:24px 0}</style>
+</head>
+<body>
+<h1>Delete Your Bakhli Account</h1>
+<p>To request deletion of your account and all associated data, you can:</p>
+<div class="card">
+<strong>Option 1 — In-app (recommended)</strong><br><br>
+Open the Bakhli app → Profile → Settings → Delete Account
+</div>
+<div class="card">
+<strong>Option 2 — Email request</strong><br><br>
+Send an email to <a href="mailto:supportbakhli@gmail.com">supportbakhli@gmail.com</a> with subject <em>"Account Deletion Request"</em> and your registered email address.
+</div>
+<p>We will delete your account and all associated data within <strong>30 days</strong> of receiving your request.</p>
+<p>Data deleted includes: profile, listings, booking history, payment records, and location data.</p>
+<p><a href="https://developerbymistake.github.io/bakhli-privacy-policy/">Privacy Policy</a></p>
+</body></html>
+""", "text/html"));
+
 app.MapGet("/health", async (IServiceProvider sp) =>
 {
     var multiplexer = sp.GetService<StackExchange.Redis.IConnectionMultiplexer>();
