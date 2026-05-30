@@ -9,6 +9,7 @@ public class UserDto
     public string? Name { get; set; }
     public bool IsActive { get; set; }
     public bool IsPhoneVerified { get; set; }
+    public bool HasUsedPhoneChange { get; set; }
     public bool HasUsedFreePlan { get; set; }
     public bool HasUsedFreePlotPlan { get; set; }
     public bool IsContactVisible { get; set; }

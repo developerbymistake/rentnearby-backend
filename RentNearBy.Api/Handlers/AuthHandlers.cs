@@ -14,8 +14,10 @@ namespace RentNearBy.Api.Handlers;
 
 public static class AuthHandlers
 {
-    private static readonly TimeSpan OtpWindow = TimeSpan.FromMinutes(10);
-    private const int OtpSendMax = 3;
+    private static readonly TimeSpan OtpWindow = TimeSpan.FromHours(1);
+    private static readonly TimeSpan OtpUserDailyWindow = TimeSpan.FromHours(24);
+    private const int OtpSendMax = 2;
+    private const int OtpUserDailySendMax = 10;
     private const int OtpVerifyMax = 5;
 
     public static async Task<IResult> GoogleSignIn(
@@ -168,6 +170,7 @@ public static class AuthHandlers
         ClaimsPrincipal principal,
         IUnitOfWork unitOfWork,
         IRateLimitService rateLimiter,
+        IOtpService otpService,
         HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
@@ -177,16 +180,36 @@ public static class AuthHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
+        // Fail fast: if user has already used their one-time phone change, block before any DB/WhatsApp calls
+        var currentUser = await unitOfWork.Users.GetByIdAsync(userId);
+        if (currentUser == null) return NotFoundResponse("User not found");
+
+        if (currentUser.IsPhoneVerified && currentUser.HasUsedPhoneChange)
+            return ForbiddenResponse("Phone number change is no longer allowed.");
+
         // Check if this number is already verified by a different user
         if (await unitOfWork.Users.IsPhoneVerifiedByOtherUserAsync(request.PhoneNumber, userId))
             return ConflictResponse("This number is already verified by another account. Please use a different number.", "PhoneAlreadyClaimed");
 
-        var rl = await rateLimiter.CheckAsync($"otp:send:{request.PhoneNumber}", OtpSendMax, OtpWindow);
-        if (!rl.IsAllowed)
+        // Per-phone limit: prevents spam to the same number
+        var phoneLimitRl = await rateLimiter.CheckAsync($"otp:send:{request.PhoneNumber}", OtpSendMax, OtpWindow);
+        if (!phoneLimitRl.IsAllowed)
         {
-            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+            httpContext.Response.Headers["Retry-After"] = ((int)phoneLimitRl.RetryAfter!.Value.TotalSeconds).ToString();
             return TooManyRequestsResponse();
         }
+
+        // Per-user daily limit: prevents cost abuse by trying many different numbers
+        var userDailyRl = await rateLimiter.CheckAsync($"otp:send:user:{userId}", OtpUserDailySendMax, OtpUserDailyWindow);
+        if (!userDailyRl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)userDailyRl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
+
+        var sent = await otpService.SendOtpAsync(request.PhoneNumber);
+        if (!sent)
+            return Results.Problem("Could not send OTP. Please try again.", statusCode: 503);
 
         return OkResponse(new { message = "OTP sent successfully" });
     }
@@ -197,6 +220,7 @@ public static class AuthHandlers
         ClaimsPrincipal principal,
         IUnitOfWork unitOfWork,
         IRateLimitService rateLimiter,
+        IOtpService otpService,
         HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
@@ -213,7 +237,7 @@ public static class AuthHandlers
             return TooManyRequestsResponse();
         }
 
-        if (request.Otp != "1234")
+        if (!await otpService.VerifyOtpAsync(request.PhoneNumber, request.Otp))
             return BadRequestResponse("Invalid OTP", "InvalidOtp");
 
         var user = await unitOfWork.Users.GetByIdAsync(userId);
@@ -223,8 +247,11 @@ public static class AuthHandlers
         if (await unitOfWork.Users.IsPhoneVerifiedByOtherUserAsync(request.PhoneNumber, userId))
             return ConflictResponse("This number is already verified by another account. Please use a different number.", "PhoneAlreadyClaimed");
 
+        bool wasAlreadyVerified = user.IsPhoneVerified;
+
         user.PhoneNumber = request.PhoneNumber;
         user.IsPhoneVerified = true;
+        if (wasAlreadyVerified) user.HasUsedPhoneChange = true;
         user.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.Users.UpdateAsync(user);

@@ -10,6 +10,7 @@ public class User
     public string? Name { get; set; }
     public bool IsActive { get; set; } = true;
     public bool IsPhoneVerified { get; set; } = false;
+    public bool HasUsedPhoneChange { get; set; } = false;
     public bool HasUsedFreePlan { get; set; } = false;
     public bool HasUsedFreePlotPlan { get; set; } = false;
     public bool IsContactVisible { get; set; } = true;

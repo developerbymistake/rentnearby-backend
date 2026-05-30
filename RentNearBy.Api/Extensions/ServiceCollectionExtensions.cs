@@ -70,11 +70,15 @@ public static class ServiceCollectionExtensions
                 return ConnectionMultiplexer.Connect(options);
             });
             services.AddSingleton<IRateLimitService, RedisRateLimitService>();
+            services.AddSingleton<IOtpStore, RedisOtpStore>();
         }
         else
         {
             services.AddSingleton<IRateLimitService, InMemoryRateLimitService>();
+            services.AddSingleton<IOtpStore, MemoryOtpStore>();
         }
+
+        services.AddHttpClient<IOtpService, WhatsAppOtpService>();
 
         return services;
     }
