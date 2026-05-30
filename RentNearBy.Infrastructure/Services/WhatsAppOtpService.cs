@@ -72,11 +72,18 @@ public sealed class WhatsAppOtpService : IOtpService
             {
                 name = _templateName,
                 language = new { code = "en" },
-                components = new[]
+                components = new object[]
                 {
                     new
                     {
                         type = "body",
+                        parameters = new[] { new { type = "text", text = otp } }
+                    },
+                    new
+                    {
+                        type = "button",
+                        sub_type = "url",
+                        index = "0",
                         parameters = new[] { new { type = "text", text = otp } }
                     }
                 }
