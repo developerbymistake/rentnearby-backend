@@ -40,10 +40,10 @@ public sealed class WhatsAppOtpService : IOtpService
         _templateName = configuration["WhatsApp:OtpTemplateName"] ?? "bakhli_otp";
     }
 
-    public async Task<bool> SendOtpAsync(string phoneNumber)
+    public async Task<bool> SendOtpAsync(string phoneNumber, string keyNamespace = "user")
     {
         var otp = GenerateOtp();
-        await StoreOtpAsync(phoneNumber, otp);
+        await StoreOtpAsync(phoneNumber, otp, keyNamespace);
 
         using var request = BuildRequest(phoneNumber, otp);
         var response = await _http.SendAsync(request);
@@ -60,9 +60,9 @@ public sealed class WhatsAppOtpService : IOtpService
         return true;
     }
 
-    public async Task<bool> VerifyOtpAsync(string phoneNumber, string otp)
+    public async Task<bool> VerifyOtpAsync(string phoneNumber, string otp, string keyNamespace = "user")
     {
-        var stored = await GetOtpAsync(phoneNumber);
+        var stored = await GetOtpAsync(phoneNumber, keyNamespace);
         if (stored is null)
         {
             _logger.LogWarning("VerifyOtp: no OTP found for {PhonePrefix}", phoneNumber[..4] + "xxxxxx");
@@ -75,42 +75,42 @@ public sealed class WhatsAppOtpService : IOtpService
         }
 
         // Delete only on successful match — wrong attempts keep OTP alive for retry
-        await DeleteOtpAsync(phoneNumber);
+        await DeleteOtpAsync(phoneNumber, keyNamespace);
         return true;
     }
 
-    private async Task StoreOtpAsync(string phone, string otp)
+    private async Task StoreOtpAsync(string phone, string otp, string keyNamespace)
     {
         if (_redis is not null)
         {
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(OtpKey(phone), otp, OtpTtl);
+            await db.StringSetAsync(OtpKey(phone, keyNamespace), otp, OtpTtl);
             return;
         }
-        _memoryCache.Set(OtpKey(phone), otp, OtpTtl);
+        _memoryCache.Set(OtpKey(phone, keyNamespace), otp, OtpTtl);
     }
 
-    private async Task<string?> GetOtpAsync(string phone)
+    private async Task<string?> GetOtpAsync(string phone, string keyNamespace)
     {
         if (_redis is not null)
         {
             var db = _redis.GetDatabase();
-            var val = await db.StringGetAsync(OtpKey(phone));
+            var val = await db.StringGetAsync(OtpKey(phone, keyNamespace));
             return val.IsNull ? null : (string?)val;
         }
-        _memoryCache.TryGetValue(OtpKey(phone), out string? val2);
+        _memoryCache.TryGetValue(OtpKey(phone, keyNamespace), out string? val2);
         return val2;
     }
 
-    private async Task DeleteOtpAsync(string phone)
+    private async Task DeleteOtpAsync(string phone, string keyNamespace)
     {
         if (_redis is not null)
         {
             var db = _redis.GetDatabase();
-            await db.KeyDeleteAsync(OtpKey(phone));
+            await db.KeyDeleteAsync(OtpKey(phone, keyNamespace));
             return;
         }
-        _memoryCache.Remove(OtpKey(phone));
+        _memoryCache.Remove(OtpKey(phone, keyNamespace));
     }
 
     private HttpRequestMessage BuildRequest(string phoneNumber, string otp)
@@ -156,5 +156,5 @@ public sealed class WhatsAppOtpService : IOtpService
     private static string GenerateOtp() =>
         RandomNumberGenerator.GetInt32(1000, 10000).ToString();
 
-    private static string OtpKey(string phone) => $"otp:{phone}";
+    private static string OtpKey(string phone, string keyNamespace) => $"otp:{keyNamespace}:{phone}";
 }

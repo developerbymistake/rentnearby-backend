@@ -59,7 +59,7 @@ public static class AdminAuthHandlers
             return TooManyRequestsResponse();
         }
 
-        await otpService.SendOtpAsync(admin.PhoneNumber);
+        await otpService.SendOtpAsync(admin.PhoneNumber, "admin");
         return OkResponse(new { message = "If this email is registered, an OTP has been sent." });
     }
 
@@ -87,7 +87,7 @@ public static class AdminAuthHandlers
             return TooManyRequestsResponse();
         }
 
-        if (!await otpService.VerifyOtpAsync(admin.PhoneNumber, request.Otp))
+        if (!await otpService.VerifyOtpAsync(admin.PhoneNumber, request.Otp, "admin"))
             return BadRequestResponse("Invalid OTP", "InvalidOtp");
 
         admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword, 12);
