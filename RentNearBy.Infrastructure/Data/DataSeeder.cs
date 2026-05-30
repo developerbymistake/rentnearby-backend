@@ -215,26 +215,31 @@ public static class DataSeeder
 
     private static async Task SeedAdminsAsync(ApplicationDbContext db)
     {
-        const string adminEmail = "developerbymistake@gmail.com";
-        const string adminPhone = "9720565640";
-        // BCrypt hash (cost 12) — plain text password never stored in code
-        const string adminPasswordHash = "$2a$12$Gabyh5O/zi1Q7kMhPhLThOwR5pcJEoV7/dbMAFD6CZnd8TTbTf.Bi";
-
-        var exists = await db.Admins.AnyAsync(a => a.Email == adminEmail);
-        if (!exists)
+        var admins = new[]
         {
-            db.Admins.Add(new Admin
+            new { Email = "developerbymistake@gmail.com", Phone = "9720565640", Hash = "$2a$12$Gabyh5O/zi1Q7kMhPhLThOwR5pcJEoV7/dbMAFD6CZnd8TTbTf.Bi" },
+            new { Email = "devendrasinghphartyal@gmail.com", Phone = "7060023511", Hash = "$2a$12$.p82GvGMMlYPDDpj0Uyse.O2zIY/yG3HH25oU3ylUMcVkFTLVxZCq" },
+        };
+
+        bool changed = false;
+        foreach (var a in admins)
+        {
+            if (!await db.Admins.AnyAsync(x => x.Email == a.Email))
             {
-                Id = Guid.NewGuid(),
-                Email = adminEmail,
-                PasswordHash = adminPasswordHash,
-                PhoneNumber = adminPhone,
-                Name = "Admin",
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-            });
-            await db.SaveChangesAsync();
+                db.Admins.Add(new Admin
+                {
+                    Id = Guid.NewGuid(),
+                    Email = a.Email,
+                    PasswordHash = a.Hash,
+                    PhoneNumber = a.Phone,
+                    Name = "Admin",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                });
+                changed = true;
+            }
         }
+        if (changed) await db.SaveChangesAsync();
     }
 }
