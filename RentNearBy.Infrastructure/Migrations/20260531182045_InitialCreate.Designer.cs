@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260529115803_InitialCreate")]
+    [Migration("20260531182045_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -39,10 +39,18 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
                     b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("PhoneNumber")
@@ -924,18 +932,13 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<string>("GoogleEmail")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("GoogleId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<bool>("HasUsedFreePlan")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("HasUsedFreePlotPlan")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("HasUsedPhoneChange")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsActive")
@@ -954,9 +957,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("ProfilePhotoUrl")
-                        .HasColumnType("text");
-
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -964,10 +964,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("GoogleEmail")
-                        .IsUnique();
-
-                    b.HasIndex("GoogleId")
+                    b.HasIndex("PhoneNumber")
                         .IsUnique();
 
                     b.ToTable("Users");

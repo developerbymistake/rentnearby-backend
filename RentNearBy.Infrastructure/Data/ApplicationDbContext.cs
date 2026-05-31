@@ -54,8 +54,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         {
             e.HasKey(u => u.Id);
             e.Property(u => u.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(u => u.ProviderId).IsUnique();
-            e.HasIndex(u => u.Email).IsUnique();
+            e.HasIndex(u => u.PhoneNumber).IsUnique();
             e.Property(u => u.CreatedAt).HasDefaultValueSql("now()");
             e.Property(u => u.UpdatedAt).HasDefaultValueSql("now()");
         });

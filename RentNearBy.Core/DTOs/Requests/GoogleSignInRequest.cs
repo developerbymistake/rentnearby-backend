@@ -1,3 +1,1 @@
-namespace RentNearBy.Core.DTOs.Requests;
-
-public record GoogleSignInRequest(string IdToken);
+// This file is intentionally empty. Google Sign-In has been removed.

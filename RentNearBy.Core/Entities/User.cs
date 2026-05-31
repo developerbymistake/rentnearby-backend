@@ -3,10 +3,6 @@
 public class User
 {
     public Guid Id { get; set; }
-    public string ProviderId { get; set; } = string.Empty;
-    public string AuthProvider { get; set; } = "Google";
-    public string Email { get; set; } = string.Empty;
-    public string? ProfilePhotoUrl { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string? Name { get; set; }
     public bool IsActive { get; set; } = true;

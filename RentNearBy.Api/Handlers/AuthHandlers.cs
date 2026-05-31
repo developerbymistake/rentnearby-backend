@@ -1,8 +1,6 @@
 using System.Security.Claims;
 using FluentValidation;
-using Google.Apis.Auth;
 using Mapster;
-using Microsoft.Extensions.Configuration;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -19,111 +17,92 @@ public static class AuthHandlers
     private const int OtpSendMax = 2;
     private const int OtpUserDailySendMax = 10;
     private const int OtpVerifyMax = 5;
+    private const string PhoneLoginNamespace = "phone_login";
 
-    public static async Task<IResult> GoogleSignIn(
-        GoogleSignInRequest request,
-        IValidator<GoogleSignInRequest> validator,
-        IUnitOfWork unitOfWork,
-        IJwtService jwtService,
-        IConfiguration configuration)
+    public static async Task<IResult> PhoneSendOtp(
+        PhoneLoginSendOtpRequest request,
+        IValidator<PhoneLoginSendOtpRequest> validator,
+        IRateLimitService rateLimiter,
+        IOtpService otpService,
+        HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        GoogleJsonWebSignature.Payload payload;
-        try
+        // Per-phone limit: 2 per hour
+        var phoneLimitRl = await rateLimiter.CheckAsync($"otp:send:login:{request.PhoneNumber}", OtpSendMax, OtpWindow);
+        if (!phoneLimitRl.IsAllowed)
         {
-            var webClientId = configuration["Google:WebClientId"]
-                ?? throw new InvalidOperationException("Google WebClientId not configured");
-
-            payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken,
-                new GoogleJsonWebSignature.ValidationSettings
-                {
-                    Audience = [webClientId]
-                });
-        }
-        catch (InvalidJwtException)
-        {
-            return BadRequestResponse("Invalid Google token", "InvalidToken");
+            httpContext.Response.Headers["Retry-After"] = ((int)phoneLimitRl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
         }
 
-        var providerId = payload.Subject;
-        var user = await unitOfWork.Users.GetByProviderIdAsync(providerId);
+        var sent = await otpService.SendOtpAsync(request.PhoneNumber, PhoneLoginNamespace);
+        if (!sent)
+            return Results.Problem("Could not send OTP. Please try again.", statusCode: 503);
 
-        // New user — do not create yet, phone number required at onboarding
-        if (user == null)
-        {
-            return OkResponse(new GoogleSignInResponse
-            {
-                NeedsOnboarding = true,
-                GoogleProfile = new GoogleProfileDto
-                {
-                    Name = payload.Name ?? string.Empty,
-                    Email = payload.Email,
-                    PhotoUrl = payload.Picture
-                }
-            });
-        }
-
-        if (!user.IsActive)
-            return ForbiddenResponse("Your account has been blocked. Contact admin.");
-
-        // Refresh profile photo on every login
-        user.ProfilePhotoUrl = payload.Picture;
-        user.UpdatedAt = DateTime.UtcNow;
-        await unitOfWork.Users.UpdateAsync(user);
-        await unitOfWork.SaveChangesAsync();
-
-        return await CreateSessionAndRespond(user, unitOfWork, jwtService);
+        return OkResponse(new { message = "OTP sent successfully" });
     }
 
-    public static async Task<IResult> CompleteOnboarding(
-        CompleteOnboardingRequest request,
-        IValidator<CompleteOnboardingRequest> validator,
+    public static async Task<IResult> PhoneVerifyOtp(
+        PhoneLoginVerifyOtpRequest request,
+        IValidator<PhoneLoginVerifyOtpRequest> validator,
         IUnitOfWork unitOfWork,
         IJwtService jwtService,
-        IConfiguration configuration)
+        IRateLimitService rateLimiter,
+        IOtpService otpService,
+        HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        GoogleJsonWebSignature.Payload payload;
-        try
+        // Verify rate limit per phone
+        var rl = await rateLimiter.CheckAsync($"otp:verify:login:{request.PhoneNumber}", OtpVerifyMax, OtpWindow);
+        if (!rl.IsAllowed)
         {
-            var webClientId = configuration["Google:WebClientId"]
-                ?? throw new InvalidOperationException("Google WebClientId not configured");
-
-            payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken,
-                new GoogleJsonWebSignature.ValidationSettings
-                {
-                    Audience = [webClientId]
-                });
-        }
-        catch (InvalidJwtException)
-        {
-            return BadRequestResponse("Invalid Google token", "InvalidToken");
+            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
         }
 
-        // Guard: if user already exists with this ProviderId, redirect to normal login
-        if (await unitOfWork.Users.ProviderIdExistsAsync(payload.Subject)) // payload.Subject = Google's unique user ID
-            return BadRequestResponse("Account already exists. Please sign in.", "AlreadyExists");
+        if (!await otpService.VerifyOtpAsync(request.PhoneNumber, request.Otp, PhoneLoginNamespace))
+            return BadRequestResponse("Invalid OTP", "InvalidOtp");
 
-        // Guard: if phone is already verified by another user, reject
+        // Check if phone is already registered
+        var existingUser = await unitOfWork.Users.GetByVerifiedPhoneAsync(request.PhoneNumber);
+        if (existingUser != null)
+        {
+            if (!existingUser.IsActive)
+                return ForbiddenResponse("Your account has been blocked. Contact admin.");
+
+            return await CreateSessionAndRespond(existingUser, unitOfWork, jwtService);
+        }
+
+        // New user — needs onboarding
+        return OkResponse(new PhoneLoginResponse { NeedsOnboarding = true });
+    }
+
+    public static async Task<IResult> PhoneCompleteOnboarding(
+        PhoneOnboardingRequest request,
+        IValidator<PhoneOnboardingRequest> validator,
+        IUnitOfWork unitOfWork,
+        IJwtService jwtService)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        // Guard: phone already registered
         if (await unitOfWork.Users.IsPhoneVerifiedByAnyUserAsync(request.PhoneNumber))
-            return ConflictResponse("This phone number is already registered in our system. Please use a different number.", "PhoneExists");
+            return ConflictResponse("This phone number is already registered. Please sign in.", "PhoneExists");
 
         var newUser = new User
         {
             Id = Guid.NewGuid(),
-            ProviderId = payload.Subject, // Google's unique user ID
-            AuthProvider = "Google",
-            Email = payload.Email,
-            Name = request.Name,
-            ProfilePhotoUrl = payload.Picture,
             PhoneNumber = request.PhoneNumber,
-            IsPhoneVerified = false,
+            Name = request.Name,
+            IsPhoneVerified = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -134,8 +113,7 @@ public static class AuthHandlers
         }
         catch (Microsoft.EntityFrameworkCore.DbUpdateException)
         {
-            // Race condition: providerId unique constraint violated
-            return BadRequestResponse("Account already exists. Please sign in.", "AlreadyExists");
+            return ConflictResponse("This phone number is already registered. Please sign in.", "PhoneExists");
         }
 
         return await CreateSessionAndRespond(newUser, unitOfWork, jwtService);
@@ -143,7 +121,6 @@ public static class AuthHandlers
 
     private static async Task<IResult> CreateSessionAndRespond(User user, IUnitOfWork unitOfWork, IJwtService jwtService)
     {
-        // Hard delete all previous sessions — single device enforcement
         await unitOfWork.Sessions.DeleteAllUserSessionsAsync(user.Id);
 
         var session = new Session
@@ -157,7 +134,7 @@ public static class AuthHandlers
         await unitOfWork.SaveChangesAsync();
 
         var token = jwtService.GenerateToken(user, session.Id);
-        return OkResponse(new GoogleSignInResponse
+        return OkResponse(new PhoneLoginResponse
         {
             NeedsOnboarding = false,
             Token = token,
@@ -181,18 +158,15 @@ public static class AuthHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        // Fail fast: if user has already used their one-time phone change, block before any DB/WhatsApp calls
         var currentUser = await unitOfWork.Users.GetByIdAsync(userId);
         if (currentUser == null) return NotFoundResponse("User not found");
 
         if (currentUser.IsPhoneVerified && currentUser.HasUsedPhoneChange)
             return ForbiddenResponse("Phone number change is no longer allowed.");
 
-        // Check if this number is already verified by a different user
         if (await unitOfWork.Users.IsPhoneVerifiedByOtherUserAsync(request.PhoneNumber, userId))
             return ConflictResponse("This number is already verified by another account. Please use a different number.", "PhoneAlreadyClaimed");
 
-        // Per-phone limit: prevents spam to the same number
         var phoneLimitRl = await rateLimiter.CheckAsync($"otp:send:{request.PhoneNumber}", OtpSendMax, OtpWindow);
         if (!phoneLimitRl.IsAllowed)
         {
@@ -200,7 +174,6 @@ public static class AuthHandlers
             return TooManyRequestsResponse();
         }
 
-        // Per-user daily limit: prevents cost abuse by trying many different numbers
         var userDailyRl = await rateLimiter.CheckAsync($"otp:send:user:{userId}", OtpUserDailySendMax, OtpUserDailyWindow);
         if (!userDailyRl.IsAllowed)
         {
@@ -244,7 +217,6 @@ public static class AuthHandlers
         var user = await unitOfWork.Users.GetByIdAsync(userId);
         if (user == null) return NotFoundResponse("User not found");
 
-        // Double-check at verify time — another user may have verified this number between send and verify
         if (await unitOfWork.Users.IsPhoneVerifiedByOtherUserAsync(request.PhoneNumber, userId))
             return ConflictResponse("This number is already verified by another account. Please use a different number.", "PhoneAlreadyClaimed");
 

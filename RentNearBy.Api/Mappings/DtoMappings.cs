@@ -12,6 +12,12 @@ public static class DtoMappings
             .Map(dest => dest.Id, src => src.Id)
             .Map(dest => dest.PhoneNumber, src => src.PhoneNumber)
             .Map(dest => dest.Name, src => src.Name)
+            .Map(dest => dest.IsActive, src => src.IsActive)
+            .Map(dest => dest.IsPhoneVerified, src => src.IsPhoneVerified)
+            .Map(dest => dest.HasUsedPhoneChange, src => src.HasUsedPhoneChange)
+            .Map(dest => dest.HasUsedFreePlan, src => src.HasUsedFreePlan)
+            .Map(dest => dest.HasUsedFreePlotPlan, src => src.HasUsedFreePlotPlan)
+            .Map(dest => dest.IsContactVisible, src => src.IsContactVisible)
             .Map(dest => dest.CreatedAt, src => src.CreatedAt);
 
         TypeAdapterConfig<District, DistrictDto>.NewConfig();
@@ -25,7 +31,6 @@ public static class DtoMappings
             .Map(dest => dest.RoomTypeName, src => src.RoomType != null ? src.RoomType.Name : null)
             .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
             .Map(dest => dest.OwnerPhone, src => src.User != null && src.User.IsContactVisible ? src.User.PhoneNumber : null)
-            .Map(dest => dest.OwnerEmail, src => src.User != null ? src.User.Email : null)
             .Map(dest => dest.Photos, src => src.Photos != null
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
@@ -36,7 +41,6 @@ public static class DtoMappings
             .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
             .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
             .Map(dest => dest.OwnerPhone, src => src.User != null && src.User.IsContactVisible ? src.User.PhoneNumber : null)
-            .Map(dest => dest.OwnerEmail, src => src.User != null ? src.User.Email : null)
             .Map(dest => dest.Photos, src => src.Photos != null
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());

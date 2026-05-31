@@ -22,6 +22,8 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Email = table.Column<string>(type: "text", nullable: false),
+                    PasswordHash = table.Column<string>(type: "text", nullable: false),
                     PhoneNumber = table.Column<string>(type: "text", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
@@ -142,13 +144,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    GoogleId = table.Column<string>(type: "text", nullable: false),
-                    GoogleEmail = table.Column<string>(type: "text", nullable: false),
-                    ProfilePhotoUrl = table.Column<string>(type: "text", nullable: true),
                     PhoneNumber = table.Column<string>(type: "text", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     IsPhoneVerified = table.Column<bool>(type: "boolean", nullable: false),
+                    HasUsedPhoneChange = table.Column<bool>(type: "boolean", nullable: false),
                     HasUsedFreePlan = table.Column<bool>(type: "boolean", nullable: false),
                     HasUsedFreePlotPlan = table.Column<bool>(type: "boolean", nullable: false),
                     IsContactVisible = table.Column<bool>(type: "boolean", nullable: false),
@@ -827,15 +827,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Users_GoogleEmail",
+                name: "IX_Users_PhoneNumber",
                 table: "Users",
-                column: "GoogleEmail",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Users_GoogleId",
-                table: "Users",
-                column: "GoogleId",
+                column: "PhoneNumber",
                 unique: true);
         }
 

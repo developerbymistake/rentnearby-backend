@@ -469,7 +469,6 @@ public static class AdminHandlers
             var s = search.Trim().ToLower();
             query = query.Where(u =>
                 u.PhoneNumber.Contains(s) ||
-                u.Email.ToLower().Contains(s) ||
                 (u.Name != null && u.Name.ToLower().Contains(s)));
         }
 
@@ -499,8 +498,6 @@ public static class AdminHandlers
                 return new AdminUserDto
                 {
                     Id = u.Id,
-                    Email = u.Email,
-                    ProfilePhotoUrl = u.ProfilePhotoUrl,
                     PhoneNumber = u.PhoneNumber,
                     IsPhoneVerified = u.IsPhoneVerified,
                     Name = u.Name,
@@ -551,8 +548,6 @@ public static class AdminHandlers
         var dto = new AdminUserDto
         {
             Id = u.Id,
-            Email = u.Email,
-            ProfilePhotoUrl = u.ProfilePhotoUrl,
             PhoneNumber = u.PhoneNumber,
             IsPhoneVerified = u.IsPhoneVerified,
             Name = u.Name,
