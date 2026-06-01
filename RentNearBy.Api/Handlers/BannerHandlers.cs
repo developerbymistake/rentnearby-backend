@@ -124,20 +124,11 @@ public static class BannerHandlers
             IsActive = banner.IsActive,
             CreatedAt = banner.CreatedAt,
         };
+
         await hubContext.Clients.Group($"district_{banner.DistrictId}")
             .SendAsync("BannerActivated", bannerDto);
 
-        return CreatedResponse(new DistrictBannerDto
-        {
-            Id = banner.Id,
-            DistrictId = banner.DistrictId,
-            DistrictName = string.Empty,
-            ImageUrl = banner.ImageUrl,
-            ContactNumber = banner.ContactNumber,
-            RedirectUrl = banner.RedirectUrl,
-            IsActive = banner.IsActive,
-            CreatedAt = banner.CreatedAt,
-        }, $"/api/v1/admin/district-banners/{banner.Id}");
+        return CreatedResponse(bannerDto, $"/api/v1/admin/district-banners/{banner.Id}");
     }
 
     public record ToggleBannerRequest(bool IsActive);
