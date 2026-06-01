@@ -16,9 +16,7 @@ public class RabbitMqPublisher : IRabbitMqPublisher, IAsyncDisposable
     public RabbitMqPublisher(IConfiguration configuration, ILogger<RabbitMqPublisher> logger)
     {
         _logger = logger;
-        var url = configuration["RABBITMQ_URL"]
-            ?? throw new InvalidOperationException("RABBITMQ_URL not configured");
-        _factory = new ConnectionFactory { Uri = new Uri(url) };
+        _factory = new ConnectionFactory { Uri = new Uri(RabbitMqUrl.Build(configuration)) };
     }
 
     private async Task<IConnection> GetConnectionAsync()
@@ -73,4 +71,5 @@ public class RabbitMqPublisher : IRabbitMqPublisher, IAsyncDisposable
             await _connection.DisposeAsync();
         _connectLock.Dispose();
     }
+
 }

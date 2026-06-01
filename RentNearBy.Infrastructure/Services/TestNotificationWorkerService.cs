@@ -34,9 +34,7 @@ public class TestNotificationWorkerService : BackgroundService
         _fcmService = fcmService;
         _logger = logger;
 
-        var url = configuration["RABBITMQ_URL"]
-            ?? throw new InvalidOperationException("RABBITMQ_URL not configured");
-        _factory = new ConnectionFactory { Uri = new Uri(url) };
+        _factory = new ConnectionFactory { Uri = new Uri(RabbitMqUrl.Build(configuration)) };
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
