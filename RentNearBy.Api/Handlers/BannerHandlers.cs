@@ -62,10 +62,14 @@ public static class BannerHandlers
 
     // ── Admin-facing ─────────────────────────────────────────────────────────
 
-    public static async Task<IResult> AdminGetAllBanners(IUnitOfWork unitOfWork)
+    public static async Task<IResult> AdminGetAllBanners(
+        IUnitOfWork unitOfWork, int page = 1, int pageSize = 20)
     {
-        var banners = await unitOfWork.DistrictBanners.GetAllWithDistrictAsync();
-        var dtos = banners.Select(b => new DistrictBannerDto
+        if (pageSize < 1 || pageSize > 50) pageSize = 20;
+        if (page < 1) page = 1;
+
+        var (items, hasMore) = await unitOfWork.DistrictBanners.GetAllWithDistrictPagedAsync(page, pageSize);
+        var dtos = items.Select(b => new DistrictBannerDto
         {
             Id = b.Id,
             DistrictId = b.DistrictId,
@@ -76,7 +80,7 @@ public static class BannerHandlers
             IsActive = b.IsActive,
             CreatedAt = b.CreatedAt,
         });
-        return OkResponse(dtos);
+        return OkResponse(new { items = dtos, hasMore });
     }
 
     public static async Task<IResult> AdminCreateBanner(

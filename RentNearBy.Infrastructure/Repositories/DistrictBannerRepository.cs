@@ -24,4 +24,18 @@ public class DistrictBannerRepository(ApplicationDbContext context)
             .Include(b => b.District)
             .OrderByDescending(b => b.CreatedAt)
             .ToListAsync();
+
+    public async Task<(IReadOnlyList<DistrictBanner> Items, bool HasMore)> GetAllWithDistrictPagedAsync(int page, int pageSize)
+    {
+        var take = pageSize + 1;
+        var items = await _dbSet.AsNoTracking()
+            .Include(b => b.District)
+            .OrderByDescending(b => b.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(take)
+            .ToListAsync();
+
+        var hasMore = items.Count > pageSize;
+        return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
+    }
 }
