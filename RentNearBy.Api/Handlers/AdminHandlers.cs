@@ -456,10 +456,7 @@ public static class AdminHandlers
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
 
-        var query = db.Users
-            .Include(u => u.Memberships.OrderByDescending(m => m.CreatedAt).Take(1))
-            .Include(u => u.PlotMemberships.OrderByDescending(m => m.CreatedAt).Take(1))
-            .AsQueryable();
+        var query = db.Users.AsQueryable();
 
         if (isActive.HasValue)
             query = query.Where(u => u.IsActive == isActive.Value);
@@ -478,9 +475,16 @@ public static class AdminHandlers
         if (cityId.HasValue)
             query = query.Where(u => db.RoomListings.Any(l => l.UserId == u.Id && l.CityId == cityId.Value && !l.IsDeleted));
 
+        // Memberships projected directly in Select — Include is ignored by EF Core when Select is used
         var projected = query.Select(u => new
         {
             User = u,
+            LatestMembership = u.Memberships
+                .OrderByDescending(m => m.CreatedAt)
+                .FirstOrDefault(),
+            LatestPlotMembership = u.PlotMemberships
+                .OrderByDescending(m => m.CreatedAt)
+                .FirstOrDefault(),
             TotalListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted),
             ActiveListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted && l.IsActive),
             TotalPlotListings = db.PlotListings.Count(l => l.UserId == u.Id && !l.IsDeleted),
@@ -492,8 +496,8 @@ public static class AdminHandlers
             .ToPagedResultAsync(page, pageSize, x =>
             {
                 var u = x.User;
-                var membership = u.Memberships.OrderByDescending(m => m.CreatedAt).FirstOrDefault();
-                var plotMembership = u.PlotMemberships.OrderByDescending(m => m.CreatedAt).FirstOrDefault();
+                var membership = x.LatestMembership;
+                var plotMembership = x.LatestPlotMembership;
 
                 return new AdminUserDto
                 {

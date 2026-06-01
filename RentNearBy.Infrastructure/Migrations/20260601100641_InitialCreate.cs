@@ -203,6 +203,50 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "DeviceTokens",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Token = table.Column<string>(type: "text", nullable: false),
+                    IsValid = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_DeviceTokens", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_DeviceTokens_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "NotificationLogs",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Type = table.Column<string>(type: "text", nullable: false),
+                    IsSuccess = table.Column<bool>(type: "boolean", nullable: false),
+                    ErrorMessage = table.Column<string>(type: "text", nullable: true),
+                    SentAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_NotificationLogs", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_NotificationLogs_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "PlotMemberships",
                 columns: table => new
                 {
@@ -533,6 +577,21 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_DeviceTokens_Token",
+                table: "DeviceTokens",
+                column: "Token");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DeviceTokens_UserId",
+                table: "DeviceTokens",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DeviceTokens_UserId_IsValid",
+                table: "DeviceTokens",
+                columns: new[] { "UserId", "IsValid" });
+
+            migrationBuilder.CreateIndex(
                 name: "ix_districts_boundary_active_gist",
                 table: "Districts",
                 column: "Boundary",
@@ -554,6 +613,16 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "Districts",
                 columns: new[] { "StateName", "Name" },
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_NotificationLogs_UserId",
+                table: "NotificationLogs",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_NotificationLogs_UserId_Type_SentAt",
+                table: "NotificationLogs",
+                columns: new[] { "UserId", "Type", "SentAt" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_PaymentTransactions_CreatedAt",
@@ -841,6 +910,12 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "AppFeatures");
+
+            migrationBuilder.DropTable(
+                name: "DeviceTokens");
+
+            migrationBuilder.DropTable(
+                name: "NotificationLogs");
 
             migrationBuilder.DropTable(
                 name: "PaymentTransactions");

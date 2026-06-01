@@ -1,33 +1,25 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
 
 namespace RentNearBy.Infrastructure.Services;
 
-/// <summary>
-/// Background service that automatically disables expired listings.
-/// Runs daily at configured time (default: 12:00 AM UTC).
-///
-/// PROFESSIONAL PATTERN:
-/// - Uses IServiceScopeFactory (not IServiceProvider) for clean DI
-/// - Uses PeriodicTimer for modern, reliable scheduling
-/// - Configuration-driven (not hard-coded times)
-/// - Proper async/await patterns
-/// - Structured logging for monitoring
-/// - Graceful shutdown handling
-/// </summary>
 public class MembershipExpiryService : BackgroundService
 {
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IRabbitMqPublisher _rabbitMqPublisher;
     private readonly ILogger<MembershipExpiryService> _logger;
     private PeriodicTimer? _timer;
 
     public MembershipExpiryService(
         IServiceScopeFactory serviceScopeFactory,
+        IRabbitMqPublisher rabbitMqPublisher,
         ILogger<MembershipExpiryService> logger)
     {
         _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
+        _rabbitMqPublisher = rabbitMqPublisher ?? throw new ArgumentNullException(nameof(rabbitMqPublisher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -182,6 +174,25 @@ public class MembershipExpiryService : BackgroundService
                 throw;
             }
 
+            // Publish expiry events — fire-and-forget (RabbitMQ failure must not block expiry job)
+            foreach (var membership in expiredList)
+            {
+                try
+                {
+                    var message = JsonSerializer.Serialize(new MembershipExpiredMessage
+                    {
+                        UserId = membership.UserId,
+                        Type = "room",
+                        ExpiredAt = membership.ValidUntil
+                    });
+                    await _rabbitMqPublisher.PublishAsync("membership.expired", message);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to publish expiry event for membership {MembershipId}", membership.Id);
+                }
+            }
+
             _logger.LogInformation("=== MEMBERSHIP EXPIRY JOB COMPLETED ===");
         }
         catch (OperationCanceledException)
@@ -191,7 +202,6 @@ public class MembershipExpiryService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error in ProcessMembershipExpiryAsync");
-            // Don't throw - allow service to continue for next scheduled run
         }
     }
 

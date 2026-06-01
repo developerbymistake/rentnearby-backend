@@ -22,6 +22,8 @@ public class UnitOfWork : IUnitOfWork
     private IPlotListingRoomListingRepository? _plots;
     private IPlotMembershipRepository? _plotMemberships;
     private IPlotPlanRepository? _plotPlans;
+    private IDeviceTokenRepository? _deviceTokens;
+    private INotificationLogRepository? _notificationLogs;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -44,6 +46,8 @@ public class UnitOfWork : IUnitOfWork
     public IPlotListingRoomListingRepository PlotListings => _plots ??= new PlotListingRepository(_context);
     public IPlotMembershipRepository PlotMemberships => _plotMemberships ??= new PlotMembershipRepository(_context);
     public IPlotPlanRepository PlotPlans => _plotPlans ??= new PlotPlanRepository(_context);
+    public IDeviceTokenRepository DeviceTokens => _deviceTokens ??= new DeviceTokenRepository(_context);
+    public INotificationLogRepository NotificationLogs => _notificationLogs ??= new NotificationLogRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();

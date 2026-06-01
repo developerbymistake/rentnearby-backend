@@ -23,6 +23,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
     public DbSet<PlotPlan> PlotPlans { get; set; }
     public DbSet<PlotMembership> PlotMemberships { get; set; }
+    public DbSet<DeviceToken> DeviceTokens { get; set; }
+    public DbSet<NotificationLog> NotificationLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -361,6 +363,34 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(m => new { m.UserId, m.IsActive });
             // Composite: expiry background job
             e.HasIndex(m => new { m.IsActive, m.ValidUntil });
+        });
+
+        modelBuilder.Entity<DeviceToken>(e =>
+        {
+            e.HasKey(d => d.Id);
+            e.Property(d => d.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(d => d.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(d => d.UpdatedAt).HasDefaultValueSql("now()");
+            e.HasOne(d => d.User)
+             .WithMany()
+             .HasForeignKey(d => d.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(d => d.UserId);
+            e.HasIndex(d => new { d.UserId, d.IsValid });
+            e.HasIndex(d => d.Token);
+        });
+
+        modelBuilder.Entity<NotificationLog>(e =>
+        {
+            e.HasKey(n => n.Id);
+            e.Property(n => n.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(n => n.SentAt).HasDefaultValueSql("now()");
+            e.HasOne(n => n.User)
+             .WithMany()
+             .HasForeignKey(n => n.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(n => n.UserId);
+            e.HasIndex(n => new { n.UserId, n.Type, n.SentAt });
         });
 
     }

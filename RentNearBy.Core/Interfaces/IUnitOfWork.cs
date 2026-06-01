@@ -18,5 +18,7 @@ public interface IUnitOfWork : IDisposable
     IPlotListingRoomListingRepository PlotListings { get; }
     IPlotMembershipRepository PlotMemberships { get; }
     IPlotPlanRepository PlotPlans { get; }
+    IDeviceTokenRepository DeviceTokens { get; }
+    INotificationLogRepository NotificationLogs { get; }
     Task<int> SaveChangesAsync();
 }

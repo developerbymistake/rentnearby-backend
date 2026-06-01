@@ -15,6 +15,14 @@ public class AccountDeletionService(ApplicationDbContext context, IPhotoService 
 
         using var tx = await context.Database.BeginTransactionAsync();
 
+        await context.DeviceTokens
+            .Where(d => d.UserId == userId)
+            .ExecuteDeleteAsync();
+
+        await context.NotificationLogs
+            .Where(n => n.UserId == userId)
+            .ExecuteDeleteAsync();
+
         await context.Sessions
             .Where(s => s.UserId == userId)
             .ExecuteDeleteAsync();

@@ -200,4 +200,8 @@ app.MapGroup("/api/v1/account")
     .WithTags("Account")
     .MapAccountEndpoints();
 
+app.MapGroup("/api/v1/notifications")
+    .WithTags("Notifications")
+    .MapNotificationEndpoints();
+
 app.Run();

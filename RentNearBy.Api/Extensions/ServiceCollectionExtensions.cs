@@ -80,6 +80,15 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpClient<IOtpService, WhatsAppOtpService>();
 
+        // FCM — Singleton: FirebaseApp.Create() must be called only once
+        services.AddSingleton<IFcmService, FcmService>();
+
+        // RabbitMQ publisher — Singleton: IConnection is long-lived and expensive
+        services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
+
+        // Notification worker — consumes membership.expired queue and sends FCM
+        services.AddHostedService<NotificationWorkerService>();
+
         return services;
     }
 }

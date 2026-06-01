@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
@@ -8,14 +9,17 @@ namespace RentNearBy.Infrastructure.Services;
 public class PlotMembershipExpiryService : BackgroundService
 {
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IRabbitMqPublisher _rabbitMqPublisher;
     private readonly ILogger<PlotMembershipExpiryService> _logger;
     private PeriodicTimer? _timer;
 
     public PlotMembershipExpiryService(
         IServiceScopeFactory serviceScopeFactory,
+        IRabbitMqPublisher rabbitMqPublisher,
         ILogger<PlotMembershipExpiryService> logger)
     {
         _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
+        _rabbitMqPublisher = rabbitMqPublisher ?? throw new ArgumentNullException(nameof(rabbitMqPublisher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -130,6 +134,25 @@ public class PlotMembershipExpiryService : BackgroundService
             {
                 _logger.LogError(ex, "Error saving plot expiry changes to database");
                 throw;
+            }
+
+            // Publish expiry events — fire-and-forget (RabbitMQ failure must not block expiry job)
+            foreach (var membership in expiredList)
+            {
+                try
+                {
+                    var message = JsonSerializer.Serialize(new MembershipExpiredMessage
+                    {
+                        UserId = membership.UserId,
+                        Type = "plot",
+                        ExpiredAt = membership.ValidUntil
+                    });
+                    await _rabbitMqPublisher.PublishAsync("membership.expired", message);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to publish plot expiry event for membership {MembershipId}", membership.Id);
+                }
             }
 
             _logger.LogInformation("=== PLOT MEMBERSHIP EXPIRY JOB COMPLETED ===");

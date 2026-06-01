@@ -122,6 +122,7 @@ public static class AuthHandlers
     private static async Task<IResult> CreateSessionAndRespond(User user, IUnitOfWork unitOfWork, IJwtService jwtService)
     {
         await unitOfWork.Sessions.DeleteAllUserSessionsAsync(user.Id);
+        await unitOfWork.DeviceTokens.DeleteByUserIdAsync(user.Id);
 
         var session = new Session
         {
