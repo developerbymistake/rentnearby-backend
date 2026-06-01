@@ -2,7 +2,6 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -15,8 +14,6 @@ namespace RentNearBy.Api.Handlers;
 
 public static class BannerHandlers
 {
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
-
     // ── User-facing ──────────────────────────────────────────────────────────
 
     public static async Task<IResult> GetActiveBanner(
