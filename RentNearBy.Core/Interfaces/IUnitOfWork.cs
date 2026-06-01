@@ -20,5 +20,6 @@ public interface IUnitOfWork : IDisposable
     IPlotPlanRepository PlotPlans { get; }
     IDeviceTokenRepository DeviceTokens { get; }
     INotificationLogRepository NotificationLogs { get; }
+    IDistrictBannerRepository DistrictBanners { get; }
     Task<int> SaveChangesAsync();
 }

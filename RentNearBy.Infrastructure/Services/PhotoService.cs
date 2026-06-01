@@ -45,6 +45,25 @@ public class PhotoService : IPhotoService
         return (result.SecureUrl.ToString(), publicId);
     }
 
+    public async Task<(string url, string filePath)> SaveBannerAsync(
+        Stream photoStream, string fileName, Guid districtId)
+    {
+        using var processed = await ProcessImageAsync(photoStream);
+        var publicId = $"bakhli/banners/district_{districtId}/{Guid.NewGuid()}";
+
+        var result = await _cloudinary.UploadAsync(new ImageUploadParams
+        {
+            File = new FileDescription(fileName, processed),
+            PublicId = publicId,
+            Overwrite = false,
+        });
+
+        if (result.Error != null)
+            throw new InvalidOperationException($"Cloudinary upload failed: {result.Error.Message}");
+
+        return (result.SecureUrl.ToString(), publicId);
+    }
+
     public async Task DeletePhotoAsync(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath)) return;

@@ -24,6 +24,7 @@ public class UnitOfWork : IUnitOfWork
     private IPlotPlanRepository? _plotPlans;
     private IDeviceTokenRepository? _deviceTokens;
     private INotificationLogRepository? _notificationLogs;
+    private IDistrictBannerRepository? _districtBanners;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -48,6 +49,7 @@ public class UnitOfWork : IUnitOfWork
     public IPlotPlanRepository PlotPlans => _plotPlans ??= new PlotPlanRepository(_context);
     public IDeviceTokenRepository DeviceTokens => _deviceTokens ??= new DeviceTokenRepository(_context);
     public INotificationLogRepository NotificationLogs => _notificationLogs ??= new NotificationLogRepository(_context);
+    public IDistrictBannerRepository DistrictBanners => _districtBanners ??= new DistrictBannerRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();

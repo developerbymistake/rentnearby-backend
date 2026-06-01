@@ -3,6 +3,7 @@
 public interface IPhotoService
 {
     Task<(string url, string filePath)> SavePhotoAsync(Stream photoStream, string fileName, Guid userId, Guid listingId);
+    Task<(string url, string filePath)> SaveBannerAsync(Stream photoStream, string fileName, Guid districtId);
     Task DeletePhotoAsync(string filePath);
     Task DeleteRoomPhotosAsync(Guid userId, Guid listingId);
     Task DeleteAllUserPhotosAsync(Guid userId);

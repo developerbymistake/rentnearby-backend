@@ -25,6 +25,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<PlotMembership> PlotMemberships { get; set; }
     public DbSet<DeviceToken> DeviceTokens { get; set; }
     public DbSet<NotificationLog> NotificationLogs { get; set; }
+    public DbSet<DistrictBanner> DistrictBanners { get; set; }
+    public DbSet<BannerDismissal> BannerDismissals { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -391,6 +393,32 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(n => n.UserId);
             e.HasIndex(n => new { n.UserId, n.Type, n.SentAt });
+        });
+
+        modelBuilder.Entity<DistrictBanner>(e =>
+        {
+            e.HasKey(b => b.Id);
+            e.Property(b => b.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(b => b.CreatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(b => b.DistrictId).IsUnique();
+            e.HasOne(b => b.District)
+             .WithMany()
+             .HasForeignKey(b => b.DistrictId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BannerDismissal>(e =>
+        {
+            e.HasKey(d => new { d.UserId, d.BannerId });
+            e.Property(d => d.DismissedAt).HasDefaultValueSql("now()");
+            e.HasOne(d => d.Banner)
+             .WithMany(b => b.Dismissals)
+             .HasForeignKey(d => d.BannerId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(d => d.User)
+             .WithMany()
+             .HasForeignKey(d => d.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
 
     }
