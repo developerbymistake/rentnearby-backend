@@ -136,7 +136,7 @@ public static class BannerHandlers
 
         banner.IsActive = request.IsActive;
         await db.SaveChangesAsync();
-        return NoContentResponse();
+        return OkResponse(new { isActive = banner.IsActive });
     }
 
     public static async Task<IResult> AdminDeleteBanner(
