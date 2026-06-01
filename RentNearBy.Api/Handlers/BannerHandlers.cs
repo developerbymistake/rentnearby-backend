@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
@@ -86,7 +88,8 @@ public static class BannerHandlers
         [Microsoft.AspNetCore.Mvc.FromForm] string? redirectUrl,
         IFormFile image,
         IUnitOfWork unitOfWork,
-        IPhotoService photoService)
+        IPhotoService photoService,
+        IHubContext<BannerHub> hubContext)
     {
         var existing = await unitOfWork.DistrictBanners.GetByDistrictIdAsync(districtId);
         if (existing != null)
@@ -113,6 +116,20 @@ public static class BannerHandlers
         await unitOfWork.DistrictBanners.AddAsync(banner);
         await unitOfWork.SaveChangesAsync();
 
+        var bannerDto = new DistrictBannerDto
+        {
+            Id = banner.Id,
+            DistrictId = banner.DistrictId,
+            DistrictName = string.Empty,
+            ImageUrl = banner.ImageUrl,
+            ContactNumber = banner.ContactNumber,
+            RedirectUrl = banner.RedirectUrl,
+            IsActive = banner.IsActive,
+            CreatedAt = banner.CreatedAt,
+        };
+        await hubContext.Clients.Group($"district_{banner.DistrictId}")
+            .SendAsync("BannerActivated", bannerDto);
+
         return CreatedResponse(new DistrictBannerDto
         {
             Id = banner.Id,
@@ -129,21 +146,48 @@ public static class BannerHandlers
     public record ToggleBannerRequest(bool IsActive);
 
     public static async Task<IResult> AdminToggleBanner(
-        Guid id, ToggleBannerRequest request, ApplicationDbContext db)
+        Guid id, ToggleBannerRequest request, ApplicationDbContext db,
+        IHubContext<BannerHub> hubContext)
     {
         var banner = await db.DistrictBanners.FindAsync(id);
         if (banner == null) return NotFoundResponse("Banner not found");
 
         banner.IsActive = request.IsActive;
         await db.SaveChangesAsync();
+
+        if (request.IsActive)
+        {
+            await hubContext.Clients.Group($"district_{banner.DistrictId}")
+                .SendAsync("BannerActivated", new DistrictBannerDto
+                {
+                    Id = banner.Id,
+                    DistrictId = banner.DistrictId,
+                    DistrictName = string.Empty,
+                    ImageUrl = banner.ImageUrl,
+                    ContactNumber = banner.ContactNumber,
+                    RedirectUrl = banner.RedirectUrl,
+                    IsActive = true,
+                    CreatedAt = banner.CreatedAt,
+                });
+        }
+        else
+        {
+            await hubContext.Clients.Group($"district_{banner.DistrictId}")
+                .SendAsync("BannerDeactivated", new { bannerId = id, districtId = banner.DistrictId });
+        }
+
         return OkResponse(new { isActive = banner.IsActive });
     }
 
     public static async Task<IResult> AdminDeleteBanner(
-        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService)
+        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService,
+        IHubContext<BannerHub> hubContext)
     {
         var banner = await unitOfWork.DistrictBanners.GetByIdAsync(id);
         if (banner == null) return NotFoundResponse("Banner not found");
+
+        await hubContext.Clients.Group($"district_{banner.DistrictId}")
+            .SendAsync("BannerDeactivated", new { bannerId = id, districtId = banner.DistrictId });
 
         await photoService.DeletePhotoAsync(banner.ImageFilePath);
         await unitOfWork.DistrictBanners.DeleteAsync(banner);

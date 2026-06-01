@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Api.Endpoints;
+using RentNearBy.Api.Hubs;
 using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Mappings;
 using RentNearBy.Api.Middleware;
@@ -13,6 +14,7 @@ DtoMappings.ConfigureMappings();
 
 builder.Services.AddApplicationServices(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);
+builder.Services.AddSignalR();
 
 builder.Services.AddResponseCompression(options =>
 {
@@ -211,5 +213,7 @@ app.MapGroup("/api/v1")
 app.MapGroup("/api/v1/admin")
     .WithTags("AdminBanners")
     .MapAdminBannerEndpoints();
+
+app.MapHub<BannerHub>("/hubs/banner");
 
 app.Run();
