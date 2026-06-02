@@ -242,8 +242,9 @@ public class PaymentService : IPaymentService
 
         if (existingPendingTransaction != null)
         {
-            _logger.LogWarning($"User {userId} already has a PENDING transaction for listing {listingId}");
-            throw new InvalidOperationException("Payment already in progress for this listing. Please complete or cancel the previous payment.");
+            // Auto-cancel any abandoned paid transaction — user chose free plan, respect that decision
+            _logger.LogInformation($"Auto-cancelling PENDING transaction {existingPendingTransaction.Id} for user {userId} (chose free plan)");
+            existingPendingTransaction.Status = "CANCELLED";
         }
 
         var txUser2 = await _unitOfWork.Users.GetByIdAsync(userId);

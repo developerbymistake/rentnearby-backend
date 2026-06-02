@@ -206,6 +206,10 @@ app.MapGroup("/api/v1/notifications")
     .WithTags("Notifications")
     .MapNotificationEndpoints();
 
+app.MapGroup("/api/v1/payments")
+    .WithTags("Payments")
+    .MapPaymentEndpoints();
+
 app.MapGroup("/api/v1")
     .WithTags("Banners")
     .MapBannerEndpoints();

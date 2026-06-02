@@ -9,6 +9,32 @@ namespace RentNearBy.Api.Handlers;
 
 public static class PaymentHandlers
 {
+    public record CancelOrderRequest(string RazorpayOrderId);
+
+    public static async Task<IResult> CancelOrder(
+        CancelOrderRequest request,
+        ClaimsPrincipal principal,
+        IUnitOfWork unitOfWork)
+    {
+        if (string.IsNullOrWhiteSpace(request.RazorpayOrderId))
+            return BadRequestResponse("RazorpayOrderId is required");
+
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var tx = (await unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+            .FirstOrDefault(t => t.RazorpayOrderId == request.RazorpayOrderId
+                              && t.Status == "PENDING");
+
+        if (tx == null)
+            return OkResponse(new { cancelled = false }); // idempotent — already cancelled or not found
+
+        tx.Status = "CANCELLED";
+        await unitOfWork.SaveChangesAsync();
+        return OkResponse(new { cancelled = true });
+    }
+
+
     public static async Task<IResult> CreateOrder(
         Guid listingId,
         [FromBody] PaymentPlanRequest request,
