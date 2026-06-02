@@ -13,6 +13,7 @@ public static class BannerEndpoints
 
     public static RouteGroupBuilder MapAdminBannerEndpoints(this RouteGroupBuilder group)
     {
+        group.MapGet("/district-banners/check", BannerHandlers.AdminCheckDistrictBanner).RequireAuthorization("AdminOnly");
         group.MapGet("/district-banners", BannerHandlers.AdminGetAllBanners).RequireAuthorization("AdminOnly");
         group.MapPost("/district-banners", BannerHandlers.AdminCreateBanner).RequireAuthorization("AdminOnly").DisableAntiforgery();
         group.MapPut("/district-banners/{id:guid}/active", BannerHandlers.AdminToggleBanner).RequireAuthorization("AdminOnly");

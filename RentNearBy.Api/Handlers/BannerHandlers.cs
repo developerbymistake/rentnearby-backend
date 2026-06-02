@@ -62,6 +62,13 @@ public static class BannerHandlers
 
     // ── Admin-facing ─────────────────────────────────────────────────────────
 
+    public static async Task<IResult> AdminCheckDistrictBanner(
+        Guid districtId, IUnitOfWork unitOfWork)
+    {
+        var exists = await unitOfWork.DistrictBanners.ExistsByDistrictIdAsync(districtId);
+        return OkResponse(new { exists });
+    }
+
     public static async Task<IResult> AdminGetAllBanners(
         IUnitOfWork unitOfWork, int page = 1, int pageSize = 20)
     {

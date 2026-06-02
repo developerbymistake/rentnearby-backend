@@ -19,6 +19,9 @@ public class DistrictBannerRepository(ApplicationDbContext context)
         => await _dbSet.AsNoTracking()
             .FirstOrDefaultAsync(b => b.DistrictId == districtId);
 
+    public async Task<bool> ExistsByDistrictIdAsync(Guid districtId)
+        => await _dbSet.AnyAsync(b => b.DistrictId == districtId);
+
     public async Task<IEnumerable<DistrictBanner>> GetAllWithDistrictAsync()
         => await _dbSet.AsNoTracking()
             .Include(b => b.District)
