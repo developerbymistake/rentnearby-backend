@@ -140,7 +140,21 @@ public class PlotMembershipExpiryService : BackgroundService
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to publish plot expiry event for membership {MembershipId}", membership.Id);
+                        _logger.LogWarning(ex, "Main queue publish failed for plot membership {MembershipId} — trying DLQ", membership.Id);
+                        try
+                        {
+                            await _rabbitMqPublisher.PublishAsync("dlq.membership.expired",
+                                JsonSerializer.Serialize(new MembershipExpiredMessage
+                                {
+                                    UserId    = membership.UserId,
+                                    Type      = "plot",
+                                    ExpiredAt = membership.ValidUntil
+                                }));
+                        }
+                        catch (Exception dlqEx)
+                        {
+                            _logger.LogError(dlqEx, "DLQ publish also failed for plot membership {MembershipId} — notification will be missed", membership.Id);
+                        }
                     }
                 }
 

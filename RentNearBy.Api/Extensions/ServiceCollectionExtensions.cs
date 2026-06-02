@@ -89,6 +89,9 @@ public static class ServiceCollectionExtensions
         // Notification worker — consumes membership.expired queue and sends FCM
         services.AddHostedService<NotificationWorkerService>();
 
+        // DLQ worker — consumes dlq.membership.expired (failed/retried notifications)
+        services.AddHostedService<DlqNotificationWorkerService>();
+
         // Broadcast worker — consumes broadcast.notification queue and sends FCM to all users
         services.AddHostedService<BroadcastWorkerService>();
 

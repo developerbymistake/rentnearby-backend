@@ -13,7 +13,8 @@ namespace RentNearBy.Infrastructure.Services;
 
 public class NotificationWorkerService : BackgroundService
 {
-    private const string QueueName = "membership.expired";
+    private const string QueueName    = "membership.expired";
+    private const string DlqQueueName = "dlq.membership.expired";
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IFcmService _fcmService;
@@ -44,12 +45,28 @@ public class NotificationWorkerService : BackgroundService
                 await using var connection = await _factory.CreateConnectionAsync(stoppingToken);
                 await using var channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
 
+                // Declare DLQ queue first so it exists before main queue references it
+                await channel.QueueDeclareAsync(
+                    queue: DlqQueueName,
+                    durable: true,
+                    exclusive: false,
+                    autoDelete: false,
+                    arguments: null,
+                    cancellationToken: stoppingToken);
+
+                // Main queue: failed messages (NACK) auto-route to DLQ
+                // NOTE: If this queue already exists without dead-letter args,
+                // delete it from RabbitMQ management console first (one-time setup)
                 await channel.QueueDeclareAsync(
                     queue: QueueName,
                     durable: true,
                     exclusive: false,
                     autoDelete: false,
-                    arguments: null,
+                    arguments: new Dictionary<string, object?>
+                    {
+                        ["x-dead-letter-exchange"]    = "",
+                        ["x-dead-letter-routing-key"] = DlqQueueName,
+                    },
                     cancellationToken: stoppingToken);
 
                 await channel.BasicQosAsync(
