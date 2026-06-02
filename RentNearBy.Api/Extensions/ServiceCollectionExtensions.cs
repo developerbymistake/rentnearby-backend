@@ -89,8 +89,8 @@ public static class ServiceCollectionExtensions
         // Notification worker — consumes membership.expired queue and sends FCM
         services.AddHostedService<NotificationWorkerService>();
 
-        // TESTING ONLY — Remove before production
-        services.AddHostedService<TestNotificationWorkerService>();
+        // Broadcast worker — consumes broadcast.notification queue and sends FCM to all users
+        services.AddHostedService<BroadcastWorkerService>();
 
         return services;
     }

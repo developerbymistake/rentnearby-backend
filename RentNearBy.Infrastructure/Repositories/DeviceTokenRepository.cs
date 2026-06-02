@@ -57,4 +57,21 @@ public class DeviceTokenRepository(ApplicationDbContext context) : IDeviceTokenR
         => await context.DeviceTokens
             .Where(d => d.UserId == userId)
             .ExecuteDeleteAsync();
+
+    public async Task<int> GetValidTokenUserCountAsync()
+        => await context.DeviceTokens
+            .Where(d => d.IsValid)
+            .Select(d => d.UserId)
+            .Distinct()
+            .CountAsync();
+
+    public async Task<IReadOnlyList<Guid>> GetValidTokenUserIdsPagedAsync(int offset, int limit)
+        => await context.DeviceTokens
+            .Where(d => d.IsValid)
+            .Select(d => d.UserId)
+            .Distinct()
+            .OrderBy(id => id)
+            .Skip(offset)
+            .Take(limit)
+            .ToListAsync();
 }

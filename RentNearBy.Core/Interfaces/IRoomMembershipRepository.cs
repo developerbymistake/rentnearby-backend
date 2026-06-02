@@ -8,6 +8,6 @@ public interface IRoomMembershipRepository
     Task<RoomMembership?> GetActiveByUserIdAsync(Guid userId);
     Task<RoomMembership?> GetByIdAsync(Guid id);
     Task<bool> HasUsedFreePlanAsync(Guid userId);
-    Task<IEnumerable<RoomMembership>> GetExpiredAsync(DateTime beforeDate);
+    Task<IReadOnlyList<RoomMembership>> GetExpiredPagedAsync(DateTime beforeDate, int page, int pageSize);
     Task SaveAsync();
 }

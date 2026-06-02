@@ -53,8 +53,7 @@ public static class AdminEndpoints
         group.MapPut("/listings/{id:guid}/status", AdminHandlers.ToggleAdminListingStatus).RequireAuthorization("AdminOnly");
         group.MapDelete("/listings/{id:guid}", AdminHandlers.DeleteAdminListing).RequireAuthorization("AdminOnly");
 
-        // TESTING ONLY — remove this line before production
-        group.MapPost("/send-test-notification", TestNotificationHandlers.SendTestNotification).RequireAuthorization("AdminOnly");
+        group.MapPost("/broadcast-notification", BroadcastHandlers.SendBroadcast).RequireAuthorization("AdminOnly");
 
         return group;
     }

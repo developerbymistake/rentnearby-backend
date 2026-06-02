@@ -54,7 +54,7 @@ public class NotificationWorkerService : BackgroundService
 
                 await channel.BasicQosAsync(
                     prefetchSize: 0,
-                    prefetchCount: 1,
+                    prefetchCount: 10,
                     global: false,
                     cancellationToken: stoppingToken);
 

@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Polly;
 using RabbitMQ.Client;
 using RentNearBy.Core.Interfaces;
 
@@ -42,27 +43,40 @@ public class RabbitMqPublisher : IRabbitMqPublisher, IAsyncDisposable
 
     public async Task PublishAsync(string queue, string message)
     {
-        var connection = await GetConnectionAsync();
-        await using var channel = await connection.CreateChannelAsync();
+        var retryPolicy = Policy
+            .Handle<Exception>()
+            .WaitAndRetryAsync(
+                3,
+                attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
+                (ex, delay, attempt, _) =>
+                    _logger.LogWarning(
+                        "RabbitMQ publish retry {Attempt}/3 after {Delay}s — queue='{Queue}': {Error}",
+                        attempt, delay.TotalSeconds, queue, ex.Message));
 
-        await channel.QueueDeclareAsync(
-            queue: queue,
-            durable: true,
-            exclusive: false,
-            autoDelete: false,
-            arguments: null);
+        await retryPolicy.ExecuteAsync(async () =>
+        {
+            var connection = await GetConnectionAsync();
+            await using var channel = await connection.CreateChannelAsync();
 
-        var body = Encoding.UTF8.GetBytes(message);
-        var props = new BasicProperties { Persistent = true };
+            await channel.QueueDeclareAsync(
+                queue: queue,
+                durable: true,
+                exclusive: false,
+                autoDelete: false,
+                arguments: null);
 
-        await channel.BasicPublishAsync(
-            exchange: string.Empty,
-            routingKey: queue,
-            mandatory: false,
-            basicProperties: props,
-            body: body);
+            var body = Encoding.UTF8.GetBytes(message);
+            var props = new BasicProperties { Persistent = true };
 
-        _logger.LogDebug("Published message to queue '{Queue}'", queue);
+            await channel.BasicPublishAsync(
+                exchange: string.Empty,
+                routingKey: queue,
+                mandatory: false,
+                basicProperties: props,
+                body: body);
+
+            _logger.LogDebug("Published message to queue '{Queue}'", queue);
+        });
     }
 
     public async ValueTask DisposeAsync()

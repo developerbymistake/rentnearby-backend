@@ -8,4 +8,6 @@ public interface IDeviceTokenRepository
     Task<IEnumerable<DeviceToken>> GetValidByUserIdAsync(Guid userId);
     Task MarkInvalidAsync(string token);
     Task DeleteByUserIdAsync(Guid userId);
+    Task<int> GetValidTokenUserCountAsync();
+    Task<IReadOnlyList<Guid>> GetValidTokenUserIdsPagedAsync(int offset, int limit);
 }

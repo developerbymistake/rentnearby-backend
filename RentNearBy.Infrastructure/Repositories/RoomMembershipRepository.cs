@@ -25,9 +25,12 @@ public class RoomMembershipRepository(ApplicationDbContext context) : IRoomMembe
         return user?.HasUsedFreePlan ?? false;
     }
 
-    public async Task<IEnumerable<RoomMembership>> GetExpiredAsync(DateTime beforeDate)
+    public async Task<IReadOnlyList<RoomMembership>> GetExpiredPagedAsync(DateTime beforeDate, int page, int pageSize)
         => await context.RoomMemberships
             .Where(m => m.IsActive && m.ValidUntil < beforeDate)
+            .OrderBy(m => m.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync();
 
     public async Task SaveAsync()

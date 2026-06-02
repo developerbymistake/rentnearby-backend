@@ -81,80 +81,75 @@ public class PlotMembershipExpiryService : BackgroundService
 
             // AddDays(1) so query captures memberships expiring today (ValidUntil < tomorrow midnight)
             var expiredDate = DateTime.UtcNow.Date.AddDays(1);
-            var expiredMemberships = await unitOfWork.PlotMemberships.GetExpiredAsync(expiredDate);
-            var expiredList = expiredMemberships.ToList();
-
-            if (expiredList.Count == 0)
-            {
-                _logger.LogInformation("No expired plot memberships found");
-                _logger.LogInformation("=== PLOT MEMBERSHIP EXPIRY JOB COMPLETED ===");
-                return;
-            }
-
-            _logger.LogInformation("Found {ExpiredMembershipCount} expired plot memberships", expiredList.Count);
-
-            var disabledPlotListingsCount = 0;
             var now = DateTime.UtcNow;
+            const int pageSize = 200;
+            var totalProcessed = 0;
+            var totalDisabled = 0;
 
-            foreach (var membership in expiredList)
+            while (true)
             {
-                try
+                var batch = await unitOfWork.PlotMemberships.GetExpiredPagedAsync(expiredDate, 1, pageSize);
+                if (batch.Count == 0) break;
+
+                _logger.LogInformation("Processing batch of {BatchCount} expired plot memberships", batch.Count);
+
+                foreach (var membership in batch)
                 {
-                    membership.IsActive = false;
-                    membership.UpdatedAt = now;
-
-                    _logger.LogInformation(
-                        "Deactivating plot membership {MembershipId} for user {UserId} (ValidUntil: {ValidUntil})",
-                        membership.Id, membership.UserId, membership.ValidUntil);
-
-                    var userPlotListings = await unitOfWork.PlotListings.GetActiveByUserIdAsync(membership.UserId);
-                    foreach (var plot in userPlotListings.Where(p => !p.IsDeleted))
+                    try
                     {
-                        plot.IsActive = false;
-                        plot.UpdatedAt = now;
-                        disabledPlotListingsCount++;
+                        membership.IsActive = false;
+                        membership.UpdatedAt = now;
 
-                        _logger.LogInformation("Disabled plot {PlotId} for user {UserId}", plot.Id, membership.UserId);
+                        var userPlotListings = await unitOfWork.PlotListings.GetActiveByUserIdAsync(membership.UserId);
+                        foreach (var plot in userPlotListings.Where(p => !p.IsDeleted))
+                        {
+                            plot.IsActive = false;
+                            plot.UpdatedAt = now;
+                            totalDisabled++;
+                        }
+
+                        totalProcessed++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error processing plot membership {MembershipId}", membership.Id);
                     }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error processing plot membership {MembershipId}. Continuing with next", membership.Id);
-                }
-            }
 
-            try
-            {
-                await unitOfWork.SaveChangesAsync();
-                _logger.LogInformation(
-                    "PlotListing expiry job completed. Processed: {ProcessedCount} memberships, Disabled: {DisabledCount} plots",
-                    expiredList.Count, disabledPlotListingsCount);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error saving plot expiry changes to database");
-                throw;
-            }
-
-            // Publish expiry events — fire-and-forget (RabbitMQ failure must not block expiry job)
-            foreach (var membership in expiredList)
-            {
                 try
                 {
-                    var message = JsonSerializer.Serialize(new MembershipExpiredMessage
-                    {
-                        UserId = membership.UserId,
-                        Type = "plot",
-                        ExpiredAt = membership.ValidUntil
-                    });
-                    await _rabbitMqPublisher.PublishAsync("membership.expired", message);
+                    await unitOfWork.SaveChangesAsync();
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to publish plot expiry event for membership {MembershipId}", membership.Id);
+                    _logger.LogError(ex, "Error saving plot batch changes");
+                    throw;
                 }
+
+                foreach (var membership in batch)
+                {
+                    try
+                    {
+                        await _rabbitMqPublisher.PublishAsync("membership.expired",
+                            JsonSerializer.Serialize(new MembershipExpiredMessage
+                            {
+                                UserId    = membership.UserId,
+                                Type      = "plot",
+                                ExpiredAt = membership.ValidUntil
+                            }));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to publish plot expiry event for membership {MembershipId}", membership.Id);
+                    }
+                }
+
+                if (batch.Count < pageSize) break;
             }
 
+            _logger.LogInformation(
+                "Plot membership expiry job completed — processed={Processed}, disabledPlots={Disabled}",
+                totalProcessed, totalDisabled);
             _logger.LogInformation("=== PLOT MEMBERSHIP EXPIRY JOB COMPLETED ===");
         }
         catch (OperationCanceledException)

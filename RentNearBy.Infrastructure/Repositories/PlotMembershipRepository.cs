@@ -16,8 +16,11 @@ public class PlotMembershipRepository(ApplicationDbContext context) : IPlotMembe
             .OrderByDescending(m => m.ValidUntil)
             .FirstOrDefaultAsync();
 
-    public async Task<IEnumerable<PlotMembership>> GetExpiredAsync(DateTime beforeDate)
+    public async Task<IReadOnlyList<PlotMembership>> GetExpiredPagedAsync(DateTime beforeDate, int page, int pageSize)
         => await context.PlotMemberships
             .Where(m => m.IsActive && m.ValidUntil < beforeDate)
+            .OrderBy(m => m.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync();
 }
