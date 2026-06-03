@@ -442,8 +442,8 @@ public class PaymentService : IPaymentService
                 throw new KeyNotFoundException("User not found.");
             }
 
-            // Mark as used free plan for any price=0 plan (when payment feature is enabled)
-            if (isFree && paymentFeature.IsEnabled && !user.HasUsedFreePlan)
+            // Mark as used free plan whenever any plan is activated (free or paid)
+            if (paymentFeature.IsEnabled && !user.HasUsedFreePlan)
             {
                 user.HasUsedFreePlan = true;
                 _logger.LogInformation($"User {userId} marked as used free plan");
@@ -864,7 +864,7 @@ public class PaymentService : IPaymentService
         var user = await _unitOfWork.Users.GetByIdAsync(userId);
         if (user == null) throw new KeyNotFoundException("User not found.");
 
-        if (isFree && plotPaymentFeature?.IsEnabled == true && !user.HasUsedFreePlotPlan)
+        if (plotPaymentFeature?.IsEnabled == true && !user.HasUsedFreePlotPlan)
         {
             user.HasUsedFreePlotPlan = true;
         }
