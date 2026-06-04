@@ -226,7 +226,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(m => m.CreatedAt).HasDefaultValueSql("now()");
             e.Property(m => m.UpdatedAt).HasDefaultValueSql("now()");
             e.HasOne(m => m.User)
-             .WithMany()
+             .WithMany(u => u.Memberships)
              .HasForeignKey(m => m.UserId)
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(m => m.UserId);
