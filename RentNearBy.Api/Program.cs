@@ -75,23 +75,23 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>();
     try
     {
-        Console.WriteLine("[STARTUP] Dropping all tables...");
+        Console.WriteLine("[STARTUP] Truncating all tables...");
         await db.Database.ExecuteSqlRawAsync("""
-            DO $$ DECLARE r RECORD;
+            DO $$ DECLARE tables TEXT;
             BEGIN
-                FOR r IN (
-                    SELECT tablename FROM pg_tables
-                    WHERE schemaname = 'public'
-                    AND tablename NOT IN ('spatial_ref_sys', 'geometry_columns', 'geography_columns', 'raster_columns', 'raster_overviews')
-                )
-                LOOP
-                    EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
-                END LOOP;
+                SELECT string_agg(quote_ident(tablename), ', ')
+                INTO tables
+                FROM pg_tables
+                WHERE schemaname = 'public'
+                AND tablename NOT IN ('spatial_ref_sys', 'geometry_columns', 'geography_columns', 'raster_columns', 'raster_overviews');
+                IF tables IS NOT NULL THEN
+                    EXECUTE 'TRUNCATE TABLE ' || tables || ' RESTART IDENTITY CASCADE';
+                END IF;
             END $$;
         """);
-        Console.WriteLine("[STARTUP] Tables dropped. Running EnsureCreated...");
+        Console.WriteLine("[STARTUP] Tables truncated. Running EnsureCreated...");
         await db.Database.EnsureCreatedAsync();
-        Console.WriteLine("[STARTUP] Schema created. Running seeder...");
+        Console.WriteLine("[STARTUP] Schema ready. Running seeder...");
         await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
         Console.WriteLine("[STARTUP] Seeder complete.");
     }
