@@ -13,6 +13,7 @@ public class RoomListing
     public Guid DistrictId { get; set; }
     public Guid? CityId { get; set; }
     public bool IsActive { get; set; } = false;
+    public string FurnishedStatus { get; set; } = "None";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsDeleted { get; set; } = false;

@@ -264,6 +264,7 @@ public static class RoomListingsHandlers
             Address = request.Address,
             DistrictId = request.DistrictId,
             CityId = request.CityId,
+            FurnishedStatus = request.FurnishedStatus,
             IsActive = false,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -327,6 +328,7 @@ public static class RoomListingsHandlers
         if (request.Latitude.HasValue) listing.Latitude = request.Latitude.Value;
         if (request.Longitude.HasValue) listing.Longitude = request.Longitude.Value;
         if (request.Address != null) listing.Address = request.Address;
+        if (request.FurnishedStatus != null) listing.FurnishedStatus = request.FurnishedStatus;
         if (request.CityId.HasValue)
         {
             var city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);

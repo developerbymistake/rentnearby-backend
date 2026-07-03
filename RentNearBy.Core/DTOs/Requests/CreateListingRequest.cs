@@ -10,4 +10,5 @@ public class CreateListingRequest
     public string Address { get; set; } = string.Empty;
     public Guid DistrictId { get; set; }
     public Guid? CityId { get; set; }
+    public string FurnishedStatus { get; set; } = "None";
 }

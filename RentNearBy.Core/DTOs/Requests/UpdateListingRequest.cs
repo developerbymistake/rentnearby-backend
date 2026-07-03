@@ -10,4 +10,5 @@ public class UpdateListingRequest
     public string? Address { get; set; }
     public Guid? CityId { get; set; }
     public bool? IsActive { get; set; }
+    public string? FurnishedStatus { get; set; }
 }

@@ -30,6 +30,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Data\gadm41_IND_2.json" />
+    <EmbeddedResource Include="Data\districts.json" />
+    <EmbeddedResource Include="Data\cities.json" />
   </ItemGroup>
 
 

@@ -33,5 +33,9 @@ public class CreateListingRequestValidator : AbstractValidator<CreateListingRequ
         RuleFor(x => x.Address)
             .NotEmpty().WithMessage("Address is required")
             .MaximumLength(500).WithMessage("Address must not exceed 500 characters");
+
+        RuleFor(x => x.FurnishedStatus)
+            .Must(v => v == "None" || v == "Semi" || v == "Full")
+            .WithMessage("Furnished status must be None, Semi, or Full");
     }
 }

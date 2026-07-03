@@ -27,5 +27,10 @@ public class UpdateListingRequestValidator : AbstractValidator<UpdateListingRequ
         RuleFor(x => x.Address)
             .MaximumLength(500).WithMessage("Address must not exceed 500 characters")
             .When(x => x.Address != null);
+
+        RuleFor(x => x.FurnishedStatus)
+            .Must(v => v == "None" || v == "Semi" || v == "Full")
+            .WithMessage("Furnished status must be None, Semi, or Full")
+            .When(x => x.FurnishedStatus != null);
     }
 }

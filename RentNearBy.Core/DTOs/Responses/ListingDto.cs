@@ -16,6 +16,7 @@ public class RoomListingDto
     public Guid? CityId { get; set; }
     public string? CityName { get; set; }
     public bool IsActive { get; set; }
+    public string FurnishedStatus { get; set; } = "None";
     public string? OwnerName { get; set; }
     public string? OwnerPhone { get; set; }
     public List<string> Photos { get; set; } = new();

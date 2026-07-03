@@ -12,4 +12,5 @@ public class NearbyListingDto
     public string? ThumbnailUrl { get; set; }
     public double DistanceKm { get; set; }
     public bool IsActive { get; set; }
+    public string FurnishedStatus { get; set; } = "None";
 }

@@ -10,5 +10,9 @@ public class CreateDistrictRequestValidator : AbstractValidator<CreateDistrictRe
         RuleFor(x => x.Name)
             .NotEmpty().WithMessage("District name is required")
             .MaximumLength(100).WithMessage("District name must not exceed 100 characters");
+
+        RuleFor(x => x.StateName)
+            .NotEmpty().WithMessage("State name is required")
+            .MaximumLength(100).WithMessage("State name must not exceed 100 characters");
     }
 }

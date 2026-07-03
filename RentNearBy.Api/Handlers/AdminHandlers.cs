@@ -49,70 +49,100 @@ public static class AdminHandlers
 
     public static async Task<IResult> ToggleDistrictActive(
         Guid id, ToggleDistrictRequest request,
-        ApplicationDbContext db, IOverpassService overpass, IMemoryCache cache,
-        IServiceProvider sp)
+        ApplicationDbContext db, IMemoryCache cache, IServiceProvider sp)
     {
         var district = await db.Districts.FindAsync(id);
         if (district == null) return NotFoundResponse("District not found");
 
         district.IsActive = request.IsActive;
         await db.SaveChangesAsync();
+        cache.Remove("states");
         cache.Remove("districts");
         cache.Remove($"cities_{id}");
         cache.Remove("cities_all");
         await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
-        // Seed cities in background — don't block the response waiting for Overpass
-        if (request.IsActive)
-        {
-            var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
-            var districtName = district.Name;
-            var stateName = district.StateName;
-            var redis = sp.GetService<IConnectionMultiplexer>();
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    using var scope = scopeFactory.CreateScope();
-                    var bgDb = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                    var bgOverpass = scope.ServiceProvider.GetRequiredService<IOverpassService>();
-
-                    var cities = await bgOverpass.FetchCitiesAsync(districtName, stateName);
-                    if (cities.Count == 0) return;
-
-                    var existingLower = (await bgDb.Cities
-                        .Where(c => c.DistrictId == id)
-                        .Select(c => c.Name.ToLower())
-                        .ToListAsync()).ToHashSet();
-
-                    var toAdd = cities
-                        .GroupBy(c => c.Name.ToLower())
-                        .Select(g => g.First())
-                        .Where(c => !existingLower.Contains(c.Name.ToLower()))
-                        .Select(c => new City
-                        {
-                            Id         = Guid.NewGuid(),
-                            DistrictId = id,
-                            Name       = c.Name,
-                            Latitude   = (decimal)c.Lat,
-                            Longitude  = (decimal)c.Lng,
-                            CreatedAt  = DateTime.UtcNow,
-                        }).ToList();
-
-                    if (toAdd.Count > 0)
-                    {
-                        bgDb.Cities.AddRange(toAdd);
-                        await bgDb.SaveChangesAsync();
-                        // Flush context cache after cities are seeded so stale
-                        // "no cities" entries don't persist for the full 10-min TTL
-                        await FlushContextCacheAsync(redis);
-                    }
-                }
-                catch { /* background task — swallow errors */ }
-            });
-        }
-
         return OkResponse(new { success = true, isActive = district.IsActive });
+    }
+
+    public static async Task<IResult> CreateDistrict(
+        CreateDistrictRequest request,
+        IValidator<CreateDistrictRequest> validator,
+        ApplicationDbContext db,
+        IGeocodingService geocoding,
+        IMemoryCache cache,
+        IServiceProvider sp)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var trimmedName = request.Name.Trim();
+        var trimmedState = request.StateName.Trim();
+
+        var exists = await db.Districts.AnyAsync(d =>
+            d.Name.ToLower() == trimmedName.ToLower() &&
+            d.StateName.ToLower() == trimmedState.ToLower());
+        if (exists)
+            return BadRequestResponse($"District '{trimmedName}' already exists in {trimmedState}.", "DuplicateDistrict");
+
+        var boundary = await geocoding.FetchDistrictBoundaryAsync(trimmedName, trimmedState);
+
+        var district = new District
+        {
+            Id = Guid.NewGuid(),
+            Name = trimmedName,
+            StateName = trimmedState,
+            IsActive = false,
+            Boundary = boundary,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        db.Districts.Add(district);
+        await db.SaveChangesAsync();
+
+        cache.Remove("states");
+        cache.Remove("districts");
+        await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
+
+        return CreatedResponse(district.Adapt<DistrictDto>(), $"/api/v1/admin/districts/{district.Id}");
+    }
+
+    public static async Task<IResult> GetStates(ApplicationDbContext db, IMemoryCache cache)
+    {
+        if (!cache.TryGetValue("states", out List<StateDto>? cached) || cached == null)
+        {
+            cached = await db.Districts
+                .GroupBy(d => d.StateName)
+                .Select(g => new StateDto
+                {
+                    Name = g.Key,
+                    TotalDistricts = g.Count(),
+                    ActiveDistricts = g.Count(d => d.IsActive),
+                })
+                .OrderBy(s => s.Name)
+                .ToListAsync();
+            cache.Set("states", cached, CacheTtl);
+        }
+        return OkResponse(cached);
+    }
+
+    public static async Task<IResult> BulkToggleStateActive(
+        string stateName, ToggleDistrictRequest request,
+        ApplicationDbContext db, IMemoryCache cache, IServiceProvider sp)
+    {
+        var updated = await db.Districts
+            .Where(d => d.StateName == stateName)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsActive, request.IsActive));
+
+        if (updated == 0)
+            return NotFoundResponse($"No districts found for state '{stateName}'");
+
+        cache.Remove("states");
+        cache.Remove("districts");
+        cache.Remove("cities_all");
+        await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
+
+        return OkResponse(new { success = true, isActive = request.IsActive, updatedCount = updated });
     }
 
     public static async Task<IResult> ForceActivateDistrict(
@@ -122,6 +152,7 @@ public static class AdminHandlers
         if (district == null) return NotFoundResponse("District not found");
         district.IsActive = true;
         await db.SaveChangesAsync();
+        cache.Remove("states");
         cache.Remove("districts");
         cache.Remove($"cities_{id}");
         cache.Remove("cities_all");
@@ -140,6 +171,7 @@ public static class AdminHandlers
         await unitOfWork.Districts.DeleteAsync(district);
         await unitOfWork.SaveChangesAsync();
 
+        cache.Remove("states");
         cache.Remove("districts");
         cache.Remove($"cities_{id}");
         cache.Remove("cities_all");

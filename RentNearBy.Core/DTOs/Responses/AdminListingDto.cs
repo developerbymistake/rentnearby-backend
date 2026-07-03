@@ -11,6 +11,7 @@ public class AdminListingDto
     public string? RoomTypeName { get; set; }
     public int PriceMonthly { get; set; }
     public bool IsActive { get; set; }
+    public string FurnishedStatus { get; set; } = "None";
     public string? Address { get; set; }
     public string? ThumbnailUrl { get; set; }
     public int PhotoCount { get; set; }
