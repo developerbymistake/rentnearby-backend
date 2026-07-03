@@ -16,14 +16,22 @@ public static class DataSeeder
 
     public static async Task SeedAsync(ApplicationDbContext db)
     {
-        await SeedRoomTypesAsync(db);
-        await SeedPlotTypesAsync(db);
-        await SeedPlansAsync(db);
-        await SeedPlotPlansAsync(db);
-        await SeedDistrictsAsync(db);
-        await SeedCitiesAsync(db);
-        await SeedFeaturesAsync(db);
-        await SeedAdminsAsync(db);
+        try
+        {
+            await SeedRoomTypesAsync(db);
+        }
+        catch (Exception ex)
+        {
+
+            Console.WriteLine($"[SeedRoomTypesAsync] Seeding {ex.Message} RoomType...");
+        }
+        //await SeedPlotTypesAsync(db);
+        //await SeedPlansAsync(db);
+        //await SeedPlotPlansAsync(db);
+        //await SeedDistrictsAsync(db);
+        //await SeedCitiesAsync(db);
+        //await SeedFeaturesAsync(db);
+        //await SeedAdminsAsync(db);
     }
 
     private static async Task SeedPlansAsync(ApplicationDbContext db)
@@ -56,8 +64,10 @@ public static class DataSeeder
 
     private static async Task SeedRoomTypesAsync(ApplicationDbContext db)
     {
+        Console.WriteLine("[RoomTypes] Enter start.");
         if (await db.RoomTypes.AnyAsync()) return;
 
+        Console.WriteLine("[RoomTypes] Enter Inner.");
         var roomTypes = new[]
         {
             new RoomType { Id = Guid.NewGuid(), Name = "1BHK",   SortOrder = 1, Description = "1 bedroom, hall and kitchen",          CreatedAt = DateTime.UtcNow },
@@ -69,6 +79,7 @@ public static class DataSeeder
         };
 
         db.RoomTypes.AddRange(roomTypes);
+        Console.WriteLine("[RoomTypes] Enter End.");
         await db.SaveChangesAsync();
     }
 
