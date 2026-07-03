@@ -165,7 +165,7 @@ public static class AdminHandlers
         var district = await unitOfWork.Districts.GetByIdAsync(id);
         if (district == null) return NotFoundResponse("District not found");
 
-        if (await db.RoomListings.AnyAsync(l => l.DistrictId == id && l.IsActive))
+        if (await db.RoomListings.AnyAsync(l => l.DistrictId == id && l.IsActive && !l.IsDeleted))
             return BadRequestResponse("Cannot delete district with active listings");
 
         await unitOfWork.Districts.DeleteAsync(district);
