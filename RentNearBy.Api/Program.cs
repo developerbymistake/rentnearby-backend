@@ -73,29 +73,41 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>();
-    // Drop all non-extension tables (skips PostGIS/extension-owned tables like spatial_ref_sys)
-    await db.Database.ExecuteSqlRawAsync("""
-        DO $$ DECLARE r RECORD;
-        BEGIN
-            FOR r IN
-                SELECT c.relname AS tablename
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = 'public'
-                AND c.relkind = 'r'
-                AND NOT EXISTS (
-                    SELECT 1 FROM pg_depend d
-                    JOIN pg_extension e ON d.refobjid = e.oid
-                    WHERE d.objid = c.oid
-                    AND d.deptype = 'e'
-                )
-            LOOP
-                EXECUTE 'DROP TABLE IF EXISTS public."' || r.tablename || '" CASCADE';
-            END LOOP;
-        END $$;
-    """);
-    await db.Database.EnsureCreatedAsync();
-    await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
+    try
+    {
+        Console.WriteLine("[STARTUP] Dropping all tables...");
+        await db.Database.ExecuteSqlRawAsync("""
+            DO $$ DECLARE r RECORD;
+            BEGIN
+                FOR r IN
+                    SELECT c.relname AS tablename
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'public'
+                    AND c.relkind = 'r'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM pg_depend d
+                        JOIN pg_extension e ON d.refobjid = e.oid
+                        WHERE d.objid = c.oid
+                        AND d.deptype = 'e'
+                    )
+                LOOP
+                    EXECUTE 'DROP TABLE IF EXISTS public."' || r.tablename || '" CASCADE';
+                END LOOP;
+            END $$;
+        """);
+        Console.WriteLine("[STARTUP] Tables dropped. Running EnsureCreated...");
+        await db.Database.EnsureCreatedAsync();
+        Console.WriteLine("[STARTUP] Schema created. Running seeder...");
+        await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
+        Console.WriteLine("[STARTUP] Seeder complete.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[STARTUP ERROR] {ex.GetType().Name}: {ex.Message}");
+        Console.WriteLine(ex.StackTrace);
+        throw;
+    }
 }
 
 app.UseResponseCompression();
