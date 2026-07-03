@@ -17,13 +17,13 @@ public static class DataSeeder
     public static async Task SeedAsync(ApplicationDbContext db)
     {
         await SeedRoomTypesAsync(db);
-        //await SeedPlotTypesAsync(db);
-        //await SeedPlansAsync(db);
-        //await SeedPlotPlansAsync(db);
-        //await SeedDistrictsAsync(db);
-        //await SeedCitiesAsync(db);
-        //await SeedFeaturesAsync(db);
-        //await SeedAdminsAsync(db);
+        await SeedPlotTypesAsync(db);
+        await SeedPlansAsync(db);
+        await SeedPlotPlansAsync(db);
+        await SeedDistrictsAsync(db);
+        await SeedCitiesAsync(db);
+        await SeedFeaturesAsync(db);
+        await SeedAdminsAsync(db);
     }
 
     private static async Task SeedPlansAsync(ApplicationDbContext db)
