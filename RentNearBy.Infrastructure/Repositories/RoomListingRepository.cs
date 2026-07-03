@@ -10,7 +10,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
 {
     private record BoxQueryResult(
         Guid Id, int? PriceMonthly, double Lat, double Lng,
-        string? RoomTypeName, string? OwnerName, string? OwnerPhone, string? ThumbnailUrl);
+        string? RoomTypeName, string? OwnerName, string? OwnerPhone, string? ThumbnailUrl,
+        string? FurnishedStatus);
 
     private static (double MinLat, double MaxLat, double MinLng, double MaxLng)
         GetBoundingBox(double lat, double lng, double radiusKm)
@@ -38,7 +39,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                     rt."Name"      AS "RoomTypeName",
                     u."Name"       AS "OwnerName",
                     u."PhoneNumber" AS "OwnerPhone",
-                    p."PhotoUrl"   AS "ThumbnailUrl"
+                    p."PhotoUrl"   AS "ThumbnailUrl",
+                    l."FurnishedStatus"
                 FROM "RoomListings" l
                 LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
                 LEFT JOIN "Users" u      ON u."Id"  = l."UserId"
@@ -75,7 +77,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                 OwnerName = x.Row.OwnerName,
                 OwnerPhone = x.Row.OwnerPhone,
                 ThumbnailUrl = x.Row.ThumbnailUrl,
-                DistanceKm = x.Dist
+                DistanceKm = x.Dist,
+                FurnishedStatus = x.Row.FurnishedStatus ?? "None"
             })
             .ToList();
     }
