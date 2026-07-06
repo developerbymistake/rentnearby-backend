@@ -18,8 +18,8 @@ public class ListingReport
     public ReportReason? Reason { get; set; }
 
     public string Details { get; set; } = string.Empty;
-    public string Status { get; set; } = "Pending"; // "Pending" | "Reviewed"
-    public string? ResolutionAction { get; set; } // "PostDeactivated" | "PostDeleted" | "AccountDeactivated" | "Dismissed" | "AutoResolvedByOwner"
+    public string Status { get; set; } = "Pending"; // "Pending" | "Resolved"
+    public string? ResolutionAction { get; set; } // "PostDeactivated" | "PostDeleted" | "AccountDeactivated" | "Resolved" | "AutoResolvedByOwner"
 
     public DateTime CreatedAt { get; set; }
     public DateTime? ResolvedAt { get; set; }

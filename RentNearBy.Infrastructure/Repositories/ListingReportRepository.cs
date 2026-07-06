@@ -45,7 +45,7 @@ public class ListingReportRepository(ApplicationDbContext context) : IListingRep
         return await context.ListingReports
             .Where(r => r.ListingId == listingId && r.ListingType == listingType && r.Status == "Pending")
             .ExecuteUpdateAsync(s => s
-                .SetProperty(r => r.Status, "Reviewed")
+                .SetProperty(r => r.Status, "Resolved")
                 .SetProperty(r => r.ResolutionAction, "AutoResolvedByOwner")
                 .SetProperty(r => r.ResolvedAt, DateTime.UtcNow));
     }
@@ -55,7 +55,7 @@ public class ListingReportRepository(ApplicationDbContext context) : IListingRep
         await context.ListingReports
             .Where(r => r.Id == reportId)
             .ExecuteUpdateAsync(s => s
-                .SetProperty(r => r.Status, "Reviewed")
+                .SetProperty(r => r.Status, "Resolved")
                 .SetProperty(r => r.ResolutionAction, resolutionAction)
                 .SetProperty(r => r.ResolvedAt, DateTime.UtcNow)
                 .SetProperty(r => r.ResolvedByAdminId, adminId));

@@ -7,7 +7,7 @@ public class ResolveReportRequestValidator : AbstractValidator<ResolveReportRequ
 {
     private static readonly string[] AllowedActions =
     [
-        "PostDeactivated", "PostDeleted", "AccountDeactivated", "Dismissed", "Reviewed"
+        "PostDeactivated", "PostDeleted", "AccountDeactivated", "Resolved"
     ];
 
     public ResolveReportRequestValidator()
