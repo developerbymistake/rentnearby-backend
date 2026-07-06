@@ -20,6 +20,7 @@ public class PlotListing
     public DateTime? DeletedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public DateTime? DigestNotifiedAt { get; set; }
 
     public PlotType PlotType { get; set; } = null!;
     public User User { get; set; } = null!;

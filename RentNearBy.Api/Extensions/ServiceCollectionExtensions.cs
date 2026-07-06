@@ -29,6 +29,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<MembershipExpiryService>();
         // Register background service for plot membership expiry (runs at 1:00 AM daily)
         services.AddHostedService<PlotMembershipExpiryService>();
+        // Register background service for district digest aggregation (runs at 4:00 AM IST daily)
+        services.AddHostedService<DistrictDigestJobService>();
 
         services.AddHttpClient<IRazorpayService, RazorpayService>();
 
@@ -94,6 +96,9 @@ public static class ServiceCollectionExtensions
 
         // Broadcast worker — consumes broadcast.notification queue and sends FCM to all users
         services.AddHostedService<BroadcastWorkerService>();
+
+        // District digest worker — consumes district.digest.ready queue and sends FCM topic push
+        services.AddHostedService<DistrictDigestWorkerService>();
 
         return services;
     }

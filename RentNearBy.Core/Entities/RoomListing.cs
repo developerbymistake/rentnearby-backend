@@ -19,6 +19,7 @@ public class RoomListing
     public bool IsDeleted { get; set; } = false;
     public DateTime? DeletedAt { get; set; }
     public DateTime? ValidUntil { get; set; }
+    public DateTime? DigestNotifiedAt { get; set; }
 
     public User User { get; set; } = null!;
     public RoomType RoomType { get; set; } = null!;

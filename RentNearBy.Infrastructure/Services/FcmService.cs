@@ -71,4 +71,38 @@ public class FcmService : IFcmService
             throw;
         }
     }
+
+    public async Task<bool> SendToTopicAsync(string topic, string title, string body, IDictionary<string, string>? data = null)
+    {
+        var message = new Message
+        {
+            Topic = topic,
+            Notification = new Notification
+            {
+                Title = title,
+                Body = body
+            },
+            Data = data?.ToDictionary(kv => kv.Key, kv => kv.Value),
+            Android = new AndroidConfig
+            {
+                Priority = Priority.High,
+                Notification = new AndroidNotification
+                {
+                    Sound = "default",
+                    ClickAction = "FLUTTER_NOTIFICATION_CLICK"
+                }
+            }
+        };
+
+        try
+        {
+            await FirebaseMessaging.DefaultInstance.SendAsync(message);
+            return true;
+        }
+        catch (FirebaseMessagingException ex)
+        {
+            _logger.LogError(ex, "FCM topic send failed for topic {Topic}: {ErrorCode}", topic, ex.MessagingErrorCode);
+            return false;
+        }
+    }
 }

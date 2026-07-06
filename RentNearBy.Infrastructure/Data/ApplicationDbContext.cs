@@ -205,6 +205,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => new { l.CityId, l.IsActive, l.CreatedAt });
             // Composite: search with room type filter
             e.HasIndex(l => new { l.IsActive, l.RoomTypeId });
+            // Partial: district digest job — find rooms not yet included in a daily digest.
+            // Filtered on DigestNotifiedAt IS NULL so the index stays small regardless of
+            // total historical row count (only ever contains not-yet-digested rows).
+            e.HasIndex(l => new { l.IsActive, l.IsDeleted, l.DigestNotifiedAt, l.DistrictId })
+             .HasDatabaseName("ix_roomlistings_digest_pending")
+             .HasFilter("\"DigestNotifiedAt\" IS NULL");
         });
 
         modelBuilder.Entity<RoomPhoto>(e =>
@@ -325,6 +331,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => new { p.CityId, p.IsActive, p.CreatedAt });
             // Composite: admin count queries — COUNT(UserId = x AND !IsDeleted)
             e.HasIndex(p => new { p.UserId, p.IsDeleted });
+            // Partial: district digest job — find plots not yet included in a daily digest.
+            // Filtered on DigestNotifiedAt IS NULL so the index stays small regardless of
+            // total historical row count (only ever contains not-yet-digested rows).
+            e.HasIndex(p => new { p.IsActive, p.IsDeleted, p.DigestNotifiedAt, p.DistrictId })
+             .HasDatabaseName("ix_plotlistings_digest_pending")
+             .HasFilter("\"DigestNotifiedAt\" IS NULL");
         });
 
         modelBuilder.Entity<PlotPhoto>(e =>

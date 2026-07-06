@@ -165,6 +165,28 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
     public void RemovePhoto(PlotPhoto photo)
         => context.Entry(photo).State = Microsoft.EntityFrameworkCore.EntityState.Deleted;
 
+    public async Task<IReadOnlyList<PendingDigestListingDto>> GetPendingDigestListingsAsync()
+        => await _dbSet
+            .AsNoTracking()
+            .Where(p => p.IsActive && !p.IsDeleted && p.DigestNotifiedAt == null && p.District.IsActive)
+            .Select(p => new PendingDigestListingDto
+            {
+                Id = p.Id,
+                DistrictId = p.DistrictId,
+                DistrictName = p.District.Name
+            })
+            .ToListAsync();
+
+    public async Task<int> MarkDigestNotifiedAsync(IEnumerable<Guid> ids)
+    {
+        var idList = ids as IReadOnlyCollection<Guid> ?? ids.ToList();
+        if (idList.Count == 0) return 0;
+
+        return await _dbSet
+            .Where(p => idList.Contains(p.Id))
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.DigestNotifiedAt, DateTime.UtcNow));
+    }
+
     private static double Haversine(double lat1, double lng1, double lat2, double lng2)
     {
         const double R = 6371;

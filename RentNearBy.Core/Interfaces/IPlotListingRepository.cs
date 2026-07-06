@@ -18,4 +18,6 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
     Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId);
     Task AddPhotoAsync(PlotPhoto photo);
     void RemovePhoto(PlotPhoto photo);
+    Task<IReadOnlyList<PendingDigestListingDto>> GetPendingDigestListingsAsync();
+    Task<int> MarkDigestNotifiedAsync(IEnumerable<Guid> ids);
 }

@@ -159,6 +159,28 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
         context.Entry(photo).State = Microsoft.EntityFrameworkCore.EntityState.Deleted;
     }
 
+    public async Task<IReadOnlyList<PendingDigestListingDto>> GetPendingDigestListingsAsync()
+        => await _dbSet
+            .AsNoTracking()
+            .Where(l => l.IsActive && !l.IsDeleted && l.DigestNotifiedAt == null && l.District.IsActive)
+            .Select(l => new PendingDigestListingDto
+            {
+                Id = l.Id,
+                DistrictId = l.DistrictId,
+                DistrictName = l.District.Name
+            })
+            .ToListAsync();
+
+    public async Task<int> MarkDigestNotifiedAsync(IEnumerable<Guid> ids)
+    {
+        var idList = ids as IReadOnlyCollection<Guid> ?? ids.ToList();
+        if (idList.Count == 0) return 0;
+
+        return await _dbSet
+            .Where(l => idList.Contains(l.Id))
+            .ExecuteUpdateAsync(s => s.SetProperty(l => l.DigestNotifiedAt, DateTime.UtcNow));
+    }
+
     private static double Haversine(double lat1, double lng1, double lat2, double lng2)
     {
         const double R = 6371;
