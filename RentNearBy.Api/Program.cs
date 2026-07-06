@@ -108,12 +108,26 @@ using (var scope = app.Services.CreateScope())
             // MigrateAsync() below only ever applies genuinely NEW migrations from here
             // on. This block is a no-op on every subsequent restart once the history
             // table exists — same idempotent, leave-it-in-forever pattern as the seeder.
-            var historyExists = await db.Database
-                .SqlQueryRaw<bool>("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '__EFMigrationsHistory')")
-                .SingleAsync();
-            var schemaAlreadyExists = await db.Database
-                .SqlQueryRaw<bool>("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'Users')")
-                .SingleAsync();
+            // Open via EF's own connection-tracking API (not the raw DbConnection
+            // directly) so it plays nicely with MigrateAsync()'s own connection
+            // handling further down — avoids the two fighting over open/close state.
+            await db.Database.OpenConnectionAsync();
+
+            bool historyExists;
+            await using (var cmd = db.Database.GetDbConnection().CreateCommand())
+            {
+                cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '__EFMigrationsHistory')";
+                historyExists = (bool)(await cmd.ExecuteScalarAsync())!;
+            }
+
+            bool schemaAlreadyExists;
+            await using (var cmd = db.Database.GetDbConnection().CreateCommand())
+            {
+                cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'Users')";
+                schemaAlreadyExists = (bool)(await cmd.ExecuteScalarAsync())!;
+            }
+
+            await db.Database.CloseConnectionAsync();
 
             if (!historyExists && schemaAlreadyExists)
             {
