@@ -18,6 +18,7 @@ public static class DataSeeder
     {
         await SeedRoomTypesAsync(db);
         await SeedPlotTypesAsync(db);
+        await SeedReportReasonsAsync(db);
         await SeedPlansAsync(db);
         await SeedPlotPlansAsync(db);
         await SeedDistrictsAsync(db);
@@ -85,6 +86,20 @@ public static class DataSeeder
         };
 
         db.PlotTypes.AddRange(plotTypes);
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedReportReasonsAsync(ApplicationDbContext db)
+    {
+        if (await db.ReportReasons.AnyAsync()) return;
+
+        var reasons = new[]
+        {
+            new ReportReason { Id = Guid.Parse("c1000000-0000-0000-0000-000000000001"), Name = "Incorrect information", SortOrder = 1, Description = "Price, location or photos don't match the actual property", CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c1000000-0000-0000-0000-000000000002"), Name = "Offensive content",     SortOrder = 2, Description = "Contains nudity, abusive language or hate speech",          CreatedAt = DateTime.UtcNow },
+        };
+
+        db.ReportReasons.AddRange(reasons);
         await db.SaveChangesAsync();
     }
 

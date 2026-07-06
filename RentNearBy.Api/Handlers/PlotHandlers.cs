@@ -168,7 +168,14 @@ public static class PlotListingHandlers
         var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
         if (plot == null) return NotFoundResponse("PlotListing not found");
         var dto = plot.Adapt<PlotListingDto>();
-        if (principal.Identity?.IsAuthenticated != true) dto.OwnerPhone = null;
+        if (principal.Identity?.IsAuthenticated != true)
+        {
+            dto.OwnerPhone = null;
+        }
+        else if (UsersHandlers.TryGetUserId(principal, out var userId))
+        {
+            dto.HasReported = await unitOfWork.ListingReports.HasPendingReportFromReporterAsync(id, "Plot", userId);
+        }
         return OkResponse(dto);
     }
 
@@ -356,6 +363,9 @@ public static class PlotListingHandlers
         await unitOfWork.PlotListings.UpdateAsync(plot);
         await unitOfWork.SaveChangesAsync();
 
+        if (request.IsActive.HasValue && request.IsActive.Value == false)
+            await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
+
         var redis = sp.GetService<IConnectionMultiplexer>();
         if (plot.CityId.HasValue) await InvalidateNearbyCacheAsync(redis, plot.CityId.Value);
         if (oldCityId.HasValue && oldCityId != plot.CityId)
@@ -385,10 +395,78 @@ public static class PlotListingHandlers
         await unitOfWork.PlotListings.UpdateAsync(plot);
         await unitOfWork.SaveChangesAsync();
 
+        await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
+
         if (cityId.HasValue)
             await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), cityId.Value);
 
         return NoContentResponse();
+    }
+
+    public static async Task<IResult> ReportPlotListing(
+        Guid id, CreateListingReportRequest request,
+        ClaimsPrincipal principal,
+        IValidator<CreateListingReportRequest> validator,
+        IUnitOfWork unitOfWork, IRabbitMqPublisher publisher)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
+        if (plot.UserId == userId) return BadRequestResponse("You cannot report your own listing");
+
+        var reason = await unitOfWork.ReportReasons.GetByIdAsync(request.ReasonId);
+        if (reason == null) return BadRequestResponse("Invalid reason");
+
+        var reporter = await unitOfWork.Users.GetByIdAsync(userId);
+        var owner = await unitOfWork.Users.GetByIdAsync(plot.UserId);
+
+        var isFirstPending = !await unitOfWork.ListingReports.HasPendingReportForListingAsync(id, "Plot");
+
+        var report = new ListingReport
+        {
+            Id = Guid.NewGuid(),
+            ListingId = id,
+            ListingType = "Plot",
+            ReporterUserId = userId,
+            ReporterName = reporter?.Name ?? "Unknown",
+            ReporterMobile = reporter?.PhoneNumber ?? "",
+            ReportedUserId = plot.UserId,
+            ReportedName = owner?.Name ?? "Unknown",
+            ReportedMobile = owner?.PhoneNumber ?? "",
+            ReasonId = request.ReasonId,
+            Details = request.Details,
+            Status = "Pending",
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await unitOfWork.ListingReports.AddAsync(report);
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            return ConflictResponse("You have already reported this listing");
+        }
+
+        if (isFirstPending)
+        {
+            var message = new ReportFiledMessage
+            {
+                OwnerId = plot.UserId,
+                ReasonName = reason.Name,
+                ListingTitle = plot.Address ?? "your listing",
+            };
+            try { await publisher.PublishAsync("report.filed", JsonSerializer.Serialize(message)); }
+            catch (Exception) { /* best-effort — report row is already saved regardless of push delivery */ }
+        }
+
+        return CreatedResponse(new { reportId = report.Id }, $"/api/v1/admin/reports/{report.Id}");
     }
 
     public static async Task<IResult> UploadPhoto(
@@ -506,6 +584,13 @@ public static class PlotListingHandlers
         )).ToList();
 
         return OkResponse(new { items = dtos, hasMore });
+    }
+
+    public static async Task<IResult> GetAdminPlotById(Guid id, IUnitOfWork unitOfWork)
+    {
+        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
+        return OkResponse(plot.Adapt<PlotListingDto>());
     }
 
     public static async Task<IResult> AdminTogglePlotListing(

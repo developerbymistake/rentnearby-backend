@@ -25,6 +25,8 @@ public class UnitOfWork : IUnitOfWork
     private IDeviceTokenRepository? _deviceTokens;
     private INotificationLogRepository? _notificationLogs;
     private IDistrictBannerRepository? _districtBanners;
+    private IReportReasonRepository? _reportReasons;
+    private IListingReportRepository? _listingReports;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -50,6 +52,8 @@ public class UnitOfWork : IUnitOfWork
     public IDeviceTokenRepository DeviceTokens => _deviceTokens ??= new DeviceTokenRepository(_context);
     public INotificationLogRepository NotificationLogs => _notificationLogs ??= new NotificationLogRepository(_context);
     public IDistrictBannerRepository DistrictBanners => _districtBanners ??= new DistrictBannerRepository(_context);
+    public IReportReasonRepository ReportReasons => _reportReasons ??= new ReportReasonRepository(_context);
+    public IListingReportRepository ListingReports => _listingReports ??= new ListingReportRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();

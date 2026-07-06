@@ -21,5 +21,7 @@ public interface IUnitOfWork : IDisposable
     IDeviceTokenRepository DeviceTokens { get; }
     INotificationLogRepository NotificationLogs { get; }
     IDistrictBannerRepository DistrictBanners { get; }
+    IReportReasonRepository ReportReasons { get; }
+    IListingReportRepository ListingReports { get; }
     Task<int> SaveChangesAsync();
 }

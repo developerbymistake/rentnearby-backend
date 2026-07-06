@@ -75,23 +75,67 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>();
     try
     {
-        Console.WriteLine("[STARTUP] Dropping all tables...");
-        await db.Database.ExecuteSqlRawAsync("""
-            DO $$ DECLARE r RECORD;
-            BEGIN
-                FOR r IN (
-                    SELECT tablename FROM pg_tables
-                    WHERE schemaname = 'public'
-                    AND tablename NOT IN ('spatial_ref_sys', 'geometry_columns', 'geography_columns', 'raster_columns', 'raster_overviews')
-                )
-                LOOP
-                    EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
-                END LOOP;
-            END $$;
-        """);
-        Console.WriteLine("[STARTUP] Tables dropped. Running EnsureCreated...");
-        await db.Database.EnsureCreatedAsync();
-        Console.WriteLine("[STARTUP] Schema created. Running seeder...");
+        if (app.Environment.IsDevelopment())
+        {
+            // Local dev only: wipe and rebuild from the current model on every restart,
+            // for fast iteration. Never runs outside Development.
+            Console.WriteLine("[STARTUP] Dropping all tables...");
+            await db.Database.ExecuteSqlRawAsync("""
+                DO $$ DECLARE r RECORD;
+                BEGIN
+                    FOR r IN (
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                        AND tablename NOT IN ('spatial_ref_sys', 'geometry_columns', 'geography_columns', 'raster_columns', 'raster_overviews')
+                    )
+                    LOOP
+                        EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
+                    END LOOP;
+                END $$;
+            """);
+            Console.WriteLine("[STARTUP] Tables dropped. Running EnsureCreated...");
+            await db.Database.EnsureCreatedAsync();
+            Console.WriteLine("[STARTUP] Schema created. Running seeder...");
+        }
+        else
+        {
+            // Production/staging: never destroy existing data.
+            //
+            // Self-baselining, one-time-in-practice: if this DB's schema was already
+            // built outside the migration system (e.g. by a prior EnsureCreatedAsync
+            // run, so its tables already exist) but has no migration history yet, mark
+            // the current migration as already applied — without re-running it — so
+            // MigrateAsync() below only ever applies genuinely NEW migrations from here
+            // on. This block is a no-op on every subsequent restart once the history
+            // table exists — same idempotent, leave-it-in-forever pattern as the seeder.
+            var historyExists = await db.Database
+                .SqlQueryRaw<bool>("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '__EFMigrationsHistory')")
+                .SingleAsync();
+            var schemaAlreadyExists = await db.Database
+                .SqlQueryRaw<bool>("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'Users')")
+                .SingleAsync();
+
+            if (!historyExists && schemaAlreadyExists)
+            {
+                Console.WriteLine("[STARTUP] Pre-existing schema with no migration history detected — baselining...");
+                await db.Database.ExecuteSqlRawAsync("""
+                    CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
+                        "MigrationId" character varying(150) NOT NULL,
+                        "ProductVersion" character varying(32) NOT NULL,
+                        CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
+                    );
+                    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+                    VALUES ('20260706171753_InitialCreate', '9.0.4')
+                    ON CONFLICT ("MigrationId") DO NOTHING;
+                """);
+                Console.WriteLine("[STARTUP] Baseline recorded.");
+            }
+
+            Console.WriteLine("[STARTUP] Applying pending migrations...");
+            await db.Database.MigrateAsync();
+            Console.WriteLine("[STARTUP] Migrations applied. Running seeder...");
+        }
+
         await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
         Console.WriteLine("[STARTUP] Seeder complete.");
     }

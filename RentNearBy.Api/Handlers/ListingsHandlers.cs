@@ -169,7 +169,14 @@ public static class RoomListingsHandlers
         var listing = await unitOfWork.RoomListings.GetByIdWithPhotosAsync(id);
         if (listing == null) return NotFoundResponse("RoomListing not found");
         var dto = listing.Adapt<RoomListingDto>();
-        if (principal.Identity?.IsAuthenticated != true) dto.OwnerPhone = null;
+        if (principal.Identity?.IsAuthenticated != true)
+        {
+            dto.OwnerPhone = null;
+        }
+        else if (UsersHandlers.TryGetUserId(principal, out var userId))
+        {
+            dto.HasReported = await unitOfWork.ListingReports.HasPendingReportFromReporterAsync(id, "Room", userId);
+        }
         return OkResponse(dto);
     }
 
@@ -371,6 +378,9 @@ public static class RoomListingsHandlers
         await unitOfWork.RoomListings.UpdateAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
+        if (request.IsActive.HasValue && request.IsActive.Value == false)
+            await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
+
         var redis = sp.GetService<IConnectionMultiplexer>();
         var newCityId = listing.CityId;
         if (newCityId.HasValue)
@@ -399,10 +409,78 @@ public static class RoomListingsHandlers
         await unitOfWork.RoomListings.UpdateAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
+        await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
+
         if (cityId.HasValue)
             await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), cityId.Value);
 
         return NoContentResponse();
+    }
+
+    public static async Task<IResult> ReportListing(
+        Guid id, CreateListingReportRequest request,
+        ClaimsPrincipal principal,
+        IValidator<CreateListingReportRequest> validator,
+        IUnitOfWork unitOfWork, IRabbitMqPublisher publisher)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
+        if (listing == null) return NotFoundResponse("RoomListing not found");
+        if (listing.UserId == userId) return BadRequestResponse("You cannot report your own listing");
+
+        var reason = await unitOfWork.ReportReasons.GetByIdAsync(request.ReasonId);
+        if (reason == null) return BadRequestResponse("Invalid reason");
+
+        var reporter = await unitOfWork.Users.GetByIdAsync(userId);
+        var owner = await unitOfWork.Users.GetByIdAsync(listing.UserId);
+
+        var isFirstPending = !await unitOfWork.ListingReports.HasPendingReportForListingAsync(id, "Room");
+
+        var report = new ListingReport
+        {
+            Id = Guid.NewGuid(),
+            ListingId = id,
+            ListingType = "Room",
+            ReporterUserId = userId,
+            ReporterName = reporter?.Name ?? "Unknown",
+            ReporterMobile = reporter?.PhoneNumber ?? "",
+            ReportedUserId = listing.UserId,
+            ReportedName = owner?.Name ?? "Unknown",
+            ReportedMobile = owner?.PhoneNumber ?? "",
+            ReasonId = request.ReasonId,
+            Details = request.Details,
+            Status = "Pending",
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await unitOfWork.ListingReports.AddAsync(report);
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            return ConflictResponse("You have already reported this listing");
+        }
+
+        if (isFirstPending)
+        {
+            var message = new ReportFiledMessage
+            {
+                OwnerId = listing.UserId,
+                ReasonName = reason.Name,
+                ListingTitle = listing.Address ?? "your listing",
+            };
+            try { await publisher.PublishAsync("report.filed", JsonSerializer.Serialize(message)); }
+            catch (Exception) { /* best-effort — report row is already saved regardless of push delivery */ }
+        }
+
+        return CreatedResponse(new { reportId = report.Id }, $"/api/v1/admin/reports/{report.Id}");
     }
 
     public static async Task<IResult> UploadPhoto(Guid id, IFormFile photo, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp)

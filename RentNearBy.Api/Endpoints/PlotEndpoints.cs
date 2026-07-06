@@ -19,6 +19,8 @@ public static class PlotListingEndpoints
         group.MapPost("/{id:guid}/photos", PlotListingHandlers.UploadPhoto).RequireAuthorization().DisableAntiforgery();
         group.MapDelete("/{id:guid}/photos/{photoId:guid}", PlotListingHandlers.DeletePhoto).RequireAuthorization();
 
+        group.MapPost("/{id:guid}/report", PlotListingHandlers.ReportPlotListing).RequireAuthorization();
+
         group.MapGet("/payment/status", PlotListingHandlers.GetPlotMembershipStatus).RequireAuthorization();
         group.MapPost("/{plotId:guid}/create-order", PlotListingHandlers.CreatePlotListingOrder).RequireAuthorization();
         group.MapPost("/{plotId:guid}/verify-payment", PlotListingHandlers.VerifyPlotListingPayment).RequireAuthorization();
@@ -31,6 +33,7 @@ public static class PlotListingEndpoints
     public static IEndpointRouteBuilder MapAdminPlotListingEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/", PlotListingHandlers.GetAdminPlotListings).RequireAuthorization("AdminOnly");
+        app.MapGet("/{id:guid}", PlotListingHandlers.GetAdminPlotById).RequireAuthorization("AdminOnly");
         app.MapPut("/{id:guid}", PlotListingHandlers.AdminTogglePlotListing).RequireAuthorization("AdminOnly");
         app.MapDelete("/{id:guid}", PlotListingHandlers.AdminDeletePlotListing).RequireAuthorization("AdminOnly");
         return app;

@@ -27,6 +27,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<NotificationLog> NotificationLogs { get; set; }
     public DbSet<DistrictBanner> DistrictBanners { get; set; }
     public DbSet<BannerDismissal> BannerDismissals { get; set; }
+    public DbSet<ReportReason> ReportReasons { get; set; }
+    public DbSet<ListingReport> ListingReports { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -123,6 +125,45 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(p => p.Name).IsUnique();
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<ReportReason>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(r => r.Name).IsUnique();
+            e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<ListingReport>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(r => r.Status).HasDefaultValue("Pending");
+
+            e.HasOne(r => r.Reason)
+             .WithMany(rr => rr.Reports)
+             .HasForeignKey(r => r.ReasonId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(r => r.ResolvedByAdmin)
+             .WithMany()
+             .HasForeignKey(r => r.ResolvedByAdminId)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // Used by the auto-resolve hook and the first-pending-report check
+            e.HasIndex(r => new { r.ListingId, r.ListingType, r.Status });
+            // Used by the admin tab filter (?status=Pending|Reviewed|All)
+            e.HasIndex(r => r.Status);
+
+            // Stops the same user filing >1 simultaneous Pending report on the same listing.
+            // Partial unique index — race-safe under concurrent submits, unlike an app-level
+            // check-then-insert which has a TOCTOU window.
+            e.HasIndex(r => new { r.ReporterUserId, r.ListingId })
+             .IsUnique()
+             .HasDatabaseName("ix_listingreports_reporter_listing_pending")
+             .HasFilter("\"Status\" = 'Pending'");
         });
 
         modelBuilder.Entity<RoomPlan>(e =>

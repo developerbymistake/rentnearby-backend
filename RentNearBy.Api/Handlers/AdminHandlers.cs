@@ -383,6 +383,66 @@ public static class AdminHandlers
         return NoContentResponse();
     }
 
+    public static async Task<IResult> GetReportReasons(IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        if (!cache.TryGetValue("report_reasons", out List<ReportReasonDto>? cached) || cached == null)
+        {
+            var reasons = await unitOfWork.ReportReasons.GetAllAsync();
+            cached = reasons.OrderBy(r => r.SortOrder).Select(r => r.Adapt<ReportReasonDto>()).ToList();
+            cache.Set("report_reasons", cached, CacheTtl);
+        }
+        return OkResponse(cached);
+    }
+
+    public static async Task<IResult> CreateReportReason(CreateReportReasonRequest request, IValidator<CreateReportReasonRequest> validator, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var reason = new ReportReason { Id = Guid.NewGuid(), Name = request.Name.Trim(), Description = request.Description, SortOrder = request.SortOrder, CreatedAt = DateTime.UtcNow };
+        await unitOfWork.ReportReasons.AddAsync(reason);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove("report_reasons");
+
+        return CreatedResponse(reason.Adapt<ReportReasonDto>(), $"/api/v1/admin/report-reasons/{reason.Id}");
+    }
+
+    public static async Task<IResult> UpdateReportReason(Guid id, UpdateReportReasonRequest request, IValidator<UpdateReportReasonRequest> validator, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var reason = await unitOfWork.ReportReasons.GetByIdAsync(id);
+        if (reason == null) return NotFoundResponse("Report reason not found");
+
+        if (request.Name != null) reason.Name = request.Name.Trim();
+        if (request.Description != null) reason.Description = request.Description;
+
+        await unitOfWork.ReportReasons.UpdateAsync(reason);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove("report_reasons");
+
+        return OkResponse(reason.Adapt<ReportReasonDto>());
+    }
+
+    public static async Task<IResult> DeleteReportReason(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
+    {
+        var reason = await unitOfWork.ReportReasons.GetByIdAsync(id);
+        if (reason == null) return NotFoundResponse("Report reason not found");
+
+        if (await db.ListingReports.AnyAsync(r => r.ReasonId == id))
+            return BadRequestResponse("Cannot delete a reason that is referenced by existing reports");
+
+        await unitOfWork.ReportReasons.DeleteAsync(reason);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove("report_reasons");
+
+        return NoContentResponse();
+    }
+
     public static async Task<IResult> GetStats(ApplicationDbContext db)
     {
         var totalUsers = await db.Users.CountAsync();
@@ -1056,6 +1116,13 @@ public static class AdminHandlers
         return OkResponse(result);
     }
 
+    public static async Task<IResult> GetAdminListingById(Guid id, IUnitOfWork unitOfWork)
+    {
+        var listing = await unitOfWork.RoomListings.GetByIdWithPhotosAsync(id);
+        if (listing == null) return NotFoundResponse("RoomListing not found");
+        return OkResponse(listing.Adapt<RoomListingDto>());
+    }
+
     public static async Task<IResult> ToggleAdminListingStatus(
         Guid id, AdminToggleListingRequest request, ApplicationDbContext db)
     {
@@ -1085,5 +1152,62 @@ public static class AdminHandlers
         await db.SaveChangesAsync();
 
         return NoContentResponse();
+    }
+
+    private static AdminListingReportDto ToAdminListingReportDto(ListingReport r) => new()
+    {
+        Id = r.Id,
+        ListingId = r.ListingId,
+        ListingType = r.ListingType,
+        ReporterUserId = r.ReporterUserId,
+        ReporterName = r.ReporterName,
+        ReporterMobile = r.ReporterMobile,
+        ReportedUserId = r.ReportedUserId,
+        ReportedName = r.ReportedName,
+        ReportedMobile = r.ReportedMobile,
+        ReasonName = r.Reason?.Name ?? "",
+        Details = r.Details,
+        Status = r.Status,
+        ResolutionAction = r.ResolutionAction,
+        CreatedAt = r.CreatedAt,
+        ResolvedAt = r.ResolvedAt,
+    };
+
+    public static async Task<IResult> GetReports(
+        IUnitOfWork unitOfWork, int page = 1, int pageSize = 20, string? status = "Pending")
+    {
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        page = Math.Max(1, page);
+
+        var paged = await unitOfWork.ListingReports.GetPagedAsync(page, pageSize, status);
+        var items = paged.Items.Select(ToAdminListingReportDto).ToList();
+
+        return OkResponse(new { items, hasMore = paged.HasMore });
+    }
+
+    public static async Task<IResult> GetReportById(Guid id, IUnitOfWork unitOfWork)
+    {
+        var report = await unitOfWork.ListingReports.GetByIdAsync(id);
+        if (report == null) return NotFoundResponse("Report not found");
+        return OkResponse(ToAdminListingReportDto(report));
+    }
+
+    public static async Task<IResult> ResolveReport(
+        Guid id, ResolveReportRequest request, IValidator<ResolveReportRequest> validator,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var report = await unitOfWork.ListingReports.GetByIdAsync(id);
+        if (report == null) return NotFoundResponse("Report not found");
+        if (report.Status != "Pending") return BadRequestResponse("Report has already been resolved");
+
+        var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        Guid? adminId = Guid.TryParse(adminIdClaim, out var parsedAdminId) ? parsedAdminId : null;
+
+        await unitOfWork.ListingReports.ResolveAsync(id, adminId, request.ResolutionAction);
+
+        return OkResponse(new { success = true });
     }
 }

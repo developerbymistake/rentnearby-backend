@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260706122051_InitialCreate")]
+    [Migration("20260706171753_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -316,6 +316,87 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("DistrictBanners");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.ListingReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Details")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ListingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ListingType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ReasonId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReportedMobile")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ReportedName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ReportedUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReporterMobile")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ReporterName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ReporterUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResolutionAction")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ResolvedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("Pending");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReasonId");
+
+                    b.HasIndex("ResolvedByAdminId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("ReporterUserId", "ListingId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_listingreports_reporter_listing_pending")
+                        .HasFilter("\"Status\" = 'Pending'");
+
+                    b.HasIndex("ListingId", "ListingType", "Status");
+
+                    b.ToTable("ListingReports");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.NotificationLog", b =>
@@ -700,36 +781,36 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("PlotTypes");
+                });
 
-                    b.HasData(
-                        new
-                        {
-                            Id = new Guid("b1000000-0000-0000-0000-000000000001"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "Residential",
-                            SortOrder = 1
-                        },
-                        new
-                        {
-                            Id = new Guid("b1000000-0000-0000-0000-000000000002"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "Commercial",
-                            SortOrder = 2
-                        },
-                        new
-                        {
-                            Id = new Guid("b1000000-0000-0000-0000-000000000003"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "Agricultural",
-                            SortOrder = 3
-                        },
-                        new
-                        {
-                            Id = new Guid("b1000000-0000-0000-0000-000000000004"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "Farmhouse",
-                            SortOrder = 4
-                        });
+            modelBuilder.Entity("RentNearBy.Core.Entities.ReportReason", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("ReportReasons");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomListing", b =>
@@ -999,50 +1080,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("RoomTypes");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = new Guid("a1000000-0000-0000-0000-000000000001"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "1BHK",
-                            SortOrder = 1
-                        },
-                        new
-                        {
-                            Id = new Guid("a1000000-0000-0000-0000-000000000002"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "2BHK",
-                            SortOrder = 2
-                        },
-                        new
-                        {
-                            Id = new Guid("a1000000-0000-0000-0000-000000000003"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "3BHK",
-                            SortOrder = 3
-                        },
-                        new
-                        {
-                            Id = new Guid("a1000000-0000-0000-0000-000000000007"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "1RK",
-                            SortOrder = 4
-                        },
-                        new
-                        {
-                            Id = new Guid("a1000000-0000-0000-0000-000000000005"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "PG",
-                            SortOrder = 5
-                        },
-                        new
-                        {
-                            Id = new Guid("a1000000-0000-0000-0000-000000000004"),
-                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            Name = "Hostel",
-                            SortOrder = 6
-                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Session", b =>
@@ -1183,6 +1220,24 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("District");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.ListingReport", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.ReportReason", "Reason")
+                        .WithMany("Reports")
+                        .HasForeignKey("ReasonId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.Admin", "ResolvedByAdmin")
+                        .WithMany()
+                        .HasForeignKey("ResolvedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Reason");
+
+                    b.Navigation("ResolvedByAdmin");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.NotificationLog", b =>
@@ -1370,6 +1425,11 @@ namespace RentNearBy.Infrastructure.Migrations
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotType", b =>
                 {
                     b.Navigation("PlotListings");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.ReportReason", b =>
+                {
+                    b.Navigation("Reports");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomListing", b =>

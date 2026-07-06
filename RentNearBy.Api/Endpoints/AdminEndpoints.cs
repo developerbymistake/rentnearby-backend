@@ -29,6 +29,11 @@ public static class AdminEndpoints
         group.MapPut("/plot-types/{id:guid}", AdminHandlers.UpdatePlotType).RequireAuthorization("AdminOnly");
         group.MapDelete("/plot-types/{id:guid}", AdminHandlers.DeletePlotType).RequireAuthorization("AdminOnly");
 
+        group.MapGet("/report-reasons", AdminHandlers.GetReportReasons);
+        group.MapPost("/report-reasons", AdminHandlers.CreateReportReason).RequireAuthorization("AdminOnly");
+        group.MapPut("/report-reasons/{id:guid}", AdminHandlers.UpdateReportReason).RequireAuthorization("AdminOnly");
+        group.MapDelete("/report-reasons/{id:guid}", AdminHandlers.DeleteReportReason).RequireAuthorization("AdminOnly");
+
         group.MapGet("/features", AdminHandlers.GetAllFeatures);
         group.MapGet("/features/{key}", AdminHandlers.GetFeatureByKey);
         group.MapPut("/features/{key}", AdminHandlers.UpdateFeature).RequireAuthorization("AdminOnly");
@@ -54,8 +59,13 @@ public static class AdminEndpoints
         group.MapPost("/users/{id:guid}/activate-plot-membership", AdminHandlers.ActivatePlotMembership).RequireAuthorization("AdminOnly");
 
         group.MapGet("/listings", AdminHandlers.GetAdminListings).RequireAuthorization("AdminOnly");
+        group.MapGet("/listings/{id:guid}", AdminHandlers.GetAdminListingById).RequireAuthorization("AdminOnly");
         group.MapPut("/listings/{id:guid}/status", AdminHandlers.ToggleAdminListingStatus).RequireAuthorization("AdminOnly");
         group.MapDelete("/listings/{id:guid}", AdminHandlers.DeleteAdminListing).RequireAuthorization("AdminOnly");
+
+        group.MapGet("/reports", AdminHandlers.GetReports).RequireAuthorization("AdminOnly");
+        group.MapGet("/reports/{id:guid}", AdminHandlers.GetReportById).RequireAuthorization("AdminOnly");
+        group.MapPut("/reports/{id:guid}/resolve", AdminHandlers.ResolveReport).RequireAuthorization("AdminOnly");
 
         group.MapPost("/broadcast-notification", BroadcastHandlers.SendBroadcast).RequireAuthorization("AdminOnly");
 

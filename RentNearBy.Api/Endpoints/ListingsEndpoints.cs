@@ -20,6 +20,8 @@ public static class RoomListingsEndpoints
         group.MapPost("/{id:guid}/photos", RoomListingsHandlers.UploadPhoto).RequireAuthorization().DisableAntiforgery();
         group.MapDelete("/{id:guid}/photos/{photoId:guid}", RoomListingsHandlers.DeletePhoto).RequireAuthorization();
 
+        group.MapPost("/{id:guid}/report", RoomListingsHandlers.ReportListing).RequireAuthorization();
+
         // Payment endpoints
         group.MapPost("/{listingId:guid}/create-order", PaymentHandlers.CreateOrder).RequireAuthorization();
         group.MapPost("/{listingId:guid}/go-live", PaymentHandlers.InitiatePayment).RequireAuthorization();

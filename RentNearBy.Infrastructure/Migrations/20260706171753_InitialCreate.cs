@@ -4,8 +4,6 @@ using NetTopologySuite.Geometries;
 
 #nullable disable
 
-#pragma warning disable CA1814 // Prefer jagged arrays over multidimensional
-
 namespace RentNearBy.Infrastructure.Migrations
 {
     /// <inheritdoc />
@@ -102,6 +100,21 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_PlotTypes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ReportReasons",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: true),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ReportReasons", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -224,6 +237,44 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalTable: "Districts",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ListingReports",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    ListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ListingType = table.Column<string>(type: "text", nullable: false),
+                    ReporterUserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ReporterName = table.Column<string>(type: "text", nullable: false),
+                    ReporterMobile = table.Column<string>(type: "text", nullable: false),
+                    ReportedUserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ReportedName = table.Column<string>(type: "text", nullable: false),
+                    ReportedMobile = table.Column<string>(type: "text", nullable: false),
+                    ReasonId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Details = table.Column<string>(type: "text", nullable: false),
+                    Status = table.Column<string>(type: "text", nullable: false, defaultValue: "Pending"),
+                    ResolutionAction = table.Column<string>(type: "text", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    ResolvedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ResolvedByAdminId = table.Column<Guid>(type: "uuid", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ListingReports", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_ListingReports_Admins_ResolvedByAdminId",
+                        column: x => x.ResolvedByAdminId,
+                        principalTable: "Admins",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_ListingReports_ReportReasons_ReasonId",
+                        column: x => x.ReasonId,
+                        principalTable: "ReportReasons",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -566,30 +617,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
-            migrationBuilder.InsertData(
-                table: "PlotTypes",
-                columns: new[] { "Id", "CreatedAt", "Description", "Name", "SortOrder" },
-                values: new object[,]
-                {
-                    { new Guid("b1000000-0000-0000-0000-000000000001"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, "Residential", 1 },
-                    { new Guid("b1000000-0000-0000-0000-000000000002"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, "Commercial", 2 },
-                    { new Guid("b1000000-0000-0000-0000-000000000003"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, "Agricultural", 3 },
-                    { new Guid("b1000000-0000-0000-0000-000000000004"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, "Farmhouse", 4 }
-                });
-
-            migrationBuilder.InsertData(
-                table: "RoomTypes",
-                columns: new[] { "Id", "CreatedAt", "Description", "Name", "SortOrder" },
-                values: new object[,]
-                {
-                    { new Guid("a1000000-0000-0000-0000-000000000001"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, "1BHK", 1 },
-                    { new Guid("a1000000-0000-0000-0000-000000000002"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, "2BHK", 2 },
-                    { new Guid("a1000000-0000-0000-0000-000000000003"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, "3BHK", 3 },
-                    { new Guid("a1000000-0000-0000-0000-000000000004"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, "Hostel", 6 },
-                    { new Guid("a1000000-0000-0000-0000-000000000005"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, "PG", 5 },
-                    { new Guid("a1000000-0000-0000-0000-000000000007"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, "1RK", 4 }
-                });
-
             migrationBuilder.CreateIndex(
                 name: "IX_Admins_PhoneNumber",
                 table: "Admins",
@@ -671,6 +698,33 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "Districts",
                 columns: new[] { "StateName", "Name" },
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ListingReports_ListingId_ListingType_Status",
+                table: "ListingReports",
+                columns: new[] { "ListingId", "ListingType", "Status" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ListingReports_ReasonId",
+                table: "ListingReports",
+                column: "ReasonId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_listingreports_reporter_listing_pending",
+                table: "ListingReports",
+                columns: new[] { "ReporterUserId", "ListingId" },
+                unique: true,
+                filter: "\"Status\" = 'Pending'");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ListingReports_ResolvedByAdminId",
+                table: "ListingReports",
+                column: "ResolvedByAdminId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ListingReports_Status",
+                table: "ListingReports",
+                column: "Status");
 
             migrationBuilder.CreateIndex(
                 name: "IX_NotificationLogs_UserId",
@@ -832,6 +886,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_ReportReasons_Name",
+                table: "ReportReasons",
+                column: "Name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "ix_listings_location_gist",
                 table: "RoomListings",
                 column: "Location")
@@ -983,6 +1043,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "DeviceTokens");
 
             migrationBuilder.DropTable(
+                name: "ListingReports");
+
+            migrationBuilder.DropTable(
                 name: "NotificationLogs");
 
             migrationBuilder.DropTable(
@@ -1010,10 +1073,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "Sessions");
 
             migrationBuilder.DropTable(
+                name: "DistrictBanners");
+
+            migrationBuilder.DropTable(
                 name: "Admins");
 
             migrationBuilder.DropTable(
-                name: "DistrictBanners");
+                name: "ReportReasons");
 
             migrationBuilder.DropTable(
                 name: "PlotListings");

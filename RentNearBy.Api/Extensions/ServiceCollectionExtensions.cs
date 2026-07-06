@@ -100,6 +100,9 @@ public static class ServiceCollectionExtensions
         // District digest worker — consumes district.digest.ready queue and sends FCM topic push
         services.AddHostedService<DistrictDigestWorkerService>();
 
+        // Report-filed worker — consumes report.filed queue and notifies the listing owner
+        services.AddHostedService<ReportFiledWorkerService>();
+
         return services;
     }
 }
