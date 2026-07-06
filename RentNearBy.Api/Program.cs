@@ -99,52 +99,12 @@ using (var scope = app.Services.CreateScope())
         }
         else
         {
-            // Production/staging: never destroy existing data.
-            //
-            // Self-baselining, one-time-in-practice: if this DB's schema was already
-            // built outside the migration system (e.g. by a prior EnsureCreatedAsync
-            // run, so its tables already exist) but has no migration history yet, mark
-            // the current migration as already applied — without re-running it — so
-            // MigrateAsync() below only ever applies genuinely NEW migrations from here
-            // on. This block is a no-op on every subsequent restart once the history
-            // table exists — same idempotent, leave-it-in-forever pattern as the seeder.
-            // Open via EF's own connection-tracking API (not the raw DbConnection
-            // directly) so it plays nicely with MigrateAsync()'s own connection
-            // handling further down — avoids the two fighting over open/close state.
-            await db.Database.OpenConnectionAsync();
-
-            bool historyExists;
-            await using (var cmd = db.Database.GetDbConnection().CreateCommand())
-            {
-                cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '__EFMigrationsHistory')";
-                historyExists = (bool)(await cmd.ExecuteScalarAsync())!;
-            }
-
-            bool schemaAlreadyExists;
-            await using (var cmd = db.Database.GetDbConnection().CreateCommand())
-            {
-                cmd.CommandText = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'Users')";
-                schemaAlreadyExists = (bool)(await cmd.ExecuteScalarAsync())!;
-            }
-
-            await db.Database.CloseConnectionAsync();
-
-            if (!historyExists && schemaAlreadyExists)
-            {
-                Console.WriteLine("[STARTUP] Pre-existing schema with no migration history detected — baselining...");
-                await db.Database.ExecuteSqlRawAsync("""
-                    CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
-                        "MigrationId" character varying(150) NOT NULL,
-                        "ProductVersion" character varying(32) NOT NULL,
-                        CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
-                    );
-                    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-                    VALUES ('20260706181736_InitialCreate', '9.0.4')
-                    ON CONFLICT ("MigrationId") DO NOTHING;
-                """);
-                Console.WriteLine("[STARTUP] Baseline recorded.");
-            }
-
+            // Production/staging: never destroy existing data. Apply only pending
+            // migrations (additive) — no guessing/baselining. If this ever needs to
+            // adopt a pre-existing, non-migration-tracked schema, that's a deliberate
+            // one-time manual step (reconcile __EFMigrationsHistory by hand), not
+            // something to auto-detect — a wrong guess here silently leaves tables
+            // missing instead of failing loudly.
             Console.WriteLine("[STARTUP] Applying pending migrations...");
             await db.Database.MigrateAsync();
             Console.WriteLine("[STARTUP] Migrations applied. Running seeder...");
