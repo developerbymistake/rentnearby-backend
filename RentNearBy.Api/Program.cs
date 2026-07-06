@@ -75,9 +75,14 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>();
     try
     {
+        // Both branches build schema via Migrate() only — never EnsureCreatedAsync().
+        // EnsureCreatedAsync() creates tables straight from the model but never writes
+        // to __EFMigrationsHistory, so the next MigrateAsync() call (Dev or Production)
+        // finds history and reality disagree and fails. Using Migrate() everywhere
+        // means history always matches whichever environment last touched the schema.
         if (app.Environment.IsDevelopment())
         {
-            // Local dev only: wipe and rebuild from the current model on every restart,
+            // Local dev only: wipe everything and rebuild from scratch via Migrate(),
             // for fast iteration. Never runs outside Development.
             Console.WriteLine("[STARTUP] Dropping all tables...");
             await db.Database.ExecuteSqlRawAsync("""
@@ -93,18 +98,14 @@ using (var scope = app.Services.CreateScope())
                     END LOOP;
                 END $$;
             """);
-            Console.WriteLine("[STARTUP] Tables dropped. Running EnsureCreated...");
-            await db.Database.EnsureCreatedAsync();
-            Console.WriteLine("[STARTUP] Schema created. Running seeder...");
+            Console.WriteLine("[STARTUP] Tables dropped. Applying migrations...");
+            await db.Database.MigrateAsync();
+            Console.WriteLine("[STARTUP] Schema created via migrations. Running seeder...");
         }
         else
         {
-            // Production/staging: never destroy existing data. Apply only pending
-            // migrations (additive) — no guessing/baselining. If this ever needs to
-            // adopt a pre-existing, non-migration-tracked schema, that's a deliberate
-            // one-time manual step (reconcile __EFMigrationsHistory by hand), not
-            // something to auto-detect — a wrong guess here silently leaves tables
-            // missing instead of failing loudly.
+            // Production/staging: never destroy existing data. Applies only pending
+            // migrations (additive).
             Console.WriteLine("[STARTUP] Applying pending migrations...");
             await db.Database.MigrateAsync();
             Console.WriteLine("[STARTUP] Migrations applied. Running seeder...");
