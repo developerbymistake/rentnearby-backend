@@ -13,8 +13,8 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260706094706_AddDigestNotifiedAtToRoomAndPlotListings")]
-    partial class AddDigestNotifiedAtToRoomAndPlotListings
+    [Migration("20260706122051_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -722,6 +722,13 @@ namespace RentNearBy.Infrastructure.Migrations
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
                             Name = "Agricultural",
                             SortOrder = 3
+                        },
+                        new
+                        {
+                            Id = new Guid("b1000000-0000-0000-0000-000000000004"),
+                            CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Name = "Farmhouse",
+                            SortOrder = 4
                         });
                 });
 
