@@ -13,10 +13,10 @@ namespace RentNearBy.Api.Handlers;
 public static class AuthHandlers
 {
     private static readonly TimeSpan OtpWindow = TimeSpan.FromHours(1);
-    private static readonly TimeSpan OtpUserDailyWindow = TimeSpan.FromHours(24);
+    private static readonly TimeSpan OtpUserDailyWindow = TimeSpan.FromHours(4);
     private const int OtpSendMax = 2;
-    private const int OtpUserDailySendMax = 10;
-    private const int OtpVerifyMax = 5;
+    private const int OtpUserDailySendMax = 2;
+    private const int OtpVerifyMax = 3;
     private const string PhoneLoginNamespace = "phone_login";
 
     public static async Task<IResult> PhoneSendOtp(
