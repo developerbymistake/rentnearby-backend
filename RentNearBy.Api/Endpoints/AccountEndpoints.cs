@@ -4,9 +4,10 @@ namespace RentNearBy.Api.Endpoints;
 
 public static class AccountEndpoints
 {
-    public static void MapAccountEndpoints(this IEndpointRouteBuilder app)
+    public static RouteGroupBuilder MapAccountEndpoints(this RouteGroupBuilder group)
     {
-        var group = app.MapGroup("/account").WithTags("Account");
         group.MapDelete("/", AccountHandlers.DeleteAccount).RequireAuthorization();
+
+        return group;
     }
 }
