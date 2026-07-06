@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260706171753_InitialCreate")]
+    [Migration("20260706181736_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -68,6 +68,46 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Admins");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.AdminDeviceToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("AdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<bool>("IsValid")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AdminId");
+
+                    b.HasIndex("IsValid");
+
+                    b.HasIndex("Token");
+
+                    b.HasIndex("AdminId", "IsValid");
+
+                    b.ToTable("AdminDeviceTokens");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.AdminSession", b =>
@@ -1157,6 +1197,17 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.AdminDeviceToken", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Admin", "Admin")
+                        .WithMany()
+                        .HasForeignKey("AdminId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Admin");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.AdminSession", b =>

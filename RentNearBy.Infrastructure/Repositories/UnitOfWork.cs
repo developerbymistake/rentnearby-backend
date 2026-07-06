@@ -27,6 +27,7 @@ public class UnitOfWork : IUnitOfWork
     private IDistrictBannerRepository? _districtBanners;
     private IReportReasonRepository? _reportReasons;
     private IListingReportRepository? _listingReports;
+    private IAdminDeviceTokenRepository? _adminDeviceTokens;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -54,6 +55,7 @@ public class UnitOfWork : IUnitOfWork
     public IDistrictBannerRepository DistrictBanners => _districtBanners ??= new DistrictBannerRepository(_context);
     public IReportReasonRepository ReportReasons => _reportReasons ??= new ReportReasonRepository(_context);
     public IListingReportRepository ListingReports => _listingReports ??= new ListingReportRepository(_context);
+    public IAdminDeviceTokenRepository AdminDeviceTokens => _adminDeviceTokens ??= new AdminDeviceTokenRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();

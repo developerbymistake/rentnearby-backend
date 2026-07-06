@@ -125,7 +125,7 @@ using (var scope = app.Services.CreateScope())
                         CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
                     );
                     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-                    VALUES ('20260706171753_InitialCreate', '9.0.4')
+                    VALUES ('20260706181736_InitialCreate', '9.0.4')
                     ON CONFLICT ("MigrationId") DO NOTHING;
                 """);
                 Console.WriteLine("[STARTUP] Baseline recorded.");

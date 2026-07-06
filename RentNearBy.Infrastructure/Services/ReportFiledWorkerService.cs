@@ -111,27 +111,49 @@ public class ReportFiledWorkerService : BackgroundService
         using var scope = _serviceScopeFactory.CreateScope();
         var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-        const string title = "Listing flagged for review";
-        var body = $"Your listing '{msg.ListingTitle}' was flagged: {msg.ReasonName}. Please review it to avoid removal.";
-
-        var tokens = (await unitOfWork.DeviceTokens.GetValidByUserIdAsync(msg.OwnerId)).ToList();
-        if (tokens.Count == 0)
+        if (msg.NotifyOwner)
         {
-            _logger.LogInformation("No valid device tokens for owner {OwnerId}", msg.OwnerId);
-            return;
+            const string ownerTitle = "Listing flagged for review";
+            var ownerBody = $"Your listing '{msg.ListingTitle}' was flagged: {msg.ReasonName}. Please review it to avoid removal.";
+
+            var ownerTokens = (await unitOfWork.DeviceTokens.GetValidByUserIdAsync(msg.OwnerId)).ToList();
+            if (ownerTokens.Count == 0)
+            {
+                _logger.LogInformation("No valid device tokens for owner {OwnerId}", msg.OwnerId);
+            }
+            foreach (var token in ownerTokens)
+            {
+                try
+                {
+                    var ok = await _fcmService.SendAsync(token.Token, ownerTitle, ownerBody, "report");
+                    if (!ok) await unitOfWork.DeviceTokens.MarkInvalidAsync(token.Token);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "FCM send failed for owner {OwnerId}", msg.OwnerId);
+                }
+            }
         }
 
-        foreach (var token in tokens)
+        // Admins are notified on every report (not just the first pending one) — unlike
+        // the owner, there's no per-listing anti-spam concern for moderation staff.
+        const string adminTitle = "New listing report";
+        var adminBody = $"'{msg.ListingTitle}' was reported: {msg.ReasonName}.";
+
+        var adminTokens = (await unitOfWork.AdminDeviceTokens.GetAllValidAsync()).ToList();
+        foreach (var token in adminTokens)
         {
             try
             {
-                var ok = await _fcmService.SendAsync(token.Token, title, body, "report");
-                if (!ok) await unitOfWork.DeviceTokens.MarkInvalidAsync(token.Token);
+                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "report");
+                if (!ok) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(token.Token);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "FCM send failed for owner {OwnerId}", msg.OwnerId);
+                _logger.LogError(ex, "FCM send failed for admin token");
             }
         }
+
+        await unitOfWork.SaveChangesAsync();
     }
 }

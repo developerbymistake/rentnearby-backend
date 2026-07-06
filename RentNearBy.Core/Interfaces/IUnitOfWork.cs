@@ -23,5 +23,6 @@ public interface IUnitOfWork : IDisposable
     IDistrictBannerRepository DistrictBanners { get; }
     IReportReasonRepository ReportReasons { get; }
     IListingReportRepository ListingReports { get; }
+    IAdminDeviceTokenRepository AdminDeviceTokens { get; }
     Task<int> SaveChangesAsync();
 }

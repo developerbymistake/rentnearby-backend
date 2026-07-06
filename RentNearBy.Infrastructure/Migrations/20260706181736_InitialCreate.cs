@@ -174,6 +174,28 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "AdminDeviceTokens",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    AdminId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Token = table.Column<string>(type: "text", nullable: false),
+                    IsValid = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AdminDeviceTokens", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AdminDeviceTokens_Admins_AdminId",
+                        column: x => x.AdminId,
+                        principalTable: "Admins",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "AdminSessions",
                 columns: table => new
                 {
@@ -618,6 +640,26 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_AdminDeviceTokens_AdminId",
+                table: "AdminDeviceTokens",
+                column: "AdminId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AdminDeviceTokens_AdminId_IsValid",
+                table: "AdminDeviceTokens",
+                columns: new[] { "AdminId", "IsValid" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AdminDeviceTokens_IsValid",
+                table: "AdminDeviceTokens",
+                column: "IsValid");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AdminDeviceTokens_Token",
+                table: "AdminDeviceTokens",
+                column: "Token");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Admins_PhoneNumber",
                 table: "Admins",
                 column: "PhoneNumber",
@@ -1030,6 +1072,9 @@ namespace RentNearBy.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(
+                name: "AdminDeviceTokens");
+
             migrationBuilder.DropTable(
                 name: "AdminSessions");
 

@@ -138,4 +138,11 @@ public static class AdminAuthHandlers
             admin = new { id = admin.Id, email = admin.Email, phoneNumber = admin.PhoneNumber, name = admin.Name }
         });
     }
+
+    internal static bool TryGetAdminId(ClaimsPrincipal principal, out Guid adminId)
+    {
+        adminId = Guid.Empty;
+        var value = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return value != null && Guid.TryParse(value, out adminId);
+    }
 }

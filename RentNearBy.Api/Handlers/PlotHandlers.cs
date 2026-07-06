@@ -18,6 +18,8 @@ namespace RentNearBy.Api.Handlers;
 public static class PlotListingHandlers
 {
     private static readonly string[] AllowedAreaUnits = ["sqft", "bigha", "acre", "nali"];
+    private static readonly TimeSpan ReportSubmitWindow = TimeSpan.FromHours(1);
+    private const int ReportSubmitMax = 5;
 
     private static decimal ToSqft(decimal value, string unit) => unit switch
     {
@@ -407,10 +409,20 @@ public static class PlotListingHandlers
         Guid id, CreateListingReportRequest request,
         ClaimsPrincipal principal,
         IValidator<CreateListingReportRequest> validator,
-        IUnitOfWork unitOfWork, IRabbitMqPublisher publisher)
+        IUnitOfWork unitOfWork, IRabbitMqPublisher publisher,
+        IRateLimitService rateLimiter, HttpContext httpContext)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
+
+        // Shared per-user budget with Room reports (same key namespace) — the limit is
+        // on report-spamming behavior overall, not per listing type.
+        var reportRl = await rateLimiter.CheckAsync($"report:submit:{userId}", ReportSubmitMax, ReportSubmitWindow);
+        if (!reportRl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)reportRl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -454,17 +466,15 @@ public static class PlotListingHandlers
             return ConflictResponse("You have already reported this listing");
         }
 
-        if (isFirstPending)
+        var message = new ReportFiledMessage
         {
-            var message = new ReportFiledMessage
-            {
-                OwnerId = plot.UserId,
-                ReasonName = reason.Name,
-                ListingTitle = plot.Address ?? "your listing",
-            };
-            try { await publisher.PublishAsync("report.filed", JsonSerializer.Serialize(message)); }
-            catch (Exception) { /* best-effort — report row is already saved regardless of push delivery */ }
-        }
+            OwnerId = plot.UserId,
+            ReasonName = reason.Name,
+            ListingTitle = plot.Address ?? "your listing",
+            NotifyOwner = isFirstPending,
+        };
+        try { await publisher.PublishAsync("report.filed", JsonSerializer.Serialize(message)); }
+        catch (Exception) { /* best-effort — report row is already saved regardless of push delivery */ }
 
         return CreatedResponse(new { reportId = report.Id }, $"/api/v1/admin/reports/{report.Id}");
     }

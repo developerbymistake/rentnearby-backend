@@ -18,6 +18,8 @@ namespace RentNearBy.Api.Handlers;
 public static class RoomListingsHandlers
 {
     private static readonly TimeSpan ContextCacheTtl = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan ReportSubmitWindow = TimeSpan.FromHours(1);
+    private const int ReportSubmitMax = 5;
 
     private static string ContextCacheKey(double lat, double lng)
         => $"context:{lat:F2}:{lng:F2}";
@@ -421,10 +423,18 @@ public static class RoomListingsHandlers
         Guid id, CreateListingReportRequest request,
         ClaimsPrincipal principal,
         IValidator<CreateListingReportRequest> validator,
-        IUnitOfWork unitOfWork, IRabbitMqPublisher publisher)
+        IUnitOfWork unitOfWork, IRabbitMqPublisher publisher,
+        IRateLimitService rateLimiter, HttpContext httpContext)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
+
+        var reportRl = await rateLimiter.CheckAsync($"report:submit:{userId}", ReportSubmitMax, ReportSubmitWindow);
+        if (!reportRl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)reportRl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -468,17 +478,15 @@ public static class RoomListingsHandlers
             return ConflictResponse("You have already reported this listing");
         }
 
-        if (isFirstPending)
+        var message = new ReportFiledMessage
         {
-            var message = new ReportFiledMessage
-            {
-                OwnerId = listing.UserId,
-                ReasonName = reason.Name,
-                ListingTitle = listing.Address ?? "your listing",
-            };
-            try { await publisher.PublishAsync("report.filed", JsonSerializer.Serialize(message)); }
-            catch (Exception) { /* best-effort — report row is already saved regardless of push delivery */ }
-        }
+            OwnerId = listing.UserId,
+            ReasonName = reason.Name,
+            ListingTitle = listing.Address ?? "your listing",
+            NotifyOwner = isFirstPending,
+        };
+        try { await publisher.PublishAsync("report.filed", JsonSerializer.Serialize(message)); }
+        catch (Exception) { /* best-effort — report row is already saved regardless of push delivery */ }
 
         return CreatedResponse(new { reportId = report.Id }, $"/api/v1/admin/reports/{report.Id}");
     }

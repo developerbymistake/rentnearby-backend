@@ -11,6 +11,9 @@ public static class AdminAuthEndpoints
         group.MapPost("/reset-password", AdminAuthHandlers.AdminResetPassword);
         group.MapPost("/logout", AdminAuthHandlers.AdminLogout).RequireAuthorization("AdminOnly");
 
+        group.MapPost("/register-token", AdminNotificationHandlers.RegisterToken).RequireAuthorization("AdminOnly");
+        group.MapDelete("/register-token", AdminNotificationHandlers.UnregisterToken).RequireAuthorization("AdminOnly");
+
         return group;
     }
 }

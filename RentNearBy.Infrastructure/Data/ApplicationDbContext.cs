@@ -29,6 +29,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<BannerDismissal> BannerDismissals { get; set; }
     public DbSet<ReportReason> ReportReasons { get; set; }
     public DbSet<ListingReport> ListingReports { get; set; }
+    public DbSet<AdminDeviceToken> AdminDeviceTokens { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -420,6 +421,22 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(d => d.UserId);
             e.HasIndex(d => new { d.UserId, d.IsValid });
             e.HasIndex(d => d.Token);
+        });
+
+        modelBuilder.Entity<AdminDeviceToken>(e =>
+        {
+            e.HasKey(d => d.Id);
+            e.Property(d => d.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(d => d.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(d => d.UpdatedAt).HasDefaultValueSql("now()");
+            e.HasOne(d => d.Admin)
+             .WithMany()
+             .HasForeignKey(d => d.AdminId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(d => d.AdminId);
+            e.HasIndex(d => new { d.AdminId, d.IsValid });
+            e.HasIndex(d => d.Token);
+            e.HasIndex(d => d.IsValid);
         });
 
         modelBuilder.Entity<NotificationLog>(e =>
