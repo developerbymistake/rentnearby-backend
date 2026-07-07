@@ -34,11 +34,11 @@ public static class PlotListingHandlers
     private static string ContextCacheKey(double lat, double lng) => $"plot_context:{lat:F2}:{lng:F2}";
 
     private static readonly TimeSpan NearbyCacheTtl = TimeSpan.FromSeconds(60);
-    private static string NearbyCacheKey(Guid cityId, double radius, double lat, double lng)
-        => $"nearby_plot:{cityId}:{radius:F1}:{lat:F3}:{lng:F3}";
-    private static string NearbyCityPattern(Guid cityId) => $"nearby_plot:{cityId}:*";
+    private static string NearbyCacheKey(Guid districtId, double radius, double lat, double lng)
+        => $"nearby_plot:{districtId}:{radius:F1}:{lat:F3}:{lng:F3}";
+    private static string NearbyDistrictPattern(Guid districtId) => $"nearby_plot:{districtId}:*";
 
-    private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid cityId)
+    private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
     {
         if (redis == null) return;
         try
@@ -46,7 +46,7 @@ public static class PlotListingHandlers
             var db = redis.GetDatabase();
             var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
             if (server == null) return;
-            await foreach (var key in server.KeysAsync(pattern: NearbyCityPattern(cityId)))
+            await foreach (var key in server.KeysAsync(pattern: NearbyDistrictPattern(districtId)))
                 await db.KeyDeleteAsync(key);
         }
         catch { }
@@ -120,7 +120,7 @@ public static class PlotListingHandlers
     }
 
     public static async Task<IResult> GetNearby(
-        double latitude, double longitude, double radius, Guid cityId,
+        double latitude, double longitude, double radius, Guid districtId,
         IUnitOfWork unitOfWork,
         ClaimsPrincipal principal,
         IServiceProvider sp)
@@ -132,7 +132,7 @@ public static class PlotListingHandlers
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
-        var cacheKey = NearbyCacheKey(cityId, radius, latitude, longitude);
+        var cacheKey = NearbyCacheKey(districtId, radius, latitude, longitude);
 
         if (redis != null)
         {
@@ -153,7 +153,7 @@ public static class PlotListingHandlers
             }
         }
 
-        var fetched = (await unitOfWork.PlotListings.GetNearbyAsync(latitude, longitude, radius, cityId)).ToList();
+        var fetched = (await unitOfWork.PlotListings.GetNearbyAsync(latitude, longitude, radius, districtId)).ToList();
 
         if (redis != null)
         {
@@ -283,8 +283,7 @@ public static class PlotListingHandlers
         await unitOfWork.SaveChangesAsync();
 
         var redis = sp.GetService<IConnectionMultiplexer>();
-        if (request.CityId.HasValue)
-            await InvalidateNearbyCacheAsync(redis, request.CityId.Value);
+        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
 
         return CreatedResponse(new { plotId = plot.Id }, $"/api/v1/plots/{plot.Id}");
     }
@@ -307,7 +306,7 @@ public static class PlotListingHandlers
         if (plot == null) return NotFoundResponse("PlotListing not found");
         if (plot.UserId != userId) return ForbiddenResponse("You do not own this plot");
 
-        var oldCityId = plot.CityId;
+        var oldDistrictId = plot.DistrictId;
 
         if (request.PlotTypeId.HasValue)
         {
@@ -369,9 +368,9 @@ public static class PlotListingHandlers
             await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
 
         var redis = sp.GetService<IConnectionMultiplexer>();
-        if (plot.CityId.HasValue) await InvalidateNearbyCacheAsync(redis, plot.CityId.Value);
-        if (oldCityId.HasValue && oldCityId != plot.CityId)
-            await InvalidateNearbyCacheAsync(redis, oldCityId.Value);
+        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
+        if (oldDistrictId != plot.DistrictId)
+            await InvalidateNearbyCacheAsync(redis, oldDistrictId);
 
         return OkResponse(new { success = true });
     }
@@ -387,7 +386,7 @@ public static class PlotListingHandlers
         if (plot == null) return NotFoundResponse("PlotListing not found");
         if (plot.UserId != userId) return ForbiddenResponse("You do not own this plot");
 
-        var cityId = plot.CityId;
+        var districtId = plot.DistrictId;
 
         foreach (var photo in plot.Photos)
             await photoService.DeletePhotoAsync(photo.FilePath);
@@ -399,8 +398,7 @@ public static class PlotListingHandlers
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
 
-        if (cityId.HasValue)
-            await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), cityId.Value);
+        await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), districtId);
 
         return NoContentResponse();
     }
@@ -512,8 +510,7 @@ public static class PlotListingHandlers
         await unitOfWork.SaveChangesAsync();
 
         var redis = sp.GetService<IConnectionMultiplexer>();
-        if (plot.CityId.HasValue)
-            await InvalidateNearbyCacheAsync(redis, plot.CityId.Value);
+        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
 
         return CreatedResponse(new { photoUrl = url, photoId = plotPhoto.Id }, url);
     }
@@ -538,8 +535,7 @@ public static class PlotListingHandlers
         await unitOfWork.SaveChangesAsync();
 
         var redis = sp.GetService<IConnectionMultiplexer>();
-        if (plot.CityId.HasValue)
-            await InvalidateNearbyCacheAsync(redis, plot.CityId.Value);
+        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
 
         return NoContentResponse();
     }
@@ -616,8 +612,7 @@ public static class PlotListingHandlers
         await unitOfWork.SaveChangesAsync();
 
         var redis = sp.GetService<IConnectionMultiplexer>();
-        if (plot.CityId.HasValue)
-            await InvalidateNearbyCacheAsync(redis, plot.CityId.Value);
+        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
 
         return OkResponse(new { success = true, isActive = plot.IsActive });
     }
@@ -629,7 +624,7 @@ public static class PlotListingHandlers
         var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
         if (plot == null) return NotFoundResponse("PlotListing not found");
 
-        var cityId = plot.CityId;
+        var districtId = plot.DistrictId;
 
         foreach (var photo in plot.Photos)
             await photoService.DeletePhotoAsync(photo.FilePath);
@@ -639,8 +634,7 @@ public static class PlotListingHandlers
         await unitOfWork.PlotListings.UpdateAsync(plot);
         await unitOfWork.SaveChangesAsync();
 
-        if (cityId.HasValue)
-            await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), cityId.Value);
+        await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), districtId);
 
         return NoContentResponse();
     }

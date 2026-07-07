@@ -23,12 +23,13 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
     }
 
     public async Task<IEnumerable<NearbyListingDto>> GetNearbyAsync(
-        double latitude, double longitude, double radiusKm, Guid cityId)
+        double latitude, double longitude, double radiusKm, Guid districtId)
     {
         var (minLat, maxLat, minLng, maxLng) = GetBoundingBox(latitude, longitude, radiusKm);
 
         // Single DB query: GiST && bounding box + LATERAL JOIN for photos (N+1 fix)
         // isActive flag alone controls visibility — MembershipExpiryService deactivates expired listings
+        // Scoped to the current District (a hard boundary); City is display-only and never gates visibility
         var box = await context.Database
             .SqlQuery<BoxQueryResult>($"""
                 SELECT
@@ -53,7 +54,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                 ) p ON TRUE
                 WHERE l."IsActive" = TRUE
                   AND l."IsDeleted" = FALSE
-                  AND l."CityId" = {cityId}
+                  AND l."DistrictId" = {districtId}
                   AND l."Location" && ST_MakeEnvelope({minLng}::float8, {minLat}::float8,
                                                        {maxLng}::float8, {maxLat}::float8, 4326)::geography
                 """)

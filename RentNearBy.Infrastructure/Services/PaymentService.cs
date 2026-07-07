@@ -52,27 +52,27 @@ public class PaymentService : IPaymentService
         }
     }
 
-    private async Task InvalidateNearbyCacheAsync(Guid? cityId)
+    private async Task InvalidateNearbyCacheAsync(Guid? districtId)
     {
-        if (cityId == null) return;
+        if (districtId == null) return;
         try
         {
             var db = _redis.GetDatabase();
             var server = _redis.GetServer(_redis.GetEndPoints()[0]);
-            var keys = server.Keys(pattern: $"nearby:{cityId}:*").ToArray();
+            var keys = server.Keys(pattern: $"nearby:{districtId}:*").ToArray();
             if (keys.Length > 0) await db.KeyDeleteAsync(keys);
         }
         catch { }
     }
 
-    private async Task InvalidatePlotListingNearbyCacheAsync(Guid? cityId)
+    private async Task InvalidatePlotListingNearbyCacheAsync(Guid? districtId)
     {
-        if (cityId == null) return;
+        if (districtId == null) return;
         try
         {
             var db = _redis.GetDatabase();
             var server = _redis.GetServer(_redis.GetEndPoints()[0]);
-            var keys = server.Keys(pattern: $"nearby_plot:{cityId}:*").ToArray();
+            var keys = server.Keys(pattern: $"nearby_plot:{districtId}:*").ToArray();
             if (keys.Length > 0) await db.KeyDeleteAsync(keys);
         }
         catch { }
@@ -398,7 +398,7 @@ public class PaymentService : IPaymentService
             await DeactivateExistingMembershipsAsync(userId);
             await _unitOfWork.RoomMemberships.AddAsync(membership);
 
-            var roomCityIds = new HashSet<Guid?>();
+            var roomDistrictIds = new HashSet<Guid?>();
             if (transaction.RoomListingId.HasValue)
             {
                 var listing = await _unitOfWork.RoomListings.GetByIdAsync(transaction.RoomListingId.Value);
@@ -421,7 +421,7 @@ public class PaymentService : IPaymentService
 
                     listing.IsActive = true;
                     listing.ValidUntil = membership.ValidUntil;
-                    roomCityIds.Add(listing.CityId);
+                    roomDistrictIds.Add(listing.DistrictId);
                     _logger.LogInformation($"RoomListing {listing.Id} activated with membership valid until {membership.ValidUntil}");
                 }
             }
@@ -431,7 +431,7 @@ public class PaymentService : IPaymentService
             foreach (var l in allListings.Where(l => l.IsActive && !l.IsDeleted && l.Id != transaction.RoomListingId))
             {
                 l.ValidUntil = membership.ValidUntil;
-                roomCityIds.Add(l.CityId);
+                roomDistrictIds.Add(l.DistrictId);
                 _logger.LogInformation($"Existing listing {l.Id} ValidUntil extended to {membership.ValidUntil}");
             }
 
@@ -450,8 +450,8 @@ public class PaymentService : IPaymentService
             }
 
             await _unitOfWork.SaveChangesAsync();
-            foreach (var cityId in roomCityIds)
-                await InvalidateNearbyCacheAsync(cityId);
+            foreach (var districtId in roomDistrictIds)
+                await InvalidateNearbyCacheAsync(districtId);
 
             _logger.LogInformation($"Payment verified and activated: transaction {transaction.Id}, membership {membership.Id}");
 
@@ -525,7 +525,7 @@ public class PaymentService : IPaymentService
         await DeactivateExistingMembershipsAsync(userId);
         await _unitOfWork.RoomMemberships.AddAsync(membership);
 
-        Guid? cityId = null;
+        Guid? districtId = null;
         if (transaction.RoomListingId.HasValue)
         {
             var listing = await _unitOfWork.RoomListings.GetByIdAsync(transaction.RoomListingId.Value);
@@ -533,7 +533,7 @@ public class PaymentService : IPaymentService
             {
                 listing.IsActive = true;
                 listing.ValidUntil = membership.ValidUntil;
-                cityId = listing.CityId;
+                districtId = listing.DistrictId;
                 _logger.LogInformation($"RoomListing {listing.Id} activated with {transaction.PlanType} plan valid until {membership.ValidUntil}");
             }
         }
@@ -551,7 +551,7 @@ public class PaymentService : IPaymentService
         }
 
         await _unitOfWork.SaveChangesAsync();
-        await InvalidateNearbyCacheAsync(cityId);
+        await InvalidateNearbyCacheAsync(districtId);
     }
 
     public async Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId, string planType)
@@ -653,16 +653,16 @@ public class PaymentService : IPaymentService
         await _unitOfWork.RoomMemberships.AddAsync(membership);
 
         var listings = await _unitOfWork.RoomListings.GetByUserIdAsync(userId);
-        var cityIds = new HashSet<Guid?>();
+        var districtIds = new HashSet<Guid?>();
         foreach (var listing in listings.Where(l => l.IsActive && !l.IsDeleted))
         {
             listing.ValidUntil = membership.ValidUntil;
-            cityIds.Add(listing.CityId);
+            districtIds.Add(listing.DistrictId);
         }
 
         await _unitOfWork.SaveChangesAsync();
-        foreach (var cityId in cityIds)
-            await InvalidateNearbyCacheAsync(cityId);
+        foreach (var districtId in districtIds)
+            await InvalidateNearbyCacheAsync(districtId);
 
         _logger.LogInformation($"RoomPlan upgrade verified for user {userId}, membership {membership.Id}");
         return new PaymentVerifyResponse
@@ -825,7 +825,7 @@ public class PaymentService : IPaymentService
         await DeactivateExistingPlotMembershipsAsync(userId);
         await _unitOfWork.PlotMemberships.AddAsync(membership);
 
-        var plotCityIds = new HashSet<Guid?>();
+        var plotDistrictIds = new HashSet<Guid?>();
         if (transaction.PlotId.HasValue)
         {
             var plot = await _unitOfWork.PlotListings.GetByIdAsync(transaction.PlotId.Value);
@@ -847,7 +847,7 @@ public class PaymentService : IPaymentService
                 }
                 plot.IsActive = true;
                 plot.ValidUntil = membership.ValidUntil;
-                plotCityIds.Add(plot.CityId);
+                plotDistrictIds.Add(plot.DistrictId);
                 _logger.LogInformation($"PlotListing {plot.Id} activated with membership valid until {membership.ValidUntil}");
             }
         }
@@ -857,7 +857,7 @@ public class PaymentService : IPaymentService
         foreach (var p in allPlotListings.Where(p => !p.IsDeleted && p.Id != transaction.PlotId))
         {
             p.ValidUntil = membership.ValidUntil;
-            plotCityIds.Add(p.CityId);
+            plotDistrictIds.Add(p.DistrictId);
             _logger.LogInformation($"Existing plot {p.Id} ValidUntil extended to {membership.ValidUntil}");
         }
 
@@ -870,8 +870,8 @@ public class PaymentService : IPaymentService
         }
 
         await _unitOfWork.SaveChangesAsync();
-        foreach (var cityId in plotCityIds)
-            await InvalidatePlotListingNearbyCacheAsync(cityId);
+        foreach (var districtId in plotDistrictIds)
+            await InvalidatePlotListingNearbyCacheAsync(districtId);
 
         return new PlotListingPaymentVerifyResponse
         {
@@ -993,9 +993,9 @@ public class PaymentService : IPaymentService
 
         await _unitOfWork.SaveChangesAsync();
 
-        var cityIds = activePlotListings.Select(p => p.CityId).Where(c => c.HasValue).Distinct();
-        foreach (var cid in cityIds)
-            await InvalidatePlotListingNearbyCacheAsync(cid);
+        var districtIds = activePlotListings.Select(p => p.DistrictId).Distinct();
+        foreach (var did in districtIds)
+            await InvalidatePlotListingNearbyCacheAsync(did);
 
         _logger.LogInformation($"PlotListing plan upgrade verified for user {userId}, membership {membership.Id}");
         return new PlotListingPaymentVerifyResponse
@@ -1036,7 +1036,7 @@ public class PaymentService : IPaymentService
         await DeactivateExistingPlotMembershipsAsync(userId);
         await _unitOfWork.PlotMemberships.AddAsync(membership);
 
-        Guid? freePlotListingCityId = null;
+        Guid? freePlotListingDistrictId = null;
         if (transaction.PlotId.HasValue)
         {
             var plot = await _unitOfWork.PlotListings.GetByIdAsync(transaction.PlotId.Value);
@@ -1044,7 +1044,7 @@ public class PaymentService : IPaymentService
             {
                 plot.IsActive = true;
                 plot.ValidUntil = membership.ValidUntil;
-                freePlotListingCityId = plot.CityId;
+                freePlotListingDistrictId = plot.DistrictId;
             }
         }
 
@@ -1059,6 +1059,6 @@ public class PaymentService : IPaymentService
         }
 
         await _unitOfWork.SaveChangesAsync();
-        await InvalidatePlotListingNearbyCacheAsync(freePlotListingCityId);
+        await InvalidatePlotListingNearbyCacheAsync(freePlotListingDistrictId);
     }
 }

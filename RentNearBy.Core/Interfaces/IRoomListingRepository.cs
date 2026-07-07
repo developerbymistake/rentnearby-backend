@@ -5,7 +5,7 @@ namespace RentNearBy.Core.Interfaces;
 
 public interface IRoomRoomListingRepository : IRepository<RoomListing>
 {
-    Task<IEnumerable<NearbyListingDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid cityId);
+    Task<IEnumerable<NearbyListingDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId);
     Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax);
     Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId);
     Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId);

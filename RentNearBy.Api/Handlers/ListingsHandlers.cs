@@ -93,12 +93,12 @@ public static class RoomListingsHandlers
 
     private static readonly TimeSpan NearbyCacheTtl = TimeSpan.FromSeconds(60);
 
-    private static string NearbyCacheKey(Guid cityId, double radius, double lat, double lng)
-        => $"nearby:{cityId}:{radius:F1}:{lat:F3}:{lng:F3}";
+    private static string NearbyCacheKey(Guid districtId, double radius, double lat, double lng)
+        => $"nearby:{districtId}:{radius:F1}:{lat:F3}:{lng:F3}";
 
-    private static string NearbyCityPattern(Guid cityId) => $"nearby:{cityId}:*";
+    private static string NearbyDistrictPattern(Guid districtId) => $"nearby:{districtId}:*";
 
-    private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid cityId)
+    private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
     {
         if (redis == null) return;
         try
@@ -106,7 +106,7 @@ public static class RoomListingsHandlers
             var db = redis.GetDatabase();
             var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
             if (server == null) return;
-            var pattern = NearbyCityPattern(cityId);
+            var pattern = NearbyDistrictPattern(districtId);
             await foreach (var key in server.KeysAsync(pattern: pattern))
                 await db.KeyDeleteAsync(key);
         }
@@ -114,7 +114,7 @@ public static class RoomListingsHandlers
     }
 
     public static async Task<IResult> GetNearby(
-        double latitude, double longitude, double radius, Guid cityId,
+        double latitude, double longitude, double radius, Guid districtId,
         IUnitOfWork unitOfWork,
         ClaimsPrincipal principal,
         IServiceProvider sp)
@@ -126,7 +126,7 @@ public static class RoomListingsHandlers
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
-        var cacheKey = NearbyCacheKey(cityId, radius, latitude, longitude);
+        var cacheKey = NearbyCacheKey(districtId, radius, latitude, longitude);
 
         if (redis != null)
         {
@@ -148,7 +148,7 @@ public static class RoomListingsHandlers
             }
         }
 
-        var fetched = (await unitOfWork.RoomListings.GetNearbyAsync(latitude, longitude, radius, cityId)).ToList();
+        var fetched = (await unitOfWork.RoomListings.GetNearbyAsync(latitude, longitude, radius, districtId)).ToList();
 
         if (redis != null)
         {
@@ -298,20 +298,9 @@ public static class RoomListingsHandlers
         await unitOfWork.RoomListings.AddAsync(listing);
         await unitOfWork.SaveChangesAsync();
 
-        // Invalidate cache if city is specified
+        // Invalidate cache for the listing's district
         var redis = sp.GetService<IConnectionMultiplexer>();
-        if (request.CityId.HasValue)
-            await InvalidateNearbyCacheAsync(redis, request.CityId.Value);
-        else if (listing.DistrictId != Guid.Empty)
-        {
-            // If no city but district exists, invalidate all cities in district
-            var district = await unitOfWork.Districts.GetByIdAsync(listing.DistrictId);
-            if (district?.Cities != null)
-            {
-                foreach (var city in district.Cities)
-                    await InvalidateNearbyCacheAsync(redis, city.Id);
-            }
-        }
+        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
 
         return CreatedResponse(new { listingId = listing.Id }, $"/api/v1/listings/{listing.Id}");
     }
@@ -329,7 +318,7 @@ public static class RoomListingsHandlers
         if (listing == null) return NotFoundResponse("RoomListing not found");
         if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
 
-        var oldCityId = listing.CityId;
+        var oldDistrictId = listing.DistrictId;
 
         if (request.RoomTypeId.HasValue) listing.RoomTypeId = request.RoomTypeId.Value;
         if (request.Description != null) listing.Description = request.Description;
@@ -384,11 +373,9 @@ public static class RoomListingsHandlers
             await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
 
         var redis = sp.GetService<IConnectionMultiplexer>();
-        var newCityId = listing.CityId;
-        if (newCityId.HasValue)
-            await InvalidateNearbyCacheAsync(redis, newCityId.Value);
-        if (oldCityId.HasValue && oldCityId != newCityId)
-            await InvalidateNearbyCacheAsync(redis, oldCityId.Value);
+        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
+        if (oldDistrictId != listing.DistrictId)
+            await InvalidateNearbyCacheAsync(redis, oldDistrictId);
 
         return OkResponse(new { success = true });
     }
@@ -402,7 +389,7 @@ public static class RoomListingsHandlers
         if (listing == null) return NotFoundResponse("RoomListing not found");
         if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
 
-        var cityId = listing.CityId;
+        var districtId = listing.DistrictId;
 
         await photoService.DeleteRoomPhotosAsync(userId, id);
 
@@ -413,8 +400,7 @@ public static class RoomListingsHandlers
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
 
-        if (cityId.HasValue)
-            await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), cityId.Value);
+        await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), districtId);
 
         return NoContentResponse();
     }
@@ -522,8 +508,7 @@ public static class RoomListingsHandlers
 
         // Invalidate cache after photo upload so thumbnail appears immediately
         var redis = sp.GetService<IConnectionMultiplexer>();
-        if (listing.CityId.HasValue)
-            await InvalidateNearbyCacheAsync(redis, listing.CityId.Value);
+        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
 
         return CreatedResponse(new { photoUrl = url, photoId = listingPhoto.Id }, url);
     }
@@ -558,8 +543,7 @@ public static class RoomListingsHandlers
 
         // Invalidate cache after photo deletion so thumbnail updates
         var redis = sp.GetService<IConnectionMultiplexer>();
-        if (listing.CityId.HasValue)
-            await InvalidateNearbyCacheAsync(redis, listing.CityId.Value);
+        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
 
         return NoContentResponse();
     }

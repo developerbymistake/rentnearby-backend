@@ -23,10 +23,11 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
     }
 
     public async Task<IEnumerable<NearbyPlotListingDto>> GetNearbyAsync(
-        double latitude, double longitude, double radiusKm, Guid cityId)
+        double latitude, double longitude, double radiusKm, Guid districtId)
     {
         var (minLat, maxLat, minLng, maxLng) = GetBoundingBox(latitude, longitude, radiusKm);
 
+        // Scoped to the current District (a hard boundary); City is display-only and never gates visibility
         var box = await context.Database
             .SqlQuery<BoxQueryResult>($"""
                 SELECT
@@ -51,7 +52,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                 ) ph ON TRUE
                 WHERE p."IsActive" = TRUE
                   AND p."IsDeleted" = FALSE
-                  AND p."CityId" = {cityId}
+                  AND p."DistrictId" = {districtId}
                   AND p."Location" && ST_MakeEnvelope({minLng}::float8, {minLat}::float8,
                                                        {maxLng}::float8, {maxLat}::float8, 4326)::geography
                 """)
