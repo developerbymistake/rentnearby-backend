@@ -1118,7 +1118,7 @@ public static class AdminHandlers
 
     public static async Task<IResult> GetAdminListingById(Guid id, IUnitOfWork unitOfWork)
     {
-        var listing = await unitOfWork.RoomListings.GetByIdWithPhotosAsync(id);
+        var listing = await unitOfWork.RoomListings.GetByIdWithPhotosForAdminAsync(id);
         if (listing == null) return NotFoundResponse("RoomListing not found");
         return OkResponse(listing.Adapt<RoomListingDto>());
     }

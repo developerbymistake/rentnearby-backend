@@ -594,7 +594,7 @@ public static class PlotListingHandlers
 
     public static async Task<IResult> GetAdminPlotById(Guid id, IUnitOfWork unitOfWork)
     {
-        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
+        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosForAdminAsync(id);
         if (plot == null) return NotFoundResponse("PlotListing not found");
         return OkResponse(plot.Adapt<PlotListingDto>());
     }

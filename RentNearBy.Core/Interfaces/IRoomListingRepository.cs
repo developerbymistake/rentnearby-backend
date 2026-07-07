@@ -11,6 +11,7 @@ public interface IRoomRoomListingRepository : IRepository<RoomListing>
     Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId);
     Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> GetByUserIdPagedAsync(Guid userId, int page, int pageSize);
     Task<RoomListing?> GetByIdWithPhotosAsync(Guid id);
+    Task<RoomListing?> GetByIdWithPhotosForAdminAsync(Guid id);
     Task AddPhotoAsync(RoomPhoto photo);
     void RemovePhoto(RoomPhoto photo);
     Task<IReadOnlyList<PendingDigestListingDto>> GetPendingDigestListingsAsync();

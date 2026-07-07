@@ -123,6 +123,19 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder))
             .FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
 
+    // Admin moderation needs to review reported plots even after the owner
+    // deletes them — photos are gone for good (deleted from storage on delete),
+    // but the listing record itself must still be visible.
+    public async Task<PlotListing?> GetByIdWithPhotosForAdminAsync(Guid id)
+        => await _dbSet
+            .AsNoTracking()
+            .Include(p => p.PlotType)
+            .Include(p => p.District)
+            .Include(p => p.City)
+            .Include(p => p.User)
+            .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder))
+            .FirstOrDefaultAsync(p => p.Id == id);
+
     public async Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetAllAsync(
         int page, int pageSize,
         string? plotType = null,

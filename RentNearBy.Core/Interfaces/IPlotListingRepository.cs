@@ -9,6 +9,7 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
     Task<IEnumerable<PlotListing>> GetByUserIdAsync(Guid userId);
     Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetByUserIdPagedAsync(Guid userId, int page, int pageSize);
     Task<PlotListing?> GetByIdWithPhotosAsync(Guid id);
+    Task<PlotListing?> GetByIdWithPhotosForAdminAsync(Guid id);
     Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetAllAsync(
         int page, int pageSize,
         string? plotType = null,

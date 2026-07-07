@@ -152,6 +152,19 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
             .FirstOrDefaultAsync(l => l.Id == id && !l.IsDeleted);
 
+    // Admin moderation needs to review reported listings even after the owner
+    // deletes them — photos are gone for good (deleted from storage on delete),
+    // but the listing record itself must still be visible.
+    public async Task<RoomListing?> GetByIdWithPhotosForAdminAsync(Guid id)
+        => await _dbSet
+            .AsNoTracking()
+            .Include(l => l.RoomType)
+            .Include(l => l.District)
+            .Include(l => l.City)
+            .Include(l => l.User)
+            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
+            .FirstOrDefaultAsync(l => l.Id == id);
+
     public async Task AddPhotoAsync(RoomPhoto photo)
         => await context.RoomPhotos.AddAsync(photo);
 
