@@ -160,12 +160,6 @@ public static class RoomListingsHandlers
         return OkResponse(new { items = fetched });
     }
 
-    public static async Task<IResult> Search(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, IUnitOfWork unitOfWork)
-    {
-        var listings = await unitOfWork.RoomListings.SearchAsync(districtId, roomTypeId, priceMin, priceMax);
-        return OkResponse(listings.Select(l => l.Adapt<RoomListingDto>()).ToList());
-    }
-
     public static async Task<IResult> GetById(Guid id, IUnitOfWork unitOfWork, ClaimsPrincipal principal)
     {
         var listing = await unitOfWork.RoomListings.GetByIdWithPhotosAsync(id);
