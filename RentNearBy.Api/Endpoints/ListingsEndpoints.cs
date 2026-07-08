@@ -9,6 +9,8 @@ public static class RoomListingsEndpoints
         group.MapGet("/context", RoomListingsHandlers.GetContext);
         group.MapGet("/nearby", RoomListingsHandlers.GetNearby);
         group.MapGet("/plans", RoomListingsHandlers.GetPlans);
+        group.MapGet("/locations/districts", AdminHandlers.GetDistricts);
+        group.MapGet("/locations/cities", AdminHandlers.GetCities);
         group.MapGet("/{id:guid}", RoomListingsHandlers.GetById);
 
         group.MapGet("/my", RoomListingsHandlers.GetMyListings).RequireAuthorization();
