@@ -183,6 +183,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Powers the Chats-list query for both sides of a conversation.
             e.HasIndex(c => new { c.RenterId, c.LastMessageAt });
             e.HasIndex(c => new { c.OwnerId, c.LastMessageAt });
+
+            // Race-safe under concurrent create attempts (double-tap, retry-on-timeout) —
+            // the find-or-create check in CreateConversation is check-then-act at the app
+            // level, so the DB constraint is what actually prevents a duplicate thread.
+            e.HasIndex(c => new { c.RenterId, c.OwnerId, c.ListingType, c.ListingId })
+             .IsUnique()
+             .HasDatabaseName("ix_conversations_renter_owner_listing");
         });
 
         modelBuilder.Entity<Message>(e =>

@@ -95,7 +95,20 @@ public static class ChatHandlers
         };
 
         await unitOfWork.Conversations.AddAsync(conversation);
-        await unitOfWork.SaveChangesAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Lost a race against a concurrent create for the same renter+owner+listing
+            // (double-tap, retry-on-timeout) — the unique index caught what the
+            // check-then-act FindExistingAsync above couldn't. Same catch-and-retry
+            // shape as ListingsHandlers' duplicate-report guard. Return the winning row.
+            var winner = await unitOfWork.Conversations.FindExistingAsync(callerId, ownerId.Value, request.ListingType, request.ListingId);
+            if (winner != null) return OkResponse(await BuildConversationDtoAsync(winner, callerId, db));
+            throw;
+        }
 
         return CreatedResponse(await BuildConversationDtoAsync(conversation, callerId, db), $"/api/v1/chat/conversations/{conversation.Id}");
     }
@@ -278,11 +291,19 @@ public static class ChatHandlers
         if (request.Action == "counter")
         {
             // Mark the original proposal superseded — stays visible, faded, no longer actionable.
-            using (var doc = JsonDocument.Parse(original.PayloadJson))
+            // original.PayloadJson was written by whichever client sent the initial proposal;
+            // SendMessageRequestValidator only checks NotEmpty/MaxLength, not that it's valid
+            // JSON, so this must degrade gracefully rather than 500 on a malformed payload.
+            try
             {
+                using var doc = JsonDocument.Parse(original.PayloadJson);
                 var dict = doc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => (object?)p.Value.ToString());
                 dict["status"] = "superseded";
                 original.PayloadJson = JsonSerializer.Serialize(dict);
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                original.PayloadJson = JsonSerializer.Serialize(new { status = "superseded" });
             }
             await unitOfWork.Messages.UpdateAsync(original);
 

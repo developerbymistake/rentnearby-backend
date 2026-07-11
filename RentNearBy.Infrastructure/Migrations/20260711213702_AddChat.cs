@@ -93,6 +93,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: new[] { "OwnerId", "LastMessageAt" });
 
             migrationBuilder.CreateIndex(
+                name: "ix_conversations_renter_owner_listing",
+                table: "Conversations",
+                columns: new[] { "RenterId", "OwnerId", "ListingType", "ListingId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Conversations_RenterId_LastMessageAt",
                 table: "Conversations",
                 columns: new[] { "RenterId", "LastMessageAt" });

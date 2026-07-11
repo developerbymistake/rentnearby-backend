@@ -248,6 +248,5 @@ app.MapGroup("/api/v1/chat")
 
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");
-app.MapHub<ChatHub>("/hubs/chat");
 
 app.Run();

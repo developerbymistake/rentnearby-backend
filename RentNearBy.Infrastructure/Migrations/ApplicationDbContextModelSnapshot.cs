@@ -284,6 +284,10 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("RenterId", "LastMessageAt");
 
+                    b.HasIndex("RenterId", "OwnerId", "ListingType", "ListingId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conversations_renter_owner_listing");
+
                     b.ToTable("Conversations");
                 });
 

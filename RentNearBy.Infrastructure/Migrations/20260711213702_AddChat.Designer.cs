@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260711210125_AddChat")]
+    [Migration("20260711213702_AddChat")]
     partial class AddChat
     {
         /// <inheritdoc />
@@ -286,6 +286,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("OwnerId", "LastMessageAt");
 
                     b.HasIndex("RenterId", "LastMessageAt");
+
+                    b.HasIndex("RenterId", "OwnerId", "ListingType", "ListingId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conversations_renter_owner_listing");
 
                     b.ToTable("Conversations");
                 });
