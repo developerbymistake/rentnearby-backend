@@ -14,5 +14,9 @@ public class SendMessageRequestValidator : AbstractValidator<SendMessageRequest>
         RuleFor(x => x.PayloadJson)
             .NotEmpty()
             .MaximumLength(2000).WithMessage("Payload too large");
+
+        RuleFor(x => x.RespondsToMessageId)
+            .NotEqual(Guid.Empty).When(x => x.RespondsToMessageId.HasValue)
+            .WithMessage("RespondsToMessageId must be a valid id");
     }
 }

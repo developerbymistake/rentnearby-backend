@@ -206,6 +206,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
             // Powers cursor-based history pagination.
             e.HasIndex(m => new { m.ConversationId, m.CreatedAt });
+
+            // Self-referencing: an answer points back at the question message it answers.
+            e.HasOne<Message>()
+             .WithMany()
+             .HasForeignKey(m => m.RespondsToMessageId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            // At most one answer per question, enforced at the DB level (partial so it
+            // never applies to the vast majority of messages that don't answer anything).
+            e.HasIndex(m => m.RespondsToMessageId)
+             .IsUnique()
+             .HasDatabaseName("ix_messages_responds_to_unique")
+             .HasFilter("\"RespondsToMessageId\" IS NOT NULL");
         });
 
         modelBuilder.Entity<UserBlock>(e =>
@@ -226,6 +239,18 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(q => q.IsActive).HasDefaultValue(true);
 
             e.HasIndex(q => q.Key).IsUnique();
+
+            e.HasOne<RoomType>()
+             .WithMany()
+             .HasForeignKey(q => q.RoomTypeId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<PlotType>()
+             .WithMany()
+             .HasForeignKey(q => q.PlotTypeId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasIndex(q => q.RoomTypeId);
+            e.HasIndex(q => q.PlotTypeId);
         });
 
         modelBuilder.Entity<RoomPlan>(e =>

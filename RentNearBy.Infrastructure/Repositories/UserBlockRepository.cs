@@ -11,4 +11,7 @@ public class UserBlockRepository : Repository<UserBlock>, IUserBlockRepository
 
     public async Task<bool> ExistsAsync(Guid blockerId, Guid blockedId)
         => await _context.UserBlocks.AnyAsync(b => b.BlockerId == blockerId && b.BlockedId == blockedId);
+
+    public async Task<UserBlock?> GetByBlockerAndBlockedAsync(Guid blockerId, Guid blockedId)
+        => await _context.UserBlocks.FirstOrDefaultAsync(b => b.BlockerId == blockerId && b.BlockedId == blockedId);
 }

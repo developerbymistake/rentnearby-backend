@@ -16,6 +16,7 @@ public static class ChatEndpoints
         group.MapPost("/messages/{messageId:guid}/schedule-response", ChatHandlers.RespondSchedule).RequireAuthorization();
 
         group.MapPost("/users/{userId:guid}/block", ChatHandlers.BlockUser).RequireAuthorization();
+        group.MapPost("/users/{userId:guid}/unblock", ChatHandlers.UnblockUser).RequireAuthorization();
 
         group.MapGet("/question-templates", ChatHandlers.GetQuestionTemplates).RequireAuthorization();
 

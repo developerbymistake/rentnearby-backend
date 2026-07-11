@@ -136,6 +136,7 @@ public static class ChatHandlers
             IsMine = m.SenderId == callerId,
             Type = m.Type,
             PayloadJson = m.PayloadJson,
+            RespondsToMessageId = m.RespondsToMessageId,
             ReadAt = m.ReadAt,
             CreatedAt = m.CreatedAt,
         }).ToList();
@@ -160,7 +161,15 @@ public static class ChatHandlers
 
         await RefreshListingLifecycleStatusAsync(conversation, db, unitOfWork);
         if (conversation.Status != "Active")
+        {
+            // RefreshListingLifecycleStatusAsync only marks the entity Modified in the
+            // tracking context — without an explicit save here, the computed
+            // ListingRemoved/ListingInactive flip never reaches the database, so the
+            // Chats list and this conversation's header would keep showing "Active"
+            // forever even though sends are (correctly) already being rejected below.
+            await unitOfWork.SaveChangesAsync();
             return BadRequestResponse($"This conversation is no longer active ({conversation.Status})");
+        }
 
         var otherPartyId = conversation.RenterId == callerId ? conversation.OwnerId : conversation.RenterId;
 
@@ -175,6 +184,15 @@ public static class ChatHandlers
             return TooManyRequestsResponse();
         }
 
+        if (request.RespondsToMessageId.HasValue)
+        {
+            var question = await unitOfWork.Messages.GetByIdAsync(request.RespondsToMessageId.Value);
+            if (question == null || question.ConversationId != conversationId)
+                return BadRequestResponse("That question no longer exists in this conversation");
+            if (question.SenderId == callerId)
+                return BadRequestResponse("You can't answer your own question");
+        }
+
         var message = new Message
         {
             Id = Guid.NewGuid(),
@@ -182,12 +200,34 @@ public static class ChatHandlers
             SenderId = callerId,
             Type = request.Type,
             PayloadJson = request.PayloadJson,
+            RespondsToMessageId = request.RespondsToMessageId,
             CreatedAt = DateTime.UtcNow,
         };
 
         await unitOfWork.Messages.AddAsync(message);
         await ApplyToConversationAsync(conversation, callerId, otherPartyId, message, unitOfWork);
-        await unitOfWork.SaveChangesAsync();
+
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException) when (request.RespondsToMessageId.HasValue)
+        {
+            // Lost a race against a concurrent answer to the same question (double-tap on
+            // a reply option) — the partial unique index on RespondsToMessageId caught it.
+            // Same catch-and-return-the-winner shape as the Conversations unique-index guard.
+            var existingAnswer = await db.Messages.FirstOrDefaultAsync(m => m.RespondsToMessageId == request.RespondsToMessageId.Value);
+            if (existingAnswer != null)
+            {
+                return OkResponse(new MessageDto
+                {
+                    Id = existingAnswer.Id, ConversationId = existingAnswer.ConversationId, SenderId = existingAnswer.SenderId,
+                    IsMine = existingAnswer.SenderId == callerId, Type = existingAnswer.Type, PayloadJson = existingAnswer.PayloadJson,
+                    RespondsToMessageId = existingAnswer.RespondsToMessageId, CreatedAt = existingAnswer.CreatedAt,
+                });
+            }
+            throw;
+        }
 
         await PushMessageAsync(hubContext, conversation, message);
         await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, message);
@@ -195,7 +235,8 @@ public static class ChatHandlers
         return CreatedResponse(new MessageDto
         {
             Id = message.Id, ConversationId = conversationId, SenderId = callerId, IsMine = true,
-            Type = message.Type, PayloadJson = message.PayloadJson, CreatedAt = message.CreatedAt,
+            Type = message.Type, PayloadJson = message.PayloadJson, RespondsToMessageId = message.RespondsToMessageId,
+            CreatedAt = message.CreatedAt,
         }, $"/api/v1/chat/conversations/{conversationId}/messages/{message.Id}");
     }
 
@@ -390,9 +431,61 @@ public static class ChatHandlers
             {
                 Id = Guid.NewGuid(), BlockerId = callerId, BlockedId = userId, CreatedAt = DateTime.UtcNow,
             });
-            await unitOfWork.SaveChangesAsync();
         }
 
+        // A block is between two people, not one listing thread — flip every
+        // conversation between this pair so the chat header and the conversations
+        // list both reflect it immediately, not just future SendMessage calls.
+        var conversations = await unitOfWork.Conversations.GetAllBetweenUsersAsync(callerId, userId);
+        foreach (var conversation in conversations)
+        {
+            if (conversation.Status == "Blocked") continue;
+            conversation.Status = "Blocked";
+            await unitOfWork.Conversations.UpdateAsync(conversation);
+        }
+
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Lost a race against a concurrent block attempt on the same pair (double-tap) —
+            // the unique index on UserBlocks(BlockerId, BlockedId) caught it. The desired end
+            // state (blocked) is already achieved by the other request, so this is a no-op
+            // success, not an error — same idempotent-on-conflict shape used elsewhere in
+            // this file (e.g. CreateConversation's unique-index race).
+        }
+        return NoContentResponse();
+    }
+
+    public static async Task<IResult> UnblockUser(Guid userId, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
+        if (callerId == userId) return BadRequestResponse("You can't unblock yourself");
+
+        var existing = await unitOfWork.UserBlocks.GetByBlockerAndBlockedAsync(callerId, userId);
+        if (existing == null) return NoContentResponse(); // caller never blocked this user — nothing to undo
+
+        await unitOfWork.UserBlocks.DeleteAsync(existing);
+
+        // Deliberate user action — unlike the listing-lifecycle reconciler (which
+        // intentionally never overrides a "Blocked" status automatically), an explicit
+        // unblock is exactly the case that should restore it. If the listing has since
+        // gone inactive/removed, the next SendMessage/GetConversations reconciliation
+        // pass will correct it from here, same as it would for any other conversation.
+        // Only reaches here when `existing` was real — a caller who never blocked this
+        // user (e.g. the other party trying to clear a block they don't own) can't flip
+        // Status back just by hitting this endpoint.
+        var conversations = await unitOfWork.Conversations.GetAllBetweenUsersAsync(callerId, userId);
+        foreach (var conversation in conversations)
+        {
+            if (conversation.Status != "Blocked") continue;
+            conversation.Status = "Active";
+            await unitOfWork.Conversations.UpdateAsync(conversation);
+        }
+
+        await unitOfWork.SaveChangesAsync();
         return NoContentResponse();
     }
 
@@ -411,16 +504,23 @@ public static class ChatHandlers
 
     public static async Task<IResult> CreateQuestionTemplate(
         CreateQuestionTemplateRequest request, IValidator<CreateQuestionTemplateRequest> validator,
-        IUnitOfWork unitOfWork, IMemoryCache cache)
+        IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        if (request.RoomTypeId.HasValue && !await db.RoomTypes.AnyAsync(r => r.Id == request.RoomTypeId.Value))
+            return BadRequestResponse("Room type not found");
+        if (request.PlotTypeId.HasValue && !await db.PlotTypes.AnyAsync(p => p.Id == request.PlotTypeId.Value))
+            return BadRequestResponse("Plot type not found");
 
         var template = new QuestionTemplate
         {
             Id = Guid.NewGuid(),
             Key = request.Key.Trim(),
             ListingType = request.ListingType,
+            RoomTypeId = request.RoomTypeId,
+            PlotTypeId = request.PlotTypeId,
             QuestionText = request.QuestionText.Trim(),
             AnswerOptionsJson = request.AnswerOptionsJson,
             SortOrder = request.SortOrder,
@@ -488,21 +588,25 @@ public static class ChatHandlers
 
         string listingTitle;
         string? thumbnailUrl;
+        Guid? roomTypeId = null;
+        Guid? plotTypeId = null;
         if (c.ListingType == "Room")
         {
             var info = await db.RoomListings.Where(l => l.Id == c.ListingId)
-                .Select(l => new { l.RoomType.Name, Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
+                .Select(l => new { l.RoomType.Name, l.RoomTypeId, Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
                 .FirstOrDefaultAsync();
             listingTitle = info?.Name ?? "Room";
             thumbnailUrl = info?.Photo;
+            roomTypeId = info?.RoomTypeId;
         }
         else
         {
             var info = await db.PlotListings.Where(l => l.Id == c.ListingId)
-                .Select(l => new { l.PlotType.Name, Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
+                .Select(l => new { l.PlotType.Name, l.PlotTypeId, Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
                 .FirstOrDefaultAsync();
             listingTitle = info?.Name ?? "Plot";
             thumbnailUrl = info?.Photo;
+            plotTypeId = info?.PlotTypeId;
         }
 
         return new ConversationDto
@@ -510,6 +614,8 @@ public static class ChatHandlers
             Id = c.Id,
             ListingType = c.ListingType,
             ListingId = c.ListingId,
+            RoomTypeId = roomTypeId,
+            PlotTypeId = plotTypeId,
             ListingTitle = listingTitle,
             ListingThumbnailUrl = thumbnailUrl,
             OtherPartyId = otherPartyId,

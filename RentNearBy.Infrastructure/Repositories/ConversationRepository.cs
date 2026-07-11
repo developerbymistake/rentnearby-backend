@@ -23,4 +23,11 @@ public class ConversationRepository : Repository<Conversation>, IConversationRep
             .FirstOrDefaultAsync(c =>
                 c.RenterId == renterId && c.OwnerId == ownerId &&
                 c.ListingType == listingType && c.ListingId == listingId);
+
+    public async Task<IReadOnlyList<Conversation>> GetAllBetweenUsersAsync(Guid userA, Guid userB)
+        => await _context.Conversations
+            .Where(c =>
+                (c.RenterId == userA && c.OwnerId == userB) ||
+                (c.RenterId == userB && c.OwnerId == userA))
+            .ToListAsync();
 }

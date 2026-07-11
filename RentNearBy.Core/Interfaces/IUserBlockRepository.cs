@@ -5,4 +5,5 @@ namespace RentNearBy.Core.Interfaces;
 public interface IUserBlockRepository : IRepository<UserBlock>
 {
     Task<bool> ExistsAsync(Guid blockerId, Guid blockedId);
+    Task<UserBlock?> GetByBlockerAndBlockedAsync(Guid blockerId, Guid blockedId);
 }
