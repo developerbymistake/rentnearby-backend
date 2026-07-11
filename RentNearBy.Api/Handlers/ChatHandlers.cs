@@ -313,7 +313,7 @@ public static class ChatHandlers
                 ConversationId = conversation.Id,
                 SenderId = callerId,
                 Type = "schedule_proposal",
-                PayloadJson = JsonSerializer.Serialize(new { proposedAt = request.ProposedAt, status = "pending", supersedes = messageId }),
+                PayloadJson = JsonSerializer.Serialize(new { proposedAts = request.ProposedAts, status = "pending", supersedes = messageId }),
                 CreatedAt = DateTime.UtcNow,
             };
             await unitOfWork.Messages.AddAsync(counter);
@@ -328,14 +328,40 @@ public static class ChatHandlers
             });
         }
 
-        var status = request.Action == "accept" ? "accepted" : "declined";
+        object responsePayload;
+        if (request.Action == "accept")
+        {
+            // Confirm the accepted time was actually one of the originally offered
+            // slots — defends against a client sending a time that was never offered.
+            // Degrades gracefully (rejects rather than 500s) if the original proposal's
+            // payload is malformed, same shape as the "counter" branch's parse above.
+            var offeredTimes = new List<DateTime>();
+            try
+            {
+                using var doc = JsonDocument.Parse(original.PayloadJson);
+                if (doc.RootElement.TryGetProperty("proposedAts", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                    foreach (var el in arr.EnumerateArray())
+                        if (el.TryGetDateTime(out var dt)) offeredTimes.Add(dt);
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException) { }
+
+            if (!offeredTimes.Any(t => t == request.AcceptedAt!.Value))
+                return BadRequestResponse("That time wasn't one of the offered slots");
+
+            responsePayload = new { status = "accepted", confirmedAt = request.AcceptedAt, respondsTo = messageId };
+        }
+        else
+        {
+            responsePayload = new { status = "declined", respondsTo = messageId };
+        }
+
         var response = new Message
         {
             Id = Guid.NewGuid(),
             ConversationId = conversation.Id,
             SenderId = callerId,
             Type = "schedule_response",
-            PayloadJson = JsonSerializer.Serialize(new { status, respondsTo = messageId }),
+            PayloadJson = JsonSerializer.Serialize(responsePayload),
             CreatedAt = DateTime.UtcNow,
         };
 

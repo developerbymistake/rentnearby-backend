@@ -11,8 +11,12 @@ public class RespondScheduleRequestValidator : AbstractValidator<RespondSchedule
             .Must(a => a is "accept" or "decline" or "counter")
             .WithMessage("Action must be one of: accept, decline, counter");
 
-        RuleFor(x => x.ProposedAt)
-            .NotNull().WithMessage("ProposedAt is required when countering with a new time")
+        RuleFor(x => x.ProposedAts)
+            .Must(p => p != null && p.Count > 0).WithMessage("ProposedAts must include at least one time when countering")
             .When(x => x.Action == "counter");
+
+        RuleFor(x => x.AcceptedAt)
+            .NotNull().WithMessage("AcceptedAt is required when accepting a proposed time")
+            .When(x => x.Action == "accept");
     }
 }
