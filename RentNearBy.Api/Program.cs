@@ -242,6 +242,12 @@ app.MapGroup("/api/v1/admin")
     .WithTags("AdminBanners")
     .MapAdminBannerEndpoints();
 
+app.MapGroup("/api/v1/chat")
+    .WithTags("Chat")
+    .MapChatEndpoints();
+
 app.MapHub<BannerHub>("/hubs/banner");
+app.MapHub<ChatHub>("/hubs/chat");
+app.MapHub<ChatHub>("/hubs/chat");
 
 app.Run();
