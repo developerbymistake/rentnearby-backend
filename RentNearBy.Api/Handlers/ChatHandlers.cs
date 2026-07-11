@@ -362,6 +362,75 @@ public static class ChatHandlers
         return OkResponse(cached);
     }
 
+    public static async Task<IResult> CreateQuestionTemplate(
+        CreateQuestionTemplateRequest request, IValidator<CreateQuestionTemplateRequest> validator,
+        IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var template = new QuestionTemplate
+        {
+            Id = Guid.NewGuid(),
+            Key = request.Key.Trim(),
+            ListingType = request.ListingType,
+            QuestionText = request.QuestionText.Trim(),
+            AnswerOptionsJson = request.AnswerOptionsJson,
+            SortOrder = request.SortOrder,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await unitOfWork.QuestionTemplates.AddAsync(template);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove("question_templates");
+
+        return CreatedResponse(template.Adapt<QuestionTemplateDto>(), $"/api/v1/admin/question-templates/{template.Id}");
+    }
+
+    public static async Task<IResult> UpdateQuestionTemplate(
+        Guid id, UpdateQuestionTemplateRequest request, IValidator<UpdateQuestionTemplateRequest> validator,
+        IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var template = await unitOfWork.QuestionTemplates.GetByIdAsync(id);
+        if (template == null) return NotFoundResponse("Question template not found");
+
+        if (request.QuestionText != null) template.QuestionText = request.QuestionText.Trim();
+        if (request.AnswerOptionsJson != null) template.AnswerOptionsJson = request.AnswerOptionsJson;
+        if (request.SortOrder.HasValue) template.SortOrder = request.SortOrder.Value;
+
+        await unitOfWork.QuestionTemplates.UpdateAsync(template);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove("question_templates");
+
+        return OkResponse(template.Adapt<QuestionTemplateDto>());
+    }
+
+    // Deactivate, not hard-delete — Message.PayloadJson references a template's Key from
+    // historical messages, so removing a template outright would break rendering old
+    // conversations. Mirrors the Districts isActive-toggle pattern, not ReportReasons'
+    // hard-delete (that pattern doesn't fit here since nothing else references a reason
+    // by a stable key the way chat messages do).
+    public static async Task<IResult> ToggleQuestionTemplateActive(
+        Guid id, ToggleQuestionTemplateActiveRequest request, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var template = await unitOfWork.QuestionTemplates.GetByIdAsync(id);
+        if (template == null) return NotFoundResponse("Question template not found");
+
+        template.IsActive = request.IsActive;
+        await unitOfWork.QuestionTemplates.UpdateAsync(template);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove("question_templates");
+
+        return OkResponse(new { success = true, isActive = template.IsActive });
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────────
 
     private static async Task<ConversationDto> BuildConversationDtoAsync(Conversation c, Guid callerId, ApplicationDbContext db)

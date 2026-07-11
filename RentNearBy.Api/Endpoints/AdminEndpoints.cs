@@ -69,6 +69,14 @@ public static class AdminEndpoints
 
         group.MapPost("/broadcast-notification", BroadcastHandlers.SendBroadcast).RequireAuthorization("AdminOnly");
 
+        // Same handler the consumer app calls under /api/v1/chat/question-templates —
+        // mirrors how GetDistricts is mapped under both /admin/districts and
+        // /listings/locations/districts. Deactivate-not-delete: see ToggleQuestionTemplateActive.
+        group.MapGet("/question-templates", ChatHandlers.GetQuestionTemplates);
+        group.MapPost("/question-templates", ChatHandlers.CreateQuestionTemplate).RequireAuthorization("AdminOnly");
+        group.MapPut("/question-templates/{id:guid}", ChatHandlers.UpdateQuestionTemplate).RequireAuthorization("AdminOnly");
+        group.MapPut("/question-templates/{id:guid}/active", ChatHandlers.ToggleQuestionTemplateActive).RequireAuthorization("AdminOnly");
+
         return group;
     }
 }
