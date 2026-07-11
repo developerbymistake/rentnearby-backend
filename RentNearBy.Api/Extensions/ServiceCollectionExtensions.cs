@@ -103,6 +103,13 @@ public static class ServiceCollectionExtensions
         // Report-filed worker — consumes report.filed queue and notifies the listing owner
         services.AddHostedService<ReportFiledWorkerService>();
 
+        // Chat FCM — independent of IFcmService/FcmService above (see IChatFcmService),
+        // Singleton for the same FirebaseApp.Create()-once reason.
+        services.AddSingleton<IChatFcmService, ChatFcmService>();
+
+        // Chat push worker — consumes chat.message.push queue and sends FCM via ChatFcmService
+        services.AddHostedService<ChatMessageNotificationWorkerService>();
+
         return services;
     }
 }
