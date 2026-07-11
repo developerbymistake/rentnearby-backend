@@ -19,6 +19,7 @@ public static class DataSeeder
         await SeedRoomTypesAsync(db);
         await SeedPlotTypesAsync(db);
         await SeedReportReasonsAsync(db);
+        await SeedQuestionTemplatesAsync(db);
         await SeedPlansAsync(db);
         await SeedPlotPlansAsync(db);
         await SeedDistrictsAsync(db);
@@ -100,6 +101,62 @@ public static class DataSeeder
         };
 
         db.ReportReasons.AddRange(reasons);
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedQuestionTemplatesAsync(ApplicationDbContext db)
+    {
+        if (await db.QuestionTemplates.AnyAsync()) return;
+
+        var templates = new[]
+        {
+            new QuestionTemplate
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000001"),
+                Key = "is_available",
+                ListingType = "Both",
+                QuestionText = "Is it still available?",
+                AnswerOptionsJson = "[{\"key\":\"yes_available\",\"text\":\"Yes, still available\",\"sentiment\":\"positive\"},{\"key\":\"no_available\",\"text\":\"No, already taken\",\"sentiment\":\"negative\"}]",
+                SortOrder = 1,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new QuestionTemplate
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000002"),
+                Key = "is_rent_negotiable",
+                ListingType = "Room",
+                QuestionText = "Is rent negotiable?",
+                AnswerOptionsJson = "[{\"key\":\"yes_negotiable\",\"text\":\"Yes, a little\",\"sentiment\":\"positive\"},{\"key\":\"no_negotiable\",\"text\":\"No, price is fixed\",\"sentiment\":\"negative\"}]",
+                SortOrder = 2,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new QuestionTemplate
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000003"),
+                Key = "is_price_negotiable",
+                ListingType = "Plot",
+                QuestionText = "Is price negotiable?",
+                AnswerOptionsJson = "[{\"key\":\"yes_negotiable\",\"text\":\"Yes, a little\",\"sentiment\":\"positive\"},{\"key\":\"no_negotiable\",\"text\":\"No, price is fixed\",\"sentiment\":\"negative\"}]",
+                SortOrder = 2,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new QuestionTemplate
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000004"),
+                Key = "is_fenced",
+                ListingType = "Plot",
+                QuestionText = "Is it fenced / boundary marked?",
+                AnswerOptionsJson = "[{\"key\":\"yes_fenced\",\"text\":\"Yes, fully fenced\",\"sentiment\":\"positive\"},{\"key\":\"no_fenced\",\"text\":\"No, not yet\",\"sentiment\":\"negative\"}]",
+                SortOrder = 3,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+        };
+
+        db.QuestionTemplates.AddRange(templates);
         await db.SaveChangesAsync();
     }
 
