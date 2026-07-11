@@ -24,5 +24,9 @@ public interface IUnitOfWork : IDisposable
     IReportReasonRepository ReportReasons { get; }
     IListingReportRepository ListingReports { get; }
     IAdminDeviceTokenRepository AdminDeviceTokens { get; }
+    IConversationRepository Conversations { get; }
+    IMessageRepository Messages { get; }
+    IUserBlockRepository UserBlocks { get; }
+    IQuestionTemplateRepository QuestionTemplates { get; }
     Task<int> SaveChangesAsync();
 }

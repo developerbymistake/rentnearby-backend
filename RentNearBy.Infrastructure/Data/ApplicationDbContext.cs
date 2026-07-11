@@ -30,6 +30,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ReportReason> ReportReasons { get; set; }
     public DbSet<ListingReport> ListingReports { get; set; }
     public DbSet<AdminDeviceToken> AdminDeviceTokens { get; set; }
+    public DbSet<Conversation> Conversations { get; set; }
+    public DbSet<Message> Messages { get; set; }
+    public DbSet<UserBlock> UserBlocks { get; set; }
+    public DbSet<QuestionTemplate> QuestionTemplates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -165,6 +169,56 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .IsUnique()
              .HasDatabaseName("ix_listingreports_reporter_listing_pending")
              .HasFilter("\"Status\" = 'Pending'");
+        });
+
+        modelBuilder.Entity<Conversation>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(c => c.Status).HasDefaultValue("Active");
+            e.Property(c => c.UnreadCountForRenter).HasDefaultValue(0);
+            e.Property(c => c.UnreadCountForOwner).HasDefaultValue(0);
+
+            // Powers the Chats-list query for both sides of a conversation.
+            e.HasIndex(c => new { c.RenterId, c.LastMessageAt });
+            e.HasIndex(c => new { c.OwnerId, c.LastMessageAt });
+        });
+
+        modelBuilder.Entity<Message>(e =>
+        {
+            e.HasKey(m => m.Id);
+            e.Property(m => m.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(m => m.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(m => m.PayloadJson).HasColumnType("jsonb");
+
+            e.HasOne(m => m.Conversation)
+             .WithMany(c => c.Messages)
+             .HasForeignKey(m => m.ConversationId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            // Powers cursor-based history pagination.
+            e.HasIndex(m => new { m.ConversationId, m.CreatedAt });
+        });
+
+        modelBuilder.Entity<UserBlock>(e =>
+        {
+            e.HasKey(b => b.Id);
+            e.Property(b => b.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(b => b.CreatedAt).HasDefaultValueSql("now()");
+
+            e.HasIndex(b => new { b.BlockerId, b.BlockedId }).IsUnique();
+        });
+
+        modelBuilder.Entity<QuestionTemplate>(e =>
+        {
+            e.HasKey(q => q.Id);
+            e.Property(q => q.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(q => q.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(q => q.AnswerOptionsJson).HasColumnType("jsonb");
+            e.Property(q => q.IsActive).HasDefaultValue(true);
+
+            e.HasIndex(q => q.Key).IsUnique();
         });
 
         modelBuilder.Entity<RoomPlan>(e =>

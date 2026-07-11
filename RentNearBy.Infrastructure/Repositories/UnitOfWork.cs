@@ -28,6 +28,10 @@ public class UnitOfWork : IUnitOfWork
     private IReportReasonRepository? _reportReasons;
     private IListingReportRepository? _listingReports;
     private IAdminDeviceTokenRepository? _adminDeviceTokens;
+    private IConversationRepository? _conversations;
+    private IMessageRepository? _messages;
+    private IUserBlockRepository? _userBlocks;
+    private IQuestionTemplateRepository? _questionTemplates;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -56,6 +60,10 @@ public class UnitOfWork : IUnitOfWork
     public IReportReasonRepository ReportReasons => _reportReasons ??= new ReportReasonRepository(_context);
     public IListingReportRepository ListingReports => _listingReports ??= new ListingReportRepository(_context);
     public IAdminDeviceTokenRepository AdminDeviceTokens => _adminDeviceTokens ??= new AdminDeviceTokenRepository(_context);
+    public IConversationRepository Conversations => _conversations ??= new ConversationRepository(_context);
+    public IMessageRepository Messages => _messages ??= new MessageRepository(_context);
+    public IUserBlockRepository UserBlocks => _userBlocks ??= new UserBlockRepository(_context);
+    public IQuestionTemplateRepository QuestionTemplates => _questionTemplates ??= new QuestionTemplateRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();
