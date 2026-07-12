@@ -47,7 +47,17 @@ public class ChatMessageNotificationWorkerService : BackgroundService
             try
             {
                 await using var connection = await _factory.CreateConnectionAsync(stoppingToken);
-                await using var channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
+                // Default dispatch concurrency is 1 (messages processed one at a time even
+                // though each one's own work — DB read + parallel FCM sends — is I/O-bound, not
+                // CPU-bound). Raising this lets up to 4 messages be in flight together, using
+                // otherwise-idle wait time instead of adding real CPU/DB load.
+                await using var channel = await connection.CreateChannelAsync(
+                    new CreateChannelOptions(
+                        publisherConfirmationsEnabled: false,
+                        publisherConfirmationTrackingEnabled: false,
+                        outstandingPublisherConfirmationsRateLimiter: null,
+                        consumerDispatchConcurrency: 4),
+                    cancellationToken: stoppingToken);
 
                 await channel.QueueDeclareAsync(
                     queue: DlqQueueName,
