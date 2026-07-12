@@ -15,7 +15,13 @@ public static class ServiceCollectionExtensions
             ?? configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("DATABASE_URL not configured");
 
-        services.AddDbContext<ApplicationDbContext>(options =>
+        // Pooled instead of AddDbContext: reuses ApplicationDbContext instances across requests
+        // instead of allocating/disposing one per request. Safe here — audited the whole
+        // Backend for the two pooling pitfalls: ApplicationDbContext itself has no custom
+        // fields to leak state between requests, and every consumer (all handlers, all 10
+        // background workers via IServiceScopeFactory.CreateScope(), AccountDeletionService,
+        // PaymentService) resolves it as Scoped, never captured by a Singleton.
+        services.AddDbContextPool<ApplicationDbContext>(options =>
             options.UseNpgsql(connectionString, o => o.UseNetTopologySuite()));
 
         services.AddMemoryCache();
