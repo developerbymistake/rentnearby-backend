@@ -10,7 +10,7 @@ public class User
     public bool HasUsedPhoneChange { get; set; } = false;
     public bool HasUsedFreePlan { get; set; } = false;
     public bool HasUsedFreePlotPlan { get; set; } = false;
-    public bool IsContactVisible { get; set; } = true;
+    public bool IsContactVisible { get; set; } = false;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
