@@ -132,19 +132,28 @@ public class ChatMessageNotificationWorkerService : BackgroundService
             return;
         }
 
-        foreach (var deviceToken in tokens)
+        // Sends are independent (no shared DbContext access), so they run in parallel — the
+        // previous sequential loop meant a user with several devices waited on N round-trips
+        // to FCM one after another. Invalid-token cleanup is collected here and applied
+        // sequentially below instead, since the DbContext behind unitOfWork (one scope per
+        // message) isn't safe for concurrent writes from multiple tasks.
+        var sendResults = await Task.WhenAll(tokens.Select(async deviceToken =>
         {
             try
             {
                 var isSuccess = await _chatFcmService.SendAsync(deviceToken.Token, msg.SenderName, msg.Preview, msg.ConversationId);
-                if (!isSuccess)
-                    await unitOfWork.DeviceTokens.MarkInvalidAsync(deviceToken.Token);
+                return (deviceToken.Token, isSuccess);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Chat FCM send exception for user {UserId}", msg.RecipientUserId);
+                return (deviceToken.Token, isSuccess: true); // transient error, not proof the token itself is invalid
             }
-        }
+        }));
+
+        foreach (var (token, isSuccess) in sendResults)
+            if (!isSuccess)
+                await unitOfWork.DeviceTokens.MarkInvalidAsync(token);
 
         await unitOfWork.SaveChangesAsync();
     }

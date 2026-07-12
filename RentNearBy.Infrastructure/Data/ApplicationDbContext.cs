@@ -207,6 +207,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Powers cursor-based history pagination.
             e.HasIndex(m => new { m.ConversationId, m.CreatedAt });
 
+            // Powers MarkReadBulkAsync's WHERE ConversationId=@id AND SenderId!=@me AND
+            // ReadAt IS NULL — previously only benefited from the (ConversationId, CreatedAt)
+            // index's leading column, then scanned the rest. Fires on every conversation-open
+            // and every incoming message, so it's a hot path.
+            e.HasIndex(m => new { m.ConversationId, m.SenderId, m.ReadAt });
+
             // Self-referencing: an answer points back at the question message it answers.
             e.HasOne<Message>()
              .WithMany()

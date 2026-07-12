@@ -104,13 +104,22 @@ public static class DataSeeder
         await db.SaveChangesAsync();
     }
 
+    // Per-key incremental seeding, not a whole-table AnyAsync() guard (unlike the other Seed*
+    // methods in this file) — this catalog is expected to grow after initial deploy (this method
+    // itself already went from 4 to 13 rows once), and a whole-table guard would silently skip
+    // every row added here on any environment that already has at least one row, including the
+    // fresh-database case if a future migration ever pre-populates a subset. Existing rows'
+    // Ids/Keys are untouched, so this doesn't disturb the QuestionTemplateId-independent catalog
+    // lookups (messages store `key`, not Id — see the schema note in CHAT_FEATURE.md §2).
     private static async Task SeedQuestionTemplatesAsync(ApplicationDbContext db)
     {
-        if (await db.QuestionTemplates.AnyAsync()) return;
+        var existingKeys = (await db.QuestionTemplates.Select(t => t.Key).ToListAsync()).ToHashSet();
 
-        var templates = new[]
+        var pgRoomTypeId = await db.RoomTypes.Where(r => r.Name == "PG").Select(r => (Guid?)r.Id).FirstOrDefaultAsync();
+
+        var templates = new List<QuestionTemplate>
         {
-            new QuestionTemplate
+            new()
             {
                 Id = Guid.Parse("d1000000-0000-0000-0000-000000000001"),
                 Key = "is_available",
@@ -121,7 +130,7 @@ public static class DataSeeder
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
             },
-            new QuestionTemplate
+            new()
             {
                 Id = Guid.Parse("d1000000-0000-0000-0000-000000000002"),
                 Key = "is_rent_negotiable",
@@ -132,7 +141,7 @@ public static class DataSeeder
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
             },
-            new QuestionTemplate
+            new()
             {
                 Id = Guid.Parse("d1000000-0000-0000-0000-000000000003"),
                 Key = "is_price_negotiable",
@@ -143,7 +152,7 @@ public static class DataSeeder
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
             },
-            new QuestionTemplate
+            new()
             {
                 Id = Guid.Parse("d1000000-0000-0000-0000-000000000004"),
                 Key = "is_fenced",
@@ -154,9 +163,121 @@ public static class DataSeeder
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
             },
+
+            // ── Added after launch (2026-07-12) — none of these duplicate a field already
+            // shown on View Details, verified against RoomListing/PlotListing (no deposit,
+            // brokerage, parking, maintenance, electricity, water or road-access column on
+            // either entity). Kept broad (no RoomTypeId/PlotTypeId) except food_included,
+            // which is the one case a single subtype is unambiguous — narrowing the rest to
+            // "some but not all" subtypes would need a separate template row per subtype
+            // (RoomTypeId/PlotTypeId is a single nullable FK, not a set), which isn't worth
+            // the duplication for a first pass.
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000005"),
+                Key = "has_brokerage",
+                ListingType = "Both",
+                QuestionText = "Is there any brokerage/agent fee?",
+                AnswerOptionsJson = "[{\"key\":\"no_brokerage\",\"text\":\"No, direct from owner\",\"sentiment\":\"positive\"},{\"key\":\"yes_brokerage\",\"text\":\"Yes, brokerage applies\",\"sentiment\":\"negative\"}]",
+                SortOrder = 4,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000006"),
+                Key = "requires_deposit",
+                ListingType = "Room",
+                QuestionText = "Is security deposit required?",
+                AnswerOptionsJson = "[{\"key\":\"yes_deposit\",\"text\":\"Yes, deposit required\",\"sentiment\":\"negative\"},{\"key\":\"no_deposit\",\"text\":\"No deposit needed\",\"sentiment\":\"positive\"}]",
+                SortOrder = 5,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000007"),
+                Key = "room_maintenance_included",
+                ListingType = "Room",
+                QuestionText = "Is maintenance fee included in rent?",
+                AnswerOptionsJson = "[{\"key\":\"yes_maintenance_included\",\"text\":\"Yes, included in rent\",\"sentiment\":\"positive\"},{\"key\":\"no_maintenance_extra\",\"text\":\"No, charged separately\",\"sentiment\":\"negative\"}]",
+                SortOrder = 6,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000008"),
+                Key = "food_included",
+                ListingType = "Room",
+                RoomTypeId = pgRoomTypeId,
+                QuestionText = "Is food included?",
+                AnswerOptionsJson = "[{\"key\":\"yes_food\",\"text\":\"Yes, food included\",\"sentiment\":\"positive\"},{\"key\":\"no_food\",\"text\":\"No, self-arranged\",\"sentiment\":\"negative\"}]",
+                SortOrder = 7,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000009"),
+                Key = "has_parking",
+                ListingType = "Plot",
+                QuestionText = "Is parking space available?",
+                AnswerOptionsJson = "[{\"key\":\"yes_parking\",\"text\":\"Yes, parking available\",\"sentiment\":\"positive\"},{\"key\":\"no_parking\",\"text\":\"No parking\",\"sentiment\":\"negative\"}]",
+                SortOrder = 4,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000010"),
+                Key = "plot_maintenance_charge",
+                ListingType = "Plot",
+                QuestionText = "Is there a maintenance/society charge?",
+                AnswerOptionsJson = "[{\"key\":\"yes_plot_maintenance\",\"text\":\"Yes, charge applies\",\"sentiment\":\"negative\"},{\"key\":\"no_plot_maintenance\",\"text\":\"No maintenance charge\",\"sentiment\":\"positive\"}]",
+                SortOrder = 5,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000011"),
+                Key = "has_electricity",
+                ListingType = "Plot",
+                QuestionText = "Is electricity connection available?",
+                AnswerOptionsJson = "[{\"key\":\"yes_electricity\",\"text\":\"Yes, connection available\",\"sentiment\":\"positive\"},{\"key\":\"no_electricity\",\"text\":\"No, needs to be arranged\",\"sentiment\":\"negative\"}]",
+                SortOrder = 6,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000012"),
+                Key = "has_water",
+                ListingType = "Plot",
+                QuestionText = "Is water source available (borewell/municipal)?",
+                AnswerOptionsJson = "[{\"key\":\"yes_water\",\"text\":\"Yes, water source available\",\"sentiment\":\"positive\"},{\"key\":\"no_water\",\"text\":\"No, needs to be arranged\",\"sentiment\":\"negative\"}]",
+                SortOrder = 7,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000013"),
+                Key = "has_road_access",
+                ListingType = "Plot",
+                QuestionText = "Is there proper approach road access?",
+                AnswerOptionsJson = "[{\"key\":\"yes_road_access\",\"text\":\"Yes, road access available\",\"sentiment\":\"positive\"},{\"key\":\"no_road_access\",\"text\":\"No proper road yet\",\"sentiment\":\"negative\"}]",
+                SortOrder = 8,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
         };
 
-        db.QuestionTemplates.AddRange(templates);
+        var toAdd = templates.Where(t => !existingKeys.Contains(t.Key)).ToList();
+        if (toAdd.Count == 0) return;
+
+        db.QuestionTemplates.AddRange(toAdd);
         await db.SaveChangesAsync();
     }
 

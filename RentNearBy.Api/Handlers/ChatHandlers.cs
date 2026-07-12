@@ -38,9 +38,26 @@ public static class ChatHandlers
         var conversations = await unitOfWork.Conversations.GetForUserPagedAsync(
             callerId, offset ?? 0, Math.Clamp(limit ?? DefaultPageSize, 1, 100));
 
+        // One batched lookup per listing type (2 queries total) covering both what
+        // ReconcileLifecycleStatusBatchAsync needs (IsDeleted/IsActive) and what
+        // BuildConversationDtoAsync needs (title/photo/subtype) — previously these were two
+        // separate round-trips to the same RoomListings/PlotListings rows for the same ids.
+        var listingInfo = await BuildListingLookupAsync(conversations, db);
+
+        // Batch-correct lifecycle status for the whole page (both the DB rows and the
+        // in-memory objects below) instead of relying on the old lazy-on-SendMessage-only
+        // reconciliation — see ReconcileLifecycleStatusBatchAsync.
+        await ReconcileLifecycleStatusBatchAsync(conversations, listingInfo, db);
+
+        // Batch the other-party-name lookup that BuildConversationDtoAsync otherwise does per
+        // row — turns an up-to-~61-query page load into ~4.
+        var otherPartyIds = conversations.Select(c => c.OwnerId == callerId ? c.RenterId : c.OwnerId).Distinct().ToList();
+        var otherPartyNames = await db.Users.Where(u => otherPartyIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.Name }).ToDictionaryAsync(u => u.Id, u => u.Name ?? "User");
+
         var dtos = new List<ConversationDto>(conversations.Count);
         foreach (var c in conversations)
-            dtos.Add(await BuildConversationDtoAsync(c, callerId, db));
+            dtos.Add(await BuildConversationDtoAsync(c, callerId, db, otherPartyNames, listingInfo));
 
         return OkResponse(new { items = dtos });
     }
@@ -73,7 +90,15 @@ public static class ChatHandlers
             return ForbiddenResponse("You can't message this user");
 
         var existing = await unitOfWork.Conversations.FindExistingAsync(callerId, ownerId.Value, request.ListingType, request.ListingId);
-        if (existing != null) return OkResponse(await BuildConversationDtoAsync(existing, callerId, db));
+        if (existing != null)
+        {
+            // Same staleness bug GetConversations had — reopening an existing conversation
+            // whose listing has since been removed/deactivated should reflect that immediately,
+            // not wait for a failed send. Single tracked row, cheap.
+            await RefreshListingLifecycleStatusAsync(existing, db, unitOfWork);
+            await unitOfWork.SaveChangesAsync();
+            return OkResponse(await BuildConversationDtoAsync(existing, callerId, db));
+        }
 
         var rl = await rateLimiter.CheckAsync($"chat:newconv:{callerId}", NewConversationMaxPerDay, NewConversationWindow);
         if (!rl.IsAllowed)
@@ -105,6 +130,15 @@ public static class ChatHandlers
             // (double-tap, retry-on-timeout) — the unique index caught what the
             // check-then-act FindExistingAsync above couldn't. Same catch-and-retry
             // shape as ListingsHandlers' duplicate-report guard. Return the winning row.
+            //
+            // Deliberately NOT calling RefreshListingLifecycleStatusAsync + SaveChangesAsync
+            // here (unlike the `existing != null` early-return above): the failed `conversation`
+            // insert is still tracked as Added on this same DbContext after the DbUpdateException
+            // above (EF Core doesn't roll back the change tracker on a failed save) — a second
+            // SaveChangesAsync here would re-flush that same failed insert alongside winner's
+            // update and hit the identical unique-index violation again, uncaught this time.
+            // winner.Status is read verbatim (slightly stale in this rare race window) rather
+            // than risk that.
             var winner = await unitOfWork.Conversations.FindExistingAsync(callerId, ownerId.Value, request.ListingType, request.ListingId);
             if (winner != null) return OkResponse(await BuildConversationDtoAsync(winner, callerId, db));
             throw;
@@ -117,13 +151,19 @@ public static class ChatHandlers
 
     public static async Task<IResult> GetMessages(
         Guid conversationId, DateTime? before, int? limit,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
         var conversation = await unitOfWork.Conversations.GetByIdAsync(conversationId);
         if (conversation == null) return NotFoundResponse("Conversation not found");
         if (conversation.RenterId != callerId && conversation.OwnerId != callerId) return ForbiddenResponse();
+
+        // Same reconciliation SendMessage already does, applied here too so opening a thread
+        // directly (not via a fresh GetConversations page) also shows the correct lifecycle
+        // status immediately rather than waiting for a failed send attempt.
+        await RefreshListingLifecycleStatusAsync(conversation, db, unitOfWork);
+        await unitOfWork.SaveChangesAsync();
 
         var messages = await unitOfWork.Messages.GetPagedForConversationAsync(
             conversationId, before, Math.Clamp(limit ?? DefaultPageSize, 1, 100));
@@ -141,14 +181,14 @@ public static class ChatHandlers
             CreatedAt = m.CreatedAt,
         }).ToList();
 
-        return OkResponse(new { items = dtos });
+        return OkResponse(new { items = dtos, conversationStatus = conversation.Status });
     }
 
     public static async Task<IResult> SendMessage(
         Guid conversationId, SendMessageRequest request, IValidator<SendMessageRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, IRateLimitService rateLimiter,
         IHubContext<ChatHub> hubContext, IRabbitMqPublisher publisher,
-        ApplicationDbContext db, HttpContext httpContext)
+        ApplicationDbContext db, HttpContext httpContext, IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -205,7 +245,7 @@ public static class ChatHandlers
         };
 
         await unitOfWork.Messages.AddAsync(message);
-        await ApplyToConversationAsync(conversation, callerId, otherPartyId, message, unitOfWork);
+        await ApplyToConversationAsync(conversation, callerId, otherPartyId, message, unitOfWork, cache);
 
         try
         {
@@ -230,7 +270,7 @@ public static class ChatHandlers
         }
 
         await PushMessageAsync(hubContext, conversation, message);
-        await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, message);
+        await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, message, cache);
 
         return CreatedResponse(new MessageDto
         {
@@ -266,7 +306,7 @@ public static class ChatHandlers
 
     public static async Task<IResult> RespondContact(
         Guid messageId, RespondContactRequest request,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext, IMemoryCache cache)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
@@ -296,7 +336,7 @@ public static class ChatHandlers
         };
 
         await unitOfWork.Messages.AddAsync(response);
-        await ApplyToConversationAsync(conversation, callerId, conversation.RenterId, response, unitOfWork);
+        await ApplyToConversationAsync(conversation, callerId, conversation.RenterId, response, unitOfWork, cache);
         await unitOfWork.SaveChangesAsync();
 
         await PushMessageAsync(hubContext, conversation, response);
@@ -312,7 +352,7 @@ public static class ChatHandlers
 
     public static async Task<IResult> RespondSchedule(
         Guid messageId, RespondScheduleRequest request, IValidator<RespondScheduleRequest> validator,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext, IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -358,7 +398,7 @@ public static class ChatHandlers
                 CreatedAt = DateTime.UtcNow,
             };
             await unitOfWork.Messages.AddAsync(counter);
-            await ApplyToConversationAsync(conversation, callerId, otherPartyId, counter, unitOfWork);
+            await ApplyToConversationAsync(conversation, callerId, otherPartyId, counter, unitOfWork, cache);
             await unitOfWork.SaveChangesAsync();
 
             await PushMessageAsync(hubContext, conversation, counter);
@@ -407,7 +447,7 @@ public static class ChatHandlers
         };
 
         await unitOfWork.Messages.AddAsync(response);
-        await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork);
+        await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
         await unitOfWork.SaveChangesAsync();
 
         await PushMessageAsync(hubContext, conversation, response);
@@ -492,15 +532,7 @@ public static class ChatHandlers
     // ── Question templates (shared GET — also mapped under /admin) ─────────
 
     public static async Task<IResult> GetQuestionTemplates(IUnitOfWork unitOfWork, IMemoryCache cache)
-    {
-        if (!cache.TryGetValue("question_templates", out List<QuestionTemplateDto>? cached) || cached == null)
-        {
-            var templates = await unitOfWork.QuestionTemplates.GetAllAsync();
-            cached = templates.OrderBy(t => t.SortOrder).Select(t => t.Adapt<QuestionTemplateDto>()).ToList();
-            cache.Set("question_templates", cached, CacheTtl);
-        }
-        return OkResponse(cached);
-    }
+        => OkResponse(await GetCachedQuestionTemplatesAsync(unitOfWork, cache));
 
     public static async Task<IResult> CreateQuestionTemplate(
         CreateQuestionTemplateRequest request, IValidator<CreateQuestionTemplateRequest> validator,
@@ -580,33 +612,53 @@ public static class ChatHandlers
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    private static async Task<ConversationDto> BuildConversationDtoAsync(Conversation c, Guid callerId, ApplicationDbContext db)
+    private readonly record struct ListingInfoLite(string Title, string? Photo, Guid? RoomTypeId, Guid? PlotTypeId, bool? IsDeleted, bool? IsActive);
+
+    // otherPartyNames/listingInfo are optional page-level lookups built once by GetConversations
+    // (see BuildListingInfoLookupAsync below) to avoid 2 queries per row on a paginated list.
+    // When omitted (CreateConversation's single-conversation call sites), falls back to the
+    // original per-row queries — those call sites already reconcile lifecycle status themselves
+    // before calling this, so c.Status is read verbatim and is correct either way.
+    private static async Task<ConversationDto> BuildConversationDtoAsync(
+        Conversation c, Guid callerId, ApplicationDbContext db,
+        IReadOnlyDictionary<Guid, string>? otherPartyNames = null,
+        IReadOnlyDictionary<(string ListingType, Guid ListingId), ListingInfoLite>? listingInfo = null)
     {
         var isOwner = c.OwnerId == callerId;
         var otherPartyId = isOwner ? c.RenterId : c.OwnerId;
-        var otherPartyName = await db.Users.Where(u => u.Id == otherPartyId).Select(u => u.Name).FirstOrDefaultAsync() ?? "User";
+        var otherPartyName = otherPartyNames != null
+            ? otherPartyNames.GetValueOrDefault(otherPartyId, "User")
+            : await db.Users.Where(u => u.Id == otherPartyId).Select(u => u.Name).FirstOrDefaultAsync() ?? "User";
 
         string listingTitle;
         string? thumbnailUrl;
         Guid? roomTypeId = null;
         Guid? plotTypeId = null;
-        if (c.ListingType == "Room")
+
+        if (listingInfo != null && listingInfo.TryGetValue((c.ListingType, c.ListingId), out var info))
         {
-            var info = await db.RoomListings.Where(l => l.Id == c.ListingId)
-                .Select(l => new { l.RoomType.Name, l.RoomTypeId, Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
+            listingTitle = info.Title;
+            thumbnailUrl = info.Photo;
+            roomTypeId = info.RoomTypeId;
+            plotTypeId = info.PlotTypeId;
+        }
+        else if (c.ListingType == "Room")
+        {
+            var l = await db.RoomListings.Where(x => x.Id == c.ListingId)
+                .Select(x => new { x.RoomType.Name, x.RoomTypeId, Photo = x.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
                 .FirstOrDefaultAsync();
-            listingTitle = info?.Name ?? "Room";
-            thumbnailUrl = info?.Photo;
-            roomTypeId = info?.RoomTypeId;
+            listingTitle = l?.Name ?? "Room";
+            thumbnailUrl = l?.Photo;
+            roomTypeId = l?.RoomTypeId;
         }
         else
         {
-            var info = await db.PlotListings.Where(l => l.Id == c.ListingId)
-                .Select(l => new { l.PlotType.Name, l.PlotTypeId, Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
+            var l = await db.PlotListings.Where(x => x.Id == c.ListingId)
+                .Select(x => new { x.PlotType.Name, x.PlotTypeId, Photo = x.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
                 .FirstOrDefaultAsync();
-            listingTitle = info?.Name ?? "Plot";
-            thumbnailUrl = info?.Photo;
-            plotTypeId = info?.PlotTypeId;
+            listingTitle = l?.Name ?? "Plot";
+            thumbnailUrl = l?.Photo;
+            plotTypeId = l?.PlotTypeId;
         }
 
         return new ConversationDto
@@ -628,13 +680,78 @@ public static class ChatHandlers
         };
     }
 
+    // Batches BOTH what BuildConversationDtoAsync needs (title/photo/subtype) AND what
+    // ReconcileLifecycleStatusBatchAsync needs (IsDeleted/IsActive) for a whole GetConversations
+    // page into 2 queries total (one per listing type), instead of one per conversation and
+    // instead of two separate round-trips to the same rows for two different purposes.
+    private static async Task<Dictionary<(string, Guid), ListingInfoLite>> BuildListingLookupAsync(
+        IReadOnlyList<Conversation> conversations, ApplicationDbContext db)
+    {
+        var result = new Dictionary<(string, Guid), ListingInfoLite>();
+
+        var roomIds = conversations.Where(c => c.ListingType == "Room").Select(c => c.ListingId).Distinct().ToList();
+        if (roomIds.Count > 0)
+        {
+            var rows = await db.RoomListings.Where(l => roomIds.Contains(l.Id))
+                .Select(l => new { l.Id, l.RoomType.Name, l.RoomTypeId, l.IsDeleted, l.IsActive, Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
+                .ToListAsync();
+            foreach (var r in rows)
+                result[("Room", r.Id)] = new ListingInfoLite(r.Name ?? "Room", r.Photo, r.RoomTypeId, null, r.IsDeleted, r.IsActive);
+        }
+
+        var plotIds = conversations.Where(c => c.ListingType == "Plot").Select(c => c.ListingId).Distinct().ToList();
+        if (plotIds.Count > 0)
+        {
+            var rows = await db.PlotListings.Where(l => plotIds.Contains(l.Id))
+                .Select(l => new { l.Id, l.PlotType.Name, l.PlotTypeId, l.IsDeleted, l.IsActive, Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
+                .ToListAsync();
+            foreach (var r in rows)
+                result[("Plot", r.Id)] = new ListingInfoLite(r.Name ?? "Plot", r.Photo, null, r.PlotTypeId, r.IsDeleted, r.IsActive);
+        }
+
+        return result;
+    }
+
+    // Batch version of RefreshListingLifecycleStatusAsync for a whole GetConversations page,
+    // consuming the lookup BuildListingLookupAsync already built (no extra queries here) — then
+    // a handful of grouped ExecuteUpdateAsync bulk writes (one per distinct target status among
+    // only the rows that actually changed). No entity tracking, safe against the page's
+    // AsNoTracking() load, and both the DB and the in-memory objects end up correct in the same
+    // request (not just the API response).
+    private static async Task ReconcileLifecycleStatusBatchAsync(
+        IReadOnlyList<Conversation> conversations, IReadOnlyDictionary<(string, Guid), ListingInfoLite> listingInfo, ApplicationDbContext db)
+    {
+        var byTargetStatus = new Dictionary<string, List<Guid>>();
+        foreach (var c in conversations)
+        {
+            if (c.Status == "Blocked") continue; // block always wins, never auto-reconciled away
+            listingInfo.TryGetValue((c.ListingType, c.ListingId), out var info);
+            var desired = ComputeLifecycleStatus(info.IsDeleted, info.IsActive);
+            if (c.Status == desired) continue;
+
+            if (!byTargetStatus.TryGetValue(desired, out var ids))
+                byTargetStatus[desired] = ids = new List<Guid>();
+            ids.Add(c.Id);
+
+            // In-memory correction only (this page was loaded AsNoTracking) — the
+            // ExecuteUpdateAsync calls below are what actually persist it.
+            c.Status = desired;
+        }
+
+        foreach (var (status, ids) in byTargetStatus)
+        {
+            await db.Conversations.Where(x => ids.Contains(x.Id))
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, status));
+        }
+    }
+
     // Denormalized fields updated in lockstep with every message — keeps the
     // Chats-list screen a single indexed query against Conversations, no join
     // against Messages needed for the common case.
-    private static async Task ApplyToConversationAsync(Conversation conversation, Guid senderId, Guid recipientId, Message message, IUnitOfWork unitOfWork)
+    private static async Task ApplyToConversationAsync(Conversation conversation, Guid senderId, Guid recipientId, Message message, IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         conversation.LastMessageAt = message.CreatedAt;
-        conversation.LastMessagePreview = await BuildPreviewAsync(message, unitOfWork);
+        conversation.LastMessagePreview = await BuildPreviewAsync(message, unitOfWork, cache);
 
         if (recipientId == conversation.RenterId) conversation.UnreadCountForRenter++;
         else conversation.UnreadCountForOwner++;
@@ -642,7 +759,22 @@ public static class ChatHandlers
         await unitOfWork.Conversations.UpdateAsync(conversation);
     }
 
-    private static async Task<string> BuildPreviewAsync(Message message, IUnitOfWork unitOfWork)
+    // Shares the same "question_templates" cache entry GetQuestionTemplates already
+    // maintains (invalidated on create/update/toggle, see those handlers) — was previously an
+    // uncached unitOfWork.QuestionTemplates.GetAllAsync() DB hit on every quick_reply preview
+    // build (up to twice per SendMessage: here and in PublishPushNotificationAsync).
+    private static async Task<List<QuestionTemplateDto>> GetCachedQuestionTemplatesAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        if (!cache.TryGetValue("question_templates", out List<QuestionTemplateDto>? cached) || cached == null)
+        {
+            var templates = await unitOfWork.QuestionTemplates.GetAllAsync();
+            cached = templates.OrderBy(t => t.SortOrder).Select(t => t.Adapt<QuestionTemplateDto>()).ToList();
+            cache.Set("question_templates", cached, CacheTtl);
+        }
+        return cached;
+    }
+
+    private static async Task<string> BuildPreviewAsync(Message message, IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         try
         {
@@ -653,7 +785,7 @@ public static class ChatHandlers
                     {
                         if (doc.RootElement.TryGetProperty("key", out var keyEl))
                         {
-                            var templates = await unitOfWork.QuestionTemplates.GetAllAsync();
+                            var templates = await GetCachedQuestionTemplatesAsync(unitOfWork, cache);
                             var match = templates.FirstOrDefault(t => t.Key == keyEl.GetString());
                             if (match != null) return match.QuestionText;
                         }
@@ -699,12 +831,12 @@ public static class ChatHandlers
     // actual push independently (see ChatMessageNotificationWorkerService).
     private static async Task PublishPushNotificationAsync(
         IRabbitMqPublisher publisher, IUnitOfWork unitOfWork, Conversation conversation,
-        Guid senderId, Guid recipientId, Message message)
+        Guid senderId, Guid recipientId, Message message, IMemoryCache cache)
     {
         try
         {
             var sender = await unitOfWork.Users.GetByIdAsync(senderId);
-            var preview = await BuildPreviewAsync(message, unitOfWork);
+            var preview = await BuildPreviewAsync(message, unitOfWork, cache);
             var payload = JsonSerializer.Serialize(new
             {
                 recipientUserId = recipientId,
@@ -743,11 +875,18 @@ public static class ChatHandlers
             isDeleted = l?.IsDeleted; isActive = l?.IsActive;
         }
 
-        var desired = isDeleted is null or true ? "ListingRemoved" : isActive == false ? "ListingInactive" : "Active";
+        var desired = ComputeLifecycleStatus(isDeleted, isActive);
         if (conversation.Status != desired)
         {
             conversation.Status = desired;
             await unitOfWork.Conversations.UpdateAsync(conversation);
         }
     }
+
+    // Shared by RefreshListingLifecycleStatusAsync (single-row, persisting) and
+    // ReconcileLifecycleStatusBatchAsync (page-batch, persisting via bulk update) — pure rule,
+    // no I/O. Caller is responsible for excluding "Blocked" conversations before calling this
+    // (block always wins, never auto-reconciled away), so it isn't a parameter here.
+    private static string ComputeLifecycleStatus(bool? isDeleted, bool? isActive) =>
+        isDeleted is null or true ? "ListingRemoved" : isActive == false ? "ListingInactive" : "Active";
 }
