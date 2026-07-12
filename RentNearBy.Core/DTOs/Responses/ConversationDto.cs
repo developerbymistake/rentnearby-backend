@@ -8,6 +8,9 @@ public class ConversationDto
     public Guid? RoomTypeId { get; set; } // set when ListingType == "Room" — used to filter question templates to this specific room type
     public Guid? PlotTypeId { get; set; } // set when ListingType == "Plot"
     public string ListingTitle { get; set; } = string.Empty;
+    // Concise locality label — City.Name, falling back to District.Name when no city is set.
+    // Same precedence as ListingDto/PlotDto's CityName-then-DistrictName convention.
+    public string? Area { get; set; }
     public string? ListingThumbnailUrl { get; set; }
     public Guid OtherPartyId { get; set; }
     public string OtherPartyName { get; set; } = string.Empty;

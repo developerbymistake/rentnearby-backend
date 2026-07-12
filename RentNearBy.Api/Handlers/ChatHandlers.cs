@@ -612,7 +612,7 @@ public static class ChatHandlers
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    private readonly record struct ListingInfoLite(string Title, string? Photo, Guid? RoomTypeId, Guid? PlotTypeId, bool? IsDeleted, bool? IsActive);
+    private readonly record struct ListingInfoLite(string Title, string? Photo, Guid? RoomTypeId, Guid? PlotTypeId, bool? IsDeleted, bool? IsActive, string? Area);
 
     // otherPartyNames/listingInfo are optional page-level lookups built once by GetConversations
     // (see BuildListingInfoLookupAsync below) to avoid 2 queries per row on a paginated list.
@@ -634,6 +634,7 @@ public static class ChatHandlers
         string? thumbnailUrl;
         Guid? roomTypeId = null;
         Guid? plotTypeId = null;
+        string? area;
 
         if (listingInfo != null && listingInfo.TryGetValue((c.ListingType, c.ListingId), out var info))
         {
@@ -641,24 +642,37 @@ public static class ChatHandlers
             thumbnailUrl = info.Photo;
             roomTypeId = info.RoomTypeId;
             plotTypeId = info.PlotTypeId;
+            area = info.Area;
         }
         else if (c.ListingType == "Room")
         {
             var l = await db.RoomListings.Where(x => x.Id == c.ListingId)
-                .Select(x => new { x.RoomType.Name, x.RoomTypeId, Photo = x.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
+                .Select(x => new {
+                    x.RoomType.Name, x.RoomTypeId,
+                    Photo = x.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
+                    CityName = x.City != null ? x.City.Name : null,
+                    DistrictName = x.District.Name,
+                })
                 .FirstOrDefaultAsync();
             listingTitle = l?.Name ?? "Room";
             thumbnailUrl = l?.Photo;
             roomTypeId = l?.RoomTypeId;
+            area = l?.CityName ?? l?.DistrictName;
         }
         else
         {
             var l = await db.PlotListings.Where(x => x.Id == c.ListingId)
-                .Select(x => new { x.PlotType.Name, x.PlotTypeId, Photo = x.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
+                .Select(x => new {
+                    x.PlotType.Name, x.PlotTypeId,
+                    Photo = x.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
+                    CityName = x.City != null ? x.City.Name : null,
+                    DistrictName = x.District.Name,
+                })
                 .FirstOrDefaultAsync();
             listingTitle = l?.Name ?? "Plot";
             thumbnailUrl = l?.Photo;
             plotTypeId = l?.PlotTypeId;
+            area = l?.CityName ?? l?.DistrictName;
         }
 
         return new ConversationDto
@@ -669,6 +683,7 @@ public static class ChatHandlers
             RoomTypeId = roomTypeId,
             PlotTypeId = plotTypeId,
             ListingTitle = listingTitle,
+            Area = area,
             ListingThumbnailUrl = thumbnailUrl,
             OtherPartyId = otherPartyId,
             OtherPartyName = otherPartyName,
@@ -693,20 +708,31 @@ public static class ChatHandlers
         if (roomIds.Count > 0)
         {
             var rows = await db.RoomListings.Where(l => roomIds.Contains(l.Id))
-                .Select(l => new { l.Id, l.RoomType.Name, l.RoomTypeId, l.IsDeleted, l.IsActive, Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
+                .Select(l => new {
+                    l.Id, TypeName = l.RoomType.Name, l.RoomTypeId, l.IsDeleted, l.IsActive,
+                    Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
+                    // Same CityName-then-DistrictName precedence as ListingDto/PlotDto's mapping.
+                    CityName = l.City != null ? l.City.Name : null,
+                    DistrictName = l.District.Name,
+                })
                 .ToListAsync();
             foreach (var r in rows)
-                result[("Room", r.Id)] = new ListingInfoLite(r.Name ?? "Room", r.Photo, r.RoomTypeId, null, r.IsDeleted, r.IsActive);
+                result[("Room", r.Id)] = new ListingInfoLite(r.TypeName ?? "Room", r.Photo, r.RoomTypeId, null, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
         }
 
         var plotIds = conversations.Where(c => c.ListingType == "Plot").Select(c => c.ListingId).Distinct().ToList();
         if (plotIds.Count > 0)
         {
             var rows = await db.PlotListings.Where(l => plotIds.Contains(l.Id))
-                .Select(l => new { l.Id, l.PlotType.Name, l.PlotTypeId, l.IsDeleted, l.IsActive, Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault() })
+                .Select(l => new {
+                    l.Id, TypeName = l.PlotType.Name, l.PlotTypeId, l.IsDeleted, l.IsActive,
+                    Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
+                    CityName = l.City != null ? l.City.Name : null,
+                    DistrictName = l.District.Name,
+                })
                 .ToListAsync();
             foreach (var r in rows)
-                result[("Plot", r.Id)] = new ListingInfoLite(r.Name ?? "Plot", r.Photo, null, r.PlotTypeId, r.IsDeleted, r.IsActive);
+                result[("Plot", r.Id)] = new ListingInfoLite(r.TypeName ?? "Plot", r.Photo, null, r.PlotTypeId, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
         }
 
         return result;
