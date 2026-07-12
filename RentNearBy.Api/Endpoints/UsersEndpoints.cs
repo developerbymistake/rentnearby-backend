@@ -8,6 +8,7 @@ public static class UsersEndpoints
     {
         group.MapGet("/profile", UsersHandlers.GetProfile).RequireAuthorization();
         group.MapPut("/profile", UsersHandlers.UpdateProfile).RequireAuthorization();
+        group.MapGet("/reports", UsersHandlers.GetMyReports).RequireAuthorization();
 
         return group;
     }

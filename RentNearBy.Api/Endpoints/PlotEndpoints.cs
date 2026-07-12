@@ -20,6 +20,7 @@ public static class PlotListingEndpoints
         group.MapDelete("/{id:guid}/photos/{photoId:guid}", PlotListingHandlers.DeletePhoto).RequireAuthorization();
 
         group.MapPost("/{id:guid}/report", PlotListingHandlers.ReportPlotListing).RequireAuthorization();
+        group.MapGet("/{id:guid}/reports", PlotListingHandlers.GetPlotListingReports).RequireAuthorization();
 
         group.MapGet("/payment/status", PlotListingHandlers.GetPlotMembershipStatus).RequireAuthorization();
         group.MapPost("/{plotId:guid}/create-order", PlotListingHandlers.CreatePlotListingOrder).RequireAuthorization();

@@ -204,8 +204,41 @@ public static class RoomListingsHandlers
         if (page < 1) page = 1;
 
         var (items, hasMore) = await unitOfWork.RoomListings.GetByUserIdPagedAsync(userId, page, pageSize);
-        return OkResponse(new { items = items.Select(l => l.Adapt<RoomListingDto>()).ToList(), hasMore });
+        var dtos = items.Select(l => l.Adapt<RoomListingDto>()).ToList();
+        var counts = await unitOfWork.ListingReports.GetPendingCountsForListingsAsync(dtos.Select(d => d.Id), "Room");
+        foreach (var d in dtos) d.PendingReportCount = counts.GetValueOrDefault(d.Id);
+        return OkResponse(new { items = dtos, hasMore });
     }
+
+    public static async Task<IResult> GetListingReports(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 20)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
+        if (listing == null) return NotFoundResponse("RoomListing not found");
+        if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
+
+        pageSize = Math.Clamp(pageSize, 1, 50);
+        page = Math.Max(1, page);
+        var paged = await unitOfWork.ListingReports.GetPagedForListingAsync(id, "Room", page, pageSize);
+        var items = paged.Items.Select(ToListingReportDto).ToList();
+        return OkResponse(new { items, hasMore = paged.HasMore });
+    }
+
+    private static ListingReportDto ToListingReportDto(ListingReport r) => new()
+    {
+        Id = r.Id,
+        ListingId = r.ListingId,
+        ListingType = r.ListingType,
+        ReasonName = r.Reason?.Name ?? "",
+        Details = r.Details,
+        Status = r.Status,
+        ResolutionAction = r.ResolutionAction,
+        CreatedAt = r.CreatedAt,
+        ResolvedAt = r.ResolvedAt,
+    };
 
     public static async Task<IResult> CreateListing(
         CreateListingRequest request,
@@ -461,6 +494,8 @@ public static class RoomListingsHandlers
         var message = new ReportFiledMessage
         {
             OwnerId = listing.UserId,
+            ListingId = listing.Id,
+            ListingType = "Room",
             ReasonName = reason.Name,
             ListingTitle = listing.Address ?? "your listing",
             NotifyOwner = isFirstPending,

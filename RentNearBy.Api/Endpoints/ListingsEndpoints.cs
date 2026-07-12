@@ -22,6 +22,7 @@ public static class RoomListingsEndpoints
         group.MapDelete("/{id:guid}/photos/{photoId:guid}", RoomListingsHandlers.DeletePhoto).RequireAuthorization();
 
         group.MapPost("/{id:guid}/report", RoomListingsHandlers.ReportListing).RequireAuthorization();
+        group.MapGet("/{id:guid}/reports", RoomListingsHandlers.GetListingReports).RequireAuthorization();
 
         // Payment endpoints
         group.MapPost("/{listingId:guid}/create-order", PaymentHandlers.CreateOrder).RequireAuthorization();

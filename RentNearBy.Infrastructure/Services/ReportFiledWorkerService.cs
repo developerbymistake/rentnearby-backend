@@ -115,6 +115,12 @@ public class ReportFiledWorkerService : BackgroundService
         {
             const string ownerTitle = "Listing flagged for review";
             var ownerBody = $"Your listing '{msg.ListingTitle}' was flagged: {msg.ReasonName}. Please review it to avoid removal.";
+            var ownerData = new Dictionary<string, string>
+            {
+                { "listing_id", msg.ListingId.ToString() },
+                { "listing_type", msg.ListingType },
+                { "listing_title", msg.ListingTitle },
+            };
 
             var ownerTokens = (await unitOfWork.DeviceTokens.GetValidByUserIdAsync(msg.OwnerId)).ToList();
             if (ownerTokens.Count == 0)
@@ -125,7 +131,7 @@ public class ReportFiledWorkerService : BackgroundService
             {
                 try
                 {
-                    var ok = await _fcmService.SendAsync(token.Token, ownerTitle, ownerBody, "report");
+                    var ok = await _fcmService.SendAsync(token.Token, ownerTitle, ownerBody, "report", ownerData);
                     if (!ok) await unitOfWork.DeviceTokens.MarkInvalidAsync(token.Token);
                 }
                 catch (Exception ex)

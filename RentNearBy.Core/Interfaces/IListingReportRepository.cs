@@ -12,4 +12,7 @@ public interface IListingReportRepository
     Task<PagedResult<ListingReport>> GetPagedAsync(int page, int pageSize, string? status);
     Task<int> AutoResolvePendingForListingAsync(Guid listingId, string listingType);
     Task ResolveAsync(Guid reportId, Guid? adminId, string resolutionAction);
+    Task<PagedResult<ListingReport>> GetPagedForListingAsync(Guid listingId, string listingType, int page, int pageSize);
+    Task<PagedResult<ListingReport>> GetPagedForReporterAsync(Guid reporterUserId, int page, int pageSize);
+    Task<Dictionary<Guid, int>> GetPendingCountsForListingsAsync(IEnumerable<Guid> listingIds, string listingType);
 }

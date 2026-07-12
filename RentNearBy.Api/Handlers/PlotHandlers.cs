@@ -190,8 +190,41 @@ public static class PlotListingHandlers
         if (page < 1) page = 1;
 
         var (items, hasMore) = await unitOfWork.PlotListings.GetByUserIdPagedAsync(userId, page, pageSize);
-        return OkResponse(new { items = items.Select(p => p.Adapt<PlotListingDto>()).ToList(), hasMore });
+        var dtos = items.Select(p => p.Adapt<PlotListingDto>()).ToList();
+        var counts = await unitOfWork.ListingReports.GetPendingCountsForListingsAsync(dtos.Select(d => d.Id), "Plot");
+        foreach (var d in dtos) d.PendingReportCount = counts.GetValueOrDefault(d.Id);
+        return OkResponse(new { items = dtos, hasMore });
     }
+
+    public static async Task<IResult> GetPlotListingReports(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 20)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var listing = await unitOfWork.PlotListings.GetByIdAsync(id);
+        if (listing == null) return NotFoundResponse("PlotListing not found");
+        if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
+
+        pageSize = Math.Clamp(pageSize, 1, 50);
+        page = Math.Max(1, page);
+        var paged = await unitOfWork.ListingReports.GetPagedForListingAsync(id, "Plot", page, pageSize);
+        var items = paged.Items.Select(ToListingReportDto).ToList();
+        return OkResponse(new { items, hasMore = paged.HasMore });
+    }
+
+    private static ListingReportDto ToListingReportDto(ListingReport r) => new()
+    {
+        Id = r.Id,
+        ListingId = r.ListingId,
+        ListingType = r.ListingType,
+        ReasonName = r.Reason?.Name ?? "",
+        Details = r.Details,
+        Status = r.Status,
+        ResolutionAction = r.ResolutionAction,
+        CreatedAt = r.CreatedAt,
+        ResolvedAt = r.ResolvedAt,
+    };
 
     public static async Task<IResult> CreatePlotListing(
         CreatePlotListingRequest request,
@@ -467,6 +500,8 @@ public static class PlotListingHandlers
         var message = new ReportFiledMessage
         {
             OwnerId = plot.UserId,
+            ListingId = plot.Id,
+            ListingType = "Plot",
             ReasonName = reason.Name,
             ListingTitle = plot.Address ?? "your listing",
             NotifyOwner = isFirstPending,

@@ -47,6 +47,30 @@ public static class UsersHandlers
         return OkResponse(user.Adapt<UserDto>());
     }
 
+    public static async Task<IResult> GetMyReports(
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 20)
+    {
+        if (!TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        pageSize = Math.Clamp(pageSize, 1, 50);
+        page = Math.Max(1, page);
+        var paged = await unitOfWork.ListingReports.GetPagedForReporterAsync(userId, page, pageSize);
+        var items = paged.Items.Select(r => new ListingReportDto
+        {
+            Id = r.Id,
+            ListingId = r.ListingId,
+            ListingType = r.ListingType,
+            ReasonName = r.Reason?.Name ?? "",
+            Details = r.Details,
+            Status = r.Status,
+            ResolutionAction = r.ResolutionAction,
+            CreatedAt = r.CreatedAt,
+            ResolvedAt = r.ResolvedAt,
+        }).ToList();
+        return OkResponse(new { items, hasMore = paged.HasMore });
+    }
+
     internal static bool TryGetUserId(ClaimsPrincipal principal, out Guid userId)
     {
         userId = Guid.Empty;

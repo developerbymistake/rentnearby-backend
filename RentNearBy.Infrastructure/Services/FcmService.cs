@@ -29,8 +29,14 @@ public class FcmService : IFcmService
         });
     }
 
-    public async Task<bool> SendAsync(string token, string title, string body, string membershipType)
+    public async Task<bool> SendAsync(string token, string title, string body, string membershipType, IDictionary<string, string>? data = null)
     {
+        var payload = new Dictionary<string, string> { { "membership_type", membershipType } };
+        if (data != null)
+        {
+            foreach (var kv in data) payload[kv.Key] = kv.Value;
+        }
+
         var message = new Message
         {
             Token = token,
@@ -39,10 +45,7 @@ public class FcmService : IFcmService
                 Title = title,
                 Body = body
             },
-            Data = new Dictionary<string, string>
-            {
-                { "membership_type", membershipType }
-            },
+            Data = payload,
             Android = new AndroidConfig
             {
                 Priority = Priority.High,

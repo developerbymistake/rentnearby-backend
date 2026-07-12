@@ -60,4 +60,32 @@ public class ListingReportRepository(ApplicationDbContext context) : IListingRep
                 .SetProperty(r => r.ResolvedAt, DateTime.UtcNow)
                 .SetProperty(r => r.ResolvedByAdminId, adminId));
     }
+
+    public async Task<PagedResult<ListingReport>> GetPagedForListingAsync(Guid listingId, string listingType, int page, int pageSize)
+        => await context.ListingReports
+            .AsNoTracking()
+            .Include(r => r.Reason)
+            .Where(r => r.ListingId == listingId && r.ListingType == listingType)
+            .OrderByDescending(r => r.CreatedAt)
+            .ToPagedResultAsync(page, pageSize);
+
+    public async Task<PagedResult<ListingReport>> GetPagedForReporterAsync(Guid reporterUserId, int page, int pageSize)
+        => await context.ListingReports
+            .AsNoTracking()
+            .Include(r => r.Reason)
+            .Where(r => r.ReporterUserId == reporterUserId)
+            .OrderByDescending(r => r.CreatedAt)
+            .ToPagedResultAsync(page, pageSize);
+
+    public async Task<Dictionary<Guid, int>> GetPendingCountsForListingsAsync(IEnumerable<Guid> listingIds, string listingType)
+    {
+        var ids = listingIds.ToList();
+        if (ids.Count == 0) return new();
+        return await context.ListingReports
+            .AsNoTracking()
+            .Where(r => ids.Contains(r.ListingId) && r.ListingType == listingType && r.Status == "Pending")
+            .GroupBy(r => r.ListingId)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count);
+    }
 }
