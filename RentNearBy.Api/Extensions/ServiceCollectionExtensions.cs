@@ -11,6 +11,9 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddApplicationServices(this IServiceCollection services, IConfiguration configuration)
     {
+        // Maximum Pool Size is set directly in the DATABASE_URL env var on the server (see
+        // SERVER_PERFORMANCE_TUNING.md, Point 4), not hardcoded here — a deployment-level tuning
+        // knob belongs in deployment config, adjustable without a code change/rebuild.
         var connectionString = configuration["DATABASE_URL"]
             ?? configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("DATABASE_URL not configured");
