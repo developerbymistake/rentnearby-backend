@@ -882,6 +882,21 @@ public static class ChatHandlers
                 case "quick_reply":
                     using (var doc = JsonDocument.Parse(message.PayloadJson))
                     {
+                        // The client always sends the human-readable text alongside the key —
+                        // for a QUESTION it's the template's own QuestionText, for an ANSWER
+                        // it's the tapped reply option's text — so reading it directly here
+                        // covers both without needing any lookup. This also fixes a real bug:
+                        // an answer's key (e.g. "yes_available") belongs to a different
+                        // namespace than a question template's own Key (e.g. "is_available"),
+                        // so the old key-matching-only lookup below always missed answers and
+                        // fell through to "New message" for the (very common) case of the last
+                        // message in a conversation being a reply rather than a fresh question.
+                        if (doc.RootElement.TryGetProperty("text", out var textEl) &&
+                            textEl.GetString() is { Length: > 0 } text)
+                            return text;
+
+                        // Fallback for any older/malformed payload missing "text" — matches
+                        // only a question's own key, not an answer's, but better than nothing.
                         if (doc.RootElement.TryGetProperty("key", out var keyEl))
                         {
                             var templates = await GetCachedQuestionTemplatesAsync(unitOfWork, cache);
