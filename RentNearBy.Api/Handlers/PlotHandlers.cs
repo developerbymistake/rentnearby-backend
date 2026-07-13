@@ -641,6 +641,21 @@ public static class PlotListingHandlers
         var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
         if (plot == null) return NotFoundResponse("PlotListing not found");
 
+        if (request.IsActive)
+        {
+            var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
+            if (plotFeature != null && plotFeature.IsEnabled)
+            {
+                var membership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(plot.UserId);
+                if (membership == null || !membership.IsActive)
+                    return BadRequestResponse("This user does not have an active membership.");
+                var svc = sp.GetRequiredService<IPaymentService>();
+                var canActivate = await svc.CanUserActivatePlotListingAsync(plot.UserId);
+                if (!canActivate)
+                    return BadRequestResponse($"This user has reached their active plot limit of {membership.MaxPlotListings}.");
+            }
+        }
+
         plot.IsActive = request.IsActive;
         plot.UpdatedAt = DateTime.UtcNow;
         await unitOfWork.PlotListings.UpdateAsync(plot);

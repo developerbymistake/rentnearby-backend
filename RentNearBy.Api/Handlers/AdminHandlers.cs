@@ -1124,10 +1124,26 @@ public static class AdminHandlers
     }
 
     public static async Task<IResult> ToggleAdminListingStatus(
-        Guid id, AdminToggleListingRequest request, ApplicationDbContext db)
+        Guid id, AdminToggleListingRequest request, ApplicationDbContext db,
+        IUnitOfWork unitOfWork, IServiceProvider sp)
     {
         var listing = await db.RoomListings.FindAsync(id);
         if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
+
+        if (request.IsActive)
+        {
+            var roomFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
+            if (roomFeature != null && roomFeature.IsEnabled)
+            {
+                var membership = await unitOfWork.RoomMemberships.GetActiveByUserIdAsync(listing.UserId);
+                if (membership == null || !membership.IsActive)
+                    return BadRequestResponse("This user does not have an active membership.");
+                var svc = sp.GetRequiredService<IPaymentService>();
+                var canActivate = await svc.CanUserActivateListingAsync(listing.UserId);
+                if (!canActivate)
+                    return BadRequestResponse($"This user has reached their active listing limit of {membership.MaxRooms}.");
+            }
+        }
 
         listing.IsActive = request.IsActive;
         listing.UpdatedAt = DateTime.UtcNow;
