@@ -402,13 +402,15 @@ public class PaymentService : IPaymentService
             if (transaction.RoomListingId.HasValue)
             {
                 var listing = await _unitOfWork.RoomListings.GetByIdAsync(transaction.RoomListingId.Value);
-                if (listing != null)
+                if (listing != null && !listing.IsDeleted)
                 {
                     // Always (re)apply IsActive/ValidUntil from this payment's membership — never skip
                     // based on the listing's current IsActive flag. That flag is only flushed to false
                     // once a day by MembershipExpiryService, so a listing whose membership already
                     // expired hours ago can still read IsActive=true here; skipping the update in that
                     // window silently discarded the plan the user just paid for.
+                    // IsDeleted guard: the user may have deleted this listing after starting the
+                    // payment but before Razorpay's checkout completed — don't resurrect it.
                     listing.IsActive = true;
                     listing.ValidUntil = membership.ValidUntil;
                     roomDistrictIds.Add(listing.DistrictId);
@@ -519,10 +521,11 @@ public class PaymentService : IPaymentService
         if (transaction.RoomListingId.HasValue)
         {
             var listing = await _unitOfWork.RoomListings.GetByIdAsync(transaction.RoomListingId.Value);
-            if (listing != null)
+            if (listing != null && !listing.IsDeleted)
             {
                 // Always (re)apply — see the matching comment in VerifyAndActivateAsync for why
                 // skipping this on listing.IsActive==true is wrong (stale flag, only flushed daily).
+                // IsDeleted guard: don't resurrect a listing deleted mid-payment.
                 listing.IsActive = true;
                 listing.ValidUntil = membership.ValidUntil;
                 districtId = listing.DistrictId;
@@ -821,10 +824,11 @@ public class PaymentService : IPaymentService
         if (transaction.PlotId.HasValue)
         {
             var plot = await _unitOfWork.PlotListings.GetByIdAsync(transaction.PlotId.Value);
-            if (plot != null)
+            if (plot != null && !plot.IsDeleted)
             {
                 // Always (re)apply IsActive/ValidUntil from this payment's membership — see the
                 // matching comment in VerifyAndActivateAsync for why skipping on IsActive==true is wrong.
+                // IsDeleted guard: don't resurrect a plot deleted mid-payment.
                 plot.IsActive = true;
                 plot.ValidUntil = membership.ValidUntil;
                 plotDistrictIds.Add(plot.DistrictId);
@@ -1020,10 +1024,11 @@ public class PaymentService : IPaymentService
         if (transaction.PlotId.HasValue)
         {
             var plot = await _unitOfWork.PlotListings.GetByIdAsync(transaction.PlotId.Value);
-            if (plot != null)
+            if (plot != null && !plot.IsDeleted)
             {
                 // Always (re)apply — see the matching comment in VerifyAndActivateAsync for why
                 // skipping this on plot.IsActive==true is wrong (stale flag, only flushed daily).
+                // IsDeleted guard: don't resurrect a plot deleted mid-payment.
                 plot.IsActive = true;
                 plot.ValidUntil = membership.ValidUntil;
                 freePlotListingDistrictId = plot.DistrictId;
