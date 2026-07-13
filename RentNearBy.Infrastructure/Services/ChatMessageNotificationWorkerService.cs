@@ -17,8 +17,7 @@ namespace RentNearBy.Infrastructure.Services;
 // the wrong semantics for a chat message that can legitimately arrive many times a day.
 public class ChatMessageNotificationWorkerService : BackgroundService
 {
-    private const string QueueName    = "chat.message.push";
-    private const string DlqQueueName = "dlq.chat.message.push";
+    private const string QueueName = "chat.message.push";
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IChatFcmService _chatFcmService;
@@ -59,24 +58,18 @@ public class ChatMessageNotificationWorkerService : BackgroundService
                         consumerDispatchConcurrency: 4),
                     cancellationToken: stoppingToken);
 
-                await channel.QueueDeclareAsync(
-                    queue: DlqQueueName,
-                    durable: true,
-                    exclusive: false,
-                    autoDelete: false,
-                    arguments: null,
-                    cancellationToken: stoppingToken);
-
+                // arguments: null — must match what the shared RabbitMqPublisher.PublishAsync
+                // declares with (it has no way to pass custom queue arguments), or RabbitMQ
+                // rejects the mismatched redeclare with a 406 and every publish silently fails.
+                // Same simple shape as ReportFiledWorkerService/DistrictDigestWorkerService/
+                // BroadcastWorkerService — no DLQ, nothing ever consumed dlq.chat.message.push
+                // anyway, so a native dead-letter queue here provided no real retry value.
                 await channel.QueueDeclareAsync(
                     queue: QueueName,
                     durable: true,
                     exclusive: false,
                     autoDelete: false,
-                    arguments: new Dictionary<string, object?>
-                    {
-                        ["x-dead-letter-exchange"]    = "",
-                        ["x-dead-letter-routing-key"] = DlqQueueName,
-                    },
+                    arguments: null,
                     cancellationToken: stoppingToken);
 
                 await channel.BasicQosAsync(

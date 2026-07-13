@@ -310,7 +310,8 @@ public static class ChatHandlers
 
     public static async Task<IResult> RespondContact(
         Guid messageId, RespondContactRequest request,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext, IMemoryCache cache)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext, IMemoryCache cache,
+        ApplicationDbContext db, IRabbitMqPublisher publisher)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
@@ -336,14 +337,35 @@ public static class ChatHandlers
             SenderId = callerId,
             Type = "contact_response",
             PayloadJson = payload,
+            RespondsToMessageId = messageId,
             CreatedAt = DateTime.UtcNow,
         };
 
         await unitOfWork.Messages.AddAsync(response);
         await ApplyToConversationAsync(conversation, callerId, conversation.RenterId, response, unitOfWork, cache);
-        await unitOfWork.SaveChangesAsync();
+
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Same race guard as RespondSchedule — see its comment.
+            var existing = await db.Messages.FirstOrDefaultAsync(m => m.RespondsToMessageId == messageId);
+            if (existing != null)
+            {
+                return OkResponse(new MessageDto
+                {
+                    Id = existing.Id, ConversationId = existing.ConversationId, SenderId = existing.SenderId,
+                    IsMine = existing.SenderId == callerId, Type = existing.Type, PayloadJson = existing.PayloadJson,
+                    RespondsToMessageId = existing.RespondsToMessageId, CreatedAt = existing.CreatedAt,
+                });
+            }
+            throw;
+        }
 
         await PushMessageAsync(hubContext, conversation, response);
+        await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, conversation.RenterId, response, cache);
 
         return OkResponse(new MessageDto
         {
@@ -356,7 +378,8 @@ public static class ChatHandlers
 
     public static async Task<IResult> RespondSchedule(
         Guid messageId, RespondScheduleRequest request, IValidator<RespondScheduleRequest> validator,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext, IMemoryCache cache)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext, IMemoryCache cache,
+        ApplicationDbContext db, IRabbitMqPublisher publisher)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -399,13 +422,38 @@ public static class ChatHandlers
                 SenderId = callerId,
                 Type = "schedule_proposal",
                 PayloadJson = JsonSerializer.Serialize(new { proposedAts = request.ProposedAts, status = "pending", supersedes = messageId }),
+                RespondsToMessageId = messageId,
                 CreatedAt = DateTime.UtcNow,
             };
             await unitOfWork.Messages.AddAsync(counter);
             await ApplyToConversationAsync(conversation, callerId, otherPartyId, counter, unitOfWork, cache);
-            await unitOfWork.SaveChangesAsync();
+
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // Lost a race against a concurrent response to the same proposal (double-tap,
+                // or a stale card whose actions were still on-screen after an earlier response
+                // already went through) — the partial unique index on RespondsToMessageId caught
+                // it. Same catch-and-return-the-winner shape SendMessage already uses for
+                // quick_reply answers.
+                var existing = await db.Messages.FirstOrDefaultAsync(m => m.RespondsToMessageId == messageId);
+                if (existing != null)
+                {
+                    return OkResponse(new MessageDto
+                    {
+                        Id = existing.Id, ConversationId = existing.ConversationId, SenderId = existing.SenderId,
+                        IsMine = existing.SenderId == callerId, Type = existing.Type, PayloadJson = existing.PayloadJson,
+                        RespondsToMessageId = existing.RespondsToMessageId, CreatedAt = existing.CreatedAt,
+                    });
+                }
+                throw;
+            }
 
             await PushMessageAsync(hubContext, conversation, counter);
+            await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, counter, cache);
             return OkResponse(new MessageDto
             {
                 Id = counter.Id, ConversationId = conversation.Id, SenderId = callerId, IsMine = true,
@@ -447,14 +495,35 @@ public static class ChatHandlers
             SenderId = callerId,
             Type = "schedule_response",
             PayloadJson = JsonSerializer.Serialize(responsePayload),
+            RespondsToMessageId = messageId,
             CreatedAt = DateTime.UtcNow,
         };
 
         await unitOfWork.Messages.AddAsync(response);
         await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
-        await unitOfWork.SaveChangesAsync();
+
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Same race guard as the "counter" branch above — see its comment.
+            var existing = await db.Messages.FirstOrDefaultAsync(m => m.RespondsToMessageId == messageId);
+            if (existing != null)
+            {
+                return OkResponse(new MessageDto
+                {
+                    Id = existing.Id, ConversationId = existing.ConversationId, SenderId = existing.SenderId,
+                    IsMine = existing.SenderId == callerId, Type = existing.Type, PayloadJson = existing.PayloadJson,
+                    RespondsToMessageId = existing.RespondsToMessageId, CreatedAt = existing.CreatedAt,
+                });
+            }
+            throw;
+        }
 
         await PushMessageAsync(hubContext, conversation, response);
+        await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, response, cache);
         return OkResponse(new MessageDto
         {
             Id = response.Id, ConversationId = conversation.Id, SenderId = callerId, IsMine = true,
