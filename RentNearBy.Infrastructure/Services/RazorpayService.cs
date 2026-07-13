@@ -93,12 +93,21 @@ public class RazorpayService : IRazorpayService
         // Idempotency key: prevents duplicate orders if request is retried
         var idempotencyKey = $"{receipt}-{DateTime.UtcNow:yyyyMMdd}";
 
+        // Razorpay orders never expire on their own (confirmed against Razorpay's own docs) —
+        // without this, a stale checkout page/old order could still be paid hours later, well
+        // past the window our own PaymentService logic assumes for "reuse vs. supersede". 20
+        // minutes gives safe margin over Razorpay's own minimum (expire_by must be strictly
+        // more than 15 minutes in the future, or order creation is rejected). Applies to every
+        // caller of this shared method — room and plot, fresh purchase and upgrade alike.
+        var expireBy = DateTimeOffset.UtcNow.AddMinutes(20).ToUnixTimeSeconds();
+
         var content = new FormUrlEncodedContent(new[]
         {
             new KeyValuePair<string, string>("amount", (amount * 100).ToString()),
             new KeyValuePair<string, string>("currency", "INR"),
             new KeyValuePair<string, string>("receipt", receipt),
-            new KeyValuePair<string, string>("notes[platform]", "RentNearBy")
+            new KeyValuePair<string, string>("notes[platform]", "RentNearBy"),
+            new KeyValuePair<string, string>("expire_by", expireBy.ToString())
         });
 
         _httpClient.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);

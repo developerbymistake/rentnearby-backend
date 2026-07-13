@@ -295,7 +295,10 @@ public static class PaymentHandlers
             // Only record the failure if nothing else has already settled this transaction —
             // e.g. the client's own signature check may have already marked it FAILED, or (in a
             // race) the payment may have genuinely gone on to succeed by the time this arrives.
-            if (transaction.Status == "PENDING")
+            // PENDING and ABANDONED (this transaction timed out in PendingPaymentCleanupService
+            // before we heard back) are both still-open outcomes — a payment.failed event is an
+            // authoritative "no" from Razorpay for either, so it correctly finalizes to FAILED.
+            if (transaction.Status == "PENDING" || transaction.Status == "ABANDONED")
             {
                 var errorDescription = entityEl.TryGetProperty("error_description", out var errEl)
                     ? errEl.GetString() : null;
@@ -311,11 +314,31 @@ public static class PaymentHandlers
         }
 
         // From here on, eventType == "payment.captured"
-        if (transaction.Status != "PENDING")
+        if (transaction.Status == "SUCCESS")
         {
-            // SUCCESS = the normal case, client's own /verify-payment already handled it.
-            // FAILED = already recorded (client-side signature check, or the payment.failed
-            // branch above on a prior webhook delivery). Either way, nothing further to do.
+            // The normal case — client's own /verify-payment already handled it. Nothing
+            // further to do.
+            //
+            // Deliberately NOT also terminal here: FAILED. Razorpay's own docs describe
+            // "late authorisations after apparent failures" (particularly with UPI) — a
+            // payment.failed event can genuinely be followed by a real payment.captured for the
+            // same payment. Treating FAILED as terminal here would silently strand that money
+            // forever. (The client-facing /verify-payment path still rejects an already-FAILED
+            // transaction outright — that guard protects against a different concern, a client
+            // resubmitting a stale/bad signature, and stays as-is; only this webhook path, which
+            // authenticates via its own independent signature rather than trusting client input,
+            // relaxes the check.) This is safe to allow through even if the user already paid
+            // again in the meantime — activation now extends the user's existing membership
+            // (see PaymentService's baseline/previousMembership logic) instead of resetting it,
+            // so a late-arriving duplicate success just adds validity days rather than
+            // overwriting/losing a newer membership.
+            //
+            // Also NOT terminal here: ABANDONED (marked by PendingPaymentCleanupService after 30
+            // minutes of silence) is NOT terminal — a payment.captured event here means the
+            // payment was real all along and just took longer than that timeout to confirm, so
+            // it must still fall through and activate below exactly like a PENDING transaction
+            // would. Treating ABANDONED as terminal
+            // here would silently strand a genuinely-paid user forever.
             return OkResponse(new { acknowledged = true });
         }
 

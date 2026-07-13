@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -42,7 +43,11 @@ public class PaymentService : IPaymentService
         _redis = redis;
     }
 
-    private async Task DeactivateExistingMembershipsAsync(Guid userId)
+    // Returns whichever membership it deactivated (or null) so callers can extend the new
+    // membership's ValidUntil from it, instead of always resetting to "now" — see PaymentService
+    // audit notes: a renewal/upgrade before the current plan expires should add to the
+    // remaining time, not discard it.
+    private async Task<RoomMembership?> DeactivateExistingMembershipsAsync(Guid userId)
     {
         var existing = await _unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
         if (existing != null)
@@ -50,6 +55,7 @@ public class PaymentService : IPaymentService
             existing.IsActive = false;
             existing.UpdatedAt = DateTime.UtcNow;
         }
+        return existing;
     }
 
     private async Task InvalidateNearbyCacheAsync(Guid? districtId)
@@ -125,8 +131,9 @@ public class PaymentService : IPaymentService
             {
                 if (!string.IsNullOrEmpty(existingPendingTransaction.RazorpayOrderId))
                 {
-                    // Razorpay orders expire after 15 minutes — reuse only within that window
-                    if (existingPendingTransaction.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
+                    // Matches the expire_by set on the Razorpay order itself (RazorpayService.
+                    // CreateOrderAsync) — reuse only within that same window.
+                    if (existingPendingTransaction.CreatedAt > DateTime.UtcNow.AddMinutes(-20))
                     {
                         return new CreatePaymentOrderResponse
                         {
@@ -136,8 +143,13 @@ public class PaymentService : IPaymentService
                             KeyId = _razorpay.GetKeyId()
                         };
                     }
-                    // Order expired: mark as FAILED so a fresh one can be created
-                    existingPendingTransaction.Status = "FAILED";
+                    // Order presumed expired: mark ABANDONED (not FAILED) so a fresh order can be
+                    // created. Same reasoning as PendingPaymentCleanupService — this is a timeout
+                    // presumption, not a genuine rejection; if the ORIGINAL payment's
+                    // payment.captured event still arrives late, it must remain recoverable
+                    // (ABANDONED falls through both the webhook's and the verify methods' terminal
+                    // checks) rather than permanently discarding a plan the user actually paid for.
+                    existingPendingTransaction.Status = "ABANDONED";
                     existingPendingTransaction.FailureReason = "Razorpay order expired — superseded by retry";
                     await _unitOfWork.SaveChangesAsync();
                 }
@@ -186,7 +198,31 @@ public class PaymentService : IPaymentService
 
         // Save transaction to DB BEFORE activating (critical for ActivateZeroPricePlanAsync to find it)
         await _unitOfWork.PaymentTransactions.AddAsync(transaction);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Lost a race against a concurrent create-order call for this same listing — the
+            // partial unique index on PENDING room-listing transactions caught it. Reuse
+            // whichever transaction actually won, same as the "existing pending" branch above.
+            // The Razorpay order this losing request just created is simply never handed to
+            // the client and goes unpaid — harmless, Razorpay doesn't charge for unpaid orders.
+            var winner = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+                .FirstOrDefault(t => t.RoomListingId == listingId && t.Status == "PENDING");
+            if (winner != null && !isFree && !string.IsNullOrEmpty(winner.RazorpayOrderId))
+            {
+                return new CreatePaymentOrderResponse
+                {
+                    OrderId = winner.RazorpayOrderId!,
+                    Amount = plan.OriginalPrice,
+                    Currency = "INR",
+                    KeyId = _razorpay.GetKeyId()
+                };
+            }
+            throw new InvalidOperationException("Payment order already exists for this listing. Please try again.");
+        }
 
         // For free plans: Auto-activate immediately (now transaction is in DB)
         if (isFree)
@@ -287,7 +323,35 @@ public class PaymentService : IPaymentService
         }
 
         await _unitOfWork.PaymentTransactions.AddAsync(transaction);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Lost a race against a concurrent request for this same listing (this method
+            // creates the same room-listing-PENDING shape as CreateOrderAsync, so it's subject
+            // to the same partial unique index). Reuse whichever transaction actually won.
+            var winner = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+                .FirstOrDefault(t => t.RoomListingId == listingId && t.Status == "PENDING");
+            // Guard against the winner being a FREE-plan transaction (neither this method's nor
+            // CreateOrderAsync's "existing pending" lookup filters by plan type, so a free-plan
+            // pending row and a paid-plan request can collide on the same RoomListingId key) —
+            // a free transaction never has a RazorpayOrderId, which would otherwise hand this
+            // paying user a response with a null order to check out against.
+            if (winner != null && !isFree && !string.IsNullOrEmpty(winner.RazorpayOrderId))
+            {
+                return new PaymentInitiateResponse
+                {
+                    TransactionId = winner.Id,
+                    RazorpayOrderId = winner.RazorpayOrderId,
+                    Amount = amount,
+                    PlanType = planType,
+                    Currency = "INR"
+                };
+            }
+            throw new InvalidOperationException("Payment order already exists for this listing. Please try again.");
+        }
 
         _logger.LogInformation($"Payment transaction initiated: {transaction.Id} for {planType} plan");
 
@@ -334,13 +398,34 @@ public class PaymentService : IPaymentService
             throw new UnauthorizedAccessException("Transaction doesn't belong to you.");
         }
 
+        // Only a genuine room-fresh-purchase transaction ever has RoomListingId set (room
+        // upgrades and any plot transaction never set it) — without this, a user could submit a
+        // different, genuinely-paid transaction's credentials (e.g. a plot purchase, or a room
+        // upgrade) straight to this endpoint. Room and plot plans share identical PlanType
+        // strings (both seed "BASIC"/"STANDARD"), so the plan lookup below would still resolve
+        // and the signature would still verify (it's a real Razorpay signature) — silently
+        // activating the wrong kind of membership while permanently stranding the transaction's
+        // real, intended purchase (marked SUCCESS here, so the correct verify endpoint would
+        // then reject it as already processed).
+        if (transaction.RoomListingId == null)
+        {
+            _logger.LogWarning($"Transaction {transaction.Id} is not a room-listing payment (RoomListingId is null)");
+            throw new InvalidOperationException("Transaction is not a room-listing payment.");
+        }
+
         if (transaction.Status == "SUCCESS")
         {
             _logger.LogWarning($"Transaction {transaction.Id} already processed");
             throw new InvalidOperationException("Transaction already processed.");
         }
 
-        if (transaction.Status == "FAILED")
+        // Only the client-facing path rejects an already-FAILED transaction outright (guards
+        // against a client resubmitting a stale/bad signature). The webhook path
+        // (skipSignatureCheck: true) deliberately lets this through — Razorpay's own docs
+        // describe genuine "late authorisations after apparent failures" (esp. UPI), so a
+        // FAILED transaction can still receive a real, signature-verified payment.captured
+        // later, and that must still activate rather than being silently discarded here.
+        if (transaction.Status == "FAILED" && !skipSignatureCheck)
         {
             _logger.LogWarning($"Transaction {transaction.Id} previously failed: {transaction.FailureReason}");
             throw new InvalidOperationException("Transaction previously failed. Please start a new payment.");
@@ -383,20 +468,26 @@ public class PaymentService : IPaymentService
                 throw new InvalidOperationException("RoomPlan configuration not found.");
             }
 
+            // Extend from whatever's currently active (if still valid) rather than resetting to
+            // "now" — a renewal before expiry adds to the remaining time instead of discarding it.
+            var previousMembership = await DeactivateExistingMembershipsAsync(userId);
+            var baseline = (previousMembership != null && previousMembership.ValidUntil > DateTime.UtcNow)
+                ? previousMembership.ValidUntil
+                : DateTime.UtcNow;
+
             var membership = new RoomMembership
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
                 PlanType = transaction.PlanType,
                 ValidFrom = DateTime.UtcNow,
-                ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+                ValidUntil = baseline.AddDays(plan.Days),
                 MaxRooms = plan.RoomLimit,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
 
-            await DeactivateExistingMembershipsAsync(userId);
             await _unitOfWork.RoomMemberships.AddAsync(membership);
 
             var roomDistrictIds = new HashSet<Guid?>();
@@ -502,20 +593,24 @@ public class PaymentService : IPaymentService
         transaction.Status = "SUCCESS";
         transaction.CompletedAt = DateTime.UtcNow;
 
+        var previousMembership = await DeactivateExistingMembershipsAsync(userId);
+        var baseline = (previousMembership != null && previousMembership.ValidUntil > DateTime.UtcNow)
+            ? previousMembership.ValidUntil
+            : DateTime.UtcNow;
+
         var membership = new RoomMembership
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             PlanType = transaction.PlanType,
             ValidFrom = DateTime.UtcNow,
-            ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+            ValidUntil = baseline.AddDays(plan.Days),
             MaxRooms = plan.RoomLimit,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
 
-        await DeactivateExistingMembershipsAsync(userId);
         await _unitOfWork.RoomMemberships.AddAsync(membership);
 
         Guid? districtId = null;
@@ -562,11 +657,15 @@ public class PaymentService : IPaymentService
         if (plan.OriginalPrice == 0)
             throw new ArgumentException("Upgrade requires a paid plan (price must be greater than 0).");
 
+        // TransactionKind == null (not "PLOT") is required here: room and plot plans share the
+        // same PlanType strings (e.g. both seed a "STANDARD"), and a plot-upgrade transaction
+        // also has RoomListingId == null — without this filter, a pending plot-upgrade order
+        // could be mistaken for a room-upgrade one and get verified as the wrong kind entirely.
         var existing = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
-            .FirstOrDefault(t => t.RoomListingId == null && t.PlanType == planType && t.Status == "PENDING");
+            .FirstOrDefault(t => t.RoomListingId == null && t.PlotId == null && t.TransactionKind == null && t.PlanType == planType && t.Status == "PENDING");
         if (existing != null && !string.IsNullOrEmpty(existing.RazorpayOrderId))
         {
-            if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
+            if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-20))
             {
                 return new CreatePaymentOrderResponse
                 {
@@ -576,7 +675,9 @@ public class PaymentService : IPaymentService
                     KeyId = _razorpay.GetKeyId()
                 };
             }
-            existing.Status = "FAILED";
+            // ABANDONED not FAILED — see the matching comment in CreateOrderAsync for why a
+            // timeout presumption must stay recoverable if the original payment completes late.
+            existing.Status = "ABANDONED";
             existing.FailureReason = "Razorpay order expired — superseded by retry";
             await _unitOfWork.SaveChangesAsync();
         }
@@ -596,7 +697,28 @@ public class PaymentService : IPaymentService
             CreatedAt = DateTime.UtcNow
         };
         await _unitOfWork.PaymentTransactions.AddAsync(transaction);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Lost a race against a concurrent upgrade-order request for this same user+plan —
+            // the partial unique index on PENDING room-upgrade transactions caught it.
+            var winner = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+                .FirstOrDefault(t => t.RoomListingId == null && t.PlotId == null && t.TransactionKind == null && t.PlanType == planType && t.Status == "PENDING");
+            if (winner != null && !string.IsNullOrEmpty(winner.RazorpayOrderId))
+            {
+                return new CreatePaymentOrderResponse
+                {
+                    OrderId = winner.RazorpayOrderId!,
+                    Amount = plan.OriginalPrice,
+                    Currency = "INR",
+                    KeyId = _razorpay.GetKeyId()
+                };
+            }
+            throw new InvalidOperationException("Upgrade order already exists. Please try again.");
+        }
 
         return new CreatePaymentOrderResponse
         {
@@ -612,6 +734,17 @@ public class PaymentService : IPaymentService
         var transaction = await _unitOfWork.PaymentTransactions.GetByRazorpayOrderIdAsync(request.RazorpayOrderId);
         if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
         if (transaction.UserId != userId) throw new UnauthorizedAccessException("Not your transaction.");
+        // Defense in depth: room and plot upgrade transactions can share the same PlanType string
+        // (both seed e.g. "STANDARD"), and a plot-upgrade transaction also has RoomListingId ==
+        // null — CreateUpgradeOrderAsync's own lookups are now kind-filtered to prevent handing
+        // out a plot transaction's order here in the first place, but this guard makes sure a
+        // wrong-kind transaction can never activate a RoomMembership even if it somehow arrives.
+        // Also rejects RoomListingId != null: a genuine room-FRESH-purchase transaction's
+        // credentials submitted here would otherwise pass (same PlanType, no PlotId/PLOT kind),
+        // get marked SUCCESS without ever activating its actual listing, and permanently block
+        // the correct VerifyAndActivateAsync call afterward ("already processed").
+        if (transaction.TransactionKind == "PLOT" || transaction.PlotId != null || transaction.RoomListingId != null)
+            throw new InvalidOperationException("Transaction is not a room-plan upgrade.");
         if (transaction.Status == "SUCCESS") throw new InvalidOperationException("Already processed.");
 
         if (!skipSignatureCheck && !_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
@@ -632,20 +765,24 @@ public class PaymentService : IPaymentService
         if (plan == null)
             throw new InvalidOperationException($"RoomPlan '{transaction.PlanType}' not configured.");
 
+        var previousMembership = await DeactivateExistingMembershipsAsync(userId);
+        var baseline = (previousMembership != null && previousMembership.ValidUntil > DateTime.UtcNow)
+            ? previousMembership.ValidUntil
+            : DateTime.UtcNow;
+
         var membership = new RoomMembership
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             PlanType = transaction.PlanType,
             ValidFrom = DateTime.UtcNow,
-            ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+            ValidUntil = baseline.AddDays(plan.Days),
             MaxRooms = plan.RoomLimit,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
 
-        await DeactivateExistingMembershipsAsync(userId);
         await _unitOfWork.RoomMemberships.AddAsync(membership);
 
         var listings = await _unitOfWork.RoomListings.GetByUserIdAsync(userId);
@@ -674,7 +811,9 @@ public class PaymentService : IPaymentService
 
     // ── PlotListing payment methods ──────────────────────────────────────────────────
 
-    private async Task DeactivateExistingPlotMembershipsAsync(Guid userId)
+    // See the matching comment on DeactivateExistingMembershipsAsync (room side) for why this
+    // returns the deactivated membership instead of discarding it.
+    private async Task<PlotMembership?> DeactivateExistingPlotMembershipsAsync(Guid userId)
     {
         var existing = await _unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
         if (existing != null)
@@ -682,6 +821,7 @@ public class PaymentService : IPaymentService
             existing.IsActive = false;
             existing.UpdatedAt = DateTime.UtcNow;
         }
+        return existing;
     }
 
     public async Task<CreatePaymentOrderResponse> CreatePlotListingOrderAsync(Guid userId, Guid plotId, string planType)
@@ -720,9 +860,10 @@ public class PaymentService : IPaymentService
             {
                 if (!string.IsNullOrEmpty(existingPending.RazorpayOrderId))
                 {
-                    if (existingPending.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
+                    if (existingPending.CreatedAt > DateTime.UtcNow.AddMinutes(-20))
                         return new CreatePaymentOrderResponse { OrderId = existingPending.RazorpayOrderId!, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
-                    existingPending.Status = "FAILED";
+                    // ABANDONED not FAILED — see the matching comment in CreateOrderAsync.
+                    existingPending.Status = "ABANDONED";
                     existingPending.FailureReason = "Razorpay order expired — superseded by retry";
                     await _unitOfWork.SaveChangesAsync();
                 }
@@ -762,7 +903,22 @@ public class PaymentService : IPaymentService
         }
 
         await _unitOfWork.PaymentTransactions.AddAsync(transaction);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Lost a race against a concurrent create-order call for this same plot — the
+            // partial unique index on PENDING plot-listing transactions caught it.
+            var winner = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+                .FirstOrDefault(t => t.PlotId == plotId && t.Status == "PENDING");
+            if (winner != null && !isFree && !string.IsNullOrEmpty(winner.RazorpayOrderId))
+            {
+                return new CreatePaymentOrderResponse { OrderId = winner.RazorpayOrderId!, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
+            }
+            throw new InvalidOperationException("Payment order already exists for this plot. Please try again.");
+        }
 
         if (isFree)
         {
@@ -780,8 +936,13 @@ public class PaymentService : IPaymentService
         var transaction = await _unitOfWork.PaymentTransactions.GetByRazorpayOrderIdAsync(request.RazorpayOrderId);
         if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
         if (transaction.UserId != userId) throw new UnauthorizedAccessException("Transaction doesn't belong to you.");
+        // See the matching comment in VerifyAndActivateAsync — only a genuine plot-fresh-purchase
+        // transaction ever has PlotId set (plot upgrades and any room transaction never set it).
+        if (transaction.PlotId == null) throw new InvalidOperationException("Transaction is not a plot-listing payment.");
         if (transaction.Status == "SUCCESS") throw new InvalidOperationException("Transaction already processed.");
-        if (transaction.Status == "FAILED") throw new InvalidOperationException("Transaction previously failed. Please start a new payment.");
+        // See the matching comment in VerifyAndActivateAsync — the webhook path (skipSignatureCheck)
+        // deliberately lets a late genuine payment.captured through even for a FAILED transaction.
+        if (transaction.Status == "FAILED" && !skipSignatureCheck) throw new InvalidOperationException("Transaction previously failed. Please start a new payment.");
 
         var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(transaction.PlanType);
         bool isFree = plan?.OriginalPrice == 0;
@@ -805,20 +966,24 @@ public class PaymentService : IPaymentService
         var plotPaymentFeature = await _unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
         if (plan == null) throw new InvalidOperationException("RoomPlan configuration not found.");
 
+        var previousMembership = await DeactivateExistingPlotMembershipsAsync(userId);
+        var baseline = (previousMembership != null && previousMembership.ValidUntil > DateTime.UtcNow)
+            ? previousMembership.ValidUntil
+            : DateTime.UtcNow;
+
         var membership = new PlotMembership
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             PlanType = transaction.PlanType,
             ValidFrom = DateTime.UtcNow,
-            ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+            ValidUntil = baseline.AddDays(plan.Days),
             MaxPlotListings = plan.PlotListingLimit,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
 
-        await DeactivateExistingPlotMembershipsAsync(userId);
         await _unitOfWork.PlotMemberships.AddAsync(membership);
 
         var plotDistrictIds = new HashSet<Guid?>();
@@ -904,9 +1069,10 @@ public class PaymentService : IPaymentService
             .FirstOrDefault(t => t.PlotId == null && t.RoomListingId == null && t.TransactionKind == "PLOT" && t.PlanType == planType && t.Status == "PENDING");
         if (existing != null && !string.IsNullOrEmpty(existing.RazorpayOrderId))
         {
-            if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-15))
+            if (existing.CreatedAt > DateTime.UtcNow.AddMinutes(-20))
                 return new CreatePaymentOrderResponse { OrderId = existing.RazorpayOrderId!, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
-            existing.Status = "FAILED";
+            // ABANDONED not FAILED — see the matching comment in CreateOrderAsync.
+            existing.Status = "ABANDONED";
             existing.FailureReason = "Razorpay order expired — superseded by retry";
             await _unitOfWork.SaveChangesAsync();
         }
@@ -928,7 +1094,22 @@ public class PaymentService : IPaymentService
             CreatedAt = DateTime.UtcNow
         };
         await _unitOfWork.PaymentTransactions.AddAsync(transaction);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Lost a race against a concurrent plot-upgrade request for this same user+plan —
+            // the partial unique index on PENDING plot-upgrade transactions caught it.
+            var winner = (await _unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
+                .FirstOrDefault(t => t.PlotId == null && t.RoomListingId == null && t.TransactionKind == "PLOT" && t.PlanType == planType && t.Status == "PENDING");
+            if (winner != null && !string.IsNullOrEmpty(winner.RazorpayOrderId))
+            {
+                return new CreatePaymentOrderResponse { OrderId = winner.RazorpayOrderId!, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
+            }
+            throw new InvalidOperationException("Upgrade order already exists. Please try again.");
+        }
 
         return new CreatePaymentOrderResponse { OrderId = orderId, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
     }
@@ -938,6 +1119,16 @@ public class PaymentService : IPaymentService
         var transaction = await _unitOfWork.PaymentTransactions.GetByRazorpayOrderIdAsync(request.RazorpayOrderId);
         if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
         if (transaction.UserId != userId) throw new UnauthorizedAccessException("Not your transaction.");
+        // Defense in depth (mirrors the guard in VerifyUpgradePaymentAsync): this transaction's
+        // own creation lookup (CreatePlotListingUpgradeOrderAsync) already filters by
+        // TransactionKind == "PLOT", so a room transaction should never reach here through
+        // normal flow — but reject explicitly rather than silently trusting that invariant.
+        // Also rejects PlotId != null: a genuine plot-FRESH-purchase transaction's credentials
+        // submitted here would otherwise pass (same PlanType, no RoomListingId, already "PLOT"
+        // kind), get marked SUCCESS without ever activating its actual plot, and permanently
+        // block the correct VerifyPlotListingPaymentAsync call afterward ("already processed").
+        if (transaction.TransactionKind != "PLOT" || transaction.RoomListingId != null || transaction.PlotId != null)
+            throw new InvalidOperationException("Transaction is not a plot-plan upgrade.");
         if (transaction.Status == "SUCCESS") throw new InvalidOperationException("Already processed.");
 
         if (!skipSignatureCheck && !_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
@@ -956,20 +1147,24 @@ public class PaymentService : IPaymentService
         var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(transaction.PlanType);
         if (plan == null) throw new InvalidOperationException($"RoomPlan '{transaction.PlanType}' not configured.");
 
+        var previousMembership = await DeactivateExistingPlotMembershipsAsync(userId);
+        var baseline = (previousMembership != null && previousMembership.ValidUntil > DateTime.UtcNow)
+            ? previousMembership.ValidUntil
+            : DateTime.UtcNow;
+
         var membership = new PlotMembership
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             PlanType = transaction.PlanType,
             ValidFrom = DateTime.UtcNow,
-            ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+            ValidUntil = baseline.AddDays(plan.Days),
             MaxPlotListings = plan.PlotListingLimit,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
 
-        await DeactivateExistingPlotMembershipsAsync(userId);
         await _unitOfWork.PlotMemberships.AddAsync(membership);
 
         var activePlotListings = await _unitOfWork.PlotListings.GetActiveByUserIdAsync(userId);
@@ -1005,20 +1200,24 @@ public class PaymentService : IPaymentService
         transaction.Status = "SUCCESS";
         transaction.CompletedAt = DateTime.UtcNow;
 
+        var previousMembership = await DeactivateExistingPlotMembershipsAsync(userId);
+        var baseline = (previousMembership != null && previousMembership.ValidUntil > DateTime.UtcNow)
+            ? previousMembership.ValidUntil
+            : DateTime.UtcNow;
+
         var membership = new PlotMembership
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             PlanType = transaction.PlanType,
             ValidFrom = DateTime.UtcNow,
-            ValidUntil = DateTime.UtcNow.AddDays(plan.Days),
+            ValidUntil = baseline.AddDays(plan.Days),
             MaxPlotListings = plan.PlotListingLimit,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
 
-        await DeactivateExistingPlotMembershipsAsync(userId);
         await _unitOfWork.PlotMemberships.AddAsync(membership);
 
         Guid? freePlotListingDistrictId = null;

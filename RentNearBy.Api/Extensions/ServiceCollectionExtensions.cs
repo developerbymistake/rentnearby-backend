@@ -40,6 +40,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<PlotMembershipExpiryService>();
         // Register background service for district digest aggregation (runs at 4:00 AM IST daily)
         services.AddHostedService<DistrictDigestJobService>();
+        // Register background service for abandoned-PENDING payment cleanup (runs every 30 min)
+        services.AddHostedService<PendingPaymentCleanupService>();
 
         services.AddHttpClient<IRazorpayService, RazorpayService>();
 

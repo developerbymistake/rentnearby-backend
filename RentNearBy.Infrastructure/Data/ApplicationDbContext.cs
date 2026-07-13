@@ -389,6 +389,39 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(t => t.Status);
             e.HasIndex(t => t.CreatedAt);
             e.HasIndex(t => t.RazorpayOrderId);
+
+            // Race-safe under concurrent create-order attempts (double-tap, retry-on-timeout,
+            // two sessions) — same pattern as ix_listingreports_reporter_listing_pending and
+            // ix_conversations_renter_owner_listing above: the app-level "existing pending?"
+            // check in PaymentService is check-then-act, so these partial unique indexes are
+            // what actually prevent two live PENDING orders for the same target.
+            e.HasIndex(t => t.RoomListingId)
+             .IsUnique()
+             .HasDatabaseName("ix_paymenttransactions_pending_room_listing")
+             .HasFilter("\"Status\" = 'PENDING' AND \"RoomListingId\" IS NOT NULL");
+
+            // NOTE: both upgrade indexes below are on the identical (UserId, PlanType) property
+            // pair — EF Core's fluent HasIndex() resolves repeated calls on the SAME property
+            // list to the SAME underlying index object (last-writer-wins on name/filter/unique),
+            // so calling the parameterless HasIndex(expr) twice here would silently make the
+            // second overwrite the first and only one index would ever reach the database
+            // (this exact bug shipped once already — caught only by re-checking
+            // ApplicationDbContextModelSnapshot.cs and `dotnet ef migrations has-pending-model-changes`
+            // after the fact). The fix is to name each index directly in the HasIndex(...) call
+            // itself, which EF treats as creating genuinely distinct indexes even on the same
+            // columns.
+            e.HasIndex(t => new { t.UserId, t.PlanType }, "ix_paymenttransactions_pending_room_upgrade")
+             .IsUnique()
+             .HasFilter("\"Status\" = 'PENDING' AND \"RoomListingId\" IS NULL AND \"PlotId\" IS NULL AND \"TransactionKind\" IS NULL");
+
+            e.HasIndex(t => t.PlotId)
+             .IsUnique()
+             .HasDatabaseName("ix_paymenttransactions_pending_plot_listing")
+             .HasFilter("\"Status\" = 'PENDING' AND \"PlotId\" IS NOT NULL");
+
+            e.HasIndex(t => new { t.UserId, t.PlanType }, "ix_paymenttransactions_pending_plot_upgrade")
+             .IsUnique()
+             .HasFilter("\"Status\" = 'PENDING' AND \"RoomListingId\" IS NULL AND \"PlotId\" IS NULL AND \"TransactionKind\" = 'PLOT'");
         });
 
         modelBuilder.Entity<AppFeature>(e =>
