@@ -36,26 +36,24 @@ public class ChatFcmService : IChatFcmService
 
     public async Task<bool> SendAsync(string token, string title, string body, Guid conversationId)
     {
+        // Data-only (no Notification block) so this is delivered to the client's own
+        // FirebaseMessagingService.onMessageReceived in every app state, including
+        // backgrounded/killed — a combined notification+data payload is auto-rendered by
+        // Play Services itself before any app code runs, which would make it impossible
+        // for the client to draw a per-sender avatar or stack consecutive messages into
+        // one notification (see ChatNotificationService.kt on the client).
         var message = new Message
         {
             Token = token,
-            Notification = new Notification
-            {
-                Title = title,
-                Body = body
-            },
             Data = new Dictionary<string, string>
             {
-                { "conversation_id", conversationId.ToString() }
+                { "conversation_id", conversationId.ToString() },
+                { "title", title },
+                { "body", body }
             },
             Android = new AndroidConfig
             {
-                Priority = Priority.High,
-                Notification = new AndroidNotification
-                {
-                    Sound = "default",
-                    ClickAction = "FLUTTER_NOTIFICATION_CLICK"
-                }
+                Priority = Priority.High
             }
         };
 
