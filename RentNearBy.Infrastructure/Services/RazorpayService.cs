@@ -12,6 +12,7 @@ public interface IRazorpayService
 {
     Task<(string OrderId, int Amount)> CreateOrderAsync(int amount, string receipt);
     bool VerifyPaymentSignature(string orderId, string paymentId, string signature);
+    bool VerifyWebhookSignature(string rawBody, string? signatureHeader);
     string GetKeyId();
 }
 
@@ -19,6 +20,7 @@ public class RazorpayService : IRazorpayService
 {
     private readonly string _keyId;
     private readonly string _keySecret;
+    private readonly string? _webhookSecret;
     private readonly HttpClient _httpClient;
     private readonly ILogger<RazorpayService> _logger;
     private readonly IAsyncPolicy<HttpResponseMessage> _retryPolicy;
@@ -34,6 +36,12 @@ public class RazorpayService : IRazorpayService
         _keySecret = config["Razorpay:KeySecret"]
                      ?? Environment.GetEnvironmentVariable("RAZORPAY_KEY_SECRET")
                      ?? throw new InvalidOperationException("Razorpay KeySecret not configured");
+        // Optional (unlike KeyId/KeySecret): the webhook receiver is a safety net on top of the
+        // client-driven checkout flow, not required for checkout itself to function — missing
+        // this must not stop the whole service (and every order-creation call) from starting up.
+        // VerifyWebhookSignature below rejects everything until this is actually set.
+        _webhookSecret = config["Razorpay:WebhookSecret"]
+                     ?? Environment.GetEnvironmentVariable("RAZORPAY_WEBHOOK_SECRET");
         _httpClient = httpClient;
         _logger = logger;
 
@@ -166,6 +174,46 @@ public class RazorpayService : IRazorpayService
         catch (Exception ex)
         {
             _logger.LogError($"Error verifying signature: {ex.Message}");
+            return false;
+        }
+    }
+
+    // Separate from VerifyPaymentSignature above: webhook signatures are HMAC-SHA256 over the
+    // RAW request body bytes (not "orderId|paymentId"), keyed with the webhook secret configured
+    // on Razorpay's dashboard (a different value than the checkout KeySecret). Uses a
+    // constant-time comparison since this gate sits behind an anonymous, internet-facing route.
+    public bool VerifyWebhookSignature(string rawBody, string? signatureHeader)
+    {
+        if (string.IsNullOrWhiteSpace(_webhookSecret))
+        {
+            _logger.LogError("Razorpay webhook received but WebhookSecret is not configured — rejecting.");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(rawBody) || string.IsNullOrWhiteSpace(signatureHeader))
+        {
+            _logger.LogWarning("Webhook signature verification attempted with missing body or signature header");
+            return false;
+        }
+
+        try
+        {
+            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_webhookSecret));
+            var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(rawBody));
+            var computedSignature = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+
+            var isValid = CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(computedSignature),
+                Encoding.UTF8.GetBytes(signatureHeader.ToLowerInvariant()));
+
+            if (!isValid)
+                _logger.LogWarning("Webhook signature verification failed");
+
+            return isValid;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error verifying webhook signature: {ex.Message}");
             return false;
         }
     }

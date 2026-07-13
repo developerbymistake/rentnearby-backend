@@ -12,19 +12,19 @@ public interface IPaymentService
 {
     Task<CreatePaymentOrderResponse> CreateOrderAsync(Guid userId, Guid listingId, string planType);
     Task<PaymentInitiateResponse> InitiatePaymentAsync(Guid userId, Guid listingId, string planType);
-    Task<PaymentVerifyResponse> VerifyAndActivateAsync(Guid userId, VerifyPaymentRequest request);
+    Task<PaymentVerifyResponse> VerifyAndActivateAsync(Guid userId, VerifyPaymentRequest request, bool skipSignatureCheck = false);
     Task<bool> CanUserActivateListingAsync(Guid userId);
     Task<int> GetActiveRoomCountAsync(Guid userId);
     Task<CreatePaymentOrderResponse> CreateUpgradeOrderAsync(Guid userId, string planType);
-    Task<PaymentVerifyResponse> VerifyUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request);
+    Task<PaymentVerifyResponse> VerifyUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request, bool skipSignatureCheck = false);
 
     // PlotListing payment methods
     Task<CreatePaymentOrderResponse> CreatePlotListingOrderAsync(Guid userId, Guid plotId, string planType);
-    Task<PlotListingPaymentVerifyResponse> VerifyPlotListingPaymentAsync(Guid userId, VerifyPaymentRequest request);
+    Task<PlotListingPaymentVerifyResponse> VerifyPlotListingPaymentAsync(Guid userId, VerifyPaymentRequest request, bool skipSignatureCheck = false);
     Task<bool> CanUserActivatePlotListingAsync(Guid userId);
     Task<int> GetActivePlotListingCountAsync(Guid userId);
     Task<CreatePaymentOrderResponse> CreatePlotListingUpgradeOrderAsync(Guid userId, string planType);
-    Task<PlotListingPaymentVerifyResponse> VerifyPlotListingUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request);
+    Task<PlotListingPaymentVerifyResponse> VerifyPlotListingUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request, bool skipSignatureCheck = false);
 }
 
 public class PaymentService : IPaymentService
@@ -317,7 +317,7 @@ public class PaymentService : IPaymentService
         };
     }
 
-    public async Task<PaymentVerifyResponse> VerifyAndActivateAsync(Guid userId, VerifyPaymentRequest request)
+    public async Task<PaymentVerifyResponse> VerifyAndActivateAsync(Guid userId, VerifyPaymentRequest request, bool skipSignatureCheck = false)
     {
         _logger.LogInformation($"Verifying payment for user {userId}, order {request.RazorpayOrderId}");
 
@@ -350,8 +350,9 @@ public class PaymentService : IPaymentService
         var plan = await _unitOfWork.RoomPlans.GetByPlanTypeAsync(transaction.PlanType);
         bool isFree = plan?.OriginalPrice == 0;
 
-        // Verify Razorpay signature for paid plans only
-        if (!isFree)
+        // Verify Razorpay signature for paid plans only — skipped when called from the webhook
+        // receiver, which already authenticated the request via its own (different) signature.
+        if (!isFree && !skipSignatureCheck)
         {
             if (!_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
             {
@@ -606,14 +607,14 @@ public class PaymentService : IPaymentService
         };
     }
 
-    public async Task<PaymentVerifyResponse> VerifyUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request)
+    public async Task<PaymentVerifyResponse> VerifyUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request, bool skipSignatureCheck = false)
     {
         var transaction = await _unitOfWork.PaymentTransactions.GetByRazorpayOrderIdAsync(request.RazorpayOrderId);
         if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
         if (transaction.UserId != userId) throw new UnauthorizedAccessException("Not your transaction.");
         if (transaction.Status == "SUCCESS") throw new InvalidOperationException("Already processed.");
 
-        if (!_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
+        if (!skipSignatureCheck && !_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
         {
             transaction.Status = "FAILED";
             transaction.FailureReason = "Signature verification failed";
@@ -772,7 +773,7 @@ public class PaymentService : IPaymentService
         return new CreatePaymentOrderResponse { OrderId = transaction.RazorpayOrderId!, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
     }
 
-    public async Task<PlotListingPaymentVerifyResponse> VerifyPlotListingPaymentAsync(Guid userId, VerifyPaymentRequest request)
+    public async Task<PlotListingPaymentVerifyResponse> VerifyPlotListingPaymentAsync(Guid userId, VerifyPaymentRequest request, bool skipSignatureCheck = false)
     {
         _logger.LogInformation($"Verifying plot payment for user {userId}, order {request.RazorpayOrderId}");
 
@@ -785,7 +786,7 @@ public class PaymentService : IPaymentService
         var plan = await _unitOfWork.PlotPlans.GetByPlanTypeAsync(transaction.PlanType);
         bool isFree = plan?.OriginalPrice == 0;
 
-        if (!isFree)
+        if (!isFree && !skipSignatureCheck)
         {
             if (!_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
             {
@@ -932,14 +933,14 @@ public class PaymentService : IPaymentService
         return new CreatePaymentOrderResponse { OrderId = orderId, Amount = plan.OriginalPrice, Currency = "INR", KeyId = _razorpay.GetKeyId() };
     }
 
-    public async Task<PlotListingPaymentVerifyResponse> VerifyPlotListingUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request)
+    public async Task<PlotListingPaymentVerifyResponse> VerifyPlotListingUpgradePaymentAsync(Guid userId, VerifyPaymentRequest request, bool skipSignatureCheck = false)
     {
         var transaction = await _unitOfWork.PaymentTransactions.GetByRazorpayOrderIdAsync(request.RazorpayOrderId);
         if (transaction == null) throw new KeyNotFoundException("Transaction not found.");
         if (transaction.UserId != userId) throw new UnauthorizedAccessException("Not your transaction.");
         if (transaction.Status == "SUCCESS") throw new InvalidOperationException("Already processed.");
 
-        if (!_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
+        if (!skipSignatureCheck && !_razorpay.VerifyPaymentSignature(request.RazorpayOrderId, request.RazorpayPaymentId, request.RazorpaySignature))
         {
             transaction.Status = "FAILED";
             transaction.FailureReason = "Signature verification failed";
