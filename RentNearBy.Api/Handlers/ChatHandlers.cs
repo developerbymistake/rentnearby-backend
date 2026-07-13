@@ -23,7 +23,7 @@ public static class ChatHandlers
     private static readonly TimeSpan NewConversationWindow = TimeSpan.FromHours(24);
     private const int SendMessageMaxPerMinute = 20;
     private static readonly TimeSpan SendMessageWindow = TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan NewAccountCooldown = TimeSpan.FromHours(24);
+    private static readonly TimeSpan NewAccountCooldown = TimeSpan.FromHours(1);
 
     private const int DefaultPageSize = 30;
 
@@ -75,8 +75,12 @@ public static class ChatHandlers
         var caller = await unitOfWork.Users.GetByIdAsync(callerId);
         if (caller == null) return NotFoundResponse("User not found");
 
-        if (DateTime.UtcNow - caller.CreatedAt < NewAccountCooldown)
-            return ForbiddenResponse("New accounts can't start a chat yet — please try again in a bit.");
+        var accountAge = DateTime.UtcNow - caller.CreatedAt;
+        if (accountAge < NewAccountCooldown)
+        {
+            var remainingMinutes = Math.Max(1, (int)Math.Ceiling((NewAccountCooldown - accountAge).TotalMinutes));
+            return ForbiddenResponse($"You have a new account, so you can't chat yet. Try again in {remainingMinutes} min.");
+        }
 
         var ownerId = request.ListingType == "Room"
             ? await db.RoomListings.Where(l => l.Id == request.ListingId && !l.IsDeleted).Select(l => (Guid?)l.UserId).FirstOrDefaultAsync()
