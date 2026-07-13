@@ -404,21 +404,11 @@ public class PaymentService : IPaymentService
                 var listing = await _unitOfWork.RoomListings.GetByIdAsync(transaction.RoomListingId.Value);
                 if (listing != null)
                 {
-                    if (listing.IsActive)
-                    {
-                        _logger.LogWarning($"RoomListing {listing.Id} is already active");
-                        await _unitOfWork.SaveChangesAsync();
-                        return new PaymentVerifyResponse
-                        {
-                            Success = true,
-                            Message = "Payment successful. Your listing is now live!",
-                            RoomMembershipId = membership.Id,
-                            ValidUntil = membership.ValidUntil,
-                            PlanType = transaction.PlanType,
-                            MaxRooms = membership.MaxRooms
-                        };
-                    }
-
+                    // Always (re)apply IsActive/ValidUntil from this payment's membership — never skip
+                    // based on the listing's current IsActive flag. That flag is only flushed to false
+                    // once a day by MembershipExpiryService, so a listing whose membership already
+                    // expired hours ago can still read IsActive=true here; skipping the update in that
+                    // window silently discarded the plan the user just paid for.
                     listing.IsActive = true;
                     listing.ValidUntil = membership.ValidUntil;
                     roomDistrictIds.Add(listing.DistrictId);
@@ -529,8 +519,10 @@ public class PaymentService : IPaymentService
         if (transaction.RoomListingId.HasValue)
         {
             var listing = await _unitOfWork.RoomListings.GetByIdAsync(transaction.RoomListingId.Value);
-            if (listing != null && !listing.IsActive)
+            if (listing != null)
             {
+                // Always (re)apply — see the matching comment in VerifyAndActivateAsync for why
+                // skipping this on listing.IsActive==true is wrong (stale flag, only flushed daily).
                 listing.IsActive = true;
                 listing.ValidUntil = membership.ValidUntil;
                 districtId = listing.DistrictId;
@@ -831,20 +823,8 @@ public class PaymentService : IPaymentService
             var plot = await _unitOfWork.PlotListings.GetByIdAsync(transaction.PlotId.Value);
             if (plot != null)
             {
-                if (plot.IsActive)
-                {
-                    _logger.LogWarning($"PlotListing {plot.Id} is already active");
-                    await _unitOfWork.SaveChangesAsync();
-                    return new PlotListingPaymentVerifyResponse
-                    {
-                        Success = true,
-                        Message = "Payment successful. Your plot listing is now live!",
-                        PlotMembershipId = membership.Id,
-                        ValidUntil = membership.ValidUntil,
-                        PlanType = transaction.PlanType,
-                        MaxPlotListings = membership.MaxPlotListings
-                    };
-                }
+                // Always (re)apply IsActive/ValidUntil from this payment's membership — see the
+                // matching comment in VerifyAndActivateAsync for why skipping on IsActive==true is wrong.
                 plot.IsActive = true;
                 plot.ValidUntil = membership.ValidUntil;
                 plotDistrictIds.Add(plot.DistrictId);
@@ -1040,8 +1020,10 @@ public class PaymentService : IPaymentService
         if (transaction.PlotId.HasValue)
         {
             var plot = await _unitOfWork.PlotListings.GetByIdAsync(transaction.PlotId.Value);
-            if (plot != null && !plot.IsActive)
+            if (plot != null)
             {
+                // Always (re)apply — see the matching comment in VerifyAndActivateAsync for why
+                // skipping this on plot.IsActive==true is wrong (stale flag, only flushed daily).
                 plot.IsActive = true;
                 plot.ValidUntil = membership.ValidUntil;
                 freePlotListingDistrictId = plot.DistrictId;
