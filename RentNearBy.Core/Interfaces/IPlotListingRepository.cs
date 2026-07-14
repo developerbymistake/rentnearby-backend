@@ -6,6 +6,7 @@ namespace RentNearBy.Core.Interfaces;
 public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
 {
     Task<IEnumerable<NearbyPlotListingDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId);
+    Task<(IReadOnlyList<NearMePlotListingDto> Items, int TotalMatching)> GetNearestAsync(double latitude, double longitude, Guid districtId, Guid? plotTypeId, int limit);
     Task<IEnumerable<PlotListing>> GetByUserIdAsync(Guid userId);
     Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetByUserIdPagedAsync(Guid userId, int page, int pageSize);
     Task<PlotListing?> GetByIdWithPhotosAsync(Guid id);

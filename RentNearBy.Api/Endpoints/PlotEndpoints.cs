@@ -9,6 +9,7 @@ public static class PlotListingEndpoints
         group.MapGet("/plans", PlotListingHandlers.GetPublicPlotPlans);
         group.MapGet("/context", PlotListingHandlers.GetContext);
         group.MapGet("/nearby", PlotListingHandlers.GetNearby);
+        group.MapGet("/nearest", PlotListingHandlers.GetNearest);
         group.MapGet("/{id:guid}", PlotListingHandlers.GetById);
 
         group.MapGet("/my", PlotListingHandlers.GetMyPlotListings).RequireAuthorization();

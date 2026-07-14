@@ -82,6 +82,84 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
             .ToList();
     }
 
+    private record KnnQueryResult(
+        Guid Id, double Lat, double Lng, double AreaValue, string AreaUnit,
+        Guid PlotTypeId, string PlotType, string? OwnerName, string? OwnerPhone,
+        string? ThumbnailUrl, double DistanceKm);
+
+    // District-wide, no radius cap — used by "Find Near Me" when the fixed 1/5/10km
+    // radius search returns nothing. Two separate queries deliberately: a plain COUNT
+    // (cheap, uses the {DistrictId,IsActive} btree index + the PlotTypeId index) and a
+    // pure KNN query (ORDER BY "Location" <-> point LIMIT n, uses ix_plots_location_gist
+    // to stop early instead of scanning/sorting the whole district). A single query with
+    // COUNT(*) OVER() would force Postgres to materialize the full filtered set first,
+    // defeating that early-stop.
+    public async Task<(IReadOnlyList<NearMePlotListingDto> Items, int TotalMatching)> GetNearestAsync(
+        double latitude, double longitude, Guid districtId, Guid? plotTypeId, int limit)
+    {
+        var total = await _dbSet
+            .Where(p => p.IsActive && !p.IsDeleted && p.DistrictId == districtId
+                     && (plotTypeId == null || p.PlotTypeId == plotTypeId))
+            .CountAsync();
+
+        if (total == 0)
+            return (Array.Empty<NearMePlotListingDto>(), 0);
+
+        var rows = await context.Database
+            .SqlQuery<KnnQueryResult>($"""
+                SELECT
+                    p."Id",
+                    p."Latitude"::float8   AS "Lat",
+                    p."Longitude"::float8  AS "Lng",
+                    p."AreaValue"::float8  AS "AreaValue",
+                    p."AreaUnit"           AS "AreaUnit",
+                    p."PlotTypeId",
+                    pt."Name"              AS "PlotType",
+                    u."Name"               AS "OwnerName",
+                    u."PhoneNumber"        AS "OwnerPhone",
+                    ph."PhotoUrl"          AS "ThumbnailUrl",
+                    ST_Distance(p."Location",
+                        ST_SetSRID(ST_MakePoint({longitude}::float8, {latitude}::float8), 4326)::geography
+                    ) / 1000.0 AS "DistanceKm"
+                FROM "PlotListings" p
+                INNER JOIN "PlotTypes" pt ON pt."Id" = p."PlotTypeId"
+                LEFT JOIN "Users" u ON u."Id" = p."UserId"
+                LEFT JOIN LATERAL (
+                    SELECT ph."PhotoUrl"
+                    FROM "PlotPhotos" ph
+                    WHERE ph."PlotId" = p."Id"
+                    ORDER BY ph."PhotoOrder"
+                    LIMIT 1
+                ) ph ON TRUE
+                WHERE p."IsActive" = TRUE
+                  AND p."IsDeleted" = FALSE
+                  AND p."DistrictId" = {districtId}
+                  AND ({plotTypeId} IS NULL OR p."PlotTypeId" = {plotTypeId})
+                ORDER BY p."Location" <-> ST_SetSRID(
+                    ST_MakePoint({longitude}::float8, {latitude}::float8), 4326)::geography
+                LIMIT {limit}
+                """)
+            .ToListAsync();
+
+        var items = rows.Select(r => new NearMePlotListingDto
+        {
+            Id = r.Id,
+            Latitude = (decimal)r.Lat,
+            Longitude = (decimal)r.Lng,
+            AreaValue = (decimal)r.AreaValue,
+            AreaUnit = r.AreaUnit,
+            PlotTypeId = r.PlotTypeId,
+            PlotType = r.PlotType,
+            OwnerName = r.OwnerName,
+            OwnerPhone = r.OwnerPhone,
+            ThumbnailUrl = r.ThumbnailUrl,
+            DistanceKm = r.DistanceKm,
+            IsActive = true,
+        }).ToList();
+
+        return (items, total);
+    }
+
     public async Task<IEnumerable<PlotListing>> GetByUserIdAsync(Guid userId)
         => await _dbSet
             .AsNoTracking()

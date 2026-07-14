@@ -84,6 +84,84 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .ToList();
     }
 
+    private record KnnQueryResult(
+        Guid Id, int? PriceMonthly, double Lat, double Lng, Guid RoomTypeId,
+        string? RoomTypeName, string? OwnerName, string? OwnerPhone, string? ThumbnailUrl,
+        string? FurnishedStatus, double DistanceKm);
+
+    // District-wide, no radius cap — used by "Find Near Me" when the fixed 1/5/10km
+    // radius search returns nothing. Two separate queries deliberately: a plain COUNT
+    // (cheap, uses the {DistrictId,IsActive}/{IsActive,RoomTypeId} btree indexes) and a
+    // pure KNN query (ORDER BY "Location" <-> point LIMIT n, uses ix_listings_location_gist
+    // to stop early instead of scanning/sorting the whole district). A single query with
+    // COUNT(*) OVER() would force Postgres to materialize the full filtered set first,
+    // defeating that early-stop.
+    public async Task<(IReadOnlyList<NearMeListingDto> Items, int TotalMatching)> GetNearestAsync(
+        double latitude, double longitude, Guid districtId, Guid? roomTypeId, int limit)
+    {
+        var total = await _dbSet
+            .Where(l => l.IsActive && !l.IsDeleted && l.DistrictId == districtId
+                     && (roomTypeId == null || l.RoomTypeId == roomTypeId))
+            .CountAsync();
+
+        if (total == 0)
+            return (Array.Empty<NearMeListingDto>(), 0);
+
+        var rows = await context.Database
+            .SqlQuery<KnnQueryResult>($"""
+                SELECT
+                    l."Id",
+                    l."PriceMonthly",
+                    l."Latitude"::float8   AS "Lat",
+                    l."Longitude"::float8  AS "Lng",
+                    l."RoomTypeId",
+                    rt."Name"      AS "RoomTypeName",
+                    u."Name"       AS "OwnerName",
+                    u."PhoneNumber" AS "OwnerPhone",
+                    p."PhotoUrl"   AS "ThumbnailUrl",
+                    l."FurnishedStatus",
+                    ST_Distance(l."Location",
+                        ST_SetSRID(ST_MakePoint({longitude}::float8, {latitude}::float8), 4326)::geography
+                    ) / 1000.0 AS "DistanceKm"
+                FROM "RoomListings" l
+                LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
+                LEFT JOIN "Users" u      ON u."Id"  = l."UserId"
+                LEFT JOIN LATERAL (
+                    SELECT p."PhotoUrl"
+                    FROM "RoomPhotos" p
+                    WHERE p."RoomListingId" = l."Id"
+                    ORDER BY p."PhotoOrder"
+                    LIMIT 1
+                ) p ON TRUE
+                WHERE l."IsActive" = TRUE
+                  AND l."IsDeleted" = FALSE
+                  AND l."DistrictId" = {districtId}
+                  AND ({roomTypeId} IS NULL OR l."RoomTypeId" = {roomTypeId})
+                ORDER BY l."Location" <-> ST_SetSRID(
+                    ST_MakePoint({longitude}::float8, {latitude}::float8), 4326)::geography
+                LIMIT {limit}
+                """)
+            .ToListAsync();
+
+        var items = rows.Select(r => new NearMeListingDto
+        {
+            Id = r.Id,
+            PriceMonthly = r.PriceMonthly,
+            Latitude = (decimal)r.Lat,
+            Longitude = (decimal)r.Lng,
+            RoomTypeId = r.RoomTypeId,
+            RoomTypeName = r.RoomTypeName,
+            OwnerName = r.OwnerName,
+            OwnerPhone = r.OwnerPhone,
+            ThumbnailUrl = r.ThumbnailUrl,
+            DistanceKm = r.DistanceKm,
+            IsActive = true,
+            FurnishedStatus = r.FurnishedStatus ?? "None",
+        }).ToList();
+
+        return (items, total);
+    }
+
     public async Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, int? limit = null)
     {
         var query = _dbSet

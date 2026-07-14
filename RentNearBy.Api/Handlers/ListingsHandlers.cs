@@ -98,6 +98,11 @@ public static class RoomListingsHandlers
 
     private static string NearbyDistrictPattern(Guid districtId) => $"nearby:{districtId}:*";
 
+    private static string NearestCacheKey(Guid districtId, Guid? roomTypeId, double lat, double lng)
+        => $"nearest:{districtId}:{roomTypeId?.ToString() ?? "all"}:{lat:F3}:{lng:F3}";
+
+    private static string NearestDistrictPattern(Guid districtId) => $"nearest:{districtId}:*";
+
     private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
     {
         if (redis == null) return;
@@ -106,9 +111,9 @@ public static class RoomListingsHandlers
             var db = redis.GetDatabase();
             var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
             if (server == null) return;
-            var pattern = NearbyDistrictPattern(districtId);
-            await foreach (var key in server.KeysAsync(pattern: pattern))
-                await db.KeyDeleteAsync(key);
+            foreach (var pattern in new[] { NearbyDistrictPattern(districtId), NearestDistrictPattern(districtId) })
+                await foreach (var key in server.KeysAsync(pattern: pattern))
+                    await db.KeyDeleteAsync(key);
         }
         catch { /* best-effort: TTL (60s) covers Redis failures */ }
     }
@@ -158,6 +163,58 @@ public static class RoomListingsHandlers
 
         if (!isAuth) fetched.ForEach(d => d.OwnerPhone = null);
         return OkResponse(new { items = fetched });
+    }
+
+    // Hard server-side cap, not client-controllable — "Find Near Me" always shows the
+    // closest 5, then hands off to View All for the rest.
+    private const int NearMeResultLimit = 5;
+
+    private record NearestCachePayload(List<NearMeListingDto> Items, int TotalMatching);
+
+    public static async Task<IResult> GetNearest(
+        double latitude, double longitude, Guid districtId, Guid? roomTypeId,
+        IUnitOfWork unitOfWork,
+        ClaimsPrincipal principal,
+        IServiceProvider sp)
+    {
+        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
+            return BadRequestResponse("Invalid coordinates");
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var isAuth = principal.Identity?.IsAuthenticated == true;
+        var cacheKey = NearestCacheKey(districtId, roomTypeId, latitude, longitude);
+
+        if (redis != null)
+        {
+            RedisValue cached = default;
+            try { cached = await redis.GetDatabase().StringGetAsync(cacheKey); } catch { }
+            if (cached.HasValue)
+            {
+                try
+                {
+                    var payload = JsonSerializer.Deserialize<NearestCachePayload>(cached!);
+                    if (payload != null)
+                    {
+                        if (!isAuth) payload.Items.ForEach(d => d.OwnerPhone = null);
+                        return OkResponse(new { items = payload.Items, totalMatching = payload.TotalMatching });
+                    }
+                }
+                catch (JsonException) { /* corrupted cache entry — fall through to DB */ }
+            }
+        }
+
+        var (items, total) = await unitOfWork.RoomListings.GetNearestAsync(
+            latitude, longitude, districtId, roomTypeId, NearMeResultLimit);
+        var fetched = items.ToList();
+
+        if (redis != null)
+        {
+            var json = JsonSerializer.Serialize(new NearestCachePayload(fetched, total));
+            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearbyCacheTtl, When.NotExists); } catch { }
+        }
+
+        if (!isAuth) fetched.ForEach(d => d.OwnerPhone = null);
+        return OkResponse(new { items = fetched, totalMatching = total });
     }
 
     public static async Task<IResult> GetById(Guid id, IUnitOfWork unitOfWork, ClaimsPrincipal principal)
