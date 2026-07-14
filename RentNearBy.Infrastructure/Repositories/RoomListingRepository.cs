@@ -84,9 +84,9 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .ToList();
     }
 
-    public async Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax)
+    public async Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, int? limit = null)
     {
-        return await _dbSet
+        var query = _dbSet
             .AsNoTracking()
             .Include(l => l.RoomType)
             .Include(l => l.District)
@@ -101,7 +101,12 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                 (priceMin == null || l.PriceMonthly >= priceMin) &&
                 (priceMax == null || l.PriceMonthly <= priceMax))
             .OrderByDescending(l => l.CreatedAt)
-            .ToListAsync();
+            .AsQueryable();
+
+        if (limit.HasValue)
+            query = query.Take(limit.Value);
+
+        return await query.ToListAsync();
     }
 
     public async Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId)

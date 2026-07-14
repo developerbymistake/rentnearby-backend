@@ -246,6 +246,10 @@ app.MapGroup("/api/v1/chat")
     .WithTags("Chat")
     .MapChatEndpoints();
 
+app.MapGroup("/api/v1/home")
+    .WithTags("Home")
+    .MapHomeEndpoints();
+
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");
 
