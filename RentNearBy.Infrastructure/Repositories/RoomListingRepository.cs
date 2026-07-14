@@ -109,6 +109,36 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
         return await query.ToListAsync();
     }
 
+    public async Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> SearchPagedAsync(
+        Guid? districtId, Guid? roomTypeId, string sortBy, int page, int pageSize)
+    {
+        var query = _dbSet
+            .AsNoTracking()
+            .Include(l => l.RoomType)
+            .Include(l => l.District)
+            .Include(l => l.City)
+            .Include(l => l.User)
+            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
+            .Where(l =>
+                l.IsActive &&
+                !l.IsDeleted &&
+                (districtId == null || l.DistrictId == districtId) &&
+                (roomTypeId == null || l.RoomTypeId == roomTypeId));
+
+        query = sortBy switch
+        {
+            "price_asc" => query.OrderBy(l => l.PriceMonthly),
+            "price_desc" => query.OrderByDescending(l => l.PriceMonthly),
+            _ => query.OrderByDescending(l => l.CreatedAt),
+        };
+
+        var take = pageSize + 1;
+        var items = await query.Skip((page - 1) * pageSize).Take(take).ToListAsync();
+
+        var hasMore = items.Count > pageSize;
+        return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
+    }
+
     public async Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId)
         => await _dbSet
             .AsNoTracking()

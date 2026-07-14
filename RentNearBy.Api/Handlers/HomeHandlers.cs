@@ -13,10 +13,19 @@ public static class HomeHandlers
     private static readonly TimeSpan SummaryCacheTtl = TimeSpan.FromMinutes(3);
     private const int DefaultLimit = 5;
     private const int MaxLimit = 20;
+    private const int DefaultPageSize = 10;
+    private const int MaxPageSize = 30;
+
+    private static readonly HashSet<string> RoomSortValues = new() { "newest", "price_asc", "price_desc" };
+    private static readonly HashSet<string> PlotSortValues = new() { "newest", "area_asc", "area_desc" };
 
     private static string SummaryCacheKey(Guid districtId) => $"home:summary:{districtId}";
 
     private static int ClampLimit(int limit) => Math.Clamp(limit <= 0 ? DefaultLimit : limit, 1, MaxLimit);
+    private static int ClampPage(int page) => Math.Max(page, 1);
+    private static int ClampPageSize(int pageSize) => Math.Clamp(pageSize <= 0 ? DefaultPageSize : pageSize, 1, MaxPageSize);
+    private static string ValidateRoomSort(string? sortBy) => RoomSortValues.Contains(sortBy ?? "") ? sortBy! : "newest";
+    private static string ValidatePlotSort(string? sortBy) => PlotSortValues.Contains(sortBy ?? "") ? sortBy! : "newest";
 
     public static async Task<IResult> GetSummary(Guid districtId, ApplicationDbContext db, IServiceProvider sp)
     {
@@ -90,5 +99,47 @@ public static class HomeHandlers
         }).ToList();
 
         return OkResponse(new { items = result });
+    }
+
+    public static async Task<IResult> GetRoomsBrowse(
+        Guid districtId, Guid? roomTypeId, string? sortBy, int page, int pageSize, IUnitOfWork unitOfWork)
+    {
+        var (items, hasMore) = await unitOfWork.RoomListings.SearchPagedAsync(
+            districtId, roomTypeId, ValidateRoomSort(sortBy), ClampPage(page), ClampPageSize(pageSize));
+
+        var result = items.Select(l => new HomeRoomDto
+        {
+            Id = l.Id,
+            PriceMonthly = l.PriceMonthly,
+            RoomTypeName = l.RoomType?.Name,
+            ThumbnailUrl = l.Photos.FirstOrDefault()?.PhotoUrl,
+            CityName = l.City?.Name,
+            DistrictName = l.District?.Name ?? string.Empty,
+            FurnishedStatus = l.FurnishedStatus,
+            CreatedAt = l.CreatedAt,
+        }).ToList();
+
+        return OkResponse(new { items = result, hasMore });
+    }
+
+    public static async Task<IResult> GetPlotsBrowse(
+        Guid districtId, Guid? plotTypeId, string? sortBy, int page, int pageSize, IUnitOfWork unitOfWork)
+    {
+        var (items, hasMore) = await unitOfWork.PlotListings.GetAllPagedByTypeIdAsync(
+            districtId, plotTypeId, ValidatePlotSort(sortBy), ClampPage(page), ClampPageSize(pageSize));
+
+        var result = items.Select(p => new HomePlotDto
+        {
+            Id = p.Id,
+            AreaValue = p.AreaValue,
+            AreaUnit = p.AreaUnit,
+            PlotTypeName = p.PlotType?.Name,
+            ThumbnailUrl = p.Photos.FirstOrDefault()?.PhotoUrl,
+            CityName = p.City?.Name,
+            DistrictName = p.District?.Name ?? string.Empty,
+            CreatedAt = p.CreatedAt,
+        }).ToList();
+
+        return OkResponse(new { items = result, hasMore });
     }
 }

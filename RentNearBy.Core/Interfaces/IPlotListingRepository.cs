@@ -16,6 +16,8 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
         bool? isActive = null,
         Guid? districtId = null,
         Guid? cityId = null);
+    Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetAllPagedByTypeIdAsync(
+        Guid? districtId, Guid? plotTypeId, string sortBy, int page, int pageSize);
     Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId);
     Task AddPhotoAsync(PlotPhoto photo);
     void RemovePhoto(PlotPhoto photo);

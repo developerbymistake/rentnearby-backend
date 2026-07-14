@@ -9,6 +9,8 @@ public static class HomeEndpoints
         group.MapGet("/summary", HomeHandlers.GetSummary);
         group.MapGet("/rooms", HomeHandlers.GetRooms);
         group.MapGet("/plots", HomeHandlers.GetPlots);
+        group.MapGet("/rooms/browse", HomeHandlers.GetRoomsBrowse);
+        group.MapGet("/plots/browse", HomeHandlers.GetPlotsBrowse);
 
         return group;
     }

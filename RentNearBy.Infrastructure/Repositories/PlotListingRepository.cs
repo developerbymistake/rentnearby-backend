@@ -168,6 +168,37 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
     }
 
+    public async Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetAllPagedByTypeIdAsync(
+        Guid? districtId, Guid? plotTypeId, string sortBy, int page, int pageSize)
+    {
+        var query = _dbSet
+            .AsNoTracking()
+            .Include(p => p.PlotType)
+            .Include(p => p.District)
+            .Include(p => p.City)
+            .Include(p => p.User)
+            .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder).Take(1))
+            .Where(p =>
+                p.IsActive &&
+                !p.IsDeleted &&
+                (districtId == null || p.DistrictId == districtId) &&
+                (plotTypeId == null || p.PlotTypeId == plotTypeId));
+
+        // PlotListing has no price field — sort options are Newest and Area (not Price, unlike Rooms)
+        query = sortBy switch
+        {
+            "area_asc" => query.OrderBy(p => p.AreaSqft),
+            "area_desc" => query.OrderByDescending(p => p.AreaSqft),
+            _ => query.OrderByDescending(p => p.CreatedAt),
+        };
+
+        var take = pageSize + 1;
+        var items = await query.Skip((page - 1) * pageSize).Take(take).ToListAsync();
+
+        var hasMore = items.Count > pageSize;
+        return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
+    }
+
     public async Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId)
         => await _dbSet
             .Where(p => p.UserId == userId && p.IsActive && !p.IsDeleted)
