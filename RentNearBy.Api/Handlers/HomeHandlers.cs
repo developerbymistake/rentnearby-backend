@@ -102,10 +102,10 @@ public static class HomeHandlers
     }
 
     public static async Task<IResult> GetRoomsBrowse(
-        Guid districtId, Guid? roomTypeId, string? sortBy, int page, int pageSize, IUnitOfWork unitOfWork)
+        Guid districtId, Guid? cityId, Guid? roomTypeId, string? sortBy, int page, int pageSize, IUnitOfWork unitOfWork)
     {
         var (items, hasMore) = await unitOfWork.RoomListings.SearchPagedAsync(
-            districtId, roomTypeId, ValidateRoomSort(sortBy), ClampPage(page), ClampPageSize(pageSize));
+            districtId, cityId, roomTypeId, ValidateRoomSort(sortBy), ClampPage(page), ClampPageSize(pageSize));
 
         var result = items.Select(l => new HomeRoomDto
         {
@@ -123,10 +123,10 @@ public static class HomeHandlers
     }
 
     public static async Task<IResult> GetPlotsBrowse(
-        Guid districtId, Guid? plotTypeId, string? sortBy, int page, int pageSize, IUnitOfWork unitOfWork)
+        Guid districtId, Guid? cityId, Guid? plotTypeId, string? sortBy, int page, int pageSize, IUnitOfWork unitOfWork)
     {
         var (items, hasMore) = await unitOfWork.PlotListings.GetAllPagedByTypeIdAsync(
-            districtId, plotTypeId, ValidatePlotSort(sortBy), ClampPage(page), ClampPageSize(pageSize));
+            districtId, cityId, plotTypeId, ValidatePlotSort(sortBy), ClampPage(page), ClampPageSize(pageSize));
 
         var result = items.Select(p => new HomePlotDto
         {

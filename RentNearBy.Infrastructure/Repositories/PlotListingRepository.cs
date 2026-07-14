@@ -169,7 +169,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
     }
 
     public async Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetAllPagedByTypeIdAsync(
-        Guid? districtId, Guid? plotTypeId, string sortBy, int page, int pageSize)
+        Guid? districtId, Guid? cityId, Guid? plotTypeId, string sortBy, int page, int pageSize)
     {
         var query = _dbSet
             .AsNoTracking()
@@ -184,16 +184,22 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                 (districtId == null || p.DistrictId == districtId) &&
                 (plotTypeId == null || p.PlotTypeId == plotTypeId));
 
+        // District stays the hard filter (unchanged above). City is a soft
+        // ranking signal only, not a filter — matches sort first, then the
+        // rest of the district fills the rest of the page, so a city with no
+        // listings of its own never renders blank.
+        var ranked = query.OrderBy(p => cityId != null && p.CityId == cityId ? 0 : 1);
+
         // PlotListing has no price field — sort options are Newest and Area (not Price, unlike Rooms)
-        query = sortBy switch
+        IOrderedQueryable<PlotListing> sorted = sortBy switch
         {
-            "area_asc" => query.OrderBy(p => p.AreaSqft),
-            "area_desc" => query.OrderByDescending(p => p.AreaSqft),
-            _ => query.OrderByDescending(p => p.CreatedAt),
+            "area_asc" => ranked.ThenBy(p => p.AreaSqft),
+            "area_desc" => ranked.ThenByDescending(p => p.AreaSqft),
+            _ => ranked.ThenByDescending(p => p.CreatedAt),
         };
 
         var take = pageSize + 1;
-        var items = await query.Skip((page - 1) * pageSize).Take(take).ToListAsync();
+        var items = await sorted.Skip((page - 1) * pageSize).Take(take).ToListAsync();
 
         var hasMore = items.Count > pageSize;
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);

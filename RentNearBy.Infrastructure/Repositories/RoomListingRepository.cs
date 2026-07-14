@@ -110,7 +110,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
     }
 
     public async Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> SearchPagedAsync(
-        Guid? districtId, Guid? roomTypeId, string sortBy, int page, int pageSize)
+        Guid? districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize)
     {
         var query = _dbSet
             .AsNoTracking()
@@ -125,15 +125,21 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                 (districtId == null || l.DistrictId == districtId) &&
                 (roomTypeId == null || l.RoomTypeId == roomTypeId));
 
-        query = sortBy switch
+        // District stays the hard filter (unchanged above). City is a soft
+        // ranking signal only, not a filter — matches sort first, then the
+        // rest of the district fills the rest of the page, so a city with no
+        // listings of its own never renders blank.
+        var ranked = query.OrderBy(l => cityId != null && l.CityId == cityId ? 0 : 1);
+
+        IOrderedQueryable<RoomListing> sorted = sortBy switch
         {
-            "price_asc" => query.OrderBy(l => l.PriceMonthly),
-            "price_desc" => query.OrderByDescending(l => l.PriceMonthly),
-            _ => query.OrderByDescending(l => l.CreatedAt),
+            "price_asc" => ranked.ThenBy(l => l.PriceMonthly),
+            "price_desc" => ranked.ThenByDescending(l => l.PriceMonthly),
+            _ => ranked.ThenByDescending(l => l.CreatedAt),
         };
 
         var take = pageSize + 1;
-        var items = await query.Skip((page - 1) * pageSize).Take(take).ToListAsync();
+        var items = await sorted.Skip((page - 1) * pageSize).Take(take).ToListAsync();
 
         var hasMore = items.Count > pageSize;
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
