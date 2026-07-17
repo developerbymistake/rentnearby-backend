@@ -537,7 +537,7 @@ public static class PlotListingHandlers
     public record AdminPlotListingDto(
         string Id, string UserId, string? OwnerName, string? OwnerPhone,
         string PlotType, double AreaValue, string AreaUnit, double AreaSqft,
-        bool IsActive, string? DistrictName, string? CityName, string? Address,
+        bool IsActive, DateTime? ValidUntil, string? DistrictName, string? CityName, string? Address,
         string? ThumbnailUrl, int PhotoCount, DateTime CreatedAt);
 
     public static async Task<IResult> GetAdminPlotListings(
@@ -559,6 +559,7 @@ public static class PlotListingHandlers
             AreaUnit: p.AreaUnit,
             AreaSqft: (double)p.AreaSqft,
             IsActive: p.IsActive,
+            ValidUntil: p.ValidUntil,
             DistrictName: p.District?.Name,
             CityName: p.City?.Name,
             Address: p.Address,

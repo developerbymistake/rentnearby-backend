@@ -1061,6 +1061,7 @@ public static class AdminHandlers
                 RoomTypeName = l.RoomType?.Name,
                 PriceMonthly = l.PriceMonthly,
                 IsActive = l.IsActive,
+                ValidUntil = l.ValidUntil,
                 Address = l.Address,
                 ThumbnailUrl = l.Photos.FirstOrDefault()?.PhotoUrl,
                 PhotoCount = l.Photos.Count,
