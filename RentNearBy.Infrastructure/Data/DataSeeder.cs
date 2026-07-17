@@ -60,8 +60,8 @@ public static class DataSeeder
         if (await db.ListingLimitSettings.AnyAsync()) return;
 
         db.ListingLimitSettings.AddRange(
-            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Room, MaxListings = 5, UpdatedAt = DateTime.UtcNow },
-            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Plot, MaxListings = 5, UpdatedAt = DateTime.UtcNow }
+            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Room, MaxListings = 3, UpdatedAt = DateTime.UtcNow },
+            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Plot, MaxListings = 3, UpdatedAt = DateTime.UtcNow }
         );
         await db.SaveChangesAsync();
     }
@@ -96,12 +96,12 @@ public static class DataSeeder
         };
 
         db.CoinPlans.AddRange(
-            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Basic,    days: 30, quota: 2,  coins: 30,  featured: false),
-            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Standard, days: 60, quota: 5,  coins: 70,  featured: true),
-            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Premium,  days: 90, quota: 10, coins: 150, featured: false),
-            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Basic,    days: 30, quota: 2,  coins: 30,  featured: false),
-            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Standard, days: 60, quota: 5,  coins: 70,  featured: true),
-            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Premium,  days: 90, quota: 10, coins: 150, featured: false)
+            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Basic,    days: 15, quota: 1, coins: 99,  featured: false),
+            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Standard, days: 30, quota: 2, coins: 299, featured: true),
+            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Premium,  days: 60, quota: 3, coins: 499, featured: false),
+            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Basic,    days: 15, quota: 1, coins: 99,  featured: false),
+            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Standard, days: 30, quota: 2, coins: 299, featured: true),
+            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Premium,  days: 60, quota: 3, coins: 499, featured: false)
         );
         await db.SaveChangesAsync();
     }
@@ -122,8 +122,8 @@ public static class DataSeeder
 
         db.CoinPacks.AddRange(
             Make(coins: 100, bonus: 0,   priceInr: 99,  sortOrder: 1, featured: false), // Starter
-            Make(coins: 300, bonus: 30,  priceInr: 249, sortOrder: 2, featured: true),  // Popular / Best Value
-            Make(coins: 700, bonus: 100, priceInr: 499, sortOrder: 3, featured: false)  // Mega
+            Make(coins: 300, bonus: 30,  priceInr: 299, sortOrder: 2, featured: true),  // Popular / Best Value
+            Make(coins: 500, bonus: 50,  priceInr: 399, sortOrder: 3, featured: false)  // Mega
         );
         await db.SaveChangesAsync();
     }

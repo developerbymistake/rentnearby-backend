@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.CircuitBreaker;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -116,10 +117,29 @@ public class RazorpayService : IRazorpayService
         {
             _logger.LogInformation($"Creating Razorpay order for receipt: {receipt}, amount: {amount}");
 
-            var response = await _retryPolicy.ExecuteAsync(() => 
+            var response = await _retryPolicy.ExecuteAsync(() =>
                 _httpClient.PostAsync($"{BaseUrl}/orders", content));
 
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                // EnsureSuccessStatusCode()'s ex.Message only ever showed the status code (e.g.
+                // "401"), never Razorpay's own error body — the one place the actual reason
+                // ("key deactivated", "authentication failed", etc.) shows up. Reading it here is
+                // the difference between a one-line log fix and a multi-file trace next time this
+                // happens. Razorpay's documented error shape: {"error":{"description","reason",...}}.
+                var errorBody = await response.Content.ReadAsStringAsync();
+                _logger.LogError(
+                    "Razorpay order creation failed with status {StatusCode}: {Body}",
+                    response.StatusCode, errorBody);
+
+                // 401/403 means the configured key/account itself is the problem — telling the
+                // user to "try again" is actively misleading since retrying can't fix that; only
+                // 5xx/408/network-ish failures are genuinely transient.
+                var message = response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden
+                    ? "Payment gateway is not configured correctly. Please contact support."
+                    : "Payment gateway temporarily unavailable. Please try again.";
+                throw new InvalidOperationException(message);
+            }
 
             var jsonString = await response.Content.ReadAsStringAsync();
             var json = JsonSerializer.Deserialize<JsonElement>(jsonString);
