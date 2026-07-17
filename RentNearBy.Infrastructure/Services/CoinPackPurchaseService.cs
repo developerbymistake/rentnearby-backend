@@ -22,9 +22,12 @@ public class CoinPackPurchaseService(IUnitOfWork unitOfWork, IRazorpayService ra
 
         if (existingPending != null)
         {
-            // Matches the expire_by set on the Razorpay order itself (RazorpayService.CreateOrderAsync)
-            // — reuse only within that same window, same reasoning as the room/plot Go-Live flow this
-            // replaces used for its own pending orders.
+            // Our own app-level reuse window — RazorpayService.CreateOrderAsync no longer sets
+            // expire_by (this Razorpay account's settings reject that field outright), so the
+            // underlying Razorpay order itself doesn't expire on any schedule we control. This
+            // 20-minute check only decides whether WE keep offering the same pending purchase
+            // back to the client vs. abandon it and mint a fresh one; same window the room/plot
+            // Go-Live flow this replaces used for its own pending orders.
             if (existingPending.CreatedAt > DateTime.UtcNow.AddMinutes(-20) && !string.IsNullOrEmpty(existingPending.RazorpayOrderId))
             {
                 return new CreatePaymentOrderResponse

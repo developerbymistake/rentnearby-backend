@@ -94,21 +94,18 @@ public class RazorpayService : IRazorpayService
         // Idempotency key: prevents duplicate orders if request is retried
         var idempotencyKey = $"{receipt}-{DateTime.UtcNow:yyyyMMdd}";
 
-        // Razorpay orders never expire on their own (confirmed against Razorpay's own docs) —
-        // without this, a stale checkout page/old order could still be paid hours later, well
-        // past the window our own PaymentService logic assumes for "reuse vs. supersede". 20
-        // minutes gives safe margin over Razorpay's own minimum (expire_by must be strictly
-        // more than 15 minutes in the future, or order creation is rejected). Applies to every
-        // caller of this shared method — room and plot, fresh purchase and upgrade alike.
-        var expireBy = DateTimeOffset.UtcNow.AddMinutes(20).ToUnixTimeSeconds();
-
+        // expire_by was here to bound how long a stale checkout page could still be paid — but
+        // this Razorpay account's own settings reject it outright: {"error":{"description":
+        // "expire_by is/are not required and should not be sent","reason":"extra_field_sent"}},
+        // a hard 400 on every single order-creation call. Confirmed via production logs — not a
+        // credentials/account-activation issue, just this field. Removed; orders now use
+        // Razorpay's own account-level default expiry instead of one we control per-order.
         var content = new FormUrlEncodedContent(new[]
         {
             new KeyValuePair<string, string>("amount", (amount * 100).ToString()),
             new KeyValuePair<string, string>("currency", "INR"),
             new KeyValuePair<string, string>("receipt", receipt),
             new KeyValuePair<string, string>("notes[platform]", "RentNearBy"),
-            new KeyValuePair<string, string>("expire_by", expireBy.ToString())
         });
 
         _httpClient.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
