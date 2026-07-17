@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace RentNearBy.Core.DTOs.Requests;
 
-public record CreateRoomGoLivePlanRequest(
+public record CreatePlotCoinPlanRequest(
     string PlanType, int Price, int Days,
-    [property: JsonPropertyName("roomLimit")] int ListingLimit,
+    [property: JsonPropertyName("plotLimit")] int ListingLimit,
     int OriginalPrice = 0, int DiscountPercent = 0, bool IsFeatured = false);

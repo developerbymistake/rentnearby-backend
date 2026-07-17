@@ -802,12 +802,12 @@ public static class AdminHandlers
         ["isEnabled"] = p.IsEnabled,
     };
 
-    public static async Task<IResult> CreatePlan(CreateRoomGoLivePlanRequest request, IUnitOfWork unitOfWork) =>
+    public static async Task<IResult> CreatePlan(CreateRoomCoinPlanRequest request, IUnitOfWork unitOfWork) =>
         await CreateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.RoomGoLive, "roomLimit", "Room", request.PlanType,
             request.Price, request.Days, request.ListingLimit, request.OriginalPrice, request.DiscountPercent,
             request.IsFeatured, "/api/v1/admin/plans");
 
-    public static async Task<IResult> CreatePlotPlan(CreatePlotGoLivePlanRequest request, IUnitOfWork unitOfWork) =>
+    public static async Task<IResult> CreatePlotPlan(CreatePlotCoinPlanRequest request, IUnitOfWork unitOfWork) =>
         await CreateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.PlotGoLive, "plotLimit", "Plot", request.PlanType,
             request.Price, request.Days, request.ListingLimit, request.OriginalPrice, request.DiscountPercent,
             request.IsFeatured, "/api/v1/admin/plot-plans");
@@ -852,12 +852,12 @@ public static class AdminHandlers
         return CreatedResponse(ToAdminCoinPlanDto(plan, limitKey), $"{locationPrefix}/{plan.Id}");
     }
 
-    public static async Task<IResult> UpdatePlan(Guid id, UpdateRoomGoLivePlanRequest request, IUnitOfWork unitOfWork) =>
+    public static async Task<IResult> UpdatePlan(Guid id, UpdateRoomCoinPlanRequest request, IUnitOfWork unitOfWork) =>
         await UpdateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.RoomGoLive, "roomLimit", "Room", id, request.Days,
             request.Price, request.ListingLimit, request.IsEnabled, request.OriginalPrice, request.DiscountPercent,
             request.IsFeatured);
 
-    public static async Task<IResult> UpdatePlotPlan(Guid id, UpdatePlotGoLivePlanRequest request, IUnitOfWork unitOfWork) =>
+    public static async Task<IResult> UpdatePlotPlan(Guid id, UpdatePlotCoinPlanRequest request, IUnitOfWork unitOfWork) =>
         await UpdateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.PlotGoLive, "plotLimit", "Plot", id, request.Days,
             request.Price, request.ListingLimit, request.IsEnabled, request.OriginalPrice, request.DiscountPercent,
             request.IsFeatured);
