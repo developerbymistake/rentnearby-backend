@@ -11,9 +11,8 @@ public interface IUnitOfWork : IDisposable
     ICityRepository Cities { get; }
     IRoomTypeRepository RoomTypes { get; }
     IPlotTypeRepository PlotTypes { get; }
-    IRoomPlanRepository RoomPlans { get; }
     IPlotListingRoomListingRepository PlotListings { get; }
-    IPlotPlanRepository PlotPlans { get; }
+    ICoinPlanRepository CoinPlans { get; }
     IDeviceTokenRepository DeviceTokens { get; }
     INotificationLogRepository NotificationLogs { get; }
     IDistrictBannerRepository DistrictBanners { get; }

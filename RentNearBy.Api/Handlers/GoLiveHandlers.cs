@@ -61,7 +61,14 @@ public static class GoLiveHandlers
             listing.IsActive = true;
             listing.UpdatedAt = DateTime.UtcNow;
             await unitOfWork.RoomListings.UpdateAsync(listing);
-            await unitOfWork.SaveChangesAsync();
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), RoomNearbyPattern(listing.DistrictId));
             return OkResponse(new
             {
@@ -76,7 +83,7 @@ public static class GoLiveHandlers
         if (string.IsNullOrWhiteSpace(request.PlanType))
             return BadRequestResponse("PlanType is required to go live on an expired or never-activated listing.");
 
-        var plan = await unitOfWork.RoomPlans.GetByPlanTypeAsync(request.PlanType.Trim().ToUpperInvariant());
+        var plan = await unitOfWork.CoinPlans.GetByFeatureKeyAndPlanTypeAsync(CoinFeatureKeys.RoomGoLive, request.PlanType.Trim().ToUpperInvariant());
         if (plan == null || !plan.IsEnabled)
             return BadRequestResponse("Plan not found or disabled");
 
@@ -155,7 +162,14 @@ public static class GoLiveHandlers
             plot.IsActive = true;
             plot.UpdatedAt = DateTime.UtcNow;
             await unitOfWork.PlotListings.UpdateAsync(plot);
-            await unitOfWork.SaveChangesAsync();
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
             return OkResponse(new
             {
@@ -170,7 +184,7 @@ public static class GoLiveHandlers
         if (string.IsNullOrWhiteSpace(request.PlanType))
             return BadRequestResponse("PlanType is required to go live on an expired or never-activated plot.");
 
-        var plan = await unitOfWork.PlotPlans.GetByPlanTypeAsync(request.PlanType.Trim().ToUpperInvariant());
+        var plan = await unitOfWork.CoinPlans.GetByFeatureKeyAndPlanTypeAsync(CoinFeatureKeys.PlotGoLive, request.PlanType.Trim().ToUpperInvariant());
         if (plan == null || !plan.IsEnabled)
             return BadRequestResponse("Plan not found or disabled");
 

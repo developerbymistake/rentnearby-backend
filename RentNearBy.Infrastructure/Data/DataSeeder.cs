@@ -21,8 +21,9 @@ public static class DataSeeder
         await SeedPlotTypesAsync(db);
         await SeedReportReasonsAsync(db);
         await SeedQuestionTemplatesAsync(db);
-        await SeedPlansAsync(db);
-        await SeedPlotPlansAsync(db);
+        await SeedCoinFeaturesAsync(db);
+        await SeedCoinPlansAsync(db);
+        await SeedCoinPacksAsync(db);
         await SeedDistrictsAsync(db);
         await SeedCitiesAsync(db);
         await SeedListingLimitSettingsAsync(db);
@@ -65,31 +66,65 @@ public static class DataSeeder
         await db.SaveChangesAsync();
     }
 
-    private static async Task SeedPlansAsync(ApplicationDbContext db)
+    // Seed-only catalog of "what coins can be spent on" — Room/Plot Go-Live today, future coin-gated
+    // features (contact reveal, chat, etc.) later, each as a new row here, never a schema change.
+    private static async Task SeedCoinFeaturesAsync(ApplicationDbContext db)
     {
-        if (await db.RoomPlans.AnyAsync()) return;
+        if (await db.CoinFeatures.AnyAsync()) return;
 
-        var plans = new[]
-        {
-            new RoomPlan { Id = Guid.NewGuid(), PlanType = "BASIC",    Days = 5,  RoomLimit = 1, Price = 99,  DiscountPercent = 100, OriginalPrice = 0,  IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
-            new RoomPlan { Id = Guid.NewGuid(), PlanType = "STANDARD", Days = 30, RoomLimit = 2, Price = 199, DiscountPercent = 50,  OriginalPrice = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
-        };
-
-        db.RoomPlans.AddRange(plans);
+        db.CoinFeatures.AddRange(
+            new CoinFeature { Id = Guid.NewGuid(), Key = CoinFeatureKeys.RoomGoLive, DisplayName = "Room Go-Live", QuotaUnitLabel = "rooms", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new CoinFeature { Id = Guid.NewGuid(), Key = CoinFeatureKeys.PlotGoLive, DisplayName = "Plot Go-Live", QuotaUnitLabel = "plots", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow }
+        );
         await db.SaveChangesAsync();
     }
 
-    private static async Task SeedPlotPlansAsync(ApplicationDbContext db)
+    // Real coin-priced tiers matching the approved coin-economy mockups exactly (Basic/Standard/Premium,
+    // Standard marked featured/"popular") — replaces the old RoomPlan/PlotPlan seed, which left stale
+    // rupee-shaped placeholder values (Days=5/30, Price=99/199) behind after the coin-economy rework and
+    // never seeded a third/Premium tier at all. Room and Plot use identical numbers, matching this
+    // seeder's own prior precedent of equal values across both kinds.
+    private static async Task SeedCoinPlansAsync(ApplicationDbContext db)
     {
-        if (await db.PlotPlans.AnyAsync()) return;
+        if (await db.CoinPlans.AnyAsync()) return;
 
-        var plans = new[]
+        CoinPlan Make(string featureKey, string type, int days, int quota, int coins, bool featured) => new()
         {
-            new PlotPlan { Id = Guid.NewGuid(), PlanType = "BASIC",    Days = 5,  PlotListingLimit = 1, Price = 99,  DiscountPercent = 100, OriginalPrice = 0,  IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
-            new PlotPlan { Id = Guid.NewGuid(), PlanType = "STANDARD", Days = 30, PlotListingLimit = 2, Price = 199, DiscountPercent = 50,  OriginalPrice = 99, IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            Id = Guid.NewGuid(), FeatureKey = featureKey, PlanType = type, Days = days, Quota = quota,
+            Price = coins, DiscountPercent = 0, OriginalPrice = coins, IsFeatured = featured,
+            IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
         };
 
-        db.PlotPlans.AddRange(plans);
+        db.CoinPlans.AddRange(
+            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Basic,    days: 30, quota: 2,  coins: 30,  featured: false),
+            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Standard, days: 60, quota: 5,  coins: 70,  featured: true),
+            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Premium,  days: 90, quota: 10, coins: 150, featured: false),
+            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Basic,    days: 30, quota: 2,  coins: 30,  featured: false),
+            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Standard, days: 60, quota: 5,  coins: 70,  featured: true),
+            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Premium,  days: 90, quota: 10, coins: 150, featured: false)
+        );
+        await db.SaveChangesAsync();
+    }
+
+    // Coin packs (buy-coins tiers) — previously never seeded anywhere; the only INSERT path was the
+    // admin app's create form, so GET /coin-packs/ had only ever returned an empty array on every real
+    // deployment. Matches the approved mockups' Starter/Popular/Mega numbers exactly.
+    private static async Task SeedCoinPacksAsync(ApplicationDbContext db)
+    {
+        if (await db.CoinPacks.AnyAsync()) return;
+
+        CoinPack Make(int coins, int bonus, int priceInr, int sortOrder, bool featured) => new()
+        {
+            Id = Guid.NewGuid(), Coins = coins, BonusCoins = bonus, PriceInr = priceInr,
+            IsEnabled = true, SortOrder = sortOrder, IsFeatured = featured,
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        };
+
+        db.CoinPacks.AddRange(
+            Make(coins: 100, bonus: 0,   priceInr: 99,  sortOrder: 1, featured: false), // Starter
+            Make(coins: 300, bonus: 30,  priceInr: 249, sortOrder: 2, featured: true),  // Popular / Best Value
+            Make(coins: 700, bonus: 100, priceInr: 499, sortOrder: 3, featured: false)  // Mega
+        );
         await db.SaveChangesAsync();
     }
 

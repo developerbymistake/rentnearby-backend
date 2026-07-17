@@ -17,9 +17,8 @@ public class UnitOfWork : IUnitOfWork
     private ICityRepository? _cities;
     private IRoomTypeRepository? _roomTypes;
     private IPlotTypeRepository? _plotTypes;
-    private IRoomPlanRepository? _roomPlans;
     private IPlotListingRoomListingRepository? _plots;
-    private IPlotPlanRepository? _plotPlans;
+    private ICoinPlanRepository? _coinPlans;
     private IDeviceTokenRepository? _deviceTokens;
     private INotificationLogRepository? _notificationLogs;
     private IDistrictBannerRepository? _districtBanners;
@@ -52,9 +51,8 @@ public class UnitOfWork : IUnitOfWork
     public ICityRepository Cities => _cities ??= new CityRepository(_context);
     public IRoomTypeRepository RoomTypes => _roomTypes ??= new RoomTypeRepository(_context);
     public IPlotTypeRepository PlotTypes => _plotTypes ??= new PlotTypeRepository(_context);
-    public IRoomPlanRepository RoomPlans => _roomPlans ??= new RoomPlanRepository(_context);
     public IPlotListingRoomListingRepository PlotListings => _plots ??= new PlotListingRepository(_context);
-    public IPlotPlanRepository PlotPlans => _plotPlans ??= new PlotPlanRepository(_context);
+    public ICoinPlanRepository CoinPlans => _coinPlans ??= new CoinPlanRepository(_context);
     public IDeviceTokenRepository DeviceTokens => _deviceTokens ??= new DeviceTokenRepository(_context);
     public INotificationLogRepository NotificationLogs => _notificationLogs ??= new NotificationLogRepository(_context);
     public IDistrictBannerRepository DistrictBanners => _districtBanners ??= new DistrictBannerRepository(_context);

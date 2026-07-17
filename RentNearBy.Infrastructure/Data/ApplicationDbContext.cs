@@ -15,11 +15,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<District> Districts { get; set; }
     public DbSet<City> Cities { get; set; }
     public DbSet<RoomType> RoomTypes { get; set; }
-    public DbSet<RoomPlan> RoomPlans { get; set; }
+    public DbSet<CoinFeature> CoinFeatures { get; set; }
+    public DbSet<CoinPlan> CoinPlans { get; set; }
     public DbSet<PlotType> PlotTypes { get; set; }
     public DbSet<PlotListing> PlotListings { get; set; }
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
-    public DbSet<PlotPlan> PlotPlans { get; set; }
     public DbSet<DeviceToken> DeviceTokens { get; set; }
     public DbSet<NotificationLog> NotificationLogs { get; set; }
     public DbSet<DistrictBanner> DistrictBanners { get; set; }
@@ -263,11 +263,22 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(q => q.PlotTypeId);
         });
 
-        modelBuilder.Entity<RoomPlan>(e =>
+        modelBuilder.Entity<CoinFeature>(e =>
+        {
+            e.HasKey(f => f.Id);
+            e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(f => f.Key).IsUnique();
+            e.Property(f => f.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<CoinPlan>(e =>
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(p => p.PlanType).IsUnique();
+            // Unique per feature, not globally — Room and Plot (and any future coin-gated feature)
+            // each need their own "BASIC"/"STANDARD"/"PREMIUM".
+            e.HasIndex(p => new { p.FeatureKey, p.PlanType }).IsUnique();
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
             e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
         });
@@ -563,15 +574,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasForeignKey(ph => ph.PlotId)
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(ph => ph.PlotId);
-        });
-
-        modelBuilder.Entity<PlotPlan>(e =>
-        {
-            e.HasKey(p => p.Id);
-            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(p => p.PlanType).IsUnique();
-            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
-            e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<DeviceToken>(e =>

@@ -191,11 +191,28 @@ Room/Plot listing; a listing's own `IsActive`/`ValidUntil` fields are the only p
 - **Going live**: `GoLiveHandlers.GoLiveRoom`/`GoLivePlot` (`POST /listings/{id}/go-live`,
   `POST /plots/{id}/go-live`) — deactivating and reactivating a listing within its already-paid
   `ValidUntil` window is free (no spend); going live after expiry (or for the first time) requires a
-  `PlanType` and spends `RoomPlan`/`PlotPlan.OriginalPrice` coins (these plan entities are unchanged in
-  shape — `Price`/`OriginalPrice` is now read as a coin amount, not rupees). `RoomListing`/`PlotListing` use
-  Postgres `xmin` optimistic concurrency (shadow `IsRowVersion()` property, no real column) so two
-  concurrent Go-Live attempts on the same listing can't both silently win — surfaced to the caller as a
-  distinct `CONCURRENT_UPDATE` error, separate from `INSUFFICIENT_BALANCE`.
+  `PlanType` and spends `CoinPlan.OriginalPrice` coins. `RoomListing`/`PlotListing` use Postgres `xmin`
+  optimistic concurrency (shadow `IsRowVersion()` property, no real column) so two concurrent Go-Live
+  attempts on the same listing can't both silently win — surfaced to the caller as a distinct
+  `CONCURRENT_UPDATE` error, separate from `INSUFFICIENT_BALANCE`.
+- **`CoinFeature` + `CoinPlan`** (replaces the short-lived `GoLivePlan`, which itself replaced the old
+  membership-era `RoomPlan`/`PlotPlan` tables): `CoinFeature` is a small seed-only catalog of "what coins
+  can be spent on" (`RentNearBy.Core/Models/CoinFeatureKeys.cs` — currently `ROOM_GOLIVE`/`PLOT_GOLIVE`
+  only); `CoinPlan` holds the Basic/Standard/Premium tiers, keyed by `FeatureKey` (matches a `CoinFeature.Key`,
+  string discriminator — no FK, same convention as `ListingLimitSetting`/`ListingKinds`) with a unique index
+  on `(FeatureKey, PlanType)`. `Days` (validity window) and `Quota` (resource quantity — `RoomLimit`/
+  `PlotLimit` on the wire) are both always genuinely populated for every plan; the design is deliberately
+  feature-agnostic so a future coin-gated feature (e.g. contact reveal, chat) can slot in as a new
+  `CoinFeature` row with zero schema change. `CoinPlanTypes` (`RentNearBy.Core/Models/CoinPlanTypes.cs`)
+  holds the `Basic`/`Standard`/`Premium` tier-name constants — used by `DataSeeder`, never hardcoded string
+  literals. `ICoinPlanRepository`/`CoinPlanRepository` expose `GetByFeatureKeyAndPlanTypeAsync`/
+  `GetByFeatureKeyAsync`, wired as `IUnitOfWork.CoinPlans`. `AdminHandlers`' shared
+  `GetCoinPlansCoreAsync`/`CreateCoinPlanCoreAsync`/`UpdateCoinPlanCoreAsync` trio backs both the Room and
+  Plot admin plan CRUD endpoints from one implementation (discriminated by `FeatureKey`) — the update path
+  guards `plan.FeatureKey != featureKey` so a Room-scoped admin request can't mutate a Plot plan by ID
+  (security-relevant now that both share one physical table). `CoinPack` (the Starter/Popular/Mega
+  real-money recharge tiers) is a separate, already-correct, feature-agnostic system and is untouched by
+  any of this.
 - **Listing-creation cap** (separate concept from being live): `ListingLimitSetting` (2 seeded rows,
   Room/Plot) is a dedicated admin-configurable entity — never repurpose it as a concurrent-active-listing
   cap; it only gates `POST /listings`/`POST /plots` creation, exposed publicly via the cached

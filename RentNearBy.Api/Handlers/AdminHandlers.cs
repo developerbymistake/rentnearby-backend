@@ -679,18 +679,32 @@ public static class AdminHandlers
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return NotFoundResponse("User not found");
 
-        var listings = await db.RoomListings.Where(l => l.UserId == id && !l.IsDeleted).ToListAsync();
-
         user.IsActive = request.IsActive;
         user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
 
-        foreach (var listing in listings)
+        // Suspending is pure moderation (always allowed, mirrors ToggleAdminListingStatus/
+        // AdminTogglePlotListing deactivate). Un-suspending must NOT resurrect a listing for free —
+        // same "no free-activation bypass around the coin-spend engine" rule as those two endpoints,
+        // just applied in bulk here: only listings still within their own paid ValidUntil window come
+        // back. Room and Plot are swept symmetrically — previously only Room was touched here. Bulk
+        // ExecuteUpdateAsync (not load-then-loop-then-save), matching this repo's convention for
+        // atomic mass updates (see WalletRepository, CoinPackPurchaseRepository).
+        var now = DateTime.UtcNow;
+        var roomQuery = db.RoomListings.Where(l => l.UserId == id && !l.IsDeleted);
+        var plotQuery = db.PlotListings.Where(l => l.UserId == id && !l.IsDeleted);
+        if (request.IsActive)
         {
-            listing.IsActive = request.IsActive;
-            listing.UpdatedAt = DateTime.UtcNow;
+            roomQuery = roomQuery.Where(l => l.ValidUntil.HasValue && l.ValidUntil > now);
+            plotQuery = plotQuery.Where(l => l.ValidUntil.HasValue && l.ValidUntil > now);
         }
 
-        await db.SaveChangesAsync();
+        await roomQuery.ExecuteUpdateAsync(s => s
+            .SetProperty(l => l.IsActive, request.IsActive)
+            .SetProperty(l => l.UpdatedAt, now));
+        await plotQuery.ExecuteUpdateAsync(s => s
+            .SetProperty(l => l.IsActive, request.IsActive)
+            .SetProperty(l => l.UpdatedAt, now));
 
         return OkResponse(new { id = user.Id, isActive = user.IsActive });
     }
@@ -753,234 +767,136 @@ public static class AdminHandlers
         return OkResponse(new { success = true, newBalance = result.BalanceAfter });
     }
 
-    public static async Task<IResult> GetPlans(ApplicationDbContext db)
-    {
-        var plans = await db.RoomPlans
-            .OrderBy(p => p.Price)
-            .Select(p => new
-            {
-                id = p.Id,
-                planType = p.PlanType,
-                days = p.Days,
-                price = p.Price,
-                originalPrice = p.OriginalPrice,
-                discountPercent = p.DiscountPercent,
-                roomLimit = p.RoomLimit,
-                isEnabled = p.IsEnabled,
-            })
-            .ToListAsync();
+    // ── Go-Live Plans (Room/Plot) ──────────────────────────────────────────────
+    // One shared implementation per operation, discriminated by CoinFeature.Key, backed by the
+    // shared CoinPlan table (replaces the old RoomPlan/PlotPlan tables — literal leftovers from the
+    // real-money membership system that were never rebuilt as a dedicated coin-era entity). CoinPlan
+    // is deliberately feature-agnostic — Room/Plot Go-Live today, any future coin-gated feature
+    // (e.g. contact reveal, chat) slots in as a new CoinFeature key with zero schema change. The old
+    // per-kind copy-pasted methods had actually drifted apart (the Plot endpoint's validation errors
+    // said "RoomPlan" instead of a plot-appropriate message) — this shape makes that class of bug
+    // structurally impossible, since there's only one place each message is built now.
 
-        return OkResponse(plans);
+    public static async Task<IResult> GetPlans(IUnitOfWork unitOfWork) =>
+        OkResponse(await GetCoinPlansCoreAsync(unitOfWork, CoinFeatureKeys.RoomGoLive, "roomLimit"));
+
+    public static async Task<IResult> GetPlotPlans(IUnitOfWork unitOfWork) =>
+        OkResponse(await GetCoinPlansCoreAsync(unitOfWork, CoinFeatureKeys.PlotGoLive, "plotLimit"));
+
+    private static async Task<List<object>> GetCoinPlansCoreAsync(IUnitOfWork unitOfWork, string featureKey, string limitKey)
+    {
+        var plans = await unitOfWork.CoinPlans.GetByFeatureKeyAsync(featureKey);
+        return plans.OrderBy(p => p.Price).Select(p => ToAdminCoinPlanDto(p, limitKey)).ToList();
     }
 
-    public static async Task<IResult> CreatePlan(
-        CreatePlanRequest request,
-        ApplicationDbContext db)
+    private static object ToAdminCoinPlanDto(CoinPlan p, string limitKey) => new Dictionary<string, object?>
     {
-        if (string.IsNullOrWhiteSpace(request.PlanType))
-            return BadRequestResponse("RoomPlan type name is required.");
-        if (request.Price < 0)
+        ["id"] = p.Id,
+        ["planType"] = p.PlanType,
+        ["days"] = p.Days,
+        ["price"] = p.Price,
+        ["originalPrice"] = p.OriginalPrice,
+        ["discountPercent"] = p.DiscountPercent,
+        [limitKey] = p.Quota,
+        ["isFeatured"] = p.IsFeatured,
+        ["isEnabled"] = p.IsEnabled,
+    };
+
+    public static async Task<IResult> CreatePlan(CreateRoomGoLivePlanRequest request, IUnitOfWork unitOfWork) =>
+        await CreateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.RoomGoLive, "roomLimit", "Room", request.PlanType,
+            request.Price, request.Days, request.ListingLimit, request.OriginalPrice, request.DiscountPercent,
+            request.IsFeatured, "/api/v1/admin/plans");
+
+    public static async Task<IResult> CreatePlotPlan(CreatePlotGoLivePlanRequest request, IUnitOfWork unitOfWork) =>
+        await CreateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.PlotGoLive, "plotLimit", "Plot", request.PlanType,
+            request.Price, request.Days, request.ListingLimit, request.OriginalPrice, request.DiscountPercent,
+            request.IsFeatured, "/api/v1/admin/plot-plans");
+
+    private static async Task<IResult> CreateCoinPlanCoreAsync(
+        IUnitOfWork unitOfWork, string featureKey, string limitKey, string unitNoun, string rawPlanType,
+        int price, int days, int quota, int originalPrice, int discountPercent, bool isFeatured,
+        string locationPrefix)
+    {
+        if (string.IsNullOrWhiteSpace(rawPlanType))
+            return BadRequestResponse("Plan type name is required.");
+        if (price < 0)
             return BadRequestResponse("Price cannot be negative.");
-        if (request.Days <= 0)
+        if (days <= 0)
             return BadRequestResponse("Days must be greater than 0.");
-        if (request.RoomLimit <= 0)
-            return BadRequestResponse("Room limit must be greater than 0.");
+        if (quota <= 0)
+            return BadRequestResponse($"{unitNoun} limit must be greater than 0.");
 
-        var key = request.PlanType.Trim().ToUpperInvariant();
-        if (await db.RoomPlans.AnyAsync(p => p.PlanType == key))
-            return BadRequestResponse($"RoomPlan '{key}' already exists.", "DuplicatePlan");
+        var key = rawPlanType.Trim().ToUpperInvariant();
+        if (await unitOfWork.CoinPlans.GetByFeatureKeyAndPlanTypeAsync(featureKey, key) != null)
+            return BadRequestResponse($"Plan '{key}' already exists.", "DuplicatePlan");
 
-        var plan = new RoomPlan
+        var plan = new CoinPlan
         {
             Id = Guid.NewGuid(),
+            FeatureKey = featureKey,
             PlanType = key,
-            Price = request.Price,
-            Days = request.Days,
-            RoomLimit = request.RoomLimit,
-            OriginalPrice = request.OriginalPrice,
-            DiscountPercent = request.DiscountPercent,
+            Price = price,
+            Days = days,
+            Quota = quota,
+            OriginalPrice = originalPrice,
+            DiscountPercent = discountPercent,
+            IsFeatured = isFeatured,
             IsEnabled = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
 
-        db.RoomPlans.Add(plan);
-        await db.SaveChangesAsync();
+        await unitOfWork.CoinPlans.AddAsync(plan);
+        await unitOfWork.SaveChangesAsync();
 
-        return CreatedResponse(new
-        {
-            id = plan.Id,
-            planType = plan.PlanType,
-            days = plan.Days,
-            price = plan.Price,
-            originalPrice = plan.OriginalPrice,
-            discountPercent = plan.DiscountPercent,
-            roomLimit = plan.RoomLimit,
-            isEnabled = plan.IsEnabled,
-        }, $"/api/v1/admin/plans/{plan.Id}");
+        return CreatedResponse(ToAdminCoinPlanDto(plan, limitKey), $"{locationPrefix}/{plan.Id}");
     }
 
-    public static async Task<IResult> UpdatePlan(
-        Guid id,
-        UpdatePlanRequest request,
-        ApplicationDbContext db)
+    public static async Task<IResult> UpdatePlan(Guid id, UpdateRoomGoLivePlanRequest request, IUnitOfWork unitOfWork) =>
+        await UpdateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.RoomGoLive, "roomLimit", "Room", id, request.Days,
+            request.Price, request.ListingLimit, request.IsEnabled, request.OriginalPrice, request.DiscountPercent,
+            request.IsFeatured);
+
+    public static async Task<IResult> UpdatePlotPlan(Guid id, UpdatePlotGoLivePlanRequest request, IUnitOfWork unitOfWork) =>
+        await UpdateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.PlotGoLive, "plotLimit", "Plot", id, request.Days,
+            request.Price, request.ListingLimit, request.IsEnabled, request.OriginalPrice, request.DiscountPercent,
+            request.IsFeatured);
+
+    private static async Task<IResult> UpdateCoinPlanCoreAsync(
+        IUnitOfWork unitOfWork, string featureKey, string limitKey, string unitNoun, Guid id,
+        int? days, int? price, int? quota, bool? isEnabled, int? originalPrice, int? discountPercent, bool? isFeatured)
     {
-        var plan = await db.RoomPlans.FindAsync(id);
-        if (plan == null) return NotFoundResponse("RoomPlan not found");
+        var plan = await unitOfWork.CoinPlans.GetByIdAsync(id);
+        // FeatureKey guard matters now that every coin-gated feature shares one table — a Room admin
+        // request must not be able to mutate a Plot row (or vice versa) just by guessing/reusing an id.
+        if (plan == null || plan.FeatureKey != featureKey)
+            return NotFoundResponse("Plan not found");
 
-        if (request.Days.HasValue)
+        if (days.HasValue)
         {
-            if (request.Days.Value <= 0) return BadRequestResponse("Days must be greater than 0");
-            plan.Days = request.Days.Value;
+            if (days.Value <= 0) return BadRequestResponse("Days must be greater than 0");
+            plan.Days = days.Value;
         }
-        if (request.Price.HasValue)
+        if (price.HasValue)
         {
-            if (request.Price.Value < 0) return BadRequestResponse("Price cannot be negative");
-            plan.Price = request.Price.Value;
+            if (price.Value < 0) return BadRequestResponse("Price cannot be negative");
+            plan.Price = price.Value;
         }
-        if (request.RoomLimit.HasValue)
+        if (quota.HasValue)
         {
-            if (request.RoomLimit.Value <= 0) return BadRequestResponse("Room limit must be greater than 0");
-            plan.RoomLimit = request.RoomLimit.Value;
+            if (quota.Value <= 0) return BadRequestResponse($"{unitNoun} limit must be greater than 0");
+            plan.Quota = quota.Value;
         }
-        if (request.IsEnabled.HasValue)
-            plan.IsEnabled = request.IsEnabled.Value;
-        if (request.OriginalPrice.HasValue)
-            plan.OriginalPrice = request.OriginalPrice.Value;
-        if (request.DiscountPercent.HasValue)
-            plan.DiscountPercent = request.DiscountPercent.Value;
-
+        if (isEnabled.HasValue) plan.IsEnabled = isEnabled.Value;
+        if (originalPrice.HasValue) plan.OriginalPrice = originalPrice.Value;
+        if (discountPercent.HasValue) plan.DiscountPercent = discountPercent.Value;
+        if (isFeatured.HasValue) plan.IsFeatured = isFeatured.Value;
         plan.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
 
-        return OkResponse(new
-        {
-            id = plan.Id,
-            planType = plan.PlanType,
-            days = plan.Days,
-            price = plan.Price,
-            originalPrice = plan.OriginalPrice,
-            discountPercent = plan.DiscountPercent,
-            roomLimit = plan.RoomLimit,
-            isEnabled = plan.IsEnabled,
-        });
-    }
+        await unitOfWork.CoinPlans.UpdateAsync(plan);
+        await unitOfWork.SaveChangesAsync();
 
-
-    // ── Admin PlotListing RoomPlan endpoints ─────────────────────────────────────────────
-
-    // PlotListingLimit is bound from the wire key "plotLimit" — matching the naming this same
-    // resource's own response DTOs (GetPlotPlans/CreatePlotPlan/GetPublicPlotPlans) already use, and
-    // what the admin app already sends. Without this override the request/response DTOs for the same
-    // resource would use two different names for the same field ("plotListingLimit" vs "plotLimit").
-    public record CreatePlotPlanRequest(string PlanType, int Price, int Days, [property: JsonPropertyName("plotLimit")] int PlotListingLimit, int OriginalPrice = 0, int DiscountPercent = 0);
-    public record UpdatePlotPlanRequest(int? Days, int? Price, [property: JsonPropertyName("plotLimit")] int? PlotListingLimit, bool? IsEnabled, int? OriginalPrice, int? DiscountPercent);
-
-    public static async Task<IResult> GetPlotPlans(ApplicationDbContext db)
-    {
-        var plans = await db.PlotPlans
-            .OrderBy(p => p.Price)
-            .Select(p => new
-            {
-                id = p.Id,
-                planType = p.PlanType,
-                days = p.Days,
-                price = p.Price,
-                originalPrice = p.OriginalPrice,
-                discountPercent = p.DiscountPercent,
-                plotLimit = p.PlotListingLimit,
-                isEnabled = p.IsEnabled,
-            })
-            .ToListAsync();
-        return OkResponse(plans);
-    }
-
-    public static async Task<IResult> CreatePlotPlan(CreatePlotPlanRequest request, ApplicationDbContext db)
-    {
-        if (string.IsNullOrWhiteSpace(request.PlanType))
-            return BadRequestResponse("RoomPlan type name is required.");
-        if (request.Price < 0)
-            return BadRequestResponse("Price cannot be negative.");
-        if (request.Days <= 0)
-            return BadRequestResponse("Days must be greater than 0.");
-        if (request.PlotListingLimit <= 0)
-            return BadRequestResponse("PlotListing limit must be greater than 0.");
-
-        var key = request.PlanType.Trim().ToUpperInvariant();
-        if (await db.PlotPlans.AnyAsync(p => p.PlanType == key))
-            return BadRequestResponse($"RoomPlan '{key}' already exists.", "DuplicatePlan");
-
-        var plan = new PlotPlan
-        {
-            Id = Guid.NewGuid(),
-            PlanType = key,
-            Price = request.Price,
-            Days = request.Days,
-            PlotListingLimit = request.PlotListingLimit,
-            OriginalPrice = request.OriginalPrice,
-            DiscountPercent = request.DiscountPercent,
-            IsEnabled = true,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-        };
-
-        db.PlotPlans.Add(plan);
-        await db.SaveChangesAsync();
-
-        return CreatedResponse(new
-        {
-            id = plan.Id,
-            planType = plan.PlanType,
-            days = plan.Days,
-            price = plan.Price,
-            originalPrice = plan.OriginalPrice,
-            discountPercent = plan.DiscountPercent,
-            plotLimit = plan.PlotListingLimit,
-            isEnabled = plan.IsEnabled,
-        }, $"/api/v1/admin/plot-plans/{plan.Id}");
-    }
-
-    public static async Task<IResult> UpdatePlotPlan(Guid id, UpdatePlotPlanRequest request, ApplicationDbContext db)
-    {
-        var plan = await db.PlotPlans.FindAsync(id);
-        if (plan == null) return NotFoundResponse("PlotListing plan not found");
-
-        if (request.Days.HasValue)
-        {
-            if (request.Days.Value <= 0) return BadRequestResponse("Days must be greater than 0");
-            plan.Days = request.Days.Value;
-        }
-        if (request.Price.HasValue)
-        {
-            if (request.Price.Value < 0) return BadRequestResponse("Price cannot be negative");
-            plan.Price = request.Price.Value;
-        }
-        if (request.PlotListingLimit.HasValue)
-        {
-            if (request.PlotListingLimit.Value <= 0) return BadRequestResponse("PlotListing limit must be greater than 0");
-            plan.PlotListingLimit = request.PlotListingLimit.Value;
-        }
-        if (request.IsEnabled.HasValue)
-            plan.IsEnabled = request.IsEnabled.Value;
-        if (request.OriginalPrice.HasValue)
-            plan.OriginalPrice = request.OriginalPrice.Value;
-        if (request.DiscountPercent.HasValue)
-            plan.DiscountPercent = request.DiscountPercent.Value;
-
-        plan.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
-
-        return OkResponse(new
-        {
-            id = plan.Id,
-            planType = plan.PlanType,
-            days = plan.Days,
-            price = plan.Price,
-            originalPrice = plan.OriginalPrice,
-            discountPercent = plan.DiscountPercent,
-            plotLimit = plan.PlotListingLimit,
-            isEnabled = plan.IsEnabled,
-        });
+        return OkResponse(ToAdminCoinPlanDto(plan, limitKey));
     }
 
     // ── Coupons ─────────────────────────────────────────────────────────────────

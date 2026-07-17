@@ -628,9 +628,9 @@ public static class PlotListingHandlers
 
     public static async Task<IResult> GetPublicPlotPlans(IUnitOfWork unitOfWork)
     {
-        var plans = await unitOfWork.PlotPlans.GetAllAsync();
+        var plans = await unitOfWork.CoinPlans.GetByFeatureKeyAsync(CoinFeatureKeys.PlotGoLive);
         var result = plans.Where(p => p.IsEnabled).OrderBy(p => p.Price)
-            .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, originalPrice = p.OriginalPrice, discountPercent = p.DiscountPercent, plotLimit = p.PlotListingLimit })
+            .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, originalPrice = p.OriginalPrice, discountPercent = p.DiscountPercent, plotLimit = p.Quota, isFeatured = p.IsFeatured })
             .ToList();
         return OkResponse(result);
     }

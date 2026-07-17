@@ -64,23 +64,31 @@ public class CouponService(IUnitOfWork unitOfWork, ICoinWalletService wallet, IL
                 return new CouponRedeemResult(CouponRedeemOutcome.AlreadyRedeemed);
             }
 
+            // Credited inside the same transaction as the redemption row — a crash between the two
+            // used to be unrecoverable (the unique index blocks any retry from ever reaching the
+            // credit once the redemption row exists), permanently stranding the user's coins. Sharing
+            // the transaction with CoinWalletService works the same way GoLiveHandlers' spend+listing-
+            // update does: ICoinWalletService detects this ambient transaction (same ApplicationDbContext)
+            // and uses a SAVEPOINT instead of opening its own, so a failure here still rolls back the
+            // redemption row too — no more split-brain state.
+            //
+            // ReferenceId is the fresh redemption row's own Guid, not the coupon's Id — every redeemer
+            // of a shared/multi-user coupon shares the same CouponId, so keying the wallet engine's own
+            // one-shot-credit dedup off CouponId would silently credit only the first redeemer and
+            // treat everyone else as a duplicate.
+            var reason = coupon.TriggerType == WellKnownCoupons.WelcomeSignupTrigger
+                ? CoinTransactionReasons.WelcomeBonus
+                : CoinTransactionReasons.CouponRedeem;
+            var creditResult = await wallet.CreditCoinsAsync(userId, coupon.CoinValue, reason, redemptionId);
+
             await unitOfWork.CommitTransactionAsync();
+
+            return new CouponRedeemResult(CouponRedeemOutcome.Success, coupon.CoinValue, creditResult.BalanceAfter, coupon.CampaignLabel);
         }
         catch
         {
             await unitOfWork.RollbackTransactionAsync();
             throw;
         }
-
-        // Outside the reservation transaction: ReferenceId is the fresh redemption row's own Guid,
-        // not the coupon's Id — every redeemer of a shared/multi-user coupon shares the same
-        // CouponId, so keying the wallet engine's own one-shot-credit dedup off CouponId would
-        // silently credit only the first redeemer and treat everyone else as a duplicate.
-        var reason = coupon.TriggerType == WellKnownCoupons.WelcomeSignupTrigger
-            ? CoinTransactionReasons.WelcomeBonus
-            : CoinTransactionReasons.CouponRedeem;
-        var creditResult = await wallet.CreditCoinsAsync(userId, coupon.CoinValue, reason, redemptionId);
-
-        return new CouponRedeemResult(CouponRedeemOutcome.Success, coupon.CoinValue, creditResult.BalanceAfter, coupon.CampaignLabel);
     }
 }

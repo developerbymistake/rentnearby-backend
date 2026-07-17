@@ -178,7 +178,7 @@ public static class RoomListingsHandlers
 
     public static async Task<IResult> GetPlans(IUnitOfWork unitOfWork)
     {
-        var plans = await unitOfWork.RoomPlans.GetAllAsync();
+        var plans = await unitOfWork.CoinPlans.GetByFeatureKeyAsync(CoinFeatureKeys.RoomGoLive);
         var result = plans
             .Where(p => p.IsEnabled)
             .OrderBy(p => p.Price)
@@ -189,7 +189,8 @@ public static class RoomListingsHandlers
                 price         = p.Price,
                 originalPrice = p.OriginalPrice,
                 discountPercent = p.DiscountPercent,
-                roomLimit     = p.RoomLimit,
+                roomLimit     = p.Quota,
+                isFeatured    = p.IsFeatured,
             })
             .ToList();
         return OkResponse(result);
