@@ -154,10 +154,11 @@ public static class ChatHandlers
     // ── Messages ─────────────────────────────────────────────────────────────
 
     public static async Task<IResult> GetMessages(
-        Guid conversationId, DateTime? before, int? limit,
+        Guid conversationId, DateTime? before, DateTime? after, int? limit,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
+        if (before.HasValue && after.HasValue) return BadRequestResponse("Pass either 'before' or 'after', not both.");
 
         var conversation = await unitOfWork.Conversations.GetByIdAsync(conversationId);
         if (conversation == null) return NotFoundResponse("Conversation not found");
@@ -169,8 +170,10 @@ public static class ChatHandlers
         await RefreshListingLifecycleStatusAsync(conversation, db, unitOfWork);
         await unitOfWork.SaveChangesAsync();
 
+        // 'after' is the reconnect-catch-up path (give me everything since the last message I
+        // already have); 'before' is normal backward history-scrolling. Never both at once.
         var messages = await unitOfWork.Messages.GetPagedForConversationAsync(
-            conversationId, before, Math.Clamp(limit ?? DefaultPageSize, 1, 100));
+            conversationId, before, after, Math.Clamp(limit ?? DefaultPageSize, 1, 100));
 
         var dtos = messages.Select(m => new MessageDto
         {
@@ -273,7 +276,7 @@ public static class ChatHandlers
             throw;
         }
 
-        await PushMessageAsync(hubContext, conversation, message);
+        await BroadcastMessageAsync(hubContext, conversation, message, isNewMessage: true);
         await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, message, cache);
 
         return CreatedResponse(new MessageDto
@@ -317,17 +320,22 @@ public static class ChatHandlers
 
         var original = await unitOfWork.Messages.GetByIdAsync(messageId);
         if (original == null || original.Type != "contact_request") return NotFoundResponse("Contact request not found");
+        if (original.SenderId == callerId) return BadRequestResponse("You can't respond to your own request");
 
         var conversation = await unitOfWork.Conversations.GetByIdAsync(original.ConversationId);
         if (conversation == null) return NotFoundResponse("Conversation not found");
-        // Only the owner side can approve/decline a request for their own contact details.
-        if (conversation.OwnerId != callerId) return ForbiddenResponse();
+        // Either side can send a contact request (SendMessage has no owner/renter restriction) and
+        // either side can respond to one addressed to them — same generic participant check
+        // RespondSchedule uses, no owner-only gate. Whoever approves shares THEIR OWN number, not
+        // "the owner's" — a renter approving a request from the owner reveals the renter's number.
+        if (conversation.RenterId != callerId && conversation.OwnerId != callerId) return ForbiddenResponse();
+        var otherPartyId = conversation.RenterId == callerId ? conversation.OwnerId : conversation.RenterId;
 
-        var owner = await unitOfWork.Users.GetByIdAsync(callerId);
-        if (owner == null) return NotFoundResponse("User not found");
+        var responder = await unitOfWork.Users.GetByIdAsync(callerId);
+        if (responder == null) return NotFoundResponse("User not found");
 
         var payload = request.Approve
-            ? JsonSerializer.Serialize(new { approved = true, phone = owner.PhoneNumber })
+            ? JsonSerializer.Serialize(new { approved = true, phone = responder.PhoneNumber })
             : JsonSerializer.Serialize(new { approved = false });
 
         var response = new Message
@@ -342,7 +350,7 @@ public static class ChatHandlers
         };
 
         await unitOfWork.Messages.AddAsync(response);
-        await ApplyToConversationAsync(conversation, callerId, conversation.RenterId, response, unitOfWork, cache);
+        await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
 
         try
         {
@@ -364,8 +372,8 @@ public static class ChatHandlers
             throw;
         }
 
-        await PushMessageAsync(hubContext, conversation, response);
-        await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, conversation.RenterId, response, cache);
+        await BroadcastMessageAsync(hubContext, conversation, response, isNewMessage: true);
+        await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, response, cache);
 
         return OkResponse(new MessageDto
         {
@@ -452,7 +460,11 @@ public static class ChatHandlers
                 throw;
             }
 
-            await PushMessageAsync(hubContext, conversation, counter);
+            await BroadcastMessageAsync(hubContext, conversation, counter, isNewMessage: true);
+            // The original proposal's PayloadJson was persisted as "superseded" above — without
+            // this, the other party's screen kept showing it as pending/actionable until they
+            // left and re-entered the conversation (forcing a REST refetch).
+            await BroadcastMessageAsync(hubContext, conversation, original, isNewMessage: false);
             await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, counter, cache);
             return OkResponse(new MessageDto
             {
@@ -468,17 +480,25 @@ public static class ChatHandlers
             // slots — defends against a client sending a time that was never offered.
             // Degrades gracefully (rejects rather than 500s) if the original proposal's
             // payload is malformed, same shape as the "counter" branch's parse above.
-            var offeredTimes = new List<DateTime>();
+            // Compared as whole-second Unix timestamps rather than raw DateTime equality —
+            // a JSON round-trip can leave DateTime.Kind as Utc on one side and Unspecified on
+            // the other (System.Text.Json infers Kind from whether the source string had a
+            // 'Z'/offset), and raw `==` treats those as different instants even when they
+            // represent the same moment; normalizing to UTC + truncating to seconds also
+            // absorbs harmless sub-second jitter from serialization.
+            var offeredTimes = new List<long>();
             try
             {
                 using var doc = JsonDocument.Parse(original.PayloadJson);
                 if (doc.RootElement.TryGetProperty("proposedAts", out var arr) && arr.ValueKind == JsonValueKind.Array)
                     foreach (var el in arr.EnumerateArray())
-                        if (el.TryGetDateTime(out var dt)) offeredTimes.Add(dt);
+                        if (el.TryGetDateTime(out var dt))
+                            offeredTimes.Add(new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)).ToUnixTimeSeconds());
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException) { }
 
-            if (!offeredTimes.Any(t => t == request.AcceptedAt!.Value))
+            var acceptedAtSeconds = new DateTimeOffset(DateTime.SpecifyKind(request.AcceptedAt!.Value, DateTimeKind.Utc)).ToUnixTimeSeconds();
+            if (!offeredTimes.Contains(acceptedAtSeconds))
                 return BadRequestResponse("That time wasn't one of the offered slots");
 
             responsePayload = new { status = "accepted", confirmedAt = request.AcceptedAt, respondsTo = messageId };
@@ -522,7 +542,7 @@ public static class ChatHandlers
             throw;
         }
 
-        await PushMessageAsync(hubContext, conversation, response);
+        await BroadcastMessageAsync(hubContext, conversation, response, isNewMessage: true);
         await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, response, cache);
         return OkResponse(new MessageDto
         {
@@ -576,7 +596,7 @@ public static class ChatHandlers
         }
 
         // Live-push to both sides — the OTHER party's open conversation screen (if any) and
-        // their Chats list, mirroring PushMessageAsync's own two-group pattern below.
+        // their Chats list, mirroring BroadcastMessageAsync's own two-group pattern below.
         foreach (var conversation in flipped)
         {
             await hubContext.Clients.Group($"conversation_{conversation.Id}")
@@ -950,7 +970,13 @@ public static class ChatHandlers
         }
     }
 
-    private static async Task PushMessageAsync(IHubContext<ChatHub> hubContext, Conversation conversation, Message message)
+    // The one shared path every message-mutating handler must go through to stay live for both
+    // parties — new messages (isNewMessage: true) push MessageReceived + bump the recipient's
+    // unread count; an existing message merely changing state (e.g. a schedule proposal marked
+    // "superseded") pushes MessageUpdated to the conversation only, no unread bump since it isn't
+    // new unread content. Funneling both through one method is what makes forgetting to broadcast
+    // a state mutation (as the schedule-counter branch below used to) structurally harder to repeat.
+    private static async Task BroadcastMessageAsync(IHubContext<ChatHub> hubContext, Conversation conversation, Message message, bool isNewMessage)
     {
         var dto = new MessageDto
         {
@@ -958,7 +984,10 @@ public static class ChatHandlers
             IsMine = false, // recipient's client compares SenderId against its own userId itself
             Type = message.Type, PayloadJson = message.PayloadJson, CreatedAt = message.CreatedAt,
         };
-        await hubContext.Clients.Group($"conversation_{conversation.Id}").SendAsync("MessageReceived", dto);
+        var eventName = isNewMessage ? "MessageReceived" : "MessageUpdated";
+        await hubContext.Clients.Group($"conversation_{conversation.Id}").SendAsync(eventName, dto);
+
+        if (!isNewMessage) return;
 
         var recipientId = message.SenderId == conversation.RenterId ? conversation.OwnerId : conversation.RenterId;
         var unread = recipientId == conversation.RenterId ? conversation.UnreadCountForRenter : conversation.UnreadCountForOwner;
