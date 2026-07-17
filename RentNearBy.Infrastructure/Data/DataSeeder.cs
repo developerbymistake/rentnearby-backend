@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Models;
 using System.Text.Json;
 
 namespace RentNearBy.Infrastructure.Data;
@@ -24,8 +25,44 @@ public static class DataSeeder
         await SeedPlotPlansAsync(db);
         await SeedDistrictsAsync(db);
         await SeedCitiesAsync(db);
-        await SeedFeaturesAsync(db);
+        await SeedListingLimitSettingsAsync(db);
+        await SeedCouponsAsync(db);
         await SeedAdminsAsync(db);
+    }
+
+    private static async Task SeedCouponsAsync(ApplicationDbContext db)
+    {
+        if (await db.Coupons.AnyAsync(c => c.Id == WellKnownCoupons.WelcomeSignupCouponId)) return;
+
+        db.Coupons.Add(new Coupon
+        {
+            Id = WellKnownCoupons.WelcomeSignupCouponId,
+            Code = null,
+            CoinValue = 100,
+            TriggerType = WellKnownCoupons.WelcomeSignupTrigger,
+            PerUserLimit = 1,
+            MaxTotalRedemptions = null,
+            CurrentRedemptions = 0,
+            ValidFrom = DateTime.UtcNow,
+            ValidUntil = null,
+            Status = CouponStatuses.Active,
+            CreatedBy = null,
+            CampaignLabel = "Welcome Bonus",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedListingLimitSettingsAsync(ApplicationDbContext db)
+    {
+        if (await db.ListingLimitSettings.AnyAsync()) return;
+
+        db.ListingLimitSettings.AddRange(
+            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Room, MaxListings = 5, UpdatedAt = DateTime.UtcNow },
+            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Plot, MaxListings = 5, UpdatedAt = DateTime.UtcNow }
+        );
+        await db.SaveChangesAsync();
     }
 
     private static async Task SeedPlansAsync(ApplicationDbContext db)
@@ -498,37 +535,6 @@ public static class DataSeeder
         }
 
         Console.WriteLine($"[DataSeeder] City seeding complete. Seeded: {seeded}, Skipped (no district): {skippedNoDistrict}, Skipped (ambiguous district): {skippedAmbiguous}, Skipped (duplicate): {skippedDuplicate}");
-    }
-
-    private static async Task SeedFeaturesAsync(ApplicationDbContext db)
-    {
-        if (await db.AppFeatures.AnyAsync()) return;
-
-        db.AppFeatures.AddRange(
-            new AppFeature
-            {
-                Id = Guid.NewGuid(),
-                Key = "room_payment",
-                DisplayName = "Room Payment",
-                IsEnabled = true,
-                FreeLimit = 1,
-                FreeDays = 5,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-            },
-            new AppFeature
-            {
-                Id = Guid.NewGuid(),
-                Key = "plot_payment",
-                DisplayName = "PlotListing Payment",
-                IsEnabled = true,
-                FreeLimit = 1,
-                FreeDays = 5,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-            }
-        );
-        await db.SaveChangesAsync();
     }
 
     private static async Task SeedAdminsAsync(ApplicationDbContext db)

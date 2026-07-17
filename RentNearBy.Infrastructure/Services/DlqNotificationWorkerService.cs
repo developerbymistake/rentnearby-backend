@@ -7,20 +7,21 @@ using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
 /// <summary>
-/// Consumes the dead-letter queue "dlq.membership.expired".
+/// Consumes the dead-letter queue "dlq.listing.expired".
 /// Messages arrive here when:
 ///   1. NotificationWorkerService NACKs a message (processing failed)
-///   2. MembershipExpiryService fails to publish to main queue (publishes directly to DLQ)
+///   2. ListingExpirySweepService fails to publish to main queue (publishes directly to DLQ)
 ///
 /// Strategy: retry once, then ACK regardless — avoids infinite loop.
 /// </summary>
 public class DlqNotificationWorkerService : BackgroundService
 {
-    private const string QueueName = "dlq.membership.expired";
+    private const string QueueName = "dlq.listing.expired";
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IFcmService _fcmService;
@@ -71,7 +72,7 @@ public class DlqNotificationWorkerService : BackgroundService
                     try
                     {
                         var body = Encoding.UTF8.GetString(ea.Body.ToArray());
-                        var msg  = JsonSerializer.Deserialize<MembershipExpiredMessage>(body,
+                        var msg  = JsonSerializer.Deserialize<ListingExpiredMessage>(body,
                             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                         if (msg != null)
@@ -111,17 +112,18 @@ public class DlqNotificationWorkerService : BackgroundService
         _logger.LogInformation("DlqNotificationWorkerService stopped");
     }
 
-    private async Task ProcessDlqMessageAsync(MembershipExpiredMessage msg)
+    private async Task ProcessDlqMessageAsync(ListingExpiredMessage msg)
     {
-        _logger.LogInformation("DLQ: retrying notification for user {UserId} type={Type}", msg.UserId, msg.Type);
+        _logger.LogInformation("DLQ: retrying notification for user {UserId} kind={ListingKind}", msg.UserId, msg.ListingKind);
 
         using var scope    = _serviceScopeFactory.CreateScope();
         var unitOfWork     = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-        var notifType      = msg.Type == "room" ? "room_expired" : "plot_expired";
-        var title          = "Membership Expired";
-        var body           = msg.Type == "room"
-            ? "Your room listing membership has expired. Renew to keep your listings active."
-            : "Your plot listing membership has expired. Renew to keep your listings active.";
+        var isRoom         = msg.ListingKind == ListingKinds.Room;
+        var notifType      = isRoom ? "room_expired" : "plot_expired";
+        var title          = "Listing Expired";
+        var body           = isRoom
+            ? "Your room listing has gone offline — its paid period ended. Go live again to keep it visible."
+            : "Your plot listing has gone offline — its paid period ended. Go live again to keep it visible.";
 
         // Skip if already sent today (might have succeeded via main worker earlier)
         if (await unitOfWork.NotificationLogs.WasSentTodayAsync(msg.UserId, notifType))
@@ -144,7 +146,7 @@ public class DlqNotificationWorkerService : BackgroundService
 
             try
             {
-                isSuccess = await _fcmService.SendAsync(deviceToken.Token, title, body, msg.Type);
+                isSuccess = await _fcmService.SendAsync(deviceToken.Token, title, body, msg.ListingKind.ToLowerInvariant());
                 if (!isSuccess)
                 {
                     await unitOfWork.DeviceTokens.MarkInvalidAsync(deviceToken.Token);

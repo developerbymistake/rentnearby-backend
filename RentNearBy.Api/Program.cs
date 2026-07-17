@@ -154,7 +154,7 @@ app.MapGet("/delete-account", () => Results.Content("""
 <div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> — your account is deleted instantly</span></div>
 </div>
 <div class="warn">
-<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, photos, bookings, and membership data will be permanently removed.
+<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, photos, bookings, and wallet coin balance will be permanently removed.
 </div>
 <p>If you are unable to access the app, contact us at <a href="mailto:supportbakhli@gmail.com">supportbakhli@gmail.com</a> with subject <em>"Account Deletion Request"</em>.</p>
 <p><a href="https://developerbymistake.github.io/bakhli-privacy-policy/">Privacy Policy</a></p>
@@ -249,6 +249,22 @@ app.MapGroup("/api/v1/chat")
 app.MapGroup("/api/v1/home")
     .WithTags("Home")
     .MapHomeEndpoints();
+
+app.MapGroup("/api/v1/config")
+    .WithTags("Config")
+    .MapConfigEndpoints();
+
+app.MapGroup("/api/v1/coupons")
+    .WithTags("Coupons")
+    .MapCouponEndpoints();
+
+app.MapGroup("/api/v1/coin-packs")
+    .WithTags("CoinPacks")
+    .MapCoinPackEndpoints();
+
+app.MapGroup("/api/v1/wallet")
+    .WithTags("Wallet")
+    .MapWalletEndpoints();
 
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");

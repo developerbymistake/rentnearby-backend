@@ -5,6 +5,7 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -87,7 +88,9 @@ public static class AuthHandlers
         PhoneOnboardingRequest request,
         IValidator<PhoneOnboardingRequest> validator,
         IUnitOfWork unitOfWork,
-        IJwtService jwtService)
+        IJwtService jwtService,
+        ICouponService couponService,
+        ILogger<CouponService> logger)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -114,6 +117,17 @@ public static class AuthHandlers
         catch (Microsoft.EntityFrameworkCore.DbUpdateException)
         {
             return ConflictResponse("This phone number is already registered. Please sign in.", "PhoneExists");
+        }
+
+        // Best-effort — a welcome-bonus hiccup must never block signup itself. The redemption's own
+        // (CouponId, UserId) unique index also protects against a retried signup double-crediting.
+        try
+        {
+            await couponService.RedeemCouponAsync(newUser.Id, WellKnownCoupons.WelcomeSignupCouponId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Welcome bonus redemption failed for new user {UserId} — continuing signup", newUser.Id);
         }
 
         return await CreateSessionAndRespond(newUser, unitOfWork, jwtService);

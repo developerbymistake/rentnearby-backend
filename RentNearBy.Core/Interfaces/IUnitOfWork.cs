@@ -12,11 +12,7 @@ public interface IUnitOfWork : IDisposable
     IRoomTypeRepository RoomTypes { get; }
     IPlotTypeRepository PlotTypes { get; }
     IRoomPlanRepository RoomPlans { get; }
-    IRoomMembershipRepository RoomMemberships { get; }
-    IPaymentTransactionRepository PaymentTransactions { get; }
-    IFeatureRepository Features { get; }
     IPlotListingRoomListingRepository PlotListings { get; }
-    IPlotMembershipRepository PlotMemberships { get; }
     IPlotPlanRepository PlotPlans { get; }
     IDeviceTokenRepository DeviceTokens { get; }
     INotificationLogRepository NotificationLogs { get; }
@@ -28,5 +24,20 @@ public interface IUnitOfWork : IDisposable
     IMessageRepository Messages { get; }
     IUserBlockRepository UserBlocks { get; }
     IQuestionTemplateRepository QuestionTemplates { get; }
+    IWalletRepository Wallets { get; }
+    ICoinTransactionRepository CoinTransactions { get; }
+    ICoinPackRepository CoinPacks { get; }
+    IListingLimitSettingRepository ListingLimitSettings { get; }
+    ICouponRepository Coupons { get; }
+    ICouponRedemptionRepository CouponRedemptions { get; }
+    ICoinPackPurchaseRepository CoinPackPurchases { get; }
     Task<int> SaveChangesAsync();
+
+    // Canonical transaction-control surface for handler/service-level code that needs multiple
+    // writes (e.g. a coin spend + a listing activation) to commit or fail together. Wraps the same
+    // underlying ApplicationDbContext's transaction, so ICoinWalletService's own ambient-transaction
+    // detection sees it correctly regardless of which caller opened it.
+    Task BeginTransactionAsync();
+    Task CommitTransactionAsync();
+    Task RollbackTransactionAsync();
 }

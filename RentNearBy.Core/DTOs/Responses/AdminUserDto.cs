@@ -1,4 +1,4 @@
-﻿namespace RentNearBy.Core.DTOs.Responses;
+namespace RentNearBy.Core.DTOs.Responses;
 
 public class AdminUserDto
 {
@@ -7,32 +7,10 @@ public class AdminUserDto
     public bool IsPhoneVerified { get; set; }
     public string? Name { get; set; }
     public bool IsActive { get; set; }
-    public bool HasUsedFreePlan { get; set; }
     public DateTime CreatedAt { get; set; }
     public int TotalListings { get; set; }
     public int ActiveListings { get; set; }
     public int TotalPlotListings { get; set; }
     public int ActivePlotListings { get; set; }
-    public AdminMembershipDto? CurrentMembership { get; set; }
-    public AdminPlotMembershipDto? CurrentPlotMembership { get; set; }
-}
-
-public class AdminMembershipDto
-{
-    public Guid Id { get; set; }
-    public string PlanType { get; set; } = string.Empty;
-    public DateTime ValidFrom { get; set; }
-    public DateTime ValidUntil { get; set; }
-    public int MaxRooms { get; set; }
-    public bool IsActive { get; set; }
-}
-
-public class AdminPlotMembershipDto
-{
-    public Guid Id { get; set; }
-    public string PlanType { get; set; } = string.Empty;
-    public DateTime ValidFrom { get; set; }
-    public DateTime ValidUntil { get; set; }
-    public int MaxPlotListings { get; set; }
-    public bool IsActive { get; set; }
+    public int WalletBalance { get; set; }
 }

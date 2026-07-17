@@ -245,7 +245,6 @@ public static class RoomListingsHandlers
         ClaimsPrincipal principal,
         IValidator<CreateListingRequest> validator,
         IUnitOfWork unitOfWork,
-        IPaymentService paymentService,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -263,30 +262,13 @@ public static class RoomListingsHandlers
                 return BadRequestResponse("Selected city does not belong to the selected district");
         }
 
-        var roomFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
-        if (roomFeature == null || !roomFeature.IsEnabled)
-        {
-            var freeLimit = roomFeature?.FreeLimit ?? 1;
-            var db = sp.GetRequiredService<ApplicationDbContext>();
-            var totalCount = await db.RoomListings
-                .Where(l => l.UserId == userId && !l.IsDeleted)
-                .CountAsync();
-            if (totalCount >= freeLimit)
-                return BadRequestResponse($"Free mode limit: you can have at most {freeLimit} listing(s). Delete one to add more.");
-        }
-        else
-        {
-            var membership = await unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
-            if (membership != null && membership.IsActive)
-            {
-                var db = sp.GetRequiredService<ApplicationDbContext>();
-                var totalCount = await db.RoomListings
-                    .Where(l => l.UserId == userId && !l.IsDeleted)
-                    .CountAsync();
-                if (totalCount >= membership.MaxRooms)
-                    return BadRequestResponse($"You have reached your plan limit of {membership.MaxRooms} listing(s). Upgrade your plan to add more.");
-            }
-        }
+        // Flat, coins-independent cap on how many listings a user can create — separate concern from
+        // whether they can afford to go live on one (that's coin-gated, at /go-live time instead).
+        var roomLimit = await unitOfWork.ListingLimitSettings.GetByKindAsync(ListingKinds.Room);
+        var maxListings = roomLimit?.MaxListings ?? 5;
+        var currentCount = await unitOfWork.RoomListings.CountByUserIdAsync(userId);
+        if (currentCount >= maxListings)
+            return BadRequestResponse($"You can have at most {maxListings} room listing(s). Delete one to add more.");
 
         var listing = new RoomListing
         {
@@ -301,26 +283,10 @@ public static class RoomListingsHandlers
             DistrictId = request.DistrictId,
             CityId = request.CityId,
             FurnishedStatus = request.FurnishedStatus,
-            IsActive = false,
+            IsActive = false, // always — POST /{id}/go-live is now the only path to activation
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
-
-        // Auto-activate for paid members with available capacity — routing by plan price, not plan name
-        var activeMembership = await unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
-        if (activeMembership != null && activeMembership.IsActive)
-        {
-            var activePlan = await unitOfWork.RoomPlans.GetByPlanTypeAsync(activeMembership.PlanType);
-            if (activePlan?.Price > 0)
-            {
-                var canActivate = await paymentService.CanUserActivateListingAsync(userId);
-                if (canActivate)
-                {
-                    listing.IsActive = true;
-                    listing.ValidUntil = activeMembership.ValidUntil;
-                }
-            }
-        }
 
         await unitOfWork.RoomListings.AddAsync(listing);
         await unitOfWork.SaveChangesAsync();
@@ -363,33 +329,10 @@ public static class RoomListingsHandlers
         }
         if (request.IsActive.HasValue)
         {
-            if (request.IsActive.Value == true)
-            {
-                var roomFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.RoomPayment);
-                if (roomFeature == null || !roomFeature.IsEnabled)
-                {
-                    var freeLimit = roomFeature?.FreeLimit ?? 1;
-                    var freeDays = roomFeature?.FreeDays ?? 2;
-                    var db = sp.GetRequiredService<ApplicationDbContext>();
-                    var totalCount = await db.RoomListings
-                        .Where(l => l.UserId == userId && !l.IsDeleted && l.Id != id)
-                        .CountAsync();
-                    if (totalCount >= freeLimit)
-                        return BadRequestResponse($"Free mode limit: you can have at most {freeLimit} listing(s).");
-                    listing.ValidUntil = DateTime.UtcNow.AddDays(freeDays);
-                }
-                else
-                {
-                    var membership = await unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
-                    if (membership == null || !membership.IsActive)
-                        return BadRequestResponse("You need an active plan to go live. Please purchase a plan.");
-                    var svc = sp.GetRequiredService<IPaymentService>();
-                    var canActivate = await svc.CanUserActivateListingAsync(userId);
-                    if (!canActivate)
-                        return BadRequestResponse($"You have reached your active listing limit of {membership.MaxRooms}. Upgrade your plan.");
-                }
-            }
-            listing.IsActive = request.IsActive.Value;
+            if (request.IsActive.Value)
+                return BadRequestResponse("Use POST /listings/{id}/go-live to activate a listing.");
+            listing.IsActive = false; // deactivating is always free — ValidUntil is untouched, so a
+                                       // later Go-Live within the same window reactivates for free too
         }
         listing.UpdatedAt = DateTime.UtcNow;
 

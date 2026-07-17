@@ -29,9 +29,9 @@ public class FcmService : IFcmService
         });
     }
 
-    public async Task<bool> SendAsync(string token, string title, string body, string membershipType, IDictionary<string, string>? data = null)
+    public async Task<bool> SendAsync(string token, string title, string body, string notificationType, IDictionary<string, string>? data = null)
     {
-        var payload = new Dictionary<string, string> { { "membership_type", membershipType } };
+        var payload = new Dictionary<string, string> { { "notification_type", notificationType } };
         if (data != null)
         {
             foreach (var kv in data) payload[kv.Key] = kv.Value;

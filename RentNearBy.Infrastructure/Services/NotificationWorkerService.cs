@@ -8,13 +8,14 @@ using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
 public class NotificationWorkerService : BackgroundService
 {
-    private const string QueueName    = "membership.expired";
-    private const string DlqQueueName = "dlq.membership.expired";
+    private const string QueueName    = "listing.expired";
+    private const string DlqQueueName = "dlq.listing.expired";
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IFcmService _fcmService;
@@ -81,7 +82,7 @@ public class NotificationWorkerService : BackgroundService
                     try
                     {
                         var body = Encoding.UTF8.GetString(ea.Body.ToArray());
-                        var msg = JsonSerializer.Deserialize<MembershipExpiredMessage>(body,
+                        var msg = JsonSerializer.Deserialize<ListingExpiredMessage>(body,
                             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                         if (msg != null)
@@ -120,16 +121,17 @@ public class NotificationWorkerService : BackgroundService
         _logger.LogInformation("NotificationWorkerService stopped");
     }
 
-    private async Task ProcessMessageAsync(MembershipExpiredMessage msg)
+    private async Task ProcessMessageAsync(ListingExpiredMessage msg)
     {
         using var scope = _serviceScopeFactory.CreateScope();
         var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-        var notificationType = msg.Type == "room" ? "room_expired" : "plot_expired";
-        var title = "Membership Expired";
-        var body = msg.Type == "room"
-            ? "Your room listing membership has expired. Renew to keep your listings active."
-            : "Your plot listing membership has expired. Renew to keep your listings active.";
+        var isRoom = msg.ListingKind == ListingKinds.Room;
+        var notificationType = isRoom ? "room_expired" : "plot_expired";
+        var title = "Listing Expired";
+        var body = isRoom
+            ? "Your room listing has gone offline — its paid period ended. Go live again to keep it visible."
+            : "Your plot listing has gone offline — its paid period ended. Go live again to keep it visible.";
 
         if (await unitOfWork.NotificationLogs.WasSentTodayAsync(msg.UserId, notificationType))
         {
@@ -154,7 +156,9 @@ public class NotificationWorkerService : BackgroundService
 
             try
             {
-                isSuccess = await _fcmService.SendAsync(deviceToken.Token, title, body, msg.Type);
+                // Preserves the exact lowercase "room"/"plot" value the FCM data payload/consumer app
+                // already expects for this field, even though ListingKind itself is title-case.
+                isSuccess = await _fcmService.SendAsync(deviceToken.Token, title, body, msg.ListingKind.ToLowerInvariant());
 
                 if (!isSuccess)
                 {

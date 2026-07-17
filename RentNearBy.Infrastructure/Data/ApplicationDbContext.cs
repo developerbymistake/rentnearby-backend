@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Data;
 
@@ -15,14 +16,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<City> Cities { get; set; }
     public DbSet<RoomType> RoomTypes { get; set; }
     public DbSet<RoomPlan> RoomPlans { get; set; }
-    public DbSet<RoomMembership> RoomMemberships { get; set; }
-    public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
-    public DbSet<AppFeature> AppFeatures { get; set; }
     public DbSet<PlotType> PlotTypes { get; set; }
     public DbSet<PlotListing> PlotListings { get; set; }
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
     public DbSet<PlotPlan> PlotPlans { get; set; }
-    public DbSet<PlotMembership> PlotMemberships { get; set; }
     public DbSet<DeviceToken> DeviceTokens { get; set; }
     public DbSet<NotificationLog> NotificationLogs { get; set; }
     public DbSet<DistrictBanner> DistrictBanners { get; set; }
@@ -34,6 +31,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Message> Messages { get; set; }
     public DbSet<UserBlock> UserBlocks { get; set; }
     public DbSet<QuestionTemplate> QuestionTemplates { get; set; }
+    public DbSet<Wallet> Wallets { get; set; }
+    public DbSet<CoinTransaction> CoinTransactions { get; set; }
+    public DbSet<CoinPack> CoinPacks { get; set; }
+    public DbSet<ListingLimitSetting> ListingLimitSettings { get; set; }
+    public DbSet<Coupon> Coupons { get; set; }
+    public DbSet<CouponRedemption> CouponRedemptions { get; set; }
+    public DbSet<CoinPackPurchase> CoinPackPurchases { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -272,6 +276,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         {
             e.HasKey(l => l.Id);
             e.Property(l => l.Id).HasDefaultValueSql("gen_random_uuid()");
+            // Postgres system column, no migration needed — a shadow uint property configured as a
+            // row-version is what this Npgsql EF Core version's NpgsqlPostgresModelFinalizingConvention
+            // maps to the xmin system column automatically (the older .UseXminAsConcurrencyToken()
+            // helper doesn't exist in this package version). Makes GoLiveHandlers.GoLiveRoom's
+            // DbUpdateConcurrencyException catch meaningful: two concurrent Go-Live attempts on the
+            // same listing can no longer both silently win.
+            e.Property<uint>("xmin").IsRowVersion();
             e.Property(l => l.CreatedAt).HasDefaultValueSql("now()");
             e.Property(l => l.UpdatedAt).HasDefaultValueSql("now()");
 
@@ -346,97 +357,146 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => p.RoomListingId);
         });
 
-        modelBuilder.Entity<RoomMembership>(e =>
+        modelBuilder.Entity<Wallet>(e =>
         {
-            e.HasKey(m => m.Id);
-            e.Property(m => m.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property(m => m.CreatedAt).HasDefaultValueSql("now()");
-            e.Property(m => m.UpdatedAt).HasDefaultValueSql("now()");
-            e.HasOne(m => m.User)
-             .WithMany(u => u.Memberships)
-             .HasForeignKey(m => m.UserId)
+            e.HasKey(w => w.UserId);
+            e.HasOne(w => w.User)
+             .WithOne(u => u.Wallet)
+             .HasForeignKey<Wallet>(w => w.UserId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(m => m.UserId);
-            e.HasIndex(m => m.ValidUntil);
-            e.HasIndex(m => m.IsActive);
-            // Composite: get active membership for user (called on every listing activation)
-            e.HasIndex(m => new { m.UserId, m.IsActive });
-            // Composite: expiry background job — find expired active memberships
-            e.HasIndex(m => new { m.IsActive, m.ValidUntil });
+            e.Property(w => w.CreatedAt).HasDefaultValueSql("now()");
         });
 
-        modelBuilder.Entity<PaymentTransaction>(e =>
+        modelBuilder.Entity<CoinTransaction>(e =>
         {
             e.HasKey(t => t.Id);
             e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
+
             e.HasOne(t => t.User)
              .WithMany()
              .HasForeignKey(t => t.UserId)
-             .IsRequired(false)
-             .OnDelete(DeleteBehavior.SetNull);
-            e.HasOne(t => t.RoomListing)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            // Separate, optional FK to the admin who performed a manual credit/debit — must not
+            // cascade-delete a user's whole ledger if that admin account is ever removed.
+            e.HasOne(t => t.PerformedByUser)
              .WithMany()
-             .HasForeignKey(t => t.RoomListingId)
+             .HasForeignKey(t => t.PerformedByUserId)
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
-            e.HasOne(t => t.PlotListing)
-             .WithMany()
-             .HasForeignKey(t => t.PlotId)
-             .IsRequired(false)
-             .OnDelete(DeleteBehavior.SetNull);
-            e.HasIndex(t => t.UserId);
-            e.HasIndex(t => t.Status);
-            e.HasIndex(t => t.CreatedAt);
-            e.HasIndex(t => t.RazorpayOrderId);
 
-            // Race-safe under concurrent create-order attempts (double-tap, retry-on-timeout,
-            // two sessions) — same pattern as ix_listingreports_reporter_listing_pending and
-            // ix_conversations_renter_owner_listing above: the app-level "existing pending?"
-            // check in PaymentService is check-then-act, so these partial unique indexes are
-            // what actually prevent two live PENDING orders for the same target.
-            e.HasIndex(t => t.RoomListingId)
-             .IsUnique()
-             .HasDatabaseName("ix_paymenttransactions_pending_room_listing")
-             .HasFilter("\"Status\" = 'PENDING' AND \"RoomListingId\" IS NOT NULL");
+            // "My ledger, newest first, paginated" — same shape as RoomListing/PlotListing/
+            // Conversation's existing per-user list indexes.
+            e.HasIndex(t => new { t.UserId, t.CreatedAt });
+            // Admin-wide ledger view filters by Reason, sorted by date — same shape as today's
+            // admin-transactions status-filter + date-sort query.
+            e.HasIndex(t => new { t.Reason, t.CreatedAt });
 
-            // NOTE: both upgrade indexes below are on the identical (UserId, PlanType) property
-            // pair — EF Core's fluent HasIndex() resolves repeated calls on the SAME property
-            // list to the SAME underlying index object (last-writer-wins on name/filter/unique),
-            // so calling the parameterless HasIndex(expr) twice here would silently make the
-            // second overwrite the first and only one index would ever reach the database
-            // (this exact bug shipped once already — caught only by re-checking
-            // ApplicationDbContextModelSnapshot.cs and `dotnet ef migrations has-pending-model-changes`
-            // after the fact). The fix is to name each index directly in the HasIndex(...) call
-            // itself, which EF treats as creating genuinely distinct indexes even on the same
-            // columns.
-            e.HasIndex(t => new { t.UserId, t.PlanType }, "ix_paymenttransactions_pending_room_upgrade")
+            // Exactly-once guard for reasons where the same (UserId, Reason, ReferenceId) must never
+            // apply twice — a retried recharge webhook, coupon redemption, welcome-bonus hook, or a
+            // double-tapped admin credit/debit. Deliberately excludes ROOM_GOLIVE/PLOT_GOLIVE, which
+            // legitimately reuse the same listing Guid as ReferenceId across renewals. The filter is
+            // generated from CoinTransactionReasons.AllOneShotReasons, not hand-typed, so the C# list
+            // and the SQL filter can never drift apart — same discipline as
+            // ix_paymenttransactions_pending_room_upgrade's naming lesson above.
+            var oneShotReasonList = string.Join(", ", CoinTransactionReasons.AllOneShotReasons.Select(r => $"'{r}'"));
+            e.HasIndex(t => new { t.UserId, t.Reason, t.ReferenceId }, "ix_cointransactions_oneshot_unique")
              .IsUnique()
-             .HasFilter("\"Status\" = 'PENDING' AND \"RoomListingId\" IS NULL AND \"PlotId\" IS NULL AND \"TransactionKind\" IS NULL");
-
-            e.HasIndex(t => t.PlotId)
-             .IsUnique()
-             .HasDatabaseName("ix_paymenttransactions_pending_plot_listing")
-             .HasFilter("\"Status\" = 'PENDING' AND \"PlotId\" IS NOT NULL");
-
-            e.HasIndex(t => new { t.UserId, t.PlanType }, "ix_paymenttransactions_pending_plot_upgrade")
-             .IsUnique()
-             .HasFilter("\"Status\" = 'PENDING' AND \"RoomListingId\" IS NULL AND \"PlotId\" IS NULL AND \"TransactionKind\" = 'PLOT'");
+             .HasFilter($"\"Reason\" IN ({oneShotReasonList}) AND \"ReferenceId\" IS NOT NULL");
         });
 
-        modelBuilder.Entity<AppFeature>(e =>
+        modelBuilder.Entity<CoinPack>(e =>
         {
-            e.HasKey(f => f.Id);
-            e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(f => f.Key).IsUnique();
-            e.Property(f => f.CreatedAt).HasDefaultValueSql("now()");
-            e.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<ListingLimitSetting>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(s => s.ListingKind).IsUnique();
+        });
+
+        modelBuilder.Entity<Coupon>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
+
+            // Most rows have a null Code (welcome-bonus/future non-typed triggers) — a plain unique
+            // index would treat every one of those nulls as a separate value anyway (Postgres unique
+            // indexes already ignore NULLs), but the filter documents the intent explicitly, same as
+            // Messages.RespondsToMessageId's partial-unique pattern.
+            e.HasIndex(c => c.Code)
+             .IsUnique()
+             .HasDatabaseName("ix_coupons_code_unique")
+             .HasFilter("\"Code\" IS NOT NULL");
+            e.HasIndex(c => c.Status);
+            e.HasIndex(c => c.TriggerType);
+
+            // PerUserLimit > 1 (real multi-use-per-user coupons) isn't implemented in v1 — hard-enforced
+            // here so a bug can't silently create one; see design doc §7 Open Flags.
+            e.ToTable(t => t.HasCheckConstraint("ck_coupons_peruserlimit_one", "\"PerUserLimit\" = 1"));
+        });
+
+        modelBuilder.Entity<CouponRedemption>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
+
+            e.HasOne(r => r.Coupon)
+             .WithMany()
+             .HasForeignKey(r => r.CouponId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(r => r.User)
+             .WithMany()
+             .HasForeignKey(r => r.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            // The actual double-claim guard — closes the TOCTOU window the app-level status/limit
+            // check in CouponService can't prevent on its own, same pattern as PaymentTransaction's
+            // pending-order indexes and Conversation's renter/owner/listing unique index.
+            e.HasIndex(r => new { r.CouponId, r.UserId })
+             .IsUnique()
+             .HasDatabaseName("ix_couponredemptions_coupon_user_unique");
+        });
+
+        modelBuilder.Entity<CoinPackPurchase>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne<User>()
+             .WithMany()
+             .HasForeignKey(p => p.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<CoinPack>()
+             .WithMany()
+             .HasForeignKey(p => p.CoinPackId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasIndex(p => p.RazorpayOrderId);
+
+            // Two DISTINCT indexes on the same UserId column — named explicitly on both HasIndex()
+            // calls. Calling HasIndex(p => p.UserId) unnamed a second time here would silently
+            // collide with the first (EF Core resolves repeated HasIndex() calls on the identical
+            // property list to the same underlying index object, last-writer-wins) — the exact bug
+            // this codebase's own PaymentTransaction config already warns about.
+            e.HasIndex(p => p.UserId, "ix_coinpackpurchases_user"); // general "all purchases for this user" lookups
+            e.HasIndex(p => p.UserId, "ix_coinpackpurchases_pending_user") // race-safety guard, not a lookup index
+             .IsUnique()
+             .HasFilter("\"Status\" = 'PENDING'");
         });
 
         modelBuilder.Entity<PlotListing>(e =>
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
             e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
 
@@ -512,25 +572,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => p.PlanType).IsUnique();
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
             e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
-        });
-
-        modelBuilder.Entity<PlotMembership>(e =>
-        {
-            e.HasKey(m => m.Id);
-            e.Property(m => m.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property(m => m.CreatedAt).HasDefaultValueSql("now()");
-            e.Property(m => m.UpdatedAt).HasDefaultValueSql("now()");
-            e.HasOne(m => m.User)
-             .WithMany(u => u.PlotMemberships)
-             .HasForeignKey(m => m.UserId)
-             .OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(m => m.UserId);
-            e.HasIndex(m => m.IsActive);
-            e.HasIndex(m => m.ValidUntil);
-            // Composite: get active membership for user (called on every plot activation)
-            e.HasIndex(m => new { m.UserId, m.IsActive });
-            // Composite: expiry background job
-            e.HasIndex(m => new { m.IsActive, m.ValidUntil });
         });
 
         modelBuilder.Entity<DeviceToken>(e =>

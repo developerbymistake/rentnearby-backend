@@ -205,6 +205,9 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
     }
 
+    public async Task<int> CountByUserIdAsync(Guid userId)
+        => await _dbSet.Where(p => p.UserId == userId && !p.IsDeleted).CountAsync();
+
     public async Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId)
         => await _dbSet
             .Where(p => p.UserId == userId && p.IsActive && !p.IsDeleted)

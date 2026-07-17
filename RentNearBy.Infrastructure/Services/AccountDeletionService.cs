@@ -27,13 +27,8 @@ public class AccountDeletionService(ApplicationDbContext context, IPhotoService 
             .Where(s => s.UserId == userId)
             .ExecuteDeleteAsync();
 
-        await context.RoomMemberships
-            .Where(m => m.UserId == userId)
-            .ExecuteDeleteAsync();
-
-        await context.PlotMemberships
-            .Where(m => m.UserId == userId)
-            .ExecuteDeleteAsync();
+        // Wallet/CoinTransaction/CoinPackPurchase/CouponRedemption all cascade-delete via their
+        // User FK — no explicit cleanup needed here, same as Sessions/DeviceTokens above.
 
         await context.RoomPhotos
             .Where(p => p.RoomListing.UserId == userId)
@@ -54,8 +49,6 @@ public class AccountDeletionService(ApplicationDbContext context, IPhotoService 
         await context.Users
             .Where(u => u.Id == userId)
             .ExecuteDeleteAsync();
-
-        // PaymentTransactions.UserId → SET NULL via FK constraint (no explicit delete)
 
         await tx.CommitAsync();
     }

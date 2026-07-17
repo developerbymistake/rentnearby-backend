@@ -23,7 +23,7 @@ public static class ServiceCollectionExtensions
         // Backend for the two pooling pitfalls: ApplicationDbContext itself has no custom
         // fields to leak state between requests, and every consumer (all handlers, all 10
         // background workers via IServiceScopeFactory.CreateScope(), AccountDeletionService,
-        // PaymentService) resolves it as Scoped, never captured by a Singleton.
+        // CoinWalletService) resolves it as Scoped, never captured by a Singleton.
         services.AddDbContextPool<ApplicationDbContext>(options =>
             options.UseNpgsql(connectionString, o => o.UseNetTopologySuite()));
 
@@ -31,17 +31,17 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IPhotoService, PhotoService>();
-        services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<IAccountDeletionService, AccountDeletionService>();
+        services.AddScoped<ICoinWalletService, CoinWalletService>();
+        services.AddScoped<ICouponService, CouponService>();
+        services.AddScoped<ICoinPackPurchaseService, CoinPackPurchaseService>();
+        services.AddHostedService<PendingCoinPurchaseCleanupService>();
 
-        // Register background service for membership expiry (runs at 12:00 AM daily)
-        services.AddHostedService<MembershipExpiryService>();
-        // Register background service for plot membership expiry (runs at 1:00 AM daily)
-        services.AddHostedService<PlotMembershipExpiryService>();
+        // Replaces MembershipExpiryService + PlotMembershipExpiryService — one unified sweep,
+        // by ValidUntil on the listings themselves, no membership record involved (runs at 12:00 AM IST daily)
+        services.AddHostedService<ListingExpirySweepService>();
         // Register background service for district digest aggregation (runs at 4:00 AM IST daily)
         services.AddHostedService<DistrictDigestJobService>();
-        // Register background service for abandoned-PENDING payment cleanup (runs every 30 min)
-        services.AddHostedService<PendingPaymentCleanupService>();
 
         services.AddHttpClient<IRazorpayService, RazorpayService>();
 
@@ -99,10 +99,10 @@ public static class ServiceCollectionExtensions
         // RabbitMQ publisher — Singleton: IConnection is long-lived and expensive
         services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 
-        // Notification worker — consumes membership.expired queue and sends FCM
+        // Notification worker — consumes listing.expired queue and sends FCM
         services.AddHostedService<NotificationWorkerService>();
 
-        // DLQ worker — consumes dlq.membership.expired (failed/retried notifications)
+        // DLQ worker — consumes dlq.listing.expired (failed/retried notifications)
         services.AddHostedService<DlqNotificationWorkerService>();
 
         // Broadcast worker — consumes broadcast.notification queue and sends FCM to all users

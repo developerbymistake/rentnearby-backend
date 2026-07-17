@@ -34,10 +34,6 @@ public static class AdminEndpoints
         group.MapPut("/report-reasons/{id:guid}", AdminHandlers.UpdateReportReason).RequireAuthorization("AdminOnly");
         group.MapDelete("/report-reasons/{id:guid}", AdminHandlers.DeleteReportReason).RequireAuthorization("AdminOnly");
 
-        group.MapGet("/features", AdminHandlers.GetAllFeatures);
-        group.MapGet("/features/{key}", AdminHandlers.GetFeatureByKey);
-        group.MapPut("/features/{key}", AdminHandlers.UpdateFeature).RequireAuthorization("AdminOnly");
-
         group.MapGet("/stats", AdminHandlers.GetStats).RequireAuthorization("AdminOnly");
 
         group.MapGet("/geocode", AdminHandlers.Geocode).RequireAuthorization("AdminOnly");
@@ -45,9 +41,22 @@ public static class AdminEndpoints
         group.MapGet("/users", AdminHandlers.GetUsers).RequireAuthorization("AdminOnly");
         group.MapGet("/users/{id:guid}", AdminHandlers.GetUserById).RequireAuthorization("AdminOnly");
         group.MapPut("/users/{id:guid}/status", AdminHandlers.UpdateUserStatus).RequireAuthorization("AdminOnly");
-        group.MapPost("/users/{id:guid}/activate-membership", AdminHandlers.ActivateMembership).RequireAuthorization("AdminOnly");
+        group.MapPost("/users/{id:guid}/wallet/credit", AdminHandlers.CreditUserWallet).RequireAuthorization("AdminOnly");
+        group.MapPost("/users/{id:guid}/wallet/debit", AdminHandlers.DebitUserWallet).RequireAuthorization("AdminOnly");
 
-        group.MapGet("/transactions", AdminHandlers.GetTransactions).RequireAuthorization("AdminOnly");
+        group.MapGet("/wallet-transactions", AdminHandlers.GetWalletTransactions).RequireAuthorization("AdminOnly");
+
+        group.MapGet("/coin-packs", AdminHandlers.GetCoinPacks).RequireAuthorization("AdminOnly");
+        group.MapPost("/coin-packs", AdminHandlers.CreateCoinPack).RequireAuthorization("AdminOnly");
+        group.MapPut("/coin-packs/{id:guid}", AdminHandlers.UpdateCoinPack).RequireAuthorization("AdminOnly");
+
+        group.MapGet("/listing-limits", AdminHandlers.GetListingLimits).RequireAuthorization("AdminOnly");
+        group.MapPut("/listing-limits/{kind}", AdminHandlers.UpdateListingLimit).RequireAuthorization("AdminOnly");
+
+        group.MapGet("/coupons", AdminHandlers.GetCoupons).RequireAuthorization("AdminOnly");
+        group.MapGet("/coupons/{id:guid}", AdminHandlers.GetCouponById).RequireAuthorization("AdminOnly");
+        group.MapPost("/coupons", AdminHandlers.CreateCoupon).RequireAuthorization("AdminOnly");
+        group.MapPut("/coupons/{id:guid}", AdminHandlers.UpdateCoupon).RequireAuthorization("AdminOnly");
 
         group.MapGet("/plans", AdminHandlers.GetPlans).RequireAuthorization("AdminOnly");
         group.MapPost("/plans", AdminHandlers.CreatePlan).RequireAuthorization("AdminOnly");
@@ -56,7 +65,6 @@ public static class AdminEndpoints
         group.MapGet("/plot-plans", AdminHandlers.GetPlotPlans).RequireAuthorization("AdminOnly");
         group.MapPost("/plot-plans", AdminHandlers.CreatePlotPlan).RequireAuthorization("AdminOnly");
         group.MapPut("/plot-plans/{id:guid}", AdminHandlers.UpdatePlotPlan).RequireAuthorization("AdminOnly");
-        group.MapPost("/users/{id:guid}/activate-plot-membership", AdminHandlers.ActivatePlotMembership).RequireAuthorization("AdminOnly");
 
         group.MapGet("/listings", AdminHandlers.GetAdminListings).RequireAuthorization("AdminOnly");
         group.MapGet("/listings/{id:guid}", AdminHandlers.GetAdminListingById).RequireAuthorization("AdminOnly");
