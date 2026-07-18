@@ -23,7 +23,8 @@ public static class ChatHandlers
     private static readonly TimeSpan NewConversationWindow = TimeSpan.FromHours(24);
     private const int SendMessageMaxPerMinute = 20;
     private static readonly TimeSpan SendMessageWindow = TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan NewAccountCooldown = TimeSpan.FromHours(1);
+    // TEMPORARY for local dev/testing — revert to TimeSpan.FromHours(1) before shipping.
+    private static readonly TimeSpan NewAccountCooldown = TimeSpan.FromMinutes(5);
 
     private const int DefaultPageSize = 30;
 
