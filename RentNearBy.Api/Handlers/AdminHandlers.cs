@@ -1,7 +1,9 @@
 ﻿using FluentValidation;
 using Mapster;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -732,9 +734,26 @@ public static class AdminHandlers
     // The generic admin lever this session settled on — no per-listing "grant membership" bypass;
     // admin credits/debits the wallet, the owner spends it through the normal Go-Live flow.
 
+    // Best-effort — a SignalR push failure must never turn an already-committed wallet
+    // credit/debit into an error response. Targets user_{id} — the user AFFECTED by the admin
+    // action, never the acting admin's own id.
+    private static async Task PushWalletBalanceChangedAsync(IHubContext<WalletHub> hubContext, Guid userId, int balance, string reason)
+    {
+        try
+        {
+            await hubContext.Clients.Group($"user_{userId}").SendAsync("WalletBalanceChanged", new
+            {
+                balance,
+                reason,
+                occurredAt = DateTime.UtcNow,
+            });
+        }
+        catch { }
+    }
+
     public static async Task<IResult> CreditUserWallet(
         Guid id, ManualWalletAdjustmentRequest request, IValidator<ManualWalletAdjustmentRequest> validator,
-        IUnitOfWork unitOfWork, ICoinWalletService wallet, ClaimsPrincipal principal)
+        IUnitOfWork unitOfWork, ICoinWalletService wallet, ClaimsPrincipal principal, IHubContext<WalletHub> hubContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -745,13 +764,15 @@ public static class AdminHandlers
             referenceId: request.IdempotencyKey, performedByUserId: adminId, note: request.Reason);
 
         // Success or AlreadyCredited (idempotent replay of the same IdempotencyKey) both report the
-        // current balance as a success — the caller cannot tell the difference, by design.
+        // current balance as a success — the caller cannot tell the difference, by design. Same
+        // reasoning applies to the push: a redundant push on a replay is a harmless client-side no-op.
+        await PushWalletBalanceChangedAsync(hubContext, id, result.BalanceAfter, CoinTransactionReasons.AdminCredit);
         return OkResponse(new { success = true, newBalance = result.BalanceAfter });
     }
 
     public static async Task<IResult> DebitUserWallet(
         Guid id, ManualWalletAdjustmentRequest request, IValidator<ManualWalletAdjustmentRequest> validator,
-        IUnitOfWork unitOfWork, ICoinWalletService wallet, ClaimsPrincipal principal)
+        IUnitOfWork unitOfWork, ICoinWalletService wallet, ClaimsPrincipal principal, IHubContext<WalletHub> hubContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -764,6 +785,7 @@ public static class AdminHandlers
         if (result.Outcome == CoinSpendOutcome.InsufficientBalance)
             return BadRequestResponse("User has insufficient balance for this debit.");
 
+        await PushWalletBalanceChangedAsync(hubContext, id, result.BalanceAfter, CoinTransactionReasons.AdminDebit);
         return OkResponse(new { success = true, newBalance = result.BalanceAfter });
     }
 

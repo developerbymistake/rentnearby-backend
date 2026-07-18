@@ -268,5 +268,6 @@ app.MapGroup("/api/v1/wallet")
 
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");
+app.MapHub<WalletHub>("/hubs/wallet");
 
 app.Run();

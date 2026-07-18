@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using FluentValidation;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Memory;
+using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
@@ -70,7 +72,8 @@ public static class CoinPackHandlers
     public static async Task<IResult> VerifyPayment(
         VerifyPaymentRequest request,
         ClaimsPrincipal principal,
-        ICoinPackPurchaseService purchaseService)
+        ICoinPackPurchaseService purchaseService,
+        IHubContext<WalletHub> hubContext)
     {
         if (string.IsNullOrWhiteSpace(request.RazorpayOrderId) ||
             string.IsNullOrWhiteSpace(request.RazorpayPaymentId) ||
@@ -83,6 +86,20 @@ public static class CoinPackHandlers
         try
         {
             var response = await purchaseService.VerifyAndCreditAsync(userId, request);
+
+            // Scoped to just the push — a SignalR hiccup here must never fall through to the
+            // catch (Exception) below and report a false failure for an already-credited purchase.
+            try
+            {
+                await hubContext.Clients.Group($"user_{userId}").SendAsync("WalletBalanceChanged", new
+                {
+                    balance = response.NewBalance,
+                    reason = CoinTransactionReasons.Recharge,
+                    occurredAt = DateTime.UtcNow,
+                });
+            }
+            catch { }
+
             return OkResponse(response);
         }
         catch (KeyNotFoundException) { return NotFoundResponse("Purchase not found."); }

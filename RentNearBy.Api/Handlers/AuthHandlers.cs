@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using FluentValidation;
 using Mapster;
+using Microsoft.AspNetCore.SignalR;
+using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -90,7 +92,8 @@ public static class AuthHandlers
         IUnitOfWork unitOfWork,
         IJwtService jwtService,
         ICouponService couponService,
-        ILogger<CouponService> logger)
+        ILogger<CouponService> logger,
+        IHubContext<WalletHub> hubContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -123,7 +126,25 @@ public static class AuthHandlers
         // (CouponId, UserId) unique index also protects against a retried signup double-crediting.
         try
         {
-            await couponService.RedeemCouponAsync(newUser.Id, WellKnownCoupons.WelcomeSignupCouponId);
+            var welcomeResult = await couponService.RedeemCouponAsync(newUser.Id, WellKnownCoupons.WelcomeSignupCouponId);
+            if (welcomeResult.Outcome == CouponRedeemOutcome.Success)
+            {
+                // Scoped separately so a push hiccup is never logged as a redemption failure — the
+                // coupon itself already succeeded by this point. The client isn't connected to any
+                // hub yet at this exact moment (login hasn't completed), so this mainly matters for
+                // multi-device/future-connect edge cases — cheap to add, keeps "every balance
+                // mutation gets a push" honest with no exceptions.
+                try
+                {
+                    await hubContext.Clients.Group($"user_{newUser.Id}").SendAsync("WalletBalanceChanged", new
+                    {
+                        balance = welcomeResult.NewBalance ?? 0,
+                        reason = CoinTransactionReasons.WelcomeBonus,
+                        occurredAt = DateTime.UtcNow,
+                    });
+                }
+                catch { }
+            }
         }
         catch (Exception ex)
         {

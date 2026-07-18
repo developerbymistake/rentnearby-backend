@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
@@ -30,6 +32,22 @@ public static class GoLiveHandlers
         catch { }
     }
 
+    // Best-effort — a SignalR push failure must never turn an already-committed coin spend into an
+    // error response. Only called from a point where the caller's own commit is already final.
+    private static async Task PushWalletBalanceChangedAsync(IHubContext<WalletHub> hubContext, Guid userId, int balance, string reason)
+    {
+        try
+        {
+            await hubContext.Clients.Group($"user_{userId}").SendAsync("WalletBalanceChanged", new
+            {
+                balance,
+                reason,
+                occurredAt = DateTime.UtcNow,
+            });
+        }
+        catch { }
+    }
+
     public static async Task<IResult> GoLiveRoom(
         Guid listingId,
         GoLiveRequest request,
@@ -37,7 +55,8 @@ public static class GoLiveHandlers
         IUnitOfWork unitOfWork,
         ICoinWalletService wallet,
         IRateLimitService rateLimiter,
-        IServiceProvider sp)
+        IServiceProvider sp,
+        IHubContext<WalletHub> hubContext)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -115,6 +134,7 @@ public static class GoLiveHandlers
             }
 
             await unitOfWork.CommitTransactionAsync();
+            await PushWalletBalanceChangedAsync(hubContext, userId, spend.BalanceAfter, CoinTransactionReasons.RoomGoLive);
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), RoomNearbyPattern(listing.DistrictId));
 
             return OkResponse(new
@@ -140,7 +160,8 @@ public static class GoLiveHandlers
         IUnitOfWork unitOfWork,
         ICoinWalletService wallet,
         IRateLimitService rateLimiter,
-        IServiceProvider sp)
+        IServiceProvider sp,
+        IHubContext<WalletHub> hubContext)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -216,6 +237,7 @@ public static class GoLiveHandlers
             }
 
             await unitOfWork.CommitTransactionAsync();
+            await PushWalletBalanceChangedAsync(hubContext, userId, spend.BalanceAfter, CoinTransactionReasons.PlotGoLive);
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
 
             return OkResponse(new

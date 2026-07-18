@@ -1,6 +1,8 @@
 ﻿using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
@@ -22,7 +24,8 @@ public static class PaymentHandlers
         IUnitOfWork unitOfWork,
         ICoinPackPurchaseService purchaseService,
         IRazorpayService razorpay,
-        ILogger<CoinPackPurchaseService> logger)
+        ILogger<CoinPackPurchaseService> logger,
+        IHubContext<WalletHub> hubContext)
     {
         string rawBody;
         using (var reader = new StreamReader(context.Request.Body))
@@ -116,8 +119,27 @@ public static class PaymentHandlers
 
         try
         {
-            await purchaseService.VerifyAndCreditAsync(purchase.UserId, verifyRequest, skipSignatureCheck: true);
+            var response = await purchaseService.VerifyAndCreditAsync(purchase.UserId, verifyRequest, skipSignatureCheck: true);
             logger.LogInformation($"Razorpay webhook: credited coin pack purchase {purchase.Id} for order {orderId}");
+
+            // This is the highest-value push site in the whole feature: the webhook only ever fires
+            // this path when the client's own /verify-payment call never completed (app crashed
+            // mid-payment), so a push here is the ONLY way the device finds out coins landed without
+            // the user manually reopening the wallet screen. No ClaimsPrincipal exists on this
+            // anonymous, HMAC-authenticated endpoint — target purchase.UserId directly. Best-effort:
+            // never let a push failure affect this webhook's own response code (Razorpay retries
+            // non-2xx responses, and the credit itself already succeeded above).
+            try
+            {
+                await hubContext.Clients.Group($"user_{purchase.UserId}").SendAsync("WalletBalanceChanged", new
+                {
+                    balance = response.NewBalance,
+                    reason = CoinTransactionReasons.Recharge,
+                    occurredAt = DateTime.UtcNow,
+                });
+            }
+            catch { }
+
             return OkResponse(new { acknowledged = true });
         }
         catch (InvalidOperationException ex)
