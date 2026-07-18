@@ -52,7 +52,9 @@ public static class DtoMappings
         TypeAdapterConfig<Inclusion, InclusionDto>.NewConfig();
 
         TypeAdapterConfig<Service, ServiceDetailDto>.NewConfig()
-            .Map(dest => dest.Packages, src => src.Packages.OrderBy(p => p.SortOrder));
+            .Map(dest => dest.Packages, src => src.Packages.OrderBy(p => p.SortOrder))
+            .Map(dest => dest.ServiceSectionId, src => src.ServiceCategory.ServiceSectionId)
+            .Map(dest => dest.ServiceSectionName, src => src.ServiceCategory.ServiceSection.Name);
 
         TypeAdapterConfig<ServicePackage, ServicePackageDto>.NewConfig()
             .Map(dest => dest.Inclusions, src => src.PackageInclusions

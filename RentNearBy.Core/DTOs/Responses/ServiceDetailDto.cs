@@ -4,6 +4,8 @@ public class ServiceDetailDto
 {
     public Guid Id { get; set; }
     public Guid ServiceCategoryId { get; set; }
+    public Guid ServiceSectionId { get; set; }
+    public string ServiceSectionName { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string IconName { get; set; } = string.Empty;
     public string ShortDescription { get; set; } = string.Empty;

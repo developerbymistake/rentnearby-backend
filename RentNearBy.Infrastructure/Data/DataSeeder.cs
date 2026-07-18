@@ -718,63 +718,202 @@ public static class DataSeeder
     {
         if (await db.Services.AnyAsync()) return;
 
-        var services = new (int Index, string Name, string Icon, string Short, string Full, bool Featured)[]
+        // (index, categoryIndex, name, icon, short, full, featured) — a Category may now hold several
+        // Services (schema always supported this — see the comment on SeedServiceCategoriesAsync).
+        // Categories whose old single Service's "packages" were actually distinct offerings (different
+        // dhams, different tour itineraries, different taxi/vehicle/event types, different insurance
+        // products) are split into one Service per real offering here, each getting its own genuine
+        // price/duration plans in SeedServicePackagesAsync below. Categories where the old packages
+        // were already true price/scope tiers of ONE offering (Destination Wedding, Homestay & Resort,
+        // Photographer & Video) keep a single Service.
+        var services = new (int Index, int CategoryIdx, string Name, string Icon, string Short, string Full, bool Featured)[]
         {
-            (1, "Char Dham Yatra", "route_square",
-                "Guided pilgrimage tours to Kedarnath, Badrinath, Gangotri and Yamunotri.",
-                "Complete Char Dham Yatra packages covering Kedarnath, Badrinath, Gangotri and Yamunotri, with hotel stays, meals, local transport and an experienced tour guide. Choose from Do Dham, full Char Dham or helicopter options.",
+            // Char Dham Yatra (category 1) — 4 individual dhams + 1 all-4 combo
+            (1, 1, "Badrinath Yatra", "route_square",
+                "Guided pilgrimage to Badrinath, by road or helicopter.",
+                "Pilgrimage packages to Badrinath Dham — travel by road with an experienced guide, or fly in by helicopter for a faster trip. Hotel stay and meals included on the road package.",
                 true),
-            (2, "Destination Wedding", "heart",
+            (2, 1, "Kedarnath Yatra", "route_square",
+                "Guided pilgrimage to Kedarnath, by road/trek or helicopter.",
+                "Pilgrimage packages to Kedarnath Dham — trek/road journey with an experienced guide, or fly in by helicopter to skip the trek. Hotel stay and meals included on the road package.",
+                true),
+            (3, 1, "Yamunotri Yatra", "route_square",
+                "Guided pilgrimage to Yamunotri, by road/trek or helicopter.",
+                "Pilgrimage packages to Yamunotri Dham — trek/road journey with an experienced guide, or fly in by helicopter for a quicker visit.",
+                false),
+            (4, 1, "Gangotri Yatra", "route_square",
+                "Guided pilgrimage to Gangotri, by road or helicopter.",
+                "Pilgrimage packages to Gangotri Dham — road journey with an experienced guide, or fly in by helicopter for a faster trip.",
+                false),
+            (5, 1, "Char Dham Yatra (All 4 Combo)", "route_square",
+                "Combined pilgrimage covering all 4 dhams — Kedarnath, Badrinath, Gangotri and Yamunotri.",
+                "Complete Char Dham Yatra packages covering all four dhams together, with hotel stays, meals, local transport and an experienced tour guide. Choose from Do Dham (2 dhams), full Char Dham (all 4) or an all-helicopter combo.",
+                true),
+
+            // Destination Wedding (category 2) — unchanged, single Service with tiered venue packages
+            (6, 2, "Destination Wedding", "heart",
                 "Riverside, hillside and palace wedding venues across Uttarakhand.",
                 "Plan your dream destination wedding in the hills — riverside resorts, heritage palaces and intimate hillside venues, with catering, decor and photography coordinated end-to-end.",
                 false),
-            (3, "Tour & Travel Packages", "airplane",
-                "Custom multi-day tours across Nainital, Mussoorie, Kumaon and Garhwal.",
-                "Flexible tour packages covering the best of Uttarakhand's hill stations — Nainital, Mussoorie, Kumaon and Garhwal circuits. Every itinerary can be customised, so pricing always starts at a base and scales with your plan.",
+
+            // Tour & Travel Packages (category 3) — one Service per itinerary
+            (7, 3, "Custom Uttarakhand Circuit", "airplane",
+                "Build-your-own multi-day circuit across Uttarakhand's hill stations.",
+                "A fully customisable multi-day tour across Uttarakhand — pick your own mix of hill stations. Pricing starts at a base and scales with your chosen plan.",
+                false),
+            (8, 3, "Nainital-Mussoorie Duo Tour", "airplane",
+                "5D/4N covering both Nainital and Mussoorie.",
+                "A 5-day, 4-night tour covering both Nainital and Mussoorie's top sightseeing spots, with hotel stays and local transport.",
                 true),
-            (4, "Taxi Booking", "car",
-                "Local city taxis, airport transfers and outstation cabs.",
-                "Book a reliable taxi for local sightseeing, airport pickup/drop or outstation travel across Uttarakhand — hourly, daily and per-trip options available.",
+            (9, 3, "Kumaon Hills Explorer", "airplane",
+                "6D/5N exploring the Kumaon hills.",
+                "A 6-day, 5-night circuit through the Kumaon region's hill towns and viewpoints, with hotel stays, meals and a tour guide.",
                 false),
-            (5, "Camping & Adventure", "tree",
-                "Riverside camping, trekking and adventure sports packages.",
-                "Riverside and forest camping packages with bonfire, trekking trails and adventure sports like river rafting and rappelling, guided by local experts with first-aid support on-site.",
+            (10, 3, "Garhwal Discovery Tour", "airplane",
+                "7D/6N exploring the Garhwal hills.",
+                "A 7-day, 6-night circuit through the Garhwal region, covering major hill stations, sightseeing and entry tickets.",
                 false),
-            (6, "Photographer & Video", "camera",
+
+            // Taxi Booking (category 4) — local city taxi vs airport transfer are genuinely different services
+            (11, 4, "Local City Taxi", "car",
+                "Half-day and full-day local city taxis.",
+                "Book a local city taxi for sightseeing and errands — available as a half-day or full-day hire.",
+                true),
+            (12, 4, "Airport Transfer", "car",
+                "One-way airport pickup/drop.",
+                "Reliable one-way airport transfer service, booked in advance for a smooth pickup or drop.",
+                false),
+
+            // Camping & Adventure (category 5) — camping, trekking-combo and adventure-sports are distinct
+            (13, 5, "Riverside Camping", "tree",
+                "Riverside camping with bonfire, for couples, friends or families.",
+                "Riverside camping packages with bonfire and overnight stay — available as a standard 2D/1N trip or a family camping weekend.",
+                true),
+            (14, 5, "Trekking & Camping Combo", "tree",
+                "3D/2N combining a guided trek with camping.",
+                "A 3-day, 2-night combo of a guided trek and riverside camping, with a local expert guide.",
+                false),
+            (15, 5, "Adventure Sports", "tree",
+                "Single-day river rafting and adventure sports.",
+                "A single-day adventure sports package — river rafting, rappelling and more, guided by local experts with first-aid support on-site.",
+                false),
+
+            // Photographer & Video (category 6) — unchanged, single Service with scope tiers
+            (16, 6, "Photographer & Video", "camera",
                 "Professional photography and videography for events and weddings.",
                 "Professional photographers and videographers for weddings, pre-wedding shoots and events, with half-day, full-day and full cinematography packages.",
                 false),
-            (7, "Homestay & Resort", "building",
+
+            // Homestay & Resort (category 7) — unchanged, single Service with a budget->luxury price ladder
+            (17, 7, "Homestay & Resort", "building",
                 "Budget homestays to luxury hillside resorts.",
                 "Curated stays across Uttarakhand — cozy family-run homestays, riverside resorts and luxury hillside properties, with meals and WiFi included on select packages.",
                 false),
-            (8, "Bike on Rent", "gas_station",
-                "Self-drive scooters and motorcycles by the day or week.",
-                "Rent a scooter or motorcycle (including Royal Enfield) for self-drive exploration of the hills — daily and weekly rental packages available.",
+
+            // Bike on Rent (category 8) — scooter vs motorcycle are different vehicle categories
+            (18, 8, "Scooter Rental", "gas_station",
+                "Self-drive scooters (Activa or similar), by the day.",
+                "Rent a scooter for self-drive exploration of the hills — daily rental.",
                 false),
-            (9, "Event Planner", "calendar",
-                "End-to-end planning for birthdays, corporate events and weddings.",
-                "Full-service event planning for birthdays, anniversaries, corporate events and weddings — venue, catering, decor and logistics handled by a dedicated planner.",
-                false),
-            (10, "Health Insurance", "shield_tick",
-                "Individual, family floater and senior citizen health cover.",
-                "Compare and get expert guidance on individual, family floater, senior citizen and critical illness health insurance plans from leading insurers — get a custom quote based on your family's needs.",
+            (19, 8, "Motorcycle Rental", "gas_station",
+                "Self-drive motorcycles (Royal Enfield), by the day or week.",
+                "Rent a Royal Enfield motorcycle for self-drive exploration of the hills — daily or weekly rental packages available.",
                 true),
-            (11, "Term Insurance", "security_safe",
-                "Term life cover with optional critical illness and return of premium.",
-                "Term insurance plans with optional critical illness riders and return-of-premium variants, matched to your income and family's financial protection needs — get a custom quote from our expert.",
+
+            // Event Planner (category 9) — one Service per event type
+            (20, 9, "Birthday & Small Event Planning", "calendar",
+                "End-to-end planning for birthdays and small events.",
+                "Full-service planning for birthdays and small get-togethers — venue, catering, decor and logistics handled by a dedicated planner.",
                 false),
-            (12, "Yoga", "activity",
-                "1-on-1 sessions, group classes and yoga retreats.",
-                "Certified yoga instructors offering 1-on-1 sessions, monthly group classes, corporate workshops and multi-day yoga retreats in the hills.",
+            (21, 9, "Anniversary & Reception Planning", "calendar",
+                "End-to-end planning for anniversaries and receptions.",
+                "Full-service planning for anniversary parties and receptions — venue, catering, decor and logistics handled by a dedicated planner.",
                 false),
-            (13, "Diet Plans", "weight",
-                "Personalised weight-loss, weight-gain and diabetic-friendly diet plans.",
-                "Certified nutritionists design personalised diet plans for weight loss, weight gain and diabetic-friendly eating, with ongoing consultation support.",
+            (22, 9, "Corporate Event Planning", "calendar",
+                "End-to-end planning for corporate events.",
+                "Full-service planning for corporate events and offsites — venue, catering and logistics handled by a dedicated planner.",
                 false),
-            (14, "Financial Planning", "chart",
-                "Personal finance, retirement planning and portfolio review.",
-                "One-on-one consultations covering personal financial planning, retirement planning and investment portfolio review, tailored to your goals — get a custom quote from our advisor.",
+            (23, 9, "Wedding Event Management", "calendar",
+                "End-to-end planning for full wedding events.",
+                "Complete wedding event management — venue, catering, decor and logistics handled end-to-end by a dedicated planner.",
+                true),
+
+            // Health Insurance (category 10) — each product is its own Service, priced by custom quote
+            (24, 10, "Individual Health Cover", "shield_tick",
+                "Health insurance for a single individual.",
+                "Individual health insurance cover — get a custom quote based on your age and health needs.",
+                false),
+            (25, 10, "Family Floater Plan", "shield_tick",
+                "One health cover shared across the whole family.",
+                "A single health insurance policy covering the entire family — get a custom quote based on your family's needs.",
+                true),
+            (26, 10, "Senior Citizen Health Plan", "shield_tick",
+                "Health cover designed for senior citizens.",
+                "Health insurance designed for senior citizens' specific coverage needs — get a custom quote.",
+                false),
+            (27, 10, "Critical Illness Health Cover", "shield_tick",
+                "Lump-sum cover on diagnosis of a critical illness.",
+                "Critical illness health cover paying a lump sum on diagnosis of a covered condition — get a custom quote.",
+                false),
+
+            // Term Insurance (category 11)
+            (28, 11, "Basic Term Plan", "security_safe",
+                "Simple term life cover.",
+                "A straightforward term life insurance plan — get a custom quote matched to your income and family's needs.",
+                false),
+            (29, 11, "Term Plan with Critical Illness Cover", "security_safe",
+                "Term life cover with a critical illness rider.",
+                "Term life insurance with an added critical illness rider — get a custom quote.",
+                true),
+            (30, 11, "Term Plan with Return of Premium", "security_safe",
+                "Term life cover that returns your premiums at maturity.",
+                "Term life insurance with a return-of-premium option — get a custom quote.",
+                false),
+
+            // Yoga (category 12) — one Service per session type, each with real low/high-budget plans
+            (31, 12, "1-on-1 Yoga Session", "activity",
+                "Private one-on-one yoga sessions.",
+                "Private yoga sessions with an instructor, one-on-one — choose a regular session or one with a certified instructor.",
+                false),
+            (32, 12, "Group Yoga Classes", "activity",
+                "Monthly group yoga classes.",
+                "Monthly group yoga classes — choose a regular group batch or a smaller premium-instructor batch.",
+                true),
+            (33, 12, "Yoga Retreat", "activity",
+                "Multi-day yoga retreats in the hills.",
+                "Multi-day yoga retreats in the hills — choose a weekend retreat or a full 7-day retreat.",
+                false),
+            (34, 12, "Corporate Yoga Workshop", "activity",
+                "Yoga workshops for corporate teams.",
+                "Yoga workshops for corporate teams — a single session or an ongoing monthly program.",
+                false),
+
+            // Diet Plans (category 13)
+            (35, 13, "Weight Loss Diet Plan", "weight",
+                "Personalised weight-loss diet plan.",
+                "A personalised weight-loss diet plan from a certified nutritionist, with ongoing consultation support — get a custom quote.",
+                true),
+            (36, 13, "Weight Gain Diet Plan", "weight",
+                "Personalised weight-gain diet plan.",
+                "A personalised weight-gain diet plan from a certified nutritionist, with ongoing consultation support — get a custom quote.",
+                false),
+            (37, 13, "Diabetic-Friendly Diet Plan", "weight",
+                "Personalised diabetic-friendly diet plan.",
+                "A personalised diabetic-friendly diet plan from a certified nutritionist, with ongoing consultation support — get a custom quote.",
+                false),
+
+            // Financial Planning (category 14)
+            (38, 14, "Personal Financial Planning", "chart",
+                "One-on-one personal financial planning.",
+                "A one-on-one consultation covering your personal financial planning goals — get a custom quote from our advisor.",
+                true),
+            (39, 14, "Retirement Planning", "chart",
+                "One-on-one retirement planning.",
+                "A one-on-one consultation covering your retirement planning goals — get a custom quote from our advisor.",
+                false),
+            (40, 14, "Investment Portfolio Review", "chart",
+                "One-on-one investment portfolio review.",
+                "A one-on-one review of your investment portfolio with our advisor — get a custom quote.",
                 false),
         };
 
@@ -782,7 +921,7 @@ public static class DataSeeder
         db.Services.AddRange(services.Select(s => new Service
         {
             Id = ServiceCatalogId("e3000000", s.Index),
-            ServiceCategoryId = ServiceCatalogId("e2000000", s.Index),
+            ServiceCategoryId = ServiceCatalogId("e2000000", s.CategoryIdx),
             Name = s.Name,
             IconName = s.Icon,
             ShortDescription = s.Short,
@@ -804,88 +943,153 @@ public static class DataSeeder
 
         // (index, serviceIndex, name, price, originalPrice, discountPercent, isStartingAtPrice,
         //  durationDays, durationNights, priceUnit, sortOrder, isFeatured)
-        // Price=null on every Consultation package (10-14) renders "Get Custom Quote". IsStartingAtPrice
-        // is true ONLY on Tour & Travel Packages (service 3), per the confirmed design decision.
+        // Price=null on every Consultation-type plan renders "Get Custom Quote". IsStartingAtPrice is
+        // true ONLY on the Tour & Travel Packages itinerary Services, per the confirmed design decision.
+        // Plan names are simple and concrete (by travel mode / duration / session type), never abstract
+        // tier labels like "Standard/Deluxe/Premium".
         var packages = new (int Index, int ServiceIdx, string Name, int? Price, int? OriginalPrice, int? DiscountPercent,
             bool StartingAt, int? Days, int? Nights, string? Unit, int SortOrder, bool Featured)[]
         {
-            // Char Dham Yatra (service 1)
-            (1, 1, "Do Dham Yatra (Kedarnath-Badrinath) - 6D/5N", 14999, 17999, 17, false, 6, 5, "per person", 1, true),
-            (2, 1, "Char Dham Yatra Complete - 11D/10N", 27999, 32999, 15, false, 11, 10, "per person", 2, false),
-            (3, 1, "Kedarnath Yatra Only - 4D/3N", 8999, null, null, false, 4, 3, "per person", 3, false),
-            (4, 1, "Helicopter Char Dham Yatra - 5D/4N", 45999, 52999, 13, false, 5, 4, "per person", 4, false),
+            // Badrinath Yatra (service 1)
+            (1, 1, "Badrinath Yatra by Road - 3D/2N", 7499, null, null, false, 3, 2, "per person", 1, true),
+            (2, 1, "Badrinath Yatra by Helicopter - 1D", 18999, null, null, false, 1, 0, "per person", 2, false),
 
-            // Destination Wedding (service 2)
-            (5, 2, "Intimate Hill Wedding Package", 149999, null, null, false, 2, 1, "per event", 1, false),
-            (6, 2, "Riverside Wedding Package", 299999, null, null, false, 3, 2, "per event", 2, true),
-            (7, 2, "Royal Palace Wedding Package", 599999, 699999, 14, false, 4, 3, "per event", 3, false),
-            (8, 2, "Beach-style Riverside Wedding", 349999, 399999, 12, false, 3, 2, "per event", 4, false),
+            // Kedarnath Yatra (service 2)
+            (3, 2, "Kedarnath Yatra by Road/Trek - 4D/3N", 8999, null, null, false, 4, 3, "per person", 1, true),
+            (4, 2, "Kedarnath Yatra by Helicopter - 1D", 15999, null, null, false, 1, 0, "per person", 2, false),
 
-            // Tour & Travel Packages (service 3) — IsStartingAtPrice = true on all
-            (9, 3, "Custom Uttarakhand Circuit", 6999, null, null, true, 3, 2, "per person", 1, false),
-            (10, 3, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 2, true),
-            (11, 3, "Kumaon Hills Explorer", 11999, 13999, 14, true, 6, 5, "per person", 3, false),
-            (12, 3, "Garhwal Discovery Tour", 15999, null, null, true, 7, 6, "per person", 4, false),
+            // Yamunotri Yatra (service 3)
+            (5, 3, "Yamunotri Yatra by Road/Trek - 2D/1N", 4999, null, null, false, 2, 1, "per person", 1, true),
+            (6, 3, "Yamunotri Yatra by Helicopter - 1D", 12999, null, null, false, 1, 0, "per person", 2, false),
 
-            // Taxi Booking (service 4)
-            (13, 4, "Local City Taxi - Half Day", 1499, null, null, false, null, null, "per day", 1, false),
-            (14, 4, "Local City Taxi - Full Day", 2499, null, null, false, null, null, "per day", 2, true),
-            (15, 4, "Airport Transfer (One-way)", 1999, null, null, false, null, null, "per trip", 3, false),
+            // Gangotri Yatra (service 4)
+            (7, 4, "Gangotri Yatra by Road - 2D/1N", 5499, null, null, false, 2, 1, "per person", 1, true),
+            (8, 4, "Gangotri Yatra by Helicopter - 1D", 13999, null, null, false, 1, 0, "per person", 2, false),
 
-            // Camping & Adventure (service 5)
-            (16, 5, "Adventure Sports Day Package", 1999, null, null, false, 1, 0, "per person", 1, false),
-            (17, 5, "Riverside Camping - 2D/1N", 2999, 3499, 14, false, 2, 1, "per person", 2, true),
-            (18, 5, "Trekking & Camping Combo - 3D/2N", 5999, null, null, false, 3, 2, "per person", 3, false),
-            (19, 5, "Family Camping Weekend - 2D/1N", 3499, null, null, false, 2, 1, "per person", 4, false),
+            // Char Dham Yatra (All 4 Combo) (service 5)
+            (9, 5, "Do Dham Yatra (Kedarnath-Badrinath) - 6D/5N", 14999, 17999, 17, false, 6, 5, "per person", 1, true),
+            (10, 5, "Char Dham Yatra Complete - 11D/10N", 27999, 32999, 15, false, 11, 10, "per person", 2, false),
+            (11, 5, "Helicopter Char Dham Yatra - 5D/4N", 45999, 52999, 13, false, 5, 4, "per person", 3, false),
 
-            // Photographer & Video (service 6)
-            (20, 6, "Half-Day Photography", 7999, null, null, false, null, null, "per event", 1, false),
-            (21, 6, "Full-Day Photo + Video", 15999, 17999, 11, false, null, null, "per event", 2, true),
-            (22, 6, "Wedding Cinematography Package", 39999, null, null, false, null, null, "per event", 3, false),
+            // Destination Wedding (service 6) — unchanged
+            (12, 6, "Intimate Hill Wedding Package", 149999, null, null, false, 2, 1, "per event", 1, false),
+            (13, 6, "Riverside Wedding Package", 299999, null, null, false, 3, 2, "per event", 2, true),
+            (14, 6, "Royal Palace Wedding Package", 599999, 699999, 14, false, 4, 3, "per event", 3, false),
+            (15, 6, "Beach-style Riverside Wedding", 349999, 399999, 12, false, 3, 2, "per event", 4, false),
 
-            // Homestay & Resort (service 7)
-            (23, 7, "Budget Homestay", 1299, null, null, false, null, 1, "per night", 1, false),
-            (24, 7, "Cozy Mountain Homestay", 1999, null, null, false, null, 1, "per night", 2, false),
-            (25, 7, "Riverside Resort Stay", 4999, 5999, 17, false, null, 1, "per night", 3, true),
-            (26, 7, "Luxury Hillside Resort", 8999, null, null, false, null, 1, "per night", 4, false),
+            // Custom Uttarakhand Circuit (service 7)
+            (16, 7, "Custom Uttarakhand Circuit", 6999, null, null, true, 3, 2, "per person", 1, false),
 
-            // Bike on Rent (service 8)
-            (27, 8, "Scooty/Activa - Per Day", 699, null, null, false, null, null, "per day", 1, false),
-            (28, 8, "Royal Enfield - Per Day", 1499, null, null, false, null, null, "per day", 2, true),
-            (29, 8, "Bike Rental - Weekly Package", 8999, 10499, 14, false, null, null, "per week", 3, false),
+            // Nainital-Mussoorie Duo Tour (service 8)
+            (17, 8, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 1, true),
 
-            // Event Planner (service 9)
-            (30, 9, "Birthday/Small Event Planning", 19999, null, null, false, null, null, "per event", 1, false),
-            (31, 9, "Anniversary/Reception Planning", 29999, null, null, false, null, null, "per event", 2, false),
-            (32, 9, "Corporate Event Planning", 49999, null, null, false, null, null, "per event", 3, false),
-            (33, 9, "Full Wedding Event Management", 99999, 119999, 17, false, null, null, "per event", 4, true),
+            // Kumaon Hills Explorer (service 9)
+            (18, 9, "Kumaon Hills Explorer", 11999, 13999, 14, true, 6, 5, "per person", 1, false),
 
-            // Health Insurance (service 10) — Price=null: "Get Custom Quote"
-            (34, 10, "Individual Health Cover", null, null, null, false, null, null, null, 1, false),
-            (35, 10, "Family Floater Plan", null, null, null, false, null, null, null, 2, true),
-            (36, 10, "Senior Citizen Health Plan", null, null, null, false, null, null, null, 3, false),
-            (37, 10, "Critical Illness Health Cover", null, null, null, false, null, null, null, 4, false),
+            // Garhwal Discovery Tour (service 10)
+            (19, 10, "Garhwal Discovery Tour", 15999, null, null, true, 7, 6, "per person", 1, false),
 
-            // Term Insurance (service 11)
-            (38, 11, "Basic Term Plan", null, null, null, false, null, null, null, 1, false),
-            (39, 11, "Term Plan with Critical Illness Cover", null, null, null, false, null, null, null, 2, true),
-            (40, 11, "Term Plan with Return of Premium", null, null, null, false, null, null, null, 3, false),
+            // Local City Taxi (service 11)
+            (20, 11, "Local City Taxi - Half Day", 1499, null, null, false, null, null, "per day", 1, false),
+            (21, 11, "Local City Taxi - Full Day", 2499, null, null, false, null, null, "per day", 2, true),
 
-            // Yoga (service 12)
-            (41, 12, "1-on-1 Yoga Session", null, null, null, false, null, null, null, 1, false),
-            (42, 12, "Group Yoga Classes (Monthly)", null, null, null, false, null, null, null, 2, true),
-            (43, 12, "Yoga Retreat Package", null, null, null, false, null, null, null, 3, false),
-            (44, 12, "Corporate Yoga Workshop", null, null, null, false, null, null, null, 4, false),
+            // Airport Transfer (service 12)
+            (22, 12, "Airport Transfer (One-way)", 1999, null, null, false, null, null, "per trip", 1, false),
 
-            // Diet Plans (service 13)
-            (45, 13, "Weight Loss Diet Plan", null, null, null, false, null, null, null, 1, true),
-            (46, 13, "Weight Gain Diet Plan", null, null, null, false, null, null, null, 2, false),
-            (47, 13, "Diabetic-Friendly Diet Plan", null, null, null, false, null, null, null, 3, false),
+            // Riverside Camping (service 13)
+            (23, 13, "Riverside Camping - 2D/1N", 2999, 3499, 14, false, 2, 1, "per person", 1, true),
+            (24, 13, "Family Camping Weekend - 2D/1N", 3499, null, null, false, 2, 1, "per person", 2, false),
 
-            // Financial Planning (service 14)
-            (48, 14, "Personal Financial Planning", null, null, null, false, null, null, null, 1, true),
-            (49, 14, "Retirement Planning", null, null, null, false, null, null, null, 2, false),
-            (50, 14, "Investment Portfolio Review", null, null, null, false, null, null, null, 3, false),
+            // Trekking & Camping Combo (service 14)
+            (25, 14, "Trekking & Camping Combo - 3D/2N", 5999, null, null, false, 3, 2, "per person", 1, false),
+
+            // Adventure Sports (service 15)
+            (26, 15, "Adventure Sports Day Package", 1999, null, null, false, 1, 0, "per person", 1, false),
+
+            // Photographer & Video (service 16) — unchanged
+            (27, 16, "Half-Day Photography", 7999, null, null, false, null, null, "per event", 1, false),
+            (28, 16, "Full-Day Photo + Video", 15999, 17999, 11, false, null, null, "per event", 2, true),
+            (29, 16, "Wedding Cinematography Package", 39999, null, null, false, null, null, "per event", 3, false),
+
+            // Homestay & Resort (service 17) — unchanged
+            (30, 17, "Budget Homestay", 1299, null, null, false, null, 1, "per night", 1, false),
+            (31, 17, "Cozy Mountain Homestay", 1999, null, null, false, null, 1, "per night", 2, false),
+            (32, 17, "Riverside Resort Stay", 4999, 5999, 17, false, null, 1, "per night", 3, true),
+            (33, 17, "Luxury Hillside Resort", 8999, null, null, false, null, 1, "per night", 4, false),
+
+            // Scooter Rental (service 18)
+            (34, 18, "Scooty/Activa - Per Day", 699, null, null, false, null, null, "per day", 1, false),
+
+            // Motorcycle Rental (service 19)
+            (35, 19, "Royal Enfield - Per Day", 1499, null, null, false, null, null, "per day", 1, true),
+            (36, 19, "Bike Rental - Weekly Package", 8999, 10499, 14, false, null, null, "per week", 2, false),
+
+            // Birthday & Small Event Planning (service 20)
+            (37, 20, "Birthday/Small Event Planning", 19999, null, null, false, null, null, "per event", 1, false),
+
+            // Anniversary & Reception Planning (service 21)
+            (38, 21, "Anniversary/Reception Planning", 29999, null, null, false, null, null, "per event", 1, false),
+
+            // Corporate Event Planning (service 22)
+            (39, 22, "Corporate Event Planning", 49999, null, null, false, null, null, "per event", 1, false),
+
+            // Wedding Event Management (service 23)
+            (40, 23, "Full Wedding Event Management", 99999, 119999, 17, false, null, null, "per event", 1, true),
+
+            // Individual Health Cover (service 24) — Price=null: "Get Custom Quote"
+            (41, 24, "Individual Health Cover", null, null, null, false, null, null, null, 1, false),
+
+            // Family Floater Plan (service 25)
+            (42, 25, "Family Floater Plan", null, null, null, false, null, null, null, 1, true),
+
+            // Senior Citizen Health Plan (service 26)
+            (43, 26, "Senior Citizen Health Plan", null, null, null, false, null, null, null, 1, false),
+
+            // Critical Illness Health Cover (service 27)
+            (44, 27, "Critical Illness Health Cover", null, null, null, false, null, null, null, 1, false),
+
+            // Basic Term Plan (service 28)
+            (45, 28, "Basic Term Plan", null, null, null, false, null, null, null, 1, false),
+
+            // Term Plan with Critical Illness Cover (service 29)
+            (46, 29, "Term Plan with Critical Illness Cover", null, null, null, false, null, null, null, 1, true),
+
+            // Term Plan with Return of Premium (service 30)
+            (47, 30, "Term Plan with Return of Premium", null, null, null, false, null, null, null, 1, false),
+
+            // 1-on-1 Yoga Session (service 31) — real low/high-budget plans
+            (48, 31, "Regular Session", 499, null, null, false, null, null, "per session", 1, false),
+            (49, 31, "Session with Certified Instructor", 999, null, null, false, null, null, "per session", 2, true),
+
+            // Group Yoga Classes (service 32)
+            (50, 32, "Monthly - Group Batch", 1499, null, null, false, null, null, "per month", 1, true),
+            (51, 32, "Monthly - Small Batch (Premium Instructor)", 2499, null, null, false, null, null, "per month", 2, false),
+
+            // Yoga Retreat (service 33)
+            (52, 33, "Weekend Retreat - 2D/1N", 7999, null, null, false, 2, 1, "per person", 1, true),
+            (53, 33, "7-Day Retreat", 17999, null, null, false, 7, 6, "per person", 2, false),
+
+            // Corporate Yoga Workshop (service 34)
+            (54, 34, "Single Session Workshop", 9999, null, null, false, null, null, "per event", 1, false),
+            (55, 34, "Monthly Corporate Program", 29999, null, null, false, null, null, "per month", 2, true),
+
+            // Weight Loss Diet Plan (service 35)
+            (56, 35, "Weight Loss Diet Plan", null, null, null, false, null, null, null, 1, true),
+
+            // Weight Gain Diet Plan (service 36)
+            (57, 36, "Weight Gain Diet Plan", null, null, null, false, null, null, null, 1, false),
+
+            // Diabetic-Friendly Diet Plan (service 37)
+            (58, 37, "Diabetic-Friendly Diet Plan", null, null, null, false, null, null, null, 1, false),
+
+            // Personal Financial Planning (service 38)
+            (59, 38, "Personal Financial Planning", null, null, null, false, null, null, null, 1, true),
+
+            // Retirement Planning (service 39)
+            (60, 39, "Retirement Planning", null, null, null, false, null, null, null, 1, false),
+
+            // Investment Portfolio Review (service 40)
+            (61, 40, "Investment Portfolio Review", null, null, null, false, null, null, null, 1, false),
         };
 
         var now = DateTime.UtcNow;
@@ -917,21 +1121,22 @@ public static class DataSeeder
         if (await db.PackageInclusions.AnyAsync()) return;
 
         // (packageIndex, inclusionIndices[]) — only a representative subset of Tourism packages get
-        // inclusions wired up (Consultation packages have no physical "inclusions" concept).
+        // inclusions wired up (Consultation packages have no physical "inclusions" concept). Indices
+        // here match the restructured package list in SeedServicePackagesAsync above.
         var mappings = new (int PackageIdx, int[] InclusionIdxs)[]
         {
-            (1,  new[] { 1, 2, 3, 5 }),        // Do Dham Yatra: Hotel, Meals, Transport, Travel Insurance
-            (2,  new[] { 1, 2, 3, 4, 5 }),      // Char Dham Complete: + Tour Guide
-            (4,  new[] { 1, 2, 4, 5, 9 }),      // Helicopter Char Dham: + First Aid Kit
-            (6,  new[] { 1, 2, 7 }),            // Riverside Wedding: Hotel, Meals, Photography
-            (7,  new[] { 1, 2, 3, 7 }),         // Royal Palace Wedding: + Local Transport
-            (10, new[] { 1, 2, 3, 6 }),         // Nainital-Mussoorie Duo Tour: + Sightseeing
-            (11, new[] { 1, 2, 4, 6 }),         // Kumaon Hills Explorer
-            (12, new[] { 1, 2, 3, 6, 8 }),      // Garhwal Discovery Tour: + Entry Tickets
-            (17, new[] { 2, 4, 9 }),            // Riverside Camping: Meals, Tour Guide, First Aid Kit
-            (18, new[] { 2, 4, 8, 9 }),         // Trekking & Camping Combo: + Entry Tickets
-            (25, new[] { 2, 10 }),              // Riverside Resort Stay: Meals, WiFi
-            (26, new[] { 2, 3, 10 }),           // Luxury Hillside Resort: + Local Transport
+            (9,  new[] { 1, 2, 3, 5 }),         // Do Dham Yatra: Hotel, Meals, Transport, Travel Insurance
+            (10, new[] { 1, 2, 3, 4, 5 }),      // Char Dham Complete: + Tour Guide
+            (11, new[] { 1, 2, 4, 5, 9 }),      // Helicopter Char Dham: + First Aid Kit
+            (13, new[] { 1, 2, 7 }),            // Riverside Wedding: Hotel, Meals, Photography
+            (14, new[] { 1, 2, 3, 7 }),         // Royal Palace Wedding: + Local Transport
+            (17, new[] { 1, 2, 3, 6 }),         // Nainital-Mussoorie Duo Tour: + Sightseeing
+            (18, new[] { 1, 2, 4, 6 }),         // Kumaon Hills Explorer
+            (19, new[] { 1, 2, 3, 6, 8 }),      // Garhwal Discovery Tour: + Entry Tickets
+            (23, new[] { 2, 4, 9 }),            // Riverside Camping: Meals, Tour Guide, First Aid Kit
+            (25, new[] { 2, 4, 8, 9 }),         // Trekking & Camping Combo: + Entry Tickets
+            (32, new[] { 2, 10 }),              // Riverside Resort Stay: Meals, WiFi
+            (33, new[] { 2, 3, 10 }),           // Luxury Hillside Resort: + Local Transport
         };
 
         foreach (var m in mappings)
@@ -1037,7 +1242,7 @@ public static class DataSeeder
 
         var seeds = new List<InquirySeed>
         {
-            new(ServiceCatalogId("e8000000", 1), ServiceIdx: 1, PackageIdx: 1, AgentIdx: 1,
+            new(ServiceCatalogId("e8000000", 1), ServiceIdx: 5, PackageIdx: 9, AgentIdx: 1,
                 FullName: "Anita Verma", Mobile: "9876500001", Email: "anita.verma@example.com",
                 Trip: now.AddDays(45), People: 4,
                 Message: "Planning a family trip for Do Dham Yatra in the first week of next month.",
@@ -1049,7 +1254,7 @@ public static class DataSeeder
                     new(InquiryStatuses.Confirmed, admin1, now.AddDays(-5),  null),
                 ]),
 
-            new(ServiceCatalogId("e8000000", 2), ServiceIdx: 3, PackageIdx: 11, AgentIdx: 1,
+            new(ServiceCatalogId("e8000000", 2), ServiceIdx: 9, PackageIdx: 18, AgentIdx: 1,
                 FullName: "Rohit Sharma", Mobile: "9876500002", Email: null,
                 Trip: now.AddDays(20), People: 2,
                 Message: "Interested in the Kumaon Hills Explorer package for a couple's trip.",
@@ -1060,7 +1265,7 @@ public static class DataSeeder
                     new(InquiryStatuses.Contacted, admin1, now.AddDays(-4), null),
                 ]),
 
-            new(ServiceCatalogId("e8000000", 3), ServiceIdx: 2, PackageIdx: 7, AgentIdx: null,
+            new(ServiceCatalogId("e8000000", 3), ServiceIdx: 6, PackageIdx: 14, AgentIdx: null,
                 FullName: "Kavita & Sameer", Mobile: "9876500003", Email: "kavita.sameer@example.com",
                 Trip: now.AddDays(90), People: 150,
                 Message: "Looking for a palace wedding venue for around 150 guests in November.",
@@ -1070,7 +1275,7 @@ public static class DataSeeder
                     new(InquiryStatuses.Submitted, null, now.AddDays(-1), null),
                 ]),
 
-            new(ServiceCatalogId("e8000000", 4), ServiceIdx: 4, PackageIdx: 15, AgentIdx: 3,
+            new(ServiceCatalogId("e8000000", 4), ServiceIdx: 12, PackageIdx: 22, AgentIdx: 3,
                 FullName: "Manoj Bisht", Mobile: "9876500004", Email: null,
                 Trip: now.AddDays(3), People: 1,
                 Message: "Need airport pickup from Dehradun on arrival.",
@@ -1082,7 +1287,7 @@ public static class DataSeeder
                     new(InquiryStatuses.Confirmed, admin2, now.AddDays(-1), null),
                 ]),
 
-            new(ServiceCatalogId("e8000000", 5), ServiceIdx: 5, PackageIdx: 17, AgentIdx: 1,
+            new(ServiceCatalogId("e8000000", 5), ServiceIdx: 13, PackageIdx: 23, AgentIdx: 1,
                 FullName: "Deepak Rana", Mobile: "9876500005", Email: null,
                 Trip: now.AddDays(15), People: 6,
                 Message: "Group camping trip for college friends.",
@@ -1094,7 +1299,7 @@ public static class DataSeeder
                     new(InquiryStatuses.Cancelled, admin1, now.AddDays(-6), "Customer cancelled due to a date conflict."),
                 ]),
 
-            new(ServiceCatalogId("e8000000", 6), ServiceIdx: 7, PackageIdx: 25, AgentIdx: null,
+            new(ServiceCatalogId("e8000000", 6), ServiceIdx: 17, PackageIdx: 32, AgentIdx: null,
                 FullName: "Neha Joshi", Mobile: "9876500006", Email: "neha.joshi@example.com",
                 Trip: now.AddDays(10), People: 2,
                 Message: null,
@@ -1104,7 +1309,7 @@ public static class DataSeeder
                     new(InquiryStatuses.Submitted, null, now.AddDays(-2), null),
                 ]),
 
-            new(ServiceCatalogId("e8000000", 7), ServiceIdx: 10, PackageIdx: 35, AgentIdx: 5,
+            new(ServiceCatalogId("e8000000", 7), ServiceIdx: 25, PackageIdx: 42, AgentIdx: 5,
                 FullName: "Suresh Kumar", Mobile: "9876500007", Email: "suresh.kumar@example.com",
                 Trip: null, People: 4,
                 Message: "Looking for a family floater plan covering parents and 2 kids.",
@@ -1115,7 +1320,7 @@ public static class DataSeeder
                     new(InquiryStatuses.Contacted, admin2, now.AddDays(-3), null),
                 ]),
 
-            new(ServiceCatalogId("e8000000", 8), ServiceIdx: 11, PackageIdx: 38, AgentIdx: 5,
+            new(ServiceCatalogId("e8000000", 8), ServiceIdx: 28, PackageIdx: 45, AgentIdx: 5,
                 FullName: "Ramesh Chandra", Mobile: "9876500008", Email: null,
                 Trip: null, People: 1,
                 Message: "Want term cover of 1 crore.",
@@ -1127,7 +1332,7 @@ public static class DataSeeder
                     new(InquiryStatuses.Rejected,  admin2, now.AddDays(-10), "Customer did not meet minimum eligibility criteria."),
                 ]),
 
-            new(ServiceCatalogId("e8000000", 9), ServiceIdx: 12, PackageIdx: 42, AgentIdx: 6,
+            new(ServiceCatalogId("e8000000", 9), ServiceIdx: 32, PackageIdx: 50, AgentIdx: 6,
                 FullName: "Pooja Mehta", Mobile: "9876500009", Email: "pooja.mehta@example.com",
                 Trip: now.AddDays(7), People: 1,
                 Message: "Want to join the monthly group classes.",
@@ -1139,7 +1344,7 @@ public static class DataSeeder
                     new(InquiryStatuses.Confirmed, admin1, now.AddDays(-2), null),
                 ]),
 
-            new(ServiceCatalogId("e8000000", 10), ServiceIdx: 13, PackageIdx: 45, AgentIdx: null,
+            new(ServiceCatalogId("e8000000", 10), ServiceIdx: 35, PackageIdx: 56, AgentIdx: null,
                 FullName: "Arjun Thapa", Mobile: "9876500010", Email: null,
                 Trip: null, People: 1,
                 Message: "Need a weight loss plan, vegetarian preferred.",
