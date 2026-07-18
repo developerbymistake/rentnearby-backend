@@ -173,6 +173,14 @@ public static class ServiceCatalogHandlers
         return OkResponse(services.Select(s => s.Adapt<ServiceListItemDto>()));
     }
 
+    // Home-rail preview — pre-sorted (featured first, then SortOrder) and capped server-side, so the
+    // client renders exactly what it's given instead of fetching the whole catalog and slicing it.
+    public static async Task<IResult> GetServicesPreview(Guid serviceSectionId, int? limit, IUnitOfWork unitOfWork)
+    {
+        var services = await unitOfWork.Services.GetPreviewByServiceSectionIdAsync(serviceSectionId, limit ?? 6);
+        return OkResponse(services.Select(s => s.Adapt<ServiceListItemDto>()));
+    }
+
     public static async Task<IResult> GetServiceById(Guid id, IUnitOfWork unitOfWork)
     {
         var service = await unitOfWork.Services.GetByIdWithDetailsAsync(id);

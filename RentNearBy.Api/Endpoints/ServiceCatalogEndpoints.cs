@@ -16,6 +16,7 @@ public static class ServiceCatalogEndpoints
         group.MapGet("/categories/{id:guid}", ServiceCatalogHandlers.GetServiceCategoryById);
 
         group.MapGet("", ServiceCatalogHandlers.GetServices);
+        group.MapGet("/preview", ServiceCatalogHandlers.GetServicesPreview);
         group.MapGet("/{id:guid}", ServiceCatalogHandlers.GetServiceById);
 
         group.MapGet("/packages", ServiceCatalogHandlers.GetServicePackages);

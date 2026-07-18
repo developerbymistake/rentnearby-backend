@@ -19,4 +19,11 @@ public class ServiceRepository(ApplicationDbContext context)
             .Include(s => s.ServiceCategory).ThenInclude(c => c.ServiceSection)
             .Include(s => s.Packages.OrderBy(p => p.SortOrder))
             .FirstOrDefaultAsync(s => s.Id == id);
+
+    public async Task<IEnumerable<Service>> GetPreviewByServiceSectionIdAsync(Guid serviceSectionId, int limit)
+        => await _dbSet.AsNoTracking()
+            .Where(s => s.IsActive && s.ServiceCategory.ServiceSectionId == serviceSectionId)
+            .OrderByDescending(s => s.IsFeatured).ThenBy(s => s.SortOrder).ThenBy(s => s.Name)
+            .Take(limit)
+            .ToListAsync();
 }

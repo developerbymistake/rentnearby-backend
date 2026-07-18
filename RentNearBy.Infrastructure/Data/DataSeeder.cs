@@ -944,38 +944,41 @@ public static class DataSeeder
         // (index, serviceIndex, name, price, originalPrice, discountPercent, isStartingAtPrice,
         //  durationDays, durationNights, priceUnit, sortOrder, isFeatured)
         // Price=null on every Consultation-type plan renders "Get Custom Quote". IsStartingAtPrice is
-        // true ONLY on the Tour & Travel Packages itinerary Services, per the confirmed design decision.
+        // true on every OTHER (non-null-priced) row — every one of these is a real-world service/
+        // experience offering with genuinely variable pricing (yatra packages, camping, event
+        // planning, yoga sessions — none of it is fixed-catalog pricing), so "Starting at ₹X" belongs
+        // wherever a real price exists, not just the original Tour & Travel Packages itinerary rows.
         // Plan names are simple and concrete (by travel mode / duration / session type), never abstract
         // tier labels like "Standard/Deluxe/Premium".
         var packages = new (int Index, int ServiceIdx, string Name, int? Price, int? OriginalPrice, int? DiscountPercent,
             bool StartingAt, int? Days, int? Nights, string? Unit, int SortOrder, bool Featured)[]
         {
             // Badrinath Yatra (service 1)
-            (1, 1, "Badrinath Yatra by Road - 3D/2N", 7499, null, null, false, 3, 2, "per person", 1, true),
-            (2, 1, "Badrinath Yatra by Helicopter - 1D", 18999, null, null, false, 1, 0, "per person", 2, false),
+            (1, 1, "Badrinath Yatra by Road - 3D/2N", 7499, null, null, true, 3, 2, "per person", 1, true),
+            (2, 1, "Badrinath Yatra by Helicopter - 1D", 18999, null, null, true, 1, 0, "per person", 2, false),
 
             // Kedarnath Yatra (service 2)
-            (3, 2, "Kedarnath Yatra by Road/Trek - 4D/3N", 8999, null, null, false, 4, 3, "per person", 1, true),
-            (4, 2, "Kedarnath Yatra by Helicopter - 1D", 15999, null, null, false, 1, 0, "per person", 2, false),
+            (3, 2, "Kedarnath Yatra by Road/Trek - 4D/3N", 8999, null, null, true, 4, 3, "per person", 1, true),
+            (4, 2, "Kedarnath Yatra by Helicopter - 1D", 15999, null, null, true, 1, 0, "per person", 2, false),
 
             // Yamunotri Yatra (service 3)
-            (5, 3, "Yamunotri Yatra by Road/Trek - 2D/1N", 4999, null, null, false, 2, 1, "per person", 1, true),
-            (6, 3, "Yamunotri Yatra by Helicopter - 1D", 12999, null, null, false, 1, 0, "per person", 2, false),
+            (5, 3, "Yamunotri Yatra by Road/Trek - 2D/1N", 4999, null, null, true, 2, 1, "per person", 1, true),
+            (6, 3, "Yamunotri Yatra by Helicopter - 1D", 12999, null, null, true, 1, 0, "per person", 2, false),
 
             // Gangotri Yatra (service 4)
-            (7, 4, "Gangotri Yatra by Road - 2D/1N", 5499, null, null, false, 2, 1, "per person", 1, true),
-            (8, 4, "Gangotri Yatra by Helicopter - 1D", 13999, null, null, false, 1, 0, "per person", 2, false),
+            (7, 4, "Gangotri Yatra by Road - 2D/1N", 5499, null, null, true, 2, 1, "per person", 1, true),
+            (8, 4, "Gangotri Yatra by Helicopter - 1D", 13999, null, null, true, 1, 0, "per person", 2, false),
 
             // Char Dham Yatra (All 4 Combo) (service 5)
-            (9, 5, "Do Dham Yatra (Kedarnath-Badrinath) - 6D/5N", 14999, 17999, 17, false, 6, 5, "per person", 1, true),
-            (10, 5, "Char Dham Yatra Complete - 11D/10N", 27999, 32999, 15, false, 11, 10, "per person", 2, false),
-            (11, 5, "Helicopter Char Dham Yatra - 5D/4N", 45999, 52999, 13, false, 5, 4, "per person", 3, false),
+            (9, 5, "Do Dham Yatra (Kedarnath-Badrinath) - 6D/5N", 14999, 17999, 17, true, 6, 5, "per person", 1, true),
+            (10, 5, "Char Dham Yatra Complete - 11D/10N", 27999, 32999, 15, true, 11, 10, "per person", 2, false),
+            (11, 5, "Helicopter Char Dham Yatra - 5D/4N", 45999, 52999, 13, true, 5, 4, "per person", 3, false),
 
-            // Destination Wedding (service 6) — unchanged
-            (12, 6, "Intimate Hill Wedding Package", 149999, null, null, false, 2, 1, "per event", 1, false),
-            (13, 6, "Riverside Wedding Package", 299999, null, null, false, 3, 2, "per event", 2, true),
-            (14, 6, "Royal Palace Wedding Package", 599999, 699999, 14, false, 4, 3, "per event", 3, false),
-            (15, 6, "Beach-style Riverside Wedding", 349999, 399999, 12, false, 3, 2, "per event", 4, false),
+            // Destination Wedding (service 6)
+            (12, 6, "Intimate Hill Wedding Package", 149999, null, null, true, 2, 1, "per event", 1, false),
+            (13, 6, "Riverside Wedding Package", 299999, null, null, true, 3, 2, "per event", 2, true),
+            (14, 6, "Royal Palace Wedding Package", 599999, 699999, 14, true, 4, 3, "per event", 3, false),
+            (15, 6, "Beach-style Riverside Wedding", 349999, 399999, 12, true, 3, 2, "per event", 4, false),
 
             // Custom Uttarakhand Circuit (service 7)
             (16, 7, "Custom Uttarakhand Circuit", 6999, null, null, true, 3, 2, "per person", 1, false),
@@ -990,51 +993,51 @@ public static class DataSeeder
             (19, 10, "Garhwal Discovery Tour", 15999, null, null, true, 7, 6, "per person", 1, false),
 
             // Local City Taxi (service 11)
-            (20, 11, "Local City Taxi - Half Day", 1499, null, null, false, null, null, "per day", 1, false),
-            (21, 11, "Local City Taxi - Full Day", 2499, null, null, false, null, null, "per day", 2, true),
+            (20, 11, "Local City Taxi - Half Day", 1499, null, null, true, null, null, "per day", 1, false),
+            (21, 11, "Local City Taxi - Full Day", 2499, null, null, true, null, null, "per day", 2, true),
 
             // Airport Transfer (service 12)
-            (22, 12, "Airport Transfer (One-way)", 1999, null, null, false, null, null, "per trip", 1, false),
+            (22, 12, "Airport Transfer (One-way)", 1999, null, null, true, null, null, "per trip", 1, false),
 
             // Riverside Camping (service 13)
-            (23, 13, "Riverside Camping - 2D/1N", 2999, 3499, 14, false, 2, 1, "per person", 1, true),
-            (24, 13, "Family Camping Weekend - 2D/1N", 3499, null, null, false, 2, 1, "per person", 2, false),
+            (23, 13, "Riverside Camping - 2D/1N", 2999, 3499, 14, true, 2, 1, "per person", 1, true),
+            (24, 13, "Family Camping Weekend - 2D/1N", 3499, null, null, true, 2, 1, "per person", 2, false),
 
             // Trekking & Camping Combo (service 14)
-            (25, 14, "Trekking & Camping Combo - 3D/2N", 5999, null, null, false, 3, 2, "per person", 1, false),
+            (25, 14, "Trekking & Camping Combo - 3D/2N", 5999, null, null, true, 3, 2, "per person", 1, false),
 
             // Adventure Sports (service 15)
-            (26, 15, "Adventure Sports Day Package", 1999, null, null, false, 1, 0, "per person", 1, false),
+            (26, 15, "Adventure Sports Day Package", 1999, null, null, true, 1, 0, "per person", 1, false),
 
-            // Photographer & Video (service 16) — unchanged
-            (27, 16, "Half-Day Photography", 7999, null, null, false, null, null, "per event", 1, false),
-            (28, 16, "Full-Day Photo + Video", 15999, 17999, 11, false, null, null, "per event", 2, true),
-            (29, 16, "Wedding Cinematography Package", 39999, null, null, false, null, null, "per event", 3, false),
+            // Photographer & Video (service 16)
+            (27, 16, "Half-Day Photography", 7999, null, null, true, null, null, "per event", 1, false),
+            (28, 16, "Full-Day Photo + Video", 15999, 17999, 11, true, null, null, "per event", 2, true),
+            (29, 16, "Wedding Cinematography Package", 39999, null, null, true, null, null, "per event", 3, false),
 
-            // Homestay & Resort (service 17) — unchanged
-            (30, 17, "Budget Homestay", 1299, null, null, false, null, 1, "per night", 1, false),
-            (31, 17, "Cozy Mountain Homestay", 1999, null, null, false, null, 1, "per night", 2, false),
-            (32, 17, "Riverside Resort Stay", 4999, 5999, 17, false, null, 1, "per night", 3, true),
-            (33, 17, "Luxury Hillside Resort", 8999, null, null, false, null, 1, "per night", 4, false),
+            // Homestay & Resort (service 17)
+            (30, 17, "Budget Homestay", 1299, null, null, true, null, 1, "per night", 1, false),
+            (31, 17, "Cozy Mountain Homestay", 1999, null, null, true, null, 1, "per night", 2, false),
+            (32, 17, "Riverside Resort Stay", 4999, 5999, 17, true, null, 1, "per night", 3, true),
+            (33, 17, "Luxury Hillside Resort", 8999, null, null, true, null, 1, "per night", 4, false),
 
             // Scooter Rental (service 18)
-            (34, 18, "Scooty/Activa - Per Day", 699, null, null, false, null, null, "per day", 1, false),
+            (34, 18, "Scooty/Activa - Per Day", 699, null, null, true, null, null, "per day", 1, false),
 
             // Motorcycle Rental (service 19)
-            (35, 19, "Royal Enfield - Per Day", 1499, null, null, false, null, null, "per day", 1, true),
-            (36, 19, "Bike Rental - Weekly Package", 8999, 10499, 14, false, null, null, "per week", 2, false),
+            (35, 19, "Royal Enfield - Per Day", 1499, null, null, true, null, null, "per day", 1, true),
+            (36, 19, "Bike Rental - Weekly Package", 8999, 10499, 14, true, null, null, "per week", 2, false),
 
             // Birthday & Small Event Planning (service 20)
-            (37, 20, "Birthday/Small Event Planning", 19999, null, null, false, null, null, "per event", 1, false),
+            (37, 20, "Birthday/Small Event Planning", 19999, null, null, true, null, null, "per event", 1, false),
 
             // Anniversary & Reception Planning (service 21)
-            (38, 21, "Anniversary/Reception Planning", 29999, null, null, false, null, null, "per event", 1, false),
+            (38, 21, "Anniversary/Reception Planning", 29999, null, null, true, null, null, "per event", 1, false),
 
             // Corporate Event Planning (service 22)
-            (39, 22, "Corporate Event Planning", 49999, null, null, false, null, null, "per event", 1, false),
+            (39, 22, "Corporate Event Planning", 49999, null, null, true, null, null, "per event", 1, false),
 
             // Wedding Event Management (service 23)
-            (40, 23, "Full Wedding Event Management", 99999, 119999, 17, false, null, null, "per event", 1, true),
+            (40, 23, "Full Wedding Event Management", 99999, 119999, 17, true, null, null, "per event", 1, true),
 
             // Individual Health Cover (service 24) — Price=null: "Get Custom Quote"
             (41, 24, "Individual Health Cover", null, null, null, false, null, null, null, 1, false),
@@ -1058,20 +1061,20 @@ public static class DataSeeder
             (47, 30, "Term Plan with Return of Premium", null, null, null, false, null, null, null, 1, false),
 
             // 1-on-1 Yoga Session (service 31) — real low/high-budget plans
-            (48, 31, "Regular Session", 499, null, null, false, null, null, "per session", 1, false),
-            (49, 31, "Session with Certified Instructor", 999, null, null, false, null, null, "per session", 2, true),
+            (48, 31, "Regular Session", 499, null, null, true, null, null, "per session", 1, false),
+            (49, 31, "Session with Certified Instructor", 999, null, null, true, null, null, "per session", 2, true),
 
             // Group Yoga Classes (service 32)
-            (50, 32, "Monthly - Group Batch", 1499, null, null, false, null, null, "per month", 1, true),
-            (51, 32, "Monthly - Small Batch (Premium Instructor)", 2499, null, null, false, null, null, "per month", 2, false),
+            (50, 32, "Monthly - Group Batch", 1499, null, null, true, null, null, "per month", 1, true),
+            (51, 32, "Monthly - Small Batch (Premium Instructor)", 2499, null, null, true, null, null, "per month", 2, false),
 
             // Yoga Retreat (service 33)
-            (52, 33, "Weekend Retreat - 2D/1N", 7999, null, null, false, 2, 1, "per person", 1, true),
-            (53, 33, "7-Day Retreat", 17999, null, null, false, 7, 6, "per person", 2, false),
+            (52, 33, "Weekend Retreat - 2D/1N", 7999, null, null, true, 2, 1, "per person", 1, true),
+            (53, 33, "7-Day Retreat", 17999, null, null, true, 7, 6, "per person", 2, false),
 
             // Corporate Yoga Workshop (service 34)
-            (54, 34, "Single Session Workshop", 9999, null, null, false, null, null, "per event", 1, false),
-            (55, 34, "Monthly Corporate Program", 29999, null, null, false, null, null, "per month", 2, true),
+            (54, 34, "Single Session Workshop", 9999, null, null, true, null, null, "per event", 1, false),
+            (55, 34, "Monthly Corporate Program", 29999, null, null, true, null, null, "per month", 2, true),
 
             // Weight Loss Diet Plan (service 35)
             (56, 35, "Weight Loss Diet Plan", null, null, null, false, null, null, null, 1, true),
