@@ -242,6 +242,26 @@ app.MapGroup("/api/v1/admin")
     .WithTags("AdminBanners")
     .MapAdminBannerEndpoints();
 
+app.MapGroup("/api/v1/services")
+    .WithTags("ServiceCatalog")
+    .MapServiceCatalogEndpoints();
+
+app.MapGroup("/api/v1/admin")
+    .WithTags("AdminServiceCatalog")
+    .MapAdminServiceCatalogEndpoints();
+
+app.MapGroup("/api/v1/agents")
+    .WithTags("Agents")
+    .MapAgentEndpoints();
+
+app.MapGroup("/api/v1/inquiries")
+    .WithTags("Inquiries")
+    .MapInquiryEndpoints();
+
+app.MapGroup("/api/v1/admin/inquiries")
+    .WithTags("AdminInquiries")
+    .MapAdminInquiryEndpoints();
+
 app.MapGroup("/api/v1/chat")
     .WithTags("Chat")
     .MapChatEndpoints();
@@ -269,5 +289,6 @@ app.MapGroup("/api/v1/wallet")
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");
 app.MapHub<WalletHub>("/hubs/wallet");
+app.MapHub<InquiryHub>("/hubs/inquiry");
 
 app.Run();

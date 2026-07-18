@@ -64,6 +64,63 @@ public class PhotoService : IPhotoService
         return (result.SecureUrl.ToString(), publicId);
     }
 
+    public async Task<(string url, string filePath)> SaveServiceCoverPhotoAsync(
+        Stream photoStream, string fileName, Guid serviceId)
+    {
+        using var processed = await ProcessImageAsync(photoStream);
+        var publicId = $"bakhli/services/service_{serviceId}/{Guid.NewGuid()}";
+
+        var result = await _cloudinary.UploadAsync(new ImageUploadParams
+        {
+            File = new FileDescription(fileName, processed),
+            PublicId = publicId,
+            Overwrite = false,
+        });
+
+        if (result.Error != null)
+            throw new InvalidOperationException($"Cloudinary upload failed: {result.Error.Message}");
+
+        return (result.SecureUrl.ToString(), publicId);
+    }
+
+    public async Task<(string url, string filePath)> SavePackageThumbnailAsync(
+        Stream photoStream, string fileName, Guid packageId)
+    {
+        using var processed = await ProcessImageAsync(photoStream);
+        var publicId = $"bakhli/services/package_{packageId}/{Guid.NewGuid()}";
+
+        var result = await _cloudinary.UploadAsync(new ImageUploadParams
+        {
+            File = new FileDescription(fileName, processed),
+            PublicId = publicId,
+            Overwrite = false,
+        });
+
+        if (result.Error != null)
+            throw new InvalidOperationException($"Cloudinary upload failed: {result.Error.Message}");
+
+        return (result.SecureUrl.ToString(), publicId);
+    }
+
+    public async Task<(string url, string filePath)> SaveAgentPhotoAsync(
+        Stream photoStream, string fileName, Guid agentId)
+    {
+        using var processed = await ProcessImageAsync(photoStream);
+        var publicId = $"bakhli/services/agent_{agentId}/{Guid.NewGuid()}";
+
+        var result = await _cloudinary.UploadAsync(new ImageUploadParams
+        {
+            File = new FileDescription(fileName, processed),
+            PublicId = publicId,
+            Overwrite = false,
+        });
+
+        if (result.Error != null)
+            throw new InvalidOperationException($"Cloudinary upload failed: {result.Error.Message}");
+
+        return (result.SecureUrl.ToString(), publicId);
+    }
+
     public async Task DeletePhotoAsync(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath)) return;

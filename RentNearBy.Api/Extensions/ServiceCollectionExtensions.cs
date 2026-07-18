@@ -121,6 +121,10 @@ public static class ServiceCollectionExtensions
         // Chat push worker — consumes chat.message.push queue and sends FCM via ChatFcmService
         services.AddHostedService<ChatMessageNotificationWorkerService>();
 
+        // Inquiry status push worker — consumes inquiry.status.push queue and sends FCM via the
+        // generic IFcmService (normal rendered notification, no dedup — see InquiryStatusPushWorkerService)
+        services.AddHostedService<InquiryStatusPushWorkerService>();
+
         return services;
     }
 }

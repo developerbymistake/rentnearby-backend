@@ -42,5 +42,44 @@ public static class DtoMappings
             .Map(dest => dest.Photos, src => src.Photos != null
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
+
+        // ── Local Services Marketplace / Expert Consultations ──────────────────
+
+        TypeAdapterConfig<ServiceSection, ServiceSectionDto>.NewConfig();
+        TypeAdapterConfig<ServiceCategory, ServiceCategoryDto>.NewConfig();
+        TypeAdapterConfig<Service, ServiceListItemDto>.NewConfig();
+        TypeAdapterConfig<ServicePackage, ServicePackagePreviewDto>.NewConfig();
+        TypeAdapterConfig<Inclusion, InclusionDto>.NewConfig();
+
+        TypeAdapterConfig<Service, ServiceDetailDto>.NewConfig()
+            .Map(dest => dest.Packages, src => src.Packages.OrderBy(p => p.SortOrder));
+
+        TypeAdapterConfig<ServicePackage, ServicePackageDto>.NewConfig()
+            .Map(dest => dest.Inclusions, src => src.PackageInclusions
+                .OrderBy(pi => pi.Inclusion.SortOrder)
+                .Select(pi => pi.Inclusion));
+
+        // ServiceCategoryIds/Names flattened from the AgentServiceCategory join.
+        TypeAdapterConfig<Agent, AgentDto>.NewConfig()
+            .Map(dest => dest.ServiceCategoryIds, src => src.AgentServiceCategories.Select(ac => ac.ServiceCategoryId))
+            .Map(dest => dest.ServiceCategoryNames, src => src.AgentServiceCategories.Select(ac => ac.ServiceCategory.Name));
+
+        TypeAdapterConfig<InquiryStatusHistory, InquiryStatusHistoryDto>.NewConfig()
+            .Map(dest => dest.ChangedByAdminName, src => src.ChangedByAdmin != null ? src.ChangedByAdmin.Name : null);
+
+        // ServiceSectionName resolved through Service -> ServiceCategory -> ServiceSection.
+        TypeAdapterConfig<Inquiry, InquiryListItemDto>.NewConfig()
+            .Map(dest => dest.ServiceName, src => src.Service.Name)
+            .Map(dest => dest.ServiceSectionId, src => src.Service.ServiceCategory.ServiceSectionId)
+            .Map(dest => dest.ServiceSectionName, src => src.Service.ServiceCategory.ServiceSection.Name)
+            .Map(dest => dest.ServicePackageName, src => src.ServicePackage.Name)
+            .Map(dest => dest.AssignedAgentName, src => src.AssignedAgent != null ? src.AssignedAgent.Name : null);
+
+        TypeAdapterConfig<Inquiry, InquiryDetailDto>.NewConfig()
+            .Map(dest => dest.ServiceName, src => src.Service.Name)
+            .Map(dest => dest.ServiceSectionId, src => src.Service.ServiceCategory.ServiceSectionId)
+            .Map(dest => dest.ServiceSectionName, src => src.Service.ServiceCategory.ServiceSection.Name)
+            .Map(dest => dest.ServicePackageName, src => src.ServicePackage.Name)
+            .Map(dest => dest.AssignedAgent, src => src.AssignedAgent);
     }
 }

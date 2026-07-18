@@ -38,6 +38,16 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Coupon> Coupons { get; set; }
     public DbSet<CouponRedemption> CouponRedemptions { get; set; }
     public DbSet<CoinPackPurchase> CoinPackPurchases { get; set; }
+    public DbSet<ServiceSection> ServiceSections { get; set; }
+    public DbSet<ServiceCategory> ServiceCategories { get; set; }
+    public DbSet<Service> Services { get; set; }
+    public DbSet<ServicePackage> ServicePackages { get; set; }
+    public DbSet<Inclusion> Inclusions { get; set; }
+    public DbSet<PackageInclusion> PackageInclusions { get; set; }
+    public DbSet<Agent> Agents { get; set; }
+    public DbSet<AgentServiceCategory> AgentServiceCategories { get; set; }
+    public DbSet<Inquiry> Inquiries { get; set; }
+    public DbSet<InquiryStatusHistory> InquiryStatusHistories { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -644,6 +654,156 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(d => d.UserId)
              .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ServiceSection>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<ServiceCategory>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne(c => c.ServiceSection)
+             .WithMany(s => s.Categories)
+             .HasForeignKey(c => c.ServiceSectionId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasIndex(c => c.ServiceSectionId);
+        });
+
+        modelBuilder.Entity<Service>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(s => s.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne(s => s.ServiceCategory)
+             .WithMany(c => c.Services)
+             .HasForeignKey(s => s.ServiceCategoryId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasIndex(s => s.ServiceCategoryId);
+        });
+
+        modelBuilder.Entity<ServicePackage>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne(p => p.Service)
+             .WithMany(s => s.Packages)
+             .HasForeignKey(p => p.ServiceId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasIndex(p => p.ServiceId);
+        });
+
+        modelBuilder.Entity<Inclusion>(e =>
+        {
+            e.HasKey(i => i.Id);
+            e.Property(i => i.Id).HasDefaultValueSql("gen_random_uuid()");
+        });
+
+        modelBuilder.Entity<PackageInclusion>(e =>
+        {
+            e.HasKey(pi => new { pi.ServicePackageId, pi.InclusionId });
+            e.HasOne(pi => pi.ServicePackage)
+             .WithMany(p => p.PackageInclusions)
+             .HasForeignKey(pi => pi.ServicePackageId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(pi => pi.Inclusion)
+             .WithMany(i => i.PackageInclusions)
+             .HasForeignKey(pi => pi.InclusionId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasIndex(pi => pi.InclusionId);
+        });
+
+        modelBuilder.Entity<Agent>(e =>
+        {
+            e.HasKey(a => a.Id);
+            e.Property(a => a.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(a => a.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<AgentServiceCategory>(e =>
+        {
+            e.HasKey(ac => new { ac.AgentId, ac.ServiceCategoryId });
+            e.HasOne(ac => ac.Agent)
+             .WithMany(a => a.AgentServiceCategories)
+             .HasForeignKey(ac => ac.AgentId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(ac => ac.ServiceCategory)
+             .WithMany(c => c.AgentServiceCategories)
+             .HasForeignKey(ac => ac.ServiceCategoryId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasIndex(ac => ac.ServiceCategoryId);
+        });
+
+        modelBuilder.Entity<Inquiry>(e =>
+        {
+            e.HasKey(i => i.Id);
+            e.Property(i => i.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(i => i.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(i => i.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne(i => i.User)
+             .WithMany()
+             .HasForeignKey(i => i.UserId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(i => i.Service)
+             .WithMany()
+             .HasForeignKey(i => i.ServiceId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(i => i.ServicePackage)
+             .WithMany()
+             .HasForeignKey(i => i.ServicePackageId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(i => i.AssignedAgent)
+             .WithMany()
+             .HasForeignKey(i => i.AssignedAgentId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(i => i.UserId);
+            e.HasIndex(i => i.ServiceId);
+            e.HasIndex(i => i.ServicePackageId);
+            e.HasIndex(i => i.AssignedAgentId);
+            e.HasIndex(i => i.Status);
+        });
+
+        modelBuilder.Entity<InquiryStatusHistory>(e =>
+        {
+            e.HasKey(h => h.Id);
+            e.Property(h => h.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(h => h.CreatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne(h => h.Inquiry)
+             .WithMany(i => i.StatusHistory)
+             .HasForeignKey(h => h.InquiryId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(h => h.ChangedByAdmin)
+             .WithMany()
+             .HasForeignKey(h => h.ChangedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(h => h.InquiryId);
+            e.HasIndex(h => h.ChangedByAdminId);
         });
 
     }

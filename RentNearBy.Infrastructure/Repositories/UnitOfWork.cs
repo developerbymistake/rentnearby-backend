@@ -36,6 +36,14 @@ public class UnitOfWork : IUnitOfWork
     private ICouponRepository? _coupons;
     private ICouponRedemptionRepository? _couponRedemptions;
     private ICoinPackPurchaseRepository? _coinPackPurchases;
+    private IServiceSectionRepository? _serviceSections;
+    private IServiceCategoryRepository? _serviceCategories;
+    private IServiceRepository? _services;
+    private IServicePackageRepository? _servicePackages;
+    private IInclusionRepository? _inclusions;
+    private IAgentRepository? _agents;
+    private IInquiryRepository? _inquiries;
+    private IInquiryStatusHistoryRepository? _inquiryStatusHistories;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -70,6 +78,14 @@ public class UnitOfWork : IUnitOfWork
     public ICouponRepository Coupons => _coupons ??= new CouponRepository(_context);
     public ICouponRedemptionRepository CouponRedemptions => _couponRedemptions ??= new CouponRedemptionRepository(_context);
     public ICoinPackPurchaseRepository CoinPackPurchases => _coinPackPurchases ??= new CoinPackPurchaseRepository(_context);
+    public IServiceSectionRepository ServiceSections => _serviceSections ??= new ServiceSectionRepository(_context);
+    public IServiceCategoryRepository ServiceCategories => _serviceCategories ??= new ServiceCategoryRepository(_context);
+    public IServiceRepository Services => _services ??= new ServiceRepository(_context);
+    public IServicePackageRepository ServicePackages => _servicePackages ??= new ServicePackageRepository(_context);
+    public IInclusionRepository Inclusions => _inclusions ??= new InclusionRepository(_context);
+    public IAgentRepository Agents => _agents ??= new AgentRepository(_context);
+    public IInquiryRepository Inquiries => _inquiries ??= new InquiryRepository(_context);
+    public IInquiryStatusHistoryRepository InquiryStatusHistories => _inquiryStatusHistories ??= new InquiryStatusHistoryRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();

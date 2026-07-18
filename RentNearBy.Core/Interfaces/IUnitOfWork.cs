@@ -30,6 +30,14 @@ public interface IUnitOfWork : IDisposable
     ICouponRepository Coupons { get; }
     ICouponRedemptionRepository CouponRedemptions { get; }
     ICoinPackPurchaseRepository CoinPackPurchases { get; }
+    IServiceSectionRepository ServiceSections { get; }
+    IServiceCategoryRepository ServiceCategories { get; }
+    IServiceRepository Services { get; }
+    IServicePackageRepository ServicePackages { get; }
+    IInclusionRepository Inclusions { get; }
+    IAgentRepository Agents { get; }
+    IInquiryRepository Inquiries { get; }
+    IInquiryStatusHistoryRepository InquiryStatusHistories { get; }
     Task<int> SaveChangesAsync();
 
     // Canonical transaction-control surface for handler/service-level code that needs multiple
