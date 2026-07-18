@@ -22,11 +22,8 @@ public static class PlotListingEndpoints
         group.MapPost("/{id:guid}/report", PlotListingHandlers.ReportPlotListing).RequireAuthorization();
         group.MapGet("/{id:guid}/reports", PlotListingHandlers.GetPlotListingReports).RequireAuthorization();
 
-        group.MapGet("/payment/status", PlotListingHandlers.GetPlotMembershipStatus).RequireAuthorization();
-        group.MapPost("/{plotId:guid}/create-order", PlotListingHandlers.CreatePlotListingOrder).RequireAuthorization();
-        group.MapPost("/{plotId:guid}/verify-payment", PlotListingHandlers.VerifyPlotListingPayment).RequireAuthorization();
-        group.MapPost("/upgrade-plan/create-order", PlotListingHandlers.CreatePlotListingUpgradeOrder).RequireAuthorization();
-        group.MapPost("/upgrade-plan/verify", PlotListingHandlers.VerifyPlotListingUpgradePayment).RequireAuthorization();
+        // Coin-based Go Live — replaces the old Razorpay-per-plot payment routes entirely.
+        group.MapPost("/{plotId:guid}/go-live", GoLiveHandlers.GoLivePlot).RequireAuthorization();
 
         return group;
     }

@@ -1,4 +1,4 @@
-﻿namespace RentNearBy.Core.Entities;
+namespace RentNearBy.Core.Entities;
 
 public class User
 {
@@ -8,13 +8,9 @@ public class User
     public bool IsActive { get; set; } = true;
     public bool IsPhoneVerified { get; set; } = false;
     public bool HasUsedPhoneChange { get; set; } = false;
-    public bool HasUsedFreePlan { get; set; } = false;
-    public bool HasUsedFreePlotPlan { get; set; } = false;
     public bool IsContactVisible { get; set; } = false;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    public ICollection<RoomMembership> Memberships { get; set; } = new List<RoomMembership>();
-    public ICollection<PlotMembership> PlotMemberships { get; set; } = new List<PlotMembership>();
-    public ICollection<PaymentTransaction> PaymentTransactions { get; set; } = new List<PaymentTransaction>();
+    public Wallet? Wallet { get; set; }
 }

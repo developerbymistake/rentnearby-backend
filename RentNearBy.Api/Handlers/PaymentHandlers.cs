@@ -1,8 +1,11 @@
 ﻿using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -10,235 +13,19 @@ namespace RentNearBy.Api.Handlers;
 
 public static class PaymentHandlers
 {
-    public record CancelOrderRequest(string RazorpayOrderId);
-
-    public static async Task<IResult> CancelOrder(
-        CancelOrderRequest request,
-        ClaimsPrincipal principal,
-        IUnitOfWork unitOfWork)
-    {
-        if (string.IsNullOrWhiteSpace(request.RazorpayOrderId))
-            return BadRequestResponse("RazorpayOrderId is required");
-
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        var tx = (await unitOfWork.PaymentTransactions.GetByUserIdAsync(userId))
-            .FirstOrDefault(t => t.RazorpayOrderId == request.RazorpayOrderId
-                              && t.Status == "PENDING");
-
-        if (tx == null)
-            return OkResponse(new { cancelled = false }); // idempotent — already cancelled or not found
-
-        tx.Status = "CANCELLED";
-        await unitOfWork.SaveChangesAsync();
-        return OkResponse(new { cancelled = true });
-    }
-
-
-    public static async Task<IResult> CreateOrder(
-        Guid listingId,
-        [FromBody] PaymentPlanRequest request,
-        ClaimsPrincipal principal,
-        IPaymentService paymentService)
-    {
-        if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
-            return BadRequestResponse("RoomPlan type is required");
-
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var response = await paymentService.CreateOrderAsync(userId, listingId, request.PlanType.Trim().ToUpperInvariant());
-            return OkResponse(response);
-        }
-        catch (ArgumentException)
-        {
-            return BadRequestResponse("Invalid payment parameters");
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFoundResponse("RoomListing or plan not found");
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return UnauthorizedResponse("You don't have permission to create order for this listing");
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequestResponse(ex.Message);
-        }
-        catch (Exception)
-        {
-            return ServerErrorResponse();
-        }
-    }
-
-    public static async Task<IResult> InitiatePayment(
-        Guid listingId,
-        [FromBody] PaymentPlanRequest request,
-        ClaimsPrincipal principal,
-        IPaymentService paymentService)
-    {
-        if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
-            return BadRequestResponse("RoomPlan type is required");
-
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var response = await paymentService.InitiatePaymentAsync(userId, listingId, request.PlanType.Trim().ToUpperInvariant());
-            return OkResponse(response);
-        }
-        catch (ArgumentException)
-        {
-            return BadRequestResponse("Invalid payment parameters");
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFoundResponse("RoomListing not found");
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return UnauthorizedResponse("You don't have permission to initiate payment for this listing");
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequestResponse(ex.Message);
-        }
-        catch (Exception)
-        {
-            return ServerErrorResponse();
-        }
-    }
-
-    public static async Task<IResult> VerifyPayment(
-        Guid listingId,
-        VerifyPaymentRequest request,
-        ClaimsPrincipal principal,
-        IPaymentService paymentService)
-    {
-        if (string.IsNullOrWhiteSpace(request.RazorpayOrderId) ||
-            string.IsNullOrWhiteSpace(request.RazorpayPaymentId) ||
-            string.IsNullOrWhiteSpace(request.RazorpaySignature))
-            return BadRequestResponse("Missing payment verification details");
-
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var response = await paymentService.VerifyAndActivateAsync(userId, request);
-            return OkResponse(response);
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFoundResponse("Transaction not found or listing not found");
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return UnauthorizedResponse("You don't have permission to verify this payment");
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequestResponse(ex.Message);
-        }
-        catch (Exception)
-        {
-            return ServerErrorResponse();
-        }
-    }
-
-    public static async Task<IResult> GetMembershipStatus(
-        ClaimsPrincipal principal,
-        IPaymentService paymentService,
-        IUnitOfWork unitOfWork)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var membership = await unitOfWork.RoomMemberships.GetActiveByUserIdAsync(userId);
-            var activeRooms = await paymentService.GetActiveRoomCountAsync(userId);
-            var canActivate = await paymentService.CanUserActivateListingAsync(userId);
-
-            return OkResponse(new
-            {
-                hasMembership = membership != null,
-                planType = membership?.PlanType,
-                validUntil = membership?.ValidUntil,
-                maxRooms = membership?.MaxRooms ?? 0,
-                activeRooms,
-                canActivate
-            });
-        }
-        catch (Exception)
-        {
-            return ServerErrorResponse();
-        }
-    }
-
-    public static async Task<IResult> CreateUpgradeOrder(
-        [FromBody] PaymentPlanRequest request,
-        ClaimsPrincipal principal,
-        IPaymentService paymentService)
-    {
-        if (request == null || string.IsNullOrWhiteSpace(request.PlanType))
-            return BadRequestResponse("RoomPlan type is required");
-
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var response = await paymentService.CreateUpgradeOrderAsync(userId, request.PlanType.Trim().ToUpperInvariant());
-            return OkResponse(response);
-        }
-        catch (ArgumentException ex) { return BadRequestResponse(ex.Message); }
-        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
-        catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
-        catch (Exception) { return ServerErrorResponse(); }
-    }
-
-    public static async Task<IResult> VerifyUpgradePayment(
-        [FromBody] VerifyPaymentRequest request,
-        ClaimsPrincipal principal,
-        IPaymentService paymentService)
-    {
-        if (string.IsNullOrWhiteSpace(request.RazorpayOrderId) ||
-            string.IsNullOrWhiteSpace(request.RazorpayPaymentId) ||
-            string.IsNullOrWhiteSpace(request.RazorpaySignature))
-            return BadRequestResponse("Missing payment verification details");
-
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var response = await paymentService.VerifyUpgradePaymentAsync(userId, request);
-            return OkResponse(response);
-        }
-        catch (KeyNotFoundException) { return NotFoundResponse("Transaction not found"); }
-        catch (UnauthorizedAccessException) { return UnauthorizedResponse(); }
-        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
-        catch (Exception) { return ServerErrorResponse(); }
-    }
-
-    // Server-to-server safety net alongside the client-driven /verify-payment flow above — if
-    // the app dies between Razorpay showing success and the client finishing its own verify
-    // call, this is the only thing that ever activates the plan. Deliberately takes HttpContext
-    // directly (no bound request DTO): Razorpay's signature is only valid over the exact raw
-    // body bytes it sent, and minimal-API JSON model binding would consume/transform that
-    // stream before we could verify it.
+    // Server-to-server safety net alongside the client-driven /verify-payment flow on
+    // CoinPackHandlers.VerifyPayment — if the app dies between Razorpay showing success and the
+    // client finishing its own verify call, this is the only thing that ever credits the coins.
+    // Deliberately takes HttpContext directly (no bound request DTO): Razorpay's signature is only
+    // valid over the exact raw body bytes it sent, and minimal-API JSON model binding would
+    // consume/transform that stream before we could verify it.
     public static async Task<IResult> RazorpayWebhook(
         HttpContext context,
         IUnitOfWork unitOfWork,
-        IPaymentService paymentService,
+        ICoinPackPurchaseService purchaseService,
         IRazorpayService razorpay,
-        ILogger<PaymentService> logger)
+        ILogger<CoinPackPurchaseService> logger,
+        IHubContext<WalletHub> hubContext)
     {
         string rawBody;
         using (var reader = new StreamReader(context.Request.Body))
@@ -283,68 +70,43 @@ public static class PaymentHandlers
             return BadRequestResponse("Malformed payload");
         }
 
-        var transaction = await unitOfWork.PaymentTransactions.GetByRazorpayOrderIdAsync(orderId);
-        if (transaction == null)
+        var purchase = await unitOfWork.CoinPackPurchases.GetByRazorpayOrderIdAsync(orderId);
+        if (purchase == null)
         {
-            logger.LogWarning($"Razorpay webhook: no transaction found for order {orderId}");
+            logger.LogWarning($"Razorpay webhook: no coin pack purchase found for order {orderId}");
             return OkResponse(new { acknowledged = true }); // nothing to reconcile against
         }
 
         if (eventType == "payment.failed")
         {
-            // Only record the failure if nothing else has already settled this transaction —
-            // e.g. the client's own signature check may have already marked it FAILED, or (in a
-            // race) the payment may have genuinely gone on to succeed by the time this arrives.
-            // PENDING and ABANDONED (this transaction timed out in PendingPaymentCleanupService
-            // before we heard back) are both still-open outcomes — a payment.failed event is an
-            // authoritative "no" from Razorpay for either, so it correctly finalizes to FAILED.
-            if (transaction.Status == "PENDING" || transaction.Status == "ABANDONED")
+            // Only record the failure if nothing else has already settled this purchase — same
+            // "PENDING and ABANDONED are both still-open outcomes" reasoning the old membership
+            // webhook used for PaymentTransaction.
+            if (purchase.Status == CoinPackPurchaseStatuses.Pending || purchase.Status == CoinPackPurchaseStatuses.Abandoned)
             {
                 var errorDescription = entityEl.TryGetProperty("error_description", out var errEl)
                     ? errEl.GetString() : null;
-                transaction.Status = "FAILED";
-                transaction.FailureReason = string.IsNullOrWhiteSpace(errorDescription)
+                purchase.Status = CoinPackPurchaseStatuses.Failed;
+                purchase.FailureReason = string.IsNullOrWhiteSpace(errorDescription)
                     ? "Payment failed at Razorpay" : errorDescription;
-                transaction.RazorpayPaymentId = paymentId;
-                transaction.CompletedAt = DateTime.UtcNow;
+                purchase.RazorpayPaymentId = paymentId;
+                purchase.CompletedAt = DateTime.UtcNow;
                 await unitOfWork.SaveChangesAsync();
-                logger.LogInformation($"Razorpay webhook: transaction {transaction.Id} marked FAILED ({transaction.FailureReason})");
+                logger.LogInformation($"Razorpay webhook: coin pack purchase {purchase.Id} marked FAILED ({purchase.FailureReason})");
             }
             return OkResponse(new { acknowledged = true });
         }
 
         // From here on, eventType == "payment.captured"
-        if (transaction.Status == "SUCCESS")
+        if (purchase.Status == CoinPackPurchaseStatuses.Success)
         {
-            // The normal case — client's own /verify-payment already handled it. Nothing
-            // further to do.
+            // The normal case — client's own /verify-payment already handled it.
             //
-            // Deliberately NOT also terminal here: FAILED. Razorpay's own docs describe
-            // "late authorisations after apparent failures" (particularly with UPI) — a
-            // payment.failed event can genuinely be followed by a real payment.captured for the
-            // same payment. Treating FAILED as terminal here would silently strand that money
-            // forever. (The client-facing /verify-payment path still rejects an already-FAILED
-            // transaction outright — that guard protects against a different concern, a client
-            // resubmitting a stale/bad signature, and stays as-is; only this webhook path, which
-            // authenticates via its own independent signature rather than trusting client input,
-            // relaxes the check.) This is safe to allow through even if the user already paid
-            // again in the meantime — activation now extends the user's existing membership
-            // (see PaymentService's baseline/previousMembership logic) instead of resetting it,
-            // so a late-arriving duplicate success just adds validity days rather than
-            // overwriting/losing a newer membership.
-            //
-            // Also NOT terminal here: ABANDONED (marked by PendingPaymentCleanupService after 30
-            // minutes of silence) is NOT terminal — a payment.captured event here means the
-            // payment was real all along and just took longer than that timeout to confirm, so
-            // it must still fall through and activate below exactly like a PENDING transaction
-            // would. Treating ABANDONED as terminal
-            // here would silently strand a genuinely-paid user forever.
-            return OkResponse(new { acknowledged = true });
-        }
-
-        if (transaction.UserId == null)
-        {
-            logger.LogError($"Razorpay webhook: transaction {transaction.Id} has no UserId, cannot activate");
+            // Deliberately NOT also terminal here: FAILED (a late authorisation after an apparent
+            // failure, particularly with UPI, per Razorpay's own docs) or ABANDONED (this purchase
+            // timed out in PendingCoinPurchaseCleanupService before we heard back) — both must still
+            // fall through and credit below. CreditCoinsAsync is itself idempotent, so a late
+            // duplicate success is harmless either way.
             return OkResponse(new { acknowledged = true });
         }
 
@@ -357,37 +119,38 @@ public static class PaymentHandlers
 
         try
         {
-            // Unambiguous per PaymentTransaction's own construction sites: TransactionKind is
-            // only ever "PLOT" for plot transactions; RoomListingId/PlotId being set (vs. null,
-            // for upgrade orders) distinguishes a fresh purchase from an upgrade within each.
-            if (transaction.TransactionKind == "PLOT")
-            {
-                if (transaction.PlotId.HasValue)
-                    await paymentService.VerifyPlotListingPaymentAsync(transaction.UserId.Value, verifyRequest, skipSignatureCheck: true);
-                else
-                    await paymentService.VerifyPlotListingUpgradePaymentAsync(transaction.UserId.Value, verifyRequest, skipSignatureCheck: true);
-            }
-            else
-            {
-                if (transaction.RoomListingId.HasValue)
-                    await paymentService.VerifyAndActivateAsync(transaction.UserId.Value, verifyRequest, skipSignatureCheck: true);
-                else
-                    await paymentService.VerifyUpgradePaymentAsync(transaction.UserId.Value, verifyRequest, skipSignatureCheck: true);
-            }
+            var response = await purchaseService.VerifyAndCreditAsync(purchase.UserId, verifyRequest, skipSignatureCheck: true);
+            logger.LogInformation($"Razorpay webhook: credited coin pack purchase {purchase.Id} for order {orderId}");
 
-            logger.LogInformation($"Razorpay webhook: activated transaction {transaction.Id} for order {orderId}");
+            // This is the highest-value push site in the whole feature: the webhook only ever fires
+            // this path when the client's own /verify-payment call never completed (app crashed
+            // mid-payment), so a push here is the ONLY way the device finds out coins landed without
+            // the user manually reopening the wallet screen. No ClaimsPrincipal exists on this
+            // anonymous, HMAC-authenticated endpoint — target purchase.UserId directly. Best-effort:
+            // never let a push failure affect this webhook's own response code (Razorpay retries
+            // non-2xx responses, and the credit itself already succeeded above).
+            try
+            {
+                await hubContext.Clients.Group($"user_{purchase.UserId}").SendAsync("WalletBalanceChanged", new
+                {
+                    balance = response.NewBalance,
+                    reason = CoinTransactionReasons.Recharge,
+                    occurredAt = DateTime.UtcNow,
+                });
+            }
+            catch { }
+
             return OkResponse(new { acknowledged = true });
         }
         catch (InvalidOperationException ex)
         {
-            // e.g. "Transaction already processed" if the client's own call raced this one and
-            // won — benign, not an error.
-            logger.LogInformation($"Razorpay webhook: transaction {transaction.Id} no-op ({ex.Message})");
+            // e.g. "Already processed" if the client's own call raced this one and won — benign.
+            logger.LogInformation($"Razorpay webhook: coin pack purchase {purchase.Id} no-op ({ex.Message})");
             return OkResponse(new { acknowledged = true });
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, $"Razorpay webhook: failed to activate transaction {transaction.Id}");
+            logger.LogError(ex, $"Razorpay webhook: failed to credit coin pack purchase {purchase.Id}");
             return ServerErrorResponse(); // non-2xx — let Razorpay's own retry mechanism try again later
         }
     }

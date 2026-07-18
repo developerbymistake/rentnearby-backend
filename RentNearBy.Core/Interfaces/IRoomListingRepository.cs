@@ -9,6 +9,10 @@ public interface IRoomRoomListingRepository : IRepository<RoomListing>
     Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, int? limit = null);
     Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> SearchPagedAsync(Guid? districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize);
     Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId);
+
+    // SQL COUNT, never load-then-filter — the listing-creation cap check runs on every Add Room
+    // attempt and must not repeat GetActiveRoomCountAsync's old load-the-whole-collection mistake.
+    Task<int> CountByUserIdAsync(Guid userId);
     Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId);
     Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> GetByUserIdPagedAsync(Guid userId, int page, int pageSize);
     Task<RoomListing?> GetByIdWithPhotosAsync(Guid id);

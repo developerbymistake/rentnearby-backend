@@ -156,6 +156,9 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync();
 
+    public async Task<int> CountByUserIdAsync(Guid userId)
+        => await _dbSet.Where(l => l.UserId == userId && !l.IsDeleted).CountAsync();
+
     public async Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId)
         => await _dbSet
             .Include(l => l.RoomType)

@@ -1,4 +1,5 @@
-﻿using RentNearBy.Core.Interfaces;
+﻿using Microsoft.EntityFrameworkCore.Storage;
+using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
@@ -6,6 +7,7 @@ namespace RentNearBy.Infrastructure.Repositories;
 public class UnitOfWork : IUnitOfWork
 {
     private readonly ApplicationDbContext _context;
+    private IDbContextTransaction? _currentTransaction;
     private IUserRepository? _users;
     private ISessionRepository? _sessions;
     private IAdminRepository? _admins;
@@ -15,13 +17,8 @@ public class UnitOfWork : IUnitOfWork
     private ICityRepository? _cities;
     private IRoomTypeRepository? _roomTypes;
     private IPlotTypeRepository? _plotTypes;
-    private IRoomPlanRepository? _roomPlans;
-    private IRoomMembershipRepository? _userMemberships;
-    private IPaymentTransactionRepository? _paymentTransactions;
-    private IFeatureRepository? _features;
     private IPlotListingRoomListingRepository? _plots;
-    private IPlotMembershipRepository? _plotMemberships;
-    private IPlotPlanRepository? _plotPlans;
+    private ICoinPlanRepository? _coinPlans;
     private IDeviceTokenRepository? _deviceTokens;
     private INotificationLogRepository? _notificationLogs;
     private IDistrictBannerRepository? _districtBanners;
@@ -32,6 +29,13 @@ public class UnitOfWork : IUnitOfWork
     private IMessageRepository? _messages;
     private IUserBlockRepository? _userBlocks;
     private IQuestionTemplateRepository? _questionTemplates;
+    private IWalletRepository? _wallets;
+    private ICoinTransactionRepository? _coinTransactions;
+    private ICoinPackRepository? _coinPacks;
+    private IListingLimitSettingRepository? _listingLimitSettings;
+    private ICouponRepository? _coupons;
+    private ICouponRedemptionRepository? _couponRedemptions;
+    private ICoinPackPurchaseRepository? _coinPackPurchases;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -47,13 +51,8 @@ public class UnitOfWork : IUnitOfWork
     public ICityRepository Cities => _cities ??= new CityRepository(_context);
     public IRoomTypeRepository RoomTypes => _roomTypes ??= new RoomTypeRepository(_context);
     public IPlotTypeRepository PlotTypes => _plotTypes ??= new PlotTypeRepository(_context);
-    public IRoomPlanRepository RoomPlans => _roomPlans ??= new RoomPlanRepository(_context);
-    public IRoomMembershipRepository RoomMemberships => _userMemberships ??= new RoomMembershipRepository(_context);
-    public IPaymentTransactionRepository PaymentTransactions => _paymentTransactions ??= new PaymentTransactionRepository(_context);
-    public IFeatureRepository Features => _features ??= new FeatureRepository(_context);
     public IPlotListingRoomListingRepository PlotListings => _plots ??= new PlotListingRepository(_context);
-    public IPlotMembershipRepository PlotMemberships => _plotMemberships ??= new PlotMembershipRepository(_context);
-    public IPlotPlanRepository PlotPlans => _plotPlans ??= new PlotPlanRepository(_context);
+    public ICoinPlanRepository CoinPlans => _coinPlans ??= new CoinPlanRepository(_context);
     public IDeviceTokenRepository DeviceTokens => _deviceTokens ??= new DeviceTokenRepository(_context);
     public INotificationLogRepository NotificationLogs => _notificationLogs ??= new NotificationLogRepository(_context);
     public IDistrictBannerRepository DistrictBanners => _districtBanners ??= new DistrictBannerRepository(_context);
@@ -64,9 +63,35 @@ public class UnitOfWork : IUnitOfWork
     public IMessageRepository Messages => _messages ??= new MessageRepository(_context);
     public IUserBlockRepository UserBlocks => _userBlocks ??= new UserBlockRepository(_context);
     public IQuestionTemplateRepository QuestionTemplates => _questionTemplates ??= new QuestionTemplateRepository(_context);
+    public IWalletRepository Wallets => _wallets ??= new WalletRepository(_context);
+    public ICoinTransactionRepository CoinTransactions => _coinTransactions ??= new CoinTransactionRepository(_context);
+    public ICoinPackRepository CoinPacks => _coinPacks ??= new CoinPackRepository(_context);
+    public IListingLimitSettingRepository ListingLimitSettings => _listingLimitSettings ??= new ListingLimitSettingRepository(_context);
+    public ICouponRepository Coupons => _coupons ??= new CouponRepository(_context);
+    public ICouponRedemptionRepository CouponRedemptions => _couponRedemptions ??= new CouponRedemptionRepository(_context);
+    public ICoinPackPurchaseRepository CoinPackPurchases => _coinPackPurchases ??= new CoinPackPurchaseRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();
+
+    public async Task BeginTransactionAsync()
+        => _currentTransaction = await _context.Database.BeginTransactionAsync();
+
+    public async Task CommitTransactionAsync()
+    {
+        if (_currentTransaction == null) return;
+        await _currentTransaction.CommitAsync();
+        await _currentTransaction.DisposeAsync();
+        _currentTransaction = null;
+    }
+
+    public async Task RollbackTransactionAsync()
+    {
+        if (_currentTransaction == null) return;
+        await _currentTransaction.RollbackAsync();
+        await _currentTransaction.DisposeAsync();
+        _currentTransaction = null;
+    }
 
     public void Dispose()
         => _context.Dispose();

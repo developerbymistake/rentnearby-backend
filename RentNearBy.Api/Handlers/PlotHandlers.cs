@@ -231,7 +231,6 @@ public static class PlotListingHandlers
         ClaimsPrincipal principal,
         IValidator<CreatePlotListingRequest> validator,
         IUnitOfWork unitOfWork,
-        IPaymentService paymentService,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -252,30 +251,13 @@ public static class PlotListingHandlers
                 return BadRequestResponse("Selected city does not belong to the selected district");
         }
 
-        var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
-        if (plotFeature == null || !plotFeature.IsEnabled)
-        {
-            var freeLimit = plotFeature?.FreeLimit ?? 1;
-            var db = sp.GetRequiredService<ApplicationDbContext>();
-            var totalCount = await db.PlotListings
-                .Where(p => p.UserId == userId && !p.IsDeleted)
-                .CountAsync();
-            if (totalCount >= freeLimit)
-                return BadRequestResponse($"Free mode limit: you can have at most {freeLimit} plot(s). Delete one to add more.");
-        }
-        else
-        {
-            var membership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
-            if (membership != null && membership.IsActive)
-            {
-                var db = sp.GetRequiredService<ApplicationDbContext>();
-                var totalCount = await db.PlotListings
-                    .Where(p => p.UserId == userId && !p.IsDeleted)
-                    .CountAsync();
-                if (totalCount >= membership.MaxPlotListings)
-                    return BadRequestResponse($"You have reached your plan limit of {membership.MaxPlotListings} plot(s). Upgrade your plan to add more.");
-            }
-        }
+        // Flat, coins-independent cap on how many plots a user can create — separate concern from
+        // whether they can afford to go live on one (that's coin-gated, at /go-live time instead).
+        var plotLimit = await unitOfWork.ListingLimitSettings.GetByKindAsync(ListingKinds.Plot);
+        var maxListings = plotLimit?.MaxListings ?? 5;
+        var currentCount = await unitOfWork.PlotListings.CountByUserIdAsync(userId);
+        if (currentCount >= maxListings)
+            return BadRequestResponse($"You can have at most {maxListings} plot(s). Delete one to add more.");
 
         var plot = new PlotListing
         {
@@ -291,26 +273,10 @@ public static class PlotListingHandlers
             Address = request.Address,
             DistrictId = request.DistrictId,
             CityId = request.CityId,
-            IsActive = false,
+            IsActive = false, // always — POST /{id}/go-live is now the only path to activation
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
-
-        // Auto-activate for paid plot members with available capacity
-        var activeMembership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
-        if (activeMembership != null && activeMembership.IsActive)
-        {
-            var activePlan = await unitOfWork.PlotPlans.GetByPlanTypeAsync(activeMembership.PlanType);
-            if (activePlan?.Price > 0)
-            {
-                var canActivate = await paymentService.CanUserActivatePlotListingAsync(userId);
-                if (canActivate)
-                {
-                    plot.IsActive = true;
-                    plot.ValidUntil = activeMembership.ValidUntil;
-                }
-            }
-        }
 
         await unitOfWork.PlotListings.AddAsync(plot);
         await unitOfWork.SaveChangesAsync();
@@ -364,33 +330,10 @@ public static class PlotListingHandlers
         }
         if (request.IsActive.HasValue)
         {
-            if (request.IsActive.Value == true)
-            {
-                var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
-                if (plotFeature == null || !plotFeature.IsEnabled)
-                {
-                    var freeLimit = plotFeature?.FreeLimit ?? 1;
-                    var freeDays = plotFeature?.FreeDays ?? 2;
-                    var db = sp.GetRequiredService<ApplicationDbContext>();
-                    var totalCount = await db.PlotListings
-                        .Where(p => p.UserId == userId && !p.IsDeleted && p.Id != id)
-                        .CountAsync();
-                    if (totalCount >= freeLimit)
-                        return BadRequestResponse($"Free mode limit: you can have at most {freeLimit} plot(s).");
-                    plot.ValidUntil = DateTime.UtcNow.AddDays(freeDays);
-                }
-                else
-                {
-                    var membership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
-                    if (membership == null || !membership.IsActive)
-                        return BadRequestResponse("You need an active plan to go live. Please purchase a plan.");
-                    var svc = sp.GetRequiredService<IPaymentService>();
-                    var canActivate = await svc.CanUserActivatePlotListingAsync(userId);
-                    if (!canActivate)
-                        return BadRequestResponse($"You have reached your active plot limit of {membership.MaxPlotListings}. Upgrade your plan.");
-                }
-            }
-            plot.IsActive = request.IsActive.Value;
+            if (request.IsActive.Value)
+                return BadRequestResponse("Use POST /plots/{id}/go-live to activate a plot.");
+            plot.IsActive = false; // deactivating is always free — ValidUntil is untouched, so a
+                                    // later Go-Live within the same window reactivates for free too
         }
         plot.UpdatedAt = DateTime.UtcNow;
 
@@ -594,7 +537,7 @@ public static class PlotListingHandlers
     public record AdminPlotListingDto(
         string Id, string UserId, string? OwnerName, string? OwnerPhone,
         string PlotType, double AreaValue, string AreaUnit, double AreaSqft,
-        bool IsActive, string? DistrictName, string? CityName, string? Address,
+        bool IsActive, DateTime? ValidUntil, string? DistrictName, string? CityName, string? Address,
         string? ThumbnailUrl, int PhotoCount, DateTime CreatedAt);
 
     public static async Task<IResult> GetAdminPlotListings(
@@ -616,6 +559,7 @@ public static class PlotListingHandlers
             AreaUnit: p.AreaUnit,
             AreaSqft: (double)p.AreaSqft,
             IsActive: p.IsActive,
+            ValidUntil: p.ValidUntil,
             DistrictName: p.District?.Name,
             CityName: p.City?.Name,
             Address: p.Address,
@@ -641,19 +585,13 @@ public static class PlotListingHandlers
         var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
         if (plot == null) return NotFoundResponse("PlotListing not found");
 
+        // See the matching comment in AdminHandlers.ToggleAdminListingStatus — no membership to
+        // check, no free-activation bypass around the coin-spend engine. Deactivate is always allowed.
         if (request.IsActive)
         {
-            var plotFeature = await unitOfWork.Features.GetByKeyAsync(FeatureKeys.PlotListingPayment);
-            if (plotFeature != null && plotFeature.IsEnabled)
-            {
-                var membership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(plot.UserId);
-                if (membership == null || !membership.IsActive)
-                    return BadRequestResponse("This user does not have an active membership.");
-                var svc = sp.GetRequiredService<IPaymentService>();
-                var canActivate = await svc.CanUserActivatePlotListingAsync(plot.UserId);
-                if (!canActivate)
-                    return BadRequestResponse($"This user has reached their active plot limit of {membership.MaxPlotListings}.");
-            }
+            var stillWithinValidity = plot.ValidUntil.HasValue && plot.ValidUntil > DateTime.UtcNow;
+            if (!stillWithinValidity)
+                return BadRequestResponse("This plot has no valid paid period. Ask the owner to Go Live, or credit coins to their wallet so they can.");
         }
 
         plot.IsActive = request.IsActive;
@@ -689,120 +627,12 @@ public static class PlotListingHandlers
         return NoContentResponse();
     }
 
-    // ── PlotListing Payment handlers ────────────────────────────────────────────────
-
-    public static async Task<IResult> CreatePlotListingOrder(
-        Guid plotId, string planType,
-        ClaimsPrincipal principal,
-        IPaymentService paymentService)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var response = await paymentService.CreatePlotListingOrderAsync(userId, plotId, planType.ToUpperInvariant());
-            return OkResponse(response);
-        }
-        catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
-        catch (UnauthorizedAccessException ex) { return UnauthorizedResponse(ex.Message); }
-        catch (ArgumentException ex) { return BadRequestResponse(ex.Message); }
-        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
-        catch (Exception) { return ServerErrorResponse(); }
-    }
-
-    public static async Task<IResult> VerifyPlotListingPayment(
-        Guid plotId, VerifyPaymentRequest request,
-        ClaimsPrincipal principal,
-        IPaymentService paymentService)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var response = await paymentService.VerifyPlotListingPaymentAsync(userId, request);
-            return OkResponse(response);
-        }
-        catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
-        catch (UnauthorizedAccessException ex) { return UnauthorizedResponse(ex.Message); }
-        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
-        catch (Exception) { return ServerErrorResponse(); }
-    }
-
-    public static async Task<IResult> CreatePlotListingUpgradeOrder(
-        string planType,
-        ClaimsPrincipal principal,
-        IPaymentService paymentService)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var response = await paymentService.CreatePlotListingUpgradeOrderAsync(userId, planType.ToUpperInvariant());
-            return OkResponse(response);
-        }
-        catch (ArgumentException ex) { return BadRequestResponse(ex.Message); }
-        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
-        catch (Exception) { return ServerErrorResponse(); }
-    }
-
-    public static async Task<IResult> VerifyPlotListingUpgradePayment(
-        VerifyPaymentRequest request,
-        ClaimsPrincipal principal,
-        IPaymentService paymentService)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var response = await paymentService.VerifyPlotListingUpgradePaymentAsync(userId, request);
-            return OkResponse(response);
-        }
-        catch (KeyNotFoundException ex) { return NotFoundResponse(ex.Message); }
-        catch (UnauthorizedAccessException ex) { return UnauthorizedResponse(ex.Message); }
-        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
-        catch (Exception) { return ServerErrorResponse(); }
-    }
-
     public static async Task<IResult> GetPublicPlotPlans(IUnitOfWork unitOfWork)
     {
-        var plans = await unitOfWork.PlotPlans.GetAllAsync();
+        var plans = await unitOfWork.CoinPlans.GetByFeatureKeyAsync(CoinFeatureKeys.PlotGoLive);
         var result = plans.Where(p => p.IsEnabled).OrderBy(p => p.Price)
-            .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, originalPrice = p.OriginalPrice, discountPercent = p.DiscountPercent, plotLimit = p.PlotListingLimit })
+            .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, originalPrice = p.OriginalPrice, discountPercent = p.DiscountPercent, plotLimit = p.Quota, isFeatured = p.IsFeatured })
             .ToList();
         return OkResponse(result);
-    }
-
-    public static async Task<IResult> GetPlotMembershipStatus(
-        ClaimsPrincipal principal,
-        IPaymentService paymentService,
-        IUnitOfWork unitOfWork)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        try
-        {
-            var membership = await unitOfWork.PlotMemberships.GetActiveByUserIdAsync(userId);
-            var activePlotListings = await paymentService.GetActivePlotListingCountAsync(userId);
-            var canActivate = await paymentService.CanUserActivatePlotListingAsync(userId);
-
-            return OkResponse(new
-            {
-                hasMembership = membership != null,
-                planType = membership?.PlanType,
-                validUntil = membership?.ValidUntil,
-                maxPlotListings = membership?.MaxPlotListings ?? 0,
-                activePlotListings,
-                canActivate
-            });
-        }
-        catch (Exception)
-        {
-            return ServerErrorResponse();
-        }
     }
 }
