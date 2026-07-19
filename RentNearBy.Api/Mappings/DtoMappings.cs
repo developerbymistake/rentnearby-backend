@@ -99,5 +99,10 @@ public static class DtoMappings
             .Map(dest => dest.ActionArguments, src => src.ActionArgumentsJson == null
                 ? null
                 : JsonSerializer.Deserialize<Dictionary<string, string>>(src.ActionArgumentsJson, (JsonSerializerOptions?)null));
+
+        TypeAdapterConfig<NotificationEvent, AdminNotificationDto>.NewConfig()
+            .Map(dest => dest.ActionArguments, src => src.ActionArgumentsJson == null
+                ? null
+                : JsonSerializer.Deserialize<Dictionary<string, string>>(src.ActionArgumentsJson, (JsonSerializerOptions?)null));
     }
 }

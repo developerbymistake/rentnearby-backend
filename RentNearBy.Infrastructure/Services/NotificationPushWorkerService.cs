@@ -16,7 +16,10 @@ namespace RentNearBy.Infrastructure.Services;
 // that worker, this one formats nothing itself: Title/Body/ActionRoute/ActionArgumentsJson are
 // already persisted on the NotificationEvent row by whichever handler wrote it, so every current and
 // future producer gets FCM delivery for free through this one worker, with no per-category
-// formatting logic living here.
+// formatting logic living here — with one deliberate exception: LeadAssigned rows also fan out to
+// every Admin device (see ProcessMessageAsync), so Admin stays aware of every lead an Agent gets,
+// without a separate queue/worker/storage. Mirrors ReportFiledWorkerService's existing
+// AdminDeviceTokens broadcast loop exactly.
 public class NotificationPushWorkerService : BackgroundService
 {
     private const string QueueName = "notification.push";
@@ -159,6 +162,28 @@ public class NotificationPushWorkerService : BackgroundService
         foreach (var (token, isSuccess) in sendResults)
             if (!isSuccess)
                 await unitOfWork.DeviceTokens.MarkInvalidAsync(token);
+
+        // Admin awareness: every LeadAssigned row also pushes to every Admin device, reusing the same
+        // Title/Body/data already built above (no separate admin-phrased copy, no new storage) — a
+        // multi-agent inquiry creates one NotificationEvent per Agent, so Admin gets one push per
+        // Agent notified, matching the admin feed showing one row per Agent too.
+        if (notification.Type == NotificationTypes.LeadAssigned)
+        {
+            var adminTokens = (await unitOfWork.AdminDeviceTokens.GetAllValidAsync()).ToList();
+            foreach (var adminToken in adminTokens)
+            {
+                try
+                {
+                    var isSuccess = await _fcmService.SendAsync(adminToken.Token, notification.Title, notification.Body,
+                        NotificationTypes.ToWireValue(notification.Type), data);
+                    if (!isSuccess) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(adminToken.Token);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Notification FCM send exception for admin token");
+                }
+            }
+        }
 
         await unitOfWork.SaveChangesAsync();
     }

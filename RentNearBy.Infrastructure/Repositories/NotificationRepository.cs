@@ -26,6 +26,24 @@ public class NotificationRepository(ApplicationDbContext context)
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
     }
 
+    public async Task<(IReadOnlyList<AdminNotificationListItem> Items, bool HasMore)> GetPagedForAdminAsync(
+        int page, int pageSize)
+    {
+        var take = pageSize + 1;
+        var items = await (
+            from n in _context.NotificationEvents.AsNoTracking()
+            join a in _context.Agents.AsNoTracking() on n.TargetUserId equals a.UserId into agentJoin
+            from agent in agentJoin.DefaultIfEmpty()
+            orderby n.CreatedAt descending
+            select new AdminNotificationListItem(n, agent != null ? agent.Name : null))
+            .Skip((page - 1) * pageSize)
+            .Take(take)
+            .ToListAsync();
+
+        var hasMore = items.Count > pageSize;
+        return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
+    }
+
     public async Task<int> GetUnreadCountAsync(Guid userId)
         => await _context.NotificationEvents.AsNoTracking()
             .CountAsync(n => n.TargetUserId == userId

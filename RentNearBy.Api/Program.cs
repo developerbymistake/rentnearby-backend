@@ -262,6 +262,10 @@ app.MapGroup("/api/v1/admin/inquiries")
     .WithTags("AdminInquiries")
     .MapAdminInquiryEndpoints();
 
+app.MapGroup("/api/v1/admin/notifications")
+    .WithTags("AdminNotifications")
+    .MapAdminNotificationEndpoints();
+
 app.MapGroup("/api/v1/chat")
     .WithTags("Chat")
     .MapChatEndpoints();
