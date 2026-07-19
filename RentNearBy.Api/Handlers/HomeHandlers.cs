@@ -69,6 +69,7 @@ public static class HomeHandlers
         var result = items.Select(l => new HomeRoomDto
         {
             Id = l.Id,
+            UserId = l.UserId,
             PriceMonthly = l.PriceMonthly,
             RoomTypeName = l.RoomType?.Name,
             ThumbnailUrl = l.Photos.FirstOrDefault()?.PhotoUrl,
@@ -89,6 +90,7 @@ public static class HomeHandlers
         var result = items.Select(p => new HomePlotDto
         {
             Id = p.Id,
+            UserId = p.UserId,
             AreaValue = p.AreaValue,
             AreaUnit = p.AreaUnit,
             PlotTypeName = p.PlotType?.Name,
@@ -110,6 +112,7 @@ public static class HomeHandlers
         var result = items.Select(l => new HomeRoomDto
         {
             Id = l.Id,
+            UserId = l.UserId,
             PriceMonthly = l.PriceMonthly,
             RoomTypeName = l.RoomType?.Name,
             ThumbnailUrl = l.Photos.FirstOrDefault()?.PhotoUrl,
@@ -131,6 +134,7 @@ public static class HomeHandlers
         var result = items.Select(p => new HomePlotDto
         {
             Id = p.Id,
+            UserId = p.UserId,
             AreaValue = p.AreaValue,
             AreaUnit = p.AreaUnit,
             PlotTypeName = p.PlotType?.Name,

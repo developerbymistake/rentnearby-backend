@@ -3,6 +3,7 @@ namespace RentNearBy.Core.DTOs.Responses;
 public class HomePlotDto
 {
     public Guid Id { get; set; }
+    public Guid UserId { get; set; } // the listing owner — lets a browsing client hide its own "Chat" affordance
     public decimal AreaValue { get; set; }
     public string AreaUnit { get; set; } = string.Empty;
     public string? PlotTypeName { get; set; }

@@ -88,9 +88,23 @@ public static class ChatHandlers
             return ForbiddenResponse($"You have a new account, so you can't chat yet. Try again in {remainingMinutes} min.");
         }
 
-        var ownerId = request.ListingType == "Room"
-            ? await db.RoomListings.Where(l => l.Id == request.ListingId && !l.IsDeleted).Select(l => (Guid?)l.UserId).FirstOrDefaultAsync()
-            : await db.PlotListings.Where(l => l.Id == request.ListingId && !l.IsDeleted).Select(l => (Guid?)l.UserId).FirstOrDefaultAsync();
+        // IsActive fetched alongside the owner lookup — a fresh conversation about a
+        // deactivated (but not deleted) listing must be created with its TRUE initial status,
+        // not a hardcoded "Active" that only gets corrected on the first SendMessage attempt.
+        Guid? ownerId;
+        bool? listingIsActive;
+        if (request.ListingType == "Room")
+        {
+            var l = await db.RoomListings.Where(x => x.Id == request.ListingId && !x.IsDeleted)
+                .Select(x => new { x.UserId, x.IsActive }).FirstOrDefaultAsync();
+            ownerId = l?.UserId; listingIsActive = l?.IsActive;
+        }
+        else
+        {
+            var l = await db.PlotListings.Where(x => x.Id == request.ListingId && !x.IsDeleted)
+                .Select(x => new { x.UserId, x.IsActive }).FirstOrDefaultAsync();
+            ownerId = l?.UserId; listingIsActive = l?.IsActive;
+        }
 
         if (ownerId == null) return NotFoundResponse("Listing not found");
         if (ownerId == callerId) return BadRequestResponse("You can't start a chat about your own listing");
@@ -124,7 +138,9 @@ public static class ChatHandlers
             OwnerId = ownerId.Value,
             ListingType = request.ListingType,
             ListingId = request.ListingId,
-            Status = "Active",
+            // Not deleted (filtered above), so isDeleted: false — genuinely reflects the
+            // listing's current active/inactive state instead of always lying "Active".
+            Status = ComputeLifecycleStatus(isDeleted: false, isActive: listingIsActive),
             CreatedAt = DateTime.UtcNow,
             LastMessageAt = DateTime.UtcNow,
         };
@@ -250,6 +266,17 @@ public static class ChatHandlers
                 return BadRequestResponse("That question no longer exists in this conversation");
             if (question.SenderId == callerId)
                 return BadRequestResponse("You can't answer your own question");
+        }
+
+        // The initial visit proposal is sent through this generic endpoint (only the
+        // accept/decline/counter responses go through RespondSchedule, which has its own
+        // FluentValidation future-time check) — SendMessageRequestValidator never inspects
+        // payload content at all, so without this, a past-dated initial proposal was never
+        // rejected anywhere.
+        if (request.Type == "schedule_proposal")
+        {
+            var scheduleError = ValidateScheduleProposalPayload(request.PayloadJson);
+            if (scheduleError != null) return BadRequestResponse(scheduleError);
         }
 
         // A fresh catalog question (quick_reply with no RespondsToMessageId — an ANSWER always
@@ -394,6 +421,20 @@ public static class ChatHandlers
         if (conversation.RenterId != callerId && conversation.OwnerId != callerId) return ForbiddenResponse();
         var otherPartyId = conversation.RenterId == callerId ? conversation.OwnerId : conversation.RenterId;
 
+        // Same two guards SendMessage already has — without these, a blocked user (or a
+        // conversation whose listing has since gone inactive/removed) could still approve a
+        // pending contact request, leaking their phone number, fully bypassing the block.
+        await RefreshListingLifecycleStatusAsync(conversation, db, unitOfWork);
+        if (conversation.Status != "Active")
+        {
+            await unitOfWork.SaveChangesAsync();
+            return BadRequestResponse($"This conversation is no longer active ({conversation.Status})");
+        }
+
+        if (await unitOfWork.UserBlocks.ExistsAsync(otherPartyId, callerId) ||
+            await unitOfWork.UserBlocks.ExistsAsync(callerId, otherPartyId))
+            return ForbiddenResponse("You can't message this user");
+
         // Shares SendMessage's own bucket, deliberately — the abuse surface is "how much chat
         // activity can this user generate," not the specific action type. A separate bucket
         // here would just relocate the same unmetered spam vector rather than close it.
@@ -476,6 +517,20 @@ public static class ChatHandlers
         if (conversation.RenterId != callerId && conversation.OwnerId != callerId) return ForbiddenResponse();
 
         var otherPartyId = conversation.RenterId == callerId ? conversation.OwnerId : conversation.RenterId;
+
+        // Same two guards SendMessage/RespondContact already have — without these, a blocked
+        // user (or a conversation whose listing has since gone inactive/removed) could still
+        // accept/decline/counter a stale proposal, fully bypassing the block.
+        await RefreshListingLifecycleStatusAsync(conversation, db, unitOfWork);
+        if (conversation.Status != "Active")
+        {
+            await unitOfWork.SaveChangesAsync();
+            return BadRequestResponse($"This conversation is no longer active ({conversation.Status})");
+        }
+
+        if (await unitOfWork.UserBlocks.ExistsAsync(otherPartyId, callerId) ||
+            await unitOfWork.UserBlocks.ExistsAsync(callerId, otherPartyId))
+            return ForbiddenResponse("You can't message this user");
 
         // Same shared bucket as SendMessage/RespondContact — see RespondContact's comment.
         // Matters most here: "counter" has no frequency limit otherwise, only a same-sender
@@ -676,12 +731,16 @@ public static class ChatHandlers
 
         // Live-push to both sides — the OTHER party's open conversation screen (if any) and
         // their Chats list, mirroring BroadcastMessageAsync's own two-group pattern below.
+        // blockedByUserId (the blocker's own id, always `callerId` here) lets EACH recipient
+        // independently derive their own "did I block them, or did they block me" by comparing
+        // it against their own logged-in user id client-side — Status alone is a symmetric
+        // string with no sense of direction.
         foreach (var conversation in flipped)
         {
             await hubContext.Clients.Group($"conversation_{conversation.Id}")
-                .SendAsync("ConversationStatusChanged", new { conversationId = conversation.Id, status = conversation.Status });
+                .SendAsync("ConversationStatusChanged", new { conversationId = conversation.Id, status = conversation.Status, blockedByUserId = callerId });
             await hubContext.Clients.Group($"user_{userId}")
-                .SendAsync("ConversationStatusChanged", new { conversationId = conversation.Id, status = conversation.Status });
+                .SendAsync("ConversationStatusChanged", new { conversationId = conversation.Id, status = conversation.Status, blockedByUserId = callerId });
         }
         return NoContentResponse();
     }
@@ -697,6 +756,13 @@ public static class ChatHandlers
 
         await unitOfWork.UserBlocks.DeleteAsync(existing);
 
+        // Mutual blocks are possible (UserBlocks has no symmetry constraint — A and B can each
+        // independently block the other), so clearing MY block doesn't necessarily mean the
+        // conversation should reopen: if the other party still has ME blocked, restoring
+        // "Active" here would desync the UI (composer re-enables) from SendMessage's own block
+        // check (still rejects) — confusing, not just cosmetically wrong.
+        var stillBlockedByOtherParty = await unitOfWork.UserBlocks.ExistsAsync(userId, callerId);
+
         // Deliberate user action — unlike the listing-lifecycle reconciler (which
         // intentionally never overrides a "Blocked" status automatically), an explicit
         // unblock is exactly the case that should restore it. If the listing has since
@@ -710,6 +776,7 @@ public static class ChatHandlers
         foreach (var conversation in conversations)
         {
             if (conversation.Status != "Blocked") continue;
+            if (stillBlockedByOtherParty) continue;
             conversation.Status = "Active";
             await unitOfWork.Conversations.UpdateAsync(conversation);
             flipped.Add(conversation);
@@ -895,6 +962,13 @@ public static class ChatHandlers
             area = l?.CityName ?? l?.DistrictName;
         }
 
+        // Only meaningful (and only worth a query) when the conversation is actually Blocked —
+        // c.Status alone can't say WHO blocked whom (UserBlocks(BlockerId, BlockedId) is the
+        // real source of truth, not a second field bolted onto Conversation). Skipped for the
+        // common non-Blocked case to avoid a query on every row of a paginated list.
+        var isBlockedByMe = c.Status == "Blocked" &&
+            await db.UserBlocks.AnyAsync(b => b.BlockerId == callerId && b.BlockedId == otherPartyId);
+
         return new ConversationDto
         {
             Id = c.Id,
@@ -909,6 +983,7 @@ public static class ChatHandlers
             OtherPartyName = otherPartyName,
             IsOwner = isOwner,
             Status = c.Status,
+            IsBlockedByMe = isBlockedByMe,
             LastMessageAt = c.LastMessageAt,
             LastMessagePreview = c.LastMessagePreview,
             UnreadCount = isOwner ? c.UnreadCountForOwner : c.UnreadCountForRenter,
@@ -1032,6 +1107,38 @@ public static class ChatHandlers
         {
             return null;
         }
+    }
+
+    // Guards the INITIAL visit proposal (sent via the generic SendMessage endpoint, type
+    // "schedule_proposal") — the only schedule-related payload SendMessageRequestValidator
+    // never inspects. Mirrors RespondScheduleRequestValidator's own future-time check (same
+    // 1-minute grace window for client/server clock and network latency) so a past-dated visit
+    // can't be proposed from a modified client or a direct API call either.
+    private static string? ValidateScheduleProposalPayload(string payloadJson)
+    {
+        JsonNode? node;
+        try
+        {
+            node = JsonNode.Parse(payloadJson);
+        }
+        catch (JsonException)
+        {
+            return "Invalid schedule proposal payload";
+        }
+
+        var proposedAts = node?["proposedAts"]?.AsArray();
+        if (proposedAts == null || proposedAts.Count == 0)
+            return "proposedAts must include at least one time";
+
+        foreach (var entry in proposedAts)
+        {
+            if (entry == null || !entry.AsValue().TryGetValue<DateTime>(out var dt))
+                return "proposedAts must contain valid dates";
+            if (dt.ToUniversalTime() <= DateTime.UtcNow.AddMinutes(-1))
+                return "proposedAts must all be in the future";
+        }
+
+        return null;
     }
 
     // Only for a fresh quick_reply QUESTION (RespondsToMessageId == null) — an ANSWER's

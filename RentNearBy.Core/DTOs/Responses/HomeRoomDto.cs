@@ -3,6 +3,7 @@ namespace RentNearBy.Core.DTOs.Responses;
 public class HomeRoomDto
 {
     public Guid Id { get; set; }
+    public Guid UserId { get; set; } // the listing owner — lets a browsing client hide its own "Chat" affordance
     public int PriceMonthly { get; set; }
     public string? RoomTypeName { get; set; }
     public string? ThumbnailUrl { get; set; }
