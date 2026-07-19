@@ -63,12 +63,16 @@ public static class DtoMappings
                 .Select(pi => pi.Inclusion));
 
         // ServiceCategoryIds/Names flattened from the AgentServiceCategory join.
+        // UserName/UserPhoneNumber flattened from the linked User, when loaded.
         TypeAdapterConfig<Agent, AgentDto>.NewConfig()
             .Map(dest => dest.ServiceCategoryIds, src => src.AgentServiceCategories.Select(ac => ac.ServiceCategoryId))
-            .Map(dest => dest.ServiceCategoryNames, src => src.AgentServiceCategories.Select(ac => ac.ServiceCategory.Name));
+            .Map(dest => dest.ServiceCategoryNames, src => src.AgentServiceCategories.Select(ac => ac.ServiceCategory.Name))
+            .Map(dest => dest.UserName, src => src.User != null ? src.User.Name : null)
+            .Map(dest => dest.UserPhoneNumber, src => src.User != null ? src.User.PhoneNumber : null);
 
         TypeAdapterConfig<InquiryStatusHistory, InquiryStatusHistoryDto>.NewConfig()
-            .Map(dest => dest.ChangedByAdminName, src => src.ChangedByAdmin != null ? src.ChangedByAdmin.Name : null);
+            .Map(dest => dest.ChangedByAdminName, src => src.ChangedByAdmin != null ? src.ChangedByAdmin.Name : null)
+            .Map(dest => dest.ChangedByAgentName, src => src.ChangedByAgent != null ? src.ChangedByAgent.Name : null);
 
         // ServiceSectionName resolved through Service -> ServiceCategory -> ServiceSection.
         TypeAdapterConfig<Inquiry, InquiryListItemDto>.NewConfig()

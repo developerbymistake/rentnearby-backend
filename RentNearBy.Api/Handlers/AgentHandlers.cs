@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using FluentValidation;
 using Mapster;
 using Microsoft.AspNetCore.Http;
@@ -6,14 +7,16 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
 
-// Agent CRUD + photo + category bulk-set. Entirely an admin-managed concern — the consumer app never
-// calls this directly, it only ever sees an Agent embedded inside InquiryDetailDto.AssignedAgent.
+// Agent CRUD + photo + category bulk-set (admin-managed) + the consumer app's own "am I an agent"
+// check (GetMyAgentProfile) — an Agent is a role on an existing User account, not a separate
+// identity, so that one method is the only place this class is called from the consumer app itself.
 public static class AgentHandlers
 {
     private const long MaxImageBytes = 10 * 1024 * 1024;
@@ -35,11 +38,34 @@ public static class AgentHandlers
         return OkResponse(agent.Adapt<AgentDto>());
     }
 
+    // ── Consumer-facing ──────────────────────────────────────────────────────
+    // A 404 here is the expected case for ~all users, not an error — never treat it as one client-side.
+    public static async Task<IResult> GetMyAgentProfile(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var agent = await unitOfWork.Agents.GetByUserIdAsync(userId);
+        if (agent == null) return NotFoundResponse("Not an agent");
+
+        var pendingCount = await unitOfWork.Inquiries.CountByAssignedAgentIdAndStatusAsync(agent.Id, InquiryStatuses.Submitted);
+        return OkResponse(new MyAgentProfileDto { AgentId = agent.Id, Name = agent.Name, PendingLeadCount = pendingCount });
+    }
+
     public static async Task<IResult> AdminCreateAgent(
         CreateAgentRequest request, IValidator<CreateAgentRequest> validator, IUnitOfWork unitOfWork)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var user = await unitOfWork.Users.GetByIdAsync(request.UserId);
+        if (user == null) return NotFoundResponse("User not found");
+
+        // Belt-and-suspenders alongside the DB partial-unique index (ix_agents_userid_unique) — this
+        // gives a friendly ConflictResponse instead of the request failing on a raw constraint
+        // violation at SaveChangesAsync.
+        if (await unitOfWork.Agents.ExistsByUserIdAsync(request.UserId))
+            return ConflictResponse("This user is already linked to another agent");
 
         var agent = new Agent
         {
@@ -50,13 +76,15 @@ public static class AgentHandlers
             PhotoUrl = string.Empty,
             PhotoFilePath = string.Empty,
             IsActive = true,
+            UserId = request.UserId,
             CreatedAt = DateTime.UtcNow,
         };
 
         await unitOfWork.Agents.AddAsync(agent);
         await unitOfWork.SaveChangesAsync();
 
-        return CreatedResponse(agent.Adapt<AgentDto>(), $"/api/v1/agents/{agent.Id}");
+        var created = await unitOfWork.Agents.GetByIdWithCategoriesAsync(agent.Id);
+        return CreatedResponse(created!.Adapt<AgentDto>(), $"/api/v1/agents/{agent.Id}");
     }
 
     public static async Task<IResult> AdminUpdateAgent(

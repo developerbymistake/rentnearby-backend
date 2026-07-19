@@ -11,6 +11,15 @@ public interface IInquiryRepository : IRepository<Inquiry>
     Task<(IReadOnlyList<Inquiry> Items, bool HasMore)> GetAdminFilteredPagedAsync(
         string? status, Guid? serviceSectionId, int page, int pageSize);
 
+    // Agent's own "My Leads" — paginated, scoped to a single agentId derived server-side from the
+    // caller's own JWT, never a client-supplied id.
+    Task<(IReadOnlyList<Inquiry> Items, bool HasMore)> GetByAssignedAgentIdAsync(
+        Guid agentId, int page, int pageSize);
+
+    // "New leads" badge count — deliberately narrower than GetByAssignedAgentIdAsync's full list
+    // (Submitted only, not every live status) — see the plan's Design decisions for why.
+    Task<int> CountByAssignedAgentIdAndStatusAsync(Guid agentId, string status);
+
     // For InquiryDetailDto assembly: Service -> ServiceCategory -> ServiceSection, ServicePackage,
     // AssignedAgent -> AgentServiceCategories, StatusHistory -> ChangedByAdmin, all in one query.
     Task<Inquiry?> GetByIdWithDetailsAsync(Guid id);

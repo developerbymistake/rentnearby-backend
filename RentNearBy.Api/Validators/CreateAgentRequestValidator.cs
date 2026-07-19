@@ -18,5 +18,8 @@ public class CreateAgentRequestValidator : AbstractValidator<CreateAgentRequest>
         RuleFor(x => x.WhatsAppNumber)
             .NotEmpty().WithMessage("WhatsAppNumber is required")
             .Matches(@"^\d{10}$").WithMessage("WhatsAppNumber must be 10 digits");
+
+        RuleFor(x => x.UserId)
+            .NotEmpty().WithMessage("UserId is required — link this agent to an existing app account");
     }
 }

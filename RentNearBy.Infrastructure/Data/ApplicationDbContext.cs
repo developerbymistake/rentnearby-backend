@@ -742,6 +742,20 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasKey(a => a.Id);
             e.Property(a => a.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(a => a.CreatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne(a => a.User)
+             .WithMany()
+             .HasForeignKey(a => a.UserId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // Partial unique: at most one Agent per User, but only while actually linked — mirrors
+            // this file's other "close a race with a DB constraint" partial-unique indexes (e.g.
+            // ix_messages_client_message_id_unique above).
+            e.HasIndex(a => a.UserId)
+             .IsUnique()
+             .HasDatabaseName("ix_agents_userid_unique")
+             .HasFilter("\"UserId\" IS NOT NULL");
         });
 
         modelBuilder.Entity<AgentServiceCategory>(e =>
@@ -811,8 +825,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
 
+            e.HasOne(h => h.ChangedByAgent)
+             .WithMany()
+             .HasForeignKey(h => h.ChangedByAgentId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
             e.HasIndex(h => h.InquiryId);
             e.HasIndex(h => h.ChangedByAdminId);
+            e.HasIndex(h => h.ChangedByAgentId);
         });
 
     }

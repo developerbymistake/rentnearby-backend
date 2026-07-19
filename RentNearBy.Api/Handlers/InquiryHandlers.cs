@@ -109,6 +109,85 @@ public static class InquiryHandlers
         return OkResponse(inquiry.Adapt<InquiryDetailDto>());
     }
 
+    // ── Agent-facing (consumer app, scoped to the caller's own linked Agent) ───
+    // Every method here resolves the caller's Agent from their own JWT-derived UserId — never from
+    // a client-supplied agentId — so an agent can only ever see/act on their own leads.
+
+    public static async Task<IResult> GetMyLeads(
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 20)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var agent = await unitOfWork.Agents.GetByUserIdAsync(userId);
+        if (agent == null) return ForbiddenResponse("You are not an agent");
+
+        if (pageSize < 1 || pageSize > 50) pageSize = 20;
+        if (page < 1) page = 1;
+
+        var (items, hasMore) = await unitOfWork.Inquiries.GetByAssignedAgentIdAsync(agent.Id, page, pageSize);
+        var dtos = items.Select(i => i.Adapt<InquiryListItemDto>());
+        return OkResponse(new { items = dtos, hasMore });
+    }
+
+    public static async Task<IResult> GetMyLeadDetail(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var agent = await unitOfWork.Agents.GetByUserIdAsync(userId);
+        if (agent == null) return ForbiddenResponse("You are not an agent");
+
+        var inquiry = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
+        if (inquiry == null) return NotFoundResponse("Inquiry not found");
+        if (inquiry.AssignedAgentId != agent.Id) return ForbiddenResponse("This lead is not assigned to you");
+
+        return OkResponse(inquiry.Adapt<InquiryDetailDto>());
+    }
+
+    // Reuses AdminUpdateInquiryStatusRequest/its validator as-is — same shape (Status, Note), same
+    // allowed-status rule, no reason to duplicate the type just because a different actor calls it.
+    public static async Task<IResult> UpdateMyLeadStatus(
+        Guid id, AdminUpdateInquiryStatusRequest request, IValidator<AdminUpdateInquiryStatusRequest> validator,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var agent = await unitOfWork.Agents.GetByUserIdAsync(userId);
+        if (agent == null) return ForbiddenResponse("You are not an agent");
+
+        var inquiry = await unitOfWork.Inquiries.GetByIdAsync(id);
+        if (inquiry == null) return NotFoundResponse("Inquiry not found");
+        if (inquiry.AssignedAgentId != agent.Id) return ForbiddenResponse("This lead is not assigned to you");
+
+        inquiry.Status = request.Status;
+        inquiry.UpdatedAt = DateTime.UtcNow;
+
+        db.InquiryStatusHistories.Add(new InquiryStatusHistory
+        {
+            Id = Guid.NewGuid(),
+            InquiryId = inquiry.Id,
+            Status = request.Status,
+            ChangedByAgentId = agent.Id,
+            Note = request.Note,
+            CreatedAt = DateTime.UtcNow,
+        });
+
+        await unitOfWork.SaveChangesAsync();
+
+        var updated = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
+
+        await PushInquiryStatusChangedAsync(hubContext, inquiry.UserId, id, inquiry.Status, agentAssigned: true);
+        await PublishInquiryStatusPushAsync(publisher, inquiry.UserId, id, updated!.Service.Name, inquiry.Status);
+
+        return OkResponse(updated!.Adapt<InquiryDetailDto>());
+    }
+
     // ── Admin-facing ─────────────────────────────────────────────────────────
 
     public static async Task<IResult> AdminGetInquiries(
