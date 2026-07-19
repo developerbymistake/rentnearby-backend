@@ -47,7 +47,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Agent> Agents { get; set; }
     public DbSet<AgentServiceCategory> AgentServiceCategories { get; set; }
     public DbSet<Inquiry> Inquiries { get; set; }
+    public DbSet<InquiryAgent> InquiryAgents { get; set; }
     public DbSet<InquiryStatusHistory> InquiryStatusHistories { get; set; }
+    public DbSet<NotificationEvent> NotificationEvents { get; set; }
+    public DbSet<NotificationRead> NotificationReads { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -795,17 +798,30 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasForeignKey(i => i.ServicePackageId)
              .OnDelete(DeleteBehavior.Restrict);
 
-            e.HasOne(i => i.AssignedAgent)
-             .WithMany()
-             .HasForeignKey(i => i.AssignedAgentId)
-             .IsRequired(false)
-             .OnDelete(DeleteBehavior.SetNull);
-
             e.HasIndex(i => i.UserId);
             e.HasIndex(i => i.ServiceId);
             e.HasIndex(i => i.ServicePackageId);
-            e.HasIndex(i => i.AssignedAgentId);
             e.HasIndex(i => i.Status);
+        });
+
+        // Composite-key many-to-many, exact shape of AgentServiceCategory — both FKs Cascade (an
+        // assignment row about a deleted inquiry or agent doesn't need to survive either deletion).
+        modelBuilder.Entity<InquiryAgent>(e =>
+        {
+            e.HasKey(ia => new { ia.InquiryId, ia.AgentId });
+            e.Property(ia => ia.AssignedAt).HasDefaultValueSql("now()");
+
+            e.HasOne(ia => ia.Inquiry)
+             .WithMany(i => i.InquiryAgents)
+             .HasForeignKey(ia => ia.InquiryId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(ia => ia.Agent)
+             .WithMany()
+             .HasForeignKey(ia => ia.AgentId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasIndex(ia => ia.AgentId);
         });
 
         modelBuilder.Entity<InquiryStatusHistory>(e =>
@@ -834,6 +850,41 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(h => h.InquiryId);
             e.HasIndex(h => h.ChangedByAdminId);
             e.HasIndex(h => h.ChangedByAgentId);
+        });
+
+        modelBuilder.Entity<NotificationEvent>(e =>
+        {
+            e.HasKey(n => n.Id);
+            e.Property(n => n.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(n => n.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(n => n.ActionArgumentsJson).HasColumnType("jsonb");
+
+            // A notification with no owner is meaningless — Cascade, not SetNull, deliberately:
+            // SetNull would silently turn a deleted user's personal notification into what looks
+            // like a broadcast-to-everyone (TargetUserId == null already means "broadcast").
+            e.HasOne(n => n.TargetUser)
+             .WithMany()
+             .HasForeignKey(n => n.TargetUserId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasIndex(n => new { n.TargetUserId, n.CreatedAt });
+        });
+
+        modelBuilder.Entity<NotificationRead>(e =>
+        {
+            e.HasKey(r => new { r.UserId, r.NotificationId });
+            e.Property(r => r.ReadAt).HasDefaultValueSql("now()");
+
+            e.HasOne(r => r.User)
+             .WithMany()
+             .HasForeignKey(r => r.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(r => r.Notification)
+             .WithMany()
+             .HasForeignKey(r => r.NotificationId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
 
     }

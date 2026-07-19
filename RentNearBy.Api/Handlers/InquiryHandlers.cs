@@ -3,6 +3,7 @@ using System.Text.Json;
 using FluentValidation;
 using Mapster;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -24,7 +25,8 @@ public static class InquiryHandlers
 
     public static async Task<IResult> CreateInquiry(
         CreateInquiryRequest request, IValidator<CreateInquiryRequest> validator,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -62,7 +64,6 @@ public static class InquiryHandlers
             NumberOfPeople = request.NumberOfPeople,
             Message = string.IsNullOrWhiteSpace(request.Message) ? null : request.Message.Trim(),
             Status = InquiryStatuses.Submitted,
-            AssignedAgentId = null,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -82,9 +83,49 @@ public static class InquiryHandlers
             CreatedAt = now,
         });
 
+        // Auto-assign: every currently-active Agent mapped to this Service's category picks up the
+        // lead immediately, with zero Admin action — reuses the exact assign -> auto-transition ->
+        // notify shapes AdminSetInquiryAgents uses for a manual assignment. If no agent is mapped to
+        // the category, the inquiry stays Submitted/unassigned exactly as before this feature.
+        var categoryAgents = (await unitOfWork.Agents.GetActiveByServiceCategoryIdAsync(service.ServiceCategoryId)).ToList();
+        var autoTransitioned = categoryAgents.Count > 0;
+        var notificationsToSend = new List<NotificationEvent>();
+        if (autoTransitioned)
+        {
+            foreach (var agent in categoryAgents)
+            {
+                db.InquiryAgents.Add(new InquiryAgent { InquiryId = inquiry.Id, AgentId = agent.Id, AssignedAt = now });
+                if (agent.UserId.HasValue)
+                {
+                    var notification = BuildLeadAssignedNotification(agent, inquiry);
+                    db.NotificationEvents.Add(notification);
+                    notificationsToSend.Add(notification);
+                }
+            }
+
+            inquiry.Status = InquiryStatuses.Contacted;
+            inquiry.UpdatedAt = now;
+            db.InquiryStatusHistories.Add(new InquiryStatusHistory
+            {
+                Id = Guid.NewGuid(),
+                InquiryId = inquiry.Id,
+                Status = InquiryStatuses.Contacted,
+                Note = "Auto-assigned to category-mapped agent(s) on submission",
+                CreatedAt = now,
+            });
+        }
+
         await unitOfWork.SaveChangesAsync();
 
         var detail = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(inquiry.Id);
+
+        if (autoTransitioned)
+        {
+            await PushInquiryStatusChangedAsync(hubContext, inquiry.UserId, inquiry.Id, inquiry.Status, agentAssigned: true);
+            await PublishInquiryStatusPushAsync(publisher, inquiry.UserId, inquiry.Id, detail!.Service.Name, inquiry.Status);
+        }
+        await SendLeadAssignedNotificationsAsync(hubContext, publisher, notificationsToSend);
+
         return CreatedResponse(detail!.Adapt<InquiryDetailDto>(), $"/api/v1/inquiries/{inquiry.Id}");
     }
 
@@ -140,7 +181,7 @@ public static class InquiryHandlers
 
         var inquiry = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
         if (inquiry == null) return NotFoundResponse("Inquiry not found");
-        if (inquiry.AssignedAgentId != agent.Id) return ForbiddenResponse("This lead is not assigned to you");
+        if (!inquiry.InquiryAgents.Any(ia => ia.AgentId == agent.Id)) return ForbiddenResponse("This lead is not assigned to you");
 
         return OkResponse(inquiry.Adapt<InquiryDetailDto>());
     }
@@ -163,7 +204,7 @@ public static class InquiryHandlers
 
         var inquiry = await unitOfWork.Inquiries.GetByIdAsync(id);
         if (inquiry == null) return NotFoundResponse("Inquiry not found");
-        if (inquiry.AssignedAgentId != agent.Id) return ForbiddenResponse("This lead is not assigned to you");
+        if (!await unitOfWork.Inquiries.IsAgentAssignedAsync(id, agent.Id)) return ForbiddenResponse("This lead is not assigned to you");
 
         inquiry.Status = request.Status;
         inquiry.UpdatedAt = DateTime.UtcNow;
@@ -241,14 +282,17 @@ public static class InquiryHandlers
 
         // Both fire here, after the save: SignalR live-update for an open app, RabbitMQ-queued FCM
         // for a backgrounded/killed one (mirrors chat's dual pattern, not wallet's SignalR-only one).
-        await PushInquiryStatusChangedAsync(hubContext, inquiry.UserId, id, inquiry.Status, agentAssigned: inquiry.AssignedAgentId.HasValue);
+        await PushInquiryStatusChangedAsync(hubContext, inquiry.UserId, id, inquiry.Status, agentAssigned: updated!.InquiryAgents.Count > 0);
         await PublishInquiryStatusPushAsync(publisher, inquiry.UserId, id, updated!.Service.Name, inquiry.Status);
 
         return OkResponse(updated!.Adapt<InquiryDetailDto>());
     }
 
-    public static async Task<IResult> AdminAssignAgent(
-        Guid id, AdminAssignAgentRequest request, IValidator<AdminAssignAgentRequest> validator,
+    // Full-set-replace, exact mirror of AgentHandlers.AdminSetAgentCategories's delete-all-then
+    // -reinsert idiom for the same many-to-many shape — one call replaces the whole assigned-agent
+    // set rather than exposing separate add/remove verbs.
+    public static async Task<IResult> AdminSetInquiryAgents(
+        Guid id, AdminSetInquiryAgentsRequest request, IValidator<AdminSetInquiryAgentsRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
         IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
     {
@@ -261,21 +305,43 @@ public static class InquiryHandlers
         var inquiry = await unitOfWork.Inquiries.GetByIdAsync(id);
         if (inquiry == null) return NotFoundResponse("Inquiry not found");
 
-        if (request.AgentId.HasValue)
+        var requestedIds = request.AgentIds.Distinct().ToList();
+        var requestedAgents = new List<Agent>();
+        if (requestedIds.Count > 0)
         {
-            var agent = await unitOfWork.Agents.GetByIdAsync(request.AgentId.Value);
-            if (agent == null) return NotFoundResponse("Agent not found");
+            // Server-side category-scoping enforcement — the admin picker UI already filters to
+            // category-mapped agents, but the API itself must not trust that: without this check an
+            // admin could assign a completely unrelated agent by calling the endpoint directly.
+            requestedAgents = await db.Agents
+                .Include(a => a.AgentServiceCategories)
+                .Where(a => requestedIds.Contains(a.Id) && a.IsActive)
+                .ToListAsync();
+            if (requestedAgents.Count != requestedIds.Count)
+                return BadRequestResponse("One or more agents not found or inactive");
+
+            var service = await unitOfWork.Services.GetByIdAsync(inquiry.ServiceId);
+            if (requestedAgents.Any(a => !a.AgentServiceCategories.Any(ac => ac.ServiceCategoryId == service!.ServiceCategoryId)))
+                return BadRequestResponse("One or more agents are not mapped to this inquiry's service category");
         }
 
-        inquiry.AssignedAgentId = request.AgentId;
-        inquiry.UpdatedAt = DateTime.UtcNow;
+        var currentAssignments = await db.InquiryAgents.Where(ia => ia.InquiryId == id).ToListAsync();
+        var currentIds = currentAssignments.Select(ia => ia.AgentId).ToHashSet();
+        var newlyAddedIds = requestedIds.Where(agentId => !currentIds.Contains(agentId)).ToHashSet();
 
-        // Single-combined-write auto-transition: assigning an agent while the Inquiry is Submitted
-        // flips it to Contacted as ONE InquiryStatusHistory row in the SAME SaveChangesAsync call as
-        // the agent assignment — never two independent admin actions/writes. A plain reassignment or
-        // unassignment (status not Submitted, or AgentId null) writes no history row at all, since
-        // the agent field itself isn't part of this status ledger.
-        var autoTransitioned = request.AgentId.HasValue && inquiry.Status == InquiryStatuses.Submitted;
+        db.InquiryAgents.RemoveRange(currentAssignments);
+        var now = DateTime.UtcNow;
+        db.InquiryAgents.AddRange(requestedIds.Select(agentId => new InquiryAgent
+        {
+            InquiryId = id,
+            AgentId = agentId,
+            AssignedAt = now,
+        }));
+
+        // Single-combined-write auto-transition: the set becoming non-empty while the Inquiry is
+        // Submitted flips it to Contacted as ONE InquiryStatusHistory row in the SAME
+        // SaveChangesAsync call as the assignment — never two independent admin actions/writes.
+        // Clearing the set, or replacing an already-non-empty set, writes no history row.
+        var autoTransitioned = requestedIds.Count > 0 && inquiry.Status == InquiryStatuses.Submitted;
         if (autoTransitioned)
         {
             inquiry.Status = InquiryStatuses.Contacted;
@@ -286,21 +352,39 @@ public static class InquiryHandlers
                 Status = InquiryStatuses.Contacted,
                 ChangedByAdminId = adminId,
                 Note = "Auto-moved to Contacted on agent assignment",
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = now,
             });
+        }
+        inquiry.UpdatedAt = now;
+
+        // Only the diffed-in agents get notified — an admin re-saving an already-assigned set (or
+        // adding one new agent to an existing group) must never re-notify agents who were already
+        // there. Written in the SAME SaveChangesAsync as the assignment so the inbox record can
+        // never be lost even if RabbitMQ/FCM is down afterward.
+        var notificationsToSend = new List<NotificationEvent>();
+        foreach (var agent in requestedAgents.Where(a => newlyAddedIds.Contains(a.Id) && a.UserId != null))
+        {
+            var notification = BuildLeadAssignedNotification(agent, inquiry);
+            db.NotificationEvents.Add(notification);
+            notificationsToSend.Add(notification);
         }
 
         await unitOfWork.SaveChangesAsync();
 
         var updated = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
 
-        // Fires only when autoTransitioned, mirroring AdminUpdateInquiryStatus's push — a pure
-        // reassignment/unassignment with no status change pushes nothing.
+        // Fires only when autoTransitioned, mirroring AdminUpdateInquiryStatus's push — replacing an
+        // already-non-empty set (or clearing it) pushes nothing here.
         if (autoTransitioned)
         {
             await PushInquiryStatusChangedAsync(hubContext, inquiry.UserId, id, inquiry.Status, agentAssigned: true);
             await PublishInquiryStatusPushAsync(publisher, inquiry.UserId, id, updated!.Service.Name, inquiry.Status);
         }
+
+        // Entirely independent of, and additional to, the block above — a lead-assignment
+        // notification fires per newly-added agent, regardless of whether the set-change happened
+        // to also auto-transition the status.
+        await SendLeadAssignedNotificationsAsync(hubContext, publisher, notificationsToSend);
 
         return OkResponse(updated!.Adapt<InquiryDetailDto>());
     }
@@ -339,6 +423,66 @@ public static class InquiryHandlers
         catch
         {
             // Never let a push-notification publish failure fail the status update itself.
+        }
+    }
+
+    // Shared by both CreateInquiry's auto-assign path and AdminSetInquiryAgents's manual path — the
+    // notification-construction logic lives in exactly one place.
+    private static NotificationEvent BuildLeadAssignedNotification(Agent agent, Inquiry inquiry) => new()
+    {
+        Id = Guid.NewGuid(),
+        TargetUserId = agent.UserId!.Value,
+        Type = NotificationTypes.LeadAssigned,
+        Title = "New lead assigned",
+        Body = $"You have a new lead from {inquiry.FullName}.",
+        ActionRoute = "/lead-detail",
+        ActionArgumentsJson = JsonSerializer.Serialize(new { id = inquiry.Id.ToString() }),
+        CreatedAt = DateTime.UtcNow,
+    };
+
+    private static async Task SendLeadAssignedNotificationsAsync(
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher, IEnumerable<NotificationEvent> notifications)
+    {
+        foreach (var notification in notifications)
+        {
+            await PushNotificationReceivedAsync(hubContext, notification.TargetUserId!.Value, notification);
+            await PublishNotificationPushAsync(publisher, notification.Id, notification.TargetUserId!.Value);
+        }
+    }
+
+    // Best-effort — mirrors PushInquiryStatusChangedAsync's shape exactly, but deliberately generic:
+    // this event name and payload shape are meant to be reused by every future NotificationEvent
+    // producer, not just Agent lead-assignment.
+    private static async Task PushNotificationReceivedAsync(IHubContext<InquiryHub> hubContext, Guid userId, NotificationEvent notification)
+    {
+        try
+        {
+            await hubContext.Clients.Group($"user_{userId}").SendAsync("NotificationReceived", new
+            {
+                id = notification.Id,
+                type = notification.Type,
+                title = notification.Title,
+                body = notification.Body,
+                actionRoute = notification.ActionRoute,
+            });
+        }
+        catch { }
+    }
+
+    // Fire-and-forget — NotificationPushWorkerService resolves device tokens and sends the actual
+    // FCM push independently, loading Title/Body/ActionRoute/ActionArgumentsJson from the
+    // already-persisted NotificationEvent row. Fully separate queue/pipeline from
+    // PublishInquiryStatusPushAsync — no shared code, no shared queue.
+    private static async Task PublishNotificationPushAsync(IRabbitMqPublisher publisher, Guid notificationId, Guid userId)
+    {
+        try
+        {
+            var payload = JsonSerializer.Serialize(new NotificationPushPayload(notificationId, userId));
+            await publisher.PublishAsync("notification.push", payload);
+        }
+        catch
+        {
+            // Never let a push-notification publish failure fail the assignment itself.
         }
     }
 }

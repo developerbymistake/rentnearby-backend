@@ -17,8 +17,9 @@ public class InquiryDetailDto
     public int? NumberOfPeople { get; set; }
     public string? Message { get; set; }
     public string Status { get; set; } = string.Empty;
-    public Guid? AssignedAgentId { get; set; }
-    public AgentDto? AssignedAgent { get; set; }
+    // Every Agent currently assigned — never null, empty when unassigned. An Inquiry can have
+    // multiple simultaneous Agents (see InquiryAgent).
+    public List<AssignedAgentDto> AssignedAgents { get; set; } = new();
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public List<InquiryStatusHistoryDto> StatusHistory { get; set; } = new();

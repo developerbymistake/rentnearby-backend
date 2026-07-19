@@ -44,6 +44,7 @@ public class UnitOfWork : IUnitOfWork
     private IAgentRepository? _agents;
     private IInquiryRepository? _inquiries;
     private IInquiryStatusHistoryRepository? _inquiryStatusHistories;
+    private INotificationRepository? _notifications;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -86,6 +87,7 @@ public class UnitOfWork : IUnitOfWork
     public IAgentRepository Agents => _agents ??= new AgentRepository(_context);
     public IInquiryRepository Inquiries => _inquiries ??= new InquiryRepository(_context);
     public IInquiryStatusHistoryRepository InquiryStatusHistories => _inquiryStatusHistories ??= new InquiryStatusHistoryRepository(_context);
+    public INotificationRepository Notifications => _notifications ??= new NotificationRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();

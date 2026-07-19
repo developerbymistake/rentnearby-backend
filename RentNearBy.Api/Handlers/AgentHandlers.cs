@@ -113,9 +113,10 @@ public static class AgentHandlers
         var agent = await unitOfWork.Agents.GetByIdAsync(id);
         if (agent == null) return NotFoundResponse("Agent not found");
 
-        // AssignedAgentId's FK is SetNull (unlike Service/Package's Restrict), so the raw DB delete
-        // would succeed silently even with referencing rows — this is a pure business-level guard
-        // restricted to "live" inquiries, matching IInquiryRepository.ExistsByAssignedAgentIdAsync.
+        // InquiryAgent's FK is Cascade (unlike Service/Package's Restrict), so the raw DB delete
+        // would succeed silently, quietly dropping the agent's assignment rows — this is a pure
+        // business-level guard restricted to "live" inquiries, matching
+        // IInquiryRepository.ExistsByAssignedAgentIdAsync.
         if (await unitOfWork.Inquiries.ExistsByAssignedAgentIdAsync(id))
             return ConflictResponse("Cannot delete an agent currently assigned to a live inquiry. Reassign or resolve those inquiries first.");
 

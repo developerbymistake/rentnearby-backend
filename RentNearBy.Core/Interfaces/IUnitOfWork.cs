@@ -38,6 +38,7 @@ public interface IUnitOfWork : IDisposable
     IAgentRepository Agents { get; }
     IInquiryRepository Inquiries { get; }
     IInquiryStatusHistoryRepository InquiryStatusHistories { get; }
+    INotificationRepository Notifications { get; }
     Task<int> SaveChangesAsync();
 
     // Canonical transaction-control surface for handler/service-level code that needs multiple

@@ -125,6 +125,11 @@ public static class ServiceCollectionExtensions
         // generic IFcmService (normal rendered notification, no dedup — see InquiryStatusPushWorkerService)
         services.AddHostedService<InquiryStatusPushWorkerService>();
 
+        // Notification-inbox push worker — consumes notification.push queue, delivers FCM for any
+        // NotificationEvent row (Agent lead-assignment today, any future producer for free) — fully
+        // separate from InquiryStatusPushWorkerService, no shared queue or code.
+        services.AddHostedService<NotificationPushWorkerService>();
+
         return services;
     }
 }

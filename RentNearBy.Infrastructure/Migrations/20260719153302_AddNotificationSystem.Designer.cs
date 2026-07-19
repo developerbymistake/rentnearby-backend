@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260719153302_AddNotificationSystem")]
+    partial class AddNotificationSystem
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -805,6 +808,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<Guid?>("AssignedAgentId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -850,6 +856,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AssignedAgentId");
+
                     b.HasIndex("ServiceId");
 
                     b.HasIndex("ServicePackageId");
@@ -859,26 +867,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Inquiries");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.InquiryAgent", b =>
-                {
-                    b.Property<Guid>("InquiryId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AgentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("AssignedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.HasKey("InquiryId", "AgentId");
-
-                    b.HasIndex("AgentId");
-
-                    b.ToTable("InquiryAgents");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.InquiryStatusHistory", b =>
@@ -2103,6 +2091,11 @@ namespace RentNearBy.Infrastructure.Migrations
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Inquiry", b =>
                 {
+                    b.HasOne("RentNearBy.Core.Entities.Agent", "AssignedAgent")
+                        .WithMany()
+                        .HasForeignKey("AssignedAgentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("RentNearBy.Core.Entities.Service", "Service")
                         .WithMany()
                         .HasForeignKey("ServiceId")
@@ -2121,30 +2114,13 @@ namespace RentNearBy.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.Navigation("AssignedAgent");
+
                     b.Navigation("Service");
 
                     b.Navigation("ServicePackage");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.InquiryAgent", b =>
-                {
-                    b.HasOne("RentNearBy.Core.Entities.Agent", "Agent")
-                        .WithMany()
-                        .HasForeignKey("AgentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("RentNearBy.Core.Entities.Inquiry", "Inquiry")
-                        .WithMany("InquiryAgents")
-                        .HasForeignKey("InquiryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Agent");
-
-                    b.Navigation("Inquiry");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.InquiryStatusHistory", b =>
@@ -2455,8 +2431,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Inquiry", b =>
                 {
-                    b.Navigation("InquiryAgents");
-
                     b.Navigation("StatusHistory");
                 });
 

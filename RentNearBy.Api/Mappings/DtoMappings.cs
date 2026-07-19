@@ -1,4 +1,5 @@
-﻿using Mapster;
+﻿using System.Text.Json;
+using Mapster;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 
@@ -80,13 +81,21 @@ public static class DtoMappings
             .Map(dest => dest.ServiceSectionId, src => src.Service.ServiceCategory.ServiceSectionId)
             .Map(dest => dest.ServiceSectionName, src => src.Service.ServiceCategory.ServiceSection.Name)
             .Map(dest => dest.ServicePackageName, src => src.ServicePackage.Name)
-            .Map(dest => dest.AssignedAgentName, src => src.AssignedAgent != null ? src.AssignedAgent.Name : null);
+            .Map(dest => dest.AssignedAgentCount, src => src.InquiryAgents.Count);
 
         TypeAdapterConfig<Inquiry, InquiryDetailDto>.NewConfig()
             .Map(dest => dest.ServiceName, src => src.Service.Name)
             .Map(dest => dest.ServiceSectionId, src => src.Service.ServiceCategory.ServiceSectionId)
             .Map(dest => dest.ServiceSectionName, src => src.Service.ServiceCategory.ServiceSection.Name)
             .Map(dest => dest.ServicePackageName, src => src.ServicePackage.Name)
-            .Map(dest => dest.AssignedAgent, src => src.AssignedAgent);
+            .Map(dest => dest.AssignedAgents, src => src.InquiryAgents.Select(ia => ia.Agent));
+
+        // IsRead is deliberately NOT mapped here — it comes from a separate join
+        // (NotificationListItem.IsRead), never a column on NotificationEvent itself. Handlers set it
+        // explicitly after calling Adapt().
+        TypeAdapterConfig<NotificationEvent, NotificationDto>.NewConfig()
+            .Map(dest => dest.ActionArguments, src => src.ActionArgumentsJson == null
+                ? null
+                : JsonSerializer.Deserialize<Dictionary<string, string>>(src.ActionArgumentsJson, (JsonSerializerOptions?)null));
     }
 }

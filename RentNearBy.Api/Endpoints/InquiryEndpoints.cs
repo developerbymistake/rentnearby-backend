@@ -20,7 +20,7 @@ public static class InquiryEndpoints
         group.MapGet("", InquiryHandlers.AdminGetInquiries).RequireAuthorization("AdminOnly");
         group.MapGet("/{id:guid}", InquiryHandlers.AdminGetInquiryDetail).RequireAuthorization("AdminOnly");
         group.MapPut("/{id:guid}/status", InquiryHandlers.AdminUpdateInquiryStatus).RequireAuthorization("AdminOnly");
-        group.MapPut("/{id:guid}/agent", InquiryHandlers.AdminAssignAgent).RequireAuthorization("AdminOnly");
+        group.MapPut("/{id:guid}/agents", InquiryHandlers.AdminSetInquiryAgents).RequireAuthorization("AdminOnly");
 
         return group;
     }

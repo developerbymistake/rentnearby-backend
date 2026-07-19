@@ -16,6 +16,11 @@ public interface IInquiryRepository : IRepository<Inquiry>
     Task<(IReadOnlyList<Inquiry> Items, bool HasMore)> GetByAssignedAgentIdAsync(
         Guid agentId, int page, int pageSize);
 
+    // Lean membership check against the InquiryAgent join table directly — for ownership gates that
+    // run against a plain (tracked, navigation-not-loaded) GetByIdAsync fetch, where
+    // inquiry.InquiryAgents can't be relied on without a separate eager-load just for one boolean.
+    Task<bool> IsAgentAssignedAsync(Guid inquiryId, Guid agentId);
+
     // "New leads" badge count — deliberately narrower than GetByAssignedAgentIdAsync's full list
     // (Submitted only, not every live status) — see the plan's Design decisions for why.
     Task<int> CountByAssignedAgentIdAndStatusAsync(Guid agentId, string status);

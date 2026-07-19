@@ -15,13 +15,14 @@ public class Inquiry
     public int? NumberOfPeople { get; set; }
     public string? Message { get; set; }
     public string Status { get; set; } = string.Empty; // RentNearBy.Core.Models.InquiryStatuses.*
-    public Guid? AssignedAgentId { get; set; } // admin sets/changes/removes any time
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
     public User User { get; set; } = null!;
     public Service Service { get; set; } = null!;
     public ServicePackage ServicePackage { get; set; } = null!;
-    public Agent? AssignedAgent { get; set; }
+    // Many-to-many via InquiryAgent — every active Agent mapped to this Inquiry's ServiceCategory is
+    // assigned automatically on creation (or whichever set Admin picks manually), never just one.
+    public ICollection<InquiryAgent> InquiryAgents { get; set; } = new List<InquiryAgent>();
     public ICollection<InquiryStatusHistory> StatusHistory { get; set; } = new List<InquiryStatusHistory>();
 }

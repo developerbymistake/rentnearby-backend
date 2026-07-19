@@ -15,8 +15,9 @@ public class InquiryListItemDto
     public string FullName { get; set; } = string.Empty;
     public string Mobile { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
-    public Guid? AssignedAgentId { get; set; }
-    public string? AssignedAgentName { get; set; }
+    // Multiple Agents can be assigned simultaneously — 0 means unassigned, list-view rows only need
+    // the count; full names are only shown on the Detail screen (AssignedAgents there).
+    public int AssignedAgentCount { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
