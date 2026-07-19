@@ -24,6 +24,10 @@ public static class ChatHandlers
     private static readonly TimeSpan NewConversationWindow = TimeSpan.FromHours(24);
     private const int SendMessageMaxPerMinute = 20;
     private static readonly TimeSpan SendMessageWindow = TimeSpan.FromMinutes(1);
+    // Separate, more generous bucket than SendMessage's — MarkRead is legitimately called on
+    // every conversation-open and every incoming message while a thread is open, so sharing
+    // SendMessage's tighter budget would risk throttling normal use in a busy conversation.
+    private const int MarkReadMaxPerMinute = 60;
     // TEMPORARY for local dev/testing — revert to TimeSpan.FromHours(1) before shipping.
     private static readonly TimeSpan NewAccountCooldown = TimeSpan.FromMinutes(5);
 
@@ -329,13 +333,21 @@ public static class ChatHandlers
     }
 
     public static async Task<IResult> MarkRead(
-        Guid conversationId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext)
+        Guid conversationId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext,
+        IRateLimitService rateLimiter, HttpContext httpContext)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
         var conversation = await unitOfWork.Conversations.GetByIdAsync(conversationId);
         if (conversation == null) return NotFoundResponse("Conversation not found");
         if (conversation.RenterId != callerId && conversation.OwnerId != callerId) return ForbiddenResponse();
+
+        var rl = await rateLimiter.CheckAsync($"chat:markread:{callerId}", MarkReadMaxPerMinute, SendMessageWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         await unitOfWork.Messages.MarkReadBulkAsync(conversationId, callerId);
 
@@ -365,7 +377,7 @@ public static class ChatHandlers
     public static async Task<IResult> RespondContact(
         Guid messageId, RespondContactRequest request,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext, IMemoryCache cache,
-        ApplicationDbContext db, IRabbitMqPublisher publisher)
+        ApplicationDbContext db, IRabbitMqPublisher publisher, IRateLimitService rateLimiter, HttpContext httpContext)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
@@ -381,6 +393,16 @@ public static class ChatHandlers
         // "the owner's" — a renter approving a request from the owner reveals the renter's number.
         if (conversation.RenterId != callerId && conversation.OwnerId != callerId) return ForbiddenResponse();
         var otherPartyId = conversation.RenterId == callerId ? conversation.OwnerId : conversation.RenterId;
+
+        // Shares SendMessage's own bucket, deliberately — the abuse surface is "how much chat
+        // activity can this user generate," not the specific action type. A separate bucket
+        // here would just relocate the same unmetered spam vector rather than close it.
+        var rl = await rateLimiter.CheckAsync($"chat:send:{callerId}", SendMessageMaxPerMinute, SendMessageWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         var responder = await unitOfWork.Users.GetByIdAsync(callerId);
         if (responder == null) return NotFoundResponse("User not found");
@@ -438,7 +460,7 @@ public static class ChatHandlers
     public static async Task<IResult> RespondSchedule(
         Guid messageId, RespondScheduleRequest request, IValidator<RespondScheduleRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext, IMemoryCache cache,
-        ApplicationDbContext db, IRabbitMqPublisher publisher)
+        ApplicationDbContext db, IRabbitMqPublisher publisher, IRateLimitService rateLimiter, HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -454,6 +476,16 @@ public static class ChatHandlers
         if (conversation.RenterId != callerId && conversation.OwnerId != callerId) return ForbiddenResponse();
 
         var otherPartyId = conversation.RenterId == callerId ? conversation.OwnerId : conversation.RenterId;
+
+        // Same shared bucket as SendMessage/RespondContact — see RespondContact's comment.
+        // Matters most here: "counter" has no frequency limit otherwise, only a same-sender
+        // guard, so two accounts could volley proposals back and forth indefinitely without this.
+        var rl = await rateLimiter.CheckAsync($"chat:send:{callerId}", SendMessageMaxPerMinute, SendMessageWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         if (request.Action == "counter")
         {
@@ -697,8 +729,20 @@ public static class ChatHandlers
 
     // ── Question templates (shared GET — also mapped under /admin) ─────────
 
-    public static async Task<IResult> GetQuestionTemplates(IUnitOfWork unitOfWork, IMemoryCache cache)
-        => OkResponse(await GetCachedQuestionTemplatesAsync(unitOfWork, cache));
+    // Shared handler (mapped under both the public /chat/... and /admin/... routes) — the
+    // cache always holds the admin-complete list (including inactive templates); filtering
+    // happens here at the response boundary based on caller identity, not by maintaining a
+    // second cache. Only an admin session (the same actor_type claim value the "AdminOnly"
+    // policy itself checks, see AuthenticationExtensions.cs) sees inactive templates — every
+    // other caller only sees active ones, closing both the info-exposure (deactivated question
+    // text was visible in the raw response to any authenticated renter) and the timing gap
+    // (a stale client could otherwise still successfully submit a just-deactivated question).
+    public static async Task<IResult> GetQuestionTemplates(IUnitOfWork unitOfWork, IMemoryCache cache, ClaimsPrincipal principal)
+    {
+        var templates = await GetCachedQuestionTemplatesAsync(unitOfWork, cache);
+        if (principal.HasClaim("actor_type", "admin")) return OkResponse(templates);
+        return OkResponse(templates.Where(t => t.IsActive).ToList());
+    }
 
     public static async Task<IResult> CreateQuestionTemplate(
         CreateQuestionTemplateRequest request, IValidator<CreateQuestionTemplateRequest> validator,
@@ -727,7 +771,17 @@ public static class ChatHandlers
         };
 
         await unitOfWork.QuestionTemplates.AddAsync(template);
-        await unitOfWork.SaveChangesAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Key is DB-unique (ApplicationDbContext.cs) but nothing pre-checks it above —
+            // a race or a simple duplicate-typo both land here as a friendly 409 instead of
+            // falling through to the generic unhandled-exception 500.
+            return ConflictResponse("A question with this key already exists");
+        }
 
         cache.Remove("question_templates");
 
@@ -1003,9 +1057,14 @@ public static class ChatHandlers
         if (string.IsNullOrEmpty(key)) return null;
 
         var templates = await GetCachedQuestionTemplatesAsync(unitOfWork, cache);
-        var template = templates.FirstOrDefault(t => t.Key == key);
-        // Stale client / template deleted between fetch and send — send the question through
-        // unenriched rather than failing it, matching today's graceful "no options render" shape.
+        // IsActive check closes a race: a stale client whose "+" menu was fetched before an
+        // admin deactivated this exact template could otherwise still successfully embed its
+        // answer options into a brand-new message. A deactivated template's key now behaves
+        // exactly like an unrecognized one below.
+        var template = templates.FirstOrDefault(t => t.Key == key && t.IsActive);
+        // Stale client / template deleted or deactivated between fetch and send — send the
+        // question through unenriched rather than failing it, matching today's graceful
+        // "no options render" shape.
         if (template == null) return null;
 
         JsonNode? answerOptionsNode;

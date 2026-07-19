@@ -13,6 +13,8 @@ public class UpdateQuestionTemplateRequestValidator : AbstractValidator<UpdateQu
 
         RuleFor(x => x.AnswerOptionsJson)
             .NotEmpty()
+            .Must(AnswerOptionsValidation.IsValid)
+            .WithMessage("Answer options must be a JSON array of objects, each with a non-empty 'key' and 'text', with no duplicate keys")
             .When(x => x.AnswerOptionsJson != null);
     }
 }

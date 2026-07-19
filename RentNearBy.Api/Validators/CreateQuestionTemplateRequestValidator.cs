@@ -28,6 +28,8 @@ public class CreateQuestionTemplateRequestValidator : AbstractValidator<CreateQu
             .MaximumLength(200);
 
         RuleFor(x => x.AnswerOptionsJson)
-            .NotEmpty().WithMessage("At least one answer option is required");
+            .NotEmpty().WithMessage("At least one answer option is required")
+            .Must(AnswerOptionsValidation.IsValid)
+            .WithMessage("Answer options must be a JSON array of objects, each with a non-empty 'key' and 'text', with no duplicate keys");
     }
 }
