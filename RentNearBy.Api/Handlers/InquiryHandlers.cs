@@ -150,6 +150,50 @@ public static class InquiryHandlers
         return OkResponse(inquiry.Adapt<InquiryDetailDto>());
     }
 
+    // Self-service "report an issue with my agent" — never seen by the agent(s) themselves, surfaces
+    // to Admin only via the Inquiries list flag/filter and detail card. Blocked with no agent
+    // assigned yet, and while a Pending escalation already exists (DB-enforced, not just this check —
+    // see the partial unique index in ApplicationDbContext.cs).
+    public static async Task<IResult> EscalateInquiry(
+        Guid id, EscalateInquiryRequest request, IValidator<EscalateInquiryRequest> validator,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var inquiry = await unitOfWork.Inquiries.GetByIdAsync(id);
+        if (inquiry == null) return NotFoundResponse("Inquiry not found");
+        if (inquiry.UserId != userId) return ForbiddenResponse("You do not own this inquiry");
+
+        if (!await db.InquiryAgents.AnyAsync(ia => ia.InquiryId == id))
+            return BadRequestResponse("No agent is assigned to this inquiry yet");
+
+        db.InquiryEscalations.Add(new InquiryEscalation
+        {
+            Id = Guid.NewGuid(),
+            InquiryId = id,
+            Reason = request.Reason,
+            Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(),
+            Status = "Pending",
+            CreatedAt = DateTime.UtcNow,
+        });
+
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            return ConflictResponse("You already have an open report for this inquiry");
+        }
+
+        var updated = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
+        return OkResponse(updated!.Adapt<InquiryDetailDto>());
+    }
+
     // ── Agent-facing (consumer app, scoped to the caller's own linked Agent) ───
     // Every method here resolves the caller's Agent from their own JWT-derived UserId — never from
     // a client-supplied agentId — so an agent can only ever see/act on their own leads.
@@ -232,12 +276,13 @@ public static class InquiryHandlers
     // ── Admin-facing ─────────────────────────────────────────────────────────
 
     public static async Task<IResult> AdminGetInquiries(
-        IUnitOfWork unitOfWork, string? status = null, Guid? serviceSectionId = null, int page = 1, int pageSize = 20)
+        IUnitOfWork unitOfWork, string? status = null, Guid? serviceSectionId = null,
+        bool? escalatedOnly = null, int page = 1, int pageSize = 20)
     {
         if (pageSize < 1 || pageSize > 50) pageSize = 20;
         if (page < 1) page = 1;
 
-        var (items, hasMore) = await unitOfWork.Inquiries.GetAdminFilteredPagedAsync(status, serviceSectionId, page, pageSize);
+        var (items, hasMore) = await unitOfWork.Inquiries.GetAdminFilteredPagedAsync(status, serviceSectionId, escalatedOnly, page, pageSize);
         var dtos = items.Select(i => i.Adapt<InquiryListItemDto>());
         return OkResponse(new { items = dtos, hasMore });
     }
@@ -386,6 +431,27 @@ public static class InquiryHandlers
         // to also auto-transition the status.
         await SendLeadAssignedNotificationsAsync(hubContext, publisher, notificationsToSend);
 
+        return OkResponse(updated!.Adapt<InquiryDetailDto>());
+    }
+
+    // Admin's side of the escalation flow — no request body, resolves whichever escalation is
+    // currently Pending for this inquiry (the partial unique index guarantees there's at most one).
+    public static async Task<IResult> AdminResolveEscalation(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db)
+    {
+        if (!AdminAuthHandlers.TryGetAdminId(principal, out var adminId))
+            return UnauthorizedResponse();
+
+        var escalation = await db.InquiryEscalations
+            .FirstOrDefaultAsync(esc => esc.InquiryId == id && esc.Status == "Pending");
+        if (escalation == null) return NotFoundResponse("No pending escalation for this inquiry");
+
+        escalation.Status = "Resolved";
+        escalation.ResolvedAt = DateTime.UtcNow;
+        escalation.ResolvedByAdminId = adminId;
+        await unitOfWork.SaveChangesAsync();
+
+        var updated = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
         return OkResponse(updated!.Adapt<InquiryDetailDto>());
     }
 

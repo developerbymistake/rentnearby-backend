@@ -23,4 +23,7 @@ public class InquiryDetailDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public List<InquiryStatusHistoryDto> StatusHistory { get; set; } = new();
+    // Newest first, never null — the consumer's own self-service "report an issue with my agent"
+    // history. Never seen by the assigned agent(s), only the reporting consumer and Admin.
+    public List<InquiryEscalationDto> Escalations { get; set; } = new();
 }

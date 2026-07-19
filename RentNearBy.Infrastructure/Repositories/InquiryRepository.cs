@@ -21,23 +21,27 @@ public class InquiryRepository(ApplicationDbContext context)
             .Include(i => i.Service).ThenInclude(s => s.ServiceCategory).ThenInclude(c => c.ServiceSection)
             .Include(i => i.ServicePackage)
             .Include(i => i.InquiryAgents).ThenInclude(ia => ia.Agent)
+            .Include(i => i.Escalations)
             .Where(i => i.UserId == userId)
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync();
 
     public async Task<(IReadOnlyList<Inquiry> Items, bool HasMore)> GetAdminFilteredPagedAsync(
-        string? status, Guid? serviceSectionId, int page, int pageSize)
+        string? status, Guid? serviceSectionId, bool? escalatedOnly, int page, int pageSize)
     {
         var query = _dbSet.AsNoTracking()
             .Include(i => i.Service).ThenInclude(s => s.ServiceCategory).ThenInclude(c => c.ServiceSection)
             .Include(i => i.ServicePackage)
             .Include(i => i.InquiryAgents).ThenInclude(ia => ia.Agent)
+            .Include(i => i.Escalations)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(status))
             query = query.Where(i => i.Status == status);
         if (serviceSectionId != null)
             query = query.Where(i => i.Service.ServiceCategory.ServiceSectionId == serviceSectionId);
+        if (escalatedOnly == true)
+            query = query.Where(i => i.Escalations.Any(esc => esc.Status == "Pending"));
 
         var take = pageSize + 1;
         var items = await query
@@ -58,6 +62,7 @@ public class InquiryRepository(ApplicationDbContext context)
             .Include(i => i.Service).ThenInclude(s => s.ServiceCategory).ThenInclude(c => c.ServiceSection)
             .Include(i => i.ServicePackage)
             .Include(i => i.InquiryAgents).ThenInclude(ia => ia.Agent)
+            .Include(i => i.Escalations)
             .Where(i => i.InquiryAgents.Any(ia => ia.AgentId == agentId))
             .OrderByDescending(i => i.CreatedAt)
             .Skip((page - 1) * pageSize)
@@ -80,6 +85,7 @@ public class InquiryRepository(ApplicationDbContext context)
             .Include(i => i.Service).ThenInclude(s => s.ServiceCategory).ThenInclude(c => c.ServiceSection)
             .Include(i => i.ServicePackage)
             .Include(i => i.InquiryAgents).ThenInclude(ia => ia.Agent)
+            .Include(i => i.Escalations)
             .Include(i => i.StatusHistory.OrderByDescending(h => h.CreatedAt)).ThenInclude(h => h.ChangedByAdmin)
             .Include(i => i.StatusHistory).ThenInclude(h => h.ChangedByAgent)
             .FirstOrDefaultAsync(i => i.Id == id);

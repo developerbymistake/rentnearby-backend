@@ -25,4 +25,5 @@ public class Inquiry
     // assigned automatically on creation (or whichever set Admin picks manually), never just one.
     public ICollection<InquiryAgent> InquiryAgents { get; set; } = new List<InquiryAgent>();
     public ICollection<InquiryStatusHistory> StatusHistory { get; set; } = new List<InquiryStatusHistory>();
+    public ICollection<InquiryEscalation> Escalations { get; set; } = new List<InquiryEscalation>();
 }

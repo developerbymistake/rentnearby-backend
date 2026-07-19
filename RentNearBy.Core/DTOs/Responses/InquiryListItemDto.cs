@@ -18,6 +18,10 @@ public class InquiryListItemDto
     // Multiple Agents can be assigned simultaneously — 0 means unassigned, list-view rows only need
     // the count; full names are only shown on the Detail screen (AssignedAgents there).
     public int AssignedAgentCount { get; set; }
+    // True while a consumer-filed "report an issue with my agent" is awaiting Admin review — powers
+    // the admin list's flag chip/filter. Always false for the consumer's own My Inquiries rows use
+    // (not rendered there), but present since InquiryListItemDto is the shared shape.
+    public bool HasPendingEscalation { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

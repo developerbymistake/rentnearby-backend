@@ -81,14 +81,16 @@ public static class DtoMappings
             .Map(dest => dest.ServiceSectionId, src => src.Service.ServiceCategory.ServiceSectionId)
             .Map(dest => dest.ServiceSectionName, src => src.Service.ServiceCategory.ServiceSection.Name)
             .Map(dest => dest.ServicePackageName, src => src.ServicePackage.Name)
-            .Map(dest => dest.AssignedAgentCount, src => src.InquiryAgents.Count);
+            .Map(dest => dest.AssignedAgentCount, src => src.InquiryAgents.Count)
+            .Map(dest => dest.HasPendingEscalation, src => src.Escalations.Any(esc => esc.Status == "Pending"));
 
         TypeAdapterConfig<Inquiry, InquiryDetailDto>.NewConfig()
             .Map(dest => dest.ServiceName, src => src.Service.Name)
             .Map(dest => dest.ServiceSectionId, src => src.Service.ServiceCategory.ServiceSectionId)
             .Map(dest => dest.ServiceSectionName, src => src.Service.ServiceCategory.ServiceSection.Name)
             .Map(dest => dest.ServicePackageName, src => src.ServicePackage.Name)
-            .Map(dest => dest.AssignedAgents, src => src.InquiryAgents.Select(ia => ia.Agent));
+            .Map(dest => dest.AssignedAgents, src => src.InquiryAgents.Select(ia => ia.Agent))
+            .Map(dest => dest.Escalations, src => src.Escalations.OrderByDescending(esc => esc.CreatedAt));
 
         // IsRead is deliberately NOT mapped here — it comes from a separate join
         // (NotificationListItem.IsRead), never a column on NotificationEvent itself. Handlers set it

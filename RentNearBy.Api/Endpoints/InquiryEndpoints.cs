@@ -10,6 +10,7 @@ public static class InquiryEndpoints
         group.MapPost("", InquiryHandlers.CreateInquiry).RequireAuthorization();
         group.MapGet("/mine", InquiryHandlers.GetMyInquiries).RequireAuthorization();
         group.MapGet("/{id:guid}", InquiryHandlers.GetInquiryDetail).RequireAuthorization();
+        group.MapPost("/{id:guid}/escalate", InquiryHandlers.EscalateInquiry).RequireAuthorization();
 
         return group;
     }
@@ -21,6 +22,7 @@ public static class InquiryEndpoints
         group.MapGet("/{id:guid}", InquiryHandlers.AdminGetInquiryDetail).RequireAuthorization("AdminOnly");
         group.MapPut("/{id:guid}/status", InquiryHandlers.AdminUpdateInquiryStatus).RequireAuthorization("AdminOnly");
         group.MapPut("/{id:guid}/agents", InquiryHandlers.AdminSetInquiryAgents).RequireAuthorization("AdminOnly");
+        group.MapPut("/{id:guid}/escalation/resolve", InquiryHandlers.AdminResolveEscalation).RequireAuthorization("AdminOnly");
 
         return group;
     }

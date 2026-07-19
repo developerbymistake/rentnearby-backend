@@ -49,6 +49,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Inquiry> Inquiries { get; set; }
     public DbSet<InquiryAgent> InquiryAgents { get; set; }
     public DbSet<InquiryStatusHistory> InquiryStatusHistories { get; set; }
+    public DbSet<InquiryEscalation> InquiryEscalations { get; set; }
     public DbSet<NotificationEvent> NotificationEvents { get; set; }
     public DbSet<NotificationRead> NotificationReads { get; set; }
 
@@ -822,6 +823,35 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.Cascade);
 
             e.HasIndex(ia => ia.AgentId);
+        });
+
+        modelBuilder.Entity<InquiryEscalation>(e =>
+        {
+            e.HasKey(esc => esc.Id);
+            e.Property(esc => esc.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(esc => esc.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(esc => esc.Status).HasDefaultValue("Pending");
+
+            e.HasOne(esc => esc.Inquiry)
+             .WithMany(i => i.Escalations)
+             .HasForeignKey(esc => esc.InquiryId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(esc => esc.ResolvedByAdmin)
+             .WithMany()
+             .HasForeignKey(esc => esc.ResolvedByAdminId)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // Used by the admin "Escalated" filter chip.
+            e.HasIndex(esc => esc.Status);
+
+            // Stops a second simultaneous Pending escalation on the same inquiry — partial unique
+            // index, race-safe under concurrent submits, unlike an app-level check-then-insert.
+            // Exact mirror of ListingReport's ix_listingreports_reporter_listing_pending idiom.
+            e.HasIndex(esc => esc.InquiryId)
+             .IsUnique()
+             .HasDatabaseName("ix_inquiryescalations_inquiry_pending")
+             .HasFilter("\"Status\" = 'Pending'");
         });
 
         modelBuilder.Entity<InquiryStatusHistory>(e =>
