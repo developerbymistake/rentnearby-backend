@@ -53,6 +53,7 @@ public static class DtoMappings
 
         TypeAdapterConfig<Service, ServiceDetailDto>.NewConfig()
             .Map(dest => dest.Packages, src => src.Packages.OrderBy(p => p.SortOrder))
+            .Map(dest => dest.ServiceCategoryFormType, src => src.ServiceCategory.FormType)
             .Map(dest => dest.ServiceSectionId, src => src.ServiceCategory.ServiceSectionId)
             .Map(dest => dest.ServiceSectionName, src => src.ServiceCategory.ServiceSection.Name);
 

@@ -120,6 +120,7 @@ public static class ServiceCatalogHandlers
             ServiceSectionId = request.ServiceSectionId,
             Name = request.Name.Trim(),
             IconName = request.IconName.Trim(),
+            FormType = request.FormType,
             SortOrder = request.SortOrder,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
@@ -142,6 +143,7 @@ public static class ServiceCatalogHandlers
 
         if (request.Name != null) category.Name = request.Name.Trim();
         if (request.IconName != null) category.IconName = request.IconName.Trim();
+        if (request.FormType != null) category.FormType = request.FormType;
         if (request.SortOrder.HasValue) category.SortOrder = request.SortOrder.Value;
         if (request.IsActive.HasValue) category.IsActive = request.IsActive.Value;
 

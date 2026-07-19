@@ -16,5 +16,9 @@ public class CreateServiceCategoryRequestValidator : AbstractValidator<CreateSer
         RuleFor(x => x.IconName)
             .NotEmpty().WithMessage("IconName is required")
             .MaximumLength(100);
+
+        RuleFor(x => x.FormType)
+            .Must(f => f is "Travel" or "Event" or "Consultation")
+            .WithMessage("FormType must be one of: Travel, Event, Consultation");
     }
 }

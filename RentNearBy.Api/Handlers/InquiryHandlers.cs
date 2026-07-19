@@ -52,7 +52,13 @@ public static class InquiryHandlers
             FullName = request.FullName.Trim(),
             Mobile = request.Mobile.Trim(),
             Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim(),
-            PreferredDateOrTripStart = request.PreferredDateOrTripStart,
+            // PreferredDateOrTripStart is `timestamp with time zone` — Npgsql throws when writing a
+            // Kind=Unspecified DateTime into that column type. A client that serializes without a
+            // 'Z'/offset (as this app's Flutter client used to) deserializes to Unspecified here, so
+            // this normalizes at the system boundary regardless of what any client sends.
+            PreferredDateOrTripStart = request.PreferredDateOrTripStart.HasValue
+                ? DateTime.SpecifyKind(request.PreferredDateOrTripStart.Value, DateTimeKind.Utc)
+                : null,
             NumberOfPeople = request.NumberOfPeople,
             Message = string.IsNullOrWhiteSpace(request.Message) ? null : request.Message.Trim(),
             Status = InquiryStatuses.Submitted,

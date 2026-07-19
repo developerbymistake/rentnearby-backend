@@ -16,5 +16,10 @@ public class UpdateServiceCategoryRequestValidator : AbstractValidator<UpdateSer
             .NotEmpty().WithMessage("IconName cannot be empty")
             .MaximumLength(100)
             .When(x => x.IconName != null);
+
+        RuleFor(x => x.FormType)
+            .Must(f => f is "Travel" or "Event" or "Consultation")
+            .WithMessage("FormType must be one of: Travel, Event, Consultation")
+            .When(x => x.FormType != null);
     }
 }

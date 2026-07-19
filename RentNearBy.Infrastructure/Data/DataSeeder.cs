@@ -36,7 +36,7 @@ public static class DataSeeder
         await SeedAdminsAsync(db);
 
         // Local Services Marketplace / Expert Consultations catalog — Explore Uttarakhand (Travel) +
-        // Expert Consultations (Insurance/Yoga/Diet/Finance), sharing the same Section->Category->
+        // Expert Consultations (Yoga/Diet/Finance), sharing the same Section->Category->
         // Service->Package engine. Order matters: each method below FK-references rows created by an
         // earlier one via the deterministic ServiceCatalogId() ids, not a DB round-trip.
         await SeedServiceSectionsAsync(db);
@@ -638,7 +638,8 @@ public static class DataSeeder
         var now = DateTime.UtcNow;
         db.ServiceSections.AddRange(
             new ServiceSection { Id = ServiceCatalogId("e1000000", 1), Name = "Explore Uttarakhand", IconName = "map", SortOrder = 1, IsActive = true, CreatedAt = now },
-            new ServiceSection { Id = ServiceCatalogId("e1000000", 2), Name = "Expert Consultations", IconName = "briefcase", SortOrder = 2, IsActive = true, CreatedAt = now }
+            new ServiceSection { Id = ServiceCatalogId("e1000000", 2), Name = "Expert Consultations", IconName = "briefcase", SortOrder = 2, IsActive = true, CreatedAt = now },
+            new ServiceSection { Id = ServiceCatalogId("e1000000", 3), Name = "Celebrations & Events", IconName = "gift", SortOrder = 3, IsActive = true, CreatedAt = now }
         );
         await db.SaveChangesAsync();
     }
@@ -649,26 +650,33 @@ public static class DataSeeder
 
         var explore = ServiceCatalogId("e1000000", 1);
         var consult = ServiceCatalogId("e1000000", 2);
+        var celebrations = ServiceCatalogId("e1000000", 3);
 
         // (index, name, icon, sectionId) — index also becomes the matching Service's index in
-        // SeedServicesAsync below: this initial catalog is 1:1 Category<->Service (9 Travel + 5
-        // Consultation = 14 of each); the schema allows a Category to hold more than one Service later.
-        var categories = new (int Index, string Name, string Icon, Guid SectionId)[]
+        // SeedServicesAsync below. Indices are deliberately non-contiguous where a category has
+        // been removed (was: 8 Bike on Rent, 10 Health Insurance, 11 Term Insurance) — the
+        // ServiceCatalogId() GUIDs only need to be unique and stable, not sequential, so the gaps
+        // are left as-is rather than renumbering everything downstream.
+        //
+        // Destination Wedding, Photographer & Video and Event Planner moved out of Explore
+        // Uttarakhand into their own Celebrations & Events section — none of the three are
+        // genuinely "travel" (their inquiry needs an event date + guest count, not a trip date +
+        // traveler count), and grouping them under a section named for exploring Uttarakhand read
+        // as a mismatch on the home rail. This is a pure content/section change — no schema/code
+        // impact, since the home screen already renders one rail per active ServiceSection.
+        var categories = new (int Index, string Name, string Icon, Guid SectionId, string FormType)[]
         {
-            (1,  "Char Dham Yatra",        "route_square",  explore),
-            (2,  "Destination Wedding",    "heart",         explore),
-            (3,  "Tour & Travel Packages", "airplane",      explore),
-            (4,  "Taxi Booking",           "car",           explore),
-            (5,  "Camping & Adventure",    "tree",          explore),
-            (6,  "Photographer & Video",   "camera",        explore),
-            (7,  "Homestay & Resort",      "building",      explore),
-            (8,  "Bike on Rent",           "gas_station",   explore),
-            (9,  "Event Planner",          "calendar",      explore),
-            (10, "Health Insurance",       "shield_tick",   consult),
-            (11, "Term Insurance",         "security_safe", consult),
-            (12, "Yoga",                   "activity",      consult),
-            (13, "Diet Plans",             "weight",        consult),
-            (14, "Financial Planning",     "chart",         consult),
+            (1,  "Char Dham Yatra",        "route_square",  explore,      ServiceCategoryFormTypes.Travel),
+            (2,  "Destination Wedding",    "heart",         celebrations, ServiceCategoryFormTypes.Event),
+            (3,  "Tour & Travel Packages", "airplane",      explore,      ServiceCategoryFormTypes.Travel),
+            (4,  "Taxi Booking",           "car",           explore,      ServiceCategoryFormTypes.Travel),
+            (5,  "Camping & Adventure",    "tree",          explore,      ServiceCategoryFormTypes.Travel),
+            (6,  "Photographer & Video",   "camera",        celebrations, ServiceCategoryFormTypes.Event),
+            (7,  "Homestay & Resort",      "building",      explore,      ServiceCategoryFormTypes.Travel),
+            (9,  "Event Planner",          "calendar",      celebrations, ServiceCategoryFormTypes.Event),
+            (12, "Yoga",                   "activity",      consult,      ServiceCategoryFormTypes.Consultation),
+            (13, "Diet Plans",             "weight",        consult,      ServiceCategoryFormTypes.Consultation),
+            (14, "Financial Planning",     "chart",         consult,      ServiceCategoryFormTypes.Consultation),
         };
 
         var now = DateTime.UtcNow;
@@ -678,6 +686,7 @@ public static class DataSeeder
             ServiceSectionId = c.SectionId,
             Name = c.Name,
             IconName = c.Icon,
+            FormType = c.FormType,
             SortOrder = c.Index,
             IsActive = true,
             CreatedAt = now,
@@ -721,8 +730,8 @@ public static class DataSeeder
         // (index, categoryIndex, name, icon, short, full, featured) — a Category may now hold several
         // Services (schema always supported this — see the comment on SeedServiceCategoriesAsync).
         // Categories whose old single Service's "packages" were actually distinct offerings (different
-        // dhams, different tour itineraries, different taxi/vehicle/event types, different insurance
-        // products) are split into one Service per real offering here, each getting its own genuine
+        // dhams, different tour itineraries, different taxi/vehicle/event types) are split into one
+        // Service per real offering here, each getting its own genuine
         // price/duration plans in SeedServicePackagesAsync below. Categories where the old packages
         // were already true price/scope tiers of ONE offering (Destination Wedding, Homestay & Resort,
         // Photographer & Video) keep a single Service.
@@ -810,16 +819,6 @@ public static class DataSeeder
                 "Curated stays across Uttarakhand — cozy family-run homestays, riverside resorts and luxury hillside properties, with meals and WiFi included on select packages.",
                 false),
 
-            // Bike on Rent (category 8) — scooter vs motorcycle are different vehicle categories
-            (18, 8, "Scooter Rental", "gas_station",
-                "Self-drive scooters (Activa or similar), by the day.",
-                "Rent a scooter for self-drive exploration of the hills — daily rental.",
-                false),
-            (19, 8, "Motorcycle Rental", "gas_station",
-                "Self-drive motorcycles (Royal Enfield), by the day or week.",
-                "Rent a Royal Enfield motorcycle for self-drive exploration of the hills — daily or weekly rental packages available.",
-                true),
-
             // Event Planner (category 9) — one Service per event type
             (20, 9, "Birthday & Small Event Planning", "calendar",
                 "End-to-end planning for birthdays and small events.",
@@ -837,38 +836,6 @@ public static class DataSeeder
                 "End-to-end planning for full wedding events.",
                 "Complete wedding event management — venue, catering, decor and logistics handled end-to-end by a dedicated planner.",
                 true),
-
-            // Health Insurance (category 10) — each product is its own Service, priced by custom quote
-            (24, 10, "Individual Health Cover", "shield_tick",
-                "Health insurance for a single individual.",
-                "Individual health insurance cover — get a custom quote based on your age and health needs.",
-                false),
-            (25, 10, "Family Floater Plan", "shield_tick",
-                "One health cover shared across the whole family.",
-                "A single health insurance policy covering the entire family — get a custom quote based on your family's needs.",
-                true),
-            (26, 10, "Senior Citizen Health Plan", "shield_tick",
-                "Health cover designed for senior citizens.",
-                "Health insurance designed for senior citizens' specific coverage needs — get a custom quote.",
-                false),
-            (27, 10, "Critical Illness Health Cover", "shield_tick",
-                "Lump-sum cover on diagnosis of a critical illness.",
-                "Critical illness health cover paying a lump sum on diagnosis of a covered condition — get a custom quote.",
-                false),
-
-            // Term Insurance (category 11)
-            (28, 11, "Basic Term Plan", "security_safe",
-                "Simple term life cover.",
-                "A straightforward term life insurance plan — get a custom quote matched to your income and family's needs.",
-                false),
-            (29, 11, "Term Plan with Critical Illness Cover", "security_safe",
-                "Term life cover with a critical illness rider.",
-                "Term life insurance with an added critical illness rider — get a custom quote.",
-                true),
-            (30, 11, "Term Plan with Return of Premium", "security_safe",
-                "Term life cover that returns your premiums at maturity.",
-                "Term life insurance with a return-of-premium option — get a custom quote.",
-                false),
 
             // Yoga (category 12) — one Service per session type, each with real low/high-budget plans
             (31, 12, "1-on-1 Yoga Session", "activity",
@@ -1020,13 +987,6 @@ public static class DataSeeder
             (32, 17, "Riverside Resort Stay", 4999, 5999, 17, true, null, 1, "per night", 3, true),
             (33, 17, "Luxury Hillside Resort", 8999, null, null, true, null, 1, "per night", 4, false),
 
-            // Scooter Rental (service 18)
-            (34, 18, "Scooty/Activa - Per Day", 699, null, null, true, null, null, "per day", 1, false),
-
-            // Motorcycle Rental (service 19)
-            (35, 19, "Royal Enfield - Per Day", 1499, null, null, true, null, null, "per day", 1, true),
-            (36, 19, "Bike Rental - Weekly Package", 8999, 10499, 14, true, null, null, "per week", 2, false),
-
             // Birthday & Small Event Planning (service 20)
             (37, 20, "Birthday/Small Event Planning", 19999, null, null, true, null, null, "per event", 1, false),
 
@@ -1038,27 +998,6 @@ public static class DataSeeder
 
             // Wedding Event Management (service 23)
             (40, 23, "Full Wedding Event Management", 99999, 119999, 17, true, null, null, "per event", 1, true),
-
-            // Individual Health Cover (service 24) — Price=null: "Get Custom Quote"
-            (41, 24, "Individual Health Cover", null, null, null, false, null, null, null, 1, false),
-
-            // Family Floater Plan (service 25)
-            (42, 25, "Family Floater Plan", null, null, null, false, null, null, null, 1, true),
-
-            // Senior Citizen Health Plan (service 26)
-            (43, 26, "Senior Citizen Health Plan", null, null, null, false, null, null, null, 1, false),
-
-            // Critical Illness Health Cover (service 27)
-            (44, 27, "Critical Illness Health Cover", null, null, null, false, null, null, null, 1, false),
-
-            // Basic Term Plan (service 28)
-            (45, 28, "Basic Term Plan", null, null, null, false, null, null, null, 1, false),
-
-            // Term Plan with Critical Illness Cover (service 29)
-            (46, 29, "Term Plan with Critical Illness Cover", null, null, null, false, null, null, null, 1, true),
-
-            // Term Plan with Return of Premium (service 30)
-            (47, 30, "Term Plan with Return of Premium", null, null, null, false, null, null, null, 1, false),
 
             // 1-on-1 Yoga Session (service 31) — real low/high-budget plans
             (48, 31, "Regular Session", 499, null, null, true, null, null, "per session", 1, false),
@@ -1193,9 +1132,9 @@ public static class DataSeeder
         {
             (1, new[] { 1, 3, 5 }),   // Rajesh Bisht: Char Dham Yatra, Tour & Travel Packages, Camping & Adventure
             (2, new[] { 2, 6, 9 }),   // Priya Negi: Destination Wedding, Photographer & Video, Event Planner
-            (3, new[] { 4, 8 }),      // Amit Rawat: Taxi Booking, Bike on Rent
+            (3, new[] { 4 }),         // Amit Rawat: Taxi Booking
             (4, new[] { 7 }),         // Sunita Joshi: Homestay & Resort
-            (5, new[] { 10, 11, 14 }),// Dr. Vikram Singh: Health Insurance, Term Insurance, Financial Planning
+            (5, new[] { 14 }),        // Dr. Vikram Singh: Financial Planning
             (6, new[] { 12, 13 }),    // Anjali Rana: Yoga, Diet Plans
         };
 
@@ -1312,27 +1251,19 @@ public static class DataSeeder
                     new(InquiryStatuses.Submitted, null, now.AddDays(-2), null),
                 ]),
 
-            new(ServiceCatalogId("e8000000", 7), ServiceIdx: 25, PackageIdx: 42, AgentIdx: 5,
-                FullName: "Suresh Kumar", Mobile: "9876500007", Email: "suresh.kumar@example.com",
-                Trip: null, People: 4,
-                Message: "Looking for a family floater plan covering parents and 2 kids.",
-                Status: InquiryStatuses.Contacted,
-                History:
-                [
-                    new(InquiryStatuses.Submitted, null,   now.AddDays(-5), null),
-                    new(InquiryStatuses.Contacted, admin2, now.AddDays(-3), null),
-                ]),
-
-            new(ServiceCatalogId("e8000000", 8), ServiceIdx: 28, PackageIdx: 45, AgentIdx: 5,
+            // Rejected-status sample — kept so all 5 InquiryStatuses remain represented after the
+            // Health/Term Insurance categories (and this entry's original insurance-plan target)
+            // were removed from the catalog.
+            new(ServiceCatalogId("e8000000", 8), ServiceIdx: 22, PackageIdx: 39, AgentIdx: 2,
                 FullName: "Ramesh Chandra", Mobile: "9876500008", Email: null,
-                Trip: null, People: 1,
-                Message: "Want term cover of 1 crore.",
+                Trip: now.AddDays(60), People: 40,
+                Message: "Need corporate event planning for our annual offsite.",
                 Status: InquiryStatuses.Rejected,
                 History:
                 [
                     new(InquiryStatuses.Submitted, null,   now.AddDays(-14), null),
                     new(InquiryStatuses.Contacted, admin2, now.AddDays(-12), null),
-                    new(InquiryStatuses.Rejected,  admin2, now.AddDays(-10), "Customer did not meet minimum eligibility criteria."),
+                    new(InquiryStatuses.Rejected,  admin2, now.AddDays(-10), "Requested budget did not match our minimum package pricing."),
                 ]),
 
             new(ServiceCatalogId("e8000000", 9), ServiceIdx: 32, PackageIdx: 50, AgentIdx: 6,
