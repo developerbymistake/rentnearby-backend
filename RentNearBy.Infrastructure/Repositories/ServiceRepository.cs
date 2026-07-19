@@ -20,9 +20,15 @@ public class ServiceRepository(ApplicationDbContext context)
             .Include(s => s.Packages.OrderBy(p => p.SortOrder))
             .FirstOrDefaultAsync(s => s.Id == id);
 
+    // Consumer-only (not dual-mounted for admin, unlike GetByServiceCategoryIdAsync above) — safe to
+    // cascade-filter on the parent Category/Section's own IsActive here without affecting any admin
+    // view that still needs to see inactive rows for management.
     public async Task<IEnumerable<Service>> GetPreviewByServiceSectionIdAsync(Guid serviceSectionId, int limit)
         => await _dbSet.AsNoTracking()
-            .Where(s => s.IsActive && s.ServiceCategory.ServiceSectionId == serviceSectionId)
+            .Where(s => s.IsActive
+                && s.ServiceCategory.IsActive
+                && s.ServiceCategory.ServiceSection.IsActive
+                && s.ServiceCategory.ServiceSectionId == serviceSectionId)
             .OrderByDescending(s => s.IsFeatured).ThenBy(s => s.SortOrder).ThenBy(s => s.Name)
             .Take(limit)
             .ToListAsync();

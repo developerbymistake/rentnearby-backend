@@ -1019,14 +1019,31 @@ public static class AdminHandlers
         var coupon = await unitOfWork.Coupons.GetByIdAsync(id);
         if (coupon == null) return NotFoundResponse("Coupon not found");
 
-        if (request.MaxTotalRedemptions.HasValue && request.MaxTotalRedemptions.Value < coupon.CurrentRedemptions)
+        if (!request.ClearMaxTotalRedemptions && request.MaxTotalRedemptions.HasValue
+            && request.MaxTotalRedemptions.Value < coupon.CurrentRedemptions)
             return BadRequestResponse($"MaxTotalRedemptions cannot be less than the {coupon.CurrentRedemptions} redemptions already used.");
 
+        coupon.MaxTotalRedemptions = request.ClearMaxTotalRedemptions
+            ? null
+            : request.MaxTotalRedemptions ?? coupon.MaxTotalRedemptions;
+        coupon.ValidUntil = request.ClearValidUntil ? null : request.ValidUntil ?? coupon.ValidUntil;
         if (request.CoinValue.HasValue) coupon.CoinValue = request.CoinValue.Value;
-        if (request.MaxTotalRedemptions.HasValue) coupon.MaxTotalRedemptions = request.MaxTotalRedemptions.Value;
-        if (request.ValidUntil.HasValue) coupon.ValidUntil = request.ValidUntil.Value;
         if (request.CampaignLabel != null) coupon.CampaignLabel = request.CampaignLabel;
-        if (request.Status != null) coupon.Status = request.Status;
+
+        if (request.Status != null)
+        {
+            coupon.Status = request.Status;
+        }
+        else if (coupon.Status == CouponStatuses.Exhausted
+            && (coupon.MaxTotalRedemptions == null || coupon.CurrentRedemptions < coupon.MaxTotalRedemptions.Value))
+        {
+            // Raising (or clearing) the limit past current usage lifts an Exhausted coupon back to
+            // Active automatically, mirroring TryReserveRedemptionSlotAsync's exhaustion condition in
+            // reverse — only when the admin hasn't already explicitly requested a different Status
+            // in this same call, so an explicit choice always wins over auto-reconciliation.
+            coupon.Status = CouponStatuses.Active;
+        }
+
         coupon.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.Coupons.UpdateAsync(coupon);

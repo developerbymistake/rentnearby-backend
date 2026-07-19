@@ -103,6 +103,9 @@ public static class InquiryHandlers
                 }
             }
 
+            // Bypasses InquiryStatusTransitions.IsAllowed — safe only because the inquiry was just
+            // created as Submitted (line ~66) and Submitted -> Contacted is unconditionally legal in
+            // the table. If that transition is ever removed, this direct assignment must be guarded too.
             inquiry.Status = InquiryStatuses.Contacted;
             inquiry.UpdatedAt = now;
             db.InquiryStatusHistories.Add(new InquiryStatusHistory
@@ -250,6 +253,9 @@ public static class InquiryHandlers
         if (inquiry == null) return NotFoundResponse("Inquiry not found");
         if (!await unitOfWork.Inquiries.IsAgentAssignedAsync(id, agent.Id)) return ForbiddenResponse("This lead is not assigned to you");
 
+        if (!InquiryStatusTransitions.IsAllowed(inquiry.Status, request.Status))
+            return BadRequestResponse($"Cannot change status from {inquiry.Status} to {request.Status}.");
+
         inquiry.Status = request.Status;
         inquiry.UpdatedAt = DateTime.UtcNow;
 
@@ -307,6 +313,9 @@ public static class InquiryHandlers
 
         var inquiry = await unitOfWork.Inquiries.GetByIdAsync(id);
         if (inquiry == null) return NotFoundResponse("Inquiry not found");
+
+        if (!InquiryStatusTransitions.IsAllowed(inquiry.Status, request.Status))
+            return BadRequestResponse($"Cannot change status from {inquiry.Status} to {request.Status}.");
 
         inquiry.Status = request.Status;
         inquiry.UpdatedAt = DateTime.UtcNow;
@@ -386,6 +395,8 @@ public static class InquiryHandlers
         // Submitted flips it to Contacted as ONE InquiryStatusHistory row in the SAME
         // SaveChangesAsync call as the assignment — never two independent admin actions/writes.
         // Clearing the set, or replacing an already-non-empty set, writes no history row.
+        // Bypasses InquiryStatusTransitions.IsAllowed — safe only because this only ever fires from
+        // Submitted (checked above) and Submitted -> Contacted is unconditionally legal in the table.
         var autoTransitioned = requestedIds.Count > 0 && inquiry.Status == InquiryStatuses.Submitted;
         if (autoTransitioned)
         {

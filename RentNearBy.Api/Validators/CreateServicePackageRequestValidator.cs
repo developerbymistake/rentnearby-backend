@@ -15,6 +15,12 @@ public class CreateServicePackageRequestValidator : AbstractValidator<CreateServ
 
         RuleFor(x => x.Price).GreaterThan(0).When(x => x.Price.HasValue);
         RuleFor(x => x.OriginalPrice).GreaterThan(0).When(x => x.OriginalPrice.HasValue);
+        // OriginalPrice is the strikethrough reference price — Price == OriginalPrice (no discount)
+        // is legitimate, only Price > OriginalPrice (a "discount" that's actually a price increase) is not.
+        RuleFor(x => x.Price)
+            .LessThanOrEqualTo(x => x.OriginalPrice)
+            .When(x => x.Price.HasValue && x.OriginalPrice.HasValue)
+            .WithMessage("Price cannot be greater than Original Price.");
         RuleFor(x => x.DiscountPercent).InclusiveBetween(1, 100).When(x => x.DiscountPercent.HasValue);
         RuleFor(x => x.DurationDays).GreaterThan(0).When(x => x.DurationDays.HasValue);
         RuleFor(x => x.DurationNights).GreaterThanOrEqualTo(0).When(x => x.DurationNights.HasValue);

@@ -583,7 +583,7 @@ public static class PlotListingHandlers
         IUnitOfWork unitOfWork, IServiceProvider sp)
     {
         var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
-        if (plot == null) return NotFoundResponse("PlotListing not found");
+        if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
 
         // See the matching comment in AdminHandlers.ToggleAdminListingStatus — no membership to
         // check, no free-activation bypass around the coin-spend engine. Deactivate is always allowed.
