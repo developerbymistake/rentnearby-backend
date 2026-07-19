@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Polly;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RentNearBy.Core.Interfaces;
@@ -18,6 +19,16 @@ namespace RentNearBy.Infrastructure.Services;
 public class ChatMessageNotificationWorkerService : BackgroundService
 {
     private const string QueueName = "chat.message.push";
+
+    // Retries a per-token FCM send twice (short, fixed backoff) before accepting the loss —
+    // only for a genuine transient exception (network blip, brief FCM outage). SendAsync
+    // itself already returns false (not throws) for Unregistered, so this never retries a
+    // token that's actually invalid, only a send that failed for an unrelated, likely-
+    // recoverable reason. Built once, reused across every message (Polly policies are
+    // stateless/thread-safe by design).
+    private static readonly IAsyncPolicy<bool> FcmRetryPolicy = Policy<bool>
+        .Handle<Exception>()
+        .WaitAndRetryAsync(2, attempt => TimeSpan.FromSeconds(attempt));
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IChatFcmService _chatFcmService;
@@ -144,13 +155,17 @@ public class ChatMessageNotificationWorkerService : BackgroundService
         {
             try
             {
-                var isSuccess = await _chatFcmService.SendAsync(deviceToken.Token, msg.SenderName, msg.Preview, msg.ConversationId);
+                var isSuccess = await FcmRetryPolicy.ExecuteAsync(() =>
+                    _chatFcmService.SendAsync(deviceToken.Token, msg.SenderName, msg.Preview, msg.ConversationId));
                 return (deviceToken.Token, isSuccess);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Chat FCM send exception for user {UserId}", msg.RecipientUserId);
-                return (deviceToken.Token, isSuccess: true); // transient error, not proof the token itself is invalid
+                // Retries above already exhausted for this genuine transient failure — accept
+                // the loss for this one push rather than treating it as proof the token itself
+                // is invalid (SendAsync already returns false, not throws, for that case).
+                return (deviceToken.Token, isSuccess: true);
             }
         }));
 

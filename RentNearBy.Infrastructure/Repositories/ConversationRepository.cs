@@ -30,4 +30,46 @@ public class ConversationRepository : Repository<Conversation>, IConversationRep
                 (c.RenterId == userA && c.OwnerId == userB) ||
                 (c.RenterId == userB && c.OwnerId == userA))
             .ToListAsync();
+
+    public async Task<int> RecomputeUnreadCountAsync(Guid conversationId, Guid readerId, bool readerIsRenter)
+    {
+        if (readerIsRenter)
+        {
+            await _context.Conversations.Where(c => c.Id == conversationId).ExecuteUpdateAsync(s => s.SetProperty(
+                c => c.UnreadCountForRenter,
+                c => _context.Messages.Count(m => m.ConversationId == conversationId && m.SenderId != readerId && m.ReadAt == null)));
+        }
+        else
+        {
+            await _context.Conversations.Where(c => c.Id == conversationId).ExecuteUpdateAsync(s => s.SetProperty(
+                c => c.UnreadCountForOwner,
+                c => _context.Messages.Count(m => m.ConversationId == conversationId && m.SenderId != readerId && m.ReadAt == null)));
+        }
+
+        return await _context.Conversations.Where(c => c.Id == conversationId)
+            .Select(c => readerIsRenter ? c.UnreadCountForRenter : c.UnreadCountForOwner)
+            .FirstAsync();
+    }
+
+    public async Task<int> ApplyIncomingMessageAsync(Guid conversationId, DateTime lastMessageAt, string lastMessagePreview, bool recipientIsRenter)
+    {
+        if (recipientIsRenter)
+        {
+            await _context.Conversations.Where(c => c.Id == conversationId).ExecuteUpdateAsync(s => s
+                .SetProperty(c => c.LastMessageAt, lastMessageAt)
+                .SetProperty(c => c.LastMessagePreview, lastMessagePreview)
+                .SetProperty(c => c.UnreadCountForRenter, c => c.UnreadCountForRenter + 1));
+        }
+        else
+        {
+            await _context.Conversations.Where(c => c.Id == conversationId).ExecuteUpdateAsync(s => s
+                .SetProperty(c => c.LastMessageAt, lastMessageAt)
+                .SetProperty(c => c.LastMessagePreview, lastMessagePreview)
+                .SetProperty(c => c.UnreadCountForOwner, c => c.UnreadCountForOwner + 1));
+        }
+
+        return await _context.Conversations.Where(c => c.Id == conversationId)
+            .Select(c => recipientIsRenter ? c.UnreadCountForRenter : c.UnreadCountForOwner)
+            .FirstAsync();
+    }
 }

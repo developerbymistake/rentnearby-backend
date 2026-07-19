@@ -239,6 +239,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .IsUnique()
              .HasDatabaseName("ix_messages_responds_to_unique")
              .HasFilter("\"RespondsToMessageId\" IS NOT NULL");
+
+            // Same partial-unique shape as RespondsToMessageId above, for fresh (non-answer)
+            // sends — a genuinely-concurrent double-invocation of the same compose attempt
+            // (same sender, same conversation, same client-generated id) collapses to one row
+            // instead of creating a real duplicate message both parties would see.
+            e.HasIndex(m => new { m.ConversationId, m.SenderId, m.ClientMessageId })
+             .IsUnique()
+             .HasDatabaseName("ix_messages_client_message_id_unique")
+             .HasFilter("\"ClientMessageId\" IS NOT NULL");
         });
 
         modelBuilder.Entity<UserBlock>(e =>

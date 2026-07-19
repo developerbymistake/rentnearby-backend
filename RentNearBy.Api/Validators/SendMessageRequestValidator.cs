@@ -18,5 +18,9 @@ public class SendMessageRequestValidator : AbstractValidator<SendMessageRequest>
         RuleFor(x => x.RespondsToMessageId)
             .NotEqual(Guid.Empty).When(x => x.RespondsToMessageId.HasValue)
             .WithMessage("RespondsToMessageId must be a valid id");
+
+        RuleFor(x => x.ClientMessageId)
+            .NotEqual(Guid.Empty).When(x => x.ClientMessageId.HasValue)
+            .WithMessage("ClientMessageId must be a valid id");
     }
 }

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using FluentValidation;
 using Mapster;
 using Microsoft.AspNetCore.SignalR;
@@ -173,8 +174,9 @@ public static class ChatHandlers
 
         // 'after' is the reconnect-catch-up path (give me everything since the last message I
         // already have); 'before' is normal backward history-scrolling. Never both at once.
+        var effectiveLimit = Math.Clamp(limit ?? DefaultPageSize, 1, 100);
         var messages = await unitOfWork.Messages.GetPagedForConversationAsync(
-            conversationId, before, after, Math.Clamp(limit ?? DefaultPageSize, 1, 100));
+            conversationId, before, after, effectiveLimit);
 
         var dtos = messages.Select(m => new MessageDto
         {
@@ -189,7 +191,12 @@ public static class ChatHandlers
             CreatedAt = m.CreatedAt,
         }).ToList();
 
-        return OkResponse(new { items = dtos, conversationStatus = conversation.Status });
+        // A full page means there's likely more beyond it — same heuristic the
+        // conversations-list endpoint's client side already uses (items.length >= pageSize).
+        // Drives both "load older on scroll to top" and the reconnect catch-up loop.
+        var hasMore = messages.Count == effectiveLimit;
+
+        return OkResponse(new { items = dtos, conversationStatus = conversation.Status, hasMore });
     }
 
     public static async Task<IResult> SendMessage(
@@ -241,19 +248,29 @@ public static class ChatHandlers
                 return BadRequestResponse("You can't answer your own question");
         }
 
+        // A fresh catalog question (quick_reply with no RespondsToMessageId — an ANSWER always
+        // has one, see _answerQuestion vs onAskQuestion client-side) gets its template's
+        // answer-options snapshotted into its own stored payload here, so rendering it later
+        // never depends on a live admin-catalog lookup — see TryEmbedAnswerOptionsAsync.
+        var storedPayloadJson = request.PayloadJson;
+        if (request.Type == "quick_reply" && request.RespondsToMessageId is null)
+        {
+            storedPayloadJson = await TryEmbedAnswerOptionsAsync(request.PayloadJson, unitOfWork, cache) ?? request.PayloadJson;
+        }
+
         var message = new Message
         {
             Id = Guid.NewGuid(),
             ConversationId = conversationId,
             SenderId = callerId,
             Type = request.Type,
-            PayloadJson = request.PayloadJson,
+            PayloadJson = storedPayloadJson,
             RespondsToMessageId = request.RespondsToMessageId,
+            ClientMessageId = request.ClientMessageId,
             CreatedAt = DateTime.UtcNow,
         };
 
         await unitOfWork.Messages.AddAsync(message);
-        await ApplyToConversationAsync(conversation, callerId, otherPartyId, message, unitOfWork, cache);
 
         try
         {
@@ -264,6 +281,8 @@ public static class ChatHandlers
             // Lost a race against a concurrent answer to the same question (double-tap on
             // a reply option) — the partial unique index on RespondsToMessageId caught it.
             // Same catch-and-return-the-winner shape as the Conversations unique-index guard.
+            // The winning request already applied its own conversation update — don't apply
+            // a second one here for a message that was never actually ours.
             var existingAnswer = await db.Messages.FirstOrDefaultAsync(m => m.RespondsToMessageId == request.RespondsToMessageId.Value);
             if (existingAnswer != null)
             {
@@ -276,8 +295,29 @@ public static class ChatHandlers
             }
             throw;
         }
+        // Same shape, for a fresh (non-answer) send racing itself — a double-tap that fires
+        // two requests for the same compose attempt before either resolves. Mutually exclusive
+        // with the catch above by construction (a fresh send never sets RespondsToMessageId).
+        catch (DbUpdateException) when (!request.RespondsToMessageId.HasValue && request.ClientMessageId.HasValue)
+        {
+            var existingMessage = await db.Messages.FirstOrDefaultAsync(m =>
+                m.ConversationId == conversationId && m.SenderId == callerId && m.ClientMessageId == request.ClientMessageId.Value);
+            if (existingMessage != null)
+            {
+                return OkResponse(new MessageDto
+                {
+                    Id = existingMessage.Id, ConversationId = existingMessage.ConversationId, SenderId = existingMessage.SenderId,
+                    IsMine = true, Type = existingMessage.Type, PayloadJson = existingMessage.PayloadJson,
+                    RespondsToMessageId = existingMessage.RespondsToMessageId, CreatedAt = existingMessage.CreatedAt,
+                });
+            }
+            throw;
+        }
 
-        await BroadcastMessageAsync(hubContext, conversation, message, isNewMessage: true);
+        // Only reached once the message is durably persisted — see ApplyToConversationAsync's
+        // own comment for why this ordering matters.
+        var recipientUnreadCount = await ApplyToConversationAsync(conversation, callerId, otherPartyId, message, unitOfWork, cache);
+        await BroadcastMessageAsync(hubContext, conversation, message, isNewMessage: true, recipientUnreadCount: recipientUnreadCount);
         await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, message, cache);
 
         return CreatedResponse(new MessageDto
@@ -299,13 +339,23 @@ public static class ChatHandlers
 
         await unitOfWork.Messages.MarkReadBulkAsync(conversationId, callerId);
 
-        if (conversation.RenterId == callerId) conversation.UnreadCountForRenter = 0;
-        else conversation.UnreadCountForOwner = 0;
-        await unitOfWork.Conversations.UpdateAsync(conversation);
-        await unitOfWork.SaveChangesAsync();
+        // Recomputed from Messages.ReadAt (the same source of truth MarkReadBulkAsync just
+        // wrote to) via one atomic ExecuteUpdateAsync, not a tracked-entity "set to 0" — that
+        // used to silently lose a concurrent incoming message's increment if it landed between
+        // this handler's load and save. Self-healing: a message that arrives in the gap between
+        // MarkReadBulkAsync and this call is still correctly counted unread.
+        var newCount = await unitOfWork.Conversations.RecomputeUnreadCountAsync(
+            conversationId, callerId, conversation.RenterId == callerId);
 
         await hubContext.Clients.Group($"conversation_{conversationId}")
             .SendAsync("MessagesRead", new { conversationId, readByUserId = callerId });
+        // The reader's OWN other devices — not the other party — need to hear about this too.
+        // They're always in user_{callerId} (joined on every connection) but only join
+        // conversation_{id} while that exact screen is open, so the broadcast above alone never
+        // reaches a second device sitting on the Chats list. Reuses the same event name/shape
+        // the recipient already gets on a new message (see BroadcastMessageAsync).
+        await hubContext.Clients.Group($"user_{callerId}")
+            .SendAsync("UnreadCountChanged", new { conversationId, unreadCount = newCount });
 
         return OkResponse(new { success = true });
     }
@@ -351,7 +401,6 @@ public static class ChatHandlers
         };
 
         await unitOfWork.Messages.AddAsync(response);
-        await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
 
         try
         {
@@ -373,7 +422,8 @@ public static class ChatHandlers
             throw;
         }
 
-        await BroadcastMessageAsync(hubContext, conversation, response, isNewMessage: true);
+        var recipientUnreadCount = await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
+        await BroadcastMessageAsync(hubContext, conversation, response, isNewMessage: true, recipientUnreadCount: recipientUnreadCount);
         await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, response, cache);
 
         return OkResponse(new MessageDto
@@ -411,17 +461,12 @@ public static class ChatHandlers
             // original.PayloadJson was written by whichever client sent the initial proposal;
             // SendMessageRequestValidator only checks NotEmpty/MaxLength, not that it's valid
             // JSON, so this must degrade gracefully rather than 500 on a malformed payload.
-            try
-            {
-                using var doc = JsonDocument.Parse(original.PayloadJson);
-                var dict = doc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => (object?)p.Value.ToString());
-                dict["status"] = "superseded";
-                original.PayloadJson = JsonSerializer.Serialize(dict);
-            }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-            {
-                original.PayloadJson = JsonSerializer.Serialize(new { status = "superseded" });
-            }
+            // Uses TrySetJsonField (JsonNode-based) rather than a JsonDocument+Dictionary+
+            // ToString() walk — the latter corrupted array-valued fields like proposedAts into
+            // JSON-encoded strings on every supersede, which then threw on the client trying to
+            // cast the now-stringified array back to a List.
+            original.PayloadJson = TrySetJsonField(original.PayloadJson, "status", "superseded")
+                ?? JsonSerializer.Serialize(new { status = "superseded" });
             await unitOfWork.Messages.UpdateAsync(original);
 
             var counter = new Message
@@ -435,7 +480,6 @@ public static class ChatHandlers
                 CreatedAt = DateTime.UtcNow,
             };
             await unitOfWork.Messages.AddAsync(counter);
-            await ApplyToConversationAsync(conversation, callerId, otherPartyId, counter, unitOfWork, cache);
 
             try
             {
@@ -461,10 +505,12 @@ public static class ChatHandlers
                 throw;
             }
 
-            await BroadcastMessageAsync(hubContext, conversation, counter, isNewMessage: true);
+            var counterRecipientUnreadCount = await ApplyToConversationAsync(conversation, callerId, otherPartyId, counter, unitOfWork, cache);
+            await BroadcastMessageAsync(hubContext, conversation, counter, isNewMessage: true, recipientUnreadCount: counterRecipientUnreadCount);
             // The original proposal's PayloadJson was persisted as "superseded" above — without
             // this, the other party's screen kept showing it as pending/actionable until they
-            // left and re-entered the conversation (forcing a REST refetch).
+            // left and re-entered the conversation (forcing a REST refetch). Not a new unread
+            // message, so no recipientUnreadCount needed here.
             await BroadcastMessageAsync(hubContext, conversation, original, isNewMessage: false);
             await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, counter, cache);
             return OkResponse(new MessageDto
@@ -521,7 +567,6 @@ public static class ChatHandlers
         };
 
         await unitOfWork.Messages.AddAsync(response);
-        await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
 
         try
         {
@@ -543,7 +588,8 @@ public static class ChatHandlers
             throw;
         }
 
-        await BroadcastMessageAsync(hubContext, conversation, response, isNewMessage: true);
+        var recipientUnreadCount = await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
+        await BroadcastMessageAsync(hubContext, conversation, response, isNewMessage: true, recipientUnreadCount: recipientUnreadCount);
         await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, response, cache);
         return OkResponse(new MessageDto
         {
@@ -893,16 +939,86 @@ public static class ChatHandlers
 
     // Denormalized fields updated in lockstep with every message — keeps the
     // Chats-list screen a single indexed query against Conversations, no join
-    // against Messages needed for the common case.
-    private static async Task ApplyToConversationAsync(Conversation conversation, Guid senderId, Guid recipientId, Message message, IUnitOfWork unitOfWork, IMemoryCache cache)
+    // against Messages needed for the common case. Atomic ExecuteUpdateAsync, not a
+    // tracked-entity mutation — the old tracked write let any concurrent writer to the same
+    // Conversation row (a mark-read, another message, a block/unblock) clobber this one's
+    // change on every field, not just the unread counter. Callers must invoke this only AFTER
+    // the message itself is durably saved (never staged alongside it on the same
+    // SaveChangesAsync, since this runs immediately) — that ordering is what keeps
+    // LastMessagePreview/the unread bump from ever pointing at a message that didn't actually
+    // make it in, without needing a wrapping transaction. Returns the recipient's fresh unread
+    // count for the caller to broadcast live.
+    private static async Task<int> ApplyToConversationAsync(Conversation conversation, Guid senderId, Guid recipientId, Message message, IUnitOfWork unitOfWork, IMemoryCache cache)
     {
-        conversation.LastMessageAt = message.CreatedAt;
-        conversation.LastMessagePreview = await BuildPreviewAsync(message, unitOfWork, cache);
+        var preview = await BuildPreviewAsync(message, unitOfWork, cache);
+        var recipientIsRenter = recipientId == conversation.RenterId;
+        return await unitOfWork.Conversations.ApplyIncomingMessageAsync(conversation.Id, message.CreatedAt, preview, recipientIsRenter);
+    }
 
-        if (recipientId == conversation.RenterId) conversation.UnreadCountForRenter++;
-        else conversation.UnreadCountForOwner++;
+    // Parses payloadJson as a JSON object and sets `key` to `value`, preserving every other
+    // field's original type (arrays stay arrays, numbers stay numbers, etc.) — this is what
+    // both RespondSchedule's "counter" branch and SendMessage's quick_reply answer-options
+    // enrichment need, instead of the old JsonDocument+Dictionary<string,object?> approach
+    // whose .ToString()-per-property step silently re-encoded array/object fields as
+    // JSON-in-a-string on save (this is exactly what previously corrupted proposedAts).
+    // Returns null if payloadJson isn't a parseable JSON object — callers pick their own
+    // fallback, since "malformed original payload" means something different to each caller
+    // (RespondSchedule wants a fresh replacement object; SendMessage's enrichment wants to
+    // leave the client's own payload completely untouched rather than risk losing it).
+    private static string? TrySetJsonField(string payloadJson, string key, JsonNode? value)
+    {
+        try
+        {
+            var obj = JsonNode.Parse(payloadJson)?.AsObject();
+            if (obj == null) return null;
+            obj[key] = value;
+            return obj.ToJsonString();
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
 
-        await unitOfWork.Conversations.UpdateAsync(conversation);
+    // Only for a fresh quick_reply QUESTION (RespondsToMessageId == null) — an ANSWER's
+    // payload (the tapped option's own key/text) has no template-level answerOptions to
+    // embed. Snapshots the template's current AnswerOptionsJson into the stored message
+    // payload at send time so this specific question renders identically forever after,
+    // independent of the template being edited/deactivated by an admin later. Reuses the
+    // same "question_templates" cache entry GetCachedQuestionTemplatesAsync already
+    // maintains — no extra uncached DB query.
+    private static async Task<string?> TryEmbedAnswerOptionsAsync(string payloadJson, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        string? key;
+        try
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+            if (!doc.RootElement.TryGetProperty("key", out var keyEl)) return null;
+            key = keyEl.GetString();
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+        if (string.IsNullOrEmpty(key)) return null;
+
+        var templates = await GetCachedQuestionTemplatesAsync(unitOfWork, cache);
+        var template = templates.FirstOrDefault(t => t.Key == key);
+        // Stale client / template deleted between fetch and send — send the question through
+        // unenriched rather than failing it, matching today's graceful "no options render" shape.
+        if (template == null) return null;
+
+        JsonNode? answerOptionsNode;
+        try
+        {
+            answerOptionsNode = JsonNode.Parse(template.AnswerOptionsJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return TrySetJsonField(payloadJson, "answerOptions", answerOptionsNode);
     }
 
     // Shares the same "question_templates" cache entry GetQuestionTemplates already
@@ -977,7 +1093,11 @@ public static class ChatHandlers
     // "superseded") pushes MessageUpdated to the conversation only, no unread bump since it isn't
     // new unread content. Funneling both through one method is what makes forgetting to broadcast
     // a state mutation (as the schedule-counter branch below used to) structurally harder to repeat.
-    private static async Task BroadcastMessageAsync(IHubContext<ChatHub> hubContext, Conversation conversation, Message message, bool isNewMessage)
+    // recipientUnreadCount is only meaningful (and only read) when isNewMessage is true — the
+    // caller must pass the fresh count ApplyToConversationAsync/ApplyIncomingMessageAsync
+    // returned, since the in-memory `conversation` object's own counter fields are stale the
+    // instant that atomic ExecuteUpdateAsync runs (it bypasses the change tracker entirely).
+    private static async Task BroadcastMessageAsync(IHubContext<ChatHub> hubContext, Conversation conversation, Message message, bool isNewMessage, int recipientUnreadCount = 0)
     {
         var dto = new MessageDto
         {
@@ -991,9 +1111,8 @@ public static class ChatHandlers
         if (!isNewMessage) return;
 
         var recipientId = message.SenderId == conversation.RenterId ? conversation.OwnerId : conversation.RenterId;
-        var unread = recipientId == conversation.RenterId ? conversation.UnreadCountForRenter : conversation.UnreadCountForOwner;
         await hubContext.Clients.Group($"user_{recipientId}")
-            .SendAsync("UnreadCountChanged", new { conversationId = conversation.Id, unreadCount = unread });
+            .SendAsync("UnreadCountChanged", new { conversationId = conversation.Id, unreadCount = recipientUnreadCount });
     }
 
     // Fire-and-forget by design: a slow/failed publish here must never block the

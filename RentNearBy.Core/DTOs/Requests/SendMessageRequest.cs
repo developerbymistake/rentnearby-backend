@@ -12,4 +12,10 @@ public class SendMessageRequest
     // it answers, so multiple simultaneously-pending questions can each be paired
     // with their own answer regardless of reply order.
     public Guid? RespondsToMessageId { get; set; }
+
+    // Client-generated once per compose-attempt (a fresh send only — never set alongside
+    // RespondsToMessageId, which already has its own dedup). Lets the server recognize a
+    // genuinely-concurrent double-invocation of the same attempt instead of creating a
+    // real duplicate message.
+    public Guid? ClientMessageId { get; set; }
 }

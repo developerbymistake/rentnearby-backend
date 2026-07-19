@@ -20,6 +20,13 @@ public class Message
     // index on this column).
     public Guid? RespondsToMessageId { get; set; }
 
+    // Client-generated once per compose-attempt (never per retry of the same attempt) —
+    // only set on a fresh send (RespondsToMessageId null), never on an answer, which already
+    // has its own dedup via RespondsToMessageId's unique index. Lets a genuinely-concurrent
+    // double-invocation (e.g. a fast double-tap landing before a sheet visually dismisses)
+    // be recognized as the same attempt server-side instead of creating a real duplicate.
+    public Guid? ClientMessageId { get; set; }
+
     public DateTime? ReadAt { get; set; }
     public DateTime CreatedAt { get; set; }
 }
