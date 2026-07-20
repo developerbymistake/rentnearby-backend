@@ -3,9 +3,9 @@ using RentNearBy.Core.DTOs.Requests;
 
 namespace RentNearBy.Api.Validators;
 
-public class UpdateProfileRequestValidator : AbstractValidator<UpdateProfileRequest>
+public class UpdateNameRequestValidator : AbstractValidator<UpdateNameRequest>
 {
-    public UpdateProfileRequestValidator()
+    public UpdateNameRequestValidator()
     {
         RuleFor(x => x.Name)
             .NotNull().WithMessage("Name is required.")

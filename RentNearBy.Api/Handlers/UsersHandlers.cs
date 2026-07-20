@@ -21,10 +21,15 @@ public static class UsersHandlers
         return OkResponse(user.Adapt<UserDto>());
     }
 
-    public static async Task<IResult> UpdateProfile(
-        UpdateProfileRequest request,
+    // Two independent identity/privacy actions, two independent endpoints — was previously one
+    // combined UpdateProfile handler that always required Name even when only the visibility
+    // toggle changed. Each is its own user-facing action in the app (edit-name sheet vs.
+    // visibility-confirm sheet) with its own validation shape, so they get their own routes
+    // rather than one generic endpoint doing partial updates via nullable fields.
+    public static async Task<IResult> UpdateName(
+        UpdateNameRequest request,
         ClaimsPrincipal principal,
-        IValidator<UpdateProfileRequest> validator,
+        IValidator<UpdateNameRequest> validator,
         IUnitOfWork unitOfWork)
     {
         var validation = await validator.ValidateAsync(request);
@@ -37,8 +42,32 @@ public static class UsersHandlers
         var user = await unitOfWork.Users.GetByIdAsync(userId);
         if (user == null) return NotFoundResponse("User not found");
 
-        if (request.Name != null) user.Name = request.Name;
-        if (request.IsContactVisible.HasValue) user.IsContactVisible = request.IsContactVisible.Value;
+        user.Name = request.Name!;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        await unitOfWork.Users.UpdateAsync(user);
+        await unitOfWork.SaveChangesAsync();
+
+        return OkResponse(user.Adapt<UserDto>());
+    }
+
+    public static async Task<IResult> UpdateContactVisibility(
+        UpdateContactVisibilityRequest request,
+        ClaimsPrincipal principal,
+        IValidator<UpdateContactVisibilityRequest> validator,
+        IUnitOfWork unitOfWork)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        if (!TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var user = await unitOfWork.Users.GetByIdAsync(userId);
+        if (user == null) return NotFoundResponse("User not found");
+
+        user.IsContactVisible = request.IsContactVisible!.Value;
         user.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.Users.UpdateAsync(user);

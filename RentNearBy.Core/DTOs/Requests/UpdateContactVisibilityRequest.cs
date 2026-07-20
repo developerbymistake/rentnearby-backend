@@ -1,7 +1,6 @@
 namespace RentNearBy.Core.DTOs.Requests;
 
-public class UpdateProfileRequest
+public class UpdateContactVisibilityRequest
 {
-    public string? Name { get; set; }
     public bool? IsContactVisible { get; set; }
 }
