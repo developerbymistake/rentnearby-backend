@@ -135,6 +135,68 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.MapGet("/.well-known/assetlinks.json", (IConfiguration configuration) =>
+{
+    var packageName = configuration["AppLinks:PackageName"];
+    var fingerprints = configuration.GetSection("AppLinks:Sha256Fingerprints").Get<string[]>() ?? [];
+    return Results.Json(new object[]
+    {
+        new
+        {
+            relation = new[] { "delegate_permission/common.handle_all_urls" },
+            target = new
+            {
+                @namespace = "android_app",
+                package_name = packageName,
+                sha256_cert_fingerprints = fingerprints,
+            },
+        },
+    });
+});
+
+// Smart marketing link for QR codes/posters: the OS intercepts this URL before it ever reaches this
+// handler when Android has verified the App Link and the app is installed (see assetlinks.json above) —
+// this route only ever executes for "app not installed", "verification not yet propagated", or a
+// non-Android visitor, so it's a static fallback page rather than doing any server-side UA sniffing
+// (which is unreliable in WebViews/in-app browsers anyway).
+app.MapGet("/app", (IConfiguration configuration) =>
+{
+    var playStoreUrl = configuration["AppLinks:PlayStoreUrl"];
+    var appStoreUrl = configuration["AppLinks:AppStoreUrl"];
+    var appStoreButton = string.IsNullOrEmpty(appStoreUrl)
+        ? ""
+        : $"""<a class="btn store" href="{appStoreUrl}">Download on the App Store</a>""";
+
+    var html = """
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bakhli — Rooms & Plots Near You</title>
+<meta name="description" content="Find nearby rooms, PG, flats & plots for rent. Browse on a live map and connect straight with owners.">
+<meta property="og:title" content="Bakhli — Rooms & Plots Near You">
+<meta property="og:description" content="Find nearby rooms, PG, flats & plots for rent. Browse on a live map and connect straight with owners.">
+<meta property="og:url" content="https://developerbymistake.tech/app">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<style>body{font-family:sans-serif;max-width:520px;margin:64px auto;padding:0 24px;color:#1e293b;text-align:center}h1{color:#1e3a8a;margin-bottom:8px}p.tagline{color:#475569;margin-top:0}.card{background:#f1f5f9;border-radius:12px;padding:32px 24px;margin:24px 0}.btn{display:block;background:#1e3a8a;color:white;text-decoration:none;padding:14px 20px;border-radius:8px;font-weight:bold;margin:12px auto;max-width:280px}.btn.store{background:#000}.url{font-size:14px;color:#64748b;word-break:break-all;margin-top:16px}</style>
+</head>
+<body>
+<h1>Bakhli</h1>
+<p class="tagline">Rooms, PG, flats &amp; plots for rent — near you.</p>
+<div class="card">
+<p>Get the app to browse live listings on the map and chat directly with owners.</p>
+<a class="btn" href="__PLAY_STORE_URL__">Get it on Google Play</a>
+__APP_STORE_BUTTON__
+<p class="url">https://developerbymistake.tech/app</p>
+</div>
+</body></html>
+"""
+        .Replace("__PLAY_STORE_URL__", playStoreUrl)
+        .Replace("__APP_STORE_BUTTON__", appStoreButton);
+
+    return Results.Content(html, "text/html");
+});
+
 app.MapGet("/delete-account", () => Results.Content("""
 <!DOCTYPE html>
 <html lang="en">
