@@ -60,7 +60,7 @@ public static class DataSeeder
         {
             Id = WellKnownCoupons.WelcomeSignupCouponId,
             Code = null,
-            CoinValue = 100,
+            CoinValue = 300,
             TriggerType = WellKnownCoupons.WelcomeSignupTrigger,
             PerUserLimit = 1,
             MaxTotalRedemptions = null,
