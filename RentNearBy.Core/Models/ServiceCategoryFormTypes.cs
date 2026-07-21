@@ -7,4 +7,5 @@ public static class ServiceCategoryFormTypes
     public const string Travel = "Travel";
     public const string Event = "Event";
     public const string Consultation = "Consultation";
+    public const string Education = "Education";
 }

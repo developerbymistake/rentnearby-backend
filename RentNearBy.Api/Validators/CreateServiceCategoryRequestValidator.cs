@@ -16,7 +16,7 @@ public class CreateServiceCategoryRequestValidator : AbstractValidator<CreateSer
             .MaximumLength(100);
 
         RuleFor(x => x.FormType)
-            .Must(f => f is "Travel" or "Event" or "Consultation")
-            .WithMessage("FormType must be one of: Travel, Event, Consultation");
+            .Must(f => f is "Travel" or "Event" or "Consultation" or "Education")
+            .WithMessage("FormType must be one of: Travel, Event, Consultation, Education");
     }
 }
