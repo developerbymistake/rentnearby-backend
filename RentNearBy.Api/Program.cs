@@ -157,12 +157,14 @@ app.MapGet("/.well-known/assetlinks.json", (IConfiguration configuration) =>
 // Smart marketing link for QR codes/posters: the OS intercepts this URL before it ever reaches this
 // handler when Android has verified the App Link and the app is installed (see assetlinks.json above) —
 // this route only ever executes for "app not installed", "verification not yet propagated", or a
-// non-Android visitor, so it's a static fallback page rather than doing any server-side UA sniffing
-// (which is unreliable in WebViews/in-app browsers anyway).
+// non-Android visitor. Because App Links already handled the "app is installed" case at the OS level
+// before this page could ever load, there's no custom-scheme/timer gambit needed here — this page can
+// go straight to the platform store the instant it loads, based on a client-side UA check (server-side
+// UA sniffing is unreliable in WebViews/in-app browsers, hence JS not a redirect header).
 app.MapGet("/app", (IConfiguration configuration) =>
 {
-    var playStoreUrl = configuration["AppLinks:PlayStoreUrl"];
-    var appStoreUrl = configuration["AppLinks:AppStoreUrl"];
+    var playStoreUrl = configuration["AppLinks:PlayStoreUrl"] ?? "";
+    var appStoreUrl = configuration["AppLinks:AppStoreUrl"] ?? "";
     var appStoreButton = string.IsNullOrEmpty(appStoreUrl)
         ? ""
         : $"""<a class="btn store" href="{appStoreUrl}">Download on the App Store</a>""";
@@ -178,21 +180,35 @@ app.MapGet("/app", (IConfiguration configuration) =>
 <meta property="og:url" content="https://developerbymistake.tech/app">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary">
-<style>body{font-family:sans-serif;max-width:520px;margin:64px auto;padding:0 24px;color:#1e293b;text-align:center}h1{color:#1e3a8a;margin-bottom:8px}p.tagline{color:#475569;margin-top:0}.card{background:#f1f5f9;border-radius:12px;padding:32px 24px;margin:24px 0}.btn{display:block;background:#1e3a8a;color:white;text-decoration:none;padding:14px 20px;border-radius:8px;font-weight:bold;margin:12px auto;max-width:280px}.btn.store{background:#000}.url{font-size:14px;color:#64748b;word-break:break-all;margin-top:16px}</style>
+<style>body{font-family:sans-serif;max-width:520px;margin:64px auto;padding:0 24px;color:#1e293b;text-align:center}h1{color:#1e3a8a;margin-bottom:8px}p.tagline{color:#475569;margin-top:0}.card{background:#f1f5f9;border-radius:12px;padding:32px 24px;margin:24px 0}.btn{display:block;background:#1e3a8a;color:white;text-decoration:none;padding:14px 20px;border-radius:8px;font-weight:bold;margin:12px auto;max-width:280px}.btn.store{background:#000}.hint{font-size:13px;color:#64748b;margin-top:16px}</style>
 </head>
 <body>
 <h1>Bakhli</h1>
 <p class="tagline">Rooms, PG, flats &amp; plots for rent — near you.</p>
 <div class="card">
-<p>Get the app to browse live listings on the map and chat directly with owners.</p>
+<p>Taking you to the app…</p>
 <a class="btn" href="__PLAY_STORE_URL__">Get it on Google Play</a>
 __APP_STORE_BUTTON__
-<p class="url">https://developerbymistake.tech/app</p>
+<p class="hint">If nothing happens automatically, tap the button above.</p>
 </div>
+<script>
+(function () {
+  var ua = navigator.userAgent || navigator.vendor || "";
+  var playStoreUrl = __PLAY_STORE_URL_JS__;
+  var appStoreUrl = __APP_STORE_URL_JS__;
+  if (/android/i.test(ua) && playStoreUrl) {
+    window.location.replace(playStoreUrl);
+  } else if (/iPad|iPhone|iPod/.test(ua) && appStoreUrl) {
+    window.location.replace(appStoreUrl);
+  }
+})();
+</script>
 </body></html>
 """
         .Replace("__PLAY_STORE_URL__", playStoreUrl)
-        .Replace("__APP_STORE_BUTTON__", appStoreButton);
+        .Replace("__APP_STORE_BUTTON__", appStoreButton)
+        .Replace("__PLAY_STORE_URL_JS__", System.Text.Json.JsonSerializer.Serialize(playStoreUrl))
+        .Replace("__APP_STORE_URL_JS__", System.Text.Json.JsonSerializer.Serialize(appStoreUrl));
 
     return Results.Content(html, "text/html");
 });
