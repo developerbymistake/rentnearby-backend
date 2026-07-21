@@ -6,4 +6,4 @@ namespace RentNearBy.Core.DTOs.Requests;
 // UserId is required and immutable — an Agent is a role on an existing consumer account, never a
 // separate identity, and is never re-linked after creation (delete and recreate instead, matching
 // ServiceCategory.ServiceSectionId's convention).
-public record CreateAgentRequest(string Name, string Phone, string WhatsAppNumber, Guid UserId);
+public record CreateAgentRequest(string Name, string Phone, string WhatsAppNumber, Guid UserId, int? Experience);

@@ -11,4 +11,7 @@ public class AssignedAgentDto
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string PhotoUrl { get; set; } = string.Empty;
+    // Years of experience — the one deliberate exception to this DTO's identity-only minimalism,
+    // shown on the consumer's assigned-agent card to build trust. Never phone/contact info.
+    public int? Experience { get; set; }
 }

@@ -13,6 +13,10 @@ public class Agent
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
 
+    // Years of experience, admin-entered, shown to consumers on their assigned-agent card to build
+    // trust — optional since it may not be known/entered at creation time.
+    public int? Experience { get; set; }
+
     // The consumer account this Agent logs in as — an Agent is a role on an existing User, not a
     // separate identity (no separate Agent login/session exists). Nullable at the DB/entity level
     // only for migration safety; the API requires it on create and never allows changing it after

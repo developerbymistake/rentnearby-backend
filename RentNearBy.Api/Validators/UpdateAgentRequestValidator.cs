@@ -19,5 +19,9 @@ public class UpdateAgentRequestValidator : AbstractValidator<UpdateAgentRequest>
         RuleFor(x => x.WhatsAppNumber)
             .Matches(@"^\d{10}$").WithMessage("WhatsAppNumber must be 10 digits")
             .When(x => x.WhatsAppNumber != null);
+
+        RuleFor(x => x.Experience)
+            .InclusiveBetween(0, 60).WithMessage("Experience must be between 0 and 60 years")
+            .When(x => x.Experience != null);
     }
 }

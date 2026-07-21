@@ -11,6 +11,7 @@ public class AgentDto
     public string PhotoUrl { get; set; } = string.Empty;
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
+    public int? Experience { get; set; }
     // The linked consumer account this Agent logs in as — always set in practice (required on
     // create, never removable), denormalized here so the admin panel can show who it is without a
     // second lookup.

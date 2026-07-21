@@ -21,5 +21,9 @@ public class CreateAgentRequestValidator : AbstractValidator<CreateAgentRequest>
 
         RuleFor(x => x.UserId)
             .NotEmpty().WithMessage("UserId is required — link this agent to an existing app account");
+
+        RuleFor(x => x.Experience)
+            .InclusiveBetween(0, 60).WithMessage("Experience must be between 0 and 60 years")
+            .When(x => x.Experience != null);
     }
 }

@@ -78,6 +78,7 @@ public static class AgentHandlers
             IsActive = true,
             UserId = request.UserId,
             CreatedAt = DateTime.UtcNow,
+            Experience = request.Experience,
         };
 
         await unitOfWork.Agents.AddAsync(agent);
@@ -100,6 +101,7 @@ public static class AgentHandlers
         if (request.Phone != null) agent.Phone = request.Phone.Trim();
         if (request.WhatsAppNumber != null) agent.WhatsAppNumber = request.WhatsAppNumber.Trim();
         if (request.IsActive.HasValue) agent.IsActive = request.IsActive.Value;
+        if (request.Experience.HasValue) agent.Experience = request.Experience.Value;
 
         await unitOfWork.SaveChangesAsync();
 
