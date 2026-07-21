@@ -726,46 +726,26 @@ public static class DataSeeder
                 true),
 
             // Tour, Travel & Camping (category 2) — one Service per itinerary/experience
-            (4, 2, "Custom Uttarakhand Circuit", "airplane",
-                "Build-your-own multi-day circuit across Uttarakhand's hill stations.",
-                "A fully customisable multi-day tour across Uttarakhand — pick your own mix of hill stations. Pricing starts at a base and scales with your chosen plan.",
-                false),
-            (5, 2, "Nainital-Mussoorie Duo Tour", "airplane",
+            (4, 2, "Nainital-Mussoorie Duo Tour", "airplane",
                 "5D/4N covering both Nainital and Mussoorie.",
                 "A 5-day, 4-night tour covering both Nainital and Mussoorie's top sightseeing spots, with hotel stays and local transport.",
                 true),
-            (6, 2, "Kumaon Hills Explorer", "airplane",
-                "6D/5N exploring the Kumaon hills.",
-                "A 6-day, 5-night circuit through the Kumaon region's hill towns and viewpoints, with hotel stays, meals and a tour guide.",
-                false),
-            (7, 2, "Garhwal Discovery Tour", "airplane",
-                "7D/6N exploring the Garhwal hills.",
-                "A 7-day, 6-night circuit through the Garhwal region, covering major hill stations, sightseeing and entry tickets.",
-                false),
-            (8, 2, "Riverside Camping", "tree",
+            (5, 2, "Riverside Camping", "tree",
                 "Riverside camping with bonfire, for couples, friends or families.",
                 "Riverside camping packages with bonfire and overnight stay — available as a standard 2D/1N trip or a family camping weekend.",
                 true),
-            (9, 2, "Trekking & Camping Combo", "tree",
-                "3D/2N combining a guided trek with camping.",
-                "A 3-day, 2-night combo of a guided trek and riverside camping, with a local expert guide.",
-                false),
-            (10, 2, "Adventure Sports", "tree",
-                "Single-day river rafting and adventure sports.",
-                "A single-day adventure sports package — river rafting, rappelling and more, guided by local experts with first-aid support on-site.",
-                false),
 
             // Yoga & Diet (category 3) — Consultation vertical: every plan is a custom quote, the
             // team hears the query and quotes offline (platform is the middleman only).
-            (11, 3, "1-on-1 Yoga Session", "activity",
+            (6, 3, "1-on-1 Yoga Session", "activity",
                 "Private one-on-one yoga sessions.",
                 "Private yoga sessions with an instructor, one-on-one — choose a regular session or one with a certified instructor. Share your requirement and get a custom quote.",
                 false),
-            (12, 3, "Corporate Yoga Workshop", "activity",
+            (7, 3, "Corporate Yoga Workshop", "activity",
                 "Yoga workshops for corporate teams.",
                 "Yoga workshops for corporate teams — a single session or an ongoing monthly program. Share your requirement and get a custom quote.",
                 false),
-            (13, 3, "Personalised Diet Plan", "weight",
+            (8, 3, "Personalised Diet Plan", "weight",
                 "Personalised diet plans from a certified nutritionist — weight loss, weight gain or diabetic-friendly.",
                 "Personalised diet plans from a certified nutritionist, with ongoing consultation support. Choose a weight-loss, weight-gain or diabetic-friendly plan — share your requirement and get a custom quote.",
                 true),
@@ -819,40 +799,25 @@ public static class DataSeeder
             (6, 3, "Char Dham Yatra Complete - 11D/10N", 27999, 32999, 15, true, 11, 10, "per person", 2, false),
             (7, 3, "Helicopter Char Dham Yatra - 5D/4N", 45999, 52999, 13, true, 5, 4, "per person", 3, false),
 
-            // Custom Uttarakhand Circuit (service 4)
-            (8, 4, "Custom Uttarakhand Circuit", 6999, null, null, true, 3, 2, "per person", 1, false),
+            // Nainital-Mussoorie Duo Tour (service 4)
+            (8, 4, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 1, true),
 
-            // Nainital-Mussoorie Duo Tour (service 5)
-            (9, 5, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 1, true),
+            // Riverside Camping (service 5)
+            (9, 5, "Riverside Camping - 2D/1N", 2999, 3499, 14, true, 2, 1, "per person", 1, true),
+            (10, 5, "Family Camping Weekend - 2D/1N", 3499, null, null, true, 2, 1, "per person", 2, false),
 
-            // Kumaon Hills Explorer (service 6)
-            (10, 6, "Kumaon Hills Explorer", 11999, 13999, 14, true, 6, 5, "per person", 1, false),
+            // 1-on-1 Yoga Session (service 6)
+            (11, 6, "Regular Session", null, null, null, false, null, null, null, 1, false),
+            (12, 6, "Session with Certified Instructor", null, null, null, false, null, null, null, 2, true),
 
-            // Garhwal Discovery Tour (service 7)
-            (11, 7, "Garhwal Discovery Tour", 15999, null, null, true, 7, 6, "per person", 1, false),
+            // Corporate Yoga Workshop (service 7)
+            (13, 7, "Single Session Workshop", null, null, null, false, null, null, null, 1, false),
+            (14, 7, "Monthly Corporate Program", null, null, null, false, null, null, null, 2, true),
 
-            // Riverside Camping (service 8)
-            (12, 8, "Riverside Camping - 2D/1N", 2999, 3499, 14, true, 2, 1, "per person", 1, true),
-            (13, 8, "Family Camping Weekend - 2D/1N", 3499, null, null, true, 2, 1, "per person", 2, false),
-
-            // Trekking & Camping Combo (service 9)
-            (14, 9, "Trekking & Camping Combo - 3D/2N", 5999, null, null, true, 3, 2, "per person", 1, false),
-
-            // Adventure Sports (service 10)
-            (15, 10, "Adventure Sports Day Package", 1999, null, null, true, 1, 0, "per person", 1, false),
-
-            // 1-on-1 Yoga Session (service 11)
-            (16, 11, "Regular Session", null, null, null, false, null, null, null, 1, false),
-            (17, 11, "Session with Certified Instructor", null, null, null, false, null, null, null, 2, true),
-
-            // Corporate Yoga Workshop (service 12)
-            (18, 12, "Single Session Workshop", null, null, null, false, null, null, null, 1, false),
-            (19, 12, "Monthly Corporate Program", null, null, null, false, null, null, null, 2, true),
-
-            // Personalised Diet Plan (service 13)
-            (20, 13, "Weight Loss Plan", null, null, null, false, null, null, null, 1, true),
-            (21, 13, "Weight Gain Plan", null, null, null, false, null, null, null, 2, false),
-            (22, 13, "Diabetic-Friendly Plan", null, null, null, false, null, null, null, 3, false),
+            // Personalised Diet Plan (service 8)
+            (15, 8, "Weight Loss Plan", null, null, null, false, null, null, null, 1, true),
+            (16, 8, "Weight Gain Plan", null, null, null, false, null, null, null, 2, false),
+            (17, 8, "Diabetic-Friendly Plan", null, null, null, false, null, null, null, 3, false),
         };
 
         var now = DateTime.UtcNow;
@@ -888,14 +853,11 @@ public static class DataSeeder
         // here match the restructured package list in SeedServicePackagesAsync above.
         var mappings = new (int PackageIdx, int[] InclusionIdxs)[]
         {
-            (5,  new[] { 1, 2, 3, 5 }),         // Do Dham Yatra: Hotel, Meals, Transport, Travel Insurance
-            (6,  new[] { 1, 2, 3, 4, 5 }),      // Char Dham Complete: + Tour Guide
-            (7,  new[] { 1, 2, 4, 5, 9 }),      // Helicopter Char Dham: + First Aid Kit
-            (9,  new[] { 1, 2, 3, 6 }),         // Nainital-Mussoorie Duo Tour: + Sightseeing
-            (10, new[] { 1, 2, 4, 6 }),         // Kumaon Hills Explorer
-            (11, new[] { 1, 2, 3, 6, 8 }),      // Garhwal Discovery Tour: + Entry Tickets
-            (12, new[] { 2, 4, 9 }),            // Riverside Camping: Meals, Tour Guide, First Aid Kit
-            (14, new[] { 2, 4, 8, 9 }),         // Trekking & Camping Combo: + Entry Tickets
+            (5, new[] { 1, 2, 3, 5 }),          // Do Dham Yatra: Hotel, Meals, Transport, Travel Insurance
+            (6, new[] { 1, 2, 3, 4, 5 }),       // Char Dham Complete: + Tour Guide
+            (7, new[] { 1, 2, 4, 5, 9 }),       // Helicopter Char Dham: + First Aid Kit
+            (8, new[] { 1, 2, 3, 6 }),          // Nainital-Mussoorie Duo Tour: + Sightseeing
+            (9, new[] { 2, 4, 9 }),             // Riverside Camping: Meals, Tour Guide, First Aid Kit
         };
 
         foreach (var m in mappings)
