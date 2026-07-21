@@ -11,6 +11,7 @@ public static class ChatEndpoints
         group.MapGet("/conversations/{conversationId:guid}/messages", ChatHandlers.GetMessages).RequireAuthorization();
         group.MapPost("/conversations/{conversationId:guid}/messages", ChatHandlers.SendMessage).RequireAuthorization();
         group.MapPost("/conversations/{conversationId:guid}/read", ChatHandlers.MarkRead).RequireAuthorization();
+        group.MapGet("/unread-count", ChatHandlers.GetUnreadCount).RequireAuthorization();
 
         group.MapPost("/messages/{messageId:guid}/contact-response", ChatHandlers.RespondContact).RequireAuthorization();
         group.MapPost("/messages/{messageId:guid}/schedule-response", ChatHandlers.RespondSchedule).RequireAuthorization();

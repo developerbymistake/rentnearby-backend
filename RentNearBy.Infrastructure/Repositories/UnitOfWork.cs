@@ -36,7 +36,6 @@ public class UnitOfWork : IUnitOfWork
     private ICouponRepository? _coupons;
     private ICouponRedemptionRepository? _couponRedemptions;
     private ICoinPackPurchaseRepository? _coinPackPurchases;
-    private IServiceSectionRepository? _serviceSections;
     private IServiceCategoryRepository? _serviceCategories;
     private IServiceRepository? _services;
     private IServicePackageRepository? _servicePackages;
@@ -79,7 +78,6 @@ public class UnitOfWork : IUnitOfWork
     public ICouponRepository Coupons => _coupons ??= new CouponRepository(_context);
     public ICouponRedemptionRepository CouponRedemptions => _couponRedemptions ??= new CouponRedemptionRepository(_context);
     public ICoinPackPurchaseRepository CoinPackPurchases => _coinPackPurchases ??= new CoinPackPurchaseRepository(_context);
-    public IServiceSectionRepository ServiceSections => _serviceSections ??= new ServiceSectionRepository(_context);
     public IServiceCategoryRepository ServiceCategories => _serviceCategories ??= new ServiceCategoryRepository(_context);
     public IServiceRepository Services => _services ??= new ServiceRepository(_context);
     public IServicePackageRepository ServicePackages => _servicePackages ??= new ServicePackageRepository(_context);

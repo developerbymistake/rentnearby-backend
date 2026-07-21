@@ -4,7 +4,7 @@ namespace RentNearBy.Core.Interfaces;
 
 public interface IServiceCategoryRepository : IRepository<ServiceCategory>
 {
-    // serviceSectionId == null returns every category (flat-route optional query-param convention,
-    // matches GET /admin/cities?districtId=).
-    Task<IEnumerable<ServiceCategory>> GetByServiceSectionIdAsync(Guid? serviceSectionId);
+    // Categories ARE the catalog's top level (one consumer rail per active row) — the full
+    // ordered list is the only shape anyone needs.
+    Task<IEnumerable<ServiceCategory>> GetAllOrderedAsync();
 }

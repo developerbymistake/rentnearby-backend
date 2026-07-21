@@ -282,13 +282,13 @@ public static class InquiryHandlers
     // ── Admin-facing ─────────────────────────────────────────────────────────
 
     public static async Task<IResult> AdminGetInquiries(
-        IUnitOfWork unitOfWork, string? status = null, Guid? serviceSectionId = null,
+        IUnitOfWork unitOfWork, string? status = null, Guid? serviceCategoryId = null,
         bool? escalatedOnly = null, int page = 1, int pageSize = 20)
     {
         if (pageSize < 1 || pageSize > 50) pageSize = 20;
         if (page < 1) page = 1;
 
-        var (items, hasMore) = await unitOfWork.Inquiries.GetAdminFilteredPagedAsync(status, serviceSectionId, escalatedOnly, page, pageSize);
+        var (items, hasMore) = await unitOfWork.Inquiries.GetAdminFilteredPagedAsync(status, serviceCategoryId, escalatedOnly, page, pageSize);
         var dtos = items.Select(i => i.Adapt<InquiryListItemDto>());
         return OkResponse(new { items = dtos, hasMore });
     }

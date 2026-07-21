@@ -72,4 +72,9 @@ public class ConversationRepository : Repository<Conversation>, IConversationRep
             .Select(c => recipientIsRenter ? c.UnreadCountForRenter : c.UnreadCountForOwner)
             .FirstAsync();
     }
+
+    public async Task<int> GetTotalUnreadForUserAsync(Guid userId)
+        => await _context.Conversations
+            .Where(c => c.RenterId == userId || c.OwnerId == userId)
+            .SumAsync(c => c.RenterId == userId ? c.UnreadCountForRenter : c.UnreadCountForOwner);
 }

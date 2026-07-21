@@ -7,9 +7,9 @@ public interface IInquiryRepository : IRepository<Inquiry>
     // Consumer "My Inquiries" — shared across both verticals in one list.
     Task<IEnumerable<Inquiry>> GetByUserIdAsync(Guid userId);
 
-    // Admin paginated list with optional status/section/escalated-only filter chips.
+    // Admin paginated list with optional status/category/escalated-only filter chips.
     Task<(IReadOnlyList<Inquiry> Items, bool HasMore)> GetAdminFilteredPagedAsync(
-        string? status, Guid? serviceSectionId, bool? escalatedOnly, int page, int pageSize);
+        string? status, Guid? serviceCategoryId, bool? escalatedOnly, int page, int pageSize);
 
     // Agent's own "My Leads" — paginated, scoped to a single agentId derived server-side from the
     // caller's own JWT, never a client-supplied id.
@@ -25,7 +25,7 @@ public interface IInquiryRepository : IRepository<Inquiry>
     // (Submitted only, not every live status) — see the plan's Design decisions for why.
     Task<int> CountByAssignedAgentIdAndStatusAsync(Guid agentId, string status);
 
-    // For InquiryDetailDto assembly: Service -> ServiceCategory -> ServiceSection, ServicePackage,
+    // For InquiryDetailDto assembly: Service -> ServiceCategory, ServicePackage,
     // AssignedAgent -> AgentServiceCategories, StatusHistory -> ChangedByAdmin, all in one query.
     Task<Inquiry?> GetByIdWithDetailsAsync(Guid id);
 

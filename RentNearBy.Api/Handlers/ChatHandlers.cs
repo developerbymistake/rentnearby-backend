@@ -399,6 +399,16 @@ public static class ChatHandlers
         return OkResponse(new { success = true });
     }
 
+    // Same `{ count }` shape as NotificationInboxHandlers.GetUnreadCount so the client can
+    // parse both unread-count endpoints identically.
+    public static async Task<IResult> GetUnreadCount(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
+
+        var count = await unitOfWork.Conversations.GetTotalUnreadForUserAsync(callerId);
+        return OkResponse(new { count });
+    }
+
     // ── Contact request/response ────────────────────────────────────────────
 
     public static async Task<IResult> RespondContact(

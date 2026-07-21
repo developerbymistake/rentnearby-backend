@@ -18,7 +18,7 @@ public class InquiryRepository(ApplicationDbContext context)
 
     public async Task<IEnumerable<Inquiry>> GetByUserIdAsync(Guid userId)
         => await _dbSet.AsNoTracking()
-            .Include(i => i.Service).ThenInclude(s => s.ServiceCategory).ThenInclude(c => c.ServiceSection)
+            .Include(i => i.Service).ThenInclude(s => s.ServiceCategory)
             .Include(i => i.ServicePackage)
             .Include(i => i.InquiryAgents).ThenInclude(ia => ia.Agent)
             .Include(i => i.Escalations)
@@ -27,10 +27,10 @@ public class InquiryRepository(ApplicationDbContext context)
             .ToListAsync();
 
     public async Task<(IReadOnlyList<Inquiry> Items, bool HasMore)> GetAdminFilteredPagedAsync(
-        string? status, Guid? serviceSectionId, bool? escalatedOnly, int page, int pageSize)
+        string? status, Guid? serviceCategoryId, bool? escalatedOnly, int page, int pageSize)
     {
         var query = _dbSet.AsNoTracking()
-            .Include(i => i.Service).ThenInclude(s => s.ServiceCategory).ThenInclude(c => c.ServiceSection)
+            .Include(i => i.Service).ThenInclude(s => s.ServiceCategory)
             .Include(i => i.ServicePackage)
             .Include(i => i.InquiryAgents).ThenInclude(ia => ia.Agent)
             .Include(i => i.Escalations)
@@ -38,8 +38,8 @@ public class InquiryRepository(ApplicationDbContext context)
 
         if (!string.IsNullOrWhiteSpace(status))
             query = query.Where(i => i.Status == status);
-        if (serviceSectionId != null)
-            query = query.Where(i => i.Service.ServiceCategory.ServiceSectionId == serviceSectionId);
+        if (serviceCategoryId != null)
+            query = query.Where(i => i.Service.ServiceCategoryId == serviceCategoryId);
         if (escalatedOnly == true)
             query = query.Where(i => i.Escalations.Any(esc => esc.Status == "Pending"));
 
@@ -59,7 +59,7 @@ public class InquiryRepository(ApplicationDbContext context)
     {
         var take = pageSize + 1;
         var items = await _dbSet.AsNoTracking()
-            .Include(i => i.Service).ThenInclude(s => s.ServiceCategory).ThenInclude(c => c.ServiceSection)
+            .Include(i => i.Service).ThenInclude(s => s.ServiceCategory)
             .Include(i => i.ServicePackage)
             .Include(i => i.InquiryAgents).ThenInclude(ia => ia.Agent)
             .Include(i => i.Escalations)
@@ -82,7 +82,7 @@ public class InquiryRepository(ApplicationDbContext context)
 
     public async Task<Inquiry?> GetByIdWithDetailsAsync(Guid id)
         => await _dbSet.AsNoTracking()
-            .Include(i => i.Service).ThenInclude(s => s.ServiceCategory).ThenInclude(c => c.ServiceSection)
+            .Include(i => i.Service).ThenInclude(s => s.ServiceCategory)
             .Include(i => i.ServicePackage)
             .Include(i => i.InquiryAgents).ThenInclude(ia => ia.Agent)
             .Include(i => i.Escalations)

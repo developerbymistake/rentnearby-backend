@@ -8,9 +8,8 @@ namespace RentNearBy.Infrastructure.Repositories;
 public class ServiceCategoryRepository(ApplicationDbContext context)
     : Repository<ServiceCategory>(context), IServiceCategoryRepository
 {
-    public async Task<IEnumerable<ServiceCategory>> GetByServiceSectionIdAsync(Guid? serviceSectionId)
+    public async Task<IEnumerable<ServiceCategory>> GetAllOrderedAsync()
         => await _dbSet.AsNoTracking()
-            .Where(c => serviceSectionId == null || c.ServiceSectionId == serviceSectionId)
             .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
             .ToListAsync();
 }

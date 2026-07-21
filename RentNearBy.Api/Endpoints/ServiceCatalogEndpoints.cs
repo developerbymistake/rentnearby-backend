@@ -1,4 +1,5 @@
 using RentNearBy.Api.Handlers;
+using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Endpoints;
 
@@ -9,8 +10,11 @@ public static class ServiceCatalogEndpoints
     // both /admin/districts and /listings/locations/districts.
     public static RouteGroupBuilder MapServiceCatalogEndpoints(this RouteGroupBuilder group)
     {
-        group.MapGet("/sections", ServiceCatalogHandlers.GetServiceSections);
-        group.MapGet("/sections/{id:guid}", ServiceCatalogHandlers.GetServiceSectionById);
+        // TEMPORARY back-compat stub: pre-redesign consumer builds load the catalog with a
+        // Future.wait that includes GET /sections — an empty array keeps that batch (and their
+        // Rooms/Plots-adjacent home rails) failing soft instead of 404-ing the whole load.
+        // Remove once the section-era app builds have aged out.
+        group.MapGet("/sections", () => OkResponse(Array.Empty<object>()));
 
         group.MapGet("/categories", ServiceCatalogHandlers.GetServiceCategories);
         group.MapGet("/categories/{id:guid}", ServiceCatalogHandlers.GetServiceCategoryById);
@@ -32,19 +36,14 @@ public static class ServiceCatalogEndpoints
     // filter, exact convention of GET /admin/cities?districtId=.
     public static RouteGroupBuilder MapAdminServiceCatalogEndpoints(this RouteGroupBuilder group)
     {
-        // Service Sections
-        group.MapGet("/service-sections", ServiceCatalogHandlers.GetServiceSections);
-        group.MapGet("/service-sections/{id:guid}", ServiceCatalogHandlers.GetServiceSectionById);
-        group.MapPost("/service-sections", ServiceCatalogHandlers.AdminCreateServiceSection).RequireAuthorization("AdminOnly");
-        group.MapPut("/service-sections/{id:guid}", ServiceCatalogHandlers.AdminUpdateServiceSection).RequireAuthorization("AdminOnly");
-        group.MapDelete("/service-sections/{id:guid}", ServiceCatalogHandlers.AdminDeleteServiceSection).RequireAuthorization("AdminOnly");
-
-        // Service Categories
+        // Service Categories (the catalog's top level — one consumer rail per active category)
         group.MapGet("/service-categories", ServiceCatalogHandlers.GetServiceCategories);
         group.MapGet("/service-categories/{id:guid}", ServiceCatalogHandlers.GetServiceCategoryById);
         group.MapPost("/service-categories", ServiceCatalogHandlers.AdminCreateServiceCategory).RequireAuthorization("AdminOnly");
         group.MapPut("/service-categories/{id:guid}", ServiceCatalogHandlers.AdminUpdateServiceCategory).RequireAuthorization("AdminOnly");
         group.MapDelete("/service-categories/{id:guid}", ServiceCatalogHandlers.AdminDeleteServiceCategory).RequireAuthorization("AdminOnly");
+        group.MapPost("/service-categories/{id:guid}/cover-photo", ServiceCatalogHandlers.AdminUploadServiceCategoryCoverPhoto).RequireAuthorization("AdminOnly").DisableAntiforgery();
+        group.MapDelete("/service-categories/{id:guid}/cover-photo", ServiceCatalogHandlers.AdminDeleteServiceCategoryCoverPhoto).RequireAuthorization("AdminOnly");
 
         // Services (+ cover photo)
         group.MapGet("/services", ServiceCatalogHandlers.GetServices);

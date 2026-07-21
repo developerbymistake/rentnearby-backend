@@ -38,7 +38,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Coupon> Coupons { get; set; }
     public DbSet<CouponRedemption> CouponRedemptions { get; set; }
     public DbSet<CoinPackPurchase> CoinPackPurchases { get; set; }
-    public DbSet<ServiceSection> ServiceSections { get; set; }
     public DbSet<ServiceCategory> ServiceCategories { get; set; }
     public DbSet<Service> Services { get; set; }
     public DbSet<ServicePackage> ServicePackages { get; set; }
@@ -669,25 +668,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<ServiceSection>(e =>
-        {
-            e.HasKey(s => s.Id);
-            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
-        });
-
         modelBuilder.Entity<ServiceCategory>(e =>
         {
             e.HasKey(c => c.Id);
             e.Property(c => c.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
-
-            e.HasOne(c => c.ServiceSection)
-             .WithMany(s => s.Categories)
-             .HasForeignKey(c => c.ServiceSectionId)
-             .OnDelete(DeleteBehavior.Restrict);
-
-            e.HasIndex(c => c.ServiceSectionId);
         });
 
         modelBuilder.Entity<Service>(e =>

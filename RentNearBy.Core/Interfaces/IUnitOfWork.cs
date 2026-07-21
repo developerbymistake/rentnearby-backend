@@ -30,7 +30,6 @@ public interface IUnitOfWork : IDisposable
     ICouponRepository Coupons { get; }
     ICouponRedemptionRepository CouponRedemptions { get; }
     ICoinPackPurchaseRepository CoinPackPurchases { get; }
-    IServiceSectionRepository ServiceSections { get; }
     IServiceCategoryRepository ServiceCategories { get; }
     IServiceRepository Services { get; }
     IServicePackageRepository ServicePackages { get; }

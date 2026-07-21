@@ -1743,6 +1743,14 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<string>("CoverPhotoFilePath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CoverPhotoUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -1763,15 +1771,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<Guid>("ServiceSectionId")
-                        .HasColumnType("uuid");
-
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ServiceSectionId");
 
                     b.ToTable("ServiceCategories");
                 });
@@ -1843,37 +1846,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("ServiceId");
 
                     b.ToTable("ServicePackages");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.ServiceSection", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<string>("IconName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("ServiceSections");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Session", b =>
@@ -2445,17 +2417,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("ServiceCategory");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.ServiceCategory", b =>
-                {
-                    b.HasOne("RentNearBy.Core.Entities.ServiceSection", "ServiceSection")
-                        .WithMany("Categories")
-                        .HasForeignKey("ServiceSectionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("ServiceSection");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.ServicePackage", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Service", "Service")
@@ -2563,11 +2524,6 @@ namespace RentNearBy.Infrastructure.Migrations
             modelBuilder.Entity("RentNearBy.Core.Entities.ServicePackage", b =>
                 {
                     b.Navigation("PackageInclusions");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.ServiceSection", b =>
-                {
-                    b.Navigation("Categories");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>

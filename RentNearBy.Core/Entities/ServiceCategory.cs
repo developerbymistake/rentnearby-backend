@@ -5,9 +5,10 @@ namespace RentNearBy.Core.Entities;
 public class ServiceCategory
 {
     public Guid Id { get; set; }
-    public Guid ServiceSectionId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string IconName { get; set; } = string.Empty;
+    public string CoverPhotoUrl { get; set; } = string.Empty;
+    public string CoverPhotoFilePath { get; set; } = string.Empty;
     // RentNearBy.Core.Models.ServiceCategoryFormTypes.* — decides which Inquiry Form fields this
     // category's Services/Packages show when a user submits a lead.
     public string FormType { get; set; } = ServiceCategoryFormTypes.Travel;
@@ -15,7 +16,6 @@ public class ServiceCategory
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
 
-    public ServiceSection ServiceSection { get; set; } = null!;
     public ICollection<Service> Services { get; set; } = new List<Service>();
     public ICollection<AgentServiceCategory> AgentServiceCategories { get; set; } = new List<AgentServiceCategory>();
 }

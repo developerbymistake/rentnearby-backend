@@ -12,89 +12,21 @@ using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
 
-// Section/Category/Service/Package/Inclusion CRUD for the Local Services Marketplace / Expert
-// Consultations catalog. GET handlers are dual-mounted under both the consumer-facing "/services/..."
-// group and the admin "/admin/service-..." group (same handler, no active-only filtering server-side —
-// mirrors AdminHandlers.GetDistricts/GetCities being mounted under both /admin/districts and
-// /listings/locations/districts). Mutations are admin-only.
+// Category/Service/Package/Inclusion CRUD for the Local Services Marketplace catalog — Categories
+// are the top level (one consumer rail per active category). GET handlers are dual-mounted under
+// both the consumer-facing "/services/..." group and the admin "/admin/service-..." group (same
+// handler, no active-only filtering server-side — mirrors AdminHandlers.GetDistricts/GetCities
+// being mounted under both /admin/districts and /listings/locations/districts). Mutations are
+// admin-only.
 public static class ServiceCatalogHandlers
 {
     private const long MaxImageBytes = 10 * 1024 * 1024;
 
-    // ── Service Sections ────────────────────────────────────────────────────
-
-    public static async Task<IResult> GetServiceSections(IUnitOfWork unitOfWork)
-    {
-        var sections = await unitOfWork.ServiceSections.GetAllOrderedAsync();
-        return OkResponse(sections.Select(s => s.Adapt<ServiceSectionDto>()));
-    }
-
-    public static async Task<IResult> GetServiceSectionById(Guid id, IUnitOfWork unitOfWork)
-    {
-        var section = await unitOfWork.ServiceSections.GetByIdAsync(id);
-        if (section == null) return NotFoundResponse("Service section not found");
-        return OkResponse(section.Adapt<ServiceSectionDto>());
-    }
-
-    public static async Task<IResult> AdminCreateServiceSection(
-        CreateServiceSectionRequest request, IValidator<CreateServiceSectionRequest> validator, IUnitOfWork unitOfWork)
-    {
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
-
-        var section = new ServiceSection
-        {
-            Id = Guid.NewGuid(),
-            Name = request.Name.Trim(),
-            IconName = request.IconName.Trim(),
-            SortOrder = request.SortOrder,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow,
-        };
-
-        await unitOfWork.ServiceSections.AddAsync(section);
-        await unitOfWork.SaveChangesAsync();
-
-        return CreatedResponse(section.Adapt<ServiceSectionDto>(), $"/api/v1/admin/service-sections/{section.Id}");
-    }
-
-    public static async Task<IResult> AdminUpdateServiceSection(
-        Guid id, UpdateServiceSectionRequest request, IValidator<UpdateServiceSectionRequest> validator, IUnitOfWork unitOfWork)
-    {
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
-
-        var section = await unitOfWork.ServiceSections.GetByIdAsync(id);
-        if (section == null) return NotFoundResponse("Service section not found");
-
-        if (request.Name != null) section.Name = request.Name.Trim();
-        if (request.IconName != null) section.IconName = request.IconName.Trim();
-        if (request.SortOrder.HasValue) section.SortOrder = request.SortOrder.Value;
-        if (request.IsActive.HasValue) section.IsActive = request.IsActive.Value;
-
-        await unitOfWork.SaveChangesAsync();
-        return OkResponse(section.Adapt<ServiceSectionDto>());
-    }
-
-    public static async Task<IResult> AdminDeleteServiceSection(Guid id, IUnitOfWork unitOfWork)
-    {
-        var section = await unitOfWork.ServiceSections.GetByIdAsync(id);
-        if (section == null) return NotFoundResponse("Service section not found");
-
-        var categories = await unitOfWork.ServiceCategories.GetByServiceSectionIdAsync(id);
-        if (categories.Any())
-            return ConflictResponse("Cannot delete a section that still has categories. Delete or move its categories first.");
-
-        await unitOfWork.ServiceSections.DeleteAsync(section);
-        await unitOfWork.SaveChangesAsync();
-        return NoContentResponse();
-    }
-
     // ── Service Categories ──────────────────────────────────────────────────
 
-    public static async Task<IResult> GetServiceCategories(Guid? serviceSectionId, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetServiceCategories(IUnitOfWork unitOfWork)
     {
-        var categories = await unitOfWork.ServiceCategories.GetByServiceSectionIdAsync(serviceSectionId);
+        var categories = await unitOfWork.ServiceCategories.GetAllOrderedAsync();
         return OkResponse(categories.Select(c => c.Adapt<ServiceCategoryDto>()));
     }
 
@@ -111,13 +43,9 @@ public static class ServiceCatalogHandlers
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var section = await unitOfWork.ServiceSections.GetByIdAsync(request.ServiceSectionId);
-        if (section == null) return NotFoundResponse("Service section not found");
-
         var category = new ServiceCategory
         {
             Id = Guid.NewGuid(),
-            ServiceSectionId = request.ServiceSectionId,
             Name = request.Name.Trim(),
             IconName = request.IconName.Trim(),
             FormType = request.FormType,
@@ -151,7 +79,8 @@ public static class ServiceCatalogHandlers
         return OkResponse(category.Adapt<ServiceCategoryDto>());
     }
 
-    public static async Task<IResult> AdminDeleteServiceCategory(Guid id, IUnitOfWork unitOfWork)
+    public static async Task<IResult> AdminDeleteServiceCategory(
+        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService)
     {
         var category = await unitOfWork.ServiceCategories.GetByIdAsync(id);
         if (category == null) return NotFoundResponse("Service category not found");
@@ -160,10 +89,48 @@ public static class ServiceCatalogHandlers
         if (services.Any())
             return ConflictResponse("Cannot delete a category that still has services. Delete or move its services first.");
 
+        if (!string.IsNullOrEmpty(category.CoverPhotoFilePath))
+            await photoService.DeletePhotoAsync(category.CoverPhotoFilePath);
+
         // AgentServiceCategory rows for this category cascade-delete automatically (FK Cascade) — no
         // pre-check needed, this just unassigns agents from the deleted category.
         await unitOfWork.ServiceCategories.DeleteAsync(category);
         await unitOfWork.SaveChangesAsync();
+        return NoContentResponse();
+    }
+
+    public static async Task<IResult> AdminUploadServiceCategoryCoverPhoto(
+        Guid id, IFormFile image, IUnitOfWork unitOfWork, IPhotoService photoService)
+    {
+        var category = await unitOfWork.ServiceCategories.GetByIdAsync(id);
+        if (category == null) return NotFoundResponse("Service category not found");
+        if (image.Length > MaxImageBytes) return BadRequestResponse("Image size must not exceed 10MB");
+
+        if (!string.IsNullOrEmpty(category.CoverPhotoFilePath))
+            await photoService.DeletePhotoAsync(category.CoverPhotoFilePath);
+
+        using var stream = image.OpenReadStream();
+        var (url, filePath) = await photoService.SaveServiceCategoryCoverPhotoAsync(stream, image.FileName, id);
+
+        category.CoverPhotoUrl = url;
+        category.CoverPhotoFilePath = filePath;
+        await unitOfWork.SaveChangesAsync();
+
+        return OkResponse(new { coverPhotoUrl = url });
+    }
+
+    public static async Task<IResult> AdminDeleteServiceCategoryCoverPhoto(
+        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService)
+    {
+        var category = await unitOfWork.ServiceCategories.GetByIdAsync(id);
+        if (category == null) return NotFoundResponse("Service category not found");
+        if (string.IsNullOrEmpty(category.CoverPhotoFilePath)) return BadRequestResponse("No cover photo to delete");
+
+        await photoService.DeletePhotoAsync(category.CoverPhotoFilePath);
+        category.CoverPhotoUrl = string.Empty;
+        category.CoverPhotoFilePath = string.Empty;
+        await unitOfWork.SaveChangesAsync();
+
         return NoContentResponse();
     }
 
@@ -175,11 +142,11 @@ public static class ServiceCatalogHandlers
         return OkResponse(services.Select(s => s.Adapt<ServiceListItemDto>()));
     }
 
-    // Home-rail preview — pre-sorted (featured first, then SortOrder) and capped server-side, so the
+    // Rail preview — pre-sorted (featured first, then SortOrder) and capped server-side, so the
     // client renders exactly what it's given instead of fetching the whole catalog and slicing it.
-    public static async Task<IResult> GetServicesPreview(Guid serviceSectionId, int? limit, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetServicesPreview(Guid serviceCategoryId, int? limit, IUnitOfWork unitOfWork)
     {
-        var services = await unitOfWork.Services.GetPreviewByServiceSectionIdAsync(serviceSectionId, limit ?? 6);
+        var services = await unitOfWork.Services.GetPreviewByServiceCategoryIdAsync(serviceCategoryId, limit ?? 6);
         return OkResponse(services.Select(s => s.Adapt<ServiceListItemDto>()));
     }
 

@@ -30,11 +30,11 @@ public static class DataSeeder
         await SeedCouponsAsync(db);
         await SeedAdminsAsync(db);
 
-        // Local Services Marketplace / Expert Consultations catalog — Explore Uttarakhand (Travel) +
-        // Expert Consultations (Yoga/Diet/Finance), sharing the same Section->Category->
-        // Service->Package engine. Order matters: each method below FK-references rows created by an
-        // earlier one via the deterministic ServiceCatalogId() ids, not a DB round-trip.
-        await SeedServiceSectionsAsync(db);
+        // Local Services Marketplace catalog — Categories are the top level (one consumer rail per
+        // active category): Char Dham Yatra + Tour, Travel & Camping (Travel) and Yoga & Diet
+        // (Consultation), on the Category->Service->Package engine. Order matters: each method below
+        // FK-references rows created by an earlier one via the deterministic ServiceCatalogId() ids,
+        // not a DB round-trip.
         await SeedServiceCategoriesAsync(db);
         await SeedInclusionsAsync(db);
         await SeedServicesAsync(db);
@@ -48,8 +48,9 @@ public static class DataSeeder
     // Deterministic per-entity-type GUID, matching SeedQuestionTemplatesAsync's/SeedPlotTypesAsync's
     // Guid.Parse("<prefix>-...") style — lets a later seed method in this file (Packages -> Services,
     // Inquiries -> Packages/Agents) reference an earlier row's Id without a DB round-trip.
-    // Prefixes used: e1=ServiceSection, e2=ServiceCategory, e3=Service, e4=ServicePackage,
-    // e5=Inclusion, e6=Agent, e7=test consumer User, e8=Inquiry.
+    // Prefixes used: e2=ServiceCategory, e3=Service, e4=ServicePackage, e5=Inclusion, e6=Agent,
+    // e7=test consumer User, e8=Inquiry. (e1 belonged to the retired ServiceSection layer — do not
+    // reuse it for a new entity type.)
     private static Guid ServiceCatalogId(string prefix, int n) => Guid.Parse($"{prefix}-0000-0000-0000-{n:D12}");
 
     private static async Task SeedCouponsAsync(ApplicationDbContext db)
@@ -111,18 +112,27 @@ public static class DataSeeder
 
         CoinPlan Make(string featureKey, string type, int days, int quota, int coins, bool featured) => new()
         {
-            Id = Guid.NewGuid(), FeatureKey = featureKey, PlanType = type, Days = days, Quota = quota,
-            Price = coins, DiscountPercent = 0, OriginalPrice = coins, IsFeatured = featured,
-            IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            Id = Guid.NewGuid(),
+            FeatureKey = featureKey,
+            PlanType = type,
+            Days = days,
+            Quota = quota,
+            Price = coins,
+            DiscountPercent = 0,
+            OriginalPrice = coins,
+            IsFeatured = featured,
+            IsEnabled = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
         };
 
         db.CoinPlans.AddRange(
-            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Basic,    days: 15, quota: 1, coins: 99,  featured: false),
+            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Basic, days: 15, quota: 1, coins: 99, featured: false),
             Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Standard, days: 30, quota: 2, coins: 299, featured: true),
-            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Premium,  days: 60, quota: 3, coins: 499, featured: false),
-            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Basic,    days: 15, quota: 1, coins: 99,  featured: false),
+            Make(CoinFeatureKeys.RoomGoLive, CoinPlanTypes.Premium, days: 60, quota: 3, coins: 499, featured: false),
+            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Basic, days: 15, quota: 1, coins: 99, featured: false),
             Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Standard, days: 30, quota: 2, coins: 299, featured: true),
-            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Premium,  days: 60, quota: 3, coins: 499, featured: false)
+            Make(CoinFeatureKeys.PlotGoLive, CoinPlanTypes.Premium, days: 60, quota: 3, coins: 499, featured: false)
         );
         await db.SaveChangesAsync();
     }
@@ -136,15 +146,21 @@ public static class DataSeeder
 
         CoinPack Make(int coins, int bonus, int priceInr, int sortOrder, bool featured) => new()
         {
-            Id = Guid.NewGuid(), Coins = coins, BonusCoins = bonus, PriceInr = priceInr,
-            IsEnabled = true, SortOrder = sortOrder, IsFeatured = featured,
-            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            Id = Guid.NewGuid(),
+            Coins = coins,
+            BonusCoins = bonus,
+            PriceInr = priceInr,
+            IsEnabled = true,
+            SortOrder = sortOrder,
+            IsFeatured = featured,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
         };
 
         db.CoinPacks.AddRange(
-            Make(coins: 100, bonus: 0,   priceInr: 99,  sortOrder: 1, featured: false), // Starter
-            Make(coins: 300, bonus: 30,  priceInr: 299, sortOrder: 2, featured: true),  // Popular / Best Value
-            Make(coins: 500, bonus: 50,  priceInr: 399, sortOrder: 3, featured: false)  // Mega
+            Make(coins: 100, bonus: 0, priceInr: 99, sortOrder: 1, featured: false), // Starter
+            Make(coins: 300, bonus: 30, priceInr: 299, sortOrder: 2, featured: true),  // Popular / Best Value
+            Make(coins: 500, bonus: 50, priceInr: 399, sortOrder: 3, featured: false)  // Mega
         );
         await db.SaveChangesAsync();
     }
@@ -624,61 +640,27 @@ public static class DataSeeder
         if (changed) await db.SaveChangesAsync();
     }
 
-    // ── Local Services Marketplace / Expert Consultations ──────────────────────────────────────────
-
-    private static async Task SeedServiceSectionsAsync(ApplicationDbContext db)
-    {
-        if (await db.ServiceSections.AnyAsync()) return;
-
-        var now = DateTime.UtcNow;
-        db.ServiceSections.AddRange(
-            new ServiceSection { Id = ServiceCatalogId("e1000000", 1), Name = "Explore Uttarakhand", IconName = "map", SortOrder = 1, IsActive = true, CreatedAt = now },
-            new ServiceSection { Id = ServiceCatalogId("e1000000", 2), Name = "Expert Consultations", IconName = "briefcase", SortOrder = 2, IsActive = true, CreatedAt = now },
-            new ServiceSection { Id = ServiceCatalogId("e1000000", 3), Name = "Celebrations & Events", IconName = "gift", SortOrder = 3, IsActive = true, CreatedAt = now }
-        );
-        await db.SaveChangesAsync();
-    }
+    // ── Local Services Marketplace ─────────────────────────────────────────────────────────────────
 
     private static async Task SeedServiceCategoriesAsync(ApplicationDbContext db)
     {
         if (await db.ServiceCategories.AnyAsync()) return;
 
-        var explore = ServiceCatalogId("e1000000", 1);
-        var consult = ServiceCatalogId("e1000000", 2);
-        var celebrations = ServiceCatalogId("e1000000", 3);
-
-        // (index, name, icon, sectionId) — index also becomes the matching Service's index in
-        // SeedServicesAsync below. Indices are deliberately non-contiguous where a category has
-        // been removed (was: 8 Bike on Rent, 10 Health Insurance, 11 Term Insurance) — the
-        // ServiceCatalogId() GUIDs only need to be unique and stable, not sequential, so the gaps
-        // are left as-is rather than renumbering everything downstream.
-        //
-        // Destination Wedding, Photographer & Video and Event Planner moved out of Explore
-        // Uttarakhand into their own Celebrations & Events section — none of the three are
-        // genuinely "travel" (their inquiry needs an event date + guest count, not a trip date +
-        // traveler count), and grouping them under a section named for exploring Uttarakhand read
-        // as a mismatch on the home rail. This is a pure content/section change — no schema/code
-        // impact, since the home screen already renders one rail per active ServiceSection.
-        var categories = new (int Index, string Name, string Icon, Guid SectionId, string FormType)[]
+        // (index, name, icon, formType) — Categories are the catalog's top level: one consumer rail
+        // per active row, color-zoned client-side by rotation over this SortOrder (never by name).
+        // Indices are contiguous — the whole catalog was renumbered when the ServiceSection layer was
+        // retired and prod content was reset (RemoveServiceSectionsAndResetCatalog migration).
+        var categories = new (int Index, string Name, string Icon, string FormType)[]
         {
-            (1,  "Char Dham Yatra",        "route_square",  explore,      ServiceCategoryFormTypes.Travel),
-            (2,  "Destination Wedding",    "heart",         celebrations, ServiceCategoryFormTypes.Event),
-            (3,  "Tour & Travel Packages", "airplane",      explore,      ServiceCategoryFormTypes.Travel),
-            (4,  "Taxi Booking",           "car",           explore,      ServiceCategoryFormTypes.Travel),
-            (5,  "Camping & Adventure",    "tree",          explore,      ServiceCategoryFormTypes.Travel),
-            (6,  "Photographer & Video",   "camera",        celebrations, ServiceCategoryFormTypes.Event),
-            (7,  "Homestay & Resort",      "building",      explore,      ServiceCategoryFormTypes.Travel),
-            (9,  "Event Planner",          "calendar",      celebrations, ServiceCategoryFormTypes.Event),
-            (12, "Yoga",                   "activity",      consult,      ServiceCategoryFormTypes.Consultation),
-            (13, "Diet Plans",             "weight",        consult,      ServiceCategoryFormTypes.Consultation),
-            (14, "Financial Planning",     "chart",         consult,      ServiceCategoryFormTypes.Consultation),
+            (1, "Char Dham Yatra",        "route_square", ServiceCategoryFormTypes.Travel),
+            (2, "Tour, Travel & Camping", "airplane",     ServiceCategoryFormTypes.Travel),
+            (3, "Yoga & Diet",            "activity",     ServiceCategoryFormTypes.Consultation),
         };
 
         var now = DateTime.UtcNow;
         db.ServiceCategories.AddRange(categories.Select(c => new ServiceCategory
         {
             Id = ServiceCatalogId("e2000000", c.Index),
-            ServiceSectionId = c.SectionId,
             Name = c.Name,
             IconName = c.Icon,
             FormType = c.FormType,
@@ -725,11 +707,8 @@ public static class DataSeeder
         // (index, categoryIndex, name, icon, short, full, featured) — a Category may now hold several
         // Services (schema always supported this — see the comment on SeedServiceCategoriesAsync).
         // Categories whose old single Service's "packages" were actually distinct offerings (different
-        // dhams, different tour itineraries, different taxi/vehicle/event types) are split into one
-        // Service per real offering here, each getting its own genuine
-        // price/duration plans in SeedServicePackagesAsync below. Categories where the old packages
-        // were already true price/scope tiers of ONE offering (Destination Wedding, Homestay & Resort,
-        // Photographer & Video) keep a single Service.
+        // dhams, different tour itineraries) are split into one Service per real offering here, each
+        // getting its own genuine price/duration plans in SeedServicePackagesAsync below.
         var services = new (int Index, int CategoryIdx, string Name, string Icon, string Short, string Full, bool Featured)[]
         {
             // Char Dham Yatra (category 1) — 4 individual dhams + 1 all-4 combo
@@ -741,142 +720,55 @@ public static class DataSeeder
                 "Guided pilgrimage to Kedarnath, by road/trek or helicopter.",
                 "Pilgrimage packages to Kedarnath Dham — trek/road journey with an experienced guide, or fly in by helicopter to skip the trek. Hotel stay and meals included on the road package.",
                 true),
-            (3, 1, "Yamunotri Yatra", "route_square",
-                "Guided pilgrimage to Yamunotri, by road/trek or helicopter.",
-                "Pilgrimage packages to Yamunotri Dham — trek/road journey with an experienced guide, or fly in by helicopter for a quicker visit.",
-                false),
-            (4, 1, "Gangotri Yatra", "route_square",
-                "Guided pilgrimage to Gangotri, by road or helicopter.",
-                "Pilgrimage packages to Gangotri Dham — road journey with an experienced guide, or fly in by helicopter for a faster trip.",
-                false),
-            (5, 1, "Char Dham Yatra (All 4 Combo)", "route_square",
+            (3, 1, "Char Dham Yatra (All 4 Combo)", "route_square",
                 "Combined pilgrimage covering all 4 dhams — Kedarnath, Badrinath, Gangotri and Yamunotri.",
                 "Complete Char Dham Yatra packages covering all four dhams together, with hotel stays, meals, local transport and an experienced tour guide. Choose from Do Dham (2 dhams), full Char Dham (all 4) or an all-helicopter combo.",
                 true),
 
-            // Destination Wedding (category 2) — unchanged, single Service with tiered venue packages
-            (6, 2, "Destination Wedding", "heart",
-                "Riverside, hillside and palace wedding venues across Uttarakhand.",
-                "Plan your dream destination wedding in the hills — riverside resorts, heritage palaces and intimate hillside venues, with catering, decor and photography coordinated end-to-end.",
-                false),
-
-            // Tour & Travel Packages (category 3) — one Service per itinerary
-            (7, 3, "Custom Uttarakhand Circuit", "airplane",
+            // Tour, Travel & Camping (category 2) — one Service per itinerary/experience
+            (4, 2, "Custom Uttarakhand Circuit", "airplane",
                 "Build-your-own multi-day circuit across Uttarakhand's hill stations.",
                 "A fully customisable multi-day tour across Uttarakhand — pick your own mix of hill stations. Pricing starts at a base and scales with your chosen plan.",
                 false),
-            (8, 3, "Nainital-Mussoorie Duo Tour", "airplane",
+            (5, 2, "Nainital-Mussoorie Duo Tour", "airplane",
                 "5D/4N covering both Nainital and Mussoorie.",
                 "A 5-day, 4-night tour covering both Nainital and Mussoorie's top sightseeing spots, with hotel stays and local transport.",
                 true),
-            (9, 3, "Kumaon Hills Explorer", "airplane",
+            (6, 2, "Kumaon Hills Explorer", "airplane",
                 "6D/5N exploring the Kumaon hills.",
                 "A 6-day, 5-night circuit through the Kumaon region's hill towns and viewpoints, with hotel stays, meals and a tour guide.",
                 false),
-            (10, 3, "Garhwal Discovery Tour", "airplane",
+            (7, 2, "Garhwal Discovery Tour", "airplane",
                 "7D/6N exploring the Garhwal hills.",
                 "A 7-day, 6-night circuit through the Garhwal region, covering major hill stations, sightseeing and entry tickets.",
                 false),
-
-            // Taxi Booking (category 4) — local city taxi vs airport transfer are genuinely different services
-            (11, 4, "Local City Taxi", "car",
-                "Half-day and full-day local city taxis.",
-                "Book a local city taxi for sightseeing and errands — available as a half-day or full-day hire.",
-                true),
-            (12, 4, "Airport Transfer", "car",
-                "One-way airport pickup/drop.",
-                "Reliable one-way airport transfer service, booked in advance for a smooth pickup or drop.",
-                false),
-
-            // Camping & Adventure (category 5) — camping, trekking-combo and adventure-sports are distinct
-            (13, 5, "Riverside Camping", "tree",
+            (8, 2, "Riverside Camping", "tree",
                 "Riverside camping with bonfire, for couples, friends or families.",
                 "Riverside camping packages with bonfire and overnight stay — available as a standard 2D/1N trip or a family camping weekend.",
                 true),
-            (14, 5, "Trekking & Camping Combo", "tree",
+            (9, 2, "Trekking & Camping Combo", "tree",
                 "3D/2N combining a guided trek with camping.",
                 "A 3-day, 2-night combo of a guided trek and riverside camping, with a local expert guide.",
                 false),
-            (15, 5, "Adventure Sports", "tree",
+            (10, 2, "Adventure Sports", "tree",
                 "Single-day river rafting and adventure sports.",
                 "A single-day adventure sports package — river rafting, rappelling and more, guided by local experts with first-aid support on-site.",
                 false),
 
-            // Photographer & Video (category 6) — unchanged, single Service with scope tiers
-            (16, 6, "Photographer & Video", "camera",
-                "Professional photography and videography for events and weddings.",
-                "Professional photographers and videographers for weddings, pre-wedding shoots and events, with half-day, full-day and full cinematography packages.",
-                false),
-
-            // Homestay & Resort (category 7) — unchanged, single Service with a budget->luxury price ladder
-            (17, 7, "Homestay & Resort", "building",
-                "Budget homestays to luxury hillside resorts.",
-                "Curated stays across Uttarakhand — cozy family-run homestays, riverside resorts and luxury hillside properties, with meals and WiFi included on select packages.",
-                false),
-
-            // Event Planner (category 9) — one Service per event type
-            (20, 9, "Birthday & Small Event Planning", "calendar",
-                "End-to-end planning for birthdays and small events.",
-                "Full-service planning for birthdays and small get-togethers — venue, catering, decor and logistics handled by a dedicated planner.",
-                false),
-            (21, 9, "Anniversary & Reception Planning", "calendar",
-                "End-to-end planning for anniversaries and receptions.",
-                "Full-service planning for anniversary parties and receptions — venue, catering, decor and logistics handled by a dedicated planner.",
-                false),
-            (22, 9, "Corporate Event Planning", "calendar",
-                "End-to-end planning for corporate events.",
-                "Full-service planning for corporate events and offsites — venue, catering and logistics handled by a dedicated planner.",
-                false),
-            (23, 9, "Wedding Event Management", "calendar",
-                "End-to-end planning for full wedding events.",
-                "Complete wedding event management — venue, catering, decor and logistics handled end-to-end by a dedicated planner.",
-                true),
-
-            // Yoga (category 12) — one Service per session type, each with real low/high-budget plans
-            (31, 12, "1-on-1 Yoga Session", "activity",
+            // Yoga & Diet (category 3) — Consultation vertical: every plan is a custom quote, the
+            // team hears the query and quotes offline (platform is the middleman only).
+            (11, 3, "1-on-1 Yoga Session", "activity",
                 "Private one-on-one yoga sessions.",
-                "Private yoga sessions with an instructor, one-on-one — choose a regular session or one with a certified instructor.",
+                "Private yoga sessions with an instructor, one-on-one — choose a regular session or one with a certified instructor. Share your requirement and get a custom quote.",
                 false),
-            (32, 12, "Group Yoga Classes", "activity",
-                "Monthly group yoga classes.",
-                "Monthly group yoga classes — choose a regular group batch or a smaller premium-instructor batch.",
-                true),
-            (33, 12, "Yoga Retreat", "activity",
-                "Multi-day yoga retreats in the hills.",
-                "Multi-day yoga retreats in the hills — choose a weekend retreat or a full 7-day retreat.",
-                false),
-            (34, 12, "Corporate Yoga Workshop", "activity",
+            (12, 3, "Corporate Yoga Workshop", "activity",
                 "Yoga workshops for corporate teams.",
-                "Yoga workshops for corporate teams — a single session or an ongoing monthly program.",
+                "Yoga workshops for corporate teams — a single session or an ongoing monthly program. Share your requirement and get a custom quote.",
                 false),
-
-            // Diet Plans (category 13)
-            (35, 13, "Weight Loss Diet Plan", "weight",
-                "Personalised weight-loss diet plan.",
-                "A personalised weight-loss diet plan from a certified nutritionist, with ongoing consultation support — get a custom quote.",
+            (13, 3, "Personalised Diet Plan", "weight",
+                "Personalised diet plans from a certified nutritionist — weight loss, weight gain or diabetic-friendly.",
+                "Personalised diet plans from a certified nutritionist, with ongoing consultation support. Choose a weight-loss, weight-gain or diabetic-friendly plan — share your requirement and get a custom quote.",
                 true),
-            (36, 13, "Weight Gain Diet Plan", "weight",
-                "Personalised weight-gain diet plan.",
-                "A personalised weight-gain diet plan from a certified nutritionist, with ongoing consultation support — get a custom quote.",
-                false),
-            (37, 13, "Diabetic-Friendly Diet Plan", "weight",
-                "Personalised diabetic-friendly diet plan.",
-                "A personalised diabetic-friendly diet plan from a certified nutritionist, with ongoing consultation support — get a custom quote.",
-                false),
-
-            // Financial Planning (category 14)
-            (38, 14, "Personal Financial Planning", "chart",
-                "One-on-one personal financial planning.",
-                "A one-on-one consultation covering your personal financial planning goals — get a custom quote from our advisor.",
-                true),
-            (39, 14, "Retirement Planning", "chart",
-                "One-on-one retirement planning.",
-                "A one-on-one consultation covering your retirement planning goals — get a custom quote from our advisor.",
-                false),
-            (40, 14, "Investment Portfolio Review", "chart",
-                "One-on-one investment portfolio review.",
-                "A one-on-one review of your investment portfolio with our advisor — get a custom quote.",
-                false),
         };
 
         var now = DateTime.UtcNow;
@@ -905,11 +797,10 @@ public static class DataSeeder
 
         // (index, serviceIndex, name, price, originalPrice, discountPercent, isStartingAtPrice,
         //  durationDays, durationNights, priceUnit, sortOrder, isFeatured)
-        // Price=null on every Consultation-type plan renders "Get Custom Quote". IsStartingAtPrice is
-        // true on every OTHER (non-null-priced) row — every one of these is a real-world service/
-        // experience offering with genuinely variable pricing (yatra packages, camping, event
-        // planning, yoga sessions — none of it is fixed-catalog pricing), so "Starting at ₹X" belongs
-        // wherever a real price exists, not just the original Tour & Travel Packages itinerary rows.
+        // Price=null renders "Get Custom Quote" — EVERY Yoga & Diet (Consultation) plan is null: the
+        // agent hears the query and quotes offline, the platform never commits a price for that
+        // vertical. IsStartingAtPrice is true on every priced (Travel) row — yatra/camping/tour
+        // pricing is genuinely variable, so "Starting at ₹X" belongs wherever a real price exists.
         // Plan names are simple and concrete (by travel mode / duration / session type), never abstract
         // tier labels like "Standard/Deluxe/Premium".
         var packages = new (int Index, int ServiceIdx, string Name, int? Price, int? OriginalPrice, int? DiscountPercent,
@@ -936,97 +827,40 @@ public static class DataSeeder
             (10, 5, "Char Dham Yatra Complete - 11D/10N", 27999, 32999, 15, true, 11, 10, "per person", 2, false),
             (11, 5, "Helicopter Char Dham Yatra - 5D/4N", 45999, 52999, 13, true, 5, 4, "per person", 3, false),
 
-            // Destination Wedding (service 6)
-            (12, 6, "Intimate Hill Wedding Package", 149999, null, null, true, 2, 1, "per event", 1, false),
-            (13, 6, "Riverside Wedding Package", 299999, null, null, true, 3, 2, "per event", 2, true),
-            (14, 6, "Royal Palace Wedding Package", 599999, 699999, 14, true, 4, 3, "per event", 3, false),
-            (15, 6, "Beach-style Riverside Wedding", 349999, 399999, 12, true, 3, 2, "per event", 4, false),
+            // Custom Uttarakhand Circuit (service 6)
+            (12, 6, "Custom Uttarakhand Circuit", 6999, null, null, true, 3, 2, "per person", 1, false),
 
-            // Custom Uttarakhand Circuit (service 7)
-            (16, 7, "Custom Uttarakhand Circuit", 6999, null, null, true, 3, 2, "per person", 1, false),
+            // Nainital-Mussoorie Duo Tour (service 7)
+            (13, 7, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 1, true),
 
-            // Nainital-Mussoorie Duo Tour (service 8)
-            (17, 8, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 1, true),
+            // Kumaon Hills Explorer (service 8)
+            (14, 8, "Kumaon Hills Explorer", 11999, 13999, 14, true, 6, 5, "per person", 1, false),
 
-            // Kumaon Hills Explorer (service 9)
-            (18, 9, "Kumaon Hills Explorer", 11999, 13999, 14, true, 6, 5, "per person", 1, false),
+            // Garhwal Discovery Tour (service 9)
+            (15, 9, "Garhwal Discovery Tour", 15999, null, null, true, 7, 6, "per person", 1, false),
 
-            // Garhwal Discovery Tour (service 10)
-            (19, 10, "Garhwal Discovery Tour", 15999, null, null, true, 7, 6, "per person", 1, false),
+            // Riverside Camping (service 10)
+            (16, 10, "Riverside Camping - 2D/1N", 2999, 3499, 14, true, 2, 1, "per person", 1, true),
+            (17, 10, "Family Camping Weekend - 2D/1N", 3499, null, null, true, 2, 1, "per person", 2, false),
 
-            // Local City Taxi (service 11)
-            (20, 11, "Local City Taxi - Half Day", 1499, null, null, true, null, null, "per day", 1, false),
-            (21, 11, "Local City Taxi - Full Day", 2499, null, null, true, null, null, "per day", 2, true),
+            // Trekking & Camping Combo (service 11)
+            (18, 11, "Trekking & Camping Combo - 3D/2N", 5999, null, null, true, 3, 2, "per person", 1, false),
 
-            // Airport Transfer (service 12)
-            (22, 12, "Airport Transfer (One-way)", 1999, null, null, true, null, null, "per trip", 1, false),
+            // Adventure Sports (service 12)
+            (19, 12, "Adventure Sports Day Package", 1999, null, null, true, 1, 0, "per person", 1, false),
 
-            // Riverside Camping (service 13)
-            (23, 13, "Riverside Camping - 2D/1N", 2999, 3499, 14, true, 2, 1, "per person", 1, true),
-            (24, 13, "Family Camping Weekend - 2D/1N", 3499, null, null, true, 2, 1, "per person", 2, false),
+            // 1-on-1 Yoga Session (service 13)
+            (20, 13, "Regular Session", null, null, null, false, null, null, null, 1, false),
+            (21, 13, "Session with Certified Instructor", null, null, null, false, null, null, null, 2, true),
 
-            // Trekking & Camping Combo (service 14)
-            (25, 14, "Trekking & Camping Combo - 3D/2N", 5999, null, null, true, 3, 2, "per person", 1, false),
+            // Corporate Yoga Workshop (service 14)
+            (22, 14, "Single Session Workshop", null, null, null, false, null, null, null, 1, false),
+            (23, 14, "Monthly Corporate Program", null, null, null, false, null, null, null, 2, true),
 
-            // Adventure Sports (service 15)
-            (26, 15, "Adventure Sports Day Package", 1999, null, null, true, 1, 0, "per person", 1, false),
-
-            // Photographer & Video (service 16)
-            (27, 16, "Half-Day Photography", 7999, null, null, true, null, null, "per event", 1, false),
-            (28, 16, "Full-Day Photo + Video", 15999, 17999, 11, true, null, null, "per event", 2, true),
-            (29, 16, "Wedding Cinematography Package", 39999, null, null, true, null, null, "per event", 3, false),
-
-            // Homestay & Resort (service 17)
-            (30, 17, "Budget Homestay", 1299, null, null, true, null, 1, "per night", 1, false),
-            (31, 17, "Cozy Mountain Homestay", 1999, null, null, true, null, 1, "per night", 2, false),
-            (32, 17, "Riverside Resort Stay", 4999, 5999, 17, true, null, 1, "per night", 3, true),
-            (33, 17, "Luxury Hillside Resort", 8999, null, null, true, null, 1, "per night", 4, false),
-
-            // Birthday & Small Event Planning (service 20)
-            (37, 20, "Birthday/Small Event Planning", 19999, null, null, true, null, null, "per event", 1, false),
-
-            // Anniversary & Reception Planning (service 21)
-            (38, 21, "Anniversary/Reception Planning", 29999, null, null, true, null, null, "per event", 1, false),
-
-            // Corporate Event Planning (service 22)
-            (39, 22, "Corporate Event Planning", 49999, null, null, true, null, null, "per event", 1, false),
-
-            // Wedding Event Management (service 23)
-            (40, 23, "Full Wedding Event Management", 99999, 119999, 17, true, null, null, "per event", 1, true),
-
-            // 1-on-1 Yoga Session (service 31) — real low/high-budget plans
-            (48, 31, "Regular Session", 499, null, null, true, null, null, "per session", 1, false),
-            (49, 31, "Session with Certified Instructor", 999, null, null, true, null, null, "per session", 2, true),
-
-            // Group Yoga Classes (service 32)
-            (50, 32, "Monthly - Group Batch", 1499, null, null, true, null, null, "per month", 1, true),
-            (51, 32, "Monthly - Small Batch (Premium Instructor)", 2499, null, null, true, null, null, "per month", 2, false),
-
-            // Yoga Retreat (service 33)
-            (52, 33, "Weekend Retreat - 2D/1N", 7999, null, null, true, 2, 1, "per person", 1, true),
-            (53, 33, "7-Day Retreat", 17999, null, null, true, 7, 6, "per person", 2, false),
-
-            // Corporate Yoga Workshop (service 34)
-            (54, 34, "Single Session Workshop", 9999, null, null, true, null, null, "per event", 1, false),
-            (55, 34, "Monthly Corporate Program", 29999, null, null, true, null, null, "per month", 2, true),
-
-            // Weight Loss Diet Plan (service 35)
-            (56, 35, "Weight Loss Diet Plan", null, null, null, false, null, null, null, 1, true),
-
-            // Weight Gain Diet Plan (service 36)
-            (57, 36, "Weight Gain Diet Plan", null, null, null, false, null, null, null, 1, false),
-
-            // Diabetic-Friendly Diet Plan (service 37)
-            (58, 37, "Diabetic-Friendly Diet Plan", null, null, null, false, null, null, null, 1, false),
-
-            // Personal Financial Planning (service 38)
-            (59, 38, "Personal Financial Planning", null, null, null, false, null, null, null, 1, true),
-
-            // Retirement Planning (service 39)
-            (60, 39, "Retirement Planning", null, null, null, false, null, null, null, 1, false),
-
-            // Investment Portfolio Review (service 40)
-            (61, 40, "Investment Portfolio Review", null, null, null, false, null, null, null, 1, false),
+            // Personalised Diet Plan (service 15)
+            (24, 15, "Weight Loss Plan", null, null, null, false, null, null, null, 1, true),
+            (25, 15, "Weight Gain Plan", null, null, null, false, null, null, null, 2, false),
+            (26, 15, "Diabetic-Friendly Plan", null, null, null, false, null, null, null, 3, false),
         };
 
         var now = DateTime.UtcNow;
@@ -1065,15 +899,11 @@ public static class DataSeeder
             (9,  new[] { 1, 2, 3, 5 }),         // Do Dham Yatra: Hotel, Meals, Transport, Travel Insurance
             (10, new[] { 1, 2, 3, 4, 5 }),      // Char Dham Complete: + Tour Guide
             (11, new[] { 1, 2, 4, 5, 9 }),      // Helicopter Char Dham: + First Aid Kit
-            (13, new[] { 1, 2, 7 }),            // Riverside Wedding: Hotel, Meals, Photography
-            (14, new[] { 1, 2, 3, 7 }),         // Royal Palace Wedding: + Local Transport
-            (17, new[] { 1, 2, 3, 6 }),         // Nainital-Mussoorie Duo Tour: + Sightseeing
-            (18, new[] { 1, 2, 4, 6 }),         // Kumaon Hills Explorer
-            (19, new[] { 1, 2, 3, 6, 8 }),      // Garhwal Discovery Tour: + Entry Tickets
-            (23, new[] { 2, 4, 9 }),            // Riverside Camping: Meals, Tour Guide, First Aid Kit
-            (25, new[] { 2, 4, 8, 9 }),         // Trekking & Camping Combo: + Entry Tickets
-            (32, new[] { 2, 10 }),              // Riverside Resort Stay: Meals, WiFi
-            (33, new[] { 2, 3, 10 }),           // Luxury Hillside Resort: + Local Transport
+            (13, new[] { 1, 2, 3, 6 }),         // Nainital-Mussoorie Duo Tour: + Sightseeing
+            (14, new[] { 1, 2, 4, 6 }),         // Kumaon Hills Explorer
+            (15, new[] { 1, 2, 3, 6, 8 }),      // Garhwal Discovery Tour: + Entry Tickets
+            (16, new[] { 2, 4, 9 }),            // Riverside Camping: Meals, Tour Guide, First Aid Kit
+            (18, new[] { 2, 4, 8, 9 }),         // Trekking & Camping Combo: + Entry Tickets
         };
 
         foreach (var m in mappings)

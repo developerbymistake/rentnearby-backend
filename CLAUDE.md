@@ -222,6 +222,69 @@ Room/Plot listing; a listing's own `IsActive`/`ValidUntil` fields are the only p
   Admin's real tool is `POST /admin/users/{id}/wallet/credit`/`.../debit` (idempotent via a client-supplied
   `IdempotencyKey`), after which the owner does their own Go-Live.
 
+### Services marketplace, Agents & Leads (separate vertical from Room/Plot)
+
+A second product surface, unrelated to Room/Plot listing CRUD, sharing only platform infra (JWT auth,
+SignalR, RabbitMQ/FCM push): `ServiceCategory` → `Service` → `ServicePackage` — **Categories are the
+catalog's top level** (the old `ServiceSection` layer was removed end-to-end by the
+`RemoveServiceSectionsAndResetCatalog` migration, which also reset all catalog + inquiry data so the
+seeder rebuilt the 3-category structure: Char Dham Yatra, Tour Travel & Camping, Yoga & Diet). Each
+active category renders as one color-zoned rail in the consumer app. Offerings are Travel/Event/
+Consultation per `ServiceCategory.FormType` (`RentNearBy.Core/Models/ServiceCategoryFormTypes.cs`),
+which decides which optional fields the consumer inquiry form shows
+(`PreferredDateOrTripStart`/`NumberOfPeople`); every Consultation (Yoga & Diet) package is Price=null →
+"Get Custom Quote" (middleman model — the agent quotes offline). The consumer rail preview is
+`GET /services/preview?serviceCategoryId=`; inquiry DTOs carry `ServiceCategoryId`/`ServiceCategoryName`
+(the admin list filter is `serviceCategoryId`). A TEMPORARY `GET /services/sections` stub returns `[]`
+for pre-redesign consumer builds — remove it once those builds age out.
+
+- **`Agent`** (`RentNearBy.Core/Entities/Agent.cs`) is a staff/rep role layered on an existing consumer
+  `User` account (`Agent.UserId`, required and immutable after creation) — **not a separate login/identity**.
+  Admin CRUDs agents and bulk-assigns which `ServiceCategory`s each handles
+  (`PUT /agents/{id}/categories`). Agent-facing routes (`GET /agents/me`, `GET /agents/me/leads`,
+  `GET /agents/me/leads/{id}`, `PUT /agents/me/leads/{id}/status`) always resolve identity from the JWT
+  `UserId`, never a client-supplied agent id.
+- **`Inquiry`** rows are the "leads" — created via `POST /inquiries` against a `Service`/`ServicePackage`.
+  `CreateInquiry` auto-assigns every active agent mapped to that service's category and auto-transitions
+  `Submitted → Contacted` in one write (`InquiryHandlers.cs`). Assignment is many-to-many via
+  `InquiryAgent` (a join entity that replaced an older single-FK "AssignedAgent" concept — migration
+  `ReplaceAssignedAgentWithInquiryAgentJoin`), so multiple agents can each see the same lead in their own
+  "My Leads." Admin can re-set the full agent list on an inquiry (`PUT /admin/inquiries/{id}/agents`), and
+  the handler enforces server-side that any agent assigned is actually mapped to the inquiry's own service
+  category (defense against a direct-API bypass of the admin UI's own filtering).
+- **`InquiryEscalation`** — a consumer's self-service "report an issue with my agent"
+  (`POST /inquiries/{id}/escalate`, fixed reason enum in `EscalationReasons.cs`:
+  `NotResponding`/`Unhelpful`/`WrongInformation`/`Other`), resolved by Admin only
+  (`PUT /admin/inquiries/{id}/escalation/resolve`) and never surfaced back to the assigned agent. Blocked if
+  no agent is assigned yet; a DB partial-unique-index (not just app logic) prevents duplicate open
+  escalations, caught as `DbUpdateException` → `409`.
+- This vertical has no coin/payment gating — submitting an inquiry is free lead generation; `ServicePackage`
+  pricing is informational display only, not charged through `CoinWalletService`.
+
+### Notification inbox/push
+
+Generic, reusable in-app notification system (`NotificationEvent`/`NotificationRead`,
+`RentNearBy.Core/Models/NotificationTypes.cs`), currently emitting only `LeadAssigned` but designed for
+zero-schema-change extension to other types. One row per send, not per recipient — `NotificationRead` rows
+are created lazily only when actually read, so it stays cheap even for a future broadcast-to-many.
+Consumer-facing (`/api/v1/notifications`): `POST/DELETE register-token`, `GET /` (paginated inbox),
+`GET /unread-count`, `PUT /{id}/read`, `PUT /read-all` — `MarkNotificationRead` always returns `OkResponse`
+regardless of whether the id exists/belongs to the caller, deliberately avoiding an existence-leak oracle.
+Admin-facing (`GET /admin/notifications`) is a system-wide read-only feed, unscoped per-admin. Delivery
+follows the same dual SignalR + RabbitMQ/FCM push shape as `ChatMessageNotificationWorkerService`
+(`NotificationPushWorkerService`/`NotificationPushPayload`).
+
+### Known gap: district validation is not enforced server-side at listing creation
+
+`CreateListing` (`ListingsHandlers.cs`) and `CreatePlotListing` (`PlotHandlers.cs`) only validate
+`DistrictId` via `NotEmpty()` — never `District.IsActive`, never `ST_Contains(District.Boundary, point)`
+against the submitted `Latitude`/`Longitude`, despite that boundary check existing and being used elsewhere
+(`GET /listings/context`). The only district-adjacent check is that a client-supplied `CityId` (optional)
+must belong to the client-supplied `DistrictId` — if `CityId` is omitted, `DistrictId` isn't validated
+against anything. A client can currently submit a real pin in one place while claiming any `DistrictId`
+(active or not), and the listing saves and surfaces in that district's `/nearby` results at the wrong
+location. Relevant when touching listing creation or district-gating logic.
+
 ### External services (Infrastructure/Services)
 
 Photo storage: Cloudinary (`IPhotoService`/`PhotoService`, config via `CLOUDINARY_*` env vars). Geocoding:
@@ -239,5 +302,6 @@ notifications, and a separate `IChatFcmService` for chat pushes — both Singlet
   (required for Play Store account-deletion compliance) — both are defined inline in `Program.cs` rather
   than as Endpoints/Handlers, unlike everything else.
 - All business API routes are versioned under `/api/v1/...` and grouped/tagged by domain in `Program.cs`
-  (auth, admin-auth, users, listings, admin, plots, admin/plots, account, notifications, payments, banners,
-  admin banners, chat, home). Swagger UI is only mapped in Development.
+  (auth, admin-auth, users, listings, admin, plots, admin/plots, account, notifications, admin/notifications,
+  payments, banners, admin banners, chat, home, agents, inquiries, admin/inquiries). Swagger UI is only
+  mapped in Development.

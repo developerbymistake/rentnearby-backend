@@ -83,6 +83,25 @@ public class PhotoService : IPhotoService
         return (result.SecureUrl.ToString(), publicId);
     }
 
+    public async Task<(string url, string filePath)> SaveServiceCategoryCoverPhotoAsync(
+        Stream photoStream, string fileName, Guid categoryId)
+    {
+        using var processed = await ProcessImageAsync(photoStream);
+        var publicId = $"bakhli/services/category_{categoryId}/{Guid.NewGuid()}";
+
+        var result = await _cloudinary.UploadAsync(new ImageUploadParams
+        {
+            File = new FileDescription(fileName, processed),
+            PublicId = publicId,
+            Overwrite = false,
+        });
+
+        if (result.Error != null)
+            throw new InvalidOperationException($"Cloudinary upload failed: {result.Error.Message}");
+
+        return (result.SecureUrl.ToString(), publicId);
+    }
+
     public async Task<(string url, string filePath)> SavePackageThumbnailAsync(
         Stream photoStream, string fileName, Guid packageId)
     {

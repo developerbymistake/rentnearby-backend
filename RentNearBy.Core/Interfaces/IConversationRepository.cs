@@ -24,4 +24,10 @@ public interface IConversationRepository : IRepository<Conversation>
     // other's changes on every field, not just the counter. Returns the recipient's fresh
     // unread count for the caller to broadcast.
     Task<int> ApplyIncomingMessageAsync(Guid conversationId, DateTime lastMessageAt, string lastMessagePreview, bool recipientIsRenter);
+
+    // Total unread across every conversation the user is a party to, resolved to their side
+    // per row — the single cheap SUM the client's badge anchors to (GET /chat/unread-count).
+    // The client's paginated conversations list can't compute this itself without loading
+    // every page, which is exactly the under-count this exists to avoid.
+    Task<int> GetTotalUnreadForUserAsync(Guid userId);
 }
