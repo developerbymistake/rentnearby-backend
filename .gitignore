@@ -20,3 +20,6 @@ uploads/
 ## OS
 .DS_Store
 Thumbs.db
+
+## Local Claude Code guidance — not for the shared repo
+CLAUDE.md
