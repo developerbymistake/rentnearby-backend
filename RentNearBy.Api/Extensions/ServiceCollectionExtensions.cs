@@ -127,6 +127,18 @@ public static class ServiceCollectionExtensions
         // generic IFcmService (normal rendered notification, no dedup — see InquiryStatusPushWorkerService)
         services.AddHostedService<InquiryStatusPushWorkerService>();
 
+        // Escalation-filed worker — consumes escalation.filed queue and notifies admins via
+        // AdminDeviceTokens + FCM (same pattern as ReportFiledWorkerService, admin side)
+        services.AddHostedService<EscalationFiledWorkerService>();
+
+        // Inquiry-unassigned worker — consumes inquiry.unassigned queue (CreateInquiry's zero-agent
+        // branch) and notifies admins via AdminDeviceTokens + FCM
+        services.AddHostedService<InquiryUnassignedWorkerService>();
+
+        // Agent-lead-status-updated worker — consumes agent.lead.status.updated queue
+        // (UpdateMyLeadStatus) and notifies admins via AdminDeviceTokens + FCM
+        services.AddHostedService<AgentLeadStatusUpdatedWorkerService>();
+
         // Notification-inbox push worker — consumes notification.push queue, delivers FCM for any
         // NotificationEvent row (Agent lead-assignment today, any future producer for free) — fully
         // separate from InquiryStatusPushWorkerService, no shared queue or code.

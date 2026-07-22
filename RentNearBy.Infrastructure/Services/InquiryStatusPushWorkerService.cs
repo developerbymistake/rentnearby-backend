@@ -136,8 +136,16 @@ public class InquiryStatusPushWorkerService : BackgroundService
             return;
         }
 
-        var title = "Inquiry update";
-        var body = $"Your inquiry for '{msg.ServiceName}' is now {msg.Status}.";
+        // ForAgent recipients are a co-assigned agent hearing about a lead they don't own, not the
+        // consumer who submitted it — different wording, and a different notification_type so the
+        // client routes the tap to Lead Detail (GET /agents/me/leads/{id}) instead of the
+        // consumer-only Inquiry Detail (which 403s for an agent — see InquiryHandlers.GetInquiryDetail's
+        // ownership check).
+        var title = msg.ForAgent ? "Lead status updated" : "Inquiry update";
+        var body = msg.ForAgent
+            ? $"Your assigned lead for '{msg.ServiceName}' is now {msg.Status}."
+            : $"Your inquiry for '{msg.ServiceName}' is now {msg.Status}.";
+        var notificationType = msg.ForAgent ? "agent_lead_status" : "inquiry_status";
         var data = new Dictionary<string, string>
         {
             { "inquiry_id", msg.InquiryId.ToString() },
@@ -153,7 +161,7 @@ public class InquiryStatusPushWorkerService : BackgroundService
         {
             try
             {
-                var isSuccess = await _fcmService.SendAsync(deviceToken.Token, title, body, "inquiry_status", data);
+                var isSuccess = await _fcmService.SendAsync(deviceToken.Token, title, body, notificationType, data);
                 return (deviceToken.Token, isSuccess);
             }
             catch (Exception ex)

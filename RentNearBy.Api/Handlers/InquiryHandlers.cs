@@ -23,16 +23,40 @@ public static class InquiryHandlers
 {
     // ── Consumer-facing ──────────────────────────────────────────────────────
 
+    private static readonly TimeSpan InquiryCreateWindow = TimeSpan.FromHours(24);
+    private const int InquiryCreatePerUserMax = 10;
+    // Tighter than the per-user cap and keyed on the TARGET number, not the caller — this is the one
+    // that actually bounds real-world harm from the "submit for someone else" override (see
+    // InquiryContactSheet): the contact number is never verified, and it's exactly what category-
+    // mapped agents place real outbound calls/WhatsApp messages to. A per-user cap alone doesn't stop
+    // several attacker accounts (or the same one across days) from each independently targeting the
+    // same real third-party phone number.
+    private const int InquiryCreatePerMobileMax = 3;
+
     public static async Task<IResult> CreateInquiry(
         CreateInquiryRequest request, IValidator<CreateInquiryRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
-        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher,
+        IRateLimitService rateLimiter, HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
+
+        var userRl = await rateLimiter.CheckAsync($"inquiry:create:{userId}", InquiryCreatePerUserMax, InquiryCreateWindow);
+        if (!userRl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)userRl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
+        var mobileRl = await rateLimiter.CheckAsync($"inquiry:create:mobile:{request.Mobile.Trim()}", InquiryCreatePerMobileMax, InquiryCreateWindow);
+        if (!mobileRl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)mobileRl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         var service = await unitOfWork.Services.GetByIdAsync(request.ServiceId);
         if (service == null) return NotFoundResponse("Service not found");
@@ -87,7 +111,14 @@ public static class InquiryHandlers
         // lead immediately, with zero Admin action — reuses the exact assign -> auto-transition ->
         // notify shapes AdminSetInquiryAgents uses for a manual assignment. If no agent is mapped to
         // the category, the inquiry stays Submitted/unassigned exactly as before this feature.
-        var categoryAgents = (await unitOfWork.Agents.GetActiveByServiceCategoryIdAsync(service.ServiceCategoryId)).ToList();
+        // Excludes the submitter themselves if they happen to also be a mapped Agent (an Agent is
+        // just a role on an existing consumer User account, not a separate identity) — booking a
+        // service for themselves must never leave them self-assigned as their own lead's agent. If
+        // that leaves zero agents, this falls through to the same "unassigned" path as no mapped
+        // agent at all — mirrors the identical guard in AdminSetInquiryAgents below.
+        var categoryAgents = (await unitOfWork.Agents.GetActiveByServiceCategoryIdAsync(service.ServiceCategoryId))
+            .Where(a => a.UserId != userId)
+            .ToList();
         var autoTransitioned = categoryAgents.Count > 0;
         var notificationsToSend = new List<NotificationEvent>();
         if (autoTransitioned)
@@ -127,7 +158,24 @@ public static class InquiryHandlers
             await PushInquiryStatusChangedAsync(hubContext, inquiry.UserId, inquiry.Id, inquiry.Status, agentAssigned: true);
             await PublishInquiryStatusPushAsync(publisher, inquiry.UserId, inquiry.Id, detail!.Service.Name, inquiry.Status);
         }
-        await SendLeadAssignedNotificationsAsync(hubContext, publisher, notificationsToSend);
+        else
+        {
+            // No agent picked up this lead at all (no active agent mapped to the category, or the
+            // only mapped one was the submitter themselves) — nobody would otherwise know this
+            // inquiry exists to act on it. Best-effort, mirrors EscalateInquiry's publish shape.
+            try
+            {
+                var message = new InquiryUnassignedMessage
+                {
+                    InquiryId = inquiry.Id,
+                    ServiceName = service.Name,
+                    ConsumerName = inquiry.FullName,
+                };
+                await publisher.PublishAsync("inquiry.unassigned", JsonSerializer.Serialize(message));
+            }
+            catch { }
+        }
+        await SendNotificationEventsAsync(hubContext, publisher, notificationsToSend);
 
         return CreatedResponse(detail!.Adapt<InquiryDetailDto>(), $"/api/v1/inquiries/{inquiry.Id}");
     }
@@ -139,6 +187,19 @@ public static class InquiryHandlers
 
         var inquiries = await unitOfWork.Inquiries.GetByUserIdAsync(userId);
         return OkResponse(inquiries.Select(i => i.Adapt<InquiryListItemDto>()));
+    }
+
+    // Server-anchored counterpart to GetMyInquiries, for the Explore tab's Inquiries badge — same
+    // `{ count }` shape as ChatHandlers.GetUnreadCount so the client parses every count endpoint
+    // identically. Exists so the badge stays correct without the client having to keep a full
+    // myInquiries list loaded/fresh just to derive a count from it.
+    public static async Task<IResult> GetMyActiveInquiryCount(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var count = await unitOfWork.Inquiries.GetActiveCountForUserAsync(userId);
+        return OkResponse(new { count });
     }
 
     public static async Task<IResult> GetInquiryDetail(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
@@ -159,7 +220,7 @@ public static class InquiryHandlers
     // see the partial unique index in ApplicationDbContext.cs).
     public static async Task<IResult> EscalateInquiry(
         Guid id, EscalateInquiryRequest request, IValidator<EscalateInquiryRequest> validator,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IRabbitMqPublisher publisher)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -194,12 +255,48 @@ public static class InquiryHandlers
         }
 
         var updated = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
+
+        // Best-effort — mirrors ListingsHandlers/PlotHandlers' report.filed publish shape exactly. A
+        // publish failure must never turn an already-saved escalation into an error response.
+        try
+        {
+            var agentNames = string.Join(", ", updated!.InquiryAgents.Select(ia => ia.Agent.Name));
+            var message = new EscalationFiledMessage
+            {
+                InquiryId = id,
+                ConsumerName = updated.FullName,
+                AgentName = string.IsNullOrEmpty(agentNames) ? "the assigned agent" : agentNames,
+                Reason = request.Reason,
+            };
+            await publisher.PublishAsync("escalation.filed", JsonSerializer.Serialize(message));
+        }
+        catch { }
+
         return OkResponse(updated!.Adapt<InquiryDetailDto>());
     }
 
     // ── Agent-facing (consumer app, scoped to the caller's own linked Agent) ───
     // Every method here resolves the caller's Agent from their own JWT-derived UserId — never from
     // a client-supplied agentId — so an agent can only ever see/act on their own leads.
+    //
+    // Every agent-facing response is also run through StripEscalationDataForAgent — an Inquiry's
+    // escalation(s) are a consumer's complaint that may be ABOUT this exact agent, and are by design
+    // "never seen by the assigned agent(s), only the reporting consumer and Admin" (see
+    // InquiryDetailDto's own field comment). Adapt<InquiryDetailDto>()/Adapt<InquiryListItemDto>()
+    // otherwise carry the full escalation data through unchanged, since the same Mapster config is
+    // shared with the consumer/admin call sites where it's meant to be present.
+
+    private static InquiryDetailDto StripEscalationDataForAgent(InquiryDetailDto dto)
+    {
+        dto.Escalations = [];
+        return dto;
+    }
+
+    private static InquiryListItemDto StripEscalationDataForAgent(InquiryListItemDto dto)
+    {
+        dto.HasPendingEscalation = false;
+        return dto;
+    }
 
     public static async Task<IResult> GetMyLeads(
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 20)
@@ -214,7 +311,7 @@ public static class InquiryHandlers
         if (page < 1) page = 1;
 
         var (items, hasMore) = await unitOfWork.Inquiries.GetByAssignedAgentIdAsync(agent.Id, page, pageSize);
-        var dtos = items.Select(i => i.Adapt<InquiryListItemDto>());
+        var dtos = items.Select(i => StripEscalationDataForAgent(i.Adapt<InquiryListItemDto>()));
         return OkResponse(new { items = dtos, hasMore });
     }
 
@@ -230,7 +327,7 @@ public static class InquiryHandlers
         if (inquiry == null) return NotFoundResponse("Inquiry not found");
         if (!inquiry.InquiryAgents.Any(ia => ia.AgentId == agent.Id)) return ForbiddenResponse("This lead is not assigned to you");
 
-        return OkResponse(inquiry.Adapt<InquiryDetailDto>());
+        return OkResponse(StripEscalationDataForAgent(inquiry.Adapt<InquiryDetailDto>()));
     }
 
     // Reuses AdminUpdateInquiryStatusRequest/its validator as-is — same shape (Status, Note), same
@@ -269,14 +366,42 @@ public static class InquiryHandlers
             CreatedAt = DateTime.UtcNow,
         });
 
-        await unitOfWork.SaveChangesAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another agent co-assigned to this same lead, or Admin, committed a change to this exact
+            // Inquiry row in the moment between this handler's read and write — never silently clobber it.
+            return ConflictResponse("This lead was just updated by another request. Please retry.", "CONCURRENT_UPDATE");
+        }
 
         var updated = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
 
         await PushInquiryStatusChangedAsync(hubContext, inquiry.UserId, id, inquiry.Status, agentAssigned: true);
         await PublishInquiryStatusPushAsync(publisher, inquiry.UserId, id, updated!.Service.Name, inquiry.Status);
+        // Every OTHER agent co-assigned to this same lead needs to hear about the change too — not
+        // just the consumer. Reuses the exact same push/publish helpers, once per agent's UserId.
+        await NotifyCoAssignedAgentsOfStatusChangeAsync(hubContext, publisher, updated!, excludeAgentId: agent.Id);
 
-        return OkResponse(updated!.Adapt<InquiryDetailDto>());
+        // Admin otherwise has no way to know an agent updated a lead's status short of manually
+        // checking the dashboard. Best-effort, mirrors EscalateInquiry's publish shape. Deliberately
+        // NOT mirrored in AdminUpdateInquiryStatus — Admin doesn't need telling about its own action.
+        try
+        {
+            var message = new AgentLeadStatusUpdatedMessage
+            {
+                InquiryId = id,
+                ServiceName = updated!.Service.Name,
+                AgentName = agent.Name,
+                Status = request.Status,
+            };
+            await publisher.PublishAsync("agent.lead.status.updated", JsonSerializer.Serialize(message));
+        }
+        catch { }
+
+        return OkResponse(StripEscalationDataForAgent(updated!.Adapt<InquiryDetailDto>()));
     }
 
     // ── Admin-facing ─────────────────────────────────────────────────────────
@@ -330,7 +455,16 @@ public static class InquiryHandlers
             CreatedAt = DateTime.UtcNow,
         });
 
-        await unitOfWork.SaveChangesAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // An agent (or a second admin) committed a change to this exact Inquiry row in the moment
+            // between this handler's read and write — never silently clobber it.
+            return ConflictResponse("This inquiry was just updated by another request. Please retry.", "CONCURRENT_UPDATE");
+        }
 
         var updated = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
 
@@ -338,6 +472,8 @@ public static class InquiryHandlers
         // for a backgrounded/killed one (mirrors chat's dual pattern, not wallet's SignalR-only one).
         await PushInquiryStatusChangedAsync(hubContext, inquiry.UserId, id, inquiry.Status, agentAssigned: updated!.InquiryAgents.Count > 0);
         await PublishInquiryStatusPushAsync(publisher, inquiry.UserId, id, updated!.Service.Name, inquiry.Status);
+        // Every agent assigned to this lead needs to hear about an admin-driven status change too.
+        await NotifyCoAssignedAgentsOfStatusChangeAsync(hubContext, publisher, updated!);
 
         return OkResponse(updated!.Adapt<InquiryDetailDto>());
     }
@@ -359,6 +495,11 @@ public static class InquiryHandlers
         var inquiry = await unitOfWork.Inquiries.GetByIdAsync(id);
         if (inquiry == null) return NotFoundResponse("Inquiry not found");
 
+        // Hoisted out of the requestedIds.Count > 0 block below — needed unconditionally for the
+        // removed-agent/agent-changed notification bodies further down, including when the admin
+        // clears the set to empty (requestedIds.Count == 0).
+        var service = await unitOfWork.Services.GetByIdAsync(inquiry.ServiceId);
+
         var requestedIds = request.AgentIds.Distinct().ToList();
         var requestedAgents = new List<Agent>();
         if (requestedIds.Count > 0)
@@ -373,14 +514,20 @@ public static class InquiryHandlers
             if (requestedAgents.Count != requestedIds.Count)
                 return BadRequestResponse("One or more agents not found or inactive");
 
-            var service = await unitOfWork.Services.GetByIdAsync(inquiry.ServiceId);
             if (requestedAgents.Any(a => !a.AgentServiceCategories.Any(ac => ac.ServiceCategoryId == service!.ServiceCategoryId)))
                 return BadRequestResponse("One or more agents are not mapped to this inquiry's service category");
+
+            // An Agent is just a role on an existing consumer User account, not a separate identity
+            // — mirrors the same guard in CreateInquiry's auto-assign path. Rejected outright (not
+            // silently dropped) since this is an explicit admin pick, not an automatic assignment.
+            if (requestedAgents.Any(a => a.UserId == inquiry.UserId))
+                return BadRequestResponse("An agent cannot be assigned to their own submitted inquiry");
         }
 
         var currentAssignments = await db.InquiryAgents.Where(ia => ia.InquiryId == id).ToListAsync();
         var currentIds = currentAssignments.Select(ia => ia.AgentId).ToHashSet();
         var newlyAddedIds = requestedIds.Where(agentId => !currentIds.Contains(agentId)).ToHashSet();
+        var removedIds = currentIds.Except(requestedIds).ToHashSet();
 
         db.InquiryAgents.RemoveRange(currentAssignments);
         var now = DateTime.UtcNow;
@@ -425,7 +572,67 @@ public static class InquiryHandlers
             notificationsToSend.Add(notification);
         }
 
-        await unitOfWork.SaveChangesAsync();
+        // A removed agent is told they lost the lead too — otherwise it just silently vanishes from
+        // their My Leads next refresh with no explanation. Routes to the leads list, not lead detail
+        // (GetMyLeadDetail would now 403 them).
+        var removedAgents = removedIds.Count > 0
+            ? await db.Agents.Where(a => removedIds.Contains(a.Id)).ToListAsync()
+            : [];
+        foreach (var removedAgent in removedAgents.Where(a => a.UserId != null))
+        {
+            var notification = new NotificationEvent
+            {
+                Id = Guid.NewGuid(),
+                TargetUserId = removedAgent.UserId!.Value,
+                Type = NotificationTypes.LeadUnassigned,
+                Title = "Removed from lead",
+                Body = $"You are no longer assigned to a lead for '{service!.Name}'.",
+                ActionRoute = "/my-leads",
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.NotificationEvents.Add(notification);
+            notificationsToSend.Add(notification);
+        }
+
+        // The consumer is told their inquiry's agent set changed even when it doesn't also trigger
+        // the Submitted->Contacted auto-transition below (which already carries its own consumer
+        // push) — otherwise a change to an already-Contacted+ inquiry's agents is invisible to them.
+        // Fires even when clearing to zero: the lead is now exactly as unattended as CreateInquiry's
+        // zero-mapped-agent case, and silence would leave the consumer thinking someone still has it.
+        var netChanged = newlyAddedIds.Count > 0 || removedIds.Count > 0;
+        if (!autoTransitioned && netChanged)
+        {
+            var body = requestedIds.Count > 0
+                ? $"The agent assigned to your inquiry for '{service!.Name}' has changed."
+                : $"Your inquiry for '{service!.Name}' currently has no agent assigned — our team will follow up shortly.";
+            var notification = new NotificationEvent
+            {
+                Id = Guid.NewGuid(),
+                TargetUserId = inquiry.UserId,
+                Type = NotificationTypes.InquiryAgentChanged,
+                Title = "Update on your inquiry",
+                Body = body,
+                ActionRoute = "/inquiry-detail",
+                ActionArgumentsJson = JsonSerializer.Serialize(new { id = id.ToString() }),
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.NotificationEvents.Add(notification);
+            notificationsToSend.Add(notification);
+        }
+
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Two distinct races land here: an agent updating this lead's status concurrently
+            // (caught via Inquiry's xmin token), or a second concurrent AdminSetInquiryAgents call
+            // on the same inquiry (caught via the RemoveRange below hitting 0 rows the second time,
+            // since InquiryAgent itself carries no concurrency token — its composite key is the
+            // signal). Either way: never silently clobber the other request's change.
+            return ConflictResponse("This inquiry was just updated by another request. Please retry.", "CONCURRENT_UPDATE");
+        }
 
         var updated = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
 
@@ -437,10 +644,10 @@ public static class InquiryHandlers
             await PublishInquiryStatusPushAsync(publisher, inquiry.UserId, id, updated!.Service.Name, inquiry.Status);
         }
 
-        // Entirely independent of, and additional to, the block above — a lead-assignment
-        // notification fires per newly-added agent, regardless of whether the set-change happened
-        // to also auto-transition the status.
-        await SendLeadAssignedNotificationsAsync(hubContext, publisher, notificationsToSend);
+        // Entirely independent of, and additional to, the block above — a lead-assignment,
+        // lead-removal, or agent-changed notification fires per affected recipient, regardless of
+        // whether the set-change happened to also auto-transition the status.
+        await SendNotificationEventsAsync(hubContext, publisher, notificationsToSend);
 
         return OkResponse(updated!.Adapt<InquiryDetailDto>());
     }
@@ -448,7 +655,8 @@ public static class InquiryHandlers
     // Admin's side of the escalation flow — no request body, resolves whichever escalation is
     // currently Pending for this inquiry (the partial unique index guarantees there's at most one).
     public static async Task<IResult> AdminResolveEscalation(
-        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db)
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
     {
         if (!AdminAuthHandlers.TryGetAdminId(principal, out var adminId))
             return UnauthorizedResponse();
@@ -457,12 +665,32 @@ public static class InquiryHandlers
             .FirstOrDefaultAsync(esc => esc.InquiryId == id && esc.Status == "Pending");
         if (escalation == null) return NotFoundResponse("No pending escalation for this inquiry");
 
+        // Needed for the notification body below — fetched before the save (same transaction),
+        // not after, since the escalation mutation below doesn't touch the Inquiry row itself.
+        var inquiryForNotification = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
+
         escalation.Status = "Resolved";
         escalation.ResolvedAt = DateTime.UtcNow;
         escalation.ResolvedByAdminId = adminId;
+
+        var notification = new NotificationEvent
+        {
+            Id = Guid.NewGuid(),
+            TargetUserId = inquiryForNotification!.UserId,
+            Type = NotificationTypes.EscalationResolved,
+            Title = "Your report was resolved",
+            Body = $"Admin has resolved your report about the agent for '{inquiryForNotification.Service.Name}'.",
+            ActionRoute = "/inquiry-detail",
+            ActionArgumentsJson = JsonSerializer.Serialize(new { id = id.ToString() }),
+            CreatedAt = DateTime.UtcNow,
+        };
+        db.NotificationEvents.Add(notification);
+
         await unitOfWork.SaveChangesAsync();
 
         var updated = await unitOfWork.Inquiries.GetByIdWithDetailsAsync(id);
+        await SendNotificationEventsAsync(hubContext, publisher, [notification]);
+
         return OkResponse(updated!.Adapt<InquiryDetailDto>());
     }
 
@@ -490,16 +718,32 @@ public static class InquiryHandlers
     // The consumer worker resolves device tokens and sends the actual push independently (see
     // InquiryStatusPushWorkerService). Clone of ChatHandlers.PublishPushNotificationAsync's shape.
     private static async Task PublishInquiryStatusPushAsync(
-        IRabbitMqPublisher publisher, Guid userId, Guid inquiryId, string serviceName, string status)
+        IRabbitMqPublisher publisher, Guid userId, Guid inquiryId, string serviceName, string status, bool forAgent = false)
     {
         try
         {
-            var payload = JsonSerializer.Serialize(new InquiryStatusPushPayload(userId, inquiryId, serviceName, status));
+            var payload = JsonSerializer.Serialize(new InquiryStatusPushPayload(userId, inquiryId, serviceName, status, forAgent));
             await publisher.PublishAsync("inquiry.status.push", payload);
         }
         catch
         {
             // Never let a push-notification publish failure fail the status update itself.
+        }
+    }
+
+    // Reuses PushInquiryStatusChangedAsync/PublishInquiryStatusPushAsync verbatim, once per agent's
+    // UserId, instead of a separate pipeline — a co-assigned agent's live status-change signal is
+    // identical in shape to the consumer's, just addressed to a different recipient. excludeAgentId
+    // skips whichever agent (if any) just made this exact change themselves — they already know.
+    private static async Task NotifyCoAssignedAgentsOfStatusChangeAsync(
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher, Inquiry updated, Guid? excludeAgentId = null)
+    {
+        foreach (var ia in updated.InquiryAgents)
+        {
+            if (excludeAgentId.HasValue && ia.AgentId == excludeAgentId.Value) continue;
+            if (ia.Agent?.UserId is not { } agentUserId) continue;
+            await PushInquiryStatusChangedAsync(hubContext, agentUserId, updated.Id, updated.Status, agentAssigned: true);
+            await PublishInquiryStatusPushAsync(publisher, agentUserId, updated.Id, updated.Service.Name, updated.Status, forAgent: true);
         }
     }
 
@@ -517,7 +761,10 @@ public static class InquiryHandlers
         CreatedAt = DateTime.UtcNow,
     };
 
-    private static async Task SendLeadAssignedNotificationsAsync(
+    // Generic dispatch for any batch of already-persisted NotificationEvent rows — despite the
+    // original LeadAssigned-only name this replaced, the body never was type-specific; now also used
+    // for EscalationResolved/LeadUnassigned/InquiryAgentChanged.
+    private static async Task SendNotificationEventsAsync(
         IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher, IEnumerable<NotificationEvent> notifications)
     {
         foreach (var notification in notifications)

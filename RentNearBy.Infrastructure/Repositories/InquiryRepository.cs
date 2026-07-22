@@ -26,6 +26,11 @@ public class InquiryRepository(ApplicationDbContext context)
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync();
 
+    public async Task<int> GetActiveCountForUserAsync(Guid userId)
+        => await _dbSet.AsNoTracking()
+            .CountAsync(i => i.UserId == userId &&
+                (i.Status == InquiryStatuses.Submitted || i.Status == InquiryStatuses.Contacted));
+
     public async Task<(IReadOnlyList<Inquiry> Items, bool HasMore)> GetAdminFilteredPagedAsync(
         string? status, Guid? serviceCategoryId, bool? escalatedOnly, int page, int pageSize)
     {

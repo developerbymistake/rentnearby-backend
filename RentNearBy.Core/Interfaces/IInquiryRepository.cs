@@ -7,6 +7,10 @@ public interface IInquiryRepository : IRepository<Inquiry>
     // Consumer "My Inquiries" — shared across both verticals in one list.
     Task<IEnumerable<Inquiry>> GetByUserIdAsync(Guid userId);
 
+    // Server-anchored "My Inquiries" badge count (Submitted/Contacted only) — a lean COUNT(*)
+    // counterpart to GetByUserIdAsync, mirroring Conversations.GetTotalUnreadForUserAsync's shape.
+    Task<int> GetActiveCountForUserAsync(Guid userId);
+
     // Admin paginated list with optional status/category/escalated-only filter chips.
     Task<(IReadOnlyList<Inquiry> Items, bool HasMore)> GetAdminFilteredPagedAsync(
         string? status, Guid? serviceCategoryId, bool? escalatedOnly, int page, int pageSize);

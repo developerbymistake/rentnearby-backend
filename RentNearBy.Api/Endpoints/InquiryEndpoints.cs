@@ -9,6 +9,7 @@ public static class InquiryEndpoints
     {
         group.MapPost("", InquiryHandlers.CreateInquiry).RequireAuthorization();
         group.MapGet("/mine", InquiryHandlers.GetMyInquiries).RequireAuthorization();
+        group.MapGet("/active-count", InquiryHandlers.GetMyActiveInquiryCount).RequireAuthorization();
         group.MapGet("/{id:guid}", InquiryHandlers.GetInquiryDetail).RequireAuthorization();
         group.MapPost("/{id:guid}/escalate", InquiryHandlers.EscalateInquiry).RequireAuthorization();
 

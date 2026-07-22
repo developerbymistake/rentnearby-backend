@@ -768,6 +768,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(i => i.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(i => i.CreatedAt).HasDefaultValueSql("now()");
             e.Property(i => i.UpdatedAt).HasDefaultValueSql("now()");
+            // Same reasoning as RoomListing/PlotListing above: an agent updating status and an admin
+            // re-assigning agents (or a second co-assigned agent) can both target the same Inquiry row
+            // concurrently — without this, whichever SaveChangesAsync commits last silently wins.
+            e.Property<uint>("xmin").IsRowVersion();
 
             e.HasOne(i => i.User)
              .WithMany()
