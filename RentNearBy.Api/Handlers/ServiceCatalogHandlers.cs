@@ -50,6 +50,7 @@ public static class ServiceCatalogHandlers
             IconName = request.IconName.Trim(),
             FormType = request.FormType,
             SortOrder = request.SortOrder,
+            AgentRoleLabel = request.AgentRoleLabel.Trim(),
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
         };
@@ -72,6 +73,7 @@ public static class ServiceCatalogHandlers
         if (request.Name != null) category.Name = request.Name.Trim();
         if (request.IconName != null) category.IconName = request.IconName.Trim();
         if (request.FormType != null) category.FormType = request.FormType;
+        if (request.AgentRoleLabel != null) category.AgentRoleLabel = request.AgentRoleLabel.Trim();
         if (request.SortOrder.HasValue) category.SortOrder = request.SortOrder.Value;
         if (request.IsActive.HasValue) category.IsActive = request.IsActive.Value;
 

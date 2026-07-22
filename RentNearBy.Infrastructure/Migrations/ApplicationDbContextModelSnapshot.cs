@@ -1752,6 +1752,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<string>("AgentRoleLabel")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("CoverPhotoFilePath")
                         .IsRequired()
                         .HasColumnType("text");

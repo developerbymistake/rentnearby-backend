@@ -237,6 +237,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     CoverPhotoUrl = table.Column<string>(type: "text", nullable: false),
                     CoverPhotoFilePath = table.Column<string>(type: "text", nullable: false),
                     FormType = table.Column<string>(type: "text", nullable: false),
+                    AgentRoleLabel = table.Column<string>(type: "text", nullable: false),
                     SortOrder = table.Column<int>(type: "integer", nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")

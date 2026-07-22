@@ -18,5 +18,9 @@ public class CreateServiceCategoryRequestValidator : AbstractValidator<CreateSer
         RuleFor(x => x.FormType)
             .Must(f => f is "Travel" or "Event" or "Consultation" or "Education")
             .WithMessage("FormType must be one of: Travel, Event, Consultation, Education");
+
+        RuleFor(x => x.AgentRoleLabel)
+            .NotEmpty().WithMessage("AgentRoleLabel cannot be empty")
+            .MaximumLength(50).WithMessage("AgentRoleLabel must not exceed 50 characters");
     }
 }

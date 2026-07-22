@@ -646,15 +646,15 @@ public static class DataSeeder
     {
         if (await db.ServiceCategories.AnyAsync()) return;
 
-        // (index, name, icon, formType) — Categories are the catalog's top level: one consumer rail
-        // per active row, color-zoned client-side by rotation over this SortOrder (never by name).
-        // Indices are contiguous — the whole catalog was renumbered when the ServiceSection layer was
-        // retired and prod content was reset (RemoveServiceSectionsAndResetCatalog migration).
-        var categories = new (int Index, string Name, string Icon, string FormType)[]
+        // (index, name, icon, formType, agentRoleLabel) — Categories are the catalog's top level: one
+        // consumer rail per active row, color-zoned client-side by rotation over this SortOrder (never
+        // by name). Indices are contiguous — the whole catalog was renumbered when the ServiceSection
+        // layer was retired and prod content was reset (RemoveServiceSectionsAndResetCatalog migration).
+        var categories = new (int Index, string Name, string Icon, string FormType, string AgentRoleLabel)[]
         {
-            (1, "Char Dham Yatra",        "route_square", ServiceCategoryFormTypes.Travel),
-            (2, "Tour, Travel & Camping", "airplane",     ServiceCategoryFormTypes.Travel),
-            (3, "Yoga & Diet",            "activity",     ServiceCategoryFormTypes.Consultation),
+            (1, "Char Dham Yatra",        "route_square", ServiceCategoryFormTypes.Travel,       "Travel Expert"),
+            (2, "Tour, Travel & Camping", "airplane",     ServiceCategoryFormTypes.Travel,       "Travel Expert"),
+            (3, "Yoga & Diet",            "activity",     ServiceCategoryFormTypes.Consultation, "Instructor"),
         };
 
         var now = DateTime.UtcNow;
@@ -664,6 +664,7 @@ public static class DataSeeder
             Name = c.Name,
             IconName = c.Icon,
             FormType = c.FormType,
+            AgentRoleLabel = c.AgentRoleLabel,
             SortOrder = c.Index,
             IsActive = true,
             CreatedAt = now,

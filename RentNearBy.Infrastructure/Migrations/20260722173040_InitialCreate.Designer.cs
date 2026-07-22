@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260722170239_InitialCreate")]
+    [Migration("20260722173040_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -1754,6 +1754,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("AgentRoleLabel")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("CoverPhotoFilePath")
                         .IsRequired()

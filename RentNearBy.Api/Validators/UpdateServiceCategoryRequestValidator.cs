@@ -21,5 +21,10 @@ public class UpdateServiceCategoryRequestValidator : AbstractValidator<UpdateSer
             .Must(f => f is "Travel" or "Event" or "Consultation" or "Education")
             .WithMessage("FormType must be one of: Travel, Event, Consultation, Education")
             .When(x => x.FormType != null);
+
+        RuleFor(x => x.AgentRoleLabel)
+            .NotEmpty().WithMessage("AgentRoleLabel cannot be empty")
+            .MaximumLength(50).WithMessage("AgentRoleLabel must not exceed 50 characters")
+            .When(x => x.AgentRoleLabel != null);
     }
 }

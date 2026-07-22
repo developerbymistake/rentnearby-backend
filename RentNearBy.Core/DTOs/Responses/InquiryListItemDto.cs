@@ -10,6 +10,9 @@ public class InquiryListItemDto
     public string ServiceName { get; set; } = string.Empty;
     public Guid ServiceCategoryId { get; set; }
     public string ServiceCategoryName { get; set; } = string.Empty;
+    // Word to show instead of "Agent" for this category (e.g. "Travel Expert", "Instructor") —
+    // admin-editable on ServiceCategory, resolved through the same Service -> ServiceCategory chain.
+    public string ServiceCategoryAgentRoleLabel { get; set; } = "Agent";
     public Guid ServicePackageId { get; set; }
     public string ServicePackageName { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
