@@ -6,6 +6,7 @@ using Mapster;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -198,18 +199,7 @@ public static class ChatHandlers
         var messages = await unitOfWork.Messages.GetPagedForConversationAsync(
             conversationId, before, after, effectiveLimit);
 
-        var dtos = messages.Select(m => new MessageDto
-        {
-            Id = m.Id,
-            ConversationId = m.ConversationId,
-            SenderId = m.SenderId,
-            IsMine = m.SenderId == callerId,
-            Type = m.Type,
-            PayloadJson = m.PayloadJson,
-            RespondsToMessageId = m.RespondsToMessageId,
-            ReadAt = m.ReadAt,
-            CreatedAt = m.CreatedAt,
-        }).ToList();
+        var dtos = messages.Select(m => m.ToDto(isMine: m.SenderId == callerId)).ToList();
 
         // A full page means there's likely more beyond it — same heuristic the
         // conversations-list endpoint's client side already uses (items.length >= pageSize).
@@ -317,12 +307,7 @@ public static class ChatHandlers
             var existingAnswer = await db.Messages.FirstOrDefaultAsync(m => m.RespondsToMessageId == request.RespondsToMessageId.Value);
             if (existingAnswer != null)
             {
-                return OkResponse(new MessageDto
-                {
-                    Id = existingAnswer.Id, ConversationId = existingAnswer.ConversationId, SenderId = existingAnswer.SenderId,
-                    IsMine = existingAnswer.SenderId == callerId, Type = existingAnswer.Type, PayloadJson = existingAnswer.PayloadJson,
-                    RespondsToMessageId = existingAnswer.RespondsToMessageId, CreatedAt = existingAnswer.CreatedAt,
-                });
+                return OkResponse(existingAnswer.ToDto(isMine: existingAnswer.SenderId == callerId));
             }
             throw;
         }
@@ -335,12 +320,7 @@ public static class ChatHandlers
                 m.ConversationId == conversationId && m.SenderId == callerId && m.ClientMessageId == request.ClientMessageId.Value);
             if (existingMessage != null)
             {
-                return OkResponse(new MessageDto
-                {
-                    Id = existingMessage.Id, ConversationId = existingMessage.ConversationId, SenderId = existingMessage.SenderId,
-                    IsMine = true, Type = existingMessage.Type, PayloadJson = existingMessage.PayloadJson,
-                    RespondsToMessageId = existingMessage.RespondsToMessageId, CreatedAt = existingMessage.CreatedAt,
-                });
+                return OkResponse(existingMessage.ToDto(isMine: true));
             }
             throw;
         }
@@ -351,12 +331,7 @@ public static class ChatHandlers
         await BroadcastMessageAsync(hubContext, conversation, message, isNewMessage: true, recipientUnreadCount: recipientUnreadCount);
         await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, message, cache);
 
-        return CreatedResponse(new MessageDto
-        {
-            Id = message.Id, ConversationId = conversationId, SenderId = callerId, IsMine = true,
-            Type = message.Type, PayloadJson = message.PayloadJson, RespondsToMessageId = message.RespondsToMessageId,
-            CreatedAt = message.CreatedAt,
-        }, $"/api/v1/chat/conversations/{conversationId}/messages/{message.Id}");
+        return CreatedResponse(message.ToDto(isMine: true), $"/api/v1/chat/conversations/{conversationId}/messages/{message.Id}");
     }
 
     public static async Task<IResult> MarkRead(
@@ -485,12 +460,7 @@ public static class ChatHandlers
             var existing = await db.Messages.FirstOrDefaultAsync(m => m.RespondsToMessageId == messageId);
             if (existing != null)
             {
-                return OkResponse(new MessageDto
-                {
-                    Id = existing.Id, ConversationId = existing.ConversationId, SenderId = existing.SenderId,
-                    IsMine = existing.SenderId == callerId, Type = existing.Type, PayloadJson = existing.PayloadJson,
-                    RespondsToMessageId = existing.RespondsToMessageId, CreatedAt = existing.CreatedAt,
-                });
+                return OkResponse(existing.ToDto(isMine: existing.SenderId == callerId));
             }
             throw;
         }
@@ -499,11 +469,7 @@ public static class ChatHandlers
         await BroadcastMessageAsync(hubContext, conversation, response, isNewMessage: true, recipientUnreadCount: recipientUnreadCount);
         await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, response, cache);
 
-        return OkResponse(new MessageDto
-        {
-            Id = response.Id, ConversationId = conversation.Id, SenderId = callerId, IsMine = true,
-            Type = response.Type, PayloadJson = response.PayloadJson, CreatedAt = response.CreatedAt,
-        });
+        return OkResponse(response.ToDto(isMine: true));
     }
 
     // ── Schedule propose/respond ────────────────────────────────────────────
@@ -592,12 +558,7 @@ public static class ChatHandlers
                 var existing = await db.Messages.FirstOrDefaultAsync(m => m.RespondsToMessageId == messageId);
                 if (existing != null)
                 {
-                    return OkResponse(new MessageDto
-                    {
-                        Id = existing.Id, ConversationId = existing.ConversationId, SenderId = existing.SenderId,
-                        IsMine = existing.SenderId == callerId, Type = existing.Type, PayloadJson = existing.PayloadJson,
-                        RespondsToMessageId = existing.RespondsToMessageId, CreatedAt = existing.CreatedAt,
-                    });
+                    return OkResponse(existing.ToDto(isMine: existing.SenderId == callerId));
                 }
                 throw;
             }
@@ -610,11 +571,7 @@ public static class ChatHandlers
             // message, so no recipientUnreadCount needed here.
             await BroadcastMessageAsync(hubContext, conversation, original, isNewMessage: false);
             await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, counter, cache);
-            return OkResponse(new MessageDto
-            {
-                Id = counter.Id, ConversationId = conversation.Id, SenderId = callerId, IsMine = true,
-                Type = counter.Type, PayloadJson = counter.PayloadJson, CreatedAt = counter.CreatedAt,
-            });
+            return OkResponse(counter.ToDto(isMine: true));
         }
 
         object responsePayload;
@@ -675,12 +632,7 @@ public static class ChatHandlers
             var existing = await db.Messages.FirstOrDefaultAsync(m => m.RespondsToMessageId == messageId);
             if (existing != null)
             {
-                return OkResponse(new MessageDto
-                {
-                    Id = existing.Id, ConversationId = existing.ConversationId, SenderId = existing.SenderId,
-                    IsMine = existing.SenderId == callerId, Type = existing.Type, PayloadJson = existing.PayloadJson,
-                    RespondsToMessageId = existing.RespondsToMessageId, CreatedAt = existing.CreatedAt,
-                });
+                return OkResponse(existing.ToDto(isMine: existing.SenderId == callerId));
             }
             throw;
         }
@@ -688,11 +640,7 @@ public static class ChatHandlers
         var recipientUnreadCount = await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
         await BroadcastMessageAsync(hubContext, conversation, response, isNewMessage: true, recipientUnreadCount: recipientUnreadCount);
         await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, response, cache);
-        return OkResponse(new MessageDto
-        {
-            Id = response.Id, ConversationId = conversation.Id, SenderId = callerId, IsMine = true,
-            Type = response.Type, PayloadJson = response.PayloadJson, CreatedAt = response.CreatedAt,
-        });
+        return OkResponse(response.ToDto(isMine: true));
     }
 
     // ── Block ────────────────────────────────────────────────────────────────
@@ -1275,12 +1223,8 @@ public static class ChatHandlers
     // instant that atomic ExecuteUpdateAsync runs (it bypasses the change tracker entirely).
     private static async Task BroadcastMessageAsync(IHubContext<ChatHub> hubContext, Conversation conversation, Message message, bool isNewMessage, int recipientUnreadCount = 0)
     {
-        var dto = new MessageDto
-        {
-            Id = message.Id, ConversationId = message.ConversationId, SenderId = message.SenderId,
-            IsMine = false, // recipient's client compares SenderId against its own userId itself
-            Type = message.Type, PayloadJson = message.PayloadJson, CreatedAt = message.CreatedAt,
-        };
+        // recipient's client compares SenderId against its own userId itself
+        var dto = message.ToDto(isMine: false);
         var eventName = isNewMessage ? "MessageReceived" : "MessageUpdated";
         await hubContext.Clients.Group($"conversation_{conversation.Id}").SendAsync(eventName, dto);
 

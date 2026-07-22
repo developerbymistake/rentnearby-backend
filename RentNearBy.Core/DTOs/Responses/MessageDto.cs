@@ -1,14 +1,18 @@
 namespace RentNearBy.Core.DTOs.Responses;
 
+// Constructed exclusively via MessageDtoExtensions.ToDto() (RentNearBy.Api/Extensions) — every
+// property required so a future hand-rolled `new MessageDto {...}` elsewhere fails to compile
+// instead of silently shipping an incomplete DTO (this repo has no automated tests to catch that
+// at runtime).
 public class MessageDto
 {
-    public Guid Id { get; set; }
-    public Guid ConversationId { get; set; }
-    public Guid SenderId { get; set; }
-    public bool IsMine { get; set; }
-    public string Type { get; set; } = string.Empty;
-    public string PayloadJson { get; set; } = "{}";
-    public Guid? RespondsToMessageId { get; set; }
-    public DateTime? ReadAt { get; set; }
-    public DateTime CreatedAt { get; set; }
+    public required Guid Id { get; set; }
+    public required Guid ConversationId { get; set; }
+    public required Guid SenderId { get; set; }
+    public required bool IsMine { get; set; }
+    public required string Type { get; set; }
+    public required string PayloadJson { get; set; }
+    public required Guid? RespondsToMessageId { get; set; }
+    public required DateTime? ReadAt { get; set; }
+    public required DateTime CreatedAt { get; set; }
 }
