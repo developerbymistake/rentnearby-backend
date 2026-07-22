@@ -122,6 +122,21 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Non-fatal by design (see RazorpayService's _webhookSecret field comment) — the client-driven
+// verify-call and the 30-min Razorpay reconciliation sweep both work without it, so this must not
+// block startup. Still needs to be loud: also surfaced at GET /health as razorpayWebhook.
+using (var scope = app.Services.CreateScope())
+{
+    var razorpayService = scope.ServiceProvider.GetRequiredService<RentNearBy.Infrastructure.Services.IRazorpayService>();
+    if (!razorpayService.IsWebhookConfigured)
+    {
+        var startupLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        startupLogger.LogError(
+            "Razorpay:WebhookSecret / RAZORPAY_WEBHOOK_SECRET is not configured — every incoming Razorpay webhook will be rejected. " +
+            "Coin purchases still complete via the client verify-call and the 30-min reconciliation sweep, but instant crash-recovery credit is degraded.");
+    }
+}
+
 app.UseResponseCompression();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseCors("AllowAll");
@@ -263,12 +278,19 @@ app.MapGet("/health", async (IServiceProvider sp) =>
     var photoService = sp.GetRequiredService<RentNearBy.Infrastructure.Services.IPhotoService>();
     var cloudinaryOk = await photoService.PingAsync();
 
+    // Deliberately not fatal at startup if missing (see the field comment on RazorpayService's
+    // _webhookSecret) — but a missing/misrotated webhook secret silently disables the fastest coin-
+    // credit path (the client-driven verify-call and the 30-min Razorpay reconciliation sweep both
+    // still work), so it needs to be loudly visible somewhere. Here, not a thrown exception.
+    var razorpayService = sp.GetRequiredService<RentNearBy.Infrastructure.Services.IRazorpayService>();
+
     return Results.Ok(new
     {
         status = "healthy",
         timestamp = DateTime.UtcNow,
         redis = redisStatus,
         cloudinary = cloudinaryOk ? "connected" : "unavailable",
+        razorpayWebhook = razorpayService.IsWebhookConfigured ? "configured" : "not configured",
     });
 });
 

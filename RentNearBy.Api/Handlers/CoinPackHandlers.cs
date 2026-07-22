@@ -61,12 +61,29 @@ public static class CoinPackHandlers
 
         try
         {
-            var response = await purchaseService.CreateOrderAsync(userId, request.CoinPackId);
+            var response = await purchaseService.CreateOrderAsync(userId, request.CoinPackId, request.Confirmed);
             return OkResponse(response);
         }
         catch (ArgumentException) { return BadRequestResponse("Invalid coin pack."); }
+        catch (InvalidOperationException ex) when (ex.Message == CoinPackPurchaseErrors.RecentPurchaseDetected)
+        {
+            // No order/DB row was created for this attempt — soft warning only, client re-submits
+            // with Confirmed:true to proceed.
+            return ConflictResponse(ex.Message, "RECENT_PURCHASE_DETECTED");
+        }
         catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
         catch (Exception) { return ServerErrorResponse(); }
+    }
+
+    public static async Task<IResult> GetLatestPurchase(
+        ClaimsPrincipal principal,
+        ICoinPackPurchaseService purchaseService)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var response = await purchaseService.GetLatestPurchaseAsync(userId);
+        return OkResponse(response);
     }
 
     public static async Task<IResult> VerifyPayment(
@@ -104,7 +121,20 @@ public static class CoinPackHandlers
         }
         catch (KeyNotFoundException) { return NotFoundResponse("Purchase not found."); }
         catch (UnauthorizedAccessException) { return UnauthorizedResponse(); }
-        catch (InvalidOperationException ex) { return BadRequestResponse(ex.Message); }
+        catch (InvalidOperationException ex)
+        {
+            // Machine-readable type per condition — lets the client distinguish "already credited by
+            // another path, treat as success" from a genuine hard rejection, instead of collapsing
+            // all three into one indistinguishable 400.
+            var type = ex.Message switch
+            {
+                CoinPackPurchaseErrors.AlreadyProcessed => "ALREADY_PROCESSED",
+                CoinPackPurchaseErrors.PreviouslyFailed => "PURCHASE_ALREADY_FAILED",
+                CoinPackPurchaseErrors.SignatureInvalid => "SIGNATURE_VERIFICATION_FAILED",
+                _ => "BadRequest",
+            };
+            return BadRequestResponse(ex.Message, type);
+        }
         catch (Exception) { return ServerErrorResponse(); }
     }
 
@@ -121,14 +151,14 @@ public static class CoinPackHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var purchase = (await unitOfWork.CoinPackPurchases.GetByUserIdAsync(userId))
-            .FirstOrDefault(p => p.RazorpayOrderId == request.RazorpayOrderId && p.Status == CoinPackPurchaseStatuses.Pending);
+        var purchase = await unitOfWork.CoinPackPurchases.GetByRazorpayOrderIdAsync(request.RazorpayOrderId);
+        if (purchase == null || purchase.UserId != userId)
+            return OkResponse(new { cancelled = false }); // idempotent — already settled, not found, or not theirs
 
-        if (purchase == null)
-            return OkResponse(new { cancelled = false }); // idempotent — already settled or not found
-
-        purchase.Status = CoinPackPurchaseStatuses.Cancelled;
-        await unitOfWork.SaveChangesAsync();
-        return OkResponse(new { cancelled = true });
+        // Atomic, status-guarded UPDATE (not a tracked-entity mutation + SaveChangesAsync) — a
+        // concurrent webhook/verify-call that credits and flips this same row to Success in the gap
+        // between the read above and this write must not be silently stomped back to Cancelled.
+        var cancelled = await unitOfWork.CoinPackPurchases.MarkCancelledIfPendingAsync(purchase.Id);
+        return OkResponse(new { cancelled });
     }
 }

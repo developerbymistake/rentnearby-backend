@@ -15,7 +15,14 @@ public interface IRazorpayService
     bool VerifyPaymentSignature(string orderId, string paymentId, string signature);
     bool VerifyWebhookSignature(string rawBody, string? signatureHeader);
     string GetKeyId();
+    bool IsWebhookConfigured { get; }
+    Task<IReadOnlyList<RazorpayPaymentAttempt>> FetchPaymentsForOrderAsync(string orderId);
 }
+
+// One entry per payment attempt Razorpay recorded against an order (an order can have more than one
+// attempt — e.g. a failed try followed by a successful retry). Status is Razorpay's own vocabulary:
+// created|authorized|captured|refunded|failed.
+public record RazorpayPaymentAttempt(string Id, string Status);
 
 public class RazorpayService : IRazorpayService
 {
@@ -247,5 +254,59 @@ public class RazorpayService : IRazorpayService
     public string GetKeyId()
     {
         return _keyId;
+    }
+
+    // Safety net over the safety net: the webhook is optional-by-design (see the field comment
+    // above), so this lets callers (health check, startup log) surface a missing secret loudly
+    // without making it fatal.
+    public bool IsWebhookConfigured => !string.IsNullOrWhiteSpace(_webhookSecret);
+
+    // Reconciliation primitive for PendingCoinPurchaseCleanupService: given only the order id we
+    // already have for a stuck-Pending purchase (no payment id yet — that's only known once a
+    // client-driven verify or a webhook has actually told us), ask Razorpay directly whether any
+    // payment attempt against that order ever captured. Reuses the same retry+circuit-breaker
+    // policy as CreateOrderAsync; failures propagate so the caller can distinguish "confirmed not
+    // paid" from "couldn't find out right now".
+    public async Task<IReadOnlyList<RazorpayPaymentAttempt>> FetchPaymentsForOrderAsync(string orderId)
+    {
+        var response = await _retryPolicy.ExecuteAsync(() =>
+            _httpClient.GetAsync($"{BaseUrl}/orders/{orderId}/payments"));
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync();
+            _logger.LogError(
+                "Razorpay fetch-payments-for-order failed for {OrderId} with status {StatusCode}: {Body}",
+                orderId, response.StatusCode, errorBody);
+            throw new InvalidOperationException($"Razorpay fetch-payments-for-order failed with status {response.StatusCode}");
+        }
+
+        var jsonString = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(jsonString);
+
+        // A 2xx response whose body doesn't actually have the expected "items" array shape (API
+        // version drift, a proxy/CDN error page served as JSON, a truncated-but-parseable body) is
+        // NOT the same thing as "this order genuinely has zero payment attempts" — treating it as
+        // empty would let the caller conclude NotPaid and abandon a purchase we actually failed to
+        // check. Throw here so the caller (ReconcileWithRazorpayAsync) classifies this as Inconclusive
+        // instead. An empty `items: []` array (a real, well-formed "zero attempts" answer) is the only
+        // case that should legitimately fall through.
+        if (!json.TryGetProperty("items", out var itemsEl) || itemsEl.ValueKind != JsonValueKind.Array)
+        {
+            _logger.LogError(
+                "Razorpay fetch-payments-for-order returned an unexpected response shape for {OrderId}: {Body}",
+                orderId, jsonString);
+            throw new InvalidOperationException("Razorpay fetch-payments-for-order returned an unexpected response shape");
+        }
+
+        var attempts = new List<RazorpayPaymentAttempt>();
+        foreach (var item in itemsEl.EnumerateArray())
+        {
+            var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+            var status = item.TryGetProperty("status", out var statusEl) ? statusEl.GetString() : null;
+            if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(status))
+                attempts.Add(new RazorpayPaymentAttempt(id, status));
+        }
+        return attempts;
     }
 }

@@ -13,16 +13,29 @@ public static class AdminAuthHandlers
     private static readonly TimeSpan OtpWindow = TimeSpan.FromMinutes(10);
     private const int OtpSendMax = 3;
     private const int OtpVerifyMax = 5;
+    private static readonly TimeSpan LoginWindow = TimeSpan.FromMinutes(10);
+    private const int LoginMax = 5;
 
     public static async Task<IResult> AdminLogin(
         AdminLoginRequest request,
         IValidator<AdminLoginRequest> validator,
         IUnitOfWork unitOfWork,
-        IJwtService jwtService)
+        IJwtService jwtService,
+        IRateLimitService rateLimiter,
+        HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        // Keyed on the lowercased email so a caller can't dodge the limit by varying case —
+        // AdminRepository.GetByEmailAsync's own lookup is already case-insensitive.
+        var rl = await rateLimiter.CheckAsync($"admin_login:{request.Email.ToLowerInvariant()}", LoginMax, LoginWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         var admin = await unitOfWork.Admins.GetByEmailAsync(request.Email);
         if (admin == null || !BCrypt.Net.BCrypt.Verify(request.Password, admin.PasswordHash))

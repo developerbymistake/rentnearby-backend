@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Api.Services;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
@@ -35,6 +36,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICoinWalletService, CoinWalletService>();
         services.AddScoped<ICouponService, CouponService>();
         services.AddScoped<ICoinPackPurchaseService, CoinPackPurchaseService>();
+        services.AddScoped<IWalletNotifier, WalletNotifier>();
         services.AddHostedService<PendingCoinPurchaseCleanupService>();
 
         // Replaces MembershipExpiryService + PlotMembershipExpiryService — one unified sweep,

@@ -79,21 +79,22 @@ public static class PaymentHandlers
 
         if (eventType == "payment.failed")
         {
-            // Only record the failure if nothing else has already settled this purchase — same
-            // "PENDING and ABANDONED are both still-open outcomes" reasoning the old membership
-            // webhook used for PaymentTransaction.
-            if (purchase.Status == CoinPackPurchaseStatuses.Pending || purchase.Status == CoinPackPurchaseStatuses.Abandoned)
-            {
-                var errorDescription = entityEl.TryGetProperty("error_description", out var errEl)
-                    ? errEl.GetString() : null;
-                purchase.Status = CoinPackPurchaseStatuses.Failed;
-                purchase.FailureReason = string.IsNullOrWhiteSpace(errorDescription)
-                    ? "Payment failed at Razorpay" : errorDescription;
-                purchase.RazorpayPaymentId = paymentId;
-                purchase.CompletedAt = DateTime.UtcNow;
-                await unitOfWork.SaveChangesAsync();
-                logger.LogInformation($"Razorpay webhook: coin pack purchase {purchase.Id} marked FAILED ({purchase.FailureReason})");
-            }
+            // Atomic, status-guarded UPDATE (not a tracked-entity mutation + SaveChangesAsync) — only
+            // records the failure if the purchase is still genuinely Pending/Abandoned at write time.
+            // Without this guard, a concurrent client verify-call that credits and flips this same row
+            // to Success in the gap between the read above and this write would be silently stomped
+            // back to Failed — not just cosmetic: CreateOrderAsync's recent-Success warning stops
+            // firing for a stomped row, and a retried verify-payment call hits "Purchase previously
+            // failed" instead of "Already processed", actively prompting an already-paid user to buy
+            // again. Same "PENDING and ABANDONED are both still-open outcomes" reasoning the old
+            // membership webhook used for PaymentTransaction.
+            var errorDescription = entityEl.TryGetProperty("error_description", out var errEl)
+                ? errEl.GetString() : null;
+            var failureReason = string.IsNullOrWhiteSpace(errorDescription)
+                ? "Payment failed at Razorpay" : errorDescription;
+            var marked = await unitOfWork.CoinPackPurchases.MarkFailedIfPendingOrAbandonedAsync(purchase.Id, paymentId, failureReason);
+            if (marked)
+                logger.LogInformation($"Razorpay webhook: coin pack purchase {purchase.Id} marked FAILED ({failureReason})");
             return OkResponse(new { acknowledged = true });
         }
 
