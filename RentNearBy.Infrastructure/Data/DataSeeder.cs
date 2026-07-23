@@ -653,7 +653,7 @@ public static class DataSeeder
         var categories = new (int Index, string Name, string Icon, string FormType, string AgentRoleLabel)[]
         {
             (1, "Char Dham Yatra",        "route_square", ServiceCategoryFormTypes.Travel,       "Travel Expert"),
-            (2, "Tour, Travel & Camping", "airplane",     ServiceCategoryFormTypes.Travel,       "Travel Expert"),
+            (2, "Tour & Travel", "airplane",     ServiceCategoryFormTypes.Travel,       "Travel Expert"),
             (3, "Yoga & Diet",            "activity",     ServiceCategoryFormTypes.Consultation, "Instructor"),
         };
 
@@ -714,16 +714,16 @@ public static class DataSeeder
         {
             // Char Dham Yatra (category 1) — 2 individual dhams + 1 all-4 combo
             (1, 1, "Badrinath Yatra", "route_square",
-                "Guided pilgrimage to Badrinath, by road or helicopter.",
-                "Pilgrimage packages to Badrinath Dham — travel by road with an experienced guide, or fly in by helicopter for a faster trip. Hotel stay and meals included on the road package.",
+                "Guided pilgrimage to Badrinath by road.",
+                "Pilgrimage packages to Badrinath Dham — travel by road with an experienced guide. Hotel stay and meals included.",
                 true),
             (2, 1, "Kedarnath Yatra", "route_square",
-                "Guided pilgrimage to Kedarnath, by road/trek or helicopter.",
-                "Pilgrimage packages to Kedarnath Dham — trek/road journey with an experienced guide, or fly in by helicopter to skip the trek. Hotel stay and meals included on the road package.",
+                "Guided pilgrimage to Kedarnath by road/trek.",
+                "Pilgrimage packages to Kedarnath Dham — trek/road journey with an experienced guide. Hotel stay and meals included.",
                 true),
             (3, 1, "Char Dham Yatra (All 4 Combo)", "route_square",
                 "Combined pilgrimage covering all 4 dhams — Kedarnath, Badrinath, Gangotri and Yamunotri.",
-                "Complete Char Dham Yatra packages covering all four dhams together, with hotel stays, meals, local transport and an experienced tour guide. Choose from Do Dham (2 dhams), full Char Dham (all 4) or an all-helicopter combo.",
+                "Complete Char Dham Yatra packages covering all four dhams together, with hotel stays, meals, local transport and an experienced tour guide. Choose from Do Dham (2 dhams) or full Char Dham (all 4).",
                 true),
 
             // Tour, Travel & Camping (category 2) — one Service per itinerary/experience
@@ -787,38 +787,35 @@ public static class DataSeeder
         var packages = new (int Index, int ServiceIdx, string Name, int? Price, int? OriginalPrice, int? DiscountPercent,
             bool StartingAt, int? Days, int? Nights, string? Unit, int SortOrder, bool Featured)[]
         {
-            // Badrinath Yatra (service 1)
+            // Badrinath Yatra (service 1) — helicopter package removed, road only
             (1, 1, "Badrinath Yatra by Road - 3D/2N", 7499, null, null, true, 3, 2, "per person", 1, true),
-            (2, 1, "Badrinath Yatra by Helicopter - 1D", 18999, null, null, true, 1, 0, "per person", 2, false),
 
-            // Kedarnath Yatra (service 2)
-            (3, 2, "Kedarnath Yatra by Road/Trek - 4D/3N", 8999, null, null, true, 4, 3, "per person", 1, true),
-            (4, 2, "Kedarnath Yatra by Helicopter - 1D", 15999, null, null, true, 1, 0, "per person", 2, false),
+            // Kedarnath Yatra (service 2) — helicopter package removed, road/trek only
+            (2, 2, "Kedarnath Yatra by Road/Trek - 4D/3N", 8999, null, null, true, 4, 3, "per person", 1, true),
 
-            // Char Dham Yatra (All 4 Combo) (service 3)
-            (5, 3, "Do Dham Yatra (Kedarnath-Badrinath) - 6D/5N", 14999, 17999, 17, true, 6, 5, "per person", 1, true),
-            (6, 3, "Char Dham Yatra Complete - 11D/10N", 27999, 32999, 15, true, 11, 10, "per person", 2, false),
-            (7, 3, "Helicopter Char Dham Yatra - 5D/4N", 45999, 52999, 13, true, 5, 4, "per person", 3, false),
+            // Char Dham Yatra (All 4 Combo) (service 3) — all-helicopter combo removed
+            (3, 3, "Do Dham Yatra (Kedarnath-Badrinath) - 6D/5N", 14999, 17999, 17, true, 6, 5, "per person", 1, true),
+            (4, 3, "Char Dham Yatra Complete - 11D/10N", 27999, 32999, 15, true, 11, 10, "per person", 2, false),
 
             // Nainital-Mussoorie Duo Tour (service 4)
-            (8, 4, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 1, true),
+            (5, 4, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 1, true),
 
             // Riverside Camping (service 5)
-            (9, 5, "Riverside Camping - 2D/1N", 2999, 3499, 14, true, 2, 1, "per person", 1, true),
-            (10, 5, "Family Camping Weekend - 2D/1N", 3499, null, null, true, 2, 1, "per person", 2, false),
+            (6, 5, "Riverside Camping - 2D/1N", 2999, 3499, 14, true, 2, 1, "per person", 1, true),
+            (7, 5, "Family Camping Weekend - 2D/1N", 3499, null, null, true, 2, 1, "per person", 2, false),
 
             // 1-on-1 Yoga Session (service 6)
-            (11, 6, "Regular Session", null, null, null, false, null, null, null, 1, false),
-            (12, 6, "Session with Certified Instructor", null, null, null, false, null, null, null, 2, true),
+            (8, 6, "Regular Session", null, null, null, false, null, null, null, 1, false),
+            (9, 6, "Session with Certified Instructor", null, null, null, false, null, null, null, 2, true),
 
             // Corporate Yoga Workshop (service 7)
-            (13, 7, "Single Session Workshop", null, null, null, false, null, null, null, 1, false),
-            (14, 7, "Monthly Corporate Program", null, null, null, false, null, null, null, 2, true),
+            (10, 7, "Single Session Workshop", null, null, null, false, null, null, null, 1, false),
+            (11, 7, "Monthly Corporate Program", null, null, null, false, null, null, null, 2, true),
 
             // Personalised Diet Plan (service 8)
-            (15, 8, "Weight Loss Plan", null, null, null, false, null, null, null, 1, true),
-            (16, 8, "Weight Gain Plan", null, null, null, false, null, null, null, 2, false),
-            (17, 8, "Diabetic-Friendly Plan", null, null, null, false, null, null, null, 3, false),
+            (12, 8, "Weight Loss Plan", null, null, null, false, null, null, null, 1, true),
+            (13, 8, "Weight Gain Plan", null, null, null, false, null, null, null, 2, false),
+            (14, 8, "Diabetic-Friendly Plan", null, null, null, false, null, null, null, 3, false),
         };
 
         var now = DateTime.UtcNow;
@@ -854,11 +851,10 @@ public static class DataSeeder
         // here match the restructured package list in SeedServicePackagesAsync above.
         var mappings = new (int PackageIdx, int[] InclusionIdxs)[]
         {
-            (5, new[] { 1, 2, 3, 5 }),          // Do Dham Yatra: Hotel, Meals, Transport, Travel Insurance
-            (6, new[] { 1, 2, 3, 4, 5 }),       // Char Dham Complete: + Tour Guide
-            (7, new[] { 1, 2, 4, 5, 9 }),       // Helicopter Char Dham: + First Aid Kit
-            (8, new[] { 1, 2, 3, 6 }),          // Nainital-Mussoorie Duo Tour: + Sightseeing
-            (9, new[] { 2, 4, 9 }),             // Riverside Camping: Meals, Tour Guide, First Aid Kit
+            (3, new[] { 1, 2, 3, 5 }),          // Do Dham Yatra: Hotel, Meals, Transport, Travel Insurance
+            (4, new[] { 1, 2, 3, 4, 5 }),       // Char Dham Complete: + Tour Guide
+            (5, new[] { 1, 2, 3, 6 }),          // Nainital-Mussoorie Duo Tour: + Sightseeing
+            (6, new[] { 2, 4, 9 }),             // Riverside Camping: Meals, Tour Guide, First Aid Kit
         };
 
         foreach (var m in mappings)
