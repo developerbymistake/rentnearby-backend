@@ -113,6 +113,16 @@ public static class RoomListingsHandlers
         catch { /* best-effort: TTL (60s) covers Redis failures */ }
     }
 
+    // Home's "Recently added" feed (HomeHandlers.GetRecentRooms) is district-free and cached under
+    // this one fixed key — unlike nearby-cache above, a listing leaving the active/non-deleted set
+    // must bust it immediately rather than riding out the cache TTL, since a stale entry here is a
+    // tappable card whose detail page 404s, not just a cosmetically-stale count.
+    private static async Task InvalidateRecentRoomsCacheAsync(IConnectionMultiplexer? redis)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync("home:recentRooms"); } catch { }
+    }
+
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid districtId,
         IUnitOfWork unitOfWork,
@@ -347,6 +357,8 @@ public static class RoomListingsHandlers
         await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
         if (oldDistrictId != listing.DistrictId)
             await InvalidateNearbyCacheAsync(redis, oldDistrictId);
+        if (request.IsActive.HasValue && request.IsActive.Value == false)
+            await InvalidateRecentRoomsCacheAsync(redis);
 
         return OkResponse(new { success = true });
     }
@@ -371,7 +383,9 @@ public static class RoomListingsHandlers
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
 
-        await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), districtId);
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        await InvalidateNearbyCacheAsync(redis, districtId);
+        await InvalidateRecentRoomsCacheAsync(redis);
 
         return NoContentResponse();
     }

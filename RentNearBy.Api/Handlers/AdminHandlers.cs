@@ -1154,12 +1154,23 @@ public static class AdminHandlers
             }
             catch { }
         }
+        // Home's "Recently added" feed is cached under this one fixed key, separate from the
+        // district-scoped nearby cache above — bust it whenever a listing leaves the active set so a
+        // moderation-deactivated listing doesn't linger as a tappable, soon-to-404 card.
+        if (!request.IsActive)
+            await InvalidateRecentRoomsCacheAsync(redis);
 
         return OkResponse(new { success = true, isActive = listing.IsActive });
     }
 
+    private static async Task InvalidateRecentRoomsCacheAsync(IConnectionMultiplexer? redis)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync("home:recentRooms"); } catch { }
+    }
+
     public static async Task<IResult> DeleteAdminListing(
-        Guid id, ApplicationDbContext db, IPhotoService photoService)
+        Guid id, ApplicationDbContext db, IPhotoService photoService, IServiceProvider sp)
     {
         var listing = await db.RoomListings
             .Include(l => l.Photos)
@@ -1172,6 +1183,8 @@ public static class AdminHandlers
         listing.IsDeleted = true;
         listing.DeletedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
+
+        await InvalidateRecentRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
         return NoContentResponse();
     }

@@ -52,6 +52,16 @@ public static class PlotListingHandlers
         catch { }
     }
 
+    // Home's "Recently added" feed (HomeHandlers.GetRecentPlots) is district-free and cached under
+    // this one fixed key — unlike nearby-cache above, a plot leaving the active/non-deleted set must
+    // bust it immediately rather than riding out the cache TTL, since a stale entry here is a
+    // tappable card whose detail page 404s, not just a cosmetically-stale count.
+    private static async Task InvalidateRecentPlotsCacheAsync(IConnectionMultiplexer? redis)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync("home:recentPlots"); } catch { }
+    }
+
     private static double Haversine(double lat1, double lng1, double lat2, double lng2)
     {
         const double R = 6371.0;
@@ -347,6 +357,8 @@ public static class PlotListingHandlers
         await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
         if (oldDistrictId != plot.DistrictId)
             await InvalidateNearbyCacheAsync(redis, oldDistrictId);
+        if (request.IsActive.HasValue && request.IsActive.Value == false)
+            await InvalidateRecentPlotsCacheAsync(redis);
 
         return OkResponse(new { success = true });
     }
@@ -374,7 +386,9 @@ public static class PlotListingHandlers
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
 
-        await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), districtId);
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        await InvalidateNearbyCacheAsync(redis, districtId);
+        await InvalidateRecentPlotsCacheAsync(redis);
 
         return NoContentResponse();
     }
@@ -601,6 +615,7 @@ public static class PlotListingHandlers
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
+        await InvalidateRecentPlotsCacheAsync(redis);
 
         return OkResponse(new { success = true, isActive = plot.IsActive });
     }
@@ -622,7 +637,9 @@ public static class PlotListingHandlers
         await unitOfWork.PlotListings.UpdateAsync(plot);
         await unitOfWork.SaveChangesAsync();
 
-        await InvalidateNearbyCacheAsync(sp.GetService<IConnectionMultiplexer>(), districtId);
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        await InvalidateNearbyCacheAsync(redis, districtId);
+        await InvalidateRecentPlotsCacheAsync(redis);
 
         return NoContentResponse();
     }

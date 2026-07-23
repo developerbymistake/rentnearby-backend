@@ -32,6 +32,21 @@ public static class GoLiveHandlers
         catch { }
     }
 
+    // Home's "Recently added" feed is cached under one fixed key per kind, separate from the
+    // district-scoped nearby cache above — a listing going live can enter the top of that feed, so
+    // bust it here rather than waiting out the TTL.
+    private static async Task InvalidateRecentRoomsCacheAsync(IConnectionMultiplexer? redis)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync("home:recentRooms"); } catch { }
+    }
+
+    private static async Task InvalidateRecentPlotsCacheAsync(IConnectionMultiplexer? redis)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync("home:recentPlots"); } catch { }
+    }
+
     // Best-effort — a SignalR push failure must never turn an already-committed coin spend into an
     // error response. Only called from a point where the caller's own commit is already final.
     private static async Task PushWalletBalanceChangedAsync(IHubContext<WalletHub> hubContext, Guid userId, int balance, string reason)
@@ -89,6 +104,7 @@ public static class GoLiveHandlers
                 return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
             }
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), RoomNearbyPattern(listing.DistrictId));
+            await InvalidateRecentRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>());
             return OkResponse(new
             {
                 success = true,
@@ -136,6 +152,7 @@ public static class GoLiveHandlers
             await unitOfWork.CommitTransactionAsync();
             await PushWalletBalanceChangedAsync(hubContext, userId, spend.BalanceAfter, CoinTransactionReasons.RoomGoLive);
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), RoomNearbyPattern(listing.DistrictId));
+            await InvalidateRecentRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
             return OkResponse(new
             {
@@ -192,6 +209,7 @@ public static class GoLiveHandlers
                 return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
             }
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
+            await InvalidateRecentPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>());
             return OkResponse(new
             {
                 success = true,
@@ -239,6 +257,7 @@ public static class GoLiveHandlers
             await unitOfWork.CommitTransactionAsync();
             await PushWalletBalanceChangedAsync(hubContext, userId, spend.BalanceAfter, CoinTransactionReasons.PlotGoLive);
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
+            await InvalidateRecentPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
             return OkResponse(new
             {
