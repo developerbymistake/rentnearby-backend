@@ -62,6 +62,14 @@ public static class PlotListingHandlers
         try { await redis.GetDatabase().KeyDeleteAsync("home:recentPlots"); } catch { }
     }
 
+    // Home's "Plots for you" feed (HomeHandlers.GetPlots) is cached per-district — same
+    // immediate-bust reasoning as InvalidateRecentPlotsCacheAsync above, just keyed by district.
+    private static async Task InvalidateForYouPlotsCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouPlots:{districtId}"); } catch { }
+    }
+
     private static double Haversine(double lat1, double lng1, double lat2, double lng2)
     {
         const double R = 6371.0;
@@ -355,8 +363,12 @@ public static class PlotListingHandlers
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
+        await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
         if (oldDistrictId != plot.DistrictId)
+        {
             await InvalidateNearbyCacheAsync(redis, oldDistrictId);
+            await InvalidateForYouPlotsCacheAsync(redis, oldDistrictId);
+        }
         if (request.IsActive.HasValue && request.IsActive.Value == false)
             await InvalidateRecentPlotsCacheAsync(redis);
 
@@ -389,6 +401,7 @@ public static class PlotListingHandlers
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, districtId);
         await InvalidateRecentPlotsCacheAsync(redis);
+        await InvalidateForYouPlotsCacheAsync(redis, districtId);
 
         return NoContentResponse();
     }
@@ -503,6 +516,7 @@ public static class PlotListingHandlers
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
+        await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
 
         return CreatedResponse(new { photoUrl = url, photoId = plotPhoto.Id }, url);
     }
@@ -528,6 +542,7 @@ public static class PlotListingHandlers
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
+        await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
 
         return NoContentResponse();
     }
@@ -616,6 +631,7 @@ public static class PlotListingHandlers
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
         await InvalidateRecentPlotsCacheAsync(redis);
+        await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
 
         return OkResponse(new { success = true, isActive = plot.IsActive });
     }
@@ -640,6 +656,7 @@ public static class PlotListingHandlers
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, districtId);
         await InvalidateRecentPlotsCacheAsync(redis);
+        await InvalidateForYouPlotsCacheAsync(redis, districtId);
 
         return NoContentResponse();
     }

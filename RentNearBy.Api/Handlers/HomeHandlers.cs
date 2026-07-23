@@ -14,6 +14,13 @@ public static class HomeHandlers
     // Same TTL as summary — both are cheap-to-recompute, best-effort caches, not a
     // correctness-sensitive value, so there's no reason for it to differ.
     private static readonly TimeSpan RecentCacheTtl = TimeSpan.FromMinutes(3);
+    // Shorter than the two above — "for you" is actively invalidated on mutation same as they
+    // are (see ListingsHandlers/PlotHandlers/GoLiveHandlers/AdminHandlers), but a shorter TTL
+    // bounds staleness for any write path that doesn't go through this backend at all (there
+    // isn't one today, but it's the same 60s figure this codebase already uses for the nearby
+    // cache — NearbyCacheTtl in ListingsHandlers.cs/PlotHandlers.cs — not a new number invented
+    // for this feature).
+    private static readonly TimeSpan ForYouCacheTtl = TimeSpan.FromSeconds(60);
     private const int DefaultLimit = 5;
     private const int MaxLimit = 20;
     private const int DefaultPageSize = 10;
@@ -27,6 +34,8 @@ public static class HomeHandlers
     // every caller, which is exactly what makes it a good caching candidate in the first place.
     private const string RecentRoomsCacheKey = "home:recentRooms";
     private const string RecentPlotsCacheKey = "home:recentPlots";
+    private static string ForYouRoomsCacheKey(Guid districtId) => $"home:forYouRooms:{districtId}";
+    private static string ForYouPlotsCacheKey(Guid districtId) => $"home:forYouPlots:{districtId}";
 
     private static int ClampLimit(int limit) => Math.Clamp(limit <= 0 ? DefaultLimit : limit, 1, MaxLimit);
     private static int ClampPage(int page) => Math.Max(page, 1);
@@ -68,11 +77,28 @@ public static class HomeHandlers
         return OkResponse(result);
     }
 
-    public static async Task<IResult> GetRooms(Guid districtId, int limit, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetRooms(Guid districtId, int limit, IUnitOfWork unitOfWork, IServiceProvider sp)
     {
         var take = ClampLimit(limit);
-        var items = await unitOfWork.RoomListings.SearchAsync(districtId, null, null, null, take);
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var cacheKey = ForYouRoomsCacheKey(districtId);
 
+        if (redis != null)
+        {
+            RedisValue cached = default;
+            try { cached = await redis.GetDatabase().StringGetAsync(cacheKey); } catch { }
+            if (cached.HasValue)
+            {
+                try
+                {
+                    var dto = JsonSerializer.Deserialize<List<HomeRoomDto>>(cached!);
+                    if (dto != null) return OkResponse(new { items = dto.Take(take) });
+                }
+                catch (JsonException) { /* corrupted cache entry — fall through to DB */ }
+            }
+        }
+
+        var items = await unitOfWork.RoomListings.SearchAsync(districtId, null, null, null, MaxLimit);
         var result = items.Select(l => new HomeRoomDto
         {
             Id = l.Id,
@@ -86,14 +112,37 @@ public static class HomeHandlers
             CreatedAt = l.CreatedAt,
         }).ToList();
 
-        return OkResponse(new { items = result });
+        if (redis != null)
+        {
+            var json = JsonSerializer.Serialize(result);
+            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, ForYouCacheTtl); } catch { }
+        }
+
+        return OkResponse(new { items = result.Take(take) });
     }
 
-    public static async Task<IResult> GetPlots(Guid districtId, int limit, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetPlots(Guid districtId, int limit, IUnitOfWork unitOfWork, IServiceProvider sp)
     {
         var take = ClampLimit(limit);
-        var (items, _) = await unitOfWork.PlotListings.GetAllAsync(page: 1, pageSize: take, isActive: true, districtId: districtId);
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var cacheKey = ForYouPlotsCacheKey(districtId);
 
+        if (redis != null)
+        {
+            RedisValue cached = default;
+            try { cached = await redis.GetDatabase().StringGetAsync(cacheKey); } catch { }
+            if (cached.HasValue)
+            {
+                try
+                {
+                    var dto = JsonSerializer.Deserialize<List<HomePlotDto>>(cached!);
+                    if (dto != null) return OkResponse(new { items = dto.Take(take) });
+                }
+                catch (JsonException) { /* corrupted cache entry — fall through to DB */ }
+            }
+        }
+
+        var (items, _) = await unitOfWork.PlotListings.GetAllAsync(page: 1, pageSize: MaxLimit, isActive: true, districtId: districtId);
         var result = items.Select(p => new HomePlotDto
         {
             Id = p.Id,
@@ -107,7 +156,13 @@ public static class HomeHandlers
             CreatedAt = p.CreatedAt,
         }).ToList();
 
-        return OkResponse(new { items = result });
+        if (redis != null)
+        {
+            var json = JsonSerializer.Serialize(result);
+            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, ForYouCacheTtl); } catch { }
+        }
+
+        return OkResponse(new { items = result.Take(take) });
     }
 
     public static async Task<IResult> GetRoomsBrowse(

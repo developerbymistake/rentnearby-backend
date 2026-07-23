@@ -123,6 +123,14 @@ public static class RoomListingsHandlers
         try { await redis.GetDatabase().KeyDeleteAsync("home:recentRooms"); } catch { }
     }
 
+    // Home's "Rooms for you" feed (HomeHandlers.GetRooms) is cached per-district — same
+    // immediate-bust reasoning as InvalidateRecentRoomsCacheAsync above, just keyed by district.
+    private static async Task InvalidateForYouRoomsCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouRooms:{districtId}"); } catch { }
+    }
+
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid districtId,
         IUnitOfWork unitOfWork,
@@ -355,8 +363,12 @@ public static class RoomListingsHandlers
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
+        await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
         if (oldDistrictId != listing.DistrictId)
+        {
             await InvalidateNearbyCacheAsync(redis, oldDistrictId);
+            await InvalidateForYouRoomsCacheAsync(redis, oldDistrictId);
+        }
         if (request.IsActive.HasValue && request.IsActive.Value == false)
             await InvalidateRecentRoomsCacheAsync(redis);
 
@@ -386,6 +398,7 @@ public static class RoomListingsHandlers
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, districtId);
         await InvalidateRecentRoomsCacheAsync(redis);
+        await InvalidateForYouRoomsCacheAsync(redis, districtId);
 
         return NoContentResponse();
     }
@@ -496,6 +509,7 @@ public static class RoomListingsHandlers
         // Invalidate cache after photo upload so thumbnail appears immediately
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
+        await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
 
         return CreatedResponse(new { photoUrl = url, photoId = listingPhoto.Id }, url);
     }
@@ -531,6 +545,7 @@ public static class RoomListingsHandlers
         // Invalidate cache after photo deletion so thumbnail updates
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
+        await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
 
         return NoContentResponse();
     }

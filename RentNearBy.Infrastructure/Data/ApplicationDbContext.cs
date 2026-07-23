@@ -368,6 +368,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => new { l.CityId, l.IsActive });
             // Composite: city-based active listings newest first (replaces district composite)
             e.HasIndex(l => new { l.CityId, l.IsActive, l.CreatedAt });
+            // Composite: Home "Rooms for you" — district + active, newest first. Re-added: the
+            // {DistrictId, IsActive} index above doesn't cover CreatedAt ordering, and this is the
+            // one Home query with no server-side cache backing it (see HomeHandlers.GetRooms).
+            e.HasIndex(l => new { l.DistrictId, l.IsActive, l.CreatedAt })
+             .HasDatabaseName("ix_roomlistings_district_active_recent");
             // Composite: search with room type filter
             e.HasIndex(l => new { l.IsActive, l.RoomTypeId });
             // Partial: district digest job — find rooms not yet included in a daily digest.
@@ -583,6 +588,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => new { p.UserId, p.CreatedAt });
             e.HasIndex(p => new { p.CityId, p.IsActive });
             e.HasIndex(p => new { p.CityId, p.IsActive, p.CreatedAt });
+            // Composite: Home "Plots for you" — district + active, newest first. Same reasoning
+            // as ix_roomlistings_district_active_recent: {DistrictId, IsActive} above doesn't cover
+            // CreatedAt ordering, and this is the one Home query with no server-side cache backing
+            // it (see HomeHandlers.GetPlots).
+            e.HasIndex(p => new { p.DistrictId, p.IsActive, p.CreatedAt })
+             .HasDatabaseName("ix_plotlistings_district_active_recent");
             // Composite: admin count queries — COUNT(UserId = x AND !IsDeleted)
             e.HasIndex(p => new { p.UserId, p.IsDeleted });
             // Partial: district digest job — find plots not yet included in a daily digest.

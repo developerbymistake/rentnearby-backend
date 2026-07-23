@@ -47,6 +47,20 @@ public static class GoLiveHandlers
         try { await redis.GetDatabase().KeyDeleteAsync("home:recentPlots"); } catch { }
     }
 
+    // Home's "X for you" feed is cached per-district — a listing going live can enter the top of
+    // that district's list too, so bust it here alongside the global "recently added" cache above.
+    private static async Task InvalidateForYouRoomsCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouRooms:{districtId}"); } catch { }
+    }
+
+    private static async Task InvalidateForYouPlotsCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouPlots:{districtId}"); } catch { }
+    }
+
     // Best-effort — a SignalR push failure must never turn an already-committed coin spend into an
     // error response. Only called from a point where the caller's own commit is already final.
     private static async Task PushWalletBalanceChangedAsync(IHubContext<WalletHub> hubContext, Guid userId, int balance, string reason)
@@ -105,6 +119,7 @@ public static class GoLiveHandlers
             }
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), RoomNearbyPattern(listing.DistrictId));
             await InvalidateRecentRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>());
+            await InvalidateForYouRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>(), listing.DistrictId);
             return OkResponse(new
             {
                 success = true,
@@ -153,6 +168,7 @@ public static class GoLiveHandlers
             await PushWalletBalanceChangedAsync(hubContext, userId, spend.BalanceAfter, CoinTransactionReasons.RoomGoLive);
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), RoomNearbyPattern(listing.DistrictId));
             await InvalidateRecentRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>());
+            await InvalidateForYouRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>(), listing.DistrictId);
 
             return OkResponse(new
             {
@@ -210,6 +226,7 @@ public static class GoLiveHandlers
             }
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
             await InvalidateRecentPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>());
+            await InvalidateForYouPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>(), plot.DistrictId);
             return OkResponse(new
             {
                 success = true,
@@ -258,6 +275,7 @@ public static class GoLiveHandlers
             await PushWalletBalanceChangedAsync(hubContext, userId, spend.BalanceAfter, CoinTransactionReasons.PlotGoLive);
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
             await InvalidateRecentPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>());
+            await InvalidateForYouPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>(), plot.DistrictId);
 
             return OkResponse(new
             {

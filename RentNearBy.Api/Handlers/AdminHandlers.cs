@@ -1154,11 +1154,14 @@ public static class AdminHandlers
             }
             catch { }
         }
-        // Home's "Recently added" feed is cached under this one fixed key, separate from the
-        // district-scoped nearby cache above — bust it whenever a listing leaves the active set so a
-        // moderation-deactivated listing doesn't linger as a tappable, soon-to-404 card.
+        // Home's "Recently added" and "Rooms for you" feeds are cached separately from the
+        // district-scoped nearby cache above — bust them whenever a listing leaves the active set
+        // so a moderation-deactivated listing doesn't linger as a tappable, soon-to-404 card.
         if (!request.IsActive)
+        {
             await InvalidateRecentRoomsCacheAsync(redis);
+            await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
+        }
 
         return OkResponse(new { success = true, isActive = listing.IsActive });
     }
@@ -1167,6 +1170,12 @@ public static class AdminHandlers
     {
         if (redis == null) return;
         try { await redis.GetDatabase().KeyDeleteAsync("home:recentRooms"); } catch { }
+    }
+
+    private static async Task InvalidateForYouRoomsCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouRooms:{districtId}"); } catch { }
     }
 
     public static async Task<IResult> DeleteAdminListing(
@@ -1184,7 +1193,9 @@ public static class AdminHandlers
         listing.DeletedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
-        await InvalidateRecentRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>());
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        await InvalidateRecentRoomsCacheAsync(redis);
+        await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
 
         return NoContentResponse();
     }
