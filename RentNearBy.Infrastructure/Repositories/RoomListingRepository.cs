@@ -109,6 +109,23 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
         return await query.ToListAsync();
     }
 
+    // District-free by design — backs the Home "Recently added" feed, which is identical
+    // for every user regardless of district (see ix_roomlistings_recent_active).
+    public async Task<IEnumerable<RoomListing>> GetRecentAsync(int limit)
+    {
+        return await _dbSet
+            .AsNoTracking()
+            .Include(l => l.RoomType)
+            .Include(l => l.District)
+            .Include(l => l.City)
+            .Include(l => l.User)
+            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
+            .Where(l => l.IsActive && !l.IsDeleted)
+            .OrderByDescending(l => l.CreatedAt)
+            .Take(limit)
+            .ToListAsync();
+    }
+
     public async Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> SearchPagedAsync(
         Guid? districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize)
     {

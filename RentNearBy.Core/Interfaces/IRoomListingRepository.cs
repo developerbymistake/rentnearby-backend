@@ -7,6 +7,8 @@ public interface IRoomRoomListingRepository : IRepository<RoomListing>
 {
     Task<IEnumerable<NearbyListingDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId);
     Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, int? limit = null);
+    // District-free — every user sees the same result, unlike SearchAsync's district scoping.
+    Task<IEnumerable<RoomListing>> GetRecentAsync(int limit);
     Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> SearchPagedAsync(Guid? districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize);
     Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId);
 

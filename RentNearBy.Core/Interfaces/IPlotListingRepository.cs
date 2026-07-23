@@ -7,6 +7,8 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
 {
     Task<IEnumerable<NearbyPlotListingDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId);
     Task<IEnumerable<PlotListing>> GetByUserIdAsync(Guid userId);
+    // District-free — every user sees the same result, unlike GetAllAsync's district scoping.
+    Task<IEnumerable<PlotListing>> GetRecentAsync(int limit);
 
     // SQL COUNT, never load-then-filter — same reasoning as IRoomRoomListingRepository's.
     Task<int> CountByUserIdAsync(Guid userId);

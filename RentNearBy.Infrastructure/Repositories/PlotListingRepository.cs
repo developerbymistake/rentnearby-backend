@@ -205,6 +205,23 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
     }
 
+    // District-free by design — backs the Home "Recently added" feed, which is identical
+    // for every user regardless of district (see ix_plotlistings_recent_active).
+    public async Task<IEnumerable<PlotListing>> GetRecentAsync(int limit)
+    {
+        return await _dbSet
+            .AsNoTracking()
+            .Include(p => p.PlotType)
+            .Include(p => p.District)
+            .Include(p => p.City)
+            .Include(p => p.User)
+            .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder).Take(1))
+            .Where(p => p.IsActive && !p.IsDeleted)
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(limit)
+            .ToListAsync();
+    }
+
     public async Task<int> CountByUserIdAsync(Guid userId)
         => await _dbSet.Where(p => p.UserId == userId && !p.IsDeleted).CountAsync();
 

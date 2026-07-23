@@ -376,6 +376,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => new { l.IsActive, l.IsDeleted, l.DigestNotifiedAt, l.DistrictId })
              .HasDatabaseName("ix_roomlistings_digest_pending")
              .HasFilter("\"DigestNotifiedAt\" IS NULL");
+            // Partial: global "recently added" feed (Home) — no district filter at all, so
+            // ordering by CreatedAt must be covered directly rather than via a district/city
+            // composite. Filtered the same way as the digest-pending index above, just on
+            // IsActive/IsDeleted instead, to keep it small as inactive/deleted rows accumulate.
+            e.HasIndex(l => l.CreatedAt)
+             .HasDatabaseName("ix_roomlistings_recent_active")
+             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
         });
 
         modelBuilder.Entity<RoomPhoto>(e =>
@@ -584,6 +591,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => new { p.IsActive, p.IsDeleted, p.DigestNotifiedAt, p.DistrictId })
              .HasDatabaseName("ix_plotlistings_digest_pending")
              .HasFilter("\"DigestNotifiedAt\" IS NULL");
+            // Partial: global "recently added" feed (Home) — no district filter at all, so
+            // ordering by CreatedAt must be covered directly rather than via a district/city
+            // composite. Filtered the same way as the digest-pending index above, just on
+            // IsActive/IsDeleted instead, to keep it small as inactive/deleted rows accumulate.
+            e.HasIndex(p => p.CreatedAt)
+             .HasDatabaseName("ix_plotlistings_recent_active")
+             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
         });
 
         modelBuilder.Entity<PlotPhoto>(e =>
