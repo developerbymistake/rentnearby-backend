@@ -70,6 +70,14 @@ public static class PlotListingHandlers
         try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouPlots:{districtId}"); } catch { }
     }
 
+    // Home's district room/plot counts (HomeHandlers.GetSummary) — only call this where the
+    // active/deleted COUNT actually changes (not on photo edits, which don't move the count).
+    private static async Task InvalidateSummaryCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync($"home:summary:{districtId}"); } catch { }
+    }
+
     private static double Haversine(double lat1, double lng1, double lat2, double lng2)
     {
         const double R = 6371.0;
@@ -370,7 +378,12 @@ public static class PlotListingHandlers
             await InvalidateForYouPlotsCacheAsync(redis, oldDistrictId);
         }
         if (request.IsActive.HasValue && request.IsActive.Value == false)
+        {
             await InvalidateRecentPlotsCacheAsync(redis);
+            await InvalidateSummaryCacheAsync(redis, plot.DistrictId);
+            if (oldDistrictId != plot.DistrictId)
+                await InvalidateSummaryCacheAsync(redis, oldDistrictId);
+        }
 
         return OkResponse(new { success = true });
     }
@@ -402,6 +415,7 @@ public static class PlotListingHandlers
         await InvalidateNearbyCacheAsync(redis, districtId);
         await InvalidateRecentPlotsCacheAsync(redis);
         await InvalidateForYouPlotsCacheAsync(redis, districtId);
+        await InvalidateSummaryCacheAsync(redis, districtId);
 
         return NoContentResponse();
     }
@@ -632,6 +646,7 @@ public static class PlotListingHandlers
         await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
         await InvalidateRecentPlotsCacheAsync(redis);
         await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
+        await InvalidateSummaryCacheAsync(redis, plot.DistrictId);
 
         return OkResponse(new { success = true, isActive = plot.IsActive });
     }
@@ -657,6 +672,7 @@ public static class PlotListingHandlers
         await InvalidateNearbyCacheAsync(redis, districtId);
         await InvalidateRecentPlotsCacheAsync(redis);
         await InvalidateForYouPlotsCacheAsync(redis, districtId);
+        await InvalidateSummaryCacheAsync(redis, districtId);
 
         return NoContentResponse();
     }

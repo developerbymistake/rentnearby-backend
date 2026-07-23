@@ -1162,6 +1162,9 @@ public static class AdminHandlers
             await InvalidateRecentRoomsCacheAsync(redis);
             await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
         }
+        // District room count moves either direction (activate or deactivate), unlike the two
+        // caches above which only care about a listing leaving the active set.
+        await InvalidateSummaryCacheAsync(redis, listing.DistrictId);
 
         return OkResponse(new { success = true, isActive = listing.IsActive });
     }
@@ -1176,6 +1179,12 @@ public static class AdminHandlers
     {
         if (redis == null) return;
         try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouRooms:{districtId}"); } catch { }
+    }
+
+    private static async Task InvalidateSummaryCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync($"home:summary:{districtId}"); } catch { }
     }
 
     public static async Task<IResult> DeleteAdminListing(
@@ -1196,6 +1205,7 @@ public static class AdminHandlers
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateRecentRoomsCacheAsync(redis);
         await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
+        await InvalidateSummaryCacheAsync(redis, listing.DistrictId);
 
         return NoContentResponse();
     }

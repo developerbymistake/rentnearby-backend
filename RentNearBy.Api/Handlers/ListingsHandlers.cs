@@ -131,6 +131,14 @@ public static class RoomListingsHandlers
         try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouRooms:{districtId}"); } catch { }
     }
 
+    // Home's district room/plot counts (HomeHandlers.GetSummary) — only call this where the
+    // active/deleted COUNT actually changes (not on photo edits, which don't move the count).
+    private static async Task InvalidateSummaryCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
+    {
+        if (redis == null) return;
+        try { await redis.GetDatabase().KeyDeleteAsync($"home:summary:{districtId}"); } catch { }
+    }
+
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid districtId,
         IUnitOfWork unitOfWork,
@@ -370,7 +378,12 @@ public static class RoomListingsHandlers
             await InvalidateForYouRoomsCacheAsync(redis, oldDistrictId);
         }
         if (request.IsActive.HasValue && request.IsActive.Value == false)
+        {
             await InvalidateRecentRoomsCacheAsync(redis);
+            await InvalidateSummaryCacheAsync(redis, listing.DistrictId);
+            if (oldDistrictId != listing.DistrictId)
+                await InvalidateSummaryCacheAsync(redis, oldDistrictId);
+        }
 
         return OkResponse(new { success = true });
     }
@@ -399,6 +412,7 @@ public static class RoomListingsHandlers
         await InvalidateNearbyCacheAsync(redis, districtId);
         await InvalidateRecentRoomsCacheAsync(redis);
         await InvalidateForYouRoomsCacheAsync(redis, districtId);
+        await InvalidateSummaryCacheAsync(redis, districtId);
 
         return NoContentResponse();
     }
