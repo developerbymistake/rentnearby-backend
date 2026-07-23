@@ -61,13 +61,6 @@ public static class GoLiveHandlers
         try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouPlots:{districtId}"); } catch { }
     }
 
-    // Home's district room/plot counts (HomeHandlers.GetSummary) — going live moves the count.
-    private static async Task InvalidateSummaryCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
-    {
-        if (redis == null) return;
-        try { await redis.GetDatabase().KeyDeleteAsync($"home:summary:{districtId}"); } catch { }
-    }
-
     // Best-effort — a SignalR push failure must never turn an already-committed coin spend into an
     // error response. Only called from a point where the caller's own commit is already final.
     private static async Task PushWalletBalanceChangedAsync(IHubContext<WalletHub> hubContext, Guid userId, int balance, string reason)
@@ -127,7 +120,6 @@ public static class GoLiveHandlers
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), RoomNearbyPattern(listing.DistrictId));
             await InvalidateRecentRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>());
             await InvalidateForYouRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>(), listing.DistrictId);
-            await InvalidateSummaryCacheAsync(sp.GetService<IConnectionMultiplexer>(), listing.DistrictId);
             return OkResponse(new
             {
                 success = true,
@@ -177,7 +169,6 @@ public static class GoLiveHandlers
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), RoomNearbyPattern(listing.DistrictId));
             await InvalidateRecentRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>());
             await InvalidateForYouRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>(), listing.DistrictId);
-            await InvalidateSummaryCacheAsync(sp.GetService<IConnectionMultiplexer>(), listing.DistrictId);
 
             return OkResponse(new
             {
@@ -236,7 +227,6 @@ public static class GoLiveHandlers
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
             await InvalidateRecentPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>());
             await InvalidateForYouPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>(), plot.DistrictId);
-            await InvalidateSummaryCacheAsync(sp.GetService<IConnectionMultiplexer>(), plot.DistrictId);
             return OkResponse(new
             {
                 success = true,
@@ -286,7 +276,6 @@ public static class GoLiveHandlers
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
             await InvalidateRecentPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>());
             await InvalidateForYouPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>(), plot.DistrictId);
-            await InvalidateSummaryCacheAsync(sp.GetService<IConnectionMultiplexer>(), plot.DistrictId);
 
             return OkResponse(new
             {
