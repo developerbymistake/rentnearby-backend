@@ -34,64 +34,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "CoinFeatures",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    Key = table.Column<string>(type: "text", nullable: false),
-                    DisplayName = table.Column<string>(type: "text", nullable: false),
-                    QuotaUnitLabel = table.Column<string>(type: "text", nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_CoinFeatures", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "CoinPacks",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    Coins = table.Column<int>(type: "integer", nullable: false),
-                    BonusCoins = table.Column<int>(type: "integer", nullable: false),
-                    PriceInr = table.Column<int>(type: "integer", nullable: false),
-                    IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
-                    SortOrder = table.Column<int>(type: "integer", nullable: false),
-                    IsFeatured = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_CoinPacks", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "CoinPlans",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    FeatureKey = table.Column<string>(type: "text", nullable: false),
-                    PlanType = table.Column<string>(type: "text", nullable: false),
-                    Days = table.Column<int>(type: "integer", nullable: false),
-                    Quota = table.Column<int>(type: "integer", nullable: false),
-                    Price = table.Column<int>(type: "integer", nullable: false),
-                    DiscountPercent = table.Column<int>(type: "integer", nullable: false),
-                    OriginalPrice = table.Column<int>(type: "integer", nullable: false),
-                    IsFeatured = table.Column<bool>(type: "boolean", nullable: false),
-                    IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_CoinPlans", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "Conversations",
                 columns: table => new
                 {
@@ -118,7 +60,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     Code = table.Column<string>(type: "text", nullable: true),
-                    CoinValue = table.Column<int>(type: "integer", nullable: false),
+                    CreditValue = table.Column<int>(type: "integer", nullable: false),
                     TriggerType = table.Column<string>(type: "text", nullable: false),
                     PerUserLimit = table.Column<int>(type: "integer", nullable: false),
                     MaxTotalRedemptions = table.Column<int>(type: "integer", nullable: true),
@@ -135,6 +77,64 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_Coupons", x => x.Id);
                     table.CheckConstraint("ck_coupons_peruserlimit_one", "\"PerUserLimit\" = 1");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "CreditFeatures",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Key = table.Column<string>(type: "text", nullable: false),
+                    DisplayName = table.Column<string>(type: "text", nullable: false),
+                    QuotaUnitLabel = table.Column<string>(type: "text", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CreditFeatures", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "CreditPacks",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Credits = table.Column<int>(type: "integer", nullable: false),
+                    BonusCredits = table.Column<int>(type: "integer", nullable: false),
+                    PriceInr = table.Column<int>(type: "integer", nullable: false),
+                    IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    IsFeatured = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CreditPacks", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "CreditPlans",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    FeatureKey = table.Column<string>(type: "text", nullable: false),
+                    PlanType = table.Column<string>(type: "text", nullable: false),
+                    Days = table.Column<int>(type: "integer", nullable: false),
+                    Quota = table.Column<int>(type: "integer", nullable: false),
+                    Price = table.Column<int>(type: "integer", nullable: false),
+                    DiscountPercent = table.Column<int>(type: "integer", nullable: false),
+                    OriginalPrice = table.Column<int>(type: "integer", nullable: false),
+                    IsFeatured = table.Column<bool>(type: "boolean", nullable: false),
+                    IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CreditPlans", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -525,72 +525,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "CoinPackPurchases",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    CoinPackId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Coins = table.Column<int>(type: "integer", nullable: false),
-                    BonusCoins = table.Column<int>(type: "integer", nullable: false),
-                    PriceInr = table.Column<int>(type: "integer", nullable: false),
-                    Status = table.Column<string>(type: "text", nullable: false),
-                    RazorpayOrderId = table.Column<string>(type: "text", nullable: true),
-                    RazorpayPaymentId = table.Column<string>(type: "text", nullable: true),
-                    RazorpaySignature = table.Column<string>(type: "text", nullable: true),
-                    FailureReason = table.Column<string>(type: "text", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_CoinPackPurchases", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_CoinPackPurchases_CoinPacks_CoinPackId",
-                        column: x => x.CoinPackId,
-                        principalTable: "CoinPacks",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_CoinPackPurchases_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "CoinTransactions",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Amount = table.Column<int>(type: "integer", nullable: false),
-                    Reason = table.Column<string>(type: "text", nullable: false),
-                    ReferenceId = table.Column<Guid>(type: "uuid", nullable: true),
-                    BalanceAfter = table.Column<int>(type: "integer", nullable: false),
-                    PerformedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Note = table.Column<string>(type: "text", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_CoinTransactions", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_CoinTransactions_Users_PerformedByUserId",
-                        column: x => x.PerformedByUserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
-                    table.ForeignKey(
-                        name: "FK_CoinTransactions_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "CouponRedemptions",
                 columns: table => new
                 {
@@ -610,6 +544,72 @@ namespace RentNearBy.Infrastructure.Migrations
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "FK_CouponRedemptions_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "CreditPackPurchases",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    CreditPackId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Credits = table.Column<int>(type: "integer", nullable: false),
+                    BonusCredits = table.Column<int>(type: "integer", nullable: false),
+                    PriceInr = table.Column<int>(type: "integer", nullable: false),
+                    Status = table.Column<string>(type: "text", nullable: false),
+                    RazorpayOrderId = table.Column<string>(type: "text", nullable: true),
+                    RazorpayPaymentId = table.Column<string>(type: "text", nullable: true),
+                    RazorpaySignature = table.Column<string>(type: "text", nullable: true),
+                    FailureReason = table.Column<string>(type: "text", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CreditPackPurchases", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_CreditPackPurchases_CreditPacks_CreditPackId",
+                        column: x => x.CreditPackId,
+                        principalTable: "CreditPacks",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_CreditPackPurchases_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "CreditTransactions",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Amount = table.Column<int>(type: "integer", nullable: false),
+                    Reason = table.Column<string>(type: "text", nullable: false),
+                    ReferenceId = table.Column<Guid>(type: "uuid", nullable: true),
+                    BalanceAfter = table.Column<int>(type: "integer", nullable: false),
+                    PerformedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Note = table.Column<string>(type: "text", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CreditTransactions", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_CreditTransactions_Users_PerformedByUserId",
+                        column: x => x.PerformedByUserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_CreditTransactions_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
                         principalColumn: "Id",
@@ -1205,62 +1205,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_CoinFeatures_Key",
-                table: "CoinFeatures",
-                column: "Key",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_CoinPackPurchases_CoinPackId",
-                table: "CoinPackPurchases",
-                column: "CoinPackId");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_coinpackpurchases_pending_user",
-                table: "CoinPackPurchases",
-                column: "UserId",
-                unique: true,
-                filter: "\"Status\" = 'PENDING'");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_CoinPackPurchases_RazorpayOrderId",
-                table: "CoinPackPurchases",
-                column: "RazorpayOrderId");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_coinpackpurchases_user",
-                table: "CoinPackPurchases",
-                column: "UserId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_CoinPlans_FeatureKey_PlanType",
-                table: "CoinPlans",
-                columns: new[] { "FeatureKey", "PlanType" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "ix_cointransactions_oneshot_unique",
-                table: "CoinTransactions",
-                columns: new[] { "UserId", "Reason", "ReferenceId" },
-                unique: true,
-                filter: "\"Reason\" IN ('RECHARGE', 'COUPON_REDEEM', 'WELCOME_BONUS', 'ADMIN_CREDIT', 'ADMIN_DEBIT') AND \"ReferenceId\" IS NOT NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_CoinTransactions_PerformedByUserId",
-                table: "CoinTransactions",
-                column: "PerformedByUserId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_CoinTransactions_Reason_CreatedAt",
-                table: "CoinTransactions",
-                columns: new[] { "Reason", "CreatedAt" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_CoinTransactions_UserId_CreatedAt",
-                table: "CoinTransactions",
-                columns: new[] { "UserId", "CreatedAt" });
-
-            migrationBuilder.CreateIndex(
                 name: "IX_Conversations_OwnerId_LastMessageAt",
                 table: "Conversations",
                 columns: new[] { "OwnerId", "LastMessageAt" });
@@ -1303,6 +1247,62 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_Coupons_TriggerType",
                 table: "Coupons",
                 column: "TriggerType");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CreditFeatures_Key",
+                table: "CreditFeatures",
+                column: "Key",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CreditPackPurchases_CreditPackId",
+                table: "CreditPackPurchases",
+                column: "CreditPackId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_creditpackpurchases_pending_user",
+                table: "CreditPackPurchases",
+                column: "UserId",
+                unique: true,
+                filter: "\"Status\" = 'PENDING'");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CreditPackPurchases_RazorpayOrderId",
+                table: "CreditPackPurchases",
+                column: "RazorpayOrderId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_creditpackpurchases_user",
+                table: "CreditPackPurchases",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CreditPlans_FeatureKey_PlanType",
+                table: "CreditPlans",
+                columns: new[] { "FeatureKey", "PlanType" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_credittransactions_oneshot_unique",
+                table: "CreditTransactions",
+                columns: new[] { "UserId", "Reason", "ReferenceId" },
+                unique: true,
+                filter: "\"Reason\" IN ('RECHARGE', 'COUPON_REDEEM', 'WELCOME_BONUS', 'ADMIN_CREDIT', 'ADMIN_DEBIT') AND \"ReferenceId\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CreditTransactions_PerformedByUserId",
+                table: "CreditTransactions",
+                column: "PerformedByUserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CreditTransactions_Reason_CreatedAt",
+                table: "CreditTransactions",
+                columns: new[] { "Reason", "CreatedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CreditTransactions_UserId_CreatedAt",
+                table: "CreditTransactions",
+                columns: new[] { "UserId", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_DeviceTokens_Token",
@@ -1508,15 +1508,15 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: new[] { "CityId", "IsActive", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlotListings_CreatedAt",
-                table: "PlotListings",
-                column: "CreatedAt");
-
-            migrationBuilder.CreateIndex(
                 name: "ix_plotlistings_digest_pending",
                 table: "PlotListings",
                 columns: new[] { "IsActive", "IsDeleted", "DigestNotifiedAt", "DistrictId" },
                 filter: "\"DigestNotifiedAt\" IS NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_plotlistings_district_active_recent",
+                table: "PlotListings",
+                columns: new[] { "DistrictId", "IsActive", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_PlotListings_DistrictId",
@@ -1537,6 +1537,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_PlotListings_PlotTypeId",
                 table: "PlotListings",
                 column: "PlotTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_plotlistings_recent_active",
+                table: "PlotListings",
+                column: "CreatedAt",
+                filter: "\"IsActive\" = true AND \"IsDeleted\" = false");
 
             migrationBuilder.CreateIndex(
                 name: "IX_PlotListings_UserId",
@@ -1614,15 +1620,15 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: new[] { "CityId", "IsActive", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_RoomListings_CreatedAt",
-                table: "RoomListings",
-                column: "CreatedAt");
-
-            migrationBuilder.CreateIndex(
                 name: "ix_roomlistings_digest_pending",
                 table: "RoomListings",
                 columns: new[] { "IsActive", "IsDeleted", "DigestNotifiedAt", "DistrictId" },
                 filter: "\"DigestNotifiedAt\" IS NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_roomlistings_district_active_recent",
+                table: "RoomListings",
+                columns: new[] { "DistrictId", "IsActive", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_RoomListings_DistrictId",
@@ -1648,6 +1654,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_RoomListings_PriceMonthly",
                 table: "RoomListings",
                 column: "PriceMonthly");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_roomlistings_recent_active",
+                table: "RoomListings",
+                column: "CreatedAt",
+                filter: "\"IsActive\" = true AND \"IsDeleted\" = false");
 
             migrationBuilder.CreateIndex(
                 name: "IX_RoomListings_RoomTypeId",
@@ -1729,19 +1741,19 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "BannerDismissals");
 
             migrationBuilder.DropTable(
-                name: "CoinFeatures");
-
-            migrationBuilder.DropTable(
-                name: "CoinPackPurchases");
-
-            migrationBuilder.DropTable(
-                name: "CoinPlans");
-
-            migrationBuilder.DropTable(
-                name: "CoinTransactions");
-
-            migrationBuilder.DropTable(
                 name: "CouponRedemptions");
+
+            migrationBuilder.DropTable(
+                name: "CreditFeatures");
+
+            migrationBuilder.DropTable(
+                name: "CreditPackPurchases");
+
+            migrationBuilder.DropTable(
+                name: "CreditPlans");
+
+            migrationBuilder.DropTable(
+                name: "CreditTransactions");
 
             migrationBuilder.DropTable(
                 name: "DeviceTokens");
@@ -1795,10 +1807,10 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "DistrictBanners");
 
             migrationBuilder.DropTable(
-                name: "CoinPacks");
+                name: "Coupons");
 
             migrationBuilder.DropTable(
-                name: "Coupons");
+                name: "CreditPacks");
 
             migrationBuilder.DropTable(
                 name: "Agents");
