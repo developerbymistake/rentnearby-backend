@@ -203,7 +203,7 @@ public static class PlotListingHandlers
     }
 
     public static async Task<IResult> GetMyPlotListings(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ILoggerFactory loggerFactory, int page = 1, int pageSize = 10)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 10)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -211,26 +211,7 @@ public static class PlotListingHandlers
         if (page < 1) page = 1;
 
         var (items, hasMore) = await unitOfWork.PlotListings.GetByUserIdPagedAsync(userId, page, pageSize);
-
-        // TEMPORARY diagnostic instrumentation — mirrors ListingsHandlers.GetMyListings, see
-        // comment there. Remove once root-caused.
-        var logger = loggerFactory.CreateLogger("PlotListingHandlers");
-        var dtos = new List<PlotListingDto>();
-        foreach (var p in items)
-        {
-            try
-            {
-                dtos.Add(p.Adapt<PlotListingDto>());
-            }
-            catch (Exception ex)
-            {
-                var photoDetails = string.Join(";", p.Photos.Select(ph =>
-                    $"[Id={ph.Id},Url={ph.PhotoUrl ?? "null"},Order={ph.PhotoOrder},FilePath={ph.FilePath ?? "null"}]"));
-                logger.LogError(ex,
-                    "Adapt<PlotListingDto> failed for PlotListing {ListingId}. PlotTypeNull={PlotTypeNull} DistrictNull={DistrictNull} CityNull={CityNull} UserNull={UserNull} PhotosCount={PhotosCount} PhotoDetails={PhotoDetails}",
-                    p.Id, p.PlotType is null, p.District is null, p.City is null, p.User is null, p.Photos.Count, photoDetails);
-            }
-        }
+        var dtos = items.Select(p => p.Adapt<PlotListingDto>()).ToList();
         var counts = await unitOfWork.ListingReports.GetPendingCountsForListingsAsync(dtos.Select(d => d.Id), "Plot");
         foreach (var d in dtos) d.PendingReportCount = counts.GetValueOrDefault(d.Id);
         return OkResponse(new { items = dtos, hasMore });

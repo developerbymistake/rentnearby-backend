@@ -192,6 +192,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .Include(l => l.RoomType)
             .Include(l => l.District)
             .Include(l => l.City)
+            .Include(l => l.User)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
             .Where(l => l.UserId == userId && !l.IsDeleted)
             .OrderByDescending(l => l.CreatedAt)

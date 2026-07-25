@@ -102,6 +102,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
             .Include(p => p.PlotType)
             .Include(p => p.District)
             .Include(p => p.City)
+            .Include(p => p.User)
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder).Take(1))
             .Where(p => p.UserId == userId && !p.IsDeleted)
             .OrderByDescending(p => p.CreatedAt)
