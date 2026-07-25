@@ -12,5 +12,7 @@ services:
       CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
       CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      AppLinks__PackageName: com.rentnearby.rentnearby
+      AppLinks__Sha256Fingerprints__0: ${APP_LINKS_SHA256_FINGERPRINT}
     ports:
       - "5000:5000"
