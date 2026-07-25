@@ -13,8 +13,8 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260725095814_AddAppFeatureFlags")]
-    partial class AddAppFeatureFlags
+    [Migration("20260725184820_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -188,19 +188,19 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("Agents");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.AgentServiceCategory", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.AgentService", b =>
                 {
                     b.Property<Guid>("AgentId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("ServiceCategoryId")
+                    b.Property<Guid>("ServiceId")
                         .HasColumnType("uuid");
 
-                    b.HasKey("AgentId", "ServiceCategoryId");
+                    b.HasKey("AgentId", "ServiceId");
 
-                    b.HasIndex("ServiceCategoryId");
+                    b.HasIndex("ServiceId");
 
-                    b.ToTable("AgentServiceCategories");
+                    b.ToTable("AgentServices");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.AppFeatureFlag", b =>
@@ -685,7 +685,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "UserId", "Reason", "ReferenceId" }, "ix_credittransactions_oneshot_unique")
                         .IsUnique()
-                        .HasFilter("\"Reason\" IN ('RECHARGE', 'COUPON_REDEEM', 'WELCOME_BONUS', 'ADMIN_CREDIT', 'ADMIN_DEBIT') AND \"ReferenceId\" IS NOT NULL");
+                        .HasFilter("\"Reason\" IN ('RECHARGE', 'COUPON_REDEEM', 'WELCOME_BONUS', 'ADMIN_CREDIT', 'GOLIVE_PENDING_REFUND', 'ADMIN_DEBIT') AND \"ReferenceId\" IS NOT NULL");
 
                     b.ToTable("CreditTransactions");
                 });
@@ -890,6 +890,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("UserSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<uint>("xmin")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -921,6 +924,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("SeenAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("InquiryId", "AgentId");
 
@@ -1334,6 +1340,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<decimal>("Latitude")
                         .HasColumnType("numeric");
 
+                    b.Property<string>("LiveRequestStatus")
+                        .HasColumnType("text");
+
                     b.Property<Point>("Location")
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("geography(Point, 4326)")
@@ -1344,6 +1353,18 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Guid>("PlotTypeId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("RejectedReason")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("RequestedPlanCreditsSpent")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("RequestedPlanDays")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RequestedPlanType")
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
@@ -1595,6 +1616,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<decimal>("Latitude")
                         .HasColumnType("numeric");
 
+                    b.Property<string>("LiveRequestStatus")
+                        .HasColumnType("text");
+
                     b.Property<Point>("Location")
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("geography(Point, 4326)")
@@ -1605,6 +1629,18 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<int>("PriceMonthly")
                         .HasColumnType("integer");
+
+                    b.Property<string>("RejectedReason")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("RequestedPlanCreditsSpent")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("RequestedPlanDays")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RequestedPlanType")
+                        .HasColumnType("text");
 
                     b.Property<Guid>("RoomTypeId")
                         .HasColumnType("uuid");
@@ -2060,23 +2096,23 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.AgentServiceCategory", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.AgentService", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Agent", "Agent")
-                        .WithMany("AgentServiceCategories")
+                        .WithMany("AgentServices")
                         .HasForeignKey("AgentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("RentNearBy.Core.Entities.ServiceCategory", "ServiceCategory")
-                        .WithMany("AgentServiceCategories")
-                        .HasForeignKey("ServiceCategoryId")
+                    b.HasOne("RentNearBy.Core.Entities.Service", "Service")
+                        .WithMany("AgentServices")
+                        .HasForeignKey("ServiceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Agent");
 
-                    b.Navigation("ServiceCategory");
+                    b.Navigation("Service");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.AppFeatureFlag", b =>
@@ -2529,7 +2565,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Agent", b =>
                 {
-                    b.Navigation("AgentServiceCategories");
+                    b.Navigation("AgentServices");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Conversation", b =>
@@ -2583,13 +2619,13 @@ namespace RentNearBy.Infrastructure.Migrations
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Service", b =>
                 {
+                    b.Navigation("AgentServices");
+
                     b.Navigation("Packages");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.ServiceCategory", b =>
                 {
-                    b.Navigation("AgentServiceCategories");
-
                     b.Navigation("Services");
                 });
 
