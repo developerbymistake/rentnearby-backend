@@ -1,7 +1,7 @@
 namespace RentNearBy.Core.Models;
 
 // Discriminator for NotificationEvent.Type — plain constants, no DB lookup table (matches
-// InquiryStatuses/ListingKinds/CoinTransactionReasons's established idiom; a lookup table only pays
+// InquiryStatuses/ListingKinds/CreditTransactionReasons's established idiom; a lookup table only pays
 // for itself if types need to be admin-configurable at runtime, which isn't the case here). Add a
 // new const here (and a matching wire-value entry below) for each new notification category —
 // nothing else about the schema changes.

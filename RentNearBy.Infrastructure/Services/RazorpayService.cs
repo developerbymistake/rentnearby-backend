@@ -261,7 +261,7 @@ public class RazorpayService : IRazorpayService
     // without making it fatal.
     public bool IsWebhookConfigured => !string.IsNullOrWhiteSpace(_webhookSecret);
 
-    // Reconciliation primitive for PendingCoinPurchaseCleanupService: given only the order id we
+    // Reconciliation primitive for PendingCreditPurchaseCleanupService: given only the order id we
     // already have for a stuck-Pending purchase (no payment id yet — that's only known once a
     // client-driven verify or a webhook has actually told us), ask Razorpay directly whether any
     // payment attempt against that order ever captured. Reuses the same retry+circuit-breaker

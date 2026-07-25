@@ -269,8 +269,8 @@ public static class PlotListingHandlers
                 return BadRequestResponse("Selected city does not belong to the selected district");
         }
 
-        // Flat, coins-independent cap on how many plots a user can create — separate concern from
-        // whether they can afford to go live on one (that's coin-gated, at /go-live time instead).
+        // Flat, credits-independent cap on how many plots a user can create — separate concern from
+        // whether they can afford to go live on one (that's credit-gated, at /go-live time instead).
         var plotLimit = await unitOfWork.ListingLimitSettings.GetByKindAsync(ListingKinds.Plot);
         var maxListings = plotLimit?.MaxListings ?? 5;
         var currentCount = await unitOfWork.PlotListings.CountByUserIdAsync(userId);
@@ -615,12 +615,12 @@ public static class PlotListingHandlers
         if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
 
         // See the matching comment in AdminHandlers.ToggleAdminListingStatus — no membership to
-        // check, no free-activation bypass around the coin-spend engine. Deactivate is always allowed.
+        // check, no free-activation bypass around the credit-spend engine. Deactivate is always allowed.
         if (request.IsActive)
         {
             var stillWithinValidity = plot.ValidUntil.HasValue && plot.ValidUntil > DateTime.UtcNow;
             if (!stillWithinValidity)
-                return BadRequestResponse("This plot has no valid paid period. Ask the owner to Go Live, or credit coins to their wallet so they can.");
+                return BadRequestResponse("This plot has no valid paid period. Ask the owner to Go Live, or add credits to their wallet so they can.");
         }
 
         plot.IsActive = request.IsActive;
@@ -663,7 +663,7 @@ public static class PlotListingHandlers
 
     public static async Task<IResult> GetPublicPlotPlans(IUnitOfWork unitOfWork)
     {
-        var plans = await unitOfWork.CoinPlans.GetByFeatureKeyAsync(CoinFeatureKeys.PlotGoLive);
+        var plans = await unitOfWork.CreditPlans.GetByFeatureKeyAsync(CreditFeatureKeys.PlotGoLive);
         var result = plans.Where(p => p.IsEnabled).OrderBy(p => p.Price)
             .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, originalPrice = p.OriginalPrice, discountPercent = p.DiscountPercent, plotLimit = p.Quota, isFeatured = p.IsFeatured })
             .ToList();

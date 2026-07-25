@@ -196,7 +196,7 @@ public static class RoomListingsHandlers
 
     public static async Task<IResult> GetPlans(IUnitOfWork unitOfWork)
     {
-        var plans = await unitOfWork.CoinPlans.GetByFeatureKeyAsync(CoinFeatureKeys.RoomGoLive);
+        var plans = await unitOfWork.CreditPlans.GetByFeatureKeyAsync(CreditFeatureKeys.RoomGoLive);
         var result = plans
             .Where(p => p.IsEnabled)
             .OrderBy(p => p.Price)
@@ -281,8 +281,8 @@ public static class RoomListingsHandlers
                 return BadRequestResponse("Selected city does not belong to the selected district");
         }
 
-        // Flat, coins-independent cap on how many listings a user can create — separate concern from
-        // whether they can afford to go live on one (that's coin-gated, at /go-live time instead).
+        // Flat, credits-independent cap on how many listings a user can create — separate concern from
+        // whether they can afford to go live on one (that's credit-gated, at /go-live time instead).
         var roomLimit = await unitOfWork.ListingLimitSettings.GetByKindAsync(ListingKinds.Room);
         var maxListings = roomLimit?.MaxListings ?? 5;
         var currentCount = await unitOfWork.RoomListings.CountByUserIdAsync(userId);

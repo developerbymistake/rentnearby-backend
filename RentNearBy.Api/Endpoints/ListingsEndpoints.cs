@@ -24,7 +24,7 @@ public static class RoomListingsEndpoints
         group.MapPost("/{id:guid}/report", RoomListingsHandlers.ReportListing).RequireAuthorization();
         group.MapGet("/{id:guid}/reports", RoomListingsHandlers.GetListingReports).RequireAuthorization();
 
-        // Coin-based Go Live — replaces the old Razorpay-per-listing payment routes entirely.
+        // Credit-based Go Live — replaces the old Razorpay-per-listing payment routes entirely.
         group.MapPost("/{listingId:guid}/go-live", GoLiveHandlers.GoLiveRoom).RequireAuthorization();
 
         return group;

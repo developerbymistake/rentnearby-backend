@@ -4,7 +4,7 @@ namespace RentNearBy.Core.DTOs.Requests;
 // otherwise distinguish "field omitted, leave unchanged" from "explicitly set to null" — both arrive
 // as null. Default false, so existing callers that never set them behave exactly as before.
 public record UpdateCouponRequest(
-    int? CoinValue,
+    int? CreditValue,
     int? MaxTotalRedemptions,
     bool ClearMaxTotalRedemptions,
     DateTime? ValidUntil,

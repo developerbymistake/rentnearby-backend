@@ -13,7 +13,7 @@ public class CreateCouponRequestValidator : AbstractValidator<CreateCouponReques
         RuleFor(x => x.TriggerType)
             .Equal(WellKnownCoupons.ManualCodeTrigger)
             .WithMessage($"Admin-created coupons must use TriggerType '{WellKnownCoupons.ManualCodeTrigger}'.");
-        RuleFor(x => x.CoinValue).GreaterThan(0).WithMessage("CoinValue must be greater than 0");
+        RuleFor(x => x.CreditValue).GreaterThan(0).WithMessage("CreditValue must be greater than 0");
         RuleFor(x => x.MaxTotalRedemptions).GreaterThan(0).When(x => x.MaxTotalRedemptions.HasValue);
         RuleFor(x => x.ValidUntil)
             .GreaterThan(x => x.ValidFrom)

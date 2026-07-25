@@ -1,6 +1,6 @@
 namespace RentNearBy.Core.Entities;
 
-// Append-only ledger, mirrors CoinTransaction's shape exactly.
+// Append-only ledger, mirrors CreditTransaction's shape exactly.
 public class InquiryStatusHistory
 {
     public Guid Id { get; set; }

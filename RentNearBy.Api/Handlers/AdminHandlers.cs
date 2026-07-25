@@ -460,15 +460,15 @@ public static class AdminHandlers
             .Select(g => new { District = g.Key.DistrictName, Count = g.Count() })
             .ToListAsync();
 
-        // Real-money earnings now come from coin-pack purchases only — Go Live itself spends coins,
+        // Real-money earnings now come from credit-pack purchases only — Go Live itself spends credits,
         // not rupees, so PaymentTransaction (deleted with the old membership system) is no longer
         // the revenue source.
         var now = DateTime.UtcNow;
-        var totalEarnings = await db.CoinPackPurchases
-            .Where(p => p.Status == CoinPackPurchaseStatuses.Success)
+        var totalEarnings = await db.CreditPackPurchases
+            .Where(p => p.Status == CreditPackPurchaseStatuses.Success)
             .SumAsync(p => (int?)p.PriceInr) ?? 0;
-        var currentMonthEarnings = await db.CoinPackPurchases
-            .Where(p => p.Status == CoinPackPurchaseStatuses.Success && p.CompletedAt.HasValue &&
+        var currentMonthEarnings = await db.CreditPackPurchases
+            .Where(p => p.Status == CreditPackPurchaseStatuses.Success && p.CompletedAt.HasValue &&
                         p.CompletedAt.Value.Year == now.Year &&
                         p.CompletedAt.Value.Month == now.Month)
             .SumAsync(p => (int?)p.PriceInr) ?? 0;
@@ -487,70 +487,70 @@ public static class AdminHandlers
         });
     }
 
-    // ── Coin Packs ──────────────────────────────────────────────────────────────
+    // ── Credit Packs ──────────────────────────────────────────────────────────────
     // Mirrors the Room/Plot Plans pattern below: IsEnabled toggle, no delete, bottom-sheet-sized form.
 
-    public static async Task<IResult> GetCoinPacks(IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetCreditPacks(IUnitOfWork unitOfWork)
     {
-        var packs = await unitOfWork.CoinPacks.GetAllAsync();
-        return OkResponse(packs.OrderBy(p => p.SortOrder).Select(p => new CoinPackDto
+        var packs = await unitOfWork.CreditPacks.GetAllAsync();
+        return OkResponse(packs.OrderBy(p => p.SortOrder).Select(p => new CreditPackDto
         {
-            Id = p.Id, Coins = p.Coins, BonusCoins = p.BonusCoins, PriceInr = p.PriceInr,
+            Id = p.Id, Credits = p.Credits, BonusCredits = p.BonusCredits, PriceInr = p.PriceInr,
             IsEnabled = p.IsEnabled, SortOrder = p.SortOrder, IsFeatured = p.IsFeatured,
         }));
     }
 
-    public static async Task<IResult> CreateCoinPack(
-        CreateCoinPackRequest request, IValidator<CreateCoinPackRequest> validator,
+    public static async Task<IResult> CreateCreditPack(
+        CreateCreditPackRequest request, IValidator<CreateCreditPackRequest> validator,
         IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var pack = new CoinPack
+        var pack = new CreditPack
         {
-            Id = Guid.NewGuid(), Coins = request.Coins, BonusCoins = request.BonusCoins,
+            Id = Guid.NewGuid(), Credits = request.Credits, BonusCredits = request.BonusCredits,
             PriceInr = request.PriceInr, SortOrder = request.SortOrder, IsFeatured = request.IsFeatured,
             IsEnabled = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
         };
-        await unitOfWork.CoinPacks.AddAsync(pack);
+        await unitOfWork.CreditPacks.AddAsync(pack);
         await unitOfWork.SaveChangesAsync();
 
-        cache.Remove(CoinPackHandlers.ActivePacksCacheKey);
+        cache.Remove(CreditPackHandlers.ActivePacksCacheKey);
 
-        return CreatedResponse(new CoinPackDto
+        return CreatedResponse(new CreditPackDto
         {
-            Id = pack.Id, Coins = pack.Coins, BonusCoins = pack.BonusCoins, PriceInr = pack.PriceInr,
+            Id = pack.Id, Credits = pack.Credits, BonusCredits = pack.BonusCredits, PriceInr = pack.PriceInr,
             IsEnabled = pack.IsEnabled, SortOrder = pack.SortOrder, IsFeatured = pack.IsFeatured,
-        }, $"/api/v1/admin/coin-packs/{pack.Id}");
+        }, $"/api/v1/admin/credit-packs/{pack.Id}");
     }
 
-    public static async Task<IResult> UpdateCoinPack(
-        Guid id, UpdateCoinPackRequest request, IValidator<UpdateCoinPackRequest> validator,
+    public static async Task<IResult> UpdateCreditPack(
+        Guid id, UpdateCreditPackRequest request, IValidator<UpdateCreditPackRequest> validator,
         IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var pack = await unitOfWork.CoinPacks.GetByIdAsync(id);
-        if (pack == null) return NotFoundResponse("Coin pack not found");
+        var pack = await unitOfWork.CreditPacks.GetByIdAsync(id);
+        if (pack == null) return NotFoundResponse("Credit pack not found");
 
-        if (request.Coins.HasValue) pack.Coins = request.Coins.Value;
-        if (request.BonusCoins.HasValue) pack.BonusCoins = request.BonusCoins.Value;
+        if (request.Credits.HasValue) pack.Credits = request.Credits.Value;
+        if (request.BonusCredits.HasValue) pack.BonusCredits = request.BonusCredits.Value;
         if (request.PriceInr.HasValue) pack.PriceInr = request.PriceInr.Value;
         if (request.SortOrder.HasValue) pack.SortOrder = request.SortOrder.Value;
         if (request.IsFeatured.HasValue) pack.IsFeatured = request.IsFeatured.Value;
         if (request.IsEnabled.HasValue) pack.IsEnabled = request.IsEnabled.Value;
         pack.UpdatedAt = DateTime.UtcNow;
 
-        await unitOfWork.CoinPacks.UpdateAsync(pack);
+        await unitOfWork.CreditPacks.UpdateAsync(pack);
         await unitOfWork.SaveChangesAsync();
 
-        cache.Remove(CoinPackHandlers.ActivePacksCacheKey);
+        cache.Remove(CreditPackHandlers.ActivePacksCacheKey);
 
-        return OkResponse(new CoinPackDto
+        return OkResponse(new CreditPackDto
         {
-            Id = pack.Id, Coins = pack.Coins, BonusCoins = pack.BonusCoins, PriceInr = pack.PriceInr,
+            Id = pack.Id, Credits = pack.Credits, BonusCredits = pack.BonusCredits, PriceInr = pack.PriceInr,
             IsEnabled = pack.IsEnabled, SortOrder = pack.SortOrder, IsFeatured = pack.IsFeatured,
         });
     }
@@ -687,11 +687,11 @@ public static class AdminHandlers
 
         // Suspending is pure moderation (always allowed, mirrors ToggleAdminListingStatus/
         // AdminTogglePlotListing deactivate). Un-suspending must NOT resurrect a listing for free —
-        // same "no free-activation bypass around the coin-spend engine" rule as those two endpoints,
+        // same "no free-activation bypass around the credit-spend engine" rule as those two endpoints,
         // just applied in bulk here: only listings still within their own paid ValidUntil window come
         // back. Room and Plot are swept symmetrically — previously only Room was touched here. Bulk
         // ExecuteUpdateAsync (not load-then-loop-then-save), matching this repo's convention for
-        // atomic mass updates (see WalletRepository, CoinPackPurchaseRepository).
+        // atomic mass updates (see WalletRepository, CreditPackPurchaseRepository).
         var now = DateTime.UtcNow;
         var roomQuery = db.RoomListings.Where(l => l.UserId == id && !l.IsDeleted);
         var plotQuery = db.PlotListings.Where(l => l.UserId == id && !l.IsDeleted);
@@ -714,7 +714,7 @@ public static class AdminHandlers
     // ── Wallet Ledger ───────────────────────────────────────────────────────────
     // Admin-wide view — keyset/cursor-paginated (not the repo's usual offset Skip/Take), since this
     // scans across every user's combined transactions and deep OFFSET degrades badly at scale.
-    // See ICoinTransactionRepository.GetKeysetPagedWithUserAsync and the design doc §4b.
+    // See ICreditTransactionRepository.GetKeysetPagedWithUserAsync and the design doc §4b.
 
     public static async Task<IResult> GetWalletTransactions(
         IUnitOfWork unitOfWork, int pageSize = 20,
@@ -724,7 +724,7 @@ public static class AdminHandlers
         pageSize = Math.Clamp(pageSize, 1, 100);
         var normalizedReason = (!string.IsNullOrWhiteSpace(reason) && reason.ToUpper() != "ALL") ? reason.ToUpper() : null;
 
-        var (items, hasMore) = await unitOfWork.CoinTransactions.GetKeysetPagedWithUserAsync(
+        var (items, hasMore) = await unitOfWork.CreditTransactions.GetKeysetPagedWithUserAsync(
             pageSize, afterCreatedAt, afterId, userId, normalizedReason);
 
         return OkResponse(new { items, hasMore });
@@ -753,65 +753,65 @@ public static class AdminHandlers
 
     public static async Task<IResult> CreditUserWallet(
         Guid id, ManualWalletAdjustmentRequest request, IValidator<ManualWalletAdjustmentRequest> validator,
-        IUnitOfWork unitOfWork, ICoinWalletService wallet, ClaimsPrincipal principal, IHubContext<WalletHub> hubContext)
+        IUnitOfWork unitOfWork, ICreditWalletService wallet, ClaimsPrincipal principal, IHubContext<WalletHub> hubContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
         if (await unitOfWork.Users.GetByIdAsync(id) == null) return NotFoundResponse("User not found");
         if (!UsersHandlers.TryGetUserId(principal, out var adminId)) return UnauthorizedResponse();
 
-        var result = await wallet.CreditCoinsAsync(id, request.Amount, CoinTransactionReasons.AdminCredit,
+        var result = await wallet.AddCreditsAsync(id, request.Amount, CreditTransactionReasons.AdminCredit,
             referenceId: request.IdempotencyKey, performedByUserId: adminId, note: request.Reason);
 
         // Success or AlreadyCredited (idempotent replay of the same IdempotencyKey) both report the
         // current balance as a success — the caller cannot tell the difference, by design. Same
         // reasoning applies to the push: a redundant push on a replay is a harmless client-side no-op.
-        await PushWalletBalanceChangedAsync(hubContext, id, result.BalanceAfter, CoinTransactionReasons.AdminCredit);
+        await PushWalletBalanceChangedAsync(hubContext, id, result.BalanceAfter, CreditTransactionReasons.AdminCredit);
         return OkResponse(new { success = true, newBalance = result.BalanceAfter });
     }
 
     public static async Task<IResult> DebitUserWallet(
         Guid id, ManualWalletAdjustmentRequest request, IValidator<ManualWalletAdjustmentRequest> validator,
-        IUnitOfWork unitOfWork, ICoinWalletService wallet, ClaimsPrincipal principal, IHubContext<WalletHub> hubContext)
+        IUnitOfWork unitOfWork, ICreditWalletService wallet, ClaimsPrincipal principal, IHubContext<WalletHub> hubContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
         if (await unitOfWork.Users.GetByIdAsync(id) == null) return NotFoundResponse("User not found");
         if (!UsersHandlers.TryGetUserId(principal, out var adminId)) return UnauthorizedResponse();
 
-        var result = await wallet.SpendCoinsAsync(id, request.Amount, CoinTransactionReasons.AdminDebit,
+        var result = await wallet.SpendCreditsAsync(id, request.Amount, CreditTransactionReasons.AdminDebit,
             referenceId: request.IdempotencyKey, performedByUserId: adminId, note: request.Reason);
 
-        if (result.Outcome == CoinSpendOutcome.InsufficientBalance)
+        if (result.Outcome == CreditSpendOutcome.InsufficientBalance)
             return BadRequestResponse("User has insufficient balance for this debit.");
 
-        await PushWalletBalanceChangedAsync(hubContext, id, result.BalanceAfter, CoinTransactionReasons.AdminDebit);
+        await PushWalletBalanceChangedAsync(hubContext, id, result.BalanceAfter, CreditTransactionReasons.AdminDebit);
         return OkResponse(new { success = true, newBalance = result.BalanceAfter });
     }
 
     // ── Go-Live Plans (Room/Plot) ──────────────────────────────────────────────
-    // One shared implementation per operation, discriminated by CoinFeature.Key, backed by the
-    // shared CoinPlan table (replaces the old RoomPlan/PlotPlan tables — literal leftovers from the
-    // real-money membership system that were never rebuilt as a dedicated coin-era entity). CoinPlan
-    // is deliberately feature-agnostic — Room/Plot Go-Live today, any future coin-gated feature
-    // (e.g. contact reveal, chat) slots in as a new CoinFeature key with zero schema change. The old
+    // One shared implementation per operation, discriminated by CreditFeature.Key, backed by the
+    // shared CreditPlan table (replaces the old RoomPlan/PlotPlan tables — literal leftovers from the
+    // real-money membership system that were never rebuilt as a dedicated credit-era entity). CreditPlan
+    // is deliberately feature-agnostic — Room/Plot Go-Live today, any future credit-gated feature
+    // (e.g. contact reveal, chat) slots in as a new CreditFeature key with zero schema change. The old
     // per-kind copy-pasted methods had actually drifted apart (the Plot endpoint's validation errors
     // said "RoomPlan" instead of a plot-appropriate message) — this shape makes that class of bug
     // structurally impossible, since there's only one place each message is built now.
 
     public static async Task<IResult> GetPlans(IUnitOfWork unitOfWork) =>
-        OkResponse(await GetCoinPlansCoreAsync(unitOfWork, CoinFeatureKeys.RoomGoLive, "roomLimit"));
+        OkResponse(await GetCreditPlansCoreAsync(unitOfWork, CreditFeatureKeys.RoomGoLive, "roomLimit"));
 
     public static async Task<IResult> GetPlotPlans(IUnitOfWork unitOfWork) =>
-        OkResponse(await GetCoinPlansCoreAsync(unitOfWork, CoinFeatureKeys.PlotGoLive, "plotLimit"));
+        OkResponse(await GetCreditPlansCoreAsync(unitOfWork, CreditFeatureKeys.PlotGoLive, "plotLimit"));
 
-    private static async Task<List<object>> GetCoinPlansCoreAsync(IUnitOfWork unitOfWork, string featureKey, string limitKey)
+    private static async Task<List<object>> GetCreditPlansCoreAsync(IUnitOfWork unitOfWork, string featureKey, string limitKey)
     {
-        var plans = await unitOfWork.CoinPlans.GetByFeatureKeyAsync(featureKey);
-        return plans.OrderBy(p => p.Price).Select(p => ToAdminCoinPlanDto(p, limitKey)).ToList();
+        var plans = await unitOfWork.CreditPlans.GetByFeatureKeyAsync(featureKey);
+        return plans.OrderBy(p => p.Price).Select(p => ToAdminCreditPlanDto(p, limitKey)).ToList();
     }
 
-    private static object ToAdminCoinPlanDto(CoinPlan p, string limitKey) => new Dictionary<string, object?>
+    private static object ToAdminCreditPlanDto(CreditPlan p, string limitKey) => new Dictionary<string, object?>
     {
         ["id"] = p.Id,
         ["planType"] = p.PlanType,
@@ -824,17 +824,17 @@ public static class AdminHandlers
         ["isEnabled"] = p.IsEnabled,
     };
 
-    public static async Task<IResult> CreatePlan(CreateRoomCoinPlanRequest request, IUnitOfWork unitOfWork) =>
-        await CreateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.RoomGoLive, "roomLimit", "Room", request.PlanType,
+    public static async Task<IResult> CreatePlan(CreateRoomCreditPlanRequest request, IUnitOfWork unitOfWork) =>
+        await CreateCreditPlanCoreAsync(unitOfWork, CreditFeatureKeys.RoomGoLive, "roomLimit", "Room", request.PlanType,
             request.Price, request.Days, request.ListingLimit, request.OriginalPrice, request.DiscountPercent,
             request.IsFeatured, "/api/v1/admin/plans");
 
-    public static async Task<IResult> CreatePlotPlan(CreatePlotCoinPlanRequest request, IUnitOfWork unitOfWork) =>
-        await CreateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.PlotGoLive, "plotLimit", "Plot", request.PlanType,
+    public static async Task<IResult> CreatePlotPlan(CreatePlotCreditPlanRequest request, IUnitOfWork unitOfWork) =>
+        await CreateCreditPlanCoreAsync(unitOfWork, CreditFeatureKeys.PlotGoLive, "plotLimit", "Plot", request.PlanType,
             request.Price, request.Days, request.ListingLimit, request.OriginalPrice, request.DiscountPercent,
             request.IsFeatured, "/api/v1/admin/plot-plans");
 
-    private static async Task<IResult> CreateCoinPlanCoreAsync(
+    private static async Task<IResult> CreateCreditPlanCoreAsync(
         IUnitOfWork unitOfWork, string featureKey, string limitKey, string unitNoun, string rawPlanType,
         int price, int days, int quota, int originalPrice, int discountPercent, bool isFeatured,
         string locationPrefix)
@@ -849,10 +849,10 @@ public static class AdminHandlers
             return BadRequestResponse($"{unitNoun} limit must be greater than 0.");
 
         var key = rawPlanType.Trim().ToUpperInvariant();
-        if (await unitOfWork.CoinPlans.GetByFeatureKeyAndPlanTypeAsync(featureKey, key) != null)
+        if (await unitOfWork.CreditPlans.GetByFeatureKeyAndPlanTypeAsync(featureKey, key) != null)
             return BadRequestResponse($"Plan '{key}' already exists.", "DuplicatePlan");
 
-        var plan = new CoinPlan
+        var plan = new CreditPlan
         {
             Id = Guid.NewGuid(),
             FeatureKey = featureKey,
@@ -868,28 +868,28 @@ public static class AdminHandlers
             UpdatedAt = DateTime.UtcNow,
         };
 
-        await unitOfWork.CoinPlans.AddAsync(plan);
+        await unitOfWork.CreditPlans.AddAsync(plan);
         await unitOfWork.SaveChangesAsync();
 
-        return CreatedResponse(ToAdminCoinPlanDto(plan, limitKey), $"{locationPrefix}/{plan.Id}");
+        return CreatedResponse(ToAdminCreditPlanDto(plan, limitKey), $"{locationPrefix}/{plan.Id}");
     }
 
-    public static async Task<IResult> UpdatePlan(Guid id, UpdateRoomCoinPlanRequest request, IUnitOfWork unitOfWork) =>
-        await UpdateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.RoomGoLive, "roomLimit", "Room", id, request.Days,
+    public static async Task<IResult> UpdatePlan(Guid id, UpdateRoomCreditPlanRequest request, IUnitOfWork unitOfWork) =>
+        await UpdateCreditPlanCoreAsync(unitOfWork, CreditFeatureKeys.RoomGoLive, "roomLimit", "Room", id, request.Days,
             request.Price, request.ListingLimit, request.IsEnabled, request.OriginalPrice, request.DiscountPercent,
             request.IsFeatured);
 
-    public static async Task<IResult> UpdatePlotPlan(Guid id, UpdatePlotCoinPlanRequest request, IUnitOfWork unitOfWork) =>
-        await UpdateCoinPlanCoreAsync(unitOfWork, CoinFeatureKeys.PlotGoLive, "plotLimit", "Plot", id, request.Days,
+    public static async Task<IResult> UpdatePlotPlan(Guid id, UpdatePlotCreditPlanRequest request, IUnitOfWork unitOfWork) =>
+        await UpdateCreditPlanCoreAsync(unitOfWork, CreditFeatureKeys.PlotGoLive, "plotLimit", "Plot", id, request.Days,
             request.Price, request.ListingLimit, request.IsEnabled, request.OriginalPrice, request.DiscountPercent,
             request.IsFeatured);
 
-    private static async Task<IResult> UpdateCoinPlanCoreAsync(
+    private static async Task<IResult> UpdateCreditPlanCoreAsync(
         IUnitOfWork unitOfWork, string featureKey, string limitKey, string unitNoun, Guid id,
         int? days, int? price, int? quota, bool? isEnabled, int? originalPrice, int? discountPercent, bool? isFeatured)
     {
-        var plan = await unitOfWork.CoinPlans.GetByIdAsync(id);
-        // FeatureKey guard matters now that every coin-gated feature shares one table — a Room admin
+        var plan = await unitOfWork.CreditPlans.GetByIdAsync(id);
+        // FeatureKey guard matters now that every credit-gated feature shares one table — a Room admin
         // request must not be able to mutate a Plot row (or vice versa) just by guessing/reusing an id.
         if (plan == null || plan.FeatureKey != featureKey)
             return NotFoundResponse("Plan not found");
@@ -915,10 +915,10 @@ public static class AdminHandlers
         if (isFeatured.HasValue) plan.IsFeatured = isFeatured.Value;
         plan.UpdatedAt = DateTime.UtcNow;
 
-        await unitOfWork.CoinPlans.UpdateAsync(plan);
+        await unitOfWork.CreditPlans.UpdateAsync(plan);
         await unitOfWork.SaveChangesAsync();
 
-        return OkResponse(ToAdminCoinPlanDto(plan, limitKey));
+        return OkResponse(ToAdminCreditPlanDto(plan, limitKey));
     }
 
     // ── Coupons ─────────────────────────────────────────────────────────────────
@@ -935,7 +935,7 @@ public static class AdminHandlers
         var (items, total) = await unitOfWork.Coupons.GetPagedAsync(normalizedStatus, triggerType: null, search, page, pageSize);
         var dtos = items.Select(c => new CouponDto
         {
-            Id = c.Id, Code = c.Code, CoinValue = c.CoinValue, TriggerType = c.TriggerType,
+            Id = c.Id, Code = c.Code, CreditValue = c.CreditValue, TriggerType = c.TriggerType,
             PerUserLimit = c.PerUserLimit, MaxTotalRedemptions = c.MaxTotalRedemptions,
             CurrentRedemptions = c.CurrentRedemptions, ValidFrom = c.ValidFrom, ValidUntil = c.ValidUntil,
             Status = c.Status, CampaignLabel = c.CampaignLabel, CreatedAt = c.CreatedAt,
@@ -951,7 +951,7 @@ public static class AdminHandlers
 
         return OkResponse(new CouponDto
         {
-            Id = coupon.Id, Code = coupon.Code, CoinValue = coupon.CoinValue, TriggerType = coupon.TriggerType,
+            Id = coupon.Id, Code = coupon.Code, CreditValue = coupon.CreditValue, TriggerType = coupon.TriggerType,
             PerUserLimit = coupon.PerUserLimit, MaxTotalRedemptions = coupon.MaxTotalRedemptions,
             CurrentRedemptions = coupon.CurrentRedemptions, ValidFrom = coupon.ValidFrom, ValidUntil = coupon.ValidUntil,
             Status = coupon.Status, CampaignLabel = coupon.CampaignLabel, CreatedAt = coupon.CreatedAt,
@@ -975,7 +975,7 @@ public static class AdminHandlers
             {
                 Id = Guid.NewGuid(),
                 Code = CouponCodeGenerator.Generate(),
-                CoinValue = request.CoinValue,
+                CreditValue = request.CreditValue,
                 TriggerType = request.TriggerType,
                 PerUserLimit = 1,
                 MaxTotalRedemptions = request.MaxTotalRedemptions,
@@ -995,7 +995,7 @@ public static class AdminHandlers
                 await unitOfWork.SaveChangesAsync();
                 return CreatedResponse(new CouponDto
                 {
-                    Id = coupon.Id, Code = coupon.Code, CoinValue = coupon.CoinValue, TriggerType = coupon.TriggerType,
+                    Id = coupon.Id, Code = coupon.Code, CreditValue = coupon.CreditValue, TriggerType = coupon.TriggerType,
                     PerUserLimit = coupon.PerUserLimit, MaxTotalRedemptions = coupon.MaxTotalRedemptions,
                     CurrentRedemptions = coupon.CurrentRedemptions, ValidFrom = coupon.ValidFrom, ValidUntil = coupon.ValidUntil,
                     Status = coupon.Status, CampaignLabel = coupon.CampaignLabel, CreatedAt = coupon.CreatedAt,
@@ -1027,7 +1027,7 @@ public static class AdminHandlers
             ? null
             : request.MaxTotalRedemptions ?? coupon.MaxTotalRedemptions;
         coupon.ValidUntil = request.ClearValidUntil ? null : request.ValidUntil ?? coupon.ValidUntil;
-        if (request.CoinValue.HasValue) coupon.CoinValue = request.CoinValue.Value;
+        if (request.CreditValue.HasValue) coupon.CreditValue = request.CreditValue.Value;
         if (request.CampaignLabel != null) coupon.CampaignLabel = request.CampaignLabel;
 
         if (request.Status != null)
@@ -1051,7 +1051,7 @@ public static class AdminHandlers
 
         return OkResponse(new CouponDto
         {
-            Id = coupon.Id, Code = coupon.Code, CoinValue = coupon.CoinValue, TriggerType = coupon.TriggerType,
+            Id = coupon.Id, Code = coupon.Code, CreditValue = coupon.CreditValue, TriggerType = coupon.TriggerType,
             PerUserLimit = coupon.PerUserLimit, MaxTotalRedemptions = coupon.MaxTotalRedemptions,
             CurrentRedemptions = coupon.CurrentRedemptions, ValidFrom = coupon.ValidFrom, ValidUntil = coupon.ValidUntil,
             Status = coupon.Status, CampaignLabel = coupon.CampaignLabel, CreatedAt = coupon.CreatedAt,
@@ -1124,7 +1124,7 @@ public static class AdminHandlers
         if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
 
         // No membership to check anymore — and admin does not get a free-activation bypass around
-        // the coin-spend engine. Activating requires the listing to already be within a paid window
+        // the credit-spend engine. Activating requires the listing to already be within a paid window
         // (the owner's own Go-Live, or a free reactivation of one); if not, admin's lever is to
         // credit the owner's wallet (POST /users/{id}/wallet/credit) so THEY can go live, not to
         // flip this flag for free. Deactivate is always allowed — pure moderation power, no check.
@@ -1132,7 +1132,7 @@ public static class AdminHandlers
         {
             var stillWithinValidity = listing.ValidUntil.HasValue && listing.ValidUntil > DateTime.UtcNow;
             if (!stillWithinValidity)
-                return BadRequestResponse("This listing has no valid paid period. Ask the owner to Go Live, or credit coins to their wallet so they can.");
+                return BadRequestResponse("This listing has no valid paid period. Ask the owner to Go Live, or add credits to their wallet so they can.");
         }
 
         listing.IsActive = request.IsActive;

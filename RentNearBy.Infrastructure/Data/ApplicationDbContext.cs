@@ -15,8 +15,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<District> Districts { get; set; }
     public DbSet<City> Cities { get; set; }
     public DbSet<RoomType> RoomTypes { get; set; }
-    public DbSet<CoinFeature> CoinFeatures { get; set; }
-    public DbSet<CoinPlan> CoinPlans { get; set; }
+    public DbSet<CreditFeature> CreditFeatures { get; set; }
+    public DbSet<CreditPlan> CreditPlans { get; set; }
     public DbSet<PlotType> PlotTypes { get; set; }
     public DbSet<PlotListing> PlotListings { get; set; }
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
@@ -32,12 +32,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<UserBlock> UserBlocks { get; set; }
     public DbSet<QuestionTemplate> QuestionTemplates { get; set; }
     public DbSet<Wallet> Wallets { get; set; }
-    public DbSet<CoinTransaction> CoinTransactions { get; set; }
-    public DbSet<CoinPack> CoinPacks { get; set; }
+    public DbSet<CreditTransaction> CreditTransactions { get; set; }
+    public DbSet<CreditPack> CreditPacks { get; set; }
     public DbSet<ListingLimitSetting> ListingLimitSettings { get; set; }
     public DbSet<Coupon> Coupons { get; set; }
     public DbSet<CouponRedemption> CouponRedemptions { get; set; }
-    public DbSet<CoinPackPurchase> CoinPackPurchases { get; set; }
+    public DbSet<CreditPackPurchase> CreditPackPurchases { get; set; }
     public DbSet<ServiceCategory> ServiceCategories { get; set; }
     public DbSet<Service> Services { get; set; }
     public DbSet<ServicePackage> ServicePackages { get; set; }
@@ -285,7 +285,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(q => q.PlotTypeId);
         });
 
-        modelBuilder.Entity<CoinFeature>(e =>
+        modelBuilder.Entity<CreditFeature>(e =>
         {
             e.HasKey(f => f.Id);
             e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
@@ -294,11 +294,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
         });
 
-        modelBuilder.Entity<CoinPlan>(e =>
+        modelBuilder.Entity<CreditPlan>(e =>
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
-            // Unique per feature, not globally — Room and Plot (and any future coin-gated feature)
+            // Unique per feature, not globally — Room and Plot (and any future credit-gated feature)
             // each need their own "BASIC"/"STANDARD"/"PREMIUM".
             e.HasIndex(p => new { p.FeatureKey, p.PlanType }).IsUnique();
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
@@ -412,7 +412,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(w => w.CreatedAt).HasDefaultValueSql("now()");
         });
 
-        modelBuilder.Entity<CoinTransaction>(e =>
+        modelBuilder.Entity<CreditTransaction>(e =>
         {
             e.HasKey(t => t.Id);
             e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
@@ -442,16 +442,16 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // apply twice — a retried recharge webhook, coupon redemption, welcome-bonus hook, or a
             // double-tapped admin credit/debit. Deliberately excludes ROOM_GOLIVE/PLOT_GOLIVE, which
             // legitimately reuse the same listing Guid as ReferenceId across renewals. The filter is
-            // generated from CoinTransactionReasons.AllOneShotReasons, not hand-typed, so the C# list
+            // generated from CreditTransactionReasons.AllOneShotReasons, not hand-typed, so the C# list
             // and the SQL filter can never drift apart — same discipline as
             // ix_paymenttransactions_pending_room_upgrade's naming lesson above.
-            var oneShotReasonList = string.Join(", ", CoinTransactionReasons.AllOneShotReasons.Select(r => $"'{r}'"));
-            e.HasIndex(t => new { t.UserId, t.Reason, t.ReferenceId }, "ix_cointransactions_oneshot_unique")
+            var oneShotReasonList = string.Join(", ", CreditTransactionReasons.AllOneShotReasons.Select(r => $"'{r}'"));
+            e.HasIndex(t => new { t.UserId, t.Reason, t.ReferenceId }, "ix_credittransactions_oneshot_unique")
              .IsUnique()
              .HasFilter($"\"Reason\" IN ({oneShotReasonList}) AND \"ReferenceId\" IS NOT NULL");
         });
 
-        modelBuilder.Entity<CoinPack>(e =>
+        modelBuilder.Entity<CreditPack>(e =>
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
@@ -509,7 +509,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasDatabaseName("ix_couponredemptions_coupon_user_unique");
         });
 
-        modelBuilder.Entity<CoinPackPurchase>(e =>
+        modelBuilder.Entity<CreditPackPurchase>(e =>
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
@@ -519,9 +519,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(p => p.UserId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasOne<CoinPack>()
+            e.HasOne<CreditPack>()
              .WithMany()
-             .HasForeignKey(p => p.CoinPackId)
+             .HasForeignKey(p => p.CreditPackId)
              .OnDelete(DeleteBehavior.Restrict);
 
             e.HasIndex(p => p.RazorpayOrderId);
@@ -531,8 +531,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // collide with the first (EF Core resolves repeated HasIndex() calls on the identical
             // property list to the same underlying index object, last-writer-wins) — the exact bug
             // this codebase's own PaymentTransaction config already warns about.
-            e.HasIndex(p => p.UserId, "ix_coinpackpurchases_user"); // general "all purchases for this user" lookups
-            e.HasIndex(p => p.UserId, "ix_coinpackpurchases_pending_user") // race-safety guard, not a lookup index
+            e.HasIndex(p => p.UserId, "ix_creditpackpurchases_user"); // general "all purchases for this user" lookups
+            e.HasIndex(p => p.UserId, "ix_creditpackpurchases_pending_user") // race-safety guard, not a lookup index
              .IsUnique()
              .HasFilter("\"Status\" = 'PENDING'");
         });

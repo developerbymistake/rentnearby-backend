@@ -139,7 +139,7 @@ public static class AuthHandlers
                     await hubContext.Clients.Group($"user_{newUser.Id}").SendAsync("WalletBalanceChanged", new
                     {
                         balance = welcomeResult.NewBalance ?? 0,
-                        reason = CoinTransactionReasons.WelcomeBonus,
+                        reason = CreditTransactionReasons.WelcomeBonus,
                         occurredAt = DateTime.UtcNow,
                     });
                 }
