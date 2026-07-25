@@ -78,6 +78,18 @@ public static class AdminEndpoints
         group.MapGet("/reports/{id:guid}", AdminHandlers.GetReportById).RequireAuthorization("AdminOnly");
         group.MapPut("/reports/{id:guid}/resolve", AdminHandlers.ResolveReport).RequireAuthorization("AdminOnly");
 
+        // Separate Room/Plot pairs, not unified — see the plan comment above ToGoLiveRequestDto in
+        // AdminHandlers/PlotListingHandlers for why a unified feed isn't worth it here.
+        group.MapGet("/room-golive-requests", AdminHandlers.GetRoomGoLiveRequests).RequireAuthorization("AdminOnly");
+        group.MapGet("/room-golive-requests/{id:guid}", AdminHandlers.GetRoomGoLiveRequestById).RequireAuthorization("AdminOnly");
+        group.MapPut("/room-golive-requests/{id:guid}/approve", AdminHandlers.ApproveRoomGoLiveRequest).RequireAuthorization("AdminOnly");
+        group.MapPut("/room-golive-requests/{id:guid}/reject", AdminHandlers.RejectRoomGoLiveRequest).RequireAuthorization("AdminOnly");
+
+        group.MapGet("/plot-golive-requests", PlotListingHandlers.GetPlotGoLiveRequests).RequireAuthorization("AdminOnly");
+        group.MapGet("/plot-golive-requests/{id:guid}", PlotListingHandlers.GetPlotGoLiveRequestById).RequireAuthorization("AdminOnly");
+        group.MapPut("/plot-golive-requests/{id:guid}/approve", PlotListingHandlers.ApprovePlotGoLiveRequest).RequireAuthorization("AdminOnly");
+        group.MapPut("/plot-golive-requests/{id:guid}/reject", PlotListingHandlers.RejectPlotGoLiveRequest).RequireAuthorization("AdminOnly");
+
         group.MapPost("/broadcast-notification", BroadcastHandlers.SendBroadcast).RequireAuthorization("AdminOnly");
 
         // Same handler the consumer app calls under /api/v1/chat/question-templates —

@@ -11,6 +11,8 @@ public static class NotificationTypes
     public const string EscalationResolved = "EscalationResolved";
     public const string LeadUnassigned = "LeadUnassigned";
     public const string InquiryAgentChanged = "InquiryAgentChanged";
+    public const string GoLiveApproved = "GoLiveApproved";
+    public const string GoLiveRejected = "GoLiveRejected";
 
     // The lowercase-snake value sent as the FCM data payload's "notification_type" key — kept
     // paired here (not derived by naive case-conversion) so the PascalCase DB value and the wire
@@ -22,6 +24,8 @@ public static class NotificationTypes
         [EscalationResolved] = "escalation_resolved",
         [LeadUnassigned] = "lead_unassigned",
         [InquiryAgentChanged] = "inquiry_agent_changed",
+        [GoLiveApproved] = "golive_approved",
+        [GoLiveRejected] = "golive_rejected",
     };
 
     public static string ToWireValue(string type) => WireValues.TryGetValue(type, out var wire) ? wire : type;

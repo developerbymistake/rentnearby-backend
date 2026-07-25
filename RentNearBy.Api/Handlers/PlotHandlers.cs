@@ -2,13 +2,16 @@
 using System.Text.Json;
 using FluentValidation;
 using Mapster;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Extensions;
 using RentNearBy.Infrastructure.Services;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
@@ -734,5 +737,207 @@ public static class PlotListingHandlers
             .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, originalPrice = p.OriginalPrice, discountPercent = p.DiscountPercent, plotLimit = p.Quota, isFeatured = p.IsFeatured })
             .ToList();
         return OkResponse(result);
+    }
+
+    // ── Plot Go-Live moderation ───────────────────────────────────────────────
+    // Mirrors AdminHandlers' Room Go-Live request quartet (GetRoomGoLiveRequests/
+    // GetRoomGoLiveRequestById/ApproveRoomGoLiveRequest/RejectRoomGoLiveRequest) exactly, kept as a
+    // separate Plot-only pair per the plan's Room/Plot-duplication convention (these fields live
+    // directly on PlotListing, so a unified feed would need a cross-entity UNION for no real benefit).
+
+    private static GoLiveRequestDto ToGoLiveRequestDto(PlotListing p, bool includePhotos) => new()
+    {
+        Id = p.Id,
+        UserId = p.UserId,
+        OwnerName = p.User?.Name,
+        OwnerMobile = p.User?.PhoneNumber,
+        Status = p.LiveRequestStatus ?? string.Empty,
+        RequestedPlanType = p.RequestedPlanType,
+        RequestedPlanDays = p.RequestedPlanDays,
+        RequestedPlanCreditsSpent = p.RequestedPlanCreditsSpent,
+        SubmittedAt = p.UpdatedAt,
+        Photos = includePhotos ? p.Photos.Select(ph => ph.PhotoUrl).ToList() : new List<string>(),
+    };
+
+    public static async Task<IResult> GetPlotGoLiveRequests(
+        ApplicationDbContext db, int page = 1, int pageSize = 20, string? status = "Pending")
+    {
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        page = Math.Max(1, page);
+
+        // Deleted plots never leave LiveRequestStatus behind — excluded here so a
+        // deleted-while-Pending plot can't linger in this queue forever.
+        var query = db.PlotListings
+            .Include(p => p.User)
+            .Where(p => !p.IsDeleted && p.LiveRequestStatus == status)
+            .OrderByDescending(p => p.UpdatedAt);
+
+        var result = await query.ToPagedResultAsync(page, pageSize, p => ToGoLiveRequestDto(p, includePhotos: false));
+        return OkResponse(new { items = result.Items, hasMore = result.HasMore });
+    }
+
+    public static async Task<IResult> GetPlotGoLiveRequestById(Guid id, ApplicationDbContext db)
+    {
+        var plot = await db.PlotListings
+            .AsNoTracking()
+            .Include(p => p.User)
+            .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder))
+            .FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
+        if (plot == null) return NotFoundResponse("Go-Live request not found");
+        return OkResponse(ToGoLiveRequestDto(plot, includePhotos: true));
+    }
+
+    private static NotificationEvent BuildPlotGoLiveApprovedNotification(Guid userId) => new()
+    {
+        Id = Guid.NewGuid(),
+        TargetUserId = userId,
+        Type = NotificationTypes.GoLiveApproved,
+        Title = "Your listing is now live",
+        Body = "Your Plot listing has been approved and is now live.",
+        ActionRoute = "/my-plots",
+        CreatedAt = DateTime.UtcNow,
+    };
+
+    private static NotificationEvent BuildPlotGoLiveRejectedNotification(Guid userId, string reason) => new()
+    {
+        Id = Guid.NewGuid(),
+        TargetUserId = userId,
+        Type = NotificationTypes.GoLiveRejected,
+        Title = "Your listing was not approved",
+        Body = $"Your Plot listing was rejected. Reason: {reason}",
+        ActionRoute = "/my-plots",
+        CreatedAt = DateTime.UtcNow,
+    };
+
+    // Clone of AdminHandlers.SendGoLiveNotificationAsync's shape — SignalR user_{id} push via
+    // InquiryHub (the same hub every other generic NotificationEvent producer reuses) + RabbitMQ
+    // notification.push publish for NotificationPushWorkerService. Best-effort: a push failure must
+    // never turn an already-committed Approve/Reject into an error response.
+    private static async Task SendGoLiveNotificationAsync(
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher, NotificationEvent notification)
+    {
+        try
+        {
+            await hubContext.Clients.Group($"user_{notification.TargetUserId}").SendAsync("NotificationReceived", new
+            {
+                id = notification.Id,
+                type = notification.Type,
+                title = notification.Title,
+                body = notification.Body,
+                actionRoute = notification.ActionRoute,
+            });
+        }
+        catch { }
+
+        try
+        {
+            var payload = JsonSerializer.Serialize(new NotificationPushPayload(notification.Id, notification.TargetUserId!.Value));
+            await publisher.PublishAsync("notification.push", payload);
+        }
+        catch { }
+    }
+
+    public static async Task<IResult> ApprovePlotGoLiveRequest(
+        Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
+    {
+        var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
+        if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
+        if (plot.LiveRequestStatus != GoLiveRequestStatuses.Pending)
+            return BadRequestResponse("This request has already been resolved");
+
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            // CRITICAL: ValidUntil comes from the snapshot taken at request time
+            // (RequestedPlanDays), never by re-resolving CreditPlan — the catalog is admin-mutable
+            // and could have changed/been disabled between request and approval.
+            plot.LiveRequestStatus = GoLiveRequestStatuses.Approved;
+            plot.IsActive = true;
+            plot.ValidUntil = DateTime.UtcNow.AddDays(plot.RequestedPlanDays!.Value);
+            plot.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.PlotListings.UpdateAsync(plot);
+
+            var notification = BuildPlotGoLiveApprovedNotification(plot.UserId);
+            db.NotificationEvents.Add(notification);
+
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+
+            await unitOfWork.CommitTransactionAsync();
+
+            var redis = sp.GetService<IConnectionMultiplexer>();
+            await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
+            await InvalidateRecentPlotsCacheAsync(redis);
+            await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
+
+            await SendGoLiveNotificationAsync(hubContext, publisher, notification);
+
+            return OkResponse(new { success = true, isActive = true, validUntil = plot.ValidUntil });
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+    }
+
+    public static async Task<IResult> RejectPlotGoLiveRequest(
+        Guid id, RejectGoLiveRequest request, IValidator<RejectGoLiveRequest> validator,
+        IUnitOfWork unitOfWork, ApplicationDbContext db, ICreditWalletService wallet,
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
+        if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
+        if (plot.LiveRequestStatus != GoLiveRequestStatuses.Pending)
+            return BadRequestResponse("This request has already been resolved");
+
+        // Same refund-transaction shape as AdminDeletePlotListing — folding a credit mutation into
+        // a bare SaveChangesAsync would be a correctness gap.
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            plot.LiveRequestStatus = GoLiveRequestStatuses.Rejected;
+            plot.RejectedReason = request.Reason;
+            plot.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.PlotListings.UpdateAsync(plot);
+
+            if (plot.RequestedPlanCreditsSpent is > 0)
+                await wallet.AddCreditsAsync(plot.UserId, plot.RequestedPlanCreditsSpent.Value, CreditTransactionReasons.GoLivePendingRefund, plot.Id);
+
+            var notification = BuildPlotGoLiveRejectedNotification(plot.UserId, request.Reason);
+            db.NotificationEvents.Add(notification);
+
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+
+            await unitOfWork.CommitTransactionAsync();
+
+            await SendGoLiveNotificationAsync(hubContext, publisher, notification);
+
+            return OkResponse(new { success = true });
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
     }
 }

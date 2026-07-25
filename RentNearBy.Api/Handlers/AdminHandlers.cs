@@ -15,6 +15,7 @@ using RentNearBy.Infrastructure.Services;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace RentNearBy.Api.Handlers;
@@ -1361,5 +1362,208 @@ public static class AdminHandlers
         await unitOfWork.ListingReports.ResolveAsync(id, adminId, request.ResolutionAction);
 
         return OkResponse(new { success = true });
+    }
+
+    // ── Room Go-Live moderation ──────────────────────────────────────────────
+    // Mirrors GetReports/GetReportById/ResolveReport's shape exactly. Separate from Plot's own pair
+    // in PlotListingHandlers — these fields live directly on RoomListing/PlotListing, so a unified
+    // feed would need a cross-entity UNION with correct SQL-level pagination for no real benefit,
+    // and breaks from this codebase's dominant Room/Plot-duplication convention.
+
+    private static GoLiveRequestDto ToGoLiveRequestDto(RoomListing l, bool includePhotos) => new()
+    {
+        Id = l.Id,
+        UserId = l.UserId,
+        OwnerName = l.User?.Name,
+        OwnerMobile = l.User?.PhoneNumber,
+        Status = l.LiveRequestStatus ?? string.Empty,
+        RequestedPlanType = l.RequestedPlanType,
+        RequestedPlanDays = l.RequestedPlanDays,
+        RequestedPlanCreditsSpent = l.RequestedPlanCreditsSpent,
+        SubmittedAt = l.UpdatedAt,
+        Photos = includePhotos ? l.Photos.Select(p => p.PhotoUrl).ToList() : new List<string>(),
+    };
+
+    public static async Task<IResult> GetRoomGoLiveRequests(
+        ApplicationDbContext db, int page = 1, int pageSize = 20, string? status = "Pending")
+    {
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        page = Math.Max(1, page);
+
+        // Deleted listings never leave LiveRequestStatus behind — excluded here the same way
+        // GetAdminListings excludes them, so a deleted-while-Pending listing can't linger in this
+        // queue forever.
+        var query = db.RoomListings
+            .Include(l => l.User)
+            .Where(l => !l.IsDeleted && l.LiveRequestStatus == status)
+            .OrderByDescending(l => l.UpdatedAt);
+
+        var result = await query.ToPagedResultAsync(page, pageSize, l => ToGoLiveRequestDto(l, includePhotos: false));
+        return OkResponse(new { items = result.Items, hasMore = result.HasMore });
+    }
+
+    public static async Task<IResult> GetRoomGoLiveRequestById(Guid id, ApplicationDbContext db)
+    {
+        var listing = await db.RoomListings
+            .AsNoTracking()
+            .Include(l => l.User)
+            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
+            .FirstOrDefaultAsync(l => l.Id == id && !l.IsDeleted);
+        if (listing == null) return NotFoundResponse("Go-Live request not found");
+        return OkResponse(ToGoLiveRequestDto(listing, includePhotos: true));
+    }
+
+    private static NotificationEvent BuildRoomGoLiveApprovedNotification(Guid userId) => new()
+    {
+        Id = Guid.NewGuid(),
+        TargetUserId = userId,
+        Type = NotificationTypes.GoLiveApproved,
+        Title = "Your listing is now live",
+        Body = "Your Room listing has been approved and is now live.",
+        ActionRoute = "/my-listings",
+        CreatedAt = DateTime.UtcNow,
+    };
+
+    private static NotificationEvent BuildRoomGoLiveRejectedNotification(Guid userId, string reason) => new()
+    {
+        Id = Guid.NewGuid(),
+        TargetUserId = userId,
+        Type = NotificationTypes.GoLiveRejected,
+        Title = "Your listing was not approved",
+        Body = $"Your Room listing was rejected. Reason: {reason}",
+        ActionRoute = "/my-listings",
+        CreatedAt = DateTime.UtcNow,
+    };
+
+    // Clone of InquiryHandlers.SendNotificationEventsAsync's single-notification shape — SignalR
+    // user_{id} push via InquiryHub (the same hub every other generic NotificationEvent producer
+    // reuses) + RabbitMQ notification.push publish for NotificationPushWorkerService. Best-effort:
+    // a push failure must never turn an already-committed Approve/Reject into an error response.
+    private static async Task SendGoLiveNotificationAsync(
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher, NotificationEvent notification)
+    {
+        try
+        {
+            await hubContext.Clients.Group($"user_{notification.TargetUserId}").SendAsync("NotificationReceived", new
+            {
+                id = notification.Id,
+                type = notification.Type,
+                title = notification.Title,
+                body = notification.Body,
+                actionRoute = notification.ActionRoute,
+            });
+        }
+        catch { }
+
+        try
+        {
+            var payload = JsonSerializer.Serialize(new NotificationPushPayload(notification.Id, notification.TargetUserId!.Value));
+            await publisher.PublishAsync("notification.push", payload);
+        }
+        catch { }
+    }
+
+    public static async Task<IResult> ApproveRoomGoLiveRequest(
+        Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
+    {
+        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
+        if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
+        if (listing.LiveRequestStatus != GoLiveRequestStatuses.Pending)
+            return BadRequestResponse("This request has already been resolved");
+
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            // CRITICAL: ValidUntil comes from the snapshot taken at request time
+            // (RequestedPlanDays), never by re-resolving CreditPlan — the catalog is admin-mutable
+            // and could have changed/been disabled between request and approval.
+            listing.LiveRequestStatus = GoLiveRequestStatuses.Approved;
+            listing.IsActive = true;
+            listing.ValidUntil = DateTime.UtcNow.AddDays(listing.RequestedPlanDays!.Value);
+            listing.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.RoomListings.UpdateAsync(listing);
+
+            var notification = BuildRoomGoLiveApprovedNotification(listing.UserId);
+            db.NotificationEvents.Add(notification);
+
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+
+            await unitOfWork.CommitTransactionAsync();
+
+            var redis = sp.GetService<IConnectionMultiplexer>();
+            await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
+            await InvalidateRecentRoomsCacheAsync(redis);
+            await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
+
+            await SendGoLiveNotificationAsync(hubContext, publisher, notification);
+
+            return OkResponse(new { success = true, isActive = true, validUntil = listing.ValidUntil });
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+    }
+
+    public static async Task<IResult> RejectRoomGoLiveRequest(
+        Guid id, RejectGoLiveRequest request, IValidator<RejectGoLiveRequest> validator,
+        IUnitOfWork unitOfWork, ApplicationDbContext db, ICreditWalletService wallet,
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
+        if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
+        if (listing.LiveRequestStatus != GoLiveRequestStatuses.Pending)
+            return BadRequestResponse("This request has already been resolved");
+
+        // Same refund-transaction shape as DeleteAdminListing — folding a credit mutation into a
+        // bare SaveChangesAsync would be a correctness gap.
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            listing.LiveRequestStatus = GoLiveRequestStatuses.Rejected;
+            listing.RejectedReason = request.Reason;
+            listing.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.RoomListings.UpdateAsync(listing);
+
+            if (listing.RequestedPlanCreditsSpent is > 0)
+                await wallet.AddCreditsAsync(listing.UserId, listing.RequestedPlanCreditsSpent.Value, CreditTransactionReasons.GoLivePendingRefund, listing.Id);
+
+            var notification = BuildRoomGoLiveRejectedNotification(listing.UserId, request.Reason);
+            db.NotificationEvents.Add(notification);
+
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+
+            await unitOfWork.CommitTransactionAsync();
+
+            await SendGoLiveNotificationAsync(hubContext, publisher, notification);
+
+            return OkResponse(new { success = true });
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
     }
 }
