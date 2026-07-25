@@ -33,6 +33,7 @@ public class UnitOfWork : IUnitOfWork
     private ICreditTransactionRepository? _creditTransactions;
     private ICreditPackRepository? _creditPacks;
     private IListingLimitSettingRepository? _listingLimitSettings;
+    private IAppFeatureFlagRepository? _appFeatureFlags;
     private ICouponRepository? _coupons;
     private ICouponRedemptionRepository? _couponRedemptions;
     private ICreditPackPurchaseRepository? _creditPackPurchases;
@@ -75,6 +76,7 @@ public class UnitOfWork : IUnitOfWork
     public ICreditTransactionRepository CreditTransactions => _creditTransactions ??= new CreditTransactionRepository(_context);
     public ICreditPackRepository CreditPacks => _creditPacks ??= new CreditPackRepository(_context);
     public IListingLimitSettingRepository ListingLimitSettings => _listingLimitSettings ??= new ListingLimitSettingRepository(_context);
+    public IAppFeatureFlagRepository AppFeatureFlags => _appFeatureFlags ??= new AppFeatureFlagRepository(_context);
     public ICouponRepository Coupons => _coupons ??= new CouponRepository(_context);
     public ICouponRedemptionRepository CouponRedemptions => _couponRedemptions ??= new CouponRedemptionRepository(_context);
     public ICreditPackPurchaseRepository CreditPackPurchases => _creditPackPurchases ??= new CreditPackPurchaseRepository(_context);

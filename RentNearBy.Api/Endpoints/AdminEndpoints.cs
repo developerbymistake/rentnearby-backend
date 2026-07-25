@@ -53,6 +53,9 @@ public static class AdminEndpoints
         group.MapGet("/listing-limits", AdminHandlers.GetListingLimits).RequireAuthorization("AdminOnly");
         group.MapPut("/listing-limits/{kind}", AdminHandlers.UpdateListingLimit).RequireAuthorization("AdminOnly");
 
+        group.MapGet("/payment-feature", AdminHandlers.GetPaymentFeature).RequireAuthorization("AdminOnly");
+        group.MapPut("/payment-feature", AdminHandlers.UpdatePaymentFeature).RequireAuthorization("AdminOnly");
+
         group.MapGet("/coupons", AdminHandlers.GetCoupons).RequireAuthorization("AdminOnly");
         group.MapGet("/coupons/{id:guid}", AdminHandlers.GetCouponById).RequireAuthorization("AdminOnly");
         group.MapPost("/coupons", AdminHandlers.CreateCoupon).RequireAuthorization("AdminOnly");

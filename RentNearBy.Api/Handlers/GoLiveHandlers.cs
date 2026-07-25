@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Interfaces;
@@ -85,7 +86,8 @@ public static class GoLiveHandlers
         ICreditWalletService wallet,
         IRateLimitService rateLimiter,
         IServiceProvider sp,
-        IHubContext<WalletHub> hubContext)
+        IHubContext<WalletHub> hubContext,
+        IMemoryCache cache)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -107,6 +109,36 @@ public static class GoLiveHandlers
             // Free reactivation — already paid for this window (owner deactivated manually, then
             // came back before it expired). PlanType is never required on this branch.
             listing.IsActive = true;
+            listing.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.RoomListings.UpdateAsync(listing);
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+            await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), RoomNearbyPattern(listing.DistrictId));
+            await InvalidateRecentRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>());
+            await InvalidateForYouRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>(), listing.DistrictId);
+            return OkResponse(new
+            {
+                success = true,
+                isActive = true,
+                validUntil = listing.ValidUntil,
+                planType = (string?)null,
+                balance = await wallet.GetBalanceAsync(userId),
+            });
+        }
+
+        var (paymentEnabled, freeDays) = await ConfigHandlers.GetPaymentFeatureCachedAsync(unitOfWork, cache);
+        if (!paymentEnabled)
+        {
+            // Payment kill switch is OFF — Go-Live is free for the admin-configured number of days
+            // instead of requiring a plan/spend. Mirrors the free-reactivation branch's response shape.
+            listing.IsActive = true;
+            listing.ValidUntil = DateTime.UtcNow.AddDays(freeDays);
             listing.UpdatedAt = DateTime.UtcNow;
             await unitOfWork.RoomListings.UpdateAsync(listing);
             try
@@ -194,7 +226,8 @@ public static class GoLiveHandlers
         ICreditWalletService wallet,
         IRateLimitService rateLimiter,
         IServiceProvider sp,
-        IHubContext<WalletHub> hubContext)
+        IHubContext<WalletHub> hubContext,
+        IMemoryCache cache)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -223,6 +256,36 @@ public static class GoLiveHandlers
             catch (DbUpdateConcurrencyException)
             {
                 return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+            await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
+            await InvalidateRecentPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>());
+            await InvalidateForYouPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>(), plot.DistrictId);
+            return OkResponse(new
+            {
+                success = true,
+                isActive = true,
+                validUntil = plot.ValidUntil,
+                planType = (string?)null,
+                balance = await wallet.GetBalanceAsync(userId),
+            });
+        }
+
+        var (paymentEnabled, freeDays) = await ConfigHandlers.GetPaymentFeatureCachedAsync(unitOfWork, cache);
+        if (!paymentEnabled)
+        {
+            // Payment kill switch is OFF — Go-Live is free for the admin-configured number of days
+            // instead of requiring a plan/spend. Mirrors the free-reactivation branch's response shape.
+            plot.IsActive = true;
+            plot.ValidUntil = DateTime.UtcNow.AddDays(freeDays);
+            plot.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.PlotListings.UpdateAsync(plot);
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
             }
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
             await InvalidateRecentPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>());
