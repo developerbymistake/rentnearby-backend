@@ -375,7 +375,7 @@ public static class RoomListingsHandlers
         return OkResponse(new { success = true });
     }
 
-    public static async Task<IResult> DeleteListing(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp)
+    public static async Task<IResult> DeleteListing(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, ICreditWalletService wallet, IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -388,10 +388,43 @@ public static class RoomListingsHandlers
 
         await photoService.DeleteRoomPhotosAsync(userId, id);
 
+        // A still-Pending Go-Live request (never approved/activated) with credits already spent
+        // must be refunded on delete — mirrors GoLiveHandlers's own transaction shape since folding
+        // a credit mutation into a bare SaveChangesAsync would be a correctness gap.
+        var needsRefund = listing.LiveRequestStatus == GoLiveRequestStatuses.Pending
+            && listing.RequestedPlanCreditsSpent is > 0;
+
         listing.IsDeleted = true;
         listing.DeletedAt = DateTime.UtcNow;
         await unitOfWork.RoomListings.UpdateAsync(listing);
-        await unitOfWork.SaveChangesAsync();
+
+        if (needsRefund)
+        {
+            await unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await wallet.AddCreditsAsync(userId, listing.RequestedPlanCreditsSpent!.Value, CreditTransactionReasons.GoLivePendingRefund, listing.Id);
+                try
+                {
+                    await unitOfWork.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+                }
+                await unitOfWork.CommitTransactionAsync();
+            }
+            catch
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
+        }
+        else
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
 

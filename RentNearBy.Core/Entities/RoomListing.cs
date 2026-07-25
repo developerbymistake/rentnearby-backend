@@ -21,6 +21,15 @@ public class RoomListing
     public DateTime? ValidUntil { get; set; }
     public DateTime? DigestNotifiedAt { get; set; }
 
+    // Go-Live moderation — null means this listing has never gone through a Go-Live request.
+    public string? LiveRequestStatus { get; set; }
+    public string? RejectedReason { get; set; }
+    // Snapshot of the plan selected/spent at request time, so approval computes ValidUntil from
+    // this snapshot rather than re-resolving the (admin-mutable) CreditPlan.
+    public string? RequestedPlanType { get; set; }
+    public int? RequestedPlanDays { get; set; }
+    public int? RequestedPlanCreditsSpent { get; set; }
+
     public User User { get; set; } = null!;
     public RoomType RoomType { get; set; } = null!;
     public District District { get; set; } = null!;
