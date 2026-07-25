@@ -1429,6 +1429,13 @@ public static class AdminHandlers
             listing.IsActive = false;
             listing.LiveRequestStatus = GoLiveRequestStatuses.Rejected;
             listing.RejectedReason = reason;
+            // This listing was genuinely live, so ValidUntil is still some future paid-through date —
+            // left alone, GoLiveHandlers' free-reactivation branch (which only ever checks
+            // IsActive/ValidUntil, not LiveRequestStatus) would let the owner silently reactivate it
+            // for free before that date passes, undoing this rejection entirely. Expiring it here
+            // fixes the data at its source instead of special-casing Rejected inside that shared,
+            // heavily-used branch.
+            listing.ValidUntil = DateTime.UtcNow.AddDays(-1);
             listing.UpdatedAt = DateTime.UtcNow;
             await unitOfWork.RoomListings.UpdateAsync(listing);
 

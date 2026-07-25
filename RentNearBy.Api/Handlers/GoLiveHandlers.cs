@@ -121,13 +121,7 @@ public static class GoLiveHandlers
         if (listing.IsActive && stillWithinValidity)
             return BadRequestResponse("This listing is already live.");
 
-        // A report-driven reject sets IsActive=false but deliberately never touches ValidUntil
-        // (the listing really was live, mid-window, when it got rejected) — so without this
-        // exclusion, a Rejected listing with time left on its window would silently qualify for
-        // the free-reactivation branch below and reactivate with zero review, the exact loophole
-        // this whole moderation feature exists to close. Falling through instead reaches the
-        // LiveRequestStatus==Rejected guard further down, which is the real dead end.
-        if (!listing.IsActive && stillWithinValidity && listing.LiveRequestStatus != GoLiveRequestStatuses.Rejected)
+        if (!listing.IsActive && stillWithinValidity)
         {
             // Free reactivation — already paid for this window (owner deactivated manually, then
             // came back before it expired). PlanType is never required on this branch.
@@ -352,8 +346,7 @@ public static class GoLiveHandlers
         if (plot.IsActive && stillWithinValidity)
             return BadRequestResponse("This plot is already live.");
 
-        // See the identical exclusion + comment in GoLiveRoom for why this must exclude Rejected.
-        if (!plot.IsActive && stillWithinValidity && plot.LiveRequestStatus != GoLiveRequestStatuses.Rejected)
+        if (!plot.IsActive && stillWithinValidity)
         {
             plot.IsActive = true;
             plot.UpdatedAt = DateTime.UtcNow;

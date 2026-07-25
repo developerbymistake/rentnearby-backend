@@ -977,6 +977,10 @@ public static class PlotListingHandlers
             plot.IsActive = false;
             plot.LiveRequestStatus = GoLiveRequestStatuses.Rejected;
             plot.RejectedReason = reason;
+            // See the identical comment in AdminHandlers.RejectReportedRoomAsync — expiring ValidUntil
+            // here (rather than special-casing Rejected inside GoLiveHandlers' shared free-reactivation
+            // branch) is what actually prevents a silent, free, unreviewed reactivation.
+            plot.ValidUntil = DateTime.UtcNow.AddDays(-1);
             plot.UpdatedAt = DateTime.UtcNow;
             await unitOfWork.PlotListings.UpdateAsync(plot);
 
