@@ -323,6 +323,29 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "AppFeatureFlags",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    FeatureKey = table.Column<string>(type: "text", nullable: false),
+                    IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
+                    FreeDurationDays = table.Column<int>(type: "integer", nullable: true),
+                    UpdatedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Reason = table.Column<string>(type: "text", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AppFeatureFlags", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AppFeatureFlags_Admins_UpdatedByAdminId",
+                        column: x => x.UpdatedByAdminId,
+                        principalTable: "Admins",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Messages",
                 columns: table => new
                 {
@@ -747,6 +770,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     DigestNotifiedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LiveRequestStatus = table.Column<string>(type: "text", nullable: true),
+                    RejectedReason = table.Column<string>(type: "text", nullable: true),
+                    RequestedPlanType = table.Column<string>(type: "text", nullable: true),
+                    RequestedPlanDays = table.Column<int>(type: "integer", nullable: true),
+                    RequestedPlanCreditsSpent = table.Column<int>(type: "integer", nullable: true),
                     Location = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", stored: true),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
@@ -801,6 +829,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     ValidUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     DigestNotifiedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LiveRequestStatus = table.Column<string>(type: "text", nullable: true),
+                    RejectedReason = table.Column<string>(type: "text", nullable: true),
+                    RequestedPlanType = table.Column<string>(type: "text", nullable: true),
+                    RequestedPlanDays = table.Column<int>(type: "integer", nullable: true),
+                    RequestedPlanCreditsSpent = table.Column<int>(type: "integer", nullable: true),
                     Location = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", stored: true),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
@@ -892,25 +925,25 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "AgentServiceCategories",
+                name: "AgentServices",
                 columns: table => new
                 {
                     AgentId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ServiceCategoryId = table.Column<Guid>(type: "uuid", nullable: false)
+                    ServiceId = table.Column<Guid>(type: "uuid", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_AgentServiceCategories", x => new { x.AgentId, x.ServiceCategoryId });
+                    table.PrimaryKey("PK_AgentServices", x => new { x.AgentId, x.ServiceId });
                     table.ForeignKey(
-                        name: "FK_AgentServiceCategories_Agents_AgentId",
+                        name: "FK_AgentServices_Agents_AgentId",
                         column: x => x.AgentId,
                         principalTable: "Agents",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
-                        name: "FK_AgentServiceCategories_ServiceCategories_ServiceCategoryId",
-                        column: x => x.ServiceCategoryId,
-                        principalTable: "ServiceCategories",
+                        name: "FK_AgentServices_Services_ServiceId",
+                        column: x => x.ServiceId,
+                        principalTable: "Services",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -1001,6 +1034,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     Status = table.Column<string>(type: "text", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UserSeenAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
@@ -1056,7 +1090,8 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     InquiryId = table.Column<Guid>(type: "uuid", nullable: false),
                     AgentId = table.Column<Guid>(type: "uuid", nullable: false),
-                    AssignedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    AssignedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    SeenAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -1184,9 +1219,20 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"UserId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
-                name: "IX_AgentServiceCategories_ServiceCategoryId",
-                table: "AgentServiceCategories",
-                column: "ServiceCategoryId");
+                name: "IX_AgentServices_ServiceId",
+                table: "AgentServices",
+                column: "ServiceId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AppFeatureFlags_FeatureKey",
+                table: "AppFeatureFlags",
+                column: "FeatureKey",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AppFeatureFlags_UpdatedByAdminId",
+                table: "AppFeatureFlags",
+                column: "UpdatedByAdminId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_BannerDismissals_BannerId",
@@ -1287,7 +1333,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "CreditTransactions",
                 columns: new[] { "UserId", "Reason", "ReferenceId" },
                 unique: true,
-                filter: "\"Reason\" IN ('RECHARGE', 'COUPON_REDEEM', 'WELCOME_BONUS', 'ADMIN_CREDIT', 'ADMIN_DEBIT') AND \"ReferenceId\" IS NOT NULL");
+                filter: "\"Reason\" IN ('RECHARGE', 'COUPON_REDEEM', 'WELCOME_BONUS', 'ADMIN_CREDIT', 'GOLIVE_PENDING_REFUND', 'ADMIN_DEBIT') AND \"ReferenceId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_CreditTransactions_PerformedByUserId",
@@ -1735,7 +1781,10 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "AdminSessions");
 
             migrationBuilder.DropTable(
-                name: "AgentServiceCategories");
+                name: "AgentServices");
+
+            migrationBuilder.DropTable(
+                name: "AppFeatureFlags");
 
             migrationBuilder.DropTable(
                 name: "BannerDismissals");
