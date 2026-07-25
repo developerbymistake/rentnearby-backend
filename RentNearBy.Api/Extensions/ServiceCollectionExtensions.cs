@@ -144,6 +144,11 @@ public static class ServiceCollectionExtensions
         // separate from InquiryStatusPushWorkerService, no shared queue or code.
         services.AddHostedService<NotificationPushWorkerService>();
 
+        // Go-Live-requested worker — consumes golive.requested queue (a fresh, never-before-approved
+        // Go-Live submission) and notifies admins via AdminDeviceTokens + FCM (same pattern as
+        // EscalationFiledWorkerService) — deliberately not the NotificationEvent/inbox system.
+        services.AddHostedService<GoLiveRequestedWorkerService>();
+
         return services;
     }
 }

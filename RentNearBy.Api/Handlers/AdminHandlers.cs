@@ -1230,22 +1230,76 @@ public static class AdminHandlers
         try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouRooms:{districtId}"); } catch { }
     }
 
-    public static async Task<IResult> DeleteAdminListing(
-        Guid id, ApplicationDbContext db, IPhotoService photoService, IServiceProvider sp)
+    // Missing here before this feature — its Plot sibling (PlotListingHandlers.AdminDeletePlotListing)
+    // already busts this cache on delete; Room's admin delete didn't.
+    private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
     {
-        var listing = await db.RoomListings
-            .Include(l => l.Photos)
-            .FirstOrDefaultAsync(l => l.Id == id && !l.IsDeleted);
-        if (listing == null) return NotFoundResponse("RoomListing not found");
+        if (redis == null) return;
+        try
+        {
+            var db = redis.GetDatabase();
+            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
+            if (server == null) return;
+            await foreach (var key in server.KeysAsync(pattern: $"nearby:{districtId}:*"))
+                await db.KeyDeleteAsync(key);
+        }
+        catch { }
+    }
 
-        foreach (var photo in listing.Photos)
-            await photoService.DeletePhotoAsync(photo.FilePath);
+    public static async Task<IResult> DeleteAdminListing(
+        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService, ICreditWalletService wallet, IServiceProvider sp)
+    {
+        // Tracked fetch (not the AsNoTracking GetByIdWithPhotosForAdminAsync) — this listing gets
+        // mutated and saved below, and RoomListing/PlotListing use a shadow xmin concurrency token
+        // that only round-trips correctly through a tracked entity (mirrors the owner delete path,
+        // RoomListingsHandlers.DeleteListing, which uses the same tracked GetByIdAsync for the same
+        // reason). Bulk-deletes the whole listing's photo folder like the owner path does, so no
+        // Photos Include is needed here either.
+        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
+        if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
+
+        await photoService.DeleteRoomPhotosAsync(listing.UserId, id);
+
+        // A still-Pending Go-Live request (never approved/activated) with credits already spent
+        // must be refunded on delete — mirrors GoLiveHandlers's own transaction shape since folding
+        // a credit mutation into a bare SaveChangesAsync would be a correctness gap.
+        var needsRefund = listing.LiveRequestStatus == GoLiveRequestStatuses.Pending
+            && listing.RequestedPlanCreditsSpent is > 0;
 
         listing.IsDeleted = true;
         listing.DeletedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
+        await unitOfWork.RoomListings.UpdateAsync(listing);
+
+        if (needsRefund)
+        {
+            await unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await wallet.AddCreditsAsync(listing.UserId, listing.RequestedPlanCreditsSpent!.Value, CreditTransactionReasons.GoLivePendingRefund, listing.Id);
+                try
+                {
+                    await unitOfWork.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+                }
+                await unitOfWork.CommitTransactionAsync();
+            }
+            catch
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
+        }
+        else
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
 
         var redis = sp.GetService<IConnectionMultiplexer>();
+        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
         await InvalidateRecentRoomsCacheAsync(redis);
         await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
 

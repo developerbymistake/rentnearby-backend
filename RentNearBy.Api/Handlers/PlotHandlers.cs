@@ -377,7 +377,7 @@ public static class PlotListingHandlers
 
     public static async Task<IResult> DeletePlotListing(
         Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
-        IPhotoService photoService, IServiceProvider sp)
+        IPhotoService photoService, ICreditWalletService wallet, IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -391,10 +391,43 @@ public static class PlotListingHandlers
         foreach (var photo in plot.Photos)
             await photoService.DeletePhotoAsync(photo.FilePath);
 
+        // A still-Pending Go-Live request (never approved/activated) with credits already spent
+        // must be refunded on delete — mirrors GoLiveHandlers's own transaction shape since folding
+        // a credit mutation into a bare SaveChangesAsync would be a correctness gap.
+        var needsRefund = plot.LiveRequestStatus == GoLiveRequestStatuses.Pending
+            && plot.RequestedPlanCreditsSpent is > 0;
+
         plot.IsDeleted = true;
         plot.DeletedAt = DateTime.UtcNow;
         await unitOfWork.PlotListings.UpdateAsync(plot);
-        await unitOfWork.SaveChangesAsync();
+
+        if (needsRefund)
+        {
+            await unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await wallet.AddCreditsAsync(userId, plot.RequestedPlanCreditsSpent!.Value, CreditTransactionReasons.GoLivePendingRefund, plot.Id);
+                try
+                {
+                    await unitOfWork.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+                }
+                await unitOfWork.CommitTransactionAsync();
+            }
+            catch
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
+        }
+        else
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
 
@@ -638,7 +671,7 @@ public static class PlotListingHandlers
 
     public static async Task<IResult> AdminDeletePlotListing(
         Guid id, IUnitOfWork unitOfWork,
-        IPhotoService photoService, IServiceProvider sp)
+        IPhotoService photoService, ICreditWalletService wallet, IServiceProvider sp)
     {
         var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
         if (plot == null) return NotFoundResponse("PlotListing not found");
@@ -648,10 +681,43 @@ public static class PlotListingHandlers
         foreach (var photo in plot.Photos)
             await photoService.DeletePhotoAsync(photo.FilePath);
 
+        // A still-Pending Go-Live request (never approved/activated) with credits already spent
+        // must be refunded on delete — mirrors GoLiveHandlers's own transaction shape since folding
+        // a credit mutation into a bare SaveChangesAsync would be a correctness gap.
+        var needsRefund = plot.LiveRequestStatus == GoLiveRequestStatuses.Pending
+            && plot.RequestedPlanCreditsSpent is > 0;
+
         plot.IsDeleted = true;
         plot.DeletedAt = DateTime.UtcNow;
         await unitOfWork.PlotListings.UpdateAsync(plot);
-        await unitOfWork.SaveChangesAsync();
+
+        if (needsRefund)
+        {
+            await unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await wallet.AddCreditsAsync(plot.UserId, plot.RequestedPlanCreditsSpent!.Value, CreditTransactionReasons.GoLivePendingRefund, plot.Id);
+                try
+                {
+                    await unitOfWork.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+                }
+                await unitOfWork.CommitTransactionAsync();
+            }
+            catch
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
+        }
+        else
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, districtId);
