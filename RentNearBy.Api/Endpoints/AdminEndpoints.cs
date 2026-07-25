@@ -39,6 +39,7 @@ public static class AdminEndpoints
         group.MapGet("/geocode", AdminHandlers.Geocode).RequireAuthorization("AdminOnly");
 
         group.MapGet("/users", AdminHandlers.GetUsers).RequireAuthorization("AdminOnly");
+        group.MapGet("/deleted-accounts", AdminHandlers.GetDeletedAccountsByPhone).RequireAuthorization("AdminOnly");
         group.MapGet("/users/{id:guid}", AdminHandlers.GetUserById).RequireAuthorization("AdminOnly");
         group.MapPut("/users/{id:guid}/status", AdminHandlers.UpdateUserStatus).RequireAuthorization("AdminOnly");
         group.MapPost("/users/{id:guid}/wallet/credit", AdminHandlers.CreditUserWallet).RequireAuthorization("AdminOnly");

@@ -15,6 +15,24 @@ public class AccountDeletionService(ApplicationDbContext context, IPhotoService 
 
         using var tx = await context.Database.BeginTransactionAsync();
 
+        var user = await context.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.PhoneNumber, u.Name, u.CreatedAt })
+            .FirstOrDefaultAsync();
+        if (user != null)
+        {
+            context.DeletedAccountRecords.Add(new DeletedAccountRecord
+            {
+                Id = Guid.NewGuid(),
+                OriginalUserId = userId,
+                PhoneNumber = user.PhoneNumber,
+                Name = user.Name,
+                AccountCreatedAt = user.CreatedAt,
+                DeletedAt = DateTime.UtcNow,
+            });
+            await context.SaveChangesAsync();
+        }
+
         await context.DeviceTokens
             .Where(d => d.UserId == userId)
             .ExecuteDeleteAsync();

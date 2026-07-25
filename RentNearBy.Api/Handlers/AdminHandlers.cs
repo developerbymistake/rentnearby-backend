@@ -703,6 +703,18 @@ public static class AdminHandlers
         return OkResponse(result);
     }
 
+    public static async Task<IResult> GetDeletedAccountsByPhone(ApplicationDbContext db, string? phone = null)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) return BadRequestResponse("phone is required");
+
+        var records = await db.DeletedAccountRecords
+            .Where(r => r.PhoneNumber.Contains(phone.Trim()))
+            .OrderByDescending(r => r.DeletedAt)
+            .ToListAsync();
+
+        return OkResponse(records.Adapt<List<DeletedAccountRecordDto>>());
+    }
+
     public static async Task<IResult> GetUserById(Guid id, ApplicationDbContext db)
     {
         var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id);

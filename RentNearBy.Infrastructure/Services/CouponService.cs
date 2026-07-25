@@ -3,10 +3,11 @@ using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-public class CouponService(IUnitOfWork unitOfWork, ICreditWalletService wallet, ILogger<CouponService> logger) : ICouponService
+public class CouponService(IUnitOfWork unitOfWork, ICreditWalletService wallet, ILogger<CouponService> logger, ApplicationDbContext context) : ICouponService
 {
     public async Task<CouponRedeemResult> RedeemCouponByCodeAsync(Guid userId, string code)
     {
@@ -32,6 +33,17 @@ public class CouponService(IUnitOfWork unitOfWork, ICreditWalletService wallet, 
         if (coupon.Status == CouponStatuses.Exhausted) return new CouponRedeemResult(CouponRedeemOutcome.Exhausted);
         if (coupon.ValidFrom > now) return new CouponRedeemResult(CouponRedeemOutcome.NotYetValid);
         if (coupon.ValidUntil.HasValue && coupon.ValidUntil <= now) return new CouponRedeemResult(CouponRedeemOutcome.Expired);
+
+        if (coupon.TriggerType == WellKnownCoupons.WelcomeSignupTrigger)
+        {
+            var paymentFlag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.PaymentEnabled);
+            if (paymentFlag is not { IsEnabled: true })
+                return new CouponRedeemResult(CouponRedeemOutcome.NotYetValid);
+
+            var user = await unitOfWork.Users.GetByIdAsync(userId);
+            if (user != null && await context.DeletedAccountRecords.AnyAsync(r => r.PhoneNumber == user.PhoneNumber))
+                return new CouponRedeemResult(CouponRedeemOutcome.AlreadyRedeemed);
+        }
 
         var redemptionId = Guid.NewGuid();
         await unitOfWork.BeginTransactionAsync();

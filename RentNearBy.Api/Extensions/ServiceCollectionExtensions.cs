@@ -44,6 +44,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<ListingExpirySweepService>();
         // Register background service for district digest aggregation (runs at 4:00 AM IST daily)
         services.AddHostedService<DistrictDigestJobService>();
+        // Purges DeletedAccountRecords past their 180-day retention window (runs at 5:00 AM IST daily)
+        services.AddHostedService<DeletedAccountRecordPurgeService>();
 
         services.AddHttpClient<IRazorpayService, RazorpayService>();
 
