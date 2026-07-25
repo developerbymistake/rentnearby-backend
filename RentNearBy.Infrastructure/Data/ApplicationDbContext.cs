@@ -812,10 +812,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // concurrently — without this, whichever SaveChangesAsync commits last silently wins.
             e.Property<uint>("xmin").IsRowVersion();
 
-            e.HasOne(i => i.User)
-             .WithMany()
-             .HasForeignKey(i => i.UserId)
-             .OnDelete(DeleteBehavior.Restrict);
+            // No FK to User (deliberately, matching ListingReport/Conversation/Message) — an
+            // Inquiry is a business lead record with its own denormalized FullName/Mobile/Email,
+            // and must survive account deletion intact for the assigned agent/admin, not vanish
+            // or block the deletion the way a live Restrict/Cascade FK would.
 
             e.HasOne(i => i.Service)
              .WithMany()

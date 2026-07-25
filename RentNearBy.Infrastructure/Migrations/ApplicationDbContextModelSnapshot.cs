@@ -2240,17 +2240,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("RentNearBy.Core.Entities.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.Navigation("Service");
 
                     b.Navigation("ServicePackage");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.InquiryAgent", b =>

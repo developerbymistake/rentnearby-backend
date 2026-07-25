@@ -20,7 +20,6 @@ public class Inquiry
     // Inquiry is single-owner (one consumer), so the consumer's seen-timestamp lives directly here.
     public DateTime? UserSeenAt { get; set; }
 
-    public User User { get; set; } = null!;
     public Service Service { get; set; } = null!;
     public ServicePackage ServicePackage { get; set; } = null!;
     // Many-to-many via InquiryAgent — every active Agent mapped to this Inquiry's ServiceCategory is
