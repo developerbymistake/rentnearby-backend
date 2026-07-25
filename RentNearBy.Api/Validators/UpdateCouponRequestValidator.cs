@@ -8,7 +8,7 @@ public class UpdateCouponRequestValidator : AbstractValidator<UpdateCouponReques
 {
     public UpdateCouponRequestValidator()
     {
-        RuleFor(x => x.CoinValue).GreaterThan(0).When(x => x.CoinValue.HasValue);
+        RuleFor(x => x.CreditValue).GreaterThan(0).When(x => x.CreditValue.HasValue);
         RuleFor(x => x.MaxTotalRedemptions).GreaterThan(0).When(x => x.MaxTotalRedemptions.HasValue);
 
         RuleFor(x => x)

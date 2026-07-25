@@ -1,6 +1,6 @@
 namespace RentNearBy.Core.DTOs.Requests;
 
-// Price/OriginalPrice/DiscountPercent/IsStartingAtPrice are copied field-for-field from CoinPlan's
+// Price/OriginalPrice/DiscountPercent/IsStartingAtPrice are copied field-for-field from CreditPlan's
 // discount-badge logic. Price=null renders "Get Custom Quote"; the admin form's "Get Custom Quote"
 // checkbox simply omits/nulls Price+OriginalPrice+DiscountPercent when creating. Thumbnail is uploaded
 // separately via PhotoService.SavePackageThumbnailAsync, never as part of this JSON body.

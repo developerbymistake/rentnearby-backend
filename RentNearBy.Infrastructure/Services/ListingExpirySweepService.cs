@@ -10,7 +10,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Services;
 
 // Replaces MembershipExpiryService + PlotMembershipExpiryService — there is no membership record to
-// expire under the coin model, so this sweeps RoomListing/PlotListing directly by their own
+// expire under the credit model, so this sweeps RoomListing/PlotListing directly by their own
 // ValidUntil, one unified daily job instead of two near-identical ones per listing kind.
 public class ListingExpirySweepService : BackgroundService
 {

@@ -1,6 +1,6 @@
 namespace RentNearBy.Core.Entities;
 
-// Price/OriginalPrice/DiscountPercent copied field-for-field from CoinPlan's strikethrough +
+// Price/OriginalPrice/DiscountPercent copied field-for-field from CreditPlan's strikethrough +
 // "X% Savings" badge logic. Price=null renders "Get Custom Quote" (Diet Plans).
 // Price set + DiscountPercent>0 renders the discount badge (Tourism packages).
 public class ServicePackage

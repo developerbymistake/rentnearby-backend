@@ -12,7 +12,7 @@ public interface IUnitOfWork : IDisposable
     IRoomTypeRepository RoomTypes { get; }
     IPlotTypeRepository PlotTypes { get; }
     IPlotListingRoomListingRepository PlotListings { get; }
-    ICoinPlanRepository CoinPlans { get; }
+    ICreditPlanRepository CreditPlans { get; }
     IDeviceTokenRepository DeviceTokens { get; }
     INotificationLogRepository NotificationLogs { get; }
     IDistrictBannerRepository DistrictBanners { get; }
@@ -24,12 +24,12 @@ public interface IUnitOfWork : IDisposable
     IUserBlockRepository UserBlocks { get; }
     IQuestionTemplateRepository QuestionTemplates { get; }
     IWalletRepository Wallets { get; }
-    ICoinTransactionRepository CoinTransactions { get; }
-    ICoinPackRepository CoinPacks { get; }
+    ICreditTransactionRepository CreditTransactions { get; }
+    ICreditPackRepository CreditPacks { get; }
     IListingLimitSettingRepository ListingLimitSettings { get; }
     ICouponRepository Coupons { get; }
     ICouponRedemptionRepository CouponRedemptions { get; }
-    ICoinPackPurchaseRepository CoinPackPurchases { get; }
+    ICreditPackPurchaseRepository CreditPackPurchases { get; }
     IServiceCategoryRepository ServiceCategories { get; }
     IServiceRepository Services { get; }
     IServicePackageRepository ServicePackages { get; }
@@ -41,8 +41,8 @@ public interface IUnitOfWork : IDisposable
     Task<int> SaveChangesAsync();
 
     // Canonical transaction-control surface for handler/service-level code that needs multiple
-    // writes (e.g. a coin spend + a listing activation) to commit or fail together. Wraps the same
-    // underlying ApplicationDbContext's transaction, so ICoinWalletService's own ambient-transaction
+    // writes (e.g. a credit spend + a listing activation) to commit or fail together. Wraps the same
+    // underlying ApplicationDbContext's transaction, so ICreditWalletService's own ambient-transaction
     // detection sees it correctly regardless of which caller opened it.
     Task BeginTransactionAsync();
     Task CommitTransactionAsync();

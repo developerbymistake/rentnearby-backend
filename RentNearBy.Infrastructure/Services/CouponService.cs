@@ -6,7 +6,7 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
-public class CouponService(IUnitOfWork unitOfWork, ICoinWalletService wallet, ILogger<CouponService> logger) : ICouponService
+public class CouponService(IUnitOfWork unitOfWork, ICreditWalletService wallet, ILogger<CouponService> logger) : ICouponService
 {
     public async Task<CouponRedeemResult> RedeemCouponByCodeAsync(Guid userId, string code)
     {
@@ -66,9 +66,9 @@ public class CouponService(IUnitOfWork unitOfWork, ICoinWalletService wallet, IL
 
             // Credited inside the same transaction as the redemption row — a crash between the two
             // used to be unrecoverable (the unique index blocks any retry from ever reaching the
-            // credit once the redemption row exists), permanently stranding the user's coins. Sharing
-            // the transaction with CoinWalletService works the same way GoLiveHandlers' spend+listing-
-            // update does: ICoinWalletService detects this ambient transaction (same ApplicationDbContext)
+            // credit once the redemption row exists), permanently stranding the user's credits. Sharing
+            // the transaction with CreditWalletService works the same way GoLiveHandlers' spend+listing-
+            // update does: ICreditWalletService detects this ambient transaction (same ApplicationDbContext)
             // and uses a SAVEPOINT instead of opening its own, so a failure here still rolls back the
             // redemption row too — no more split-brain state.
             //
@@ -77,13 +77,13 @@ public class CouponService(IUnitOfWork unitOfWork, ICoinWalletService wallet, IL
             // one-shot-credit dedup off CouponId would silently credit only the first redeemer and
             // treat everyone else as a duplicate.
             var reason = coupon.TriggerType == WellKnownCoupons.WelcomeSignupTrigger
-                ? CoinTransactionReasons.WelcomeBonus
-                : CoinTransactionReasons.CouponRedeem;
-            var creditResult = await wallet.CreditCoinsAsync(userId, coupon.CoinValue, reason, redemptionId);
+                ? CreditTransactionReasons.WelcomeBonus
+                : CreditTransactionReasons.CouponRedeem;
+            var creditResult = await wallet.AddCreditsAsync(userId, coupon.CreditValue, reason, redemptionId);
 
             await unitOfWork.CommitTransactionAsync();
 
-            return new CouponRedeemResult(CouponRedeemOutcome.Success, coupon.CoinValue, creditResult.BalanceAfter, coupon.CampaignLabel);
+            return new CouponRedeemResult(CouponRedeemOutcome.Success, coupon.CreditValue, creditResult.BalanceAfter, coupon.CampaignLabel);
         }
         catch
         {

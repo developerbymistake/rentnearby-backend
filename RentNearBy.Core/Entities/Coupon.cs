@@ -4,7 +4,7 @@ public class Coupon
 {
     public Guid Id { get; set; }
     public string? Code { get; set; } // null for non-typed triggers (e.g. the welcome bonus)
-    public int CoinValue { get; set; }
+    public int CreditValue { get; set; }
     public string TriggerType { get; set; } = string.Empty; // RentNearBy.Core.Models.WellKnownCoupons.*Trigger
     public int PerUserLimit { get; set; } = 1; // hard-enforced at the DB layer (check constraint) — always 1 in v1
     public int? MaxTotalRedemptions { get; set; } // null = unlimited

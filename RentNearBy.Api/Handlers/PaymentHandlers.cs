@@ -14,17 +14,17 @@ namespace RentNearBy.Api.Handlers;
 public static class PaymentHandlers
 {
     // Server-to-server safety net alongside the client-driven /verify-payment flow on
-    // CoinPackHandlers.VerifyPayment — if the app dies between Razorpay showing success and the
-    // client finishing its own verify call, this is the only thing that ever credits the coins.
+    // CreditPackHandlers.VerifyPayment — if the app dies between Razorpay showing success and the
+    // client finishing its own verify call, this is the only thing that ever credits the credits.
     // Deliberately takes HttpContext directly (no bound request DTO): Razorpay's signature is only
     // valid over the exact raw body bytes it sent, and minimal-API JSON model binding would
     // consume/transform that stream before we could verify it.
     public static async Task<IResult> RazorpayWebhook(
         HttpContext context,
         IUnitOfWork unitOfWork,
-        ICoinPackPurchaseService purchaseService,
+        ICreditPackPurchaseService purchaseService,
         IRazorpayService razorpay,
-        ILogger<CoinPackPurchaseService> logger,
+        ILogger<CreditPackPurchaseService> logger,
         IHubContext<WalletHub> hubContext)
     {
         string rawBody;
@@ -70,10 +70,10 @@ public static class PaymentHandlers
             return BadRequestResponse("Malformed payload");
         }
 
-        var purchase = await unitOfWork.CoinPackPurchases.GetByRazorpayOrderIdAsync(orderId);
+        var purchase = await unitOfWork.CreditPackPurchases.GetByRazorpayOrderIdAsync(orderId);
         if (purchase == null)
         {
-            logger.LogWarning($"Razorpay webhook: no coin pack purchase found for order {orderId}");
+            logger.LogWarning($"Razorpay webhook: no credit pack purchase found for order {orderId}");
             return OkResponse(new { acknowledged = true }); // nothing to reconcile against
         }
 
@@ -92,21 +92,21 @@ public static class PaymentHandlers
                 ? errEl.GetString() : null;
             var failureReason = string.IsNullOrWhiteSpace(errorDescription)
                 ? "Payment failed at Razorpay" : errorDescription;
-            var marked = await unitOfWork.CoinPackPurchases.MarkFailedIfPendingOrAbandonedAsync(purchase.Id, paymentId, failureReason);
+            var marked = await unitOfWork.CreditPackPurchases.MarkFailedIfPendingOrAbandonedAsync(purchase.Id, paymentId, failureReason);
             if (marked)
-                logger.LogInformation($"Razorpay webhook: coin pack purchase {purchase.Id} marked FAILED ({failureReason})");
+                logger.LogInformation($"Razorpay webhook: credit pack purchase {purchase.Id} marked FAILED ({failureReason})");
             return OkResponse(new { acknowledged = true });
         }
 
         // From here on, eventType == "payment.captured"
-        if (purchase.Status == CoinPackPurchaseStatuses.Success)
+        if (purchase.Status == CreditPackPurchaseStatuses.Success)
         {
             // The normal case — client's own /verify-payment already handled it.
             //
             // Deliberately NOT also terminal here: FAILED (a late authorisation after an apparent
             // failure, particularly with UPI, per Razorpay's own docs) or ABANDONED (this purchase
-            // timed out in PendingCoinPurchaseCleanupService before we heard back) — both must still
-            // fall through and credit below. CreditCoinsAsync is itself idempotent, so a late
+            // timed out in PendingCreditPurchaseCleanupService before we heard back) — both must still
+            // fall through and credit below. AddCreditsAsync is itself idempotent, so a late
             // duplicate success is harmless either way.
             return OkResponse(new { acknowledged = true });
         }
@@ -121,11 +121,11 @@ public static class PaymentHandlers
         try
         {
             var response = await purchaseService.VerifyAndCreditAsync(purchase.UserId, verifyRequest, skipSignatureCheck: true);
-            logger.LogInformation($"Razorpay webhook: credited coin pack purchase {purchase.Id} for order {orderId}");
+            logger.LogInformation($"Razorpay webhook: credited credit pack purchase {purchase.Id} for order {orderId}");
 
             // This is the highest-value push site in the whole feature: the webhook only ever fires
             // this path when the client's own /verify-payment call never completed (app crashed
-            // mid-payment), so a push here is the ONLY way the device finds out coins landed without
+            // mid-payment), so a push here is the ONLY way the device finds out credits landed without
             // the user manually reopening the wallet screen. No ClaimsPrincipal exists on this
             // anonymous, HMAC-authenticated endpoint — target purchase.UserId directly. Best-effort:
             // never let a push failure affect this webhook's own response code (Razorpay retries
@@ -135,7 +135,7 @@ public static class PaymentHandlers
                 await hubContext.Clients.Group($"user_{purchase.UserId}").SendAsync("WalletBalanceChanged", new
                 {
                     balance = response.NewBalance,
-                    reason = CoinTransactionReasons.Recharge,
+                    reason = CreditTransactionReasons.Recharge,
                     occurredAt = DateTime.UtcNow,
                 });
             }
@@ -146,12 +146,12 @@ public static class PaymentHandlers
         catch (InvalidOperationException ex)
         {
             // e.g. "Already processed" if the client's own call raced this one and won — benign.
-            logger.LogInformation($"Razorpay webhook: coin pack purchase {purchase.Id} no-op ({ex.Message})");
+            logger.LogInformation($"Razorpay webhook: credit pack purchase {purchase.Id} no-op ({ex.Message})");
             return OkResponse(new { acknowledged = true });
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, $"Razorpay webhook: failed to credit coin pack purchase {purchase.Id}");
+            logger.LogError(ex, $"Razorpay webhook: failed to process credit pack purchase {purchase.Id}");
             return ServerErrorResponse(); // non-2xx — let Razorpay's own retry mechanism try again later
         }
     }

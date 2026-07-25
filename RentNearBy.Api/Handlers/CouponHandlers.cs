@@ -45,7 +45,7 @@ public static class CouponHandlers
                 await hubContext.Clients.Group($"user_{userId}").SendAsync("WalletBalanceChanged", new
                 {
                     balance = newBalance,
-                    reason = CoinTransactionReasons.CouponRedeem,
+                    reason = CreditTransactionReasons.CouponRedeem,
                     occurredAt = DateTime.UtcNow,
                 });
             }
@@ -53,7 +53,7 @@ public static class CouponHandlers
 
             return OkResponse(new CouponRedeemResponseDto
             {
-                CoinsCredited = result.CoinsCredited,
+                CreditsCredited = result.CreditsCredited,
                 NewBalance = newBalance,
                 CampaignLabel = result.CampaignLabel,
             });

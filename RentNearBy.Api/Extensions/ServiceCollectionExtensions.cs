@@ -24,7 +24,7 @@ public static class ServiceCollectionExtensions
         // Backend for the two pooling pitfalls: ApplicationDbContext itself has no custom
         // fields to leak state between requests, and every consumer (all handlers, all 10
         // background workers via IServiceScopeFactory.CreateScope(), AccountDeletionService,
-        // CoinWalletService) resolves it as Scoped, never captured by a Singleton.
+        // CreditWalletService) resolves it as Scoped, never captured by a Singleton.
         services.AddDbContextPool<ApplicationDbContext>(options =>
             options.UseNpgsql(connectionString, o => o.UseNetTopologySuite()));
 
@@ -33,11 +33,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IPhotoService, PhotoService>();
         services.AddScoped<IAccountDeletionService, AccountDeletionService>();
-        services.AddScoped<ICoinWalletService, CoinWalletService>();
+        services.AddScoped<ICreditWalletService, CreditWalletService>();
         services.AddScoped<ICouponService, CouponService>();
-        services.AddScoped<ICoinPackPurchaseService, CoinPackPurchaseService>();
+        services.AddScoped<ICreditPackPurchaseService, CreditPackPurchaseService>();
         services.AddScoped<IWalletNotifier, WalletNotifier>();
-        services.AddHostedService<PendingCoinPurchaseCleanupService>();
+        services.AddHostedService<PendingCreditPurchaseCleanupService>();
 
         // Replaces MembershipExpiryService + PlotMembershipExpiryService — one unified sweep,
         // by ValidUntil on the listings themselves, no membership record involved (runs at 12:00 AM IST daily)

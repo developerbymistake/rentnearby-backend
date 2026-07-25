@@ -12,7 +12,7 @@ namespace RentNearBy.Api.Handlers;
 
 // Replaces PaymentService's membership-granting methods for both listing kinds. One thin handler per
 // kind (each looks up its own listing type + plan type), both calling the exact same shared
-// ICoinWalletService.SpendCoinsAsync — the coin-spend mechanism itself is never duplicated.
+// ICreditWalletService.SpendCreditsAsync — the credit-spend mechanism itself is never duplicated.
 public static class GoLiveHandlers
 {
     private static string RoomNearbyPattern(Guid districtId) => $"nearby:{districtId}:*";
@@ -61,7 +61,7 @@ public static class GoLiveHandlers
         try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouPlots:{districtId}"); } catch { }
     }
 
-    // Best-effort — a SignalR push failure must never turn an already-committed coin spend into an
+    // Best-effort — a SignalR push failure must never turn an already-committed credit spend into an
     // error response. Only called from a point where the caller's own commit is already final.
     private static async Task PushWalletBalanceChangedAsync(IHubContext<WalletHub> hubContext, Guid userId, int balance, string reason)
     {
@@ -82,7 +82,7 @@ public static class GoLiveHandlers
         GoLiveRequest request,
         ClaimsPrincipal principal,
         IUnitOfWork unitOfWork,
-        ICoinWalletService wallet,
+        ICreditWalletService wallet,
         IRateLimitService rateLimiter,
         IServiceProvider sp,
         IHubContext<WalletHub> hubContext)
@@ -133,19 +133,19 @@ public static class GoLiveHandlers
         if (string.IsNullOrWhiteSpace(request.PlanType))
             return BadRequestResponse("PlanType is required to go live on an expired or never-activated listing.");
 
-        var plan = await unitOfWork.CoinPlans.GetByFeatureKeyAndPlanTypeAsync(CoinFeatureKeys.RoomGoLive, request.PlanType.Trim().ToUpperInvariant());
+        var plan = await unitOfWork.CreditPlans.GetByFeatureKeyAndPlanTypeAsync(CreditFeatureKeys.RoomGoLive, request.PlanType.Trim().ToUpperInvariant());
         if (plan == null || !plan.IsEnabled)
             return BadRequestResponse("Plan not found or disabled");
 
         await unitOfWork.BeginTransactionAsync();
         try
         {
-            var spend = await wallet.SpendCoinsAsync(userId, plan.OriginalPrice, CoinTransactionReasons.RoomGoLive, listingId);
-            if (spend.Outcome != CoinSpendOutcome.Success)
+            var spend = await wallet.SpendCreditsAsync(userId, plan.OriginalPrice, CreditTransactionReasons.RoomGoLive, listingId);
+            if (spend.Outcome != CreditSpendOutcome.Success)
             {
                 await unitOfWork.RollbackTransactionAsync();
                 return ConflictResponse(
-                    $"Insufficient balance: this plan costs {plan.OriginalPrice} coins, you have {spend.BalanceAfter}.",
+                    $"Insufficient balance: this plan costs {plan.OriginalPrice} credits, you have {spend.BalanceAfter}.",
                     "INSUFFICIENT_BALANCE");
             }
 
@@ -165,7 +165,7 @@ public static class GoLiveHandlers
             }
 
             await unitOfWork.CommitTransactionAsync();
-            await PushWalletBalanceChangedAsync(hubContext, userId, spend.BalanceAfter, CoinTransactionReasons.RoomGoLive);
+            await PushWalletBalanceChangedAsync(hubContext, userId, spend.BalanceAfter, CreditTransactionReasons.RoomGoLive);
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), RoomNearbyPattern(listing.DistrictId));
             await InvalidateRecentRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>());
             await InvalidateForYouRoomsCacheAsync(sp.GetService<IConnectionMultiplexer>(), listing.DistrictId);
@@ -191,7 +191,7 @@ public static class GoLiveHandlers
         GoLiveRequest request,
         ClaimsPrincipal principal,
         IUnitOfWork unitOfWork,
-        ICoinWalletService wallet,
+        ICreditWalletService wallet,
         IRateLimitService rateLimiter,
         IServiceProvider sp,
         IHubContext<WalletHub> hubContext)
@@ -240,19 +240,19 @@ public static class GoLiveHandlers
         if (string.IsNullOrWhiteSpace(request.PlanType))
             return BadRequestResponse("PlanType is required to go live on an expired or never-activated plot.");
 
-        var plan = await unitOfWork.CoinPlans.GetByFeatureKeyAndPlanTypeAsync(CoinFeatureKeys.PlotGoLive, request.PlanType.Trim().ToUpperInvariant());
+        var plan = await unitOfWork.CreditPlans.GetByFeatureKeyAndPlanTypeAsync(CreditFeatureKeys.PlotGoLive, request.PlanType.Trim().ToUpperInvariant());
         if (plan == null || !plan.IsEnabled)
             return BadRequestResponse("Plan not found or disabled");
 
         await unitOfWork.BeginTransactionAsync();
         try
         {
-            var spend = await wallet.SpendCoinsAsync(userId, plan.OriginalPrice, CoinTransactionReasons.PlotGoLive, plotId);
-            if (spend.Outcome != CoinSpendOutcome.Success)
+            var spend = await wallet.SpendCreditsAsync(userId, plan.OriginalPrice, CreditTransactionReasons.PlotGoLive, plotId);
+            if (spend.Outcome != CreditSpendOutcome.Success)
             {
                 await unitOfWork.RollbackTransactionAsync();
                 return ConflictResponse(
-                    $"Insufficient balance: this plan costs {plan.OriginalPrice} coins, you have {spend.BalanceAfter}.",
+                    $"Insufficient balance: this plan costs {plan.OriginalPrice} credits, you have {spend.BalanceAfter}.",
                     "INSUFFICIENT_BALANCE");
             }
 
@@ -272,7 +272,7 @@ public static class GoLiveHandlers
             }
 
             await unitOfWork.CommitTransactionAsync();
-            await PushWalletBalanceChangedAsync(hubContext, userId, spend.BalanceAfter, CoinTransactionReasons.PlotGoLive);
+            await PushWalletBalanceChangedAsync(hubContext, userId, spend.BalanceAfter, CreditTransactionReasons.PlotGoLive);
             await InvalidateCacheAsync(sp.GetService<IConnectionMultiplexer>(), PlotNearbyPattern(plot.DistrictId));
             await InvalidateRecentPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>());
             await InvalidateForYouPlotsCacheAsync(sp.GetService<IConnectionMultiplexer>(), plot.DistrictId);

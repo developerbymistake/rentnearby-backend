@@ -5,7 +5,7 @@ using RentNearBy.Core.Interfaces;
 namespace RentNearBy.Api.Services;
 
 // Api-side implementation of Core's IWalletNotifier — the only place in the codebase allowed to know
-// about WalletHub directly, so Infrastructure-layer callers (PendingCoinPurchaseCleanupService) can
+// about WalletHub directly, so Infrastructure-layer callers (PendingCreditPurchaseCleanupService) can
 // push a balance update without a project reference to Api.
 public class WalletNotifier(IHubContext<WalletHub> hubContext, ILogger<WalletNotifier> logger) : IWalletNotifier
 {

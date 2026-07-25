@@ -95,7 +95,7 @@ public static class InquiryHandlers
         await unitOfWork.Inquiries.AddAsync(inquiry);
 
         // Initial ledger entry so the status timeline always starts from a real "Submitted" event,
-        // append-only ledger mirrors CoinTransaction's shape — never a gap between row creation and
+        // append-only ledger mirrors CreditTransaction's shape — never a gap between row creation and
         // its first history entry.
         db.InquiryStatusHistories.Add(new InquiryStatusHistory
         {

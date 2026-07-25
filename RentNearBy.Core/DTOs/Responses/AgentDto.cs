@@ -1,7 +1,7 @@
 namespace RentNearBy.Core.DTOs.Responses;
 
 // ServiceCategoryIds/Names are flattened from the AgentServiceCategory join (per-agent category
-// multi-select), matching CoinTransactionWithUserResponse's Id+Name flattening convention.
+// multi-select), matching CreditTransactionWithUserResponse's Id+Name flattening convention.
 public class AgentDto
 {
     public Guid Id { get; set; }

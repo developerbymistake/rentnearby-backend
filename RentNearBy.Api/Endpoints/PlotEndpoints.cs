@@ -22,7 +22,7 @@ public static class PlotListingEndpoints
         group.MapPost("/{id:guid}/report", PlotListingHandlers.ReportPlotListing).RequireAuthorization();
         group.MapGet("/{id:guid}/reports", PlotListingHandlers.GetPlotListingReports).RequireAuthorization();
 
-        // Coin-based Go Live — replaces the old Razorpay-per-plot payment routes entirely.
+        // Credit-based Go Live — replaces the old Razorpay-per-plot payment routes entirely.
         group.MapPost("/{plotId:guid}/go-live", GoLiveHandlers.GoLivePlot).RequireAuthorization();
 
         return group;

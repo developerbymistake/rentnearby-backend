@@ -133,7 +133,7 @@ using (var scope = app.Services.CreateScope())
         var startupLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
         startupLogger.LogError(
             "Razorpay:WebhookSecret / RAZORPAY_WEBHOOK_SECRET is not configured — every incoming Razorpay webhook will be rejected. " +
-            "Coin purchases still complete via the client verify-call and the 30-min reconciliation sweep, but instant crash-recovery credit is degraded.");
+            "Credit purchases still complete via the client verify-call and the 30-min reconciliation sweep, but instant crash-recovery credit is degraded.");
     }
 }
 
@@ -247,7 +247,7 @@ app.MapGet("/delete-account", () => Results.Content("""
 <div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> — your account is deleted instantly</span></div>
 </div>
 <div class="warn">
-<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, photos, bookings, and wallet coin balance will be permanently removed.
+<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, photos, bookings, and wallet credit balance will be permanently removed.
 </div>
 <p>If you are unable to access the app, contact us at <a href="mailto:supportbakhli@gmail.com">supportbakhli@gmail.com</a> with subject <em>"Account Deletion Request"</em>.</p>
 <p><a href="https://developerbymistake.github.io/bakhli-privacy-policy/">Privacy Policy</a></p>
@@ -279,8 +279,8 @@ app.MapGet("/health", async (IServiceProvider sp) =>
     var cloudinaryOk = await photoService.PingAsync();
 
     // Deliberately not fatal at startup if missing (see the field comment on RazorpayService's
-    // _webhookSecret) — but a missing/misrotated webhook secret silently disables the fastest coin-
-    // credit path (the client-driven verify-call and the 30-min Razorpay reconciliation sweep both
+    // _webhookSecret) — but a missing/misrotated webhook secret silently disables the fastest credit-
+    // add path (the client-driven verify-call and the 30-min Razorpay reconciliation sweep both
     // still work), so it needs to be loudly visible somewhere. Here, not a thrown exception.
     var razorpayService = sp.GetRequiredService<RentNearBy.Infrastructure.Services.IRazorpayService>();
 
@@ -382,9 +382,9 @@ app.MapGroup("/api/v1/coupons")
     .WithTags("Coupons")
     .MapCouponEndpoints();
 
-app.MapGroup("/api/v1/coin-packs")
-    .WithTags("CoinPacks")
-    .MapCoinPackEndpoints();
+app.MapGroup("/api/v1/credit-packs")
+    .WithTags("CreditPacks")
+    .MapCreditPackEndpoints();
 
 app.MapGroup("/api/v1/wallet")
     .WithTags("Wallet")

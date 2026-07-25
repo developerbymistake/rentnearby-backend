@@ -46,9 +46,9 @@ public static class AdminEndpoints
 
         group.MapGet("/wallet-transactions", AdminHandlers.GetWalletTransactions).RequireAuthorization("AdminOnly");
 
-        group.MapGet("/coin-packs", AdminHandlers.GetCoinPacks).RequireAuthorization("AdminOnly");
-        group.MapPost("/coin-packs", AdminHandlers.CreateCoinPack).RequireAuthorization("AdminOnly");
-        group.MapPut("/coin-packs/{id:guid}", AdminHandlers.UpdateCoinPack).RequireAuthorization("AdminOnly");
+        group.MapGet("/credit-packs", AdminHandlers.GetCreditPacks).RequireAuthorization("AdminOnly");
+        group.MapPost("/credit-packs", AdminHandlers.CreateCreditPack).RequireAuthorization("AdminOnly");
+        group.MapPut("/credit-packs/{id:guid}", AdminHandlers.UpdateCreditPack).RequireAuthorization("AdminOnly");
 
         group.MapGet("/listing-limits", AdminHandlers.GetListingLimits).RequireAuthorization("AdminOnly");
         group.MapPut("/listing-limits/{kind}", AdminHandlers.UpdateListingLimit).RequireAuthorization("AdminOnly");

@@ -27,7 +27,7 @@ public class AccountDeletionService(ApplicationDbContext context, IPhotoService 
             .Where(s => s.UserId == userId)
             .ExecuteDeleteAsync();
 
-        // Wallet/CoinTransaction/CoinPackPurchase/CouponRedemption all cascade-delete via their
+        // Wallet/CreditTransaction/CreditPackPurchase/CouponRedemption all cascade-delete via their
         // User FK — no explicit cleanup needed here, same as Sessions/DeviceTokens above.
 
         await context.RoomPhotos
