@@ -45,7 +45,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Inclusion> Inclusions { get; set; }
     public DbSet<PackageInclusion> PackageInclusions { get; set; }
     public DbSet<Agent> Agents { get; set; }
-    public DbSet<AgentServiceCategory> AgentServiceCategories { get; set; }
+    public DbSet<AgentService> AgentServices { get; set; }
     public DbSet<Inquiry> Inquiries { get; set; }
     public DbSet<InquiryAgent> InquiryAgents { get; set; }
     public DbSet<InquiryStatusHistory> InquiryStatusHistories { get; set; }
@@ -786,19 +786,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasFilter("\"UserId\" IS NOT NULL");
         });
 
-        modelBuilder.Entity<AgentServiceCategory>(e =>
+        modelBuilder.Entity<AgentService>(e =>
         {
-            e.HasKey(ac => new { ac.AgentId, ac.ServiceCategoryId });
-            e.HasOne(ac => ac.Agent)
-             .WithMany(a => a.AgentServiceCategories)
-             .HasForeignKey(ac => ac.AgentId)
+            e.HasKey(a => new { a.AgentId, a.ServiceId });
+            e.HasOne(a => a.Agent)
+             .WithMany(a => a.AgentServices)
+             .HasForeignKey(a => a.AgentId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(ac => ac.ServiceCategory)
-             .WithMany(c => c.AgentServiceCategories)
-             .HasForeignKey(ac => ac.ServiceCategoryId)
+            e.HasOne(a => a.Service)
+             .WithMany(s => s.AgentServices)
+             .HasForeignKey(a => a.ServiceId)
              .OnDelete(DeleteBehavior.Cascade);
 
-            e.HasIndex(ac => ac.ServiceCategoryId);
+            e.HasIndex(a => a.ServiceId);
         });
 
         modelBuilder.Entity<Inquiry>(e =>
@@ -835,7 +835,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // "never seen by the consumer"; correct default for all existing rows, no backfill required.
         });
 
-        // Composite-key many-to-many, exact shape of AgentServiceCategory — both FKs Cascade (an
+        // Composite-key many-to-many, exact shape of AgentService — both FKs Cascade (an
         // assignment row about a deleted inquiry or agent doesn't need to survive either deletion).
         modelBuilder.Entity<InquiryAgent>(e =>
         {

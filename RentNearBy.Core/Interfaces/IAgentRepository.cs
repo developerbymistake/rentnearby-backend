@@ -4,14 +4,14 @@ namespace RentNearBy.Core.Interfaces;
 
 public interface IAgentRepository : IRepository<Agent>
 {
-    // Both Include AgentServiceCategories.ServiceCategory (for AgentDto's flattened category ids/names)
-    // and User (for AgentDto's flattened UserName/UserPhoneNumber).
-    Task<IEnumerable<Agent>> GetAllWithCategoriesAsync();
-    Task<Agent?> GetByIdWithCategoriesAsync(Guid id);
+    // Both Include AgentServices.Service (for AgentDto's flattened service ids/names) and User (for
+    // AgentDto's flattened UserName/UserPhoneNumber).
+    Task<IEnumerable<Agent>> GetAllWithServicesAsync();
+    Task<Agent?> GetByIdWithServicesAsync(Guid id);
 
-    // Category-scoped agent picker for admin's inquiry-assign flow (only agents serving the Inquiry's
-    // Service's category are eligible).
-    Task<IEnumerable<Agent>> GetActiveByServiceCategoryIdAsync(Guid serviceCategoryId);
+    // Service-scoped agent picker for admin's inquiry-assign flow (only agents mapped to the Inquiry's
+    // exact Service are eligible).
+    Task<IEnumerable<Agent>> GetActiveByServiceIdAsync(Guid serviceId);
 
     // Resolves the caller's own Agent record from their JWT-derived UserId — the "am I an agent"
     // check for the consumer app's My Leads feature. Only an active Agent counts (deactivating an

@@ -21,4 +21,5 @@ public class Service
 
     public ServiceCategory ServiceCategory { get; set; } = null!;
     public ICollection<ServicePackage> Packages { get; set; } = new List<ServicePackage>();
+    public ICollection<AgentService> AgentServices { get; set; } = new List<AgentService>();
 }

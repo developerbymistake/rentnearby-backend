@@ -107,23 +107,23 @@ public static class InquiryHandlers
             CreatedAt = now,
         });
 
-        // Auto-assign: every currently-active Agent mapped to this Service's category picks up the
+        // Auto-assign: every currently-active Agent mapped to this exact Service picks up the
         // lead immediately, with zero Admin action — reuses the exact assign -> auto-transition ->
         // notify shapes AdminSetInquiryAgents uses for a manual assignment. If no agent is mapped to
-        // the category, the inquiry stays Submitted/unassigned exactly as before this feature.
+        // the service, the inquiry stays Submitted/unassigned exactly as before this feature.
         // Excludes the submitter themselves if they happen to also be a mapped Agent (an Agent is
         // just a role on an existing consumer User account, not a separate identity) — booking a
         // service for themselves must never leave them self-assigned as their own lead's agent. If
         // that leaves zero agents, this falls through to the same "unassigned" path as no mapped
         // agent at all — mirrors the identical guard in AdminSetInquiryAgents below.
-        var categoryAgents = (await unitOfWork.Agents.GetActiveByServiceCategoryIdAsync(service.ServiceCategoryId))
+        var serviceAgents = (await unitOfWork.Agents.GetActiveByServiceIdAsync(service.Id))
             .Where(a => a.UserId != userId)
             .ToList();
-        var autoTransitioned = categoryAgents.Count > 0;
+        var autoTransitioned = serviceAgents.Count > 0;
         var notificationsToSend = new List<NotificationEvent>();
         if (autoTransitioned)
         {
-            foreach (var agent in categoryAgents)
+            foreach (var agent in serviceAgents)
             {
                 db.InquiryAgents.Add(new InquiryAgent { InquiryId = inquiry.Id, AgentId = agent.Id, AssignedAt = now });
                 if (agent.UserId.HasValue)
@@ -144,7 +144,7 @@ public static class InquiryHandlers
                 Id = Guid.NewGuid(),
                 InquiryId = inquiry.Id,
                 Status = InquiryStatuses.Contacted,
-                Note = "Auto-assigned to category-mapped agent(s) on submission",
+                Note = "Auto-assigned to service-mapped agent(s) on submission",
                 CreatedAt = now,
             });
         }
@@ -505,7 +505,7 @@ public static class InquiryHandlers
         return OkResponse(updated!.Adapt<InquiryDetailDto>());
     }
 
-    // Full-set-replace, exact mirror of AgentHandlers.AdminSetAgentCategories's delete-all-then
+    // Full-set-replace, exact mirror of AgentHandlers.AdminSetAgentServices's delete-all-then
     // -reinsert idiom for the same many-to-many shape — one call replaces the whole assigned-agent
     // set rather than exposing separate add/remove verbs.
     public static async Task<IResult> AdminSetInquiryAgents(
@@ -531,18 +531,18 @@ public static class InquiryHandlers
         var requestedAgents = new List<Agent>();
         if (requestedIds.Count > 0)
         {
-            // Server-side category-scoping enforcement — the admin picker UI already filters to
-            // category-mapped agents, but the API itself must not trust that: without this check an
+            // Server-side service-scoping enforcement — the admin picker UI already filters to
+            // service-mapped agents, but the API itself must not trust that: without this check an
             // admin could assign a completely unrelated agent by calling the endpoint directly.
             requestedAgents = await db.Agents
-                .Include(a => a.AgentServiceCategories)
+                .Include(a => a.AgentServices)
                 .Where(a => requestedIds.Contains(a.Id) && a.IsActive)
                 .ToListAsync();
             if (requestedAgents.Count != requestedIds.Count)
                 return BadRequestResponse("One or more agents not found or inactive");
 
-            if (requestedAgents.Any(a => !a.AgentServiceCategories.Any(ac => ac.ServiceCategoryId == service!.ServiceCategoryId)))
-                return BadRequestResponse("One or more agents are not mapped to this inquiry's service category");
+            if (requestedAgents.Any(a => !a.AgentServices.Any(x => x.ServiceId == inquiry.ServiceId)))
+                return BadRequestResponse("One or more agents are not mapped to this inquiry's service");
 
             // An Agent is just a role on an existing consumer User account, not a separate identity
             // — mirrors the same guard in CreateInquiry's auto-assign path. Rejected outright (not

@@ -94,8 +94,9 @@ public static class ServiceCatalogHandlers
         if (!string.IsNullOrEmpty(category.CoverPhotoFilePath))
             await photoService.DeletePhotoAsync(category.CoverPhotoFilePath);
 
-        // AgentServiceCategory rows for this category cascade-delete automatically (FK Cascade) — no
-        // pre-check needed, this just unassigns agents from the deleted category.
+        // Agent assignment is per-Service now (AgentService), not per-category — the services.Any()
+        // guard above already ensures no Service (and therefore no AgentService row) still references
+        // this category by the time it's deleted.
         await unitOfWork.ServiceCategories.DeleteAsync(category);
         await unitOfWork.SaveChangesAsync();
         return NoContentResponse();

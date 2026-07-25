@@ -20,5 +20,4 @@ public class ServiceCategory
     public DateTime CreatedAt { get; set; }
 
     public ICollection<Service> Services { get; set; } = new List<Service>();
-    public ICollection<AgentServiceCategory> AgentServiceCategories { get; set; } = new List<AgentServiceCategory>();
 }

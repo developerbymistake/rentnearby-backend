@@ -14,26 +14,26 @@ using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
 
-// Agent CRUD + photo + category bulk-set (admin-managed) + the consumer app's own "am I an agent"
+// Agent CRUD + photo + service bulk-set (admin-managed) + the consumer app's own "am I an agent"
 // check (GetMyAgentProfile) — an Agent is a role on an existing User account, not a separate
 // identity, so that one method is the only place this class is called from the consumer app itself.
 public static class AgentHandlers
 {
     private const long MaxImageBytes = 10 * 1024 * 1024;
 
-    // serviceCategoryId provided -> category-scoped, active-only picker (admin's inquiry-assign flow).
+    // serviceId provided -> service-scoped, active-only picker (admin's inquiry-assign flow).
     // Omitted -> full admin list (all statuses), matches the flat-route optional-query-param convention.
-    public static async Task<IResult> GetAgents(Guid? serviceCategoryId, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetAgents(Guid? serviceId, IUnitOfWork unitOfWork)
     {
-        var agents = serviceCategoryId.HasValue
-            ? await unitOfWork.Agents.GetActiveByServiceCategoryIdAsync(serviceCategoryId.Value)
-            : await unitOfWork.Agents.GetAllWithCategoriesAsync();
+        var agents = serviceId.HasValue
+            ? await unitOfWork.Agents.GetActiveByServiceIdAsync(serviceId.Value)
+            : await unitOfWork.Agents.GetAllWithServicesAsync();
         return OkResponse(agents.Select(a => a.Adapt<AgentDto>()));
     }
 
     public static async Task<IResult> GetAgentById(Guid id, IUnitOfWork unitOfWork)
     {
-        var agent = await unitOfWork.Agents.GetByIdWithCategoriesAsync(id);
+        var agent = await unitOfWork.Agents.GetByIdWithServicesAsync(id);
         if (agent == null) return NotFoundResponse("Agent not found");
         return OkResponse(agent.Adapt<AgentDto>());
     }
@@ -84,7 +84,7 @@ public static class AgentHandlers
         await unitOfWork.Agents.AddAsync(agent);
         await unitOfWork.SaveChangesAsync();
 
-        var created = await unitOfWork.Agents.GetByIdWithCategoriesAsync(agent.Id);
+        var created = await unitOfWork.Agents.GetByIdWithServicesAsync(agent.Id);
         return CreatedResponse(created!.Adapt<AgentDto>(), $"/api/v1/agents/{agent.Id}");
     }
 
@@ -105,7 +105,7 @@ public static class AgentHandlers
 
         await unitOfWork.SaveChangesAsync();
 
-        var updated = await unitOfWork.Agents.GetByIdWithCategoriesAsync(id);
+        var updated = await unitOfWork.Agents.GetByIdWithServicesAsync(id);
         return OkResponse(updated!.Adapt<AgentDto>());
     }
 
@@ -165,8 +165,8 @@ public static class AgentHandlers
         return NoContentResponse();
     }
 
-    public static async Task<IResult> AdminSetAgentCategories(
-        Guid id, SetAgentCategoriesRequest request, IValidator<SetAgentCategoriesRequest> validator,
+    public static async Task<IResult> AdminSetAgentServices(
+        Guid id, SetAgentServicesRequest request, IValidator<SetAgentServicesRequest> validator,
         IUnitOfWork unitOfWork, ApplicationDbContext db)
     {
         var validation = await validator.ValidateAsync(request);
@@ -175,25 +175,25 @@ public static class AgentHandlers
         var agent = await unitOfWork.Agents.GetByIdAsync(id);
         if (agent == null) return NotFoundResponse("Agent not found");
 
-        var distinctIds = request.ServiceCategoryIds.Distinct().ToList();
+        var distinctIds = request.ServiceIds.Distinct().ToList();
         if (distinctIds.Count > 0)
         {
-            var validCount = await db.ServiceCategories.CountAsync(c => distinctIds.Contains(c.Id));
+            var validCount = await db.Services.CountAsync(s => distinctIds.Contains(s.Id));
             if (validCount != distinctIds.Count)
-                return BadRequestResponse("One or more ServiceCategoryIds are invalid");
+                return BadRequestResponse("One or more ServiceIds are invalid");
         }
 
         // Full-replace, exact mirror of how BannerHandlers manipulates db.BannerDismissals directly.
-        var existing = db.AgentServiceCategories.Where(ac => ac.AgentId == id);
-        db.AgentServiceCategories.RemoveRange(existing);
-        db.AgentServiceCategories.AddRange(distinctIds.Select(categoryId => new AgentServiceCategory
+        var existing = db.AgentServices.Where(as_ => as_.AgentId == id);
+        db.AgentServices.RemoveRange(existing);
+        db.AgentServices.AddRange(distinctIds.Select(serviceId => new AgentService
         {
             AgentId = id,
-            ServiceCategoryId = categoryId,
+            ServiceId = serviceId,
         }));
         await db.SaveChangesAsync();
 
-        var updated = await unitOfWork.Agents.GetByIdWithCategoriesAsync(id);
+        var updated = await unitOfWork.Agents.GetByIdWithServicesAsync(id);
         return OkResponse(updated!.Adapt<AgentDto>());
     }
 }

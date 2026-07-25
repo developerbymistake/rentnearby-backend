@@ -19,7 +19,7 @@ public static class AgentEndpoints
         group.MapDelete("/{id:guid}", AgentHandlers.AdminDeleteAgent).RequireAuthorization("AdminOnly");
         group.MapPost("/{id:guid}/photo", AgentHandlers.AdminUploadAgentPhoto).RequireAuthorization("AdminOnly").DisableAntiforgery();
         group.MapDelete("/{id:guid}/photo", AgentHandlers.AdminDeleteAgentPhoto).RequireAuthorization("AdminOnly");
-        group.MapPut("/{id:guid}/categories", AgentHandlers.AdminSetAgentCategories).RequireAuthorization("AdminOnly");
+        group.MapPut("/{id:guid}/services", AgentHandlers.AdminSetAgentServices).RequireAuthorization("AdminOnly");
 
         group.MapGet("/me", AgentHandlers.GetMyAgentProfile).RequireAuthorization();
         group.MapGet("/me/leads", InquiryHandlers.GetMyLeads).RequireAuthorization();
