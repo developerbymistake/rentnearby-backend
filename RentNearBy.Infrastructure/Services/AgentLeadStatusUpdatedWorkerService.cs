@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -121,7 +122,9 @@ public class AgentLeadStatusUpdatedWorkerService : BackgroundService
         {
             try
             {
-                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "agent_lead_status_updated");
+                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "agent_lead_status_updated",
+                    new NotificationDestination(AdminNotificationRoutes.InquiryDetail,
+                        JsonSerializer.Serialize(new { id = msg.InquiryId.ToString() })));
                 if (!ok) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(token.Token);
             }
             catch (Exception ex)

@@ -12,7 +12,7 @@ public class InquiryRepository(ApplicationDbContext context)
     // "Live" = not yet in a terminal state. Used only for the Agent pre-check below (Agent's FK is
     // SetNull, so a Closed inquiry referencing it would NOT block the DB delete — the "live"
     // business rule exists purely to stop an admin from silently orphaning an active assignment,
-    // not to predict a DB error). Matches GetActiveCountForUserAsync's definition below.
+    // not to predict a DB error).
     private static readonly string[] LiveStatuses =
         [InquiryStatuses.Submitted, InquiryStatuses.Contacted];
 
@@ -26,10 +26,13 @@ public class InquiryRepository(ApplicationDbContext context)
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync();
 
-    public async Task<int> GetActiveCountForUserAsync(Guid userId)
+    // Unseen formula (deliberately UpdatedAt-relative, not CreatedAt-relative — the latter breaks on
+    // brand-new rows where CreatedAt == UpdatedAt): not-Closed AND (never seen OR changed since seen).
+    public async Task<int> GetUnseenCountForUserAsync(Guid userId)
         => await _dbSet.AsNoTracking()
-            .CountAsync(i => i.UserId == userId &&
-                (i.Status == InquiryStatuses.Submitted || i.Status == InquiryStatuses.Contacted));
+            .CountAsync(i => i.UserId == userId
+                && i.Status != InquiryStatuses.Closed
+                && (i.UserSeenAt == null || i.UpdatedAt > i.UserSeenAt));
 
     public async Task<(IReadOnlyList<Inquiry> Items, bool HasMore)> GetAdminFilteredPagedAsync(
         string? status, Guid? serviceCategoryId, bool? escalatedOnly, int page, int pageSize)
@@ -81,9 +84,29 @@ public class InquiryRepository(ApplicationDbContext context)
     public async Task<bool> IsAgentAssignedAsync(Guid inquiryId, Guid agentId)
         => await _context.Set<InquiryAgent>().AnyAsync(ia => ia.InquiryId == inquiryId && ia.AgentId == agentId);
 
-    public async Task<int> CountByAssignedAgentIdAndStatusAsync(Guid agentId, string status)
-        => await _dbSet.AsNoTracking()
-            .CountAsync(i => i.InquiryAgents.Any(ia => ia.AgentId == agentId) && i.Status == status);
+    // Same unseen formula as GetUnseenCountForUserAsync, scoped per-agent via the InquiryAgent join
+    // row's own SeenAt (not a column on Inquiry — see InquiryAgent.cs's comment on why). This also
+    // fixes the old Status == "Submitted" bug: filtering on Status != Closed instead means an
+    // assigned-and-auto-transitioned-to-Contacted lead is now correctly counted.
+    public async Task<int> GetUnseenCountForAgentAsync(Guid agentId)
+        => await _context.Set<InquiryAgent>().AsNoTracking()
+            .Where(ia => ia.AgentId == agentId
+                && ia.Inquiry.Status != InquiryStatuses.Closed
+                && (ia.SeenAt == null || ia.Inquiry.UpdatedAt > ia.SeenAt))
+            .CountAsync();
+
+    // Bare SQL UPDATE via ExecuteUpdateAsync — bypasses EF change-tracking and Inquiry's xmin
+    // optimistic-concurrency check entirely, so this can never collide with a concurrent
+    // status-update write (same idiom as CreditWalletService's atomic spend/add methods). No-op
+    // (not an error) if the id/ownership doesn't match — mirrors MarkNotificationRead's idiom.
+    public async Task MarkSeenByUserAsync(Guid inquiryId, Guid userId)
+        => await _dbSet.Where(i => i.Id == inquiryId && i.UserId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(i => i.UserSeenAt, DateTime.UtcNow));
+
+    public async Task MarkSeenByAgentAsync(Guid inquiryId, Guid agentId)
+        => await _context.Set<InquiryAgent>()
+            .Where(ia => ia.InquiryId == inquiryId && ia.AgentId == agentId)
+            .ExecuteUpdateAsync(s => s.SetProperty(ia => ia.SeenAt, DateTime.UtcNow));
 
     public async Task<Inquiry?> GetByIdWithDetailsAsync(Guid id)
         => await _dbSet.AsNoTracking()

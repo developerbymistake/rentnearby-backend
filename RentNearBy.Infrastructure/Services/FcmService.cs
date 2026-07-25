@@ -4,6 +4,7 @@ using Google.Apis.Auth.OAuth2;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -74,6 +75,9 @@ public class FcmService : IFcmService
             throw;
         }
     }
+
+    public Task<bool> SendAsync(string token, string title, string body, string notificationType, NotificationDestination destination)
+        => SendAsync(token, title, body, notificationType, destination.ToFcmData());
 
     public async Task<bool> SendToTopicAsync(string topic, string title, string body, IDictionary<string, string>? data = null)
     {

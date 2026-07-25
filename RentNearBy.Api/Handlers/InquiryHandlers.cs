@@ -192,14 +192,41 @@ public static class InquiryHandlers
     // Server-anchored counterpart to GetMyInquiries, for the Explore tab's Inquiries badge — same
     // `{ count }` shape as ChatHandlers.GetUnreadCount so the client parses every count endpoint
     // identically. Exists so the badge stays correct without the client having to keep a full
-    // myInquiries list loaded/fresh just to derive a count from it.
+    // myInquiries list loaded/fresh just to derive a count from it. Counts unseen (not-Closed AND
+    // updated since the consumer last saw it), not just "active by status" — route path stays
+    // /inquiries/active-count unchanged to minimize client churn.
     public static async Task<IResult> GetMyActiveInquiryCount(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var count = await unitOfWork.Inquiries.GetActiveCountForUserAsync(userId);
+        var count = await unitOfWork.Inquiries.GetUnseenCountForUserAsync(userId);
         return OkResponse(new { count });
+    }
+
+    // Marks this inquiry seen by its owning consumer, re-anchoring GetMyActiveInquiryCount's badge.
+    // Always OkResponse — no existence/ownership leak, mirrors MarkNotificationRead's idiom.
+    public static async Task<IResult> MarkInquirySeen(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        await unitOfWork.Inquiries.MarkSeenByUserAsync(id, userId);
+        return OkResponse(new { message = "Marked seen" });
+    }
+
+    // Marks this lead seen by the caller's own linked Agent, re-anchoring GetUnseenCountForAgentAsync's
+    // badge. Always OkResponse when the caller is an agent — no existence/ownership leak.
+    public static async Task<IResult> MarkLeadSeen(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var agent = await unitOfWork.Agents.GetByUserIdAsync(userId);
+        if (agent == null) return ForbiddenResponse("You are not an agent");
+
+        await unitOfWork.Inquiries.MarkSeenByAgentAsync(id, agent.Id);
+        return OkResponse(new { message = "Marked seen" });
     }
 
     public static async Task<IResult> GetInquiryDetail(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork)

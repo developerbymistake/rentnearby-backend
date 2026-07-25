@@ -6,7 +6,8 @@ public class MyAgentProfileDto
 {
     public Guid AgentId { get; set; }
     public string Name { get; set; } = string.Empty;
-    // Count of this agent's assigned Inquiries still at Status == Submitted — the "something new
-    // landed" badge signal, not a count of every open/live lead (see the plan's Design decisions).
+    // Count of this agent's assigned Inquiries that are unseen: not-Closed AND updated since this
+    // agent last saw it (InquiryAgent.SeenAt == null || Inquiry.UpdatedAt > SeenAt) — the "something
+    // still needs my attention" badge signal, not a count of every open/live lead.
     public int PendingLeadCount { get; set; }
 }

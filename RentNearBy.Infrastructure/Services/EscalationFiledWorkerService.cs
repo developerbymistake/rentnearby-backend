@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -120,7 +121,8 @@ public class EscalationFiledWorkerService : BackgroundService
         {
             try
             {
-                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "escalation");
+                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "escalation",
+                    new NotificationDestination(AdminNotificationRoutes.InquiryEscalations));
                 if (!ok) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(token.Token);
             }
             catch (Exception ex)
