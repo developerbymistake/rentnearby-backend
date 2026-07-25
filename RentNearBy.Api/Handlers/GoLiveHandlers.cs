@@ -158,6 +158,17 @@ public static class GoLiveHandlers
         // the new Pending path below.
         var alreadyApproved = listing.LiveRequestStatus == GoLiveRequestStatuses.Approved;
 
+        // A listing already awaiting review, or already rejected, must never silently re-enter
+        // moderation or re-spend credits via this same "first-ever Go-Live" path — both are dead
+        // ends the owner must resolve elsewhere (wait for the pending review, or delete-and-recreate
+        // after a rejection). Without this guard, a second tap while Pending would spend credits a
+        // second time and overwrite the pending snapshot; a Rejected listing would be silently
+        // treated as brand-new instead of staying a dead end.
+        if (listing.LiveRequestStatus == GoLiveRequestStatuses.Pending)
+            return BadRequestResponse("This listing already has a pending Go-Live request awaiting review.");
+        if (listing.LiveRequestStatus == GoLiveRequestStatuses.Rejected)
+            return BadRequestResponse("This listing was rejected. Delete it and create a new listing to try again.");
+
         var (paymentEnabled, freeDays) = await ConfigHandlers.GetPaymentFeatureCachedAsync(unitOfWork, cache);
         if (!paymentEnabled)
         {
@@ -369,6 +380,12 @@ public static class GoLiveHandlers
         // (LiveRequestStatus not Approved — i.e. null, since Rejected has no resubmit path) takes
         // the new Pending path below.
         var alreadyApproved = plot.LiveRequestStatus == GoLiveRequestStatuses.Approved;
+
+        // See the identical guard in GoLiveRoom for why this must come before the free/paid branch.
+        if (plot.LiveRequestStatus == GoLiveRequestStatuses.Pending)
+            return BadRequestResponse("This plot already has a pending Go-Live request awaiting review.");
+        if (plot.LiveRequestStatus == GoLiveRequestStatuses.Rejected)
+            return BadRequestResponse("This plot was rejected. Delete it and create a new listing to try again.");
 
         var (paymentEnabled, freeDays) = await ConfigHandlers.GetPaymentFeatureCachedAsync(unitOfWork, cache);
         if (!paymentEnabled)

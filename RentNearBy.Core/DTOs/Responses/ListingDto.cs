@@ -25,4 +25,6 @@ public class RoomListingDto
     public DateTime? ValidUntil { get; set; }
     public bool HasReported { get; set; }
     public int PendingReportCount { get; set; }
+    public string? LiveRequestStatus { get; set; }
+    public string? RejectedReason { get; set; }
 }
