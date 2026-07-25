@@ -8,22 +8,22 @@ namespace RentNearBy.Infrastructure.Repositories;
 public class AgentRepository(ApplicationDbContext context)
     : Repository<Agent>(context), IAgentRepository
 {
-    public async Task<IEnumerable<Agent>> GetAllWithCategoriesAsync()
+    public async Task<IEnumerable<Agent>> GetAllWithServicesAsync()
         => await _dbSet.AsNoTracking()
-            .Include(a => a.AgentServiceCategories).ThenInclude(ac => ac.ServiceCategory)
+            .Include(a => a.AgentServices).ThenInclude(as_ => as_.Service)
             .Include(a => a.User)
             .OrderBy(a => a.Name)
             .ToListAsync();
 
-    public async Task<Agent?> GetByIdWithCategoriesAsync(Guid id)
+    public async Task<Agent?> GetByIdWithServicesAsync(Guid id)
         => await _dbSet.AsNoTracking()
-            .Include(a => a.AgentServiceCategories).ThenInclude(ac => ac.ServiceCategory)
+            .Include(a => a.AgentServices).ThenInclude(as_ => as_.Service)
             .Include(a => a.User)
             .FirstOrDefaultAsync(a => a.Id == id);
 
-    public async Task<IEnumerable<Agent>> GetActiveByServiceCategoryIdAsync(Guid serviceCategoryId)
+    public async Task<IEnumerable<Agent>> GetActiveByServiceIdAsync(Guid serviceId)
         => await _dbSet.AsNoTracking()
-            .Where(a => a.IsActive && a.AgentServiceCategories.Any(ac => ac.ServiceCategoryId == serviceCategoryId))
+            .Where(a => a.IsActive && a.AgentServices.Any(as_ => as_.ServiceId == serviceId))
             .OrderBy(a => a.Name)
             .ToListAsync();
 

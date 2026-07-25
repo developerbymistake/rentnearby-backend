@@ -60,11 +60,11 @@ public static class DtoMappings
                 .OrderBy(pi => pi.Inclusion.SortOrder)
                 .Select(pi => pi.Inclusion));
 
-        // ServiceCategoryIds/Names flattened from the AgentServiceCategory join.
+        // ServiceIds/Names flattened from the AgentService join.
         // UserName/UserPhoneNumber flattened from the linked User, when loaded.
         TypeAdapterConfig<Agent, AgentDto>.NewConfig()
-            .Map(dest => dest.ServiceCategoryIds, src => src.AgentServiceCategories.Select(ac => ac.ServiceCategoryId))
-            .Map(dest => dest.ServiceCategoryNames, src => src.AgentServiceCategories.Select(ac => ac.ServiceCategory.Name))
+            .Map(dest => dest.ServiceIds, src => src.AgentServices.Select(as_ => as_.ServiceId))
+            .Map(dest => dest.ServiceNames, src => src.AgentServices.Select(as_ => as_.Service.Name))
             .Map(dest => dest.UserName, src => src.User != null ? src.User.Name : null)
             .Map(dest => dest.UserPhoneNumber, src => src.User != null ? src.User.PhoneNumber : null);
 

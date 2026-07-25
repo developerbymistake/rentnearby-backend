@@ -39,7 +39,7 @@ public interface IInquiryRepository : IRepository<Inquiry>
     Task MarkSeenByAgentAsync(Guid inquiryId, Guid agentId);
 
     // For InquiryDetailDto assembly: Service -> ServiceCategory, ServicePackage,
-    // AssignedAgent -> AgentServiceCategories, StatusHistory -> ChangedByAdmin, all in one query.
+    // AssignedAgent -> Agent, StatusHistory -> ChangedByAdmin, all in one query.
     Task<Inquiry?> GetByIdWithDetailsAsync(Guid id);
 
     // Pre-checks for the hard-delete-blocked-if-referenced rule on ServicePackage/Agent.

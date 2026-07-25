@@ -1,7 +1,7 @@
 namespace RentNearBy.Core.Entities;
 
-// Composite-key many-to-many, exact shape of AgentServiceCategory — no surrogate Id. An Inquiry can
-// have multiple Agents simultaneously assigned (every active Agent mapped to its ServiceCategory,
+// Composite-key many-to-many, exact shape of AgentService — no surrogate Id. An Inquiry can
+// have multiple Agents simultaneously assigned (every active Agent mapped to its Service,
 // or whichever set Admin picks manually); every assigned Agent sees the lead in their own My Leads
 // and any of them can update its status.
 public class InquiryAgent

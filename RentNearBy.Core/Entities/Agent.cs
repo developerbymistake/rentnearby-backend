@@ -25,5 +25,5 @@ public class Agent
     public Guid? UserId { get; set; }
     public User? User { get; set; }
 
-    public ICollection<AgentServiceCategory> AgentServiceCategories { get; set; } = new List<AgentServiceCategory>();
+    public ICollection<AgentService> AgentServices { get; set; } = new List<AgentService>();
 }
