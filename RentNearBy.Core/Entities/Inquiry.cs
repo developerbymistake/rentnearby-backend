@@ -17,6 +17,8 @@ public class Inquiry
     public string Status { get; set; } = string.Empty; // RentNearBy.Core.Models.InquiryStatuses.*
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    // Inquiry is single-owner (one consumer), so the consumer's seen-timestamp lives directly here.
+    public DateTime? UserSeenAt { get; set; }
 
     public User User { get; set; } = null!;
     public Service Service { get; set; } = null!;

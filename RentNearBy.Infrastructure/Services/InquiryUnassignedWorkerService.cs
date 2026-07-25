@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -120,7 +121,8 @@ public class InquiryUnassignedWorkerService : BackgroundService
         {
             try
             {
-                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "inquiry_unassigned");
+                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "inquiry_unassigned",
+                    new NotificationDestination(AdminNotificationRoutes.InquiriesList));
                 if (!ok) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(token.Token);
             }
             catch (Exception ex)

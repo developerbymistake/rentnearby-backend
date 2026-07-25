@@ -831,6 +831,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(i => i.ServiceId);
             e.HasIndex(i => i.ServicePackageId);
             e.HasIndex(i => i.Status);
+            // UserSeenAt (nullable DateTime?) needs no explicit config — mapped by convention. NULL means
+            // "never seen by the consumer"; correct default for all existing rows, no backfill required.
         });
 
         // Composite-key many-to-many, exact shape of AgentServiceCategory — both FKs Cascade (an
@@ -851,6 +853,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.Cascade);
 
             e.HasIndex(ia => ia.AgentId);
+            // SeenAt (nullable DateTime?) needs no explicit config — mapped by convention. NULL means
+            // "never seen by this agent"; correct default for all existing rows, no backfill required.
         });
 
         modelBuilder.Entity<InquiryEscalation>(e =>

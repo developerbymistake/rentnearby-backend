@@ -7,9 +7,10 @@ public interface IInquiryRepository : IRepository<Inquiry>
     // Consumer "My Inquiries" — shared across both verticals in one list.
     Task<IEnumerable<Inquiry>> GetByUserIdAsync(Guid userId);
 
-    // Server-anchored "My Inquiries" badge count (Submitted/Contacted only) — a lean COUNT(*)
-    // counterpart to GetByUserIdAsync, mirroring Conversations.GetTotalUnreadForUserAsync's shape.
-    Task<int> GetActiveCountForUserAsync(Guid userId);
+    // Server-anchored "My Inquiries" badge count — not-Closed AND updated since the consumer last saw
+    // it (UserSeenAt == null || UpdatedAt > UserSeenAt). A lean COUNT(*) counterpart to
+    // GetByUserIdAsync, mirroring Conversations.GetTotalUnreadForUserAsync's shape.
+    Task<int> GetUnseenCountForUserAsync(Guid userId);
 
     // Admin paginated list with optional status/category/escalated-only filter chips.
     Task<(IReadOnlyList<Inquiry> Items, bool HasMore)> GetAdminFilteredPagedAsync(
@@ -25,9 +26,17 @@ public interface IInquiryRepository : IRepository<Inquiry>
     // inquiry.InquiryAgents can't be relied on without a separate eager-load just for one boolean.
     Task<bool> IsAgentAssignedAsync(Guid inquiryId, Guid agentId);
 
-    // "New leads" badge count — deliberately narrower than GetByAssignedAgentIdAsync's full list
-    // (Submitted only, not every live status) — see the plan's Design decisions for why.
-    Task<int> CountByAssignedAgentIdAndStatusAsync(Guid agentId, string status);
+    // "My Leads" badge count — not-Closed AND updated since this agent last saw it
+    // (SeenAt == null || Inquiry.UpdatedAt > SeenAt). Replaces the old Status == "Submitted" filter,
+    // which was structurally broken: both assignment code paths flip an inquiry to Contacted in the
+    // very same write that assigns an agent, so an assigned lead could never actually be Submitted.
+    Task<int> GetUnseenCountForAgentAsync(Guid agentId);
+
+    // Per-viewer seen-timestamp writers, mirroring MarkNotificationRead's no-existence-leak idiom —
+    // a no-op (not an error) if the id/ownership doesn't match. Bare SQL UPDATE via ExecuteUpdateAsync,
+    // bypassing EF change-tracking and xmin optimistic concurrency entirely.
+    Task MarkSeenByUserAsync(Guid inquiryId, Guid userId);
+    Task MarkSeenByAgentAsync(Guid inquiryId, Guid agentId);
 
     // For InquiryDetailDto assembly: Service -> ServiceCategory, ServicePackage,
     // AssignedAgent -> AgentServiceCategories, StatusHistory -> ChangedByAdmin, all in one query.

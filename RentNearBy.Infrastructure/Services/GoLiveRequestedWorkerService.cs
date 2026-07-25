@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -124,7 +125,9 @@ public class GoLiveRequestedWorkerService : BackgroundService
         {
             try
             {
-                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "golive_request");
+                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "golive_request",
+                    new NotificationDestination(AdminNotificationRoutes.GoLiveRequests,
+                        JsonSerializer.Serialize(new { kind = msg.ListingType })));
                 if (!ok) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(token.Token);
             }
             catch (Exception ex)

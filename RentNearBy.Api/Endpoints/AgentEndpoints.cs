@@ -25,6 +25,7 @@ public static class AgentEndpoints
         group.MapGet("/me/leads", InquiryHandlers.GetMyLeads).RequireAuthorization();
         group.MapGet("/me/leads/{id:guid}", InquiryHandlers.GetMyLeadDetail).RequireAuthorization();
         group.MapPut("/me/leads/{id:guid}/status", InquiryHandlers.UpdateMyLeadStatus).RequireAuthorization();
+        group.MapPut("/me/leads/{id:guid}/seen", InquiryHandlers.MarkLeadSeen).RequireAuthorization();
 
         return group;
     }

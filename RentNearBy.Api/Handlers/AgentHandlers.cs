@@ -48,7 +48,7 @@ public static class AgentHandlers
         var agent = await unitOfWork.Agents.GetByUserIdAsync(userId);
         if (agent == null) return NotFoundResponse("Not an agent");
 
-        var pendingCount = await unitOfWork.Inquiries.CountByAssignedAgentIdAndStatusAsync(agent.Id, InquiryStatuses.Submitted);
+        var pendingCount = await unitOfWork.Inquiries.GetUnseenCountForAgentAsync(agent.Id);
         return OkResponse(new MyAgentProfileDto { AgentId = agent.Id, Name = agent.Name, PendingLeadCount = pendingCount });
     }
 
