@@ -10,11 +10,11 @@ public class InquiryRepository(ApplicationDbContext context)
     : Repository<Inquiry>(context), IInquiryRepository
 {
     // "Live" = not yet in a terminal state. Used only for the Agent pre-check below (Agent's FK is
-    // SetNull, so a Cancelled/Rejected inquiry referencing it would NOT block the DB delete — the
-    // "live" business rule exists purely to stop an admin from silently orphaning an active
-    // assignment, not to predict a DB error).
+    // SetNull, so a Closed inquiry referencing it would NOT block the DB delete — the "live"
+    // business rule exists purely to stop an admin from silently orphaning an active assignment,
+    // not to predict a DB error). Matches GetActiveCountForUserAsync's definition below.
     private static readonly string[] LiveStatuses =
-        [InquiryStatuses.Submitted, InquiryStatuses.Contacted, InquiryStatuses.Confirmed];
+        [InquiryStatuses.Submitted, InquiryStatuses.Contacted];
 
     public async Task<IEnumerable<Inquiry>> GetByUserIdAsync(Guid userId)
         => await _dbSet.AsNoTracking()

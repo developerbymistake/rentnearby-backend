@@ -8,8 +8,7 @@ public class AdminUpdateInquiryStatusRequestValidator : AbstractValidator<AdminU
 {
     private static readonly string[] AllowedStatuses =
     [
-        InquiryStatuses.Submitted, InquiryStatuses.Contacted, InquiryStatuses.Confirmed,
-        InquiryStatuses.Cancelled, InquiryStatuses.Rejected
+        InquiryStatuses.Submitted, InquiryStatuses.Contacted, InquiryStatuses.Closed
     ];
 
     public AdminUpdateInquiryStatusRequestValidator()
