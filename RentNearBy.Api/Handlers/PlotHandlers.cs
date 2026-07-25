@@ -203,34 +203,15 @@ public static class PlotListingHandlers
     }
 
     public static async Task<IResult> GetMyPlotListings(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ILoggerFactory loggerFactory, int page = 1, int pageSize = 10)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 10)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
         if (pageSize < 1 || pageSize > 50) pageSize = 10;
         if (page < 1) page = 1;
 
-        var logger = loggerFactory.CreateLogger("PlotListingHandlers");
         var (items, hasMore) = await unitOfWork.PlotListings.GetByUserIdPagedAsync(userId, page, pageSize);
-
-        // Temporary diagnostic + defensive wrapper — see the identical comment in
-        // RoomListingsHandlers.GetMyListings (ListingsHandlers.cs) for why this replaced a plain
-        // .Select(...).ToList().
-        var dtos = new List<PlotListingDto>();
-        foreach (var p in items)
-        {
-            try
-            {
-                dtos.Add(p.Adapt<PlotListingDto>());
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex,
-                    "Adapt<PlotListingDto> failed for PlotListing {Id}. UserId={UserId} DistrictId={DistrictId} CityId={CityId} PlotTypeId={PlotTypeId} LiveRequestStatus={LiveRequestStatus} PhotosCount={PhotosCount}",
-                    p.Id, p.UserId, p.DistrictId, p.CityId, p.PlotTypeId, p.LiveRequestStatus, p.Photos?.Count);
-            }
-        }
-
+        var dtos = items.Select(p => p.Adapt<PlotListingDto>()).ToList();
         var counts = await unitOfWork.ListingReports.GetPendingCountsForListingsAsync(dtos.Select(d => d.Id), "Plot");
         foreach (var d in dtos) d.PendingReportCount = counts.GetValueOrDefault(d.Id);
         return OkResponse(new { items = dtos, hasMore });
