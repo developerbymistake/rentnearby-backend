@@ -1364,6 +1364,107 @@ public static class AdminHandlers
         return OkResponse(new { success = true });
     }
 
+    // ── Report-driven takedown ("Reject") ──────────────────────────────────────
+    // Replaces the old two-call "Deactivate Post" (PUT status + PUT resolve, non-transactional) with
+    // one atomic endpoint that reuses the Go-Live moderation Rejected mechanism from a second entry
+    // point: a report resolution. Unlike a Go-Live-moderation rejection (content never went live,
+    // credits refunded), a report-driven rejection targets a listing that WAS already live and
+    // already delivered value — no refund here, deliberately, unlike RejectRoomGoLiveRequest/
+    // RejectPlotGoLiveRequest which this otherwise mirrors exactly (transaction shape,
+    // DbUpdateConcurrencyException -> CONCURRENT_UPDATE, GoLiveRequestStatuses.Rejected/RejectedReason).
+    // One HTTP route (report.ListingType is already a plain string spanning both kinds), but the
+    // Room/Plot code paths stay separately duplicated per this codebase's convention: Room lives
+    // here (RejectReportedRoomAsync, mirroring where RejectRoomGoLiveRequest lives), Plot lives in
+    // PlotListingHandlers.RejectReportedPlotAsync (mirroring RejectPlotGoLiveRequest) so it can reuse
+    // that file's own Plot-specific cache-key helpers instead of duplicating those key strings here.
+
+    private static NotificationEvent BuildRoomReportRejectedNotification(Guid userId, string reason) => new()
+    {
+        Id = Guid.NewGuid(),
+        TargetUserId = userId,
+        Type = NotificationTypes.GoLiveRejected,
+        Title = "Your listing was taken down",
+        Body = $"Your Room listing was taken down: {reason}",
+        ActionRoute = "/my-listings",
+        CreatedAt = DateTime.UtcNow,
+    };
+
+    public static async Task<IResult> RejectReport(
+        Guid id, RejectGoLiveRequest request, IValidator<RejectGoLiveRequest> validator,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var report = await unitOfWork.ListingReports.GetByIdAsync(id);
+        if (report == null) return NotFoundResponse("Report not found");
+        if (report.Status != "Pending") return BadRequestResponse("Report has already been resolved");
+
+        var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        Guid? adminId = Guid.TryParse(adminIdClaim, out var parsedAdminId) ? parsedAdminId : null;
+
+        return report.ListingType switch
+        {
+            ListingKinds.Room => await RejectReportedRoomAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
+            ListingKinds.Plot => await PlotListingHandlers.RejectReportedPlotAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
+            _ => BadRequestResponse($"Unknown listing type '{report.ListingType}' on this report"),
+        };
+    }
+
+    private static async Task<IResult> RejectReportedRoomAsync(
+        ListingReport report, string reason, Guid? adminId,
+        IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
+    {
+        var listing = await unitOfWork.RoomListings.GetByIdAsync(report.ListingId);
+        if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
+
+        // No wallet.AddCreditsAsync here — deliberately different from RejectRoomGoLiveRequest, which
+        // refunds a not-yet-live submission. This listing was already live and already delivered
+        // value, so a report-driven takedown must never refund credits.
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            listing.IsActive = false;
+            listing.LiveRequestStatus = GoLiveRequestStatuses.Rejected;
+            listing.RejectedReason = reason;
+            listing.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.RoomListings.UpdateAsync(listing);
+
+            var notification = BuildRoomReportRejectedNotification(listing.UserId, reason);
+            db.NotificationEvents.Add(notification);
+
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+
+            await unitOfWork.ListingReports.ResolveAsync(report.Id, adminId, "PostRejected");
+
+            await unitOfWork.CommitTransactionAsync();
+
+            var redis = sp.GetService<IConnectionMultiplexer>();
+            await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
+            await InvalidateRecentRoomsCacheAsync(redis);
+            await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
+
+            await SendGoLiveNotificationAsync(hubContext, publisher, notification);
+
+            return OkResponse(new { success = true });
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+    }
+
     // ── Room Go-Live moderation ──────────────────────────────────────────────
     // Mirrors GetReports/GetReportById/ResolveReport's shape exactly. Separate from Plot's own pair
     // in PlotListingHandlers — these fields live directly on RoomListing/PlotListing, so a unified

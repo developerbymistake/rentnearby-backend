@@ -77,6 +77,10 @@ public static class AdminEndpoints
         group.MapGet("/reports", AdminHandlers.GetReports).RequireAuthorization("AdminOnly");
         group.MapGet("/reports/{id:guid}", AdminHandlers.GetReportById).RequireAuthorization("AdminOnly");
         group.MapPut("/reports/{id:guid}/resolve", AdminHandlers.ResolveReport).RequireAuthorization("AdminOnly");
+        // Atomic report-driven takedown — replaces the old "Deactivate Post" two-call sequence
+        // (status toggle + resolve) with one transactional endpoint. Single route: report.ListingType
+        // (Room/Plot) is dispatched on internally, see AdminHandlers.RejectReport.
+        group.MapPut("/reports/{id:guid}/reject", AdminHandlers.RejectReport).RequireAuthorization("AdminOnly");
 
         // Separate Room/Plot pairs, not unified — see the plan comment above ToGoLiveRequestDto in
         // AdminHandlers/PlotListingHandlers for why a unified feed isn't worth it here.

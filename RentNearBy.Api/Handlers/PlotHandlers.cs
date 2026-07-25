@@ -940,4 +940,76 @@ public static class PlotListingHandlers
             throw;
         }
     }
+
+    // ── Report-driven takedown ("Reject") — Plot side ─────────────────────────
+    // Called from AdminHandlers.RejectReport (the single PUT /admin/reports/{id}/reject endpoint,
+    // dispatched on report.ListingType) — kept here, not in AdminHandlers.cs, so it can reuse this
+    // file's own Plot-specific cache-key helpers (InvalidateNearbyCacheAsync/
+    // InvalidateRecentPlotsCacheAsync/InvalidateForYouPlotsCacheAsync use different Redis key
+    // patterns than the Room versions) instead of duplicating those key strings elsewhere.
+    // Mirrors RejectPlotGoLiveRequest's transaction shape exactly, with one deliberate difference:
+    // NO wallet.AddCreditsAsync call. This listing was already live and already delivered value, so
+    // a report-driven takedown must never refund credits (unlike a Go-Live-moderation rejection,
+    // where the listing never went live).
+
+    private static NotificationEvent BuildPlotReportRejectedNotification(Guid userId, string reason) => new()
+    {
+        Id = Guid.NewGuid(),
+        TargetUserId = userId,
+        Type = NotificationTypes.GoLiveRejected,
+        Title = "Your listing was taken down",
+        Body = $"Your Plot listing was taken down: {reason}",
+        ActionRoute = "/my-plots",
+        CreatedAt = DateTime.UtcNow,
+    };
+
+    public static async Task<IResult> RejectReportedPlotAsync(
+        ListingReport report, string reason, Guid? adminId,
+        IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
+        IHubContext<InquiryHub> hubContext, IRabbitMqPublisher publisher)
+    {
+        var plot = await unitOfWork.PlotListings.GetByIdAsync(report.ListingId);
+        if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
+
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            plot.IsActive = false;
+            plot.LiveRequestStatus = GoLiveRequestStatuses.Rejected;
+            plot.RejectedReason = reason;
+            plot.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.PlotListings.UpdateAsync(plot);
+
+            var notification = BuildPlotReportRejectedNotification(plot.UserId, reason);
+            db.NotificationEvents.Add(notification);
+
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+
+            await unitOfWork.ListingReports.ResolveAsync(report.Id, adminId, "PostRejected");
+
+            await unitOfWork.CommitTransactionAsync();
+
+            var redis = sp.GetService<IConnectionMultiplexer>();
+            await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
+            await InvalidateRecentPlotsCacheAsync(redis);
+            await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
+
+            await SendGoLiveNotificationAsync(hubContext, publisher, notification);
+
+            return OkResponse(new { success = true });
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+    }
 }
