@@ -138,6 +138,22 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "DeletedAccountRecords",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    OriginalUserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    PhoneNumber = table.Column<string>(type: "text", nullable: false),
+                    Name = table.Column<string>(type: "text", nullable: true),
+                    AccountCreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_DeletedAccountRecords", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Districts",
                 columns: table => new
                 {
@@ -1345,6 +1361,16 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: new[] { "UserId", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
+                name: "IX_DeletedAccountRecords_DeletedAt",
+                table: "DeletedAccountRecords",
+                column: "DeletedAt");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DeletedAccountRecords_PhoneNumber",
+                table: "DeletedAccountRecords",
+                column: "PhoneNumber");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_DeviceTokens_Token",
                 table: "DeviceTokens",
                 column: "Token");
@@ -1797,6 +1823,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "CreditTransactions");
+
+            migrationBuilder.DropTable(
+                name: "DeletedAccountRecords");
 
             migrationBuilder.DropTable(
                 name: "DeviceTokens");
