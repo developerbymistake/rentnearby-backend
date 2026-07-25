@@ -8,6 +8,4 @@ public class RoomPhoto
     public string FilePath { get; set; } = string.Empty;
     public int PhotoOrder { get; set; }
     public DateTime UploadedAt { get; set; }
-
-    public RoomListing RoomListing { get; set; } = null!;
 }

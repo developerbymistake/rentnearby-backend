@@ -31,7 +31,7 @@ public class AccountDeletionService(ApplicationDbContext context, IPhotoService 
         // User FK — no explicit cleanup needed here, same as Sessions/DeviceTokens above.
 
         await context.RoomPhotos
-            .Where(p => p.RoomListing.UserId == userId)
+            .Where(p => context.RoomListings.Any(l => l.Id == p.RoomListingId && l.UserId == userId))
             .ExecuteDeleteAsync();
 
         await context.RoomListings
@@ -39,7 +39,7 @@ public class AccountDeletionService(ApplicationDbContext context, IPhotoService 
             .ExecuteDeleteAsync();
 
         await context.Set<PlotPhoto>()
-            .Where(p => p.PlotListing.UserId == userId)
+            .Where(p => context.PlotListings.Any(l => l.Id == p.PlotId && l.UserId == userId))
             .ExecuteDeleteAsync();
 
         await context.PlotListings

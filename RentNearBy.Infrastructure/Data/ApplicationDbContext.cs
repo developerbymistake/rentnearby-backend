@@ -396,7 +396,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(p => p.UploadedAt).HasDefaultValueSql("now()");
-            e.HasOne(p => p.RoomListing)
+            e.HasOne<RoomListing>()
              .WithMany(l => l.Photos)
              .HasForeignKey(p => p.RoomListingId)
              .OnDelete(DeleteBehavior.Cascade);
@@ -630,7 +630,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasKey(ph => ph.Id);
             e.Property(ph => ph.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(ph => ph.UploadedAt).HasDefaultValueSql("now()");
-            e.HasOne(ph => ph.PlotListing)
+            e.HasOne<PlotListing>()
              .WithMany(p => p.Photos)
              .HasForeignKey(ph => ph.PlotId)
              .OnDelete(DeleteBehavior.Cascade);
@@ -736,7 +736,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
             e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
 
-            e.HasOne(p => p.Service)
+            e.HasOne<Service>()
              .WithMany(s => s.Packages)
              .HasForeignKey(p => p.ServiceId)
              .OnDelete(DeleteBehavior.Cascade);
@@ -892,7 +892,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(h => h.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(h => h.CreatedAt).HasDefaultValueSql("now()");
 
-            e.HasOne(h => h.Inquiry)
+            e.HasOne<Inquiry>()
              .WithMany(i => i.StatusHistory)
              .HasForeignKey(h => h.InquiryId)
              .OnDelete(DeleteBehavior.Cascade);

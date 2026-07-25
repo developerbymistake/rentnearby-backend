@@ -28,6 +28,5 @@ public class ServicePackage
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    public Service Service { get; set; } = null!;
     public ICollection<PackageInclusion> PackageInclusions { get; set; } = new List<PackageInclusion>();
 }

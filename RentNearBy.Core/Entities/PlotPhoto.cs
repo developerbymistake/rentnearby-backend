@@ -8,6 +8,4 @@ public class PlotPhoto
     public string FilePath { get; set; } = string.Empty;
     public int PhotoOrder { get; set; }
     public DateTime UploadedAt { get; set; }
-
-    public PlotListing PlotListing { get; set; } = null!;
 }

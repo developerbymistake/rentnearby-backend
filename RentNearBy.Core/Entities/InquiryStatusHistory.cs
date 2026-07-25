@@ -14,7 +14,6 @@ public class InquiryStatusHistory
     public string? Note { get; set; }
     public DateTime CreatedAt { get; set; }
 
-    public Inquiry Inquiry { get; set; } = null!;
     public Admin? ChangedByAdmin { get; set; }
     public Agent? ChangedByAgent { get; set; }
 }
