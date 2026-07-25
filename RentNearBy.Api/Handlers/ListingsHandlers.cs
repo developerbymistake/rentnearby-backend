@@ -215,7 +215,7 @@ public static class RoomListingsHandlers
     }
 
     public static async Task<IResult> GetMyListings(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 10)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ILoggerFactory loggerFactory, int page = 1, int pageSize = 10)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -223,7 +223,28 @@ public static class RoomListingsHandlers
         if (page < 1) page = 1;
 
         var (items, hasMore) = await unitOfWork.RoomListings.GetByUserIdPagedAsync(userId, page, pageSize);
-        var dtos = items.Select(l => l.Adapt<RoomListingDto>()).ToList();
+
+        // TEMPORARY diagnostic instrumentation — pin down exactly which navigation/field is
+        // null when Adapt<RoomListingDto>() throws, since the previously-suspected circular
+        // Photo->Listing back-reference has been removed and the crash still occurs. Remove
+        // once root-caused.
+        var logger = loggerFactory.CreateLogger("RoomListingsHandlers");
+        var dtos = new List<RoomListingDto>();
+        foreach (var l in items)
+        {
+            try
+            {
+                dtos.Add(l.Adapt<RoomListingDto>());
+            }
+            catch (Exception ex)
+            {
+                var photoDetails = string.Join(";", l.Photos.Select(p =>
+                    $"[Id={p.Id},Url={p.PhotoUrl ?? "null"},Order={p.PhotoOrder},FilePath={p.FilePath ?? "null"}]"));
+                logger.LogError(ex,
+                    "Adapt<RoomListingDto> failed for RoomListing {ListingId}. RoomTypeNull={RoomTypeNull} DistrictNull={DistrictNull} CityNull={CityNull} UserNull={UserNull} PhotosCount={PhotosCount} PhotoDetails={PhotoDetails}",
+                    l.Id, l.RoomType is null, l.District is null, l.City is null, l.User is null, l.Photos.Count, photoDetails);
+            }
+        }
         var counts = await unitOfWork.ListingReports.GetPendingCountsForListingsAsync(dtos.Select(d => d.Id), "Room");
         foreach (var d in dtos) d.PendingReportCount = counts.GetValueOrDefault(d.Id);
         return OkResponse(new { items = dtos, hasMore });
