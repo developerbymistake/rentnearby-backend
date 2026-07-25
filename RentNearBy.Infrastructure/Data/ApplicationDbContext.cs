@@ -35,6 +35,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<CreditTransaction> CreditTransactions { get; set; }
     public DbSet<CreditPack> CreditPacks { get; set; }
     public DbSet<ListingLimitSetting> ListingLimitSettings { get; set; }
+    public DbSet<AppFeatureFlag> AppFeatureFlags { get; set; }
     public DbSet<Coupon> Coupons { get; set; }
     public DbSet<CouponRedemption> CouponRedemptions { get; set; }
     public DbSet<CreditPackPurchase> CreditPackPurchases { get; set; }
@@ -463,6 +464,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasKey(s => s.Id);
             e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(s => s.ListingKind).IsUnique();
+        });
+
+        modelBuilder.Entity<AppFeatureFlag>(e =>
+        {
+            e.HasKey(f => f.Id);
+            e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(f => f.FeatureKey).IsUnique();
+
+            e.HasOne(f => f.UpdatedByAdmin)
+             .WithMany()
+             .HasForeignKey(f => f.UpdatedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<Coupon>(e =>

@@ -585,6 +585,58 @@ public static class AdminHandlers
         return OkResponse(new { listingKind = kind, maxListings = request.MaxListings });
     }
 
+    // ── Payment Kill Switch ─────────────────────────────────────────────────────
+    // Single global row (RentNearBy.Core.Models.AppFeatureKeys.PaymentEnabled) — a dedicated, generic
+    // AppFeatureFlag entity, not a repurposed CreditFeature/ListingLimitSetting row.
+
+    public static async Task<IResult> GetPaymentFeature(IUnitOfWork unitOfWork)
+    {
+        var flag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.PaymentEnabled);
+        if (flag == null) return NotFoundResponse("Payment feature flag not found");
+
+        return OkResponse(new
+        {
+            isEnabled = flag.IsEnabled,
+            freeDurationDays = flag.FreeDurationDays ?? 30,
+            updatedByAdminId = flag.UpdatedByAdminId,
+            updatedAt = flag.UpdatedAt,
+            reason = flag.Reason,
+        });
+    }
+
+    public static async Task<IResult> UpdatePaymentFeature(
+        UpdatePaymentFeatureRequest request, IValidator<UpdatePaymentFeatureRequest> validator,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var flag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.PaymentEnabled);
+        if (flag == null) return NotFoundResponse("Payment feature flag not found");
+
+        if (request.IsEnabled.HasValue) flag.IsEnabled = request.IsEnabled.Value;
+        if (request.FreeDurationDays.HasValue) flag.FreeDurationDays = request.FreeDurationDays.Value;
+        if (request.Reason != null) flag.Reason = request.Reason;
+
+        var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        flag.UpdatedByAdminId = Guid.TryParse(adminIdClaim, out var parsedAdminId) ? parsedAdminId : null;
+        flag.UpdatedAt = DateTime.UtcNow;
+
+        await unitOfWork.AppFeatureFlags.UpdateAsync(flag);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove(ConfigHandlers.PaymentFeatureCacheKey);
+
+        return OkResponse(new
+        {
+            isEnabled = flag.IsEnabled,
+            freeDurationDays = flag.FreeDurationDays ?? 30,
+            updatedByAdminId = flag.UpdatedByAdminId,
+            updatedAt = flag.UpdatedAt,
+            reason = flag.Reason,
+        });
+    }
+
     public static async Task<IResult> GetUsers(
         ApplicationDbContext db,
         int page = 1,

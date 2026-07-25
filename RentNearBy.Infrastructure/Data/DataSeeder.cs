@@ -27,6 +27,7 @@ public static class DataSeeder
         await SeedDistrictsAsync(db);
         await SeedCitiesAsync(db);
         await SeedListingLimitSettingsAsync(db);
+        await SeedAppFeatureFlagsAsync(db);
         await SeedCouponsAsync(db);
         await SeedAdminsAsync(db);
 
@@ -85,6 +86,24 @@ public static class DataSeeder
             new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Room, MaxListings = 3, UpdatedAt = DateTime.UtcNow },
             new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Plot, MaxListings = 3, UpdatedAt = DateTime.UtcNow }
         );
+        await db.SaveChangesAsync();
+    }
+
+    // Payment kill switch — starts OFF (payment not required) so Go-Live is free by default until an
+    // admin explicitly turns payment back on. Do not "fix" IsEnabled to true here; that flip is an
+    // explicit product decision, not an oversight.
+    private static async Task SeedAppFeatureFlagsAsync(ApplicationDbContext db)
+    {
+        if (await db.AppFeatureFlags.AnyAsync()) return;
+
+        db.AppFeatureFlags.Add(new AppFeatureFlag
+        {
+            Id = Guid.NewGuid(),
+            FeatureKey = AppFeatureKeys.PaymentEnabled,
+            IsEnabled = false,
+            FreeDurationDays = 30,
+            UpdatedAt = DateTime.UtcNow,
+        });
         await db.SaveChangesAsync();
     }
 
