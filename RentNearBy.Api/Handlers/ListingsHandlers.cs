@@ -215,15 +215,35 @@ public static class RoomListingsHandlers
     }
 
     public static async Task<IResult> GetMyListings(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 10)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ILoggerFactory loggerFactory, int page = 1, int pageSize = 10)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
         if (pageSize < 1 || pageSize > 50) pageSize = 10;
         if (page < 1) page = 1;
 
+        var logger = loggerFactory.CreateLogger("RoomListingsHandlers");
         var (items, hasMore) = await unitOfWork.RoomListings.GetByUserIdPagedAsync(userId, page, pageSize);
-        var dtos = items.Select(l => l.Adapt<RoomListingDto>()).ToList();
+
+        // Temporary diagnostic + defensive wrapper around Adapt<RoomListingDto>(): a NullReferenceException
+        // has been occurring here in production with no unguarded null-dereference found by extensive
+        // static review. Map item-by-item instead of .Select(...).ToList() so one bad row logs full
+        // details (including every FK/nav id) and gets skipped, rather than 500ing the whole page.
+        var dtos = new List<RoomListingDto>();
+        foreach (var l in items)
+        {
+            try
+            {
+                dtos.Add(l.Adapt<RoomListingDto>());
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Adapt<RoomListingDto> failed for RoomListing {Id}. UserId={UserId} DistrictId={DistrictId} CityId={CityId} RoomTypeId={RoomTypeId} LiveRequestStatus={LiveRequestStatus} PhotosCount={PhotosCount}",
+                    l.Id, l.UserId, l.DistrictId, l.CityId, l.RoomTypeId, l.LiveRequestStatus, l.Photos?.Count);
+            }
+        }
+
         var counts = await unitOfWork.ListingReports.GetPendingCountsForListingsAsync(dtos.Select(d => d.Id), "Room");
         foreach (var d in dtos) d.PendingReportCount = counts.GetValueOrDefault(d.Id);
         return OkResponse(new { items = dtos, hasMore });
