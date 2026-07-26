@@ -608,12 +608,13 @@ public static class PlotListingHandlers
     public static async Task<IResult> GetAdminPlotListings(
         IUnitOfWork unitOfWork,
         int page = 1, int pageSize = 20,
-        string? plotType = null, bool? isActive = null, Guid? districtId = null, Guid? cityId = null)
+        string? plotType = null, bool? isActive = null, Guid? districtId = null, Guid? cityId = null,
+        string? search = null)
     {
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
         if (page < 1) page = 1;
 
-        var (items, hasMore) = await unitOfWork.PlotListings.GetAllAsync(page, pageSize, plotType, isActive, districtId, cityId);
+        var (items, hasMore) = await unitOfWork.PlotListings.GetAllAsync(page, pageSize, plotType, isActive, districtId, cityId, search);
         var dtos = items.Select(p => new AdminPlotListingDto(
             Id: p.Id.ToString(),
             UserId: p.UserId.ToString(),

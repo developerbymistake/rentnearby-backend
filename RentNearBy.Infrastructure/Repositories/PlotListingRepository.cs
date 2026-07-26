@@ -142,7 +142,8 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         string? plotType = null,
         bool? isActive = null,
         Guid? districtId = null,
-        Guid? cityId = null)
+        Guid? cityId = null,
+        string? search = null)
     {
         var take = pageSize + 1;
         var query = _dbSet
@@ -158,6 +159,14 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         if (isActive.HasValue) query = query.Where(p => p.IsActive == isActive.Value);
         if (districtId.HasValue) query = query.Where(p => p.DistrictId == districtId.Value);
         if (cityId.HasValue) query = query.Where(p => p.CityId == cityId.Value);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            query = query.Where(p =>
+                p.User.PhoneNumber.Contains(s) ||
+                (p.User.Name != null && p.User.Name.ToLower().Contains(s)));
+        }
 
         var items = await query
             .OrderByDescending(p => p.CreatedAt)

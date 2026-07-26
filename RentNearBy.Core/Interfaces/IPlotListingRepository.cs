@@ -20,7 +20,8 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
         string? plotType = null,
         bool? isActive = null,
         Guid? districtId = null,
-        Guid? cityId = null);
+        Guid? cityId = null,
+        string? search = null);
     Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetAllPagedByTypeIdAsync(
         Guid? districtId, Guid? cityId, Guid? plotTypeId, string sortBy, int page, int pageSize);
     Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId);

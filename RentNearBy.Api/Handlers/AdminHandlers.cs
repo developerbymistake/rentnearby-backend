@@ -1134,7 +1134,8 @@ public static class AdminHandlers
         Guid? districtId = null,
         Guid? cityId = null,
         Guid? roomTypeId = null,
-        bool? isActive = null)
+        bool? isActive = null,
+        string? search = null)
     {
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
@@ -1151,6 +1152,14 @@ public static class AdminHandlers
         if (cityId.HasValue) query = query.Where(l => l.CityId == cityId.Value);
         if (roomTypeId.HasValue) query = query.Where(l => l.RoomTypeId == roomTypeId.Value);
         if (isActive.HasValue) query = query.Where(l => l.IsActive == isActive.Value);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            query = query.Where(l =>
+                l.User.PhoneNumber.Contains(s) ||
+                (l.User.Name != null && l.User.Name.ToLower().Contains(s)));
+        }
 
         var result = await query
             .OrderByDescending(l => l.CreatedAt)
