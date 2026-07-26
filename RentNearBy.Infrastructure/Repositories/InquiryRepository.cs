@@ -136,9 +136,17 @@ public class InquiryRepository(ApplicationDbContext context)
     // Stats page consume. Joins through InquiryAgents (no direct AgentId FK on Inquiry), same as
     // ExistsByAssignedAgentIdAsync above.
     public async Task<List<MonthlyStatusCountRow>> GetMonthlyStatusCountsForAgentAsync(Guid agentId, int year)
-        => await _dbSet.AsNoTracking()
-            .Where(i => i.InquiryAgents.Any(ia => ia.AgentId == agentId) && i.CreatedAt.Year == year)
+    {
+        // Range comparison, not `.Year == year` — the latter compiles to a non-sargable date-part
+        // expression that can't use an index on CreatedAt regardless of what's defined; a range
+        // check against the Inquiry(CreatedAt, Status) index (see OnModelCreating) lets Postgres
+        // index-scan instead of sequential-scan this table.
+        var startOfYear = new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var startOfNextYear = startOfYear.AddYears(1);
+        return await _dbSet.AsNoTracking()
+            .Where(i => i.InquiryAgents.Any(ia => ia.AgentId == agentId) && i.CreatedAt >= startOfYear && i.CreatedAt < startOfNextYear)
             .GroupBy(i => new { i.CreatedAt.Month, i.Status })
             .Select(g => new MonthlyStatusCountRow { Month = g.Key.Month, Status = g.Key.Status, Count = g.Count() })
             .ToListAsync();
+    }
 }

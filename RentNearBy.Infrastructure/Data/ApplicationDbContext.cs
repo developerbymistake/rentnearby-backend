@@ -87,6 +87,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(u => u.PhoneNumber).IsUnique();
             e.Property(u => u.CreatedAt).HasDefaultValueSql("now()");
             e.Property(u => u.UpdatedAt).HasDefaultValueSql("now()");
+            // Backs AdminHandlers.GetUsers' OrderByDescending(CreatedAt) — an unbounded-growth
+            // table with no other index covering this sort.
+            e.HasIndex(u => u.CreatedAt);
         });
 
         modelBuilder.Entity<Session>(e =>
@@ -390,6 +393,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => l.CreatedAt)
              .HasDatabaseName("ix_roomlistings_recent_active")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+            // Partial: ListingExpirySweepService's daily WHERE IsActive AND ValidUntil IS NOT NULL
+            // AND ValidUntil < now — filtered on both conditions so the index only ever holds
+            // still-active, still-expiring rows regardless of total historical row count, same
+            // shape as the digest-pending/recent-active partial indexes above.
+            e.HasIndex(l => l.ValidUntil)
+             .HasDatabaseName("ix_roomlistings_active_validuntil")
+             .HasFilter("\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
         });
 
         modelBuilder.Entity<RoomPhoto>(e =>
@@ -624,6 +634,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => p.CreatedAt)
              .HasDatabaseName("ix_plotlistings_recent_active")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+            // Partial: ListingExpirySweepService's daily WHERE IsActive AND ValidUntil IS NOT NULL
+            // AND ValidUntil < now — same shape as ix_roomlistings_active_validuntil.
+            e.HasIndex(p => p.ValidUntil)
+             .HasDatabaseName("ix_plotlistings_active_validuntil")
+             .HasFilter("\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
         });
 
         modelBuilder.Entity<PlotPhoto>(e =>
@@ -832,6 +847,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(i => i.ServiceId);
             e.HasIndex(i => i.ServicePackageId);
             e.HasIndex(i => i.Status);
+            // Composite: InquiryRepository.GetMonthlyStatusCountsForAgentAsync's year-range +
+            // status GroupBy (Agent/Admin lead-stats dashboards) — joins through InquiryAgent.AgentId
+            // (already indexed), then filters/groups by these two columns.
+            e.HasIndex(i => new { i.CreatedAt, i.Status });
             // UserSeenAt (nullable DateTime?) needs no explicit config — mapped by convention. NULL means
             // "never seen by the consumer"; correct default for all existing rows, no backfill required.
         });

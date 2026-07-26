@@ -1415,6 +1415,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_Inquiries_CreatedAt_Status",
+                table: "Inquiries",
+                columns: new[] { "CreatedAt", "Status" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Inquiries_ServiceId",
                 table: "Inquiries",
                 column: "ServiceId");
@@ -1554,6 +1559,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "InclusionId");
 
             migrationBuilder.CreateIndex(
+                name: "ix_plotlistings_active_validuntil",
+                table: "PlotListings",
+                column: "ValidUntil",
+                filter: "\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PlotListings_AreaSqft",
                 table: "PlotListings",
                 column: "AreaSqft");
@@ -1671,6 +1682,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 .Annotation("Npgsql:IndexMethod", "gist");
 
             migrationBuilder.CreateIndex(
+                name: "ix_roomlistings_active_validuntil",
+                table: "RoomListings",
+                column: "ValidUntil",
+                filter: "\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_RoomListings_CityId",
                 table: "RoomListings",
                 column: "CityId");
@@ -1783,6 +1800,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "UserBlocks",
                 columns: new[] { "BlockerId", "BlockedId" },
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Users_CreatedAt",
+                table: "Users",
+                column: "CreatedAt");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_PhoneNumber",

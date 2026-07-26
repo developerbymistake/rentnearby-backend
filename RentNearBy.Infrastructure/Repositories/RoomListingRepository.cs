@@ -178,6 +178,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
 
     public async Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId)
         => await _dbSet
+            .AsNoTracking()
             .Include(l => l.RoomType)
             .Include(l => l.City)
             .Where(l => l.UserId == userId && l.IsActive)

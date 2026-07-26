@@ -650,7 +650,7 @@ public static class AdminHandlers
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
 
-        var query = db.Users.AsQueryable();
+        var query = db.Users.AsNoTracking().AsQueryable();
 
         if (isActive.HasValue)
             query = query.Where(u => u.IsActive == isActive.Value);
@@ -1152,6 +1152,7 @@ public static class AdminHandlers
         page = Math.Max(1, page);
 
         var query = db.RoomListings
+            .AsNoTracking()
             .Include(l => l.District)
             .Include(l => l.City)
             .Include(l => l.RoomType)
@@ -1607,6 +1608,7 @@ public static class AdminHandlers
         // GetAdminListings excludes them, so a deleted-while-Pending listing can't linger in this
         // queue forever.
         var query = db.RoomListings
+            .AsNoTracking()
             .Include(l => l.User)
             .Include(l => l.RoomType)
             .Include(l => l.District)

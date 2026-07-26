@@ -777,6 +777,7 @@ public static class PlotListingHandlers
         // Deleted plots never leave LiveRequestStatus behind — excluded here so a
         // deleted-while-Pending plot can't linger in this queue forever.
         var query = db.PlotListings
+            .AsNoTracking()
             .Include(p => p.User)
             .Include(p => p.PlotType)
             .Include(p => p.District)

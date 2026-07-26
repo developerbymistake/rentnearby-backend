@@ -32,7 +32,7 @@ public class CouponRepository(ApplicationDbContext context) : Repository<Coupon>
 
     public async Task<(IReadOnlyList<Coupon> Items, int TotalCount)> GetPagedAsync(string? status, string? triggerType, string? search, int page, int pageSize)
     {
-        var query = context.Coupons.AsQueryable();
+        var query = context.Coupons.AsNoTracking().AsQueryable();
         if (!string.IsNullOrWhiteSpace(status)) query = query.Where(c => c.Status == status);
         if (!string.IsNullOrWhiteSpace(triggerType)) query = query.Where(c => c.TriggerType == triggerType);
         if (!string.IsNullOrWhiteSpace(search))

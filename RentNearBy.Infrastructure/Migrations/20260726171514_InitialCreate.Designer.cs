@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260725233407_InitialCreate")]
+    [Migration("20260726171514_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -941,6 +941,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("CreatedAt", "Status");
+
                     b.ToTable("Inquiries");
                 });
 
@@ -1438,6 +1440,10 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("ValidUntil")
+                        .HasDatabaseName("ix_plotlistings_active_validuntil")
+                        .HasFilter("\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
+
                     b.HasIndex("CityId", "IsActive");
 
                     b.HasIndex("DistrictId", "IsActive");
@@ -1716,6 +1722,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("RoomTypeId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("ValidUntil")
+                        .HasDatabaseName("ix_roomlistings_active_validuntil")
+                        .HasFilter("\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
 
                     b.HasIndex("CityId", "IsActive");
 
@@ -2042,6 +2052,8 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDefaultValueSql("now()");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
 
                     b.HasIndex("PhoneNumber")
                         .IsUnique();

@@ -237,6 +237,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
 
     public async Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId)
         => await _dbSet
+            .AsNoTracking()
             .Where(p => p.UserId == userId && p.IsActive && !p.IsDeleted)
             .ToListAsync();
 

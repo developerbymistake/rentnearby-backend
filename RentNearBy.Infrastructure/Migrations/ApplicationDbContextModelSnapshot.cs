@@ -938,6 +938,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("CreatedAt", "Status");
+
                     b.ToTable("Inquiries");
                 });
 
@@ -1435,6 +1437,10 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("ValidUntil")
+                        .HasDatabaseName("ix_plotlistings_active_validuntil")
+                        .HasFilter("\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
+
                     b.HasIndex("CityId", "IsActive");
 
                     b.HasIndex("DistrictId", "IsActive");
@@ -1713,6 +1719,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("RoomTypeId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("ValidUntil")
+                        .HasDatabaseName("ix_roomlistings_active_validuntil")
+                        .HasFilter("\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
 
                     b.HasIndex("CityId", "IsActive");
 
@@ -2039,6 +2049,8 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDefaultValueSql("now()");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
 
                     b.HasIndex("PhoneNumber")
                         .IsUnique();
