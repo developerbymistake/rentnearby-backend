@@ -726,46 +726,51 @@ public static class DataSeeder
 
         // (index, categoryIndex, name, icon, short, full, featured) — a Category may now hold several
         // Services (schema always supported this — see the comment on SeedServiceCategoriesAsync).
-        // Categories whose old single Service's "packages" were actually distinct offerings (different
-        // dhams, different tour itineraries) are split into one Service per real offering here, each
-        // getting its own genuine price/duration plans in SeedServicePackagesAsync below.
+        // Char Dham Yatra holds one Service per real, independently-bookable offering (each with its
+        // own genuine ex-Haridwar itinerary and tiered per-group-size pricing in
+        // SeedServicePackagesAsync below) — Do Dham and Char Dham are each their own Service, not a
+        // package nested under a single "combo" Service, matching how every offering here is sold.
         var services = new (int Index, int CategoryIdx, string Name, string Icon, string Short, string Full, bool Featured)[]
         {
-            // Char Dham Yatra (category 1) — 2 individual dhams + 1 all-4 combo
+            // Char Dham Yatra (category 1) — 4 independent yatras, all ex-Haridwar
             (1, 1, "Badrinath Yatra", "route_square",
-                "Guided pilgrimage to Badrinath by road.",
-                "Pilgrimage packages to Badrinath Dham — travel by road with an experienced guide. Hotel stay and meals included.",
+                "Ex-Haridwar pilgrimage to Badrinath, customized to your group.",
+                "Begin your Badrinath Yatra from Haridwar, with stay, meals and cab arranged for the full journey. Halts, stay type and travel pace can be customized to match how your group wants to travel.",
                 true),
             (2, 1, "Kedarnath Yatra", "route_square",
-                "Guided pilgrimage to Kedarnath by road/trek.",
-                "Pilgrimage packages to Kedarnath Dham — trek/road journey with an experienced guide. Hotel stay and meals included.",
+                "Ex-Haridwar pilgrimage to Kedarnath, customized to your group.",
+                "Travel to Kedarnath Dham starting from Haridwar, with stay, meals and cab included throughout. The route and halts can be adjusted to suit your group's needs and preferences.",
                 true),
-            (3, 1, "Char Dham Yatra (All 4 Combo)", "route_square",
-                "Combined pilgrimage covering all 4 dhams — Kedarnath, Badrinath, Gangotri and Yamunotri.",
-                "Complete Char Dham Yatra packages covering all four dhams together, with hotel stays, meals, local transport and an experienced tour guide. Choose from Do Dham (2 dhams) or full Char Dham (all 4).",
+            (3, 1, "Do Dham Yatra", "route_square",
+                "Ex-Haridwar Do Dham Yatra — Kedarnath and Badrinath together.",
+                "Cover both Kedarnath and Badrinath in one trip from Haridwar, with stay, meals and cab arranged throughout. The itinerary can be customized — halts, duration, stay type — based on what your group needs.",
+                true),
+            (4, 1, "Char Dham Yatra", "route_square",
+                "Ex-Haridwar Char Dham Yatra — all four dhams, one journey.",
+                "The complete Char Dham Yatra — Yamunotri, Gangotri, Kedarnath and Badrinath — starting from Haridwar, with stay, meals and cab arranged for the full journey. Duration and halts can be customized to how your group wants to travel.",
                 true),
 
             // Tour, Travel & Camping (category 2) — one Service per itinerary/experience
-            (4, 2, "Nainital-Mussoorie Duo Tour", "airplane",
+            (5, 2, "Nainital-Mussoorie Duo Tour", "airplane",
                 "5D/4N covering both Nainital and Mussoorie.",
                 "A 5-day, 4-night tour covering both Nainital and Mussoorie's top sightseeing spots, with hotel stays and local transport.",
                 true),
-            (5, 2, "Riverside Camping", "tree",
+            (6, 2, "Riverside Camping", "tree",
                 "Riverside camping with bonfire, for couples, friends or families.",
                 "Riverside camping packages with bonfire and overnight stay — available as a standard 2D/1N trip or a family camping weekend.",
                 true),
 
             // Yoga & Diet (category 3) — Consultation vertical: every plan is a custom quote, the
             // team hears the query and quotes offline (platform is the middleman only).
-            (6, 3, "1-on-1 Yoga Session", "activity",
+            (7, 3, "1-on-1 Yoga Session", "activity",
                 "Private one-on-one yoga sessions.",
                 "Private yoga sessions with an instructor, one-on-one — choose a regular session or one with a certified instructor. Share your requirement and get a custom quote.",
                 false),
-            (7, 3, "Corporate Yoga Workshop", "activity",
+            (8, 3, "Corporate Yoga Workshop", "activity",
                 "Yoga workshops for corporate teams.",
                 "Yoga workshops for corporate teams — a single session or an ongoing monthly program. Share your requirement and get a custom quote.",
                 false),
-            (8, 3, "Personalised Diet Plan", "weight",
+            (9, 3, "Personalised Diet Plan", "weight",
                 "Personalised diet plans from a certified nutritionist — weight loss, weight gain or diabetic-friendly.",
                 "Personalised diet plans from a certified nutritionist, with ongoing consultation support. Choose a weight-loss, weight-gain or diabetic-friendly plan — share your requirement and get a custom quote.",
                 true),
@@ -801,40 +806,55 @@ public static class DataSeeder
         // agent hears the query and quotes offline, the platform never commits a price for that
         // vertical. IsStartingAtPrice is true on every priced (Travel) row — yatra/camping/tour
         // pricing is genuinely variable, so "Starting at ₹X" belongs wherever a real price exists.
-        // Plan names are simple and concrete (by travel mode / duration / session type), never abstract
-        // tier labels like "Standard/Deluxe/Premium".
+        // Plan names are simple and concrete (by travel mode / duration / session type / minimum
+        // group size), never abstract tier labels like "Standard/Deluxe/Premium". SortOrder is set
+        // price-ascending within each Service (cheapest tier first), not creation order, so the
+        // Package List screen (which orders strictly by SortOrder — see
+        // ServicePackageRepository.GetByServiceIdAsync) always shows the lowest per-person rate at
+        // the top rather than in whatever order group-size tiers happen to have been given.
         var packages = new (int Index, int ServiceIdx, string Name, int? Price, int? OriginalPrice, int? DiscountPercent,
             bool StartingAt, int? Days, int? Nights, string? Unit, int SortOrder, bool Featured)[]
         {
-            // Badrinath Yatra (service 1) — helicopter package removed, road only
-            (1, 1, "Badrinath Yatra by Road - 3D/2N", 7499, null, null, true, 3, 2, "per person", 1, true),
+            // Badrinath Yatra (service 1) — real agent-provided pricing, tiered by minimum group
+            // size (larger group = lower per-person rate); duration is identical across all 3 tiers.
+            (1, 1, "Minimum 12 Persons", 7074, null, null, true, 3, 2, "per person", 1, false),
+            (2, 1, "Minimum 4 Persons", 7999, null, null, true, 3, 2, "per person", 2, false),
+            (3, 1, "Minimum 2 Persons", 10999, null, null, true, 3, 2, "per person", 3, false),
 
-            // Kedarnath Yatra (service 2) — helicopter package removed, road/trek only
-            (2, 2, "Kedarnath Yatra by Road/Trek - 4D/3N", 8999, null, null, true, 4, 3, "per person", 1, true),
+            // Kedarnath Yatra (service 2)
+            (4, 2, "Minimum 12 Persons", 10374, null, null, true, 4, 3, "per person", 1, false),
+            (5, 2, "Minimum 4 Persons", 11499, null, null, true, 4, 3, "per person", 2, false),
+            (6, 2, "Minimum 2 Persons", 15499, null, null, true, 4, 3, "per person", 3, false),
 
-            // Char Dham Yatra (All 4 Combo) (service 3) — all-helicopter combo removed
-            (3, 3, "Do Dham Yatra (Kedarnath-Badrinath) - 6D/5N", 14999, 17999, 17, true, 6, 5, "per person", 1, true),
-            (4, 3, "Char Dham Yatra Complete - 11D/10N", 27999, 32999, 15, true, 11, 10, "per person", 2, false),
+            // Do Dham Yatra (service 3)
+            (7, 3, "Minimum 12 Persons", 10374, null, null, true, 4, 3, "per person", 1, false),
+            (8, 3, "Minimum 4 Persons", 11499, null, null, true, 4, 3, "per person", 2, false),
+            (9, 3, "Minimum 2 Persons", 15499, null, null, true, 4, 3, "per person", 3, false),
 
-            // Nainital-Mussoorie Duo Tour (service 4)
-            (5, 4, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 1, true),
+            // Char Dham Yatra (service 4)
+            (10, 4, "Minimum 12 Persons", 24849, null, null, true, 10, 9, "per person", 1, false),
+            (11, 4, "Minimum 4 Persons", 26999, null, null, true, 10, 9, "per person", 2, false),
+            (12, 4, "Minimum 2 Persons", 36999, null, null, true, 10, 9, "per person", 3, false),
 
-            // Riverside Camping (service 5)
-            (6, 5, "Riverside Camping - 2D/1N", 2999, 3499, 14, true, 2, 1, "per person", 1, true),
-            (7, 5, "Family Camping Weekend - 2D/1N", 3499, null, null, true, 2, 1, "per person", 2, false),
+            // Nainital-Mussoorie Duo Tour (service 5)
+            (13, 5, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 1, true),
 
-            // 1-on-1 Yoga Session (service 6)
-            (8, 6, "Regular Session", null, null, null, false, null, null, null, 1, false),
-            (9, 6, "Session with Certified Instructor", null, null, null, false, null, null, null, 2, true),
+            // Riverside Camping (service 6)
+            (14, 6, "Riverside Camping - 2D/1N", 2999, 3499, 14, true, 2, 1, "per person", 1, true),
+            (15, 6, "Family Camping Weekend - 2D/1N", 3499, null, null, true, 2, 1, "per person", 2, false),
 
-            // Corporate Yoga Workshop (service 7)
-            (10, 7, "Single Session Workshop", null, null, null, false, null, null, null, 1, false),
-            (11, 7, "Monthly Corporate Program", null, null, null, false, null, null, null, 2, true),
+            // 1-on-1 Yoga Session (service 7)
+            (16, 7, "Regular Session", null, null, null, false, null, null, null, 1, false),
+            (17, 7, "Session with Certified Instructor", null, null, null, false, null, null, null, 2, true),
 
-            // Personalised Diet Plan (service 8)
-            (12, 8, "Weight Loss Plan", null, null, null, false, null, null, null, 1, true),
-            (13, 8, "Weight Gain Plan", null, null, null, false, null, null, null, 2, false),
-            (14, 8, "Diabetic-Friendly Plan", null, null, null, false, null, null, null, 3, false),
+            // Corporate Yoga Workshop (service 8)
+            (18, 8, "Single Session Workshop", null, null, null, false, null, null, null, 1, false),
+            (19, 8, "Monthly Corporate Program", null, null, null, false, null, null, null, 2, true),
+
+            // Personalised Diet Plan (service 9)
+            (20, 9, "Weight Loss Plan", null, null, null, false, null, null, null, 1, true),
+            (21, 9, "Weight Gain Plan", null, null, null, false, null, null, null, 2, false),
+            (22, 9, "Diabetic-Friendly Plan", null, null, null, false, null, null, null, 3, false),
         };
 
         var now = DateTime.UtcNow;
@@ -865,15 +885,21 @@ public static class DataSeeder
     {
         if (await db.PackageInclusions.AnyAsync()) return;
 
-        // (packageIndex, inclusionIndices[]) — only a representative subset of Tourism packages get
-        // inclusions wired up (Consultation packages have no physical "inclusions" concept). Indices
-        // here match the restructured package list in SeedServicePackagesAsync above.
+        // (packageIndex, inclusionIndices[]) — only Tourism packages get inclusions wired up
+        // (Consultation packages have no physical "inclusions" concept). Indices here match the
+        // restructured package list in SeedServicePackagesAsync above.
         var mappings = new (int PackageIdx, int[] InclusionIdxs)[]
         {
-            (3, new[] { 1, 2, 3, 5 }),          // Do Dham Yatra: Hotel, Meals, Transport, Travel Insurance
-            (4, new[] { 1, 2, 3, 4, 5 }),       // Char Dham Complete: + Tour Guide
-            (5, new[] { 1, 2, 3, 6 }),          // Nainital-Mussoorie Duo Tour: + Sightseeing
-            (6, new[] { 2, 4, 9 }),             // Riverside Camping: Meals, Tour Guide, First Aid Kit
+            // All 4 Char Dham Yatra services (packages 1-12) — every group-size tier of every yatra
+            // includes the same 3: Hotel Stay, Meals, Local Transport. Group size changes the price,
+            // never what's included.
+            (1, new[] { 1, 2, 3 }), (2, new[] { 1, 2, 3 }), (3, new[] { 1, 2, 3 }),
+            (4, new[] { 1, 2, 3 }), (5, new[] { 1, 2, 3 }), (6, new[] { 1, 2, 3 }),
+            (7, new[] { 1, 2, 3 }), (8, new[] { 1, 2, 3 }), (9, new[] { 1, 2, 3 }),
+            (10, new[] { 1, 2, 3 }), (11, new[] { 1, 2, 3 }), (12, new[] { 1, 2, 3 }),
+
+            (13, new[] { 1, 2, 3, 6 }),          // Nainital-Mussoorie Duo Tour: + Sightseeing
+            (14, new[] { 2, 4, 9 }),             // Riverside Camping: Meals, Tour Guide, First Aid Kit
         };
 
         foreach (var m in mappings)
