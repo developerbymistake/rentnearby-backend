@@ -123,7 +123,10 @@ public static class AdminAuthHandlers
             var session = await unitOfWork.AdminSessions.GetByIdAsync(sessionId);
             if (session != null && session.AdminId == adminId)
             {
-                await unitOfWork.AdminSessions.DeleteAsync(session);
+                // Soft-revoke (not delete) — same reasoning as AuthHandlers.Logout.
+                session.IsActive = false;
+                session.LoggedOutAt = DateTime.UtcNow;
+                await unitOfWork.AdminSessions.UpdateAsync(session);
                 await unitOfWork.SaveChangesAsync();
             }
         }

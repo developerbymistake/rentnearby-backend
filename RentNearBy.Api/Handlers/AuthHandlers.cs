@@ -280,7 +280,12 @@ public static class AuthHandlers
             var session = await unitOfWork.Sessions.GetByIdAsync(sessionId);
             if (session != null && session.UserId == userId)
             {
-                await unitOfWork.Sessions.DeleteAsync(session);
+                // Soft-revoke (not delete) so the row survives as the user's last-known session
+                // for support/audit purposes — DeleteAllUserSessionsAsync on the next login still
+                // wipes it, so this never accumulates beyond one row per user (see CreateSessionAndRespond).
+                session.IsActive = false;
+                session.LoggedOutAt = DateTime.UtcNow;
+                await unitOfWork.Sessions.UpdateAsync(session);
                 await unitOfWork.SaveChangesAsync();
             }
         }

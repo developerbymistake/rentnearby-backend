@@ -125,6 +125,14 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime?>("LoggedOutAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AdminId");
@@ -1998,6 +2006,14 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDefaultValueSql("now()");
 
                     b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime?>("LoggedOutAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("UserId")

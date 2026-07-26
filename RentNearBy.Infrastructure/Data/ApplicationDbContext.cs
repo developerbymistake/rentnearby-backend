@@ -72,6 +72,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasKey(s => s.Id);
             e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(s => s.IsActive).HasDefaultValue(true);
             e.HasOne(s => s.Admin)
              .WithMany(a => a.Sessions)
              .HasForeignKey(s => s.AdminId)
@@ -97,6 +98,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasKey(s => s.Id);
             e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(s => s.IsActive).HasDefaultValue(true);
             e.HasIndex(s => s.UserId);
             e.HasIndex(s => s.ExpiresAt);
             e.HasOne(s => s.User)

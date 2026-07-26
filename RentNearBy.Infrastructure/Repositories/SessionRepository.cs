@@ -18,6 +18,6 @@ public class SessionRepository(ApplicationDbContext context) : Repository<Sessio
     {
         return await _context.Sessions
             .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == sessionId && s.ExpiresAt > DateTime.UtcNow);
+            .FirstOrDefaultAsync(s => s.Id == sessionId && s.IsActive && s.ExpiresAt > DateTime.UtcNow);
     }
 }

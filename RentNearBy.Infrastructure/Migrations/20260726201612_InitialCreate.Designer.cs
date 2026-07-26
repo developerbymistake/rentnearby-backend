@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260726171514_InitialCreate")]
+    [Migration("20260726201612_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -126,6 +126,14 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDefaultValueSql("now()");
 
                     b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime?>("LoggedOutAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
@@ -2001,6 +2009,14 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDefaultValueSql("now()");
 
                     b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime?>("LoggedOutAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("UserId")
