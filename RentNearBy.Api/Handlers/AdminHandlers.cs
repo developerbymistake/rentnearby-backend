@@ -1338,14 +1338,57 @@ public static class AdminHandlers
         ResolvedAt = r.ResolvedAt,
     };
 
+    private static void ApplyRoomReportDetails(AdminListingReportDto dto, RoomListing l)
+    {
+        dto.Address = l.Address;
+        dto.Description = l.Description;
+        dto.DistrictName = l.District?.Name;
+        dto.CityName = l.City?.Name;
+        dto.RoomTypeName = l.RoomType?.Name;
+        dto.FurnishedStatus = l.FurnishedStatus;
+        dto.PriceMonthly = l.PriceMonthly;
+    }
+
+    private static void ApplyPlotReportDetails(AdminListingReportDto dto, PlotListing p)
+    {
+        dto.Address = p.Address;
+        dto.Description = p.Description;
+        dto.DistrictName = p.District?.Name;
+        dto.CityName = p.City?.Name;
+        dto.PlotType = p.PlotType?.Name;
+        dto.AreaValue = p.AreaValue;
+        dto.AreaUnit = p.AreaUnit;
+        dto.AreaSqft = p.AreaSqft;
+    }
+
     public static async Task<IResult> GetReports(
-        IUnitOfWork unitOfWork, int page = 1, int pageSize = 20, string? status = "Pending")
+        IUnitOfWork unitOfWork, ApplicationDbContext db, int page = 1, int pageSize = 20, string? status = "Pending")
     {
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
 
         var paged = await unitOfWork.ListingReports.GetPagedAsync(page, pageSize, status);
-        var items = paged.Items.Select(ToAdminListingReportDto).ToList();
+
+        // Batched lookup instead of N+1 — ListingReport has no FK/nav to RoomListing/PlotListing
+        // (just a ListingId + ListingType string discriminator), so the underlying listing content
+        // has to be joined in manually here.
+        var roomIds = paged.Items.Where(r => r.ListingType == ListingKinds.Room).Select(r => r.ListingId).Distinct().ToList();
+        var plotIds = paged.Items.Where(r => r.ListingType == ListingKinds.Plot).Select(r => r.ListingId).Distinct().ToList();
+
+        var roomsById = roomIds.Count == 0 ? new Dictionary<Guid, RoomListing>() : await db.RoomListings
+            .AsNoTracking().Include(l => l.RoomType).Include(l => l.District).Include(l => l.City)
+            .Where(l => roomIds.Contains(l.Id)).ToDictionaryAsync(l => l.Id);
+        var plotsById = plotIds.Count == 0 ? new Dictionary<Guid, PlotListing>() : await db.PlotListings
+            .AsNoTracking().Include(p => p.PlotType).Include(p => p.District).Include(p => p.City)
+            .Where(p => plotIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
+
+        var items = paged.Items.Select(r =>
+        {
+            var dto = ToAdminListingReportDto(r);
+            if (r.ListingType == ListingKinds.Room && roomsById.TryGetValue(r.ListingId, out var room)) ApplyRoomReportDetails(dto, room);
+            else if (r.ListingType == ListingKinds.Plot && plotsById.TryGetValue(r.ListingId, out var plot)) ApplyPlotReportDetails(dto, plot);
+            return dto;
+        }).ToList();
 
         return OkResponse(new { items, hasMore = paged.HasMore });
     }
@@ -1354,7 +1397,30 @@ public static class AdminHandlers
     {
         var report = await unitOfWork.ListingReports.GetByIdAsync(id);
         if (report == null) return NotFoundResponse("Report not found");
-        return OkResponse(ToAdminListingReportDto(report));
+        var dto = ToAdminListingReportDto(report);
+
+        // GetByIdWithPhotosForAdminAsync deliberately survives the listing being deleted, so the
+        // report review still shows what was reported even after the owner deletes the post.
+        if (report.ListingType == ListingKinds.Room)
+        {
+            var listing = await unitOfWork.RoomListings.GetByIdWithPhotosForAdminAsync(report.ListingId);
+            if (listing != null)
+            {
+                ApplyRoomReportDetails(dto, listing);
+                dto.Photos = listing.Photos.Select(p => p.PhotoUrl).ToList();
+            }
+        }
+        else if (report.ListingType == ListingKinds.Plot)
+        {
+            var plot = await unitOfWork.PlotListings.GetByIdWithPhotosForAdminAsync(report.ListingId);
+            if (plot != null)
+            {
+                ApplyPlotReportDetails(dto, plot);
+                dto.Photos = plot.Photos.Select(p => p.PhotoUrl).ToList();
+            }
+        }
+
+        return OkResponse(dto);
     }
 
     public static async Task<IResult> ResolveReport(
@@ -1502,6 +1568,13 @@ public static class AdminHandlers
         RequestedPlanCreditsSpent = l.RequestedPlanCreditsSpent,
         SubmittedAt = l.UpdatedAt,
         Photos = includePhotos ? l.Photos.Select(p => p.PhotoUrl).ToList() : new List<string>(),
+        Address = l.Address,
+        Description = l.Description,
+        DistrictName = l.District?.Name,
+        CityName = l.City?.Name,
+        RoomTypeName = l.RoomType?.Name,
+        FurnishedStatus = l.FurnishedStatus,
+        PriceMonthly = l.PriceMonthly,
     };
 
     public static async Task<IResult> GetRoomGoLiveRequests(
@@ -1515,6 +1588,9 @@ public static class AdminHandlers
         // queue forever.
         var query = db.RoomListings
             .Include(l => l.User)
+            .Include(l => l.RoomType)
+            .Include(l => l.District)
+            .Include(l => l.City)
             .Where(l => !l.IsDeleted && l.LiveRequestStatus == status)
             .OrderByDescending(l => l.UpdatedAt);
 
@@ -1527,6 +1603,9 @@ public static class AdminHandlers
         var listing = await db.RoomListings
             .AsNoTracking()
             .Include(l => l.User)
+            .Include(l => l.RoomType)
+            .Include(l => l.District)
+            .Include(l => l.City)
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
             .FirstOrDefaultAsync(l => l.Id == id && !l.IsDeleted);
         if (listing == null) return NotFoundResponse("Go-Live request not found");

@@ -757,6 +757,14 @@ public static class PlotListingHandlers
         RequestedPlanCreditsSpent = p.RequestedPlanCreditsSpent,
         SubmittedAt = p.UpdatedAt,
         Photos = includePhotos ? p.Photos.Select(ph => ph.PhotoUrl).ToList() : new List<string>(),
+        Address = p.Address,
+        Description = p.Description,
+        DistrictName = p.District?.Name,
+        CityName = p.City?.Name,
+        PlotType = p.PlotType?.Name,
+        AreaValue = p.AreaValue,
+        AreaUnit = p.AreaUnit,
+        AreaSqft = p.AreaSqft,
     };
 
     public static async Task<IResult> GetPlotGoLiveRequests(
@@ -769,6 +777,9 @@ public static class PlotListingHandlers
         // deleted-while-Pending plot can't linger in this queue forever.
         var query = db.PlotListings
             .Include(p => p.User)
+            .Include(p => p.PlotType)
+            .Include(p => p.District)
+            .Include(p => p.City)
             .Where(p => !p.IsDeleted && p.LiveRequestStatus == status)
             .OrderByDescending(p => p.UpdatedAt);
 
@@ -781,6 +792,9 @@ public static class PlotListingHandlers
         var plot = await db.PlotListings
             .AsNoTracking()
             .Include(p => p.User)
+            .Include(p => p.PlotType)
+            .Include(p => p.District)
+            .Include(p => p.City)
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder))
             .FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
         if (plot == null) return NotFoundResponse("Go-Live request not found");
