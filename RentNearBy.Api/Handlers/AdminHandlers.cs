@@ -703,16 +703,27 @@ public static class AdminHandlers
         return OkResponse(result);
     }
 
-    public static async Task<IResult> GetDeletedAccountsByPhone(ApplicationDbContext db, string? phone = null)
+    public static async Task<IResult> GetDeletedAccounts(
+        ApplicationDbContext db, int page = 1, int pageSize = 20, string? search = null)
     {
-        if (string.IsNullOrWhiteSpace(phone)) return BadRequestResponse("phone is required");
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        page = Math.Max(1, page);
 
-        var records = await db.DeletedAccountRecords
-            .Where(r => r.PhoneNumber.Contains(phone.Trim()))
+        var query = db.DeletedAccountRecords.AsNoTracking().AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            query = query.Where(r =>
+                r.PhoneNumber.Contains(s) ||
+                (r.Name != null && r.Name.ToLower().Contains(s)));
+        }
+
+        var result = await query
             .OrderByDescending(r => r.DeletedAt)
-            .ToListAsync();
+            .ToPagedResultAsync(page, pageSize, r => r.Adapt<DeletedAccountRecordDto>());
 
-        return OkResponse(records.Adapt<List<DeletedAccountRecordDto>>());
+        return OkResponse(new { items = result.Items, hasMore = result.HasMore });
     }
 
     public static async Task<IResult> GetUserById(Guid id, ApplicationDbContext db)
