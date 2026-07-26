@@ -1,3 +1,4 @@
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 
 namespace RentNearBy.Core.Interfaces;
@@ -45,4 +46,8 @@ public interface IInquiryRepository : IRepository<Inquiry>
     // Pre-checks for the hard-delete-blocked-if-referenced rule on ServicePackage/Agent.
     Task<bool> ExistsByServicePackageIdAsync(Guid servicePackageId);
     Task<bool> ExistsByAssignedAgentIdAsync(Guid agentId);
+
+    // Raw month+status grouped counts for one agent/year, consumed by AgentHandlers.BuildLeadStatsDto
+    // (agent's own Dashboard and admin's Agent Stats page both assemble from this same row shape).
+    Task<List<MonthlyStatusCountRow>> GetMonthlyStatusCountsForAgentAsync(Guid agentId, int year);
 }

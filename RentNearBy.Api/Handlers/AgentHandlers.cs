@@ -52,6 +52,61 @@ public static class AgentHandlers
         return OkResponse(new MyAgentProfileDto { AgentId = agent.Id, Name = agent.Name, PendingLeadCount = pendingCount });
     }
 
+    // ── Lead stats (month-wise, one year at a time) ─────────────────────────
+    // One shared assembly between the agent's own Dashboard and the admin's Agent Stats page — both
+    // read from the same GroupBy-then-project query (GetMonthlyStatusCountsForAgentAsync), so there's
+    // no separate aggregation logic to keep in sync between the two audiences.
+
+    private static AgentLeadStatsDto BuildLeadStatsDto(Guid agentId, string agentName, int year, List<MonthlyStatusCountRow> rows)
+    {
+        var months = Enumerable.Range(1, 12).Select(m => new MonthlyLeadStatDto { Month = m }).ToList();
+        foreach (var row in rows)
+        {
+            var bucket = months[row.Month - 1];
+            if (row.Status == InquiryStatuses.Submitted) bucket.Submitted = row.Count;
+            else if (row.Status == InquiryStatuses.Contacted) bucket.Contacted = row.Count;
+            else if (row.Status == InquiryStatuses.Closed) bucket.Closed = row.Count;
+            bucket.Total += row.Count;
+        }
+
+        return new AgentLeadStatsDto
+        {
+            AgentId = agentId,
+            AgentName = agentName,
+            Year = year,
+            TotalLeads = months.Sum(m => m.Total),
+            TotalSubmitted = months.Sum(m => m.Submitted),
+            TotalContacted = months.Sum(m => m.Contacted),
+            TotalClosed = months.Sum(m => m.Closed),
+            Months = months,
+        };
+    }
+
+    // Agent-facing — resolves identity from JWT, same pattern as GetMyAgentProfile above.
+    public static async Task<IResult> GetMyLeadStats(ClaimsPrincipal principal, IUnitOfWork unitOfWork, int? year = null)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var agent = await unitOfWork.Agents.GetByUserIdAsync(userId);
+        if (agent == null) return NotFoundResponse("Not an agent");
+
+        var targetYear = year ?? DateTime.UtcNow.Year;
+        var rows = await unitOfWork.Inquiries.GetMonthlyStatusCountsForAgentAsync(agent.Id, targetYear);
+        return OkResponse(BuildLeadStatsDto(agent.Id, agent.Name, targetYear, rows));
+    }
+
+    // Admin-facing — explicit agentId route param, mirrors GetAgentById's shape.
+    public static async Task<IResult> GetAdminAgentLeadStats(Guid id, IUnitOfWork unitOfWork, int? year = null)
+    {
+        var agent = await unitOfWork.Agents.GetByIdAsync(id);
+        if (agent == null) return NotFoundResponse("Agent not found");
+
+        var targetYear = year ?? DateTime.UtcNow.Year;
+        var rows = await unitOfWork.Inquiries.GetMonthlyStatusCountsForAgentAsync(agent.Id, targetYear);
+        return OkResponse(BuildLeadStatsDto(agent.Id, agent.Name, targetYear, rows));
+    }
+
     public static async Task<IResult> AdminCreateAgent(
         CreateAgentRequest request, IValidator<CreateAgentRequest> validator, IUnitOfWork unitOfWork)
     {

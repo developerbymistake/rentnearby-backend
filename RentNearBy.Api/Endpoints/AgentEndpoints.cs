@@ -14,6 +14,7 @@ public static class AgentEndpoints
     {
         group.MapGet("", AgentHandlers.GetAgents).RequireAuthorization("AdminOnly");
         group.MapGet("/{id:guid}", AgentHandlers.GetAgentById).RequireAuthorization("AdminOnly");
+        group.MapGet("/{id:guid}/stats", AgentHandlers.GetAdminAgentLeadStats).RequireAuthorization("AdminOnly");
         group.MapPost("", AgentHandlers.AdminCreateAgent).RequireAuthorization("AdminOnly");
         group.MapPut("/{id:guid}", AgentHandlers.AdminUpdateAgent).RequireAuthorization("AdminOnly");
         group.MapDelete("/{id:guid}", AgentHandlers.AdminDeleteAgent).RequireAuthorization("AdminOnly");
@@ -22,6 +23,7 @@ public static class AgentEndpoints
         group.MapPut("/{id:guid}/services", AgentHandlers.AdminSetAgentServices).RequireAuthorization("AdminOnly");
 
         group.MapGet("/me", AgentHandlers.GetMyAgentProfile).RequireAuthorization();
+        group.MapGet("/me/stats", AgentHandlers.GetMyLeadStats).RequireAuthorization();
         group.MapGet("/me/leads", InquiryHandlers.GetMyLeads).RequireAuthorization();
         group.MapGet("/me/leads/{id:guid}", InquiryHandlers.GetMyLeadDetail).RequireAuthorization();
         group.MapPut("/me/leads/{id:guid}/status", InquiryHandlers.UpdateMyLeadStatus).RequireAuthorization();

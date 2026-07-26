@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
@@ -129,4 +130,15 @@ public class InquiryRepository(ApplicationDbContext context)
     // inquiries only.
     public async Task<bool> ExistsByAssignedAgentIdAsync(Guid agentId)
         => await _dbSet.AnyAsync(i => i.InquiryAgents.Any(ia => ia.AgentId == agentId) && LiveStatuses.Contains(i.Status));
+
+    // Raw month+status counts for one agent/year — AgentHandlers.BuildLeadStatsDto zero-fills and
+    // cross-tabs these into the 12-month DTO both the agent's own Dashboard and the admin's Agent
+    // Stats page consume. Joins through InquiryAgents (no direct AgentId FK on Inquiry), same as
+    // ExistsByAssignedAgentIdAsync above.
+    public async Task<List<MonthlyStatusCountRow>> GetMonthlyStatusCountsForAgentAsync(Guid agentId, int year)
+        => await _dbSet.AsNoTracking()
+            .Where(i => i.InquiryAgents.Any(ia => ia.AgentId == agentId) && i.CreatedAt.Year == year)
+            .GroupBy(i => new { i.CreatedAt.Month, i.Status })
+            .Select(g => new MonthlyStatusCountRow { Month = g.Key.Month, Status = g.Key.Status, Count = g.Count() })
+            .ToListAsync();
 }
