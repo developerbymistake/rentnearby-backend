@@ -21,16 +21,16 @@ public static class RoomListingsHandlers
     private static readonly TimeSpan ReportSubmitWindow = TimeSpan.FromHours(1);
     private const int ReportSubmitMax = 5;
 
-    private static string ContextCacheKey(double lat, double lng)
-        => $"context:{lat:F2}:{lng:F2}";
+    private static string ContextCacheKey(double lat, double lng, bool includeAddress)
+        => includeAddress ? $"context:{lat:F2}:{lng:F2}:addr" : $"context:{lat:F2}:{lng:F2}";
 
-    public static async Task<IResult> GetContext(double lat, double lng, IServiceProvider sp)
+    public static async Task<IResult> GetContext(double lat, double lng, IServiceProvider sp, bool includeAddress = false)
     {
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
             return BadRequestResponse("Invalid coordinates");
 
         var redis = sp.GetService<IConnectionMultiplexer>();
-        var cacheKey = ContextCacheKey(lat, lng);
+        var cacheKey = ContextCacheKey(lat, lng, includeAddress);
 
         if (redis != null)
         {
@@ -64,12 +64,36 @@ public static class RoomListingsHandlers
             .Select(c => new { City = c, Dist = Haversine(lat, lng, (double)c.Latitude!, (double)c.Longitude!) })
             .MinBy(x => x.Dist)?.City ?? cities.FirstOrDefault();
 
-        var result = new
+        object result;
+
+        if (!includeAddress)
         {
-            district = new { id = match.Id, name = match.Name, stateName = match.StateName },
-            nearestCityId = nearestCity?.Id,
-            cities = cities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
-        };
+            result = new
+            {
+                district = new { id = match.Id, name = match.Name, stateName = match.StateName },
+                nearestCityId = nearestCity?.Id,
+                cities = cities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
+            };
+        }
+        else
+        {
+            var cityResolver = sp.GetRequiredService<ICityResolutionService>();
+            var (address, resolvedCity) = await cityResolver.ResolveAddressAndCityAsync(match, cities, nearestCity, lat, lng);
+
+            var responseCities = cities;
+            if (resolvedCity is not null && cities.All(c => c.Id != resolvedCity.Id))
+            {
+                responseCities = new List<City>(cities) { resolvedCity };
+            }
+
+            result = new
+            {
+                district = new { id = match.Id, name = match.Name, stateName = match.StateName },
+                nearestCityId = resolvedCity?.Id ?? nearestCity?.Id,
+                cities = responseCities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
+                address,
+            };
+        }
 
         if (redis != null)
         {

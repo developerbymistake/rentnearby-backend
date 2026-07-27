@@ -37,6 +37,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICouponService, CouponService>();
         services.AddScoped<ICreditPackPurchaseService, CreditPackPurchaseService>();
         services.AddScoped<IWalletNotifier, WalletNotifier>();
+        services.AddScoped<ICityResolutionService, CityResolutionService>();
         services.AddHostedService<PendingCreditPurchaseCleanupService>();
 
         // Replaces MembershipExpiryService + PlotMembershipExpiryService — one unified sweep,

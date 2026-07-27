@@ -57,6 +57,24 @@ public class NominatimGeocodingService : IGeocodingService
         }
     }
 
+    // Used for address/city resolution at listing creation — returns display address + best-effort place name
+    public async Task<ReverseGeocodeResult?> ReverseGeocodeAsync(double lat, double lng)
+    {
+        var url = $"reverse?lat={lat.ToString(CultureInfo.InvariantCulture)}&lon={lng.ToString(CultureInfo.InvariantCulture)}&format=jsonv2";
+        try
+        {
+            var result = await _http.GetFromJsonAsync<NominatimReverseResult>(url);
+            if (result is null || string.IsNullOrWhiteSpace(result.DisplayName)) return null;
+            var placeName = result.Address?.City ?? result.Address?.Town ?? result.Address?.Municipality
+                ?? result.Address?.Village ?? result.Address?.Suburb ?? result.Address?.County;
+            return new ReverseGeocodeResult(result.DisplayName, placeName?.Trim());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private record NominatimResult(
         [property: JsonPropertyName("lat")] string Lat,
         [property: JsonPropertyName("lon")] string Lon,
@@ -65,5 +83,19 @@ public class NominatimGeocodingService : IGeocodingService
 
     private record NominatimDistrictResult(
         [property: JsonPropertyName("geotext")] string? GeoText
+    );
+
+    private record NominatimReverseResult(
+        [property: JsonPropertyName("display_name")] string? DisplayName,
+        [property: JsonPropertyName("address")] NominatimAddress? Address
+    );
+
+    private record NominatimAddress(
+        [property: JsonPropertyName("city")] string? City,
+        [property: JsonPropertyName("town")] string? Town,
+        [property: JsonPropertyName("municipality")] string? Municipality,
+        [property: JsonPropertyName("village")] string? Village,
+        [property: JsonPropertyName("suburb")] string? Suburb,
+        [property: JsonPropertyName("county")] string? County
     );
 }
