@@ -133,7 +133,16 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(c => c.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
             e.HasIndex(c => c.DistrictId);
-            e.HasIndex(c => new { c.DistrictId, c.Name }).IsUnique();
+            // Stored, indexed lower(Name) — mirrors the Location computed-column pattern used by
+            // RoomListing/PlotListing above. Makes city-name uniqueness genuinely case-insensitive at
+            // the DB level (a plain unique index on Name lets "Rishikesh" and "rishikesh" both insert
+            // as separate rows under concurrent requests) and turns case-insensitive lookups into an
+            // index seek instead of a per-row lower() scan.
+            e.Property<string>("NameLower")
+             .HasComputedColumnSql("lower(\"Name\")", stored: true);
+            e.HasIndex("DistrictId", "NameLower")
+             .IsUnique()
+             .HasDatabaseName("ix_cities_district_namelower_unique");
             e.HasOne(c => c.District)
              .WithMany(d => d.Cities)
              .HasForeignKey(c => c.DistrictId)

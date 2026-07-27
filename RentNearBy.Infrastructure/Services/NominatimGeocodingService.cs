@@ -75,6 +75,29 @@ public class NominatimGeocodingService : IGeocodingService
         }
     }
 
+    // Used for verified coordinate resolution — returns multiple ranked candidates with place type
+    public async Task<List<GeoSearchCandidate>> SearchPlacesAsync(string query, int limit = 10)
+    {
+        var url = $"search?q={Uri.EscapeDataString(query)}&format=json&limit={limit}&countrycodes=in";
+        try
+        {
+            var results = await _http.GetFromJsonAsync<NominatimSearchResult[]>(url);
+            if (results is null) return [];
+            var candidates = new List<GeoSearchCandidate>();
+            foreach (var r in results)
+            {
+                if (!decimal.TryParse(r.Lat, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat)) continue;
+                if (!decimal.TryParse(r.Lon, NumberStyles.Float, CultureInfo.InvariantCulture, out var lon)) continue;
+                candidates.Add(new GeoSearchCandidate(Math.Round(lat, 6), Math.Round(lon, 6), r.DisplayName, r.Type));
+            }
+            return candidates;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     private record NominatimResult(
         [property: JsonPropertyName("lat")] string Lat,
         [property: JsonPropertyName("lon")] string Lon,
@@ -97,5 +120,12 @@ public class NominatimGeocodingService : IGeocodingService
         [property: JsonPropertyName("village")] string? Village,
         [property: JsonPropertyName("suburb")] string? Suburb,
         [property: JsonPropertyName("county")] string? County
+    );
+
+    private record NominatimSearchResult(
+        [property: JsonPropertyName("lat")] string Lat,
+        [property: JsonPropertyName("lon")] string Lon,
+        [property: JsonPropertyName("display_name")] string DisplayName,
+        [property: JsonPropertyName("type")] string? Type
     );
 }
