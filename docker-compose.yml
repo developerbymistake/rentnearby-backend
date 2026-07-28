@@ -14,5 +14,6 @@ services:
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
       AppLinks__PackageName: com.rentnearby.rentnearby
       AppLinks__Sha256Fingerprints__0: ${APP_LINKS_SHA256_FINGERPRINT}
+      AppLinks__PlayStoreUrl: https://play.google.com/store/apps/details?id=com.rentnearby.rentnearby
     ports:
       - "5000:5000"
