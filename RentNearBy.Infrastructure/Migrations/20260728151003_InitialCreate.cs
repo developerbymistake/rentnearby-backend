@@ -364,6 +364,27 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "AppSettings",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Type = table.Column<string>(type: "text", nullable: false),
+                    Value = table.Column<string>(type: "text", nullable: false),
+                    UpdatedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AppSettings", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AppSettings_Admins_UpdatedByAdminId",
+                        column: x => x.UpdatedByAdminId,
+                        principalTable: "Admins",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Messages",
                 columns: table => new
                 {
@@ -403,7 +424,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     Name = table.Column<string>(type: "text", nullable: false),
                     Latitude = table.Column<decimal>(type: "numeric", nullable: true),
                     Longitude = table.Column<decimal>(type: "numeric", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    NameLower = table.Column<string>(type: "text", nullable: true, computedColumnSql: "lower(\"Name\")", stored: true)
                 },
                 constraints: table =>
                 {
@@ -526,7 +548,12 @@ namespace RentNearBy.Infrastructure.Migrations
                     IsFeatured = table.Column<bool>(type: "boolean", nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    TerrainType = table.Column<string>(type: "text", nullable: true),
+                    PickupDropLocation = table.Column<string>(type: "text", nullable: true),
+                    NightsBreakdown = table.Column<string>(type: "text", nullable: true),
+                    MealsNote = table.Column<string>(type: "text", nullable: true),
+                    ItineraryJson = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -552,6 +579,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     Experience = table.Column<int>(type: "integer", nullable: true),
+                    CompanyName = table.Column<string>(type: "text", nullable: true),
                     UserId = table.Column<Guid>(type: "uuid", nullable: true)
                 },
                 constraints: table =>
@@ -1249,20 +1277,31 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "UpdatedByAdminId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_AppSettings_Type",
+                table: "AppSettings",
+                column: "Type",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AppSettings_UpdatedByAdminId",
+                table: "AppSettings",
+                column: "UpdatedByAdminId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_BannerDismissals_BannerId",
                 table: "BannerDismissals",
                 column: "BannerId");
 
             migrationBuilder.CreateIndex(
+                name: "ix_cities_district_namelower_unique",
+                table: "Cities",
+                columns: new[] { "DistrictId", "NameLower" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Cities_DistrictId",
                 table: "Cities",
                 column: "DistrictId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Cities_DistrictId_Name",
-                table: "Cities",
-                columns: new[] { "DistrictId", "Name" },
-                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Conversations_OwnerId_LastMessageAt",
@@ -1831,6 +1870,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "AppFeatureFlags");
+
+            migrationBuilder.DropTable(
+                name: "AppSettings");
 
             migrationBuilder.DropTable(
                 name: "BannerDismissals");

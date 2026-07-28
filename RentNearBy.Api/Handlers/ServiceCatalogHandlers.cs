@@ -2,6 +2,7 @@ using FluentValidation;
 using Mapster;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -9,6 +10,7 @@ using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
+using System.Text.Json;
 
 namespace RentNearBy.Api.Handlers;
 
@@ -153,11 +155,18 @@ public static class ServiceCatalogHandlers
         return OkResponse(services.Select(s => s.Adapt<ServiceListItemDto>()));
     }
 
-    public static async Task<IResult> GetServiceById(Guid id, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetServiceById(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         var service = await unitOfWork.Services.GetByIdWithDetailsAsync(id);
         if (service == null) return NotFoundResponse("Service not found");
-        return OkResponse(service.Adapt<ServiceDetailDto>());
+
+        var dto = service.Adapt<ServiceDetailDto>();
+        dto.ItineraryDays = string.IsNullOrEmpty(service.ItineraryJson)
+            ? new List<ItineraryDayDto>()
+            : JsonSerializer.Deserialize<List<ItineraryDayDto>>(service.ItineraryJson) ?? new List<ItineraryDayDto>();
+        dto.ItineraryDisclaimer = await ConfigHandlers.ResolveItineraryDisclaimerAsync(service.TerrainType, unitOfWork, cache);
+
+        return OkResponse(dto);
     }
 
     public static async Task<IResult> AdminCreateService(
@@ -184,6 +193,11 @@ public static class ServiceCatalogHandlers
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
+            TerrainType = request.TerrainType,
+            PickupDropLocation = request.PickupDropLocation,
+            NightsBreakdown = request.NightsBreakdown,
+            MealsNote = request.MealsNote,
+            ItineraryJson = request.ItineraryDays != null ? JsonSerializer.Serialize(request.ItineraryDays) : null,
         };
 
         await unitOfWork.Services.AddAsync(service);
@@ -193,7 +207,8 @@ public static class ServiceCatalogHandlers
     }
 
     public static async Task<IResult> AdminUpdateService(
-        Guid id, UpdateServiceRequest request, IValidator<UpdateServiceRequest> validator, IUnitOfWork unitOfWork)
+        Guid id, UpdateServiceRequest request, IValidator<UpdateServiceRequest> validator, IUnitOfWork unitOfWork,
+        IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -208,12 +223,23 @@ public static class ServiceCatalogHandlers
         if (request.SortOrder.HasValue) service.SortOrder = request.SortOrder.Value;
         if (request.IsFeatured.HasValue) service.IsFeatured = request.IsFeatured.Value;
         if (request.IsActive.HasValue) service.IsActive = request.IsActive.Value;
+        if (request.TerrainType != null) service.TerrainType = request.TerrainType;
+        if (request.PickupDropLocation != null) service.PickupDropLocation = request.PickupDropLocation;
+        if (request.NightsBreakdown != null) service.NightsBreakdown = request.NightsBreakdown;
+        if (request.MealsNote != null) service.MealsNote = request.MealsNote;
+        if (request.ItineraryDays != null) service.ItineraryJson = JsonSerializer.Serialize(request.ItineraryDays);
         service.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.SaveChangesAsync();
 
         var updated = await unitOfWork.Services.GetByIdWithDetailsAsync(id);
-        return OkResponse(updated!.Adapt<ServiceDetailDto>());
+        var dto = updated!.Adapt<ServiceDetailDto>();
+        dto.ItineraryDays = string.IsNullOrEmpty(updated.ItineraryJson)
+            ? new List<ItineraryDayDto>()
+            : JsonSerializer.Deserialize<List<ItineraryDayDto>>(updated.ItineraryJson) ?? new List<ItineraryDayDto>();
+        dto.ItineraryDisclaimer = await ConfigHandlers.ResolveItineraryDisclaimerAsync(updated.TerrainType, unitOfWork, cache);
+
+        return OkResponse(dto);
     }
 
     public static async Task<IResult> AdminDeleteService(

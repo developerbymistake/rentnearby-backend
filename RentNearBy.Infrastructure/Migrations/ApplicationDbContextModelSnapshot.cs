@@ -149,6 +149,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<string>("CompanyName")
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -242,6 +245,37 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("UpdatedByAdminId");
 
                     b.ToTable("AppFeatureFlags");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.AppSetting", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Type")
+                        .IsUnique();
+
+                    b.HasIndex("UpdatedByAdminId");
+
+                    b.ToTable("AppSettings");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.BannerDismissal", b =>
@@ -1857,8 +1891,20 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<bool>("IsFeatured")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("ItineraryJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("MealsNote")
+                        .HasColumnType("text");
+
                     b.Property<string>("Name")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("NightsBreakdown")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PickupDropLocation")
                         .HasColumnType("text");
 
                     b.Property<Guid>("ServiceCategoryId")
@@ -1870,6 +1916,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
+
+                    b.Property<string>("TerrainType")
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
@@ -2179,6 +2228,16 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.AppFeatureFlag", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Admin", "UpdatedByAdmin")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("UpdatedByAdmin");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.AppSetting", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Admin", "UpdatedByAdmin")
                         .WithMany()

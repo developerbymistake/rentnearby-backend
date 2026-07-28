@@ -19,6 +19,22 @@ public class Service
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
+    // Service Itinerary fields — all optional, shown on the Service Detail screen for
+    // travel/trek-style offerings only (blank/unset for other categories).
+    // Terrain the service operates in — drives which itinerary disclaimer text is resolved
+    // (RentNearBy.Api.Handlers.ConfigHandlers.ResolveItineraryDisclaimerAsync), e.g. "Hill".
+    public string? TerrainType { get; set; }
+    // Free-text pickup/drop point shown alongside the itinerary.
+    public string? PickupDropLocation { get; set; }
+    // Free-text nights breakdown, e.g. "2N Manali, 1N Solang".
+    public string? NightsBreakdown { get; set; }
+    // Free-text meals-included note, e.g. "Breakfast & Dinner included".
+    public string? MealsNote { get; set; }
+    // JSON-serialized array of day-wise itinerary entries (List<ItineraryDayDto>) — stored as a
+    // single JSON column rather than a child table since itinerary days have no independent
+    // lifecycle outside their parent Service.
+    public string? ItineraryJson { get; set; }
+
     public ServiceCategory ServiceCategory { get; set; } = null!;
     public ICollection<ServicePackage> Packages { get; set; } = new List<ServicePackage>();
     public ICollection<AgentService> AgentServices { get; set; } = new List<AgentService>();

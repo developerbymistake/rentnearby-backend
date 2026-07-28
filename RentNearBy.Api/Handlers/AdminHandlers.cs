@@ -638,6 +638,78 @@ public static class AdminHandlers
         });
     }
 
+    // ── Service Itinerary Disclaimer ─────────────────────────────────────────────
+    // Single global row (RentNearBy.Core.Models.AppSettingTypes.ItineraryDisclaimer) in the generic
+    // AppSetting master table — Value holds {"hillRegionText":"...","generalText":"..."} as JSON.
+
+    public static async Task<IResult> GetItineraryDisclaimer(IUnitOfWork unitOfWork)
+    {
+        var setting = await unitOfWork.AppSettings.GetByTypeAsync(AppSettingTypes.ItineraryDisclaimer);
+        if (setting == null) return NotFoundResponse("Itinerary disclaimer setting not found");
+
+        var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(setting.Value) ?? new();
+        return OkResponse(new
+        {
+            hillRegionText = parsed.GetValueOrDefault("hillRegionText", ""),
+            generalText = parsed.GetValueOrDefault("generalText", ""),
+            updatedByAdminId = setting.UpdatedByAdminId,
+            updatedAt = setting.UpdatedAt,
+        });
+    }
+
+    public static async Task<IResult> UpdateItineraryDisclaimer(
+        UpdateItineraryDisclaimerRequest request, IValidator<UpdateItineraryDisclaimerRequest> validator,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        // Unlike AppFeatureFlag rows (seeded by DataSeeder), AppSetting rows have no seed path —
+        // fetch-or-create here so the very first admin write brings the row into existence.
+        var setting = await unitOfWork.AppSettings.GetByTypeAsync(AppSettingTypes.ItineraryDisclaimer);
+        var parsed = setting == null
+            ? new Dictionary<string, string>()
+            : JsonSerializer.Deserialize<Dictionary<string, string>>(setting.Value) ?? new();
+
+        if (request.HillRegionText != null) parsed["hillRegionText"] = request.HillRegionText;
+        if (request.GeneralText != null) parsed["generalText"] = request.GeneralText;
+
+        var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var adminId = Guid.TryParse(adminIdClaim, out var parsedAdminId) ? parsedAdminId : (Guid?)null;
+
+        if (setting == null)
+        {
+            setting = new AppSetting
+            {
+                Id = Guid.NewGuid(),
+                Type = AppSettingTypes.ItineraryDisclaimer,
+                Value = JsonSerializer.Serialize(parsed),
+                UpdatedByAdminId = adminId,
+                UpdatedAt = DateTime.UtcNow,
+            };
+            await unitOfWork.AppSettings.AddAsync(setting);
+        }
+        else
+        {
+            setting.Value = JsonSerializer.Serialize(parsed);
+            setting.UpdatedByAdminId = adminId;
+            setting.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.AppSettings.UpdateAsync(setting);
+        }
+
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove(ConfigHandlers.ItineraryDisclaimerCacheKey);
+
+        return OkResponse(new
+        {
+            hillRegionText = parsed.GetValueOrDefault("hillRegionText", ""),
+            generalText = parsed.GetValueOrDefault("generalText", ""),
+            updatedByAdminId = setting.UpdatedByAdminId,
+            updatedAt = setting.UpdatedAt,
+        });
+    }
+
     public static async Task<IResult> GetUsers(
         ApplicationDbContext db,
         int page = 1,

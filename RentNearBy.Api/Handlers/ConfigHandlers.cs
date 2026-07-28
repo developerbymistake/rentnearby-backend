@@ -2,6 +2,7 @@ using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using static RentNearBy.Api.Extensions.ApiResults;
+using System.Text.Json;
 
 namespace RentNearBy.Api.Handlers;
 
@@ -47,5 +48,25 @@ public static class ConfigHandlers
     {
         var (enabled, freeDurationDays) = await GetPaymentFeatureCachedAsync(unitOfWork, cache);
         return OkResponse(new { enabled, freeGoLiveDurationDays = freeDurationDays });
+    }
+
+    // Service Itinerary disclaimer text — one AppSetting row (AppSettingTypes.ItineraryDisclaimer)
+    // holding both variants as JSON ({"hillRegionText":"...","generalText":"..."}); which variant is
+    // shown depends on the Service's own TerrainType, not on any per-request input.
+    public const string ItineraryDisclaimerCacheKey = "config_itinerary_disclaimer";
+
+    public static async Task<string?> ResolveItineraryDisclaimerAsync(string? terrainType, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        if (!cache.TryGetValue(ItineraryDisclaimerCacheKey, out (string HillRegionText, string GeneralText) cached))
+        {
+            var setting = await unitOfWork.AppSettings.GetByTypeAsync(AppSettingTypes.ItineraryDisclaimer);
+            if (setting == null) return null;
+
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(setting.Value) ?? new();
+            cached = (parsed.GetValueOrDefault("hillRegionText", ""), parsed.GetValueOrDefault("generalText", ""));
+            cache.Set(ItineraryDisclaimerCacheKey, cached, CacheTtl);
+        }
+
+        return terrainType == "Hill" ? cached.HillRegionText : cached.GeneralText;
     }
 }

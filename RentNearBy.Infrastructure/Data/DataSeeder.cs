@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Models;
 using System.Text.Json;
@@ -39,6 +40,8 @@ public static class DataSeeder
         await SeedServiceCategoriesAsync(db);
         await SeedInclusionsAsync(db);
         await SeedServicesAsync(db);
+        await SeedServiceItineraryDataAsync(db);
+        await SeedItineraryDisclaimerAsync(db);
         await SeedServicePackagesAsync(db);
         await SeedPackageInclusionsAsync(db);
         // No Agent/sample-Inquiry seeding — an Agent is now a role linked to a real User account
@@ -854,6 +857,185 @@ public static class DataSeeder
             CreatedAt = now,
             UpdatedAt = now,
         }));
+        await db.SaveChangesAsync();
+    }
+
+    // Day-wise itinerary data for the 15 real travel Services seeded above (Char Dham Yatra +
+    // Tour, Travel & Camping categories) — TerrainType/PickupDropLocation/NightsBreakdown/MealsNote/
+    // ItineraryJson are all optional columns on Service, populated only for these travel-style
+    // offerings. Guarded on TerrainType rather than a dedicated table so it stays a single pass over
+    // already-seeded Service rows.
+    private static async Task SeedServiceItineraryDataAsync(ApplicationDbContext db)
+    {
+        if (await db.Services.AnyAsync(s => s.TerrainType != null)) return;
+
+        async Task SetItineraryAsync(int index, string pickupDropLocation, string? nightsBreakdown, string? mealsNote, List<ItineraryDayDto> days)
+        {
+            var service = await db.Services.FirstOrDefaultAsync(s => s.Id == ServiceCatalogId("e3000000", index));
+            if (service == null) return;
+
+            service.TerrainType = "Hill";
+            service.PickupDropLocation = pickupDropLocation;
+            service.NightsBreakdown = nightsBreakdown;
+            service.MealsNote = mealsNote;
+            service.ItineraryJson = JsonSerializer.Serialize(days);
+        }
+
+        const string charDhamMeals = "Breakfast & Dinner included";
+
+        await SetItineraryAsync(1, "Haridwar", null, charDhamMeals, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Haridwar to Joshimath / Pipalkoti", Description = "Overnight stay in Joshimath / Pipalkoti." },
+            new() { DayNumber = 2, Title = "Joshimath / Pipalkoti to Badrinath Darshan to Mana Village", Description = "Visit Badrinath for darshan and Mana Village, then return to Joshimath / Pipalkoti for an overnight stay." },
+            new() { DayNumber = 3, Title = "Joshimath / Pipalkoti to Haridwar", Description = "Drop at Haridwar." },
+        });
+
+        await SetItineraryAsync(2, "Haridwar", null, charDhamMeals, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Haridwar to Guptkashi", Description = "Overnight stay in Guptkashi." },
+            new() { DayNumber = 2, Title = "Guptkashi to Gaurikund to Kedarnath", Description = "Trek from Gaurikund to Kedarnath for darshan. Overnight stay at Kedarnath." },
+            new() { DayNumber = 3, Title = "Kedarnath to Gaurikund to Guptkashi", Description = "Overnight stay in Guptkashi." },
+            new() { DayNumber = 4, Title = "Guptkashi to Haridwar", Description = "Drop at Haridwar." },
+        });
+
+        await SetItineraryAsync(3, "Haridwar", null, charDhamMeals, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Haridwar to Guptkashi", Description = "Overnight stay in Guptkashi." },
+            new() { DayNumber = 2, Title = "Guptkashi to Kedarnath", Description = "Overnight stay in Kedarnath." },
+            new() { DayNumber = 3, Title = "Kedarnath to Guptkashi", Description = "Overnight stay in Guptkashi." },
+            new() { DayNumber = 4, Title = "Guptkashi to Badrinath", Description = "Overnight stay in Badrinath." },
+            new() { DayNumber = 5, Title = "Badrinath to Rudraprayag / Pipalkoti", Description = "Overnight stay in Rudraprayag / Pipalkoti." },
+            new() { DayNumber = 6, Title = "Rudraprayag / Pipalkoti to Haridwar", Description = "Drop at Haridwar." },
+        });
+
+        await SetItineraryAsync(4, "Haridwar", null, charDhamMeals, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Haridwar to Barkot", Description = "Overnight stay in Barkot." },
+            new() { DayNumber = 2, Title = "Barkot to Yamunotri Darshan to Barkot", Description = "Visit Yamunotri for darshan and return to Barkot for an overnight stay." },
+            new() { DayNumber = 3, Title = "Barkot to Uttarkashi", Description = "Overnight stay in Uttarkashi." },
+            new() { DayNumber = 4, Title = "Uttarkashi to Gangotri Darshan to Uttarkashi", Description = "Visit Gangotri for darshan and return to Uttarkashi for an overnight stay." },
+            new() { DayNumber = 5, Title = "Uttarkashi to Guptkashi", Description = "Overnight stay in Guptkashi." },
+            new() { DayNumber = 6, Title = "Guptkashi to Kedarnath", Description = "Overnight stay in Kedarnath." },
+            new() { DayNumber = 7, Title = "Kedarnath to Guptkashi", Description = "Overnight stay in Guptkashi." },
+            new() { DayNumber = 8, Title = "Guptkashi to Badrinath", Description = "Overnight stay in Badrinath." },
+            new() { DayNumber = 9, Title = "Badrinath to Rudraprayag", Description = "Overnight stay in Rudraprayag." },
+            new() { DayNumber = 10, Title = "Rudraprayag to Haridwar", Description = "Drop at Haridwar." },
+        });
+
+        await SetItineraryAsync(5, "Dehradun Railway Station / Airport", null, null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Dehradun to Mussoorie", Description = "Pick-up from Dehradun Railway Station/Airport and drive to Mussoorie. After hotel check-in, visit Kempty Falls, Gun Hill, Mall Road, Camel's Back Road, and enjoy the evening at leisure. Overnight stay in Mussoorie." },
+            new() { DayNumber = 2, Title = "Mussoorie to Dhanaulti Excursion", Description = "After breakfast, proceed for a full-day excursion to Dhanaulti. Visit Eco Park, Surkanda Devi Temple (optional), and enjoy the beautiful Himalayan views before returning to Mussoorie for an overnight stay." },
+            new() { DayNumber = 3, Title = "Mussoorie to Dehradun", Description = "After breakfast, check out from the hotel and, if time permits, visit Mussoorie Lake before driving back to Dehradun for your onward journey with wonderful memories." },
+        });
+
+        await SetItineraryAsync(6, "Kathgodam Railway Station", null, null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Kathgodam to Nainital", Description = "Pick-up from Kathgodam Railway Station and drive to Nainital (approx. 35 km / 1 hour). Upon arrival, check in to the hotel and relax. Later, visit the famous Naini Lake for a boating experience (optional), Naina Devi Temple, Mall Road, Tibetan Market, and The Flats. Enjoy the evening at leisure and overnight stay in Nainital." },
+            new() { DayNumber = 2, Title = "Nainital Local Sightseeing", Description = "After breakfast, proceed for a full-day sightseeing tour covering Snow View Point (via ropeway - optional), Eco Cave Garden, Bhimtal, Sattal, Naukuchiatal, Lovers Point, and Hanuman Garhi. Return to the hotel in the evening for dinner and an overnight stay in Nainital." },
+            new() { DayNumber = 3, Title = "Nainital to Kathgodam", Description = "After breakfast, check out from the hotel. If time permits, enjoy some last-minute shopping on Mall Road. Later, drive back to Kathgodam Railway Station for your onward journey with beautiful memories of Nainital." },
+        });
+
+        await SetItineraryAsync(7, "Kathgodam Railway Station", "2 Nights Nainital | 1 Night Jim Corbett", null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Kathgodam to Nainital", Description = "Pick up from Kathgodam Railway Station and drive to Nainital (approx. 35 km / 1 hour). After check-in at the hotel, visit Naini Lake, Naina Devi Temple, Mall Road, Tibetan Market, and enjoy an optional boating experience. Overnight stay in Nainital." },
+            new() { DayNumber = 2, Title = "Nainital Local Sightseeing", Description = "After breakfast, enjoy a full-day sightseeing tour covering Snow View Point (via ropeway - optional), Eco Cave Garden, Bhimtal, Sattal, Naukuchiatal, and Hanuman Garhi. Return to the hotel in the evening for an overnight stay in Nainital." },
+            new() { DayNumber = 3, Title = "Nainital to Jim Corbett", Description = "After breakfast, check out and drive to Jim Corbett National Park (approx. 70 km / 2.5-3 hours). Upon arrival, check in to the resort and relax. Later, visit Garjiya Devi Temple, Corbett Museum, and enjoy the peaceful riverside surroundings. Spend the evening at leisure. Overnight stay in Jim Corbett." },
+            new() { DayNumber = 4, Title = "Jim Corbett to Kathgodam", Description = "Early morning, enjoy an optional Jeep Safari in Jim Corbett National Park (at an additional cost and subject to availability). Return to the resort for breakfast, check out, and drive back to Kathgodam Railway Station for your onward journey with unforgettable memories." },
+        });
+
+        await SetItineraryAsync(8, "Haridwar / Rishikesh / Dehradun", null, null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Haridwar/Rishikesh/Dehradun to Auli", Description = "Pick up from Haridwar Railway Station, Rishikesh, or Dehradun Airport/Railway Station and drive to Auli via Devprayag, Rudraprayag, Karnaprayag, and Joshimath (approx. 9-10 hours). Enjoy the scenic Himalayan views and river confluences en route. Upon arrival, check in to the hotel and relax. Overnight stay in Auli." },
+            new() { DayNumber = 2, Title = "Auli Local Sightseeing", Description = "After breakfast, explore the beautiful hill station of Auli. Visit Auli Ropeway (optional), Artificial Lake, Gorson Bugyal (trek/pony at own cost), and enjoy panoramic views of Nanda Devi, Hathi Parbat, and other Himalayan peaks. Spend the evening at leisure. Overnight stay in Auli." },
+            new() { DayNumber = 3, Title = "Auli to Haridwar/Rishikesh/Dehradun", Description = "After breakfast, check out from the hotel and drive back to Haridwar, Rishikesh, or Dehradun. En route, enjoy the picturesque mountain landscapes before being dropped at the Railway Station or Airport for your onward journey with unforgettable memories of Auli." },
+        });
+
+        await SetItineraryAsync(9, "Haridwar Railway Station / Dehradun Airport", null, null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Haridwar to Rishikesh", Description = "Pick up from Haridwar Railway Station or Dehradun Airport and drive to Rishikesh. After hotel check-in, visit Laxman Jhula, Ram Jhula, Parmarth Niketan, Janki Setu, and Triveni Ghat. In the evening, attend the mesmerizing Ganga Aarti at Triveni Ghat. Overnight stay in Rishikesh." },
+            new() { DayNumber = 2, Title = "Rishikesh to Haridwar Sightseeing", Description = "After breakfast, proceed to Haridwar and visit Har Ki Pauri, Mansa Devi Temple (ropeway optional), Chandi Devi Temple (ropeway optional), Bharat Mata Mandir, and Shantikunj. Spend the evening witnessing the famous Ganga Aarti at Har Ki Pauri before returning to the hotel. Overnight stay in Rishikesh." },
+            new() { DayNumber = 3, Title = "Rishikesh Departure", Description = "After breakfast, check out from the hotel. If time permits, enjoy optional adventure activities such as River Rafting, Bungee Jumping, or Flying Fox (at an additional cost). Later, transfer to Haridwar Railway Station or Dehradun Airport for your onward journey with unforgettable memories." },
+        });
+
+        await SetItineraryAsync(10, "Haridwar / Rishikesh / Dehradun", null, null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Haridwar/Rishikesh/Dehradun to Chopta", Description = "Pick up from Haridwar Railway Station, Rishikesh, or Dehradun Airport and drive to Chopta via Devprayag, Rudraprayag, and Ukhimath (approx. 8-9 hours). Enjoy the scenic Himalayan landscapes and river confluences en route. Upon arrival, check in to the hotel/camp and relax. Overnight stay in Chopta." },
+            new() { DayNumber = 2, Title = "Chopta to Tungnath to Chandrashila to Chopta", Description = "After an early breakfast, begin the trek to Tungnath Temple, the world's highest Shiva temple (approx. 3.5 km). Those interested can continue the 1.5 km trek to Chandrashila Summit, offering breathtaking panoramic views of peaks like Nanda Devi, Chaukhamba, Kedarnath, and Trishul. Return to Chopta by evening and enjoy an overnight stay." },
+            new() { DayNumber = 3, Title = "Chopta to Haridwar/Rishikesh/Dehradun", Description = "After breakfast, check out from the hotel and drive back to Haridwar, Rishikesh, or Dehradun. En route, enjoy the beautiful mountain scenery before being dropped at the Railway Station or Airport for your onward journey with unforgettable memories of Chopta and Tungnath." },
+        });
+
+        await SetItineraryAsync(11, "Kathgodam Railway Station", null, null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Kathgodam to Mukteshwar", Description = "Pick up from Kathgodam Railway Station and drive to Mukteshwar (approx. 2.5-3 hours / 65 km). On arrival, check in to the hotel and relax. Later, visit Mukteshwar Temple, Chauli Ki Jali, and enjoy the beautiful sunset over the Himalayas. Overnight stay in Mukteshwar." },
+            new() { DayNumber = 2, Title = "Mukteshwar to Ranikhet", Description = "After breakfast, check out and drive to Ranikhet (approx. 3-4 hours / 95 km). On arrival, visit Jhula Devi Temple, Chaubatia Gardens, Upat Golf Course, Kumaon Regimental Centre Museum (subject to entry permission), and Rani Jheel. Check in to the hotel and enjoy a peaceful evening. Overnight stay in Ranikhet." },
+            new() { DayNumber = 3, Title = "Ranikhet to Kathgodam", Description = "After breakfast, check out from the hotel and drive back to Kathgodam (approx. 2.5-3 hours / 80 km). En route, enjoy the scenic Kumaon hills before being dropped at Kathgodam Railway Station with unforgettable memories of Mukteshwar and Ranikhet." },
+        });
+
+        await SetItineraryAsync(12, "Kathgodam Railway Station", "2 Nights Nainital | 1 Night Kausani | 1 Night Ranikhet", null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Kathgodam to Nainital", Description = "Pick up from Kathgodam Railway Station and drive to Nainital (approx. 1.5 hours / 35 km). On arrival, check in to the hotel and relax. Later, visit Naina Devi Temple, Mall Road, Tibetan Market, and enjoy peaceful boating at Naini Lake (at your own expense). Overnight stay in Nainital." },
+            new() { DayNumber = 2, Title = "Nainital Local Sightseeing", Description = "After breakfast, enjoy a full day of sightseeing covering Snow View Point (via ropeway - optional), Eco Cave Gardens, Lovers Point, Bhimtal, Sattal, and Naukuchiatal. Return to the hotel in the evening. Overnight stay in Nainital." },
+            new() { DayNumber = 3, Title = "Nainital to Kausani", Description = "After breakfast, check out and drive to Kausani (approx. 4.5-5 hours / 120 km). En route, enjoy the scenic beauty of Kumaon. On arrival, visit Anasakti Ashram, Tea Garden, and witness the spectacular Himalayan sunset. Check in to the hotel. Overnight stay in Kausani." },
+            new() { DayNumber = 4, Title = "Kausani to Ranikhet", Description = "After breakfast, check out and drive to Ranikhet (approx. 2.5-3 hours / 60 km). En route, visit Kumaon Orchards (seasonal). On arrival, explore Jhula Devi Temple, Chaubatia Gardens, Upat Golf Course, Rani Jheel, and Kumaon Regimental Centre Museum (subject to entry permission). Check in to the hotel. Overnight stay in Ranikhet." },
+            new() { DayNumber = 5, Title = "Ranikhet to Kathgodam", Description = "After breakfast, check out from the hotel and drive back to Kathgodam (approx. 2.5-3 hours / 80 km). En route, enjoy the beautiful mountain landscapes before being dropped at Kathgodam Railway Station with wonderful memories of your Kumaon holiday." },
+        });
+
+        await SetItineraryAsync(13, "Dehradun Airport / Railway Station", "1 Night Haridwar | 1 Night Rishikesh | 2 Nights Mussoorie", null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Dehradun to Haridwar", Description = "Pick up from Dehradun Airport or Railway Station and drive to Haridwar (approx. 1.5 hours / 55 km). Check in to the hotel and relax. Later, visit Har Ki Pauri, Mansa Devi Temple (via ropeway - optional), Chandi Devi Temple (optional), and attend the famous Ganga Aarti in the evening. Overnight stay in Haridwar." },
+            new() { DayNumber = 2, Title = "Haridwar to Rishikesh", Description = "After breakfast, check out and drive to Rishikesh (approx. 45 minutes / 25 km). Visit Ram Jhula, Laxman Jhula, Parmarth Niketan Ashram, Janki Setu, Triveni Ghat, and local cafes. In the evening, witness the peaceful Ganga Aarti at Triveni Ghat. Overnight stay in Rishikesh." },
+            new() { DayNumber = 3, Title = "Rishikesh to Mussoorie", Description = "After breakfast, check out and drive to Mussoorie (approx. 3-4 hours / 80 km). On arrival, check in to the hotel. Later, visit Mall Road, Gun Hill (via ropeway - optional), Camel's Back Road, and enjoy the beautiful evening views. Overnight stay in Mussoorie." },
+            new() { DayNumber = 4, Title = "Mussoorie Local Sightseeing", Description = "After breakfast, enjoy a full day of sightseeing covering Kempty Falls, Company Garden, George Everest House, Cloud's End, and Mussoorie Lake. Spend the evening exploring Mall Road or shopping for local souvenirs. Overnight stay in Mussoorie." },
+            new() { DayNumber = 5, Title = "Mussoorie to Dehradun", Description = "After breakfast, check out from the hotel and drive back to Dehradun (approx. 1.5-2 hours / 35 km). Drop at Dehradun Railway Station for your onward journey with unforgettable memories of the Garhwal Hills." },
+        });
+
+        await SetItineraryAsync(14, "Kathgodam Railway Station", "2 Nights Nainital | 1 Night Kausani | 1 Night Ranikhet | 2 Nights Jim Corbett", null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Kathgodam to Nainital", Description = "Pick up from Kathgodam Railway Station and drive to Nainital (approx. 1.5 hours / 35 km). Check in to the hotel and relax. Later, visit Naina Devi Temple, Mall Road, Tibetan Market, and enjoy boating at Naini Lake (at your own expense). Overnight stay in Nainital." },
+            new() { DayNumber = 2, Title = "Nainital Local Sightseeing", Description = "After breakfast, enjoy a full day of sightseeing covering Snow View Point (via ropeway - optional), Eco Cave Gardens, Lovers Point, Bhimtal, Sattal, and Naukuchiatal. Return to the hotel in the evening. Overnight stay in Nainital." },
+            new() { DayNumber = 3, Title = "Nainital to Kausani", Description = "After breakfast, check out and drive to Kausani (approx. 4.5-5 hours / 120 km). On arrival, visit Anasakti Ashram, Kausani Tea Garden, and enjoy the breathtaking sunset over the Himalayan peaks. Check in to the hotel. Overnight stay in Kausani." },
+            new() { DayNumber = 4, Title = "Kausani to Ranikhet", Description = "After breakfast, check out and drive to Ranikhet (approx. 2.5-3 hours / 60 km). En route, visit Kumaon Orchards (seasonal). On arrival, explore Jhula Devi Temple, Chaubatia Gardens, Upat Golf Course, Rani Jheel, and Kumaon Regimental Centre Museum (subject to entry permission). Overnight stay in Ranikhet." },
+            new() { DayNumber = 5, Title = "Ranikhet to Jim Corbett", Description = "After breakfast, check out and drive to Jim Corbett National Park (approx. 3-4 hours / 90 km). Check in to the resort and spend the day at leisure amidst nature. In the evening, enjoy the peaceful riverside surroundings and resort activities. Overnight stay in Jim Corbett." },
+            new() { DayNumber = 6, Title = "Jim Corbett Sightseeing", Description = "Early morning, enjoy an optional Jeep Safari (advance booking recommended). After breakfast, visit Garjiya Devi Temple, Corbett Museum, Corbett Falls, and Kosi River. Return to the resort for a relaxing evening. Overnight stay in Jim Corbett." },
+            new() { DayNumber = 7, Title = "Jim Corbett to Kathgodam", Description = "After breakfast, check out from the resort and drive back to Kathgodam Railway Station (approx. 2.5-3 hours / 75 km). Drop at the railway station with unforgettable memories of the beautiful Kumaon region." },
+        });
+
+        await SetItineraryAsync(15, "Dehradun Railway Station", "1 Night Haridwar | 2 Nights Rishikesh | 2 Nights Mussoorie | 1 Night Dhanaulti", null, new List<ItineraryDayDto>
+        {
+            new() { DayNumber = 1, Title = "Dehradun to Haridwar", Description = "Pick up from Dehradun Airport or Railway Station and drive to Haridwar (approx. 1.5 hours / 55 km). Check in to the hotel and relax. Later, visit Har Ki Pauri, Mansa Devi Temple (via ropeway - optional), Chandi Devi Temple (optional), and witness the divine Ganga Aarti in the evening. Overnight stay in Haridwar." },
+            new() { DayNumber = 2, Title = "Haridwar to Rishikesh", Description = "After breakfast, check out and drive to Rishikesh (approx. 45 minutes / 25 km). Visit Ram Jhula, Laxman Jhula, Parmarth Niketan Ashram, Janki Setu, Beatles Ashram (optional), and Triveni Ghat. Attend the evening Ganga Aarti and enjoy the vibrant cafe culture. Overnight stay in Rishikesh." },
+            new() { DayNumber = 3, Title = "Rishikesh Adventure & Leisure", Description = "After breakfast, enjoy an adventurous day in Rishikesh. Opt for River Rafting, Bungee Jumping, Flying Fox, Giant Swing, or Zip Line (all adventure activities are optional and chargeable). Spend the evening exploring local markets and cafes. Overnight stay in Rishikesh." },
+            new() { DayNumber = 4, Title = "Rishikesh to Mussoorie", Description = "After breakfast, check out and drive to Mussoorie (approx. 3-4 hours / 80 km). Check in to the hotel and relax. In the evening, visit Mall Road, Gun Hill (via ropeway - optional), and Camel's Back Road. Overnight stay in Mussoorie." },
+            new() { DayNumber = 5, Title = "Mussoorie Local Sightseeing", Description = "After breakfast, enjoy a full day of sightseeing covering Kempty Falls, Company Garden, George Everest House, Cloud's End, and Mussoorie Lake. Return to the hotel in the evening. Overnight stay in Mussoorie." },
+            new() { DayNumber = 6, Title = "Mussoorie to Dhanaulti", Description = "After breakfast, check out and drive to Dhanaulti (approx. 1.5 hours / 30 km). Visit Eco Park, Surkanda Devi Temple (trek/ropeway optional), Apple Orchards (seasonal), and enjoy the peaceful Himalayan surroundings. Check in to the hotel. Overnight stay in Dhanaulti." },
+            new() { DayNumber = 7, Title = "Dhanaulti to Dehradun", Description = "After breakfast, check out and drive back to Dehradun (approx. 2 hours / 60 km). En route, enjoy the scenic mountain views before being dropped at Dehradun Airport or Railway Station for your onward journey with unforgettable memories of Garhwal." },
+        });
+
+        await db.SaveChangesAsync();
+    }
+
+    // Single global disclaimer shown alongside every Service itinerary — text differs by
+    // TerrainType ("Hill" region wording vs the general fallback), resolved in
+    // RentNearBy.Api.Handlers.ConfigHandlers.ResolveItineraryDisclaimerAsync.
+    private static async Task SeedItineraryDisclaimerAsync(ApplicationDbContext db)
+    {
+        if (await db.AppSettings.AnyAsync(s => s.Type == AppSettingTypes.ItineraryDisclaimer)) return;
+
+        var value = JsonSerializer.Serialize(new
+        {
+            hillRegionText = "This itinerary is indicative and general in nature. Actual day-wise plans may vary based on weather, road conditions, local availability, or time constraints, especially in hill regions. The confirmed itinerary will be shared based on your specific requirements at the time of inquiry. This platform connects you with the service provider and is not responsible for any changes made to the itinerary by them.",
+            generalText = "This itinerary is indicative and general in nature. Actual day-wise plans may vary based on weather, road conditions, local availability, or time constraints. The confirmed itinerary will be shared based on your specific requirements at the time of inquiry. This platform connects you with the service provider and is not responsible for any changes made to the itinerary by them.",
+        });
+
+        db.AppSettings.Add(new AppSetting
+        {
+            Id = Guid.NewGuid(),
+            Type = AppSettingTypes.ItineraryDisclaimer,
+            Value = value,
+            UpdatedByAdminId = null,
+            UpdatedAt = DateTime.UtcNow,
+        });
         await db.SaveChangesAsync();
     }
 
