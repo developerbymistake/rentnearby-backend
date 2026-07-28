@@ -32,7 +32,7 @@ public static class DataSeeder
         await SeedAdminsAsync(db);
 
         // Local Services Marketplace catalog — Categories are the top level (one consumer rail per
-        // active category): Char Dham Yatra + Tour, Travel & Camping (Travel) and Yoga & Diet
+        // active category): Char Dham Yatra + Tour, Travel & Camping (Travel) and Yoga & Wellness
         // (Consultation), on the Category->Service->Package engine. Order matters: each method below
         // FK-references rows created by an earlier one via the deterministic ServiceCatalogId() ids,
         // not a DB round-trip.
@@ -673,7 +673,7 @@ public static class DataSeeder
         {
             (1, "Char Dham Yatra",        "route_square", ServiceCategoryFormTypes.Travel,       "Travel Expert"),
             (2, "Tour & Travel", "airplane",     ServiceCategoryFormTypes.Travel,       "Travel Expert"),
-            (3, "Yoga & Diet",            "activity",     ServiceCategoryFormTypes.Consultation, "Instructor"),
+            (3, "Yoga & Wellness",        "activity",     ServiceCategoryFormTypes.Consultation, "Instructor"),
         };
 
         var now = DateTime.UtcNow;
@@ -707,6 +707,7 @@ public static class DataSeeder
             (8,  "Entry Tickets",    "ticket"),
             (9,  "First Aid Kit",    "health"),
             (10, "WiFi Access",      "wifi"),
+            (11, "Breakfast",        "coffee"),
         };
 
         db.Inclusions.AddRange(inclusions.Select(i => new Inclusion
@@ -750,30 +751,90 @@ public static class DataSeeder
                 "The complete Char Dham Yatra — Yamunotri, Gangotri, Kedarnath and Badrinath — starting from Haridwar, with stay, meals and cab arranged for the full journey. Duration and halts can be customized to how your group wants to travel.",
                 true),
 
-            // Tour, Travel & Camping (category 2) — one Service per itinerary/experience
-            (5, 2, "Nainital-Mussoorie Duo Tour", "airplane",
-                "5D/4N covering both Nainital and Mussoorie.",
-                "A 5-day, 4-night tour covering both Nainital and Mussoorie's top sightseeing spots, with hotel stays and local transport.",
+            // Tour, Travel & Camping (category 2) — 11 real, agent-provided itineraries, same
+            // ex-Haridwar/Uttarakhand tour model as Char Dham Yatra: tiered per-group-size pricing,
+            // duration fixed per Service, cab used in description text (not "transport").
+            (5, 2, "Mussoorie & Dhanaulti Tour", "airplane",
+                "2N/3D covering Mussoorie and Dhanaulti's top spots.",
+                "A 2-night, 3-day tour covering Mussoorie and Dhanaulti, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
                 true),
-            (6, 2, "Riverside Camping", "tree",
-                "Riverside camping with bonfire, for couples, friends or families.",
-                "Riverside camping packages with bonfire and overnight stay — available as a standard 2D/1N trip or a family camping weekend.",
+            (6, 2, "Nainital Tour", "airplane",
+                "2N/3D covering Nainital's top sightseeing spots.",
+                "A 2-night, 3-day tour of Nainital, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
+                true),
+            (7, 2, "Nainital & Corbett Tour", "airplane",
+                "3N/4D covering Nainital and Jim Corbett.",
+                "A 3-night, 4-day tour covering Nainital and Jim Corbett, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
+                true),
+            (8, 2, "Auli Tour", "airplane",
+                "2N/3D covering Auli's top sightseeing spots.",
+                "A 2-night, 3-day tour of Auli, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
+                true),
+            (9, 2, "Rishikesh & Haridwar Tour", "airplane",
+                "2N/3D covering Rishikesh and Haridwar.",
+                "A 2-night, 3-day tour covering Rishikesh and Haridwar, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
+                true),
+            (10, 2, "Chopta & Tungnath Tour", "airplane",
+                "2N/3D covering Chopta and Tungnath.",
+                "A 2-night, 3-day tour covering Chopta and Tungnath, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
+                true),
+            (11, 2, "Mukteshwar & Ranikhet Tour", "airplane",
+                "2N/3D covering Mukteshwar and Ranikhet.",
+                "A 2-night, 3-day tour covering Mukteshwar and Ranikhet, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
+                true),
+            (12, 2, "Kumaun Lakes, Orchards & Hills Tour", "airplane",
+                "4N/5D covering Nainital, Kausani and Ranikhet.",
+                "A 4-night, 5-day tour covering Nainital, Kausani and Ranikhet, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
+                true),
+            (13, 2, "Garhwal Triangle Tour", "airplane",
+                "4N/5D covering Haridwar, Rishikesh and Mussoorie.",
+                "A 4-night, 5-day tour covering Haridwar, Rishikesh and Mussoorie, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
+                true),
+            (14, 2, "Grand Kumaun Circuit", "airplane",
+                "6N/7D covering Nainital, Kausani, Ranikhet and Jim Corbett.",
+                "A 6-night, 7-day tour covering Nainital, Kausani, Ranikhet and Jim Corbett, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
+                true),
+            (15, 2, "Garhwal Adventure, Hills & Spirituality Tour", "airplane",
+                "6N/7D covering Haridwar, Rishikesh, Mussoorie and Dhanaulti.",
+                "A 6-night, 7-day tour covering Haridwar, Rishikesh, Mussoorie and Dhanaulti, with hotel stay, cab and breakfast included, plus local sightseeing throughout.",
                 true),
 
-            // Yoga & Diet (category 3) — Consultation vertical: every plan is a custom quote, the
-            // team hears the query and quotes offline (platform is the middleman only).
-            (7, 3, "1-on-1 Yoga Session", "activity",
-                "Private one-on-one yoga sessions.",
-                "Private yoga sessions with an instructor, one-on-one — choose a regular session or one with a certified instructor. Share your requirement and get a custom quote.",
+            // Yoga & Wellness (category 3) — Consultation vertical: every plan is a custom quote,
+            // the team hears the query and quotes offline (platform is the middleman only). Services
+            // 18-23 are condition-specific yoga therapy groups, same instructor team as Yoga
+            // Sessions/Diet Plan, each named condition below is that group's own Package.
+            (16, 3, "Yoga Sessions", "activity",
+                "Private one-on-one sessions or corporate workshops.",
+                "Yoga sessions with an instructor — private one-on-one (regular or certified instructor) or a corporate workshop (single session or monthly program). Share your requirement and get a custom quote.",
                 false),
-            (8, 3, "Corporate Yoga Workshop", "activity",
-                "Yoga workshops for corporate teams.",
-                "Yoga workshops for corporate teams — a single session or an ongoing monthly program. Share your requirement and get a custom quote.",
-                false),
-            (9, 3, "Personalised Diet Plan", "weight",
+            (17, 3, "Personalised Diet Plan", "weight",
                 "Personalised diet plans from a certified nutritionist — weight loss, weight gain or diabetic-friendly.",
                 "Personalised diet plans from a certified nutritionist, with ongoing consultation support. Choose a weight-loss, weight-gain or diabetic-friendly plan — share your requirement and get a custom quote.",
                 true),
+            (18, 3, "Hormones & Weight (Metabolic)", "activity",
+                "Yoga-based support for diabetes, thyroid, PCOD/PCOS, obesity and prostate health.",
+                "Yoga-based support for metabolic and hormonal conditions — diabetes, thyroid care, prostate health, PCOD/PCOS and obesity. Share your condition and get a custom quote.",
+                false),
+            (19, 3, "Heart & Blood Pressure", "activity",
+                "Yoga-based support for hypertension and heart health.",
+                "Yoga-based support for hypertension and overall heart health. Share your condition and get a custom quote.",
+                false),
+            (20, 3, "Mental Health & Nerves", "activity",
+                "Yoga-based support for anxiety, depression, insomnia and Parkinson's.",
+                "Yoga-based support for anxiety and chronic stress, depression, insomnia and sleep disorders, and Parkinson's. Share your condition and get a custom quote.",
+                false),
+            (21, 3, "Bones, Joints & Back Pain", "activity",
+                "Yoga-based support for back pain, arthritis, spondylosis and sciatica.",
+                "Yoga-based support for chronic back pain, arthritis, spondylosis (cervical and lumbar) and sciatica. Share your condition and get a custom quote.",
+                false),
+            (22, 3, "Breathing & Lungs", "activity",
+                "Yoga-based support for asthma and chronic bronchitis.",
+                "Yoga-based support for asthma and chronic bronchitis. Share your condition and get a custom quote.",
+                false),
+            (23, 3, "Stomach & Digestion", "activity",
+                "Yoga-based support for indigestion, constipation, acid reflux and fatty liver.",
+                "Yoga-based support for indigestion, constipation, acid reflux and fatty liver. Share your condition and get a custom quote.",
+                false),
         };
 
         var now = DateTime.UtcNow;
@@ -802,7 +863,7 @@ public static class DataSeeder
 
         // (index, serviceIndex, name, price, originalPrice, discountPercent, isStartingAtPrice,
         //  durationDays, durationNights, priceUnit, sortOrder, isFeatured)
-        // Price=null renders "Get Custom Quote" — EVERY Yoga & Diet (Consultation) plan is null: the
+        // Price=null renders "Get Custom Quote" — EVERY Yoga & Wellness (Consultation) plan is null: the
         // agent hears the query and quotes offline, the platform never commits a price for that
         // vertical. IsStartingAtPrice is true on every priced (Travel) row — yatra/camping/tour
         // pricing is genuinely variable, so "Starting at ₹X" belongs wherever a real price exists.
@@ -817,44 +878,126 @@ public static class DataSeeder
         {
             // Badrinath Yatra (service 1) — real agent-provided pricing, tiered by minimum group
             // size (larger group = lower per-person rate); duration is identical across all 3 tiers.
-            (1, 1, "Minimum 12 Persons", 7074, null, null, true, 3, 2, "per person", 1, false),
-            (2, 1, "Minimum 4 Persons", 7999, null, null, true, 3, 2, "per person", 2, false),
-            (3, 1, "Minimum 2 Persons", 10999, null, null, true, 3, 2, "per person", 3, false),
+            (1, 1, "Minimum 12 Persons", 6500, null, null, true, 3, 2, "per person", 1, false),
+            (2, 1, "Minimum 4 Persons", 7500, null, null, true, 3, 2, "per person", 2, false),
+            (3, 1, "Minimum 2 Persons", 10500, null, null, true, 3, 2, "per person", 3, false),
 
             // Kedarnath Yatra (service 2)
-            (4, 2, "Minimum 12 Persons", 10374, null, null, true, 4, 3, "per person", 1, false),
-            (5, 2, "Minimum 4 Persons", 11499, null, null, true, 4, 3, "per person", 2, false),
-            (6, 2, "Minimum 2 Persons", 15499, null, null, true, 4, 3, "per person", 3, false),
+            (4, 2, "Minimum 12 Persons", 9000, null, null, true, 4, 3, "per person", 1, false),
+            (5, 2, "Minimum 4 Persons", 10500, null, null, true, 4, 3, "per person", 2, false),
+            (6, 2, "Minimum 2 Persons", 14500, null, null, true, 4, 3, "per person", 3, false),
 
-            // Do Dham Yatra (service 3)
-            (7, 3, "Minimum 12 Persons", 10374, null, null, true, 4, 3, "per person", 1, false),
-            (8, 3, "Minimum 4 Persons", 11499, null, null, true, 4, 3, "per person", 2, false),
-            (9, 3, "Minimum 2 Persons", 15499, null, null, true, 4, 3, "per person", 3, false),
+            // Do Dham Yatra (service 3) — duration changed to 5N/6D
+            (7, 3, "Minimum 12 Persons", 15000, null, null, true, 6, 5, "per person", 1, false),
+            (8, 3, "Minimum 4 Persons", 16500, null, null, true, 6, 5, "per person", 2, false),
+            (9, 3, "Minimum 2 Persons", 22500, null, null, true, 6, 5, "per person", 3, false),
 
             // Char Dham Yatra (service 4)
-            (10, 4, "Minimum 12 Persons", 24849, null, null, true, 10, 9, "per person", 1, false),
-            (11, 4, "Minimum 4 Persons", 26999, null, null, true, 10, 9, "per person", 2, false),
-            (12, 4, "Minimum 2 Persons", 36999, null, null, true, 10, 9, "per person", 3, false),
+            (10, 4, "Minimum 12 Persons", 22500, null, null, true, 10, 9, "per person", 1, false),
+            (11, 4, "Minimum 4 Persons", 25500, null, null, true, 10, 9, "per person", 2, false),
+            (12, 4, "Minimum 2 Persons", 35500, null, null, true, 10, 9, "per person", 3, false),
 
-            // Nainital-Mussoorie Duo Tour (service 5)
-            (13, 5, "Nainital-Mussoorie Duo Tour", 8999, null, null, true, 5, 4, "per person", 1, true),
+            // Mussoorie & Dhanaulti Tour (service 5)
+            (13, 5, "Minimum 12 Persons", 7000, null, null, true, 3, 2, "per person", 1, false),
+            (14, 5, "Minimum 4 Persons", 7500, null, null, true, 3, 2, "per person", 2, false),
+            (15, 5, "Minimum 2 Persons", 10500, null, null, true, 3, 2, "per person", 3, false),
 
-            // Riverside Camping (service 6)
-            (14, 6, "Riverside Camping - 2D/1N", 2999, 3499, 14, true, 2, 1, "per person", 1, true),
-            (15, 6, "Family Camping Weekend - 2D/1N", 3499, null, null, true, 2, 1, "per person", 2, false),
+            // Nainital Tour (service 6)
+            (16, 6, "Minimum 12 Persons", 7000, null, null, true, 3, 2, "per person", 1, false),
+            (17, 6, "Minimum 4 Persons", 7500, null, null, true, 3, 2, "per person", 2, false),
+            (18, 6, "Minimum 2 Persons", 10500, null, null, true, 3, 2, "per person", 3, false),
 
-            // 1-on-1 Yoga Session (service 7)
-            (16, 7, "Regular Session", null, null, null, false, null, null, null, 1, false),
-            (17, 7, "Session with Certified Instructor", null, null, null, false, null, null, null, 2, true),
+            // Nainital & Corbett Tour (service 7)
+            (19, 7, "Minimum 12 Persons", 8500, null, null, true, 4, 3, "per person", 1, false),
+            (20, 7, "Minimum 4 Persons", 9000, null, null, true, 4, 3, "per person", 2, false),
+            (21, 7, "Minimum 2 Persons", 13750, null, null, true, 4, 3, "per person", 3, false),
 
-            // Corporate Yoga Workshop (service 8)
-            (18, 8, "Single Session Workshop", null, null, null, false, null, null, null, 1, false),
-            (19, 8, "Monthly Corporate Program", null, null, null, false, null, null, null, 2, true),
+            // Auli Tour (service 8)
+            (22, 8, "Minimum 12 Persons", 7000, null, null, true, 3, 2, "per person", 1, false),
+            (23, 8, "Minimum 4 Persons", 7500, null, null, true, 3, 2, "per person", 2, false),
+            (24, 8, "Minimum 2 Persons", 10500, null, null, true, 3, 2, "per person", 3, false),
 
-            // Personalised Diet Plan (service 9)
-            (20, 9, "Weight Loss Plan", null, null, null, false, null, null, null, 1, true),
-            (21, 9, "Weight Gain Plan", null, null, null, false, null, null, null, 2, false),
-            (22, 9, "Diabetic-Friendly Plan", null, null, null, false, null, null, null, 3, false),
+            // Rishikesh & Haridwar Tour (service 9)
+            (25, 9, "Minimum 12 Persons", 6500, null, null, true, 3, 2, "per person", 1, false),
+            (26, 9, "Minimum 4 Persons", 7500, null, null, true, 3, 2, "per person", 2, false),
+            (27, 9, "Minimum 2 Persons", 10000, null, null, true, 3, 2, "per person", 3, false),
+
+            // Chopta & Tungnath Tour (service 10)
+            (28, 10, "Minimum 12 Persons", 6750, null, null, true, 3, 2, "per person", 1, false),
+            (29, 10, "Minimum 4 Persons", 7500, null, null, true, 3, 2, "per person", 2, false),
+            (30, 10, "Minimum 2 Persons", 10500, null, null, true, 3, 2, "per person", 3, false),
+
+            // Mukteshwar & Ranikhet Tour (service 11)
+            (31, 11, "Minimum 12 Persons", 7000, null, null, true, 3, 2, "per person", 1, false),
+            (32, 11, "Minimum 4 Persons", 7500, null, null, true, 3, 2, "per person", 2, false),
+            (33, 11, "Minimum 2 Persons", 10500, null, null, true, 3, 2, "per person", 3, false),
+
+            // Kumaun Lakes, Orchards & Hills Tour (service 12)
+            (34, 12, "Minimum 12 Persons", 8500, null, null, true, 5, 4, "per person", 1, false),
+            (35, 12, "Minimum 4 Persons", 12500, null, null, true, 5, 4, "per person", 2, false),
+            (36, 12, "Minimum 2 Persons", 17500, null, null, true, 5, 4, "per person", 3, false),
+
+            // Garhwal Triangle Tour (service 13)
+            (37, 13, "Minimum 12 Persons", 10000, null, null, true, 5, 4, "per person", 1, false),
+            (38, 13, "Minimum 4 Persons", 11500, null, null, true, 5, 4, "per person", 2, false),
+            (39, 13, "Minimum 2 Persons", 16500, null, null, true, 5, 4, "per person", 3, false),
+
+            // Grand Kumaun Circuit (service 14) — source pricing given as Min 4 (17,500) higher
+            // than Min 2 (16,500); kept exactly as provided, SortOrder follows actual price
+            // ascending (not the usual min-12/4/2 order) per this file's own SortOrder convention.
+            (40, 14, "Minimum 12 Persons", 14750, null, null, true, 7, 6, "per person", 1, false),
+            (41, 14, "Minimum 2 Persons", 16500, null, null, true, 7, 6, "per person", 2, false),
+            (42, 14, "Minimum 4 Persons", 17500, null, null, true, 7, 6, "per person", 3, false),
+
+            // Garhwal Adventure, Hills & Spirituality Tour (service 15) — same Min 4 > Min 2
+            // source-data quirk as Grand Kumaun Circuit above, kept as provided.
+            (43, 15, "Minimum 12 Persons", 14750, null, null, true, 7, 6, "per person", 1, false),
+            (44, 15, "Minimum 2 Persons", 16500, null, null, true, 7, 6, "per person", 2, false),
+            (45, 15, "Minimum 4 Persons", 17500, null, null, true, 7, 6, "per person", 3, false),
+
+            // Yoga Sessions (service 16) — merged 1-on-1 + Corporate Workshop packages
+            (46, 16, "Regular Session", null, null, null, false, null, null, null, 1, false),
+            (47, 16, "Session with Certified Instructor", null, null, null, false, null, null, null, 2, true),
+            (48, 16, "Single Session Workshop", null, null, null, false, null, null, null, 3, false),
+            (49, 16, "Monthly Corporate Program", null, null, null, false, null, null, null, 4, true),
+
+            // Personalised Diet Plan (service 17)
+            (50, 17, "Weight Loss Plan", null, null, null, false, null, null, null, 1, true),
+            (51, 17, "Weight Gain Plan", null, null, null, false, null, null, null, 2, false),
+            (52, 17, "Diabetic-Friendly Plan", null, null, null, false, null, null, null, 3, false),
+
+            // Hormones & Weight (Metabolic) (service 18)
+            (53, 18, "Diabetes", null, null, null, false, null, null, null, 1, false),
+            (54, 18, "Thyroid Care", null, null, null, false, null, null, null, 2, false),
+            (55, 18, "Prostate Health", null, null, null, false, null, null, null, 3, false),
+            (56, 18, "PCOD and PCOS", null, null, null, false, null, null, null, 4, false),
+            (57, 18, "Obesity", null, null, null, false, null, null, null, 5, false),
+
+            // Heart & Blood Pressure (service 19)
+            (58, 19, "Hypertension", null, null, null, false, null, null, null, 1, false),
+            (59, 19, "Heart Health", null, null, null, false, null, null, null, 2, false),
+
+            // Mental Health & Nerves (service 20)
+            (60, 20, "Anxiety & Chronic Stress", null, null, null, false, null, null, null, 1, false),
+            (61, 20, "Depression", null, null, null, false, null, null, null, 2, false),
+            (62, 20, "Insomnia & Sleep Disorders", null, null, null, false, null, null, null, 3, false),
+            (63, 20, "Parkinson's", null, null, null, false, null, null, null, 4, false),
+
+            // Bones, Joints & Back Pain (service 21)
+            (64, 21, "Chronic Back Pain", null, null, null, false, null, null, null, 1, false),
+            (65, 21, "Arthritis", null, null, null, false, null, null, null, 2, false),
+            (66, 21, "Spondylosis (Cervical and Lumbar)", null, null, null, false, null, null, null, 3, false),
+            (67, 21, "Sciatica", null, null, null, false, null, null, null, 4, false),
+
+            // Breathing & Lungs (service 22)
+            (68, 22, "Asthma", null, null, null, false, null, null, null, 1, false),
+            (69, 22, "Chronic Bronchitis", null, null, null, false, null, null, null, 2, false),
+
+            // Stomach & Digestion (service 23)
+            (70, 23, "Indigestion", null, null, null, false, null, null, null, 1, false),
+            (71, 23, "Constipation", null, null, null, false, null, null, null, 2, false),
+            (72, 23, "Acid Reflux", null, null, null, false, null, null, null, 3, false),
+            (73, 23, "Fatty Liver", null, null, null, false, null, null, null, 4, false),
         };
 
         var now = DateTime.UtcNow;
@@ -898,8 +1041,19 @@ public static class DataSeeder
             (7, new[] { 1, 2, 3 }), (8, new[] { 1, 2, 3 }), (9, new[] { 1, 2, 3 }),
             (10, new[] { 1, 2, 3 }), (11, new[] { 1, 2, 3 }), (12, new[] { 1, 2, 3 }),
 
-            (13, new[] { 1, 2, 3, 6 }),          // Nainital-Mussoorie Duo Tour: + Sightseeing
-            (14, new[] { 2, 4, 9 }),             // Riverside Camping: Meals, Tour Guide, First Aid Kit
+            // 11 new Tour, Travel & Camping services (packages 13-45) — every group-size tier of
+            // every tour includes the same 4: Hotel Stay, Local Transport, Sightseeing, Breakfast.
+            (13, new[] { 1, 3, 6, 11 }), (14, new[] { 1, 3, 6, 11 }), (15, new[] { 1, 3, 6, 11 }),
+            (16, new[] { 1, 3, 6, 11 }), (17, new[] { 1, 3, 6, 11 }), (18, new[] { 1, 3, 6, 11 }),
+            (19, new[] { 1, 3, 6, 11 }), (20, new[] { 1, 3, 6, 11 }), (21, new[] { 1, 3, 6, 11 }),
+            (22, new[] { 1, 3, 6, 11 }), (23, new[] { 1, 3, 6, 11 }), (24, new[] { 1, 3, 6, 11 }),
+            (25, new[] { 1, 3, 6, 11 }), (26, new[] { 1, 3, 6, 11 }), (27, new[] { 1, 3, 6, 11 }),
+            (28, new[] { 1, 3, 6, 11 }), (29, new[] { 1, 3, 6, 11 }), (30, new[] { 1, 3, 6, 11 }),
+            (31, new[] { 1, 3, 6, 11 }), (32, new[] { 1, 3, 6, 11 }), (33, new[] { 1, 3, 6, 11 }),
+            (34, new[] { 1, 3, 6, 11 }), (35, new[] { 1, 3, 6, 11 }), (36, new[] { 1, 3, 6, 11 }),
+            (37, new[] { 1, 3, 6, 11 }), (38, new[] { 1, 3, 6, 11 }), (39, new[] { 1, 3, 6, 11 }),
+            (40, new[] { 1, 3, 6, 11 }), (41, new[] { 1, 3, 6, 11 }), (42, new[] { 1, 3, 6, 11 }),
+            (43, new[] { 1, 3, 6, 11 }), (44, new[] { 1, 3, 6, 11 }), (45, new[] { 1, 3, 6, 11 }),
         };
 
         foreach (var m in mappings)
