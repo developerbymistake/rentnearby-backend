@@ -14,4 +14,5 @@ public class AssignedAgentDto
     // Years of experience — the one deliberate exception to this DTO's identity-only minimalism,
     // shown on the consumer's assigned-agent card to build trust. Never phone/contact info.
     public int? Experience { get; set; }
+    public string? CompanyName { get; set; }
 }

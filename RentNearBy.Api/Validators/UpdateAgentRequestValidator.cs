@@ -23,5 +23,9 @@ public class UpdateAgentRequestValidator : AbstractValidator<UpdateAgentRequest>
         RuleFor(x => x.Experience)
             .InclusiveBetween(0, 60).WithMessage("Experience must be between 0 and 60 years")
             .When(x => x.Experience != null);
+
+        RuleFor(x => x.CompanyName)
+            .MaximumLength(100).WithMessage("Company name must be 100 characters or fewer")
+            .When(x => x.CompanyName != null);
     }
 }
