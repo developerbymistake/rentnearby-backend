@@ -9,6 +9,6 @@ public class PhoneLoginSendOtpRequestValidator : AbstractValidator<PhoneLoginSen
     {
         RuleFor(x => x.PhoneNumber)
             .NotEmpty().WithMessage("Phone number is required")
-            .Matches(@"^\d{10}$").WithMessage("Phone number must be 10 digits");
+            .Matches(@"^[6-9]\d{9}$").WithMessage("Phone number must be a valid 10-digit Indian mobile number");
     }
 }

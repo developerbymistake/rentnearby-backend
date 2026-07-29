@@ -13,11 +13,11 @@ public class UpdateAgentRequestValidator : AbstractValidator<UpdateAgentRequest>
             .When(x => x.Name != null);
 
         RuleFor(x => x.Phone)
-            .Matches(@"^\d{10}$").WithMessage("Phone must be 10 digits")
+            .Matches(@"^[6-9]\d{9}$").WithMessage("Phone must be a valid 10-digit Indian mobile number")
             .When(x => x.Phone != null);
 
         RuleFor(x => x.WhatsAppNumber)
-            .Matches(@"^\d{10}$").WithMessage("WhatsAppNumber must be 10 digits")
+            .Matches(@"^[6-9]\d{9}$").WithMessage("WhatsAppNumber must be a valid 10-digit Indian mobile number")
             .When(x => x.WhatsAppNumber != null);
 
         RuleFor(x => x.Experience)

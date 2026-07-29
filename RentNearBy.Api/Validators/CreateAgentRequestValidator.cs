@@ -13,11 +13,11 @@ public class CreateAgentRequestValidator : AbstractValidator<CreateAgentRequest>
 
         RuleFor(x => x.Phone)
             .NotEmpty().WithMessage("Phone is required")
-            .Matches(@"^\d{10}$").WithMessage("Phone must be 10 digits");
+            .Matches(@"^[6-9]\d{9}$").WithMessage("Phone must be a valid 10-digit Indian mobile number");
 
         RuleFor(x => x.WhatsAppNumber)
             .NotEmpty().WithMessage("WhatsAppNumber is required")
-            .Matches(@"^\d{10}$").WithMessage("WhatsAppNumber must be 10 digits");
+            .Matches(@"^[6-9]\d{9}$").WithMessage("WhatsAppNumber must be a valid 10-digit Indian mobile number");
 
         RuleFor(x => x.UserId)
             .NotEmpty().WithMessage("UserId is required — link this agent to an existing app account");

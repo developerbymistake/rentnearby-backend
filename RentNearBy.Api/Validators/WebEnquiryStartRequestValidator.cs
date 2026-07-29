@@ -17,7 +17,7 @@ public class WebEnquiryStartRequestValidator : AbstractValidator<WebEnquiryStart
 
         RuleFor(x => x.Mobile)
             .NotEmpty().WithMessage("Mobile is required")
-            .Matches(@"^\d{10}$").WithMessage("Mobile must be 10 digits");
+            .Matches(@"^[6-9]\d{9}$").WithMessage("Mobile must be a valid 10-digit Indian mobile number");
 
         RuleFor(x => x.Email)
             .EmailAddress().WithMessage("Email must be a valid email address")
