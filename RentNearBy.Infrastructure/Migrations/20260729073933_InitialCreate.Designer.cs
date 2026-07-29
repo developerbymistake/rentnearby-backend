@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260728151003_InitialCreate")]
+    [Migration("20260729073933_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -894,33 +894,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("DistrictBanners");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.Inclusion", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<string>("IconName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Inclusions");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.Inquiry", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.Enquiry", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -991,12 +965,12 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CreatedAt", "Status");
 
-                    b.ToTable("Inquiries");
+                    b.ToTable("Enquiries");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.InquiryAgent", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.EnquiryAgent", b =>
                 {
-                    b.Property<Guid>("InquiryId")
+                    b.Property<Guid>("EnquiryId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("AgentId")
@@ -1010,14 +984,14 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateTime?>("SeenAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("InquiryId", "AgentId");
+                    b.HasKey("EnquiryId", "AgentId");
 
                     b.HasIndex("AgentId");
 
-                    b.ToTable("InquiryAgents");
+                    b.ToTable("EnquiryAgents");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.InquiryEscalation", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.EnquiryEscalation", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1029,7 +1003,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<Guid>("InquiryId")
+                    b.Property<Guid>("EnquiryId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Note")
@@ -1053,19 +1027,19 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("InquiryId")
+                    b.HasIndex("EnquiryId")
                         .IsUnique()
-                        .HasDatabaseName("ix_inquiryescalations_inquiry_pending")
+                        .HasDatabaseName("ix_enquiryescalations_enquiry_pending")
                         .HasFilter("\"Status\" = 'Pending'");
 
                     b.HasIndex("ResolvedByAdminId");
 
                     b.HasIndex("Status");
 
-                    b.ToTable("InquiryEscalations");
+                    b.ToTable("EnquiryEscalations");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.InquiryStatusHistory", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.EnquiryStatusHistory", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1083,7 +1057,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<Guid>("InquiryId")
+                    b.Property<Guid>("EnquiryId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Note")
@@ -1099,9 +1073,35 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("ChangedByAgentId");
 
-                    b.HasIndex("InquiryId");
+                    b.HasIndex("EnquiryId");
 
-                    b.ToTable("InquiryStatusHistories");
+                    b.ToTable("EnquiryStatusHistories");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Inclusion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("IconName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Inclusions");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.ListingLimitSetting", b =>
@@ -2354,7 +2354,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("District");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.Inquiry", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.Enquiry", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Service", "Service")
                         .WithMany()
@@ -2373,7 +2373,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("ServicePackage");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.InquiryAgent", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.EnquiryAgent", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Agent", "Agent")
                         .WithMany()
@@ -2381,22 +2381,22 @@ namespace RentNearBy.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("RentNearBy.Core.Entities.Inquiry", "Inquiry")
-                        .WithMany("InquiryAgents")
-                        .HasForeignKey("InquiryId")
+                    b.HasOne("RentNearBy.Core.Entities.Enquiry", "Enquiry")
+                        .WithMany("EnquiryAgents")
+                        .HasForeignKey("EnquiryId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Agent");
 
-                    b.Navigation("Inquiry");
+                    b.Navigation("Enquiry");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.InquiryEscalation", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.EnquiryEscalation", b =>
                 {
-                    b.HasOne("RentNearBy.Core.Entities.Inquiry", "Inquiry")
+                    b.HasOne("RentNearBy.Core.Entities.Enquiry", "Enquiry")
                         .WithMany("Escalations")
-                        .HasForeignKey("InquiryId")
+                        .HasForeignKey("EnquiryId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -2405,12 +2405,12 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasForeignKey("ResolvedByAdminId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.Navigation("Inquiry");
+                    b.Navigation("Enquiry");
 
                     b.Navigation("ResolvedByAdmin");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.InquiryStatusHistory", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.EnquiryStatusHistory", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Admin", "ChangedByAdmin")
                         .WithMany()
@@ -2422,9 +2422,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasForeignKey("ChangedByAgentId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("RentNearBy.Core.Entities.Inquiry", null)
+                    b.HasOne("RentNearBy.Core.Entities.Enquiry", null)
                         .WithMany("StatusHistory")
-                        .HasForeignKey("InquiryId")
+                        .HasForeignKey("EnquiryId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -2692,18 +2692,18 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("Dismissals");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.Enquiry", b =>
+                {
+                    b.Navigation("EnquiryAgents");
+
+                    b.Navigation("Escalations");
+
+                    b.Navigation("StatusHistory");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.Inclusion", b =>
                 {
                     b.Navigation("PackageInclusions");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.Inquiry", b =>
-                {
-                    b.Navigation("Escalations");
-
-                    b.Navigation("InquiryAgents");
-
-                    b.Navigation("StatusHistory");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>

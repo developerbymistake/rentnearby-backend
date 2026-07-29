@@ -1066,7 +1066,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Inquiries",
+                name: "Enquiries",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
@@ -1087,15 +1087,15 @@ namespace RentNearBy.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Inquiries", x => x.Id);
+                    table.PrimaryKey("PK_Enquiries", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_Inquiries_ServicePackages_ServicePackageId",
+                        name: "FK_Enquiries_ServicePackages_ServicePackageId",
                         column: x => x.ServicePackageId,
                         principalTable: "ServicePackages",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_Inquiries_Services_ServiceId",
+                        name: "FK_Enquiries_Services_ServiceId",
                         column: x => x.ServiceId,
                         principalTable: "Services",
                         principalColumn: "Id",
@@ -1127,37 +1127,37 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "InquiryAgents",
+                name: "EnquiryAgents",
                 columns: table => new
                 {
-                    InquiryId = table.Column<Guid>(type: "uuid", nullable: false),
+                    EnquiryId = table.Column<Guid>(type: "uuid", nullable: false),
                     AgentId = table.Column<Guid>(type: "uuid", nullable: false),
                     AssignedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     SeenAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_InquiryAgents", x => new { x.InquiryId, x.AgentId });
+                    table.PrimaryKey("PK_EnquiryAgents", x => new { x.EnquiryId, x.AgentId });
                     table.ForeignKey(
-                        name: "FK_InquiryAgents_Agents_AgentId",
+                        name: "FK_EnquiryAgents_Agents_AgentId",
                         column: x => x.AgentId,
                         principalTable: "Agents",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
-                        name: "FK_InquiryAgents_Inquiries_InquiryId",
-                        column: x => x.InquiryId,
-                        principalTable: "Inquiries",
+                        name: "FK_EnquiryAgents_Enquiries_EnquiryId",
+                        column: x => x.EnquiryId,
+                        principalTable: "Enquiries",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
-                name: "InquiryEscalations",
+                name: "EnquiryEscalations",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    InquiryId = table.Column<Guid>(type: "uuid", nullable: false),
+                    EnquiryId = table.Column<Guid>(type: "uuid", nullable: false),
                     Reason = table.Column<string>(type: "text", nullable: false),
                     Note = table.Column<string>(type: "text", nullable: true),
                     Status = table.Column<string>(type: "text", nullable: false, defaultValue: "Pending"),
@@ -1167,27 +1167,27 @@ namespace RentNearBy.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_InquiryEscalations", x => x.Id);
+                    table.PrimaryKey("PK_EnquiryEscalations", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_InquiryEscalations_Admins_ResolvedByAdminId",
+                        name: "FK_EnquiryEscalations_Admins_ResolvedByAdminId",
                         column: x => x.ResolvedByAdminId,
                         principalTable: "Admins",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
-                        name: "FK_InquiryEscalations_Inquiries_InquiryId",
-                        column: x => x.InquiryId,
-                        principalTable: "Inquiries",
+                        name: "FK_EnquiryEscalations_Enquiries_EnquiryId",
+                        column: x => x.EnquiryId,
+                        principalTable: "Enquiries",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
-                name: "InquiryStatusHistories",
+                name: "EnquiryStatusHistories",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    InquiryId = table.Column<Guid>(type: "uuid", nullable: false),
+                    EnquiryId = table.Column<Guid>(type: "uuid", nullable: false),
                     Status = table.Column<string>(type: "text", nullable: false),
                     ChangedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
                     ChangedByAgentId = table.Column<Guid>(type: "uuid", nullable: true),
@@ -1196,23 +1196,23 @@ namespace RentNearBy.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_InquiryStatusHistories", x => x.Id);
+                    table.PrimaryKey("PK_EnquiryStatusHistories", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_InquiryStatusHistories_Admins_ChangedByAdminId",
+                        name: "FK_EnquiryStatusHistories_Admins_ChangedByAdminId",
                         column: x => x.ChangedByAdminId,
                         principalTable: "Admins",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
-                        name: "FK_InquiryStatusHistories_Agents_ChangedByAgentId",
+                        name: "FK_EnquiryStatusHistories_Agents_ChangedByAgentId",
                         column: x => x.ChangedByAgentId,
                         principalTable: "Agents",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
-                        name: "FK_InquiryStatusHistories_Inquiries_InquiryId",
-                        column: x => x.InquiryId,
-                        principalTable: "Inquiries",
+                        name: "FK_EnquiryStatusHistories_Enquiries_EnquiryId",
+                        column: x => x.EnquiryId,
+                        principalTable: "Enquiries",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -1458,66 +1458,66 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_Inquiries_CreatedAt_Status",
-                table: "Inquiries",
+                name: "IX_Enquiries_CreatedAt_Status",
+                table: "Enquiries",
                 columns: new[] { "CreatedAt", "Status" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Inquiries_ServiceId",
-                table: "Inquiries",
+                name: "IX_Enquiries_ServiceId",
+                table: "Enquiries",
                 column: "ServiceId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Inquiries_ServicePackageId",
-                table: "Inquiries",
+                name: "IX_Enquiries_ServicePackageId",
+                table: "Enquiries",
                 column: "ServicePackageId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Inquiries_Status",
-                table: "Inquiries",
+                name: "IX_Enquiries_Status",
+                table: "Enquiries",
                 column: "Status");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Inquiries_UserId",
-                table: "Inquiries",
+                name: "IX_Enquiries_UserId",
+                table: "Enquiries",
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_InquiryAgents_AgentId",
-                table: "InquiryAgents",
+                name: "IX_EnquiryAgents_AgentId",
+                table: "EnquiryAgents",
                 column: "AgentId");
 
             migrationBuilder.CreateIndex(
-                name: "ix_inquiryescalations_inquiry_pending",
-                table: "InquiryEscalations",
-                column: "InquiryId",
+                name: "ix_enquiryescalations_enquiry_pending",
+                table: "EnquiryEscalations",
+                column: "EnquiryId",
                 unique: true,
                 filter: "\"Status\" = 'Pending'");
 
             migrationBuilder.CreateIndex(
-                name: "IX_InquiryEscalations_ResolvedByAdminId",
-                table: "InquiryEscalations",
+                name: "IX_EnquiryEscalations_ResolvedByAdminId",
+                table: "EnquiryEscalations",
                 column: "ResolvedByAdminId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_InquiryEscalations_Status",
-                table: "InquiryEscalations",
+                name: "IX_EnquiryEscalations_Status",
+                table: "EnquiryEscalations",
                 column: "Status");
 
             migrationBuilder.CreateIndex(
-                name: "IX_InquiryStatusHistories_ChangedByAdminId",
-                table: "InquiryStatusHistories",
+                name: "IX_EnquiryStatusHistories_ChangedByAdminId",
+                table: "EnquiryStatusHistories",
                 column: "ChangedByAdminId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_InquiryStatusHistories_ChangedByAgentId",
-                table: "InquiryStatusHistories",
+                name: "IX_EnquiryStatusHistories_ChangedByAgentId",
+                table: "EnquiryStatusHistories",
                 column: "ChangedByAgentId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_InquiryStatusHistories_InquiryId",
-                table: "InquiryStatusHistories",
-                column: "InquiryId");
+                name: "IX_EnquiryStatusHistories_EnquiryId",
+                table: "EnquiryStatusHistories",
+                column: "EnquiryId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ListingLimitSettings_ListingKind",
@@ -1899,13 +1899,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "DeviceTokens");
 
             migrationBuilder.DropTable(
-                name: "InquiryAgents");
+                name: "EnquiryAgents");
 
             migrationBuilder.DropTable(
-                name: "InquiryEscalations");
+                name: "EnquiryEscalations");
 
             migrationBuilder.DropTable(
-                name: "InquiryStatusHistories");
+                name: "EnquiryStatusHistories");
 
             migrationBuilder.DropTable(
                 name: "ListingLimitSettings");
@@ -1956,7 +1956,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "Agents");
 
             migrationBuilder.DropTable(
-                name: "Inquiries");
+                name: "Enquiries");
 
             migrationBuilder.DropTable(
                 name: "Admins");
