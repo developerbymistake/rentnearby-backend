@@ -54,10 +54,7 @@ builder.Services.AddCors(options =>
             // Bakhli marketing website (bakhli-website repo) — added for the public web-enquiry flow
             // (WebEnquiryEndpoints) and the read-only services/packages catalog it calls from the browser.
             "https://bakhli.com",
-            "https://www.bakhli.com",
-            // Local Vite dev server for the bakhli-website repo, so it can be tested against this
-            // live backend without a deploy. Remove once local testing is done, if desired.
-            "http://localhost:5173"
+            "https://www.bakhli.com"
         )
         .AllowAnyHeader()
         .AllowAnyMethod());
