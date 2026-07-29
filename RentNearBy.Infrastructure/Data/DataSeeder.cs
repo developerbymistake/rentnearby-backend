@@ -4,6 +4,7 @@ using NetTopologySuite.IO;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Utils;
 using System.Text.Json;
 
 namespace RentNearBy.Infrastructure.Data;
@@ -40,6 +41,10 @@ public static class DataSeeder
         await SeedServiceCategoriesAsync(db);
         await SeedInclusionsAsync(db);
         await SeedServicesAsync(db);
+        // Catches rows created before the Slug column existed (AddServiceSlug migration) — anything
+        // already seeded has Slug == "" (the migration's column default), which the two methods above
+        // never touch since their own AnyAsync() guard already sees existing rows and returns early.
+        await BackfillServiceSlugsAsync(db);
         await SeedServiceItineraryDataAsync(db);
         await SeedItineraryDisclaimerAsync(db);
         await SeedServicePackagesAsync(db);
@@ -684,6 +689,7 @@ public static class DataSeeder
         {
             Id = ServiceCatalogId("e2000000", c.Index),
             Name = c.Name,
+            Slug = SlugGenerator.Generate(c.Name),
             IconName = c.Icon,
             FormType = c.FormType,
             AgentRoleLabel = c.AgentRoleLabel,
@@ -692,6 +698,50 @@ public static class DataSeeder
             CreatedAt = now,
         }));
         await db.SaveChangesAsync();
+    }
+
+    // Runs every startup (not guarded by an AnyAsync() early-return like the other seed methods) but is
+    // itself idempotent — it only ever touches rows still sitting at the AddServiceSlug migration's ""
+    // column default, so once every row has a real slug this is a no-op query with nothing to update.
+    private static async Task BackfillServiceSlugsAsync(ApplicationDbContext db)
+    {
+        var categories = await db.ServiceCategories.Where(c => c.Slug == "").ToListAsync();
+        if (categories.Count > 0)
+        {
+            var taken = await db.ServiceCategories.Where(c => c.Slug != "")
+                .Select(c => c.Slug).ToListAsync();
+            var takenSet = taken.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var category in categories)
+            {
+                var slug = SlugGenerator.MakeUnique(SlugGenerator.Generate(category.Name), takenSet);
+                category.Slug = slug;
+                takenSet.Add(slug);
+            }
+        }
+
+        var services = await db.Services.Where(s => s.Slug == "").ToListAsync();
+        if (services.Count > 0)
+        {
+            var takenByCategory = (await db.Services.Where(s => s.Slug != "")
+                    .Select(s => new { s.ServiceCategoryId, s.Slug }).ToListAsync())
+                .GroupBy(s => s.ServiceCategoryId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Slug).ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+            foreach (var service in services)
+            {
+                if (!takenByCategory.TryGetValue(service.ServiceCategoryId, out var takenSet))
+                {
+                    takenSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    takenByCategory[service.ServiceCategoryId] = takenSet;
+                }
+                var slug = SlugGenerator.MakeUnique(SlugGenerator.Generate(service.Name), takenSet);
+                service.Slug = slug;
+                takenSet.Add(slug);
+            }
+        }
+
+        if (categories.Count > 0 || services.Count > 0)
+            await db.SaveChangesAsync();
     }
 
     private static async Task SeedInclusionsAsync(ApplicationDbContext db)
@@ -846,6 +896,7 @@ public static class DataSeeder
             Id = ServiceCatalogId("e3000000", s.Index),
             ServiceCategoryId = ServiceCatalogId("e2000000", s.CategoryIdx),
             Name = s.Name,
+            Slug = SlugGenerator.Generate(s.Name),
             IconName = s.Icon,
             ShortDescription = s.Short,
             FullDescription = s.Full,

@@ -8,6 +8,11 @@ public class Service
     public Guid Id { get; set; }
     public Guid ServiceCategoryId { get; set; }
     public string Name { get; set; } = string.Empty;
+    // URL-friendly identifier for the public website (bakhli.com/services/{categorySlug}/{slug}) —
+    // generated once from Name at creation time (see RentNearBy.Core.Utils.SlugGenerator) and never
+    // changed afterward, even if Name is edited later, so existing links/search-engine indexing stay
+    // valid. Unique per-category, not globally (two categories can each have a "premium-package" service).
+    public string Slug { get; set; } = string.Empty;
     public string IconName { get; set; } = string.Empty;
     public string ShortDescription { get; set; } = string.Empty;
     public string FullDescription { get; set; } = string.Empty;

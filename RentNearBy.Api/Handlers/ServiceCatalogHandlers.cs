@@ -7,6 +7,7 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
@@ -45,10 +46,16 @@ public static class ServiceCatalogHandlers
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
+        var name = request.Name.Trim();
+        var existingSlugs = (await unitOfWork.ServiceCategories.GetAllOrderedAsync())
+            .Select(c => c.Slug).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var slug = SlugGenerator.MakeUnique(SlugGenerator.Generate(name), existingSlugs);
+
         var category = new ServiceCategory
         {
             Id = Guid.NewGuid(),
-            Name = request.Name.Trim(),
+            Name = name,
+            Slug = slug,
             IconName = request.IconName.Trim(),
             FormType = request.FormType,
             SortOrder = request.SortOrder,
@@ -178,11 +185,19 @@ public static class ServiceCatalogHandlers
         var category = await unitOfWork.ServiceCategories.GetByIdAsync(request.ServiceCategoryId);
         if (category == null) return NotFoundResponse("Service category not found");
 
+        var name = request.Name.Trim();
+        // Unique per-category (not globally) — matches the /services/{categorySlug}/{serviceSlug} URL
+        // shape, where two different categories could each reasonably have, say, a "premium" service.
+        var existingSlugs = (await unitOfWork.Services.GetByServiceCategoryIdAsync(request.ServiceCategoryId))
+            .Select(s => s.Slug).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var slug = SlugGenerator.MakeUnique(SlugGenerator.Generate(name), existingSlugs);
+
         var service = new Service
         {
             Id = Guid.NewGuid(),
             ServiceCategoryId = request.ServiceCategoryId,
-            Name = request.Name.Trim(),
+            Name = name,
+            Slug = slug,
             IconName = request.IconName.Trim(),
             ShortDescription = request.ShortDescription.Trim(),
             FullDescription = request.FullDescription.Trim(),

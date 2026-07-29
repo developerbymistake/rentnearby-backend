@@ -6,6 +6,10 @@ public class ServiceCategory
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
+    // URL-friendly identifier for the public website (bakhli.com/services/{slug}) — generated once
+    // from Name at creation time (see RentNearBy.Core.Utils.SlugGenerator) and never changed
+    // afterward, even if Name is edited later, so existing links/search-engine indexing stay valid.
+    public string Slug { get; set; } = string.Empty;
     public string IconName { get; set; } = string.Empty;
     public string CoverPhotoUrl { get; set; } = string.Empty;
     public string CoverPhotoFilePath { get; set; } = string.Empty;
