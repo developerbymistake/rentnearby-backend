@@ -249,6 +249,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     Name = table.Column<string>(type: "text", nullable: false),
+                    Slug = table.Column<string>(type: "text", nullable: false),
                     IconName = table.Column<string>(type: "text", nullable: false),
                     CoverPhotoUrl = table.Column<string>(type: "text", nullable: false),
                     CoverPhotoFilePath = table.Column<string>(type: "text", nullable: false),
@@ -539,6 +540,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     ServiceCategoryId = table.Column<Guid>(type: "uuid", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: false),
+                    Slug = table.Column<string>(type: "text", nullable: false),
                     IconName = table.Column<string>(type: "text", nullable: false),
                     ShortDescription = table.Column<string>(type: "text", nullable: false),
                     FullDescription = table.Column<string>(type: "text", nullable: false),
