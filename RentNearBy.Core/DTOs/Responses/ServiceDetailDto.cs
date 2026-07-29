@@ -4,7 +4,7 @@ public class ServiceDetailDto
 {
     public Guid Id { get; set; }
     public Guid ServiceCategoryId { get; set; }
-    // RentNearBy.Core.Models.ServiceCategoryFormTypes.* — the field the Inquiry Form uses to decide
+    // RentNearBy.Core.Models.ServiceCategoryFormTypes.* — the field the Enquiry Form uses to decide
     // which of PreferredDateOrTripStart/NumberOfPeople to show/label.
     public string ServiceCategoryFormType { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;

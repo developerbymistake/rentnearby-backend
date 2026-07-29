@@ -21,7 +21,7 @@ public static class AgentHandlers
 {
     private const long MaxImageBytes = 10 * 1024 * 1024;
 
-    // serviceId provided -> service-scoped, active-only picker (admin's inquiry-assign flow).
+    // serviceId provided -> service-scoped, active-only picker (admin's enquiry-assign flow).
     // Omitted -> full admin list (all statuses), matches the flat-route optional-query-param convention.
     public static async Task<IResult> GetAgents(Guid? serviceId, IUnitOfWork unitOfWork)
     {
@@ -48,7 +48,7 @@ public static class AgentHandlers
         var agent = await unitOfWork.Agents.GetByUserIdAsync(userId);
         if (agent == null) return NotFoundResponse("Not an agent");
 
-        var pendingCount = await unitOfWork.Inquiries.GetUnseenCountForAgentAsync(agent.Id);
+        var pendingCount = await unitOfWork.Enquiries.GetUnseenCountForAgentAsync(agent.Id);
         return OkResponse(new MyAgentProfileDto { AgentId = agent.Id, Name = agent.Name, PendingLeadCount = pendingCount });
     }
 
@@ -63,9 +63,9 @@ public static class AgentHandlers
         foreach (var row in rows)
         {
             var bucket = months[row.Month - 1];
-            if (row.Status == InquiryStatuses.Submitted) bucket.Submitted = row.Count;
-            else if (row.Status == InquiryStatuses.Contacted) bucket.Contacted = row.Count;
-            else if (row.Status == InquiryStatuses.Closed) bucket.Closed = row.Count;
+            if (row.Status == EnquiryStatuses.Submitted) bucket.Submitted = row.Count;
+            else if (row.Status == EnquiryStatuses.Contacted) bucket.Contacted = row.Count;
+            else if (row.Status == EnquiryStatuses.Closed) bucket.Closed = row.Count;
             bucket.Total += row.Count;
         }
 
@@ -92,7 +92,7 @@ public static class AgentHandlers
         if (agent == null) return NotFoundResponse("Not an agent");
 
         var targetYear = year ?? DateTime.UtcNow.Year;
-        var rows = await unitOfWork.Inquiries.GetMonthlyStatusCountsForAgentAsync(agent.Id, targetYear);
+        var rows = await unitOfWork.Enquiries.GetMonthlyStatusCountsForAgentAsync(agent.Id, targetYear);
         return OkResponse(BuildLeadStatsDto(agent.Id, agent.Name, targetYear, rows));
     }
 
@@ -103,7 +103,7 @@ public static class AgentHandlers
         if (agent == null) return NotFoundResponse("Agent not found");
 
         var targetYear = year ?? DateTime.UtcNow.Year;
-        var rows = await unitOfWork.Inquiries.GetMonthlyStatusCountsForAgentAsync(agent.Id, targetYear);
+        var rows = await unitOfWork.Enquiries.GetMonthlyStatusCountsForAgentAsync(agent.Id, targetYear);
         return OkResponse(BuildLeadStatsDto(agent.Id, agent.Name, targetYear, rows));
     }
 
@@ -172,12 +172,12 @@ public static class AgentHandlers
         var agent = await unitOfWork.Agents.GetByIdAsync(id);
         if (agent == null) return NotFoundResponse("Agent not found");
 
-        // InquiryAgent's FK is Cascade (unlike Service/Package's Restrict), so the raw DB delete
+        // EnquiryAgent's FK is Cascade (unlike Service/Package's Restrict), so the raw DB delete
         // would succeed silently, quietly dropping the agent's assignment rows — this is a pure
-        // business-level guard restricted to "live" inquiries, matching
-        // IInquiryRepository.ExistsByAssignedAgentIdAsync.
-        if (await unitOfWork.Inquiries.ExistsByAssignedAgentIdAsync(id))
-            return ConflictResponse("Cannot delete an agent currently assigned to a live inquiry. Reassign or resolve those inquiries first.");
+        // business-level guard restricted to "live" enquiries, matching
+        // IEnquiryRepository.ExistsByAssignedAgentIdAsync.
+        if (await unitOfWork.Enquiries.ExistsByAssignedAgentIdAsync(id))
+            return ConflictResponse("Cannot delete an agent currently assigned to a live enquiry. Reassign or resolve those enquiries first.");
 
         if (!string.IsNullOrEmpty(agent.PhotoFilePath))
             await photoService.DeletePhotoAsync(agent.PhotoFilePath);

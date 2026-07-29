@@ -126,17 +126,17 @@ public static class ServiceCollectionExtensions
         // Chat push worker — consumes chat.message.push queue and sends FCM via ChatFcmService
         services.AddHostedService<ChatMessageNotificationWorkerService>();
 
-        // Inquiry status push worker — consumes inquiry.status.push queue and sends FCM via the
-        // generic IFcmService (normal rendered notification, no dedup — see InquiryStatusPushWorkerService)
-        services.AddHostedService<InquiryStatusPushWorkerService>();
+        // Enquiry status push worker — consumes enquiry.status.push queue and sends FCM via the
+        // generic IFcmService (normal rendered notification, no dedup — see EnquiryStatusPushWorkerService)
+        services.AddHostedService<EnquiryStatusPushWorkerService>();
 
         // Escalation-filed worker — consumes escalation.filed queue and notifies admins via
         // AdminDeviceTokens + FCM (same pattern as ReportFiledWorkerService, admin side)
         services.AddHostedService<EscalationFiledWorkerService>();
 
-        // Inquiry-unassigned worker — consumes inquiry.unassigned queue (CreateInquiry's zero-agent
+        // Enquiry-unassigned worker — consumes enquiry.unassigned queue (CreateEnquiry's zero-agent
         // branch) and notifies admins via AdminDeviceTokens + FCM
-        services.AddHostedService<InquiryUnassignedWorkerService>();
+        services.AddHostedService<EnquiryUnassignedWorkerService>();
 
         // Agent-lead-status-updated worker — consumes agent.lead.status.updated queue
         // (UpdateMyLeadStatus) and notifies admins via AdminDeviceTokens + FCM
@@ -144,7 +144,7 @@ public static class ServiceCollectionExtensions
 
         // Notification-inbox push worker — consumes notification.push queue, delivers FCM for any
         // NotificationEvent row (Agent lead-assignment today, any future producer for free) — fully
-        // separate from InquiryStatusPushWorkerService, no shared queue or code.
+        // separate from EnquiryStatusPushWorkerService, no shared queue or code.
         services.AddHostedService<NotificationPushWorkerService>();
 
         // Go-Live-requested worker — consumes golive.requested queue (a fresh, never-before-approved

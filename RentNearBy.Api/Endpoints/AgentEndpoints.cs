@@ -6,7 +6,7 @@ public static class AgentEndpoints
 {
     // Mounted at "/api/v1/agents". Everything except the "me" routes below is an admin-managed
     // concern (the consumer app otherwise only ever sees Agents embedded inside
-    // InquiryDetailDto.AssignedAgents) — those routes stay AdminOnly. The "me"/"me/leads" routes are
+    // EnquiryDetailDto.AssignedAgents) — those routes stay AdminOnly. The "me"/"me/leads" routes are
     // the one consumer-facing exception: any authenticated user may call them, since an Agent is a
     // role on an existing account, not a separate identity — access is scoped inside the handler by
     // resolving the caller's own linked Agent, never by a client-supplied id.
@@ -24,10 +24,10 @@ public static class AgentEndpoints
 
         group.MapGet("/me", AgentHandlers.GetMyAgentProfile).RequireAuthorization();
         group.MapGet("/me/stats", AgentHandlers.GetMyLeadStats).RequireAuthorization();
-        group.MapGet("/me/leads", InquiryHandlers.GetMyLeads).RequireAuthorization();
-        group.MapGet("/me/leads/{id:guid}", InquiryHandlers.GetMyLeadDetail).RequireAuthorization();
-        group.MapPut("/me/leads/{id:guid}/status", InquiryHandlers.UpdateMyLeadStatus).RequireAuthorization();
-        group.MapPut("/me/leads/{id:guid}/seen", InquiryHandlers.MarkLeadSeen).RequireAuthorization();
+        group.MapGet("/me/leads", EnquiryHandlers.GetMyLeads).RequireAuthorization();
+        group.MapGet("/me/leads/{id:guid}", EnquiryHandlers.GetMyLeadDetail).RequireAuthorization();
+        group.MapPut("/me/leads/{id:guid}/status", EnquiryHandlers.UpdateMyLeadStatus).RequireAuthorization();
+        group.MapPut("/me/leads/{id:guid}/seen", EnquiryHandlers.MarkLeadSeen).RequireAuthorization();
 
         return group;
     }

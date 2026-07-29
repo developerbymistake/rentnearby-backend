@@ -3,9 +3,9 @@ using RentNearBy.Core.DTOs.Requests;
 
 namespace RentNearBy.Api.Validators;
 
-public class CreateInquiryRequestValidator : AbstractValidator<CreateInquiryRequest>
+public class CreateEnquiryRequestValidator : AbstractValidator<CreateEnquiryRequest>
 {
-    public CreateInquiryRequestValidator()
+    public CreateEnquiryRequestValidator()
     {
         RuleFor(x => x.ServiceId).NotEmpty().WithMessage("ServiceId is required");
         RuleFor(x => x.ServicePackageId).NotEmpty().WithMessage("ServicePackageId is required");
@@ -29,6 +29,6 @@ public class CreateInquiryRequestValidator : AbstractValidator<CreateInquiryRequ
         RuleFor(x => x.Message).MaximumLength(1000).When(x => x.Message != null);
 
         RuleFor(x => x.AgreedToTerms)
-            .Equal(true).WithMessage("You must agree to the terms to submit an inquiry");
+            .Equal(true).WithMessage("You must agree to the terms to submit an enquiry");
     }
 }

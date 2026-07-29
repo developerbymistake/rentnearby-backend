@@ -5,10 +5,10 @@ using RentNearBy.Api.Handlers;
 namespace RentNearBy.Api.Hubs;
 
 // Independent of WalletHub/ChatHub/BannerHub — no shared code, mirrors WalletHub's always-join-
-// user_{id} shape only. Push-only: no client-invokable methods, no sub-group concept (an inquiry's
+// user_{id} shape only. Push-only: no client-invokable methods, no sub-group concept (an enquiry's
 // status is scoped to the owning user, never to anything narrower).
 [Authorize]
-public class InquiryHub : Hub
+public class EnquiryHub : Hub
 {
     public override async Task OnConnectedAsync()
     {

@@ -1,6 +1,6 @@
 namespace RentNearBy.Core.Models;
 
-public static class InquiryStatuses
+public static class EnquiryStatuses
 {
     public const string Submitted = "Submitted";
     public const string Contacted = "Contacted";

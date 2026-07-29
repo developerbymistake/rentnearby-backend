@@ -1,7 +1,7 @@
 namespace RentNearBy.Core.Models;
 
 // Fixed, small set — deliberately NOT an admin-CRUD lookup table (see the plan's Design decisions).
-// Matches InquiryStatuses.cs's exact shape.
+// Matches EnquiryStatuses.cs's exact shape.
 public static class EscalationReasons
 {
     public const string NotResponding = "NotResponding";

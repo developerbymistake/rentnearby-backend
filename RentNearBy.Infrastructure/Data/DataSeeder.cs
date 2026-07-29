@@ -44,16 +44,16 @@ public static class DataSeeder
         await SeedItineraryDisclaimerAsync(db);
         await SeedServicePackagesAsync(db);
         await SeedPackageInclusionsAsync(db);
-        // No Agent/sample-Inquiry seeding — an Agent is now a role linked to a real User account
+        // No Agent/sample-Enquiry seeding — an Agent is now a role linked to a real User account
         // (Agent.UserId), so there's nothing meaningful to fabricate here; Admin links real Agents
         // to real accounts through the admin panel.
     }
 
     // Deterministic per-entity-type GUID, matching SeedQuestionTemplatesAsync's/SeedPlotTypesAsync's
     // Guid.Parse("<prefix>-...") style — lets a later seed method in this file (Packages -> Services,
-    // Inquiries -> Packages/Agents) reference an earlier row's Id without a DB round-trip.
+    // Enquiries -> Packages/Agents) reference an earlier row's Id without a DB round-trip.
     // Prefixes used: e2=ServiceCategory, e3=Service, e4=ServicePackage, e5=Inclusion, e6=Agent,
-    // e7=test consumer User, e8=Inquiry. (e1 belonged to the retired ServiceSection layer — do not
+    // e7=test consumer User, e8=Enquiry. (e1 belonged to the retired ServiceSection layer — do not
     // reuse it for a new entity type.)
     private static Guid ServiceCatalogId(string prefix, int n) => Guid.Parse($"{prefix}-0000-0000-0000-{n:D12}");
 
@@ -1024,8 +1024,8 @@ public static class DataSeeder
 
         var value = JsonSerializer.Serialize(new
         {
-            hillRegionText = "This itinerary is indicative and general in nature. Actual day-wise plans may vary based on weather, road conditions, local availability, or time constraints, especially in hill regions. The confirmed itinerary will be shared based on your specific requirements at the time of inquiry. This platform connects you with the service provider and is not responsible for any changes made to the itinerary by them.",
-            generalText = "This itinerary is indicative and general in nature. Actual day-wise plans may vary based on weather, road conditions, local availability, or time constraints. The confirmed itinerary will be shared based on your specific requirements at the time of inquiry. This platform connects you with the service provider and is not responsible for any changes made to the itinerary by them.",
+            hillRegionText = "This itinerary is indicative and general in nature. Actual day-wise plans may vary based on weather, road conditions, local availability, or time constraints, especially in hill regions. The confirmed itinerary will be shared based on your specific requirements at the time of enquiry. This platform connects you with the service provider and is not responsible for any changes made to the itinerary by them.",
+            generalText = "This itinerary is indicative and general in nature. Actual day-wise plans may vary based on weather, road conditions, local availability, or time constraints. The confirmed itinerary will be shared based on your specific requirements at the time of enquiry. This platform connects you with the service provider and is not responsible for any changes made to the itinerary by them.",
         });
 
         db.AppSettings.Add(new AppSetting

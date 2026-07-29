@@ -9,7 +9,7 @@ public interface IAgentRepository : IRepository<Agent>
     Task<IEnumerable<Agent>> GetAllWithServicesAsync();
     Task<Agent?> GetByIdWithServicesAsync(Guid id);
 
-    // Service-scoped agent picker for admin's inquiry-assign flow (only agents mapped to the Inquiry's
+    // Service-scoped agent picker for admin's enquiry-assign flow (only agents mapped to the Enquiry's
     // exact Service are eligible).
     Task<IEnumerable<Agent>> GetActiveByServiceIdAsync(Guid serviceId);
 

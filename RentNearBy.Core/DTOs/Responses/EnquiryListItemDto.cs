@@ -1,9 +1,9 @@
 namespace RentNearBy.Core.DTOs.Responses;
 
 // ServiceCategoryId/Name are resolved through the Service -> ServiceCategory nav chain — used for
-// the consumer "My Inquiries" small category badge per row and the admin status/category filter
+// the consumer "My Enquiries" small category badge per row and the admin status/category filter
 // chips.
-public class InquiryListItemDto
+public class EnquiryListItemDto
 {
     public Guid Id { get; set; }
     public Guid ServiceId { get; set; }
@@ -22,8 +22,8 @@ public class InquiryListItemDto
     // the count; full names are only shown on the Detail screen (AssignedAgents there).
     public int AssignedAgentCount { get; set; }
     // True while a consumer-filed "report an issue with my agent" is awaiting Admin review — powers
-    // the admin list's flag chip/filter. Always false for the consumer's own My Inquiries rows use
-    // (not rendered there), but present since InquiryListItemDto is the shared shape.
+    // the admin list's flag chip/filter. Always false for the consumer's own My Enquiries rows use
+    // (not rendered there), but present since EnquiryListItemDto is the shared shape.
     public bool HasPendingEscalation { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

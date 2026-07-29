@@ -37,8 +37,8 @@ public interface IUnitOfWork : IDisposable
     IServicePackageRepository ServicePackages { get; }
     IInclusionRepository Inclusions { get; }
     IAgentRepository Agents { get; }
-    IInquiryRepository Inquiries { get; }
-    IInquiryStatusHistoryRepository InquiryStatusHistories { get; }
+    IEnquiryRepository Enquiries { get; }
+    IEnquiryStatusHistoryRepository EnquiryStatusHistories { get; }
     INotificationRepository Notifications { get; }
     Task<int> SaveChangesAsync();
 

@@ -354,13 +354,13 @@ app.MapGroup("/api/v1/agents")
     .WithTags("Agents")
     .MapAgentEndpoints();
 
-app.MapGroup("/api/v1/inquiries")
-    .WithTags("Inquiries")
-    .MapInquiryEndpoints();
+app.MapGroup("/api/v1/enquiries")
+    .WithTags("Enquiries")
+    .MapEnquiryEndpoints();
 
-app.MapGroup("/api/v1/admin/inquiries")
-    .WithTags("AdminInquiries")
-    .MapAdminInquiryEndpoints();
+app.MapGroup("/api/v1/admin/enquiries")
+    .WithTags("AdminEnquiries")
+    .MapAdminEnquiryEndpoints();
 
 app.MapGroup("/api/v1/admin/notifications")
     .WithTags("AdminNotifications")
@@ -393,6 +393,6 @@ app.MapGroup("/api/v1/wallet")
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");
 app.MapHub<WalletHub>("/hubs/wallet");
-app.MapHub<InquiryHub>("/hubs/inquiry");
+app.MapHub<EnquiryHub>("/hubs/enquiry");
 
 app.Run();

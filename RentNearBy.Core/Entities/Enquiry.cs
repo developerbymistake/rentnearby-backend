@@ -1,8 +1,8 @@
 namespace RentNearBy.Core.Entities;
 
-// Status is admin-controlled only (user cannot self-cancel): RentNearBy.Core.Models.InquiryStatuses.*
-// ServicePackageId is mandatory — no package-less "custom" inquiry.
-public class Inquiry
+// Status is admin-controlled only (user cannot self-cancel): RentNearBy.Core.Models.EnquiryStatuses.*
+// ServicePackageId is mandatory — no package-less "custom" enquiry.
+public class Enquiry
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
@@ -14,17 +14,17 @@ public class Inquiry
     public DateTime? PreferredDateOrTripStart { get; set; }
     public int? NumberOfPeople { get; set; }
     public string? Message { get; set; }
-    public string Status { get; set; } = string.Empty; // RentNearBy.Core.Models.InquiryStatuses.*
+    public string Status { get; set; } = string.Empty; // RentNearBy.Core.Models.EnquiryStatuses.*
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-    // Inquiry is single-owner (one consumer), so the consumer's seen-timestamp lives directly here.
+    // Enquiry is single-owner (one consumer), so the consumer's seen-timestamp lives directly here.
     public DateTime? UserSeenAt { get; set; }
 
     public Service Service { get; set; } = null!;
     public ServicePackage ServicePackage { get; set; } = null!;
-    // Many-to-many via InquiryAgent — every active Agent mapped to this Inquiry's ServiceCategory is
+    // Many-to-many via EnquiryAgent — every active Agent mapped to this Enquiry's ServiceCategory is
     // assigned automatically on creation (or whichever set Admin picks manually), never just one.
-    public ICollection<InquiryAgent> InquiryAgents { get; set; } = new List<InquiryAgent>();
-    public ICollection<InquiryStatusHistory> StatusHistory { get; set; } = new List<InquiryStatusHistory>();
-    public ICollection<InquiryEscalation> Escalations { get; set; } = new List<InquiryEscalation>();
+    public ICollection<EnquiryAgent> EnquiryAgents { get; set; } = new List<EnquiryAgent>();
+    public ICollection<EnquiryStatusHistory> StatusHistory { get; set; } = new List<EnquiryStatusHistory>();
+    public ICollection<EnquiryEscalation> Escalations { get; set; } = new List<EnquiryEscalation>();
 }

@@ -43,8 +43,8 @@ public class UnitOfWork : IUnitOfWork
     private IServicePackageRepository? _servicePackages;
     private IInclusionRepository? _inclusions;
     private IAgentRepository? _agents;
-    private IInquiryRepository? _inquiries;
-    private IInquiryStatusHistoryRepository? _inquiryStatusHistories;
+    private IEnquiryRepository? _enquiries;
+    private IEnquiryStatusHistoryRepository? _enquiryStatusHistories;
     private INotificationRepository? _notifications;
 
     public UnitOfWork(ApplicationDbContext context)
@@ -87,8 +87,8 @@ public class UnitOfWork : IUnitOfWork
     public IServicePackageRepository ServicePackages => _servicePackages ??= new ServicePackageRepository(_context);
     public IInclusionRepository Inclusions => _inclusions ??= new InclusionRepository(_context);
     public IAgentRepository Agents => _agents ??= new AgentRepository(_context);
-    public IInquiryRepository Inquiries => _inquiries ??= new InquiryRepository(_context);
-    public IInquiryStatusHistoryRepository InquiryStatusHistories => _inquiryStatusHistories ??= new InquiryStatusHistoryRepository(_context);
+    public IEnquiryRepository Enquiries => _enquiries ??= new EnquiryRepository(_context);
+    public IEnquiryStatusHistoryRepository EnquiryStatusHistories => _enquiryStatusHistories ??= new EnquiryStatusHistoryRepository(_context);
     public INotificationRepository Notifications => _notifications ??= new NotificationRepository(_context);
 
     public async Task<int> SaveChangesAsync()

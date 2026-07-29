@@ -1,6 +1,6 @@
 namespace RentNearBy.Core.DTOs.Responses;
 
-public class InquiryDetailDto
+public class EnquiryDetailDto
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
@@ -20,13 +20,13 @@ public class InquiryDetailDto
     public int? NumberOfPeople { get; set; }
     public string? Message { get; set; }
     public string Status { get; set; } = string.Empty;
-    // Every Agent currently assigned — never null, empty when unassigned. An Inquiry can have
-    // multiple simultaneous Agents (see InquiryAgent).
+    // Every Agent currently assigned — never null, empty when unassigned. An Enquiry can have
+    // multiple simultaneous Agents (see EnquiryAgent).
     public List<AssignedAgentDto> AssignedAgents { get; set; } = new();
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-    public List<InquiryStatusHistoryDto> StatusHistory { get; set; } = new();
+    public List<EnquiryStatusHistoryDto> StatusHistory { get; set; } = new();
     // Newest first, never null — the consumer's own self-service "report an issue with my agent"
     // history. Never seen by the assigned agent(s), only the reporting consumer and Admin.
-    public List<InquiryEscalationDto> Escalations { get; set; } = new();
+    public List<EnquiryEscalationDto> Escalations { get; set; } = new();
 }

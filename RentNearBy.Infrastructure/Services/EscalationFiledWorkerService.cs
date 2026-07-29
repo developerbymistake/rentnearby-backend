@@ -14,7 +14,7 @@ namespace RentNearBy.Infrastructure.Services;
 // Structural copy of ReportFiledWorkerService — same "publish -> dedicated consumer ->
 // AdminDeviceTokens + FCM" pattern this codebase already uses for listing reports, applied to
 // consumer escalations (complaints about an assigned agent) instead. No DLQ, same reasoning: the
-// InquiryEscalation row is already durably saved regardless of push delivery.
+// EnquiryEscalation row is already durably saved regardless of push delivery.
 public class EscalationFiledWorkerService : BackgroundService
 {
     private const string QueueName = "escalation.filed";
@@ -122,7 +122,7 @@ public class EscalationFiledWorkerService : BackgroundService
             try
             {
                 var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "escalation",
-                    new NotificationDestination(AdminNotificationRoutes.InquiryEscalations));
+                    new NotificationDestination(AdminNotificationRoutes.EnquiryEscalations));
                 if (!ok) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(token.Token);
             }
             catch (Exception ex)

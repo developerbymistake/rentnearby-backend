@@ -68,27 +68,27 @@ public static class DtoMappings
             .Map(dest => dest.UserName, src => src.User != null ? src.User.Name : null)
             .Map(dest => dest.UserPhoneNumber, src => src.User != null ? src.User.PhoneNumber : null);
 
-        TypeAdapterConfig<InquiryStatusHistory, InquiryStatusHistoryDto>.NewConfig()
+        TypeAdapterConfig<EnquiryStatusHistory, EnquiryStatusHistoryDto>.NewConfig()
             .Map(dest => dest.ChangedByAdminName, src => src.ChangedByAdmin != null ? src.ChangedByAdmin.Name : null)
             .Map(dest => dest.ChangedByAgentName, src => src.ChangedByAgent != null ? src.ChangedByAgent.Name : null);
 
         // ServiceCategoryName resolved through Service -> ServiceCategory.
-        TypeAdapterConfig<Inquiry, InquiryListItemDto>.NewConfig()
+        TypeAdapterConfig<Enquiry, EnquiryListItemDto>.NewConfig()
             .Map(dest => dest.ServiceName, src => src.Service.Name)
             .Map(dest => dest.ServiceCategoryId, src => src.Service.ServiceCategoryId)
             .Map(dest => dest.ServiceCategoryName, src => src.Service.ServiceCategory.Name)
             .Map(dest => dest.ServiceCategoryAgentRoleLabel, src => src.Service.ServiceCategory.AgentRoleLabel)
             .Map(dest => dest.ServicePackageName, src => src.ServicePackage.Name)
-            .Map(dest => dest.AssignedAgentCount, src => src.InquiryAgents.Count)
+            .Map(dest => dest.AssignedAgentCount, src => src.EnquiryAgents.Count)
             .Map(dest => dest.HasPendingEscalation, src => src.Escalations.Any(esc => esc.Status == "Pending"));
 
-        TypeAdapterConfig<Inquiry, InquiryDetailDto>.NewConfig()
+        TypeAdapterConfig<Enquiry, EnquiryDetailDto>.NewConfig()
             .Map(dest => dest.ServiceName, src => src.Service.Name)
             .Map(dest => dest.ServiceCategoryId, src => src.Service.ServiceCategoryId)
             .Map(dest => dest.ServiceCategoryName, src => src.Service.ServiceCategory.Name)
             .Map(dest => dest.ServiceCategoryAgentRoleLabel, src => src.Service.ServiceCategory.AgentRoleLabel)
             .Map(dest => dest.ServicePackageName, src => src.ServicePackage.Name)
-            .Map(dest => dest.AssignedAgents, src => src.InquiryAgents.Select(ia => ia.Agent))
+            .Map(dest => dest.AssignedAgents, src => src.EnquiryAgents.Select(ia => ia.Agent))
             .Map(dest => dest.Escalations, src => src.Escalations.OrderByDescending(esc => esc.CreatedAt));
 
         // IsRead is deliberately NOT mapped here — it comes from a separate join

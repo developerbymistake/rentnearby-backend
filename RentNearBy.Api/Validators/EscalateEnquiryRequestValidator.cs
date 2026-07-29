@@ -4,9 +4,9 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Validators;
 
-public class EscalateInquiryRequestValidator : AbstractValidator<EscalateInquiryRequest>
+public class EscalateEnquiryRequestValidator : AbstractValidator<EscalateEnquiryRequest>
 {
-    public EscalateInquiryRequestValidator()
+    public EscalateEnquiryRequestValidator()
     {
         RuleFor(x => x.Reason)
             .Must(r => EscalationReasons.All.Contains(r))

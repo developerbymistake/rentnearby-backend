@@ -13,8 +13,8 @@ namespace RentNearBy.Infrastructure.Services;
 
 // Structural copy of EscalationFiledWorkerService — same "publish -> dedicated consumer ->
 // AdminDeviceTokens + FCM" pattern, applied to an Agent updating their own lead's status
-// (UpdateMyLeadStatus) instead. No DLQ, same reasoning: the Inquiry row is already durably saved
-// regardless of push delivery. Deliberately NOT wired to AdminUpdateInquiryStatus — Admin doesn't
+// (UpdateMyLeadStatus) instead. No DLQ, same reasoning: the Enquiry row is already durably saved
+// regardless of push delivery. Deliberately NOT wired to AdminUpdateEnquiryStatus — Admin doesn't
 // need telling about its own action.
 public class AgentLeadStatusUpdatedWorkerService : BackgroundService
 {
@@ -123,8 +123,8 @@ public class AgentLeadStatusUpdatedWorkerService : BackgroundService
             try
             {
                 var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "agent_lead_status_updated",
-                    new NotificationDestination(AdminNotificationRoutes.InquiryDetail,
-                        JsonSerializer.Serialize(new { id = msg.InquiryId.ToString() })));
+                    new NotificationDestination(AdminNotificationRoutes.EnquiryDetail,
+                        JsonSerializer.Serialize(new { id = msg.EnquiryId.ToString() })));
                 if (!ok) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(token.Token);
             }
             catch (Exception ex)

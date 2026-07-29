@@ -11,8 +11,8 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Fully separate from InquiryStatusPushWorkerService — own queue, no shared code — deliberately, so
-// the existing Inquiry-status push to a submitting consumer is never touched by this feature. Unlike
+// Fully separate from EnquiryStatusPushWorkerService — own queue, no shared code — deliberately, so
+// the existing Enquiry-status push to a submitting consumer is never touched by this feature. Unlike
 // that worker, this one formats nothing itself: Title/Body/ActionRoute/ActionArgumentsJson are
 // already persisted on the NotificationEvent row by whichever handler wrote it, so every current and
 // future producer gets FCM delivery for free through this one worker, with no per-category
@@ -142,7 +142,7 @@ public class NotificationPushWorkerService : BackgroundService
         if (notification.ActionArgumentsJson != null) data["action_args_json"] = notification.ActionArgumentsJson;
 
         // Sends are independent, so they run in parallel (same reasoning as
-        // InquiryStatusPushWorkerService) — invalid-token cleanup collected here, applied
+        // EnquiryStatusPushWorkerService) — invalid-token cleanup collected here, applied
         // sequentially below since the DbContext behind unitOfWork isn't safe for concurrent writes.
         var sendResults = await Task.WhenAll(tokens.Select(async deviceToken =>
         {
@@ -165,7 +165,7 @@ public class NotificationPushWorkerService : BackgroundService
 
         // Admin awareness: every LeadAssigned row also pushes to every Admin device, reusing the same
         // Title/Body/data already built above (no separate admin-phrased copy, no new storage) — a
-        // multi-agent inquiry creates one NotificationEvent per Agent, so Admin gets one push per
+        // multi-agent enquiry creates one NotificationEvent per Agent, so Admin gets one push per
         // Agent notified, matching the admin feed showing one row per Agent too.
         if (notification.Type == NotificationTypes.LeadAssigned)
         {

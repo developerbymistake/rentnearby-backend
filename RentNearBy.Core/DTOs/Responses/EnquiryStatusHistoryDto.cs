@@ -1,9 +1,9 @@
 namespace RentNearBy.Core.DTOs.Responses;
 
-public class InquiryStatusHistoryDto
+public class EnquiryStatusHistoryDto
 {
     public Guid Id { get; set; }
-    public Guid InquiryId { get; set; }
+    public Guid EnquiryId { get; set; }
     public string Status { get; set; } = string.Empty;
     public Guid? ChangedByAdminId { get; set; }
     public string? ChangedByAdminName { get; set; }

@@ -12,23 +12,23 @@ using RentNearBy.Core.Models;
 namespace RentNearBy.Infrastructure.Services;
 
 // Structural copy of EscalationFiledWorkerService — same "publish -> dedicated consumer ->
-// AdminDeviceTokens + FCM" pattern, applied to a category-mapped-agent-less Inquiry (CreateInquiry's
-// zero-agent branch) instead. No DLQ, same reasoning: the Inquiry row is already durably saved
+// AdminDeviceTokens + FCM" pattern, applied to a category-mapped-agent-less Enquiry (CreateEnquiry's
+// zero-agent branch) instead. No DLQ, same reasoning: the Enquiry row is already durably saved
 // regardless of push delivery.
-public class InquiryUnassignedWorkerService : BackgroundService
+public class EnquiryUnassignedWorkerService : BackgroundService
 {
-    private const string QueueName = "inquiry.unassigned";
+    private const string QueueName = "enquiry.unassigned";
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IFcmService _fcmService;
-    private readonly ILogger<InquiryUnassignedWorkerService> _logger;
+    private readonly ILogger<EnquiryUnassignedWorkerService> _logger;
     private readonly ConnectionFactory _factory;
 
-    public InquiryUnassignedWorkerService(
+    public EnquiryUnassignedWorkerService(
         IServiceScopeFactory serviceScopeFactory,
         IFcmService fcmService,
         IConfiguration configuration,
-        ILogger<InquiryUnassignedWorkerService> logger)
+        ILogger<EnquiryUnassignedWorkerService> logger)
     {
         _serviceScopeFactory = serviceScopeFactory;
         _fcmService = fcmService;
@@ -39,7 +39,7 @@ public class InquiryUnassignedWorkerService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("InquiryUnassignedWorkerService starting");
+        _logger.LogInformation("EnquiryUnassignedWorkerService starting");
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -68,7 +68,7 @@ public class InquiryUnassignedWorkerService : BackgroundService
                     try
                     {
                         var body = Encoding.UTF8.GetString(ea.Body.ToArray());
-                        var msg = JsonSerializer.Deserialize<InquiryUnassignedMessage>(body,
+                        var msg = JsonSerializer.Deserialize<EnquiryUnassignedMessage>(body,
                             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                         if (msg != null)
@@ -76,7 +76,7 @@ public class InquiryUnassignedWorkerService : BackgroundService
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "InquiryUnassignedWorkerService: error processing message");
+                        _logger.LogError(ex, "EnquiryUnassignedWorkerService: error processing message");
                     }
                     finally
                     {
@@ -90,7 +90,7 @@ public class InquiryUnassignedWorkerService : BackgroundService
                     consumer: consumer,
                     cancellationToken: stoppingToken);
 
-                _logger.LogInformation("InquiryUnassignedWorkerService consuming queue '{Queue}'", QueueName);
+                _logger.LogInformation("EnquiryUnassignedWorkerService consuming queue '{Queue}'", QueueName);
 
                 await Task.Delay(Timeout.Infinite, stoppingToken);
             }
@@ -100,29 +100,29 @@ public class InquiryUnassignedWorkerService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "InquiryUnassignedWorkerService connection lost, reconnecting in 5 seconds");
+                _logger.LogError(ex, "EnquiryUnassignedWorkerService connection lost, reconnecting in 5 seconds");
                 await Task.Delay(5000, stoppingToken);
             }
         }
 
-        _logger.LogInformation("InquiryUnassignedWorkerService stopped");
+        _logger.LogInformation("EnquiryUnassignedWorkerService stopped");
     }
 
-    private async Task ProcessMessageAsync(InquiryUnassignedMessage msg)
+    private async Task ProcessMessageAsync(EnquiryUnassignedMessage msg)
     {
         using var scope = _serviceScopeFactory.CreateScope();
         var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-        const string adminTitle = "Unassigned inquiry";
-        var adminBody = $"{msg.ConsumerName}'s inquiry for '{msg.ServiceName}' has no agent assigned.";
+        const string adminTitle = "Unassigned enquiry";
+        var adminBody = $"{msg.ConsumerName}'s enquiry for '{msg.ServiceName}' has no agent assigned.";
 
         var adminTokens = (await unitOfWork.AdminDeviceTokens.GetAllValidAsync()).ToList();
         foreach (var token in adminTokens)
         {
             try
             {
-                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "inquiry_unassigned",
-                    new NotificationDestination(AdminNotificationRoutes.InquiriesList));
+                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "enquiry_unassigned",
+                    new NotificationDestination(AdminNotificationRoutes.EnquiriesList));
                 if (!ok) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(token.Token);
             }
             catch (Exception ex)

@@ -9,7 +9,7 @@ public class ServiceCategory
     public string IconName { get; set; } = string.Empty;
     public string CoverPhotoUrl { get; set; } = string.Empty;
     public string CoverPhotoFilePath { get; set; } = string.Empty;
-    // RentNearBy.Core.Models.ServiceCategoryFormTypes.* — decides which Inquiry Form fields this
+    // RentNearBy.Core.Models.ServiceCategoryFormTypes.* — decides which Enquiry Form fields this
     // category's Services/Packages show when a user submits a lead.
     public string FormType { get; set; } = ServiceCategoryFormTypes.Travel;
     // Word shown to consumers instead of "Agent" for this category (e.g. "Travel Expert",

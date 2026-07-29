@@ -15,21 +15,21 @@ namespace RentNearBy.Infrastructure.Services;
 // IServiceScopeFactory scope per message). Uses the generic IFcmService (a normal rendered
 // notification: block, not IChatFcmService's data-only style — there's no per-message-stacking
 // need for a status change) and deliberately does NOT call NotificationLogs — that dedup is
-// membership-expiry-specific ("once per day"), the wrong semantics for an inquiry status change.
-public class InquiryStatusPushWorkerService : BackgroundService
+// membership-expiry-specific ("once per day"), the wrong semantics for an enquiry status change.
+public class EnquiryStatusPushWorkerService : BackgroundService
 {
-    private const string QueueName = "inquiry.status.push";
+    private const string QueueName = "enquiry.status.push";
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IFcmService _fcmService;
-    private readonly ILogger<InquiryStatusPushWorkerService> _logger;
+    private readonly ILogger<EnquiryStatusPushWorkerService> _logger;
     private readonly ConnectionFactory _factory;
 
-    public InquiryStatusPushWorkerService(
+    public EnquiryStatusPushWorkerService(
         IServiceScopeFactory serviceScopeFactory,
         IFcmService fcmService,
         IConfiguration configuration,
-        ILogger<InquiryStatusPushWorkerService> logger)
+        ILogger<EnquiryStatusPushWorkerService> logger)
     {
         _serviceScopeFactory = serviceScopeFactory;
         _fcmService = fcmService;
@@ -40,7 +40,7 @@ public class InquiryStatusPushWorkerService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("InquiryStatusPushWorkerService starting");
+        _logger.LogInformation("EnquiryStatusPushWorkerService starting");
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -63,7 +63,7 @@ public class InquiryStatusPushWorkerService : BackgroundService
                 // declares with (it has no way to pass custom queue arguments), or RabbitMQ
                 // rejects the mismatched redeclare with a 406 and every publish silently fails.
                 // Same simple shape as ChatMessageNotificationWorkerService/ReportFiledWorkerService
-                // — no DLQ, nothing ever consumed dlq.inquiry.status.push anyway, so a native
+                // — no DLQ, nothing ever consumed dlq.enquiry.status.push anyway, so a native
                 // dead-letter queue here provided no real retry value.
                 await channel.QueueDeclareAsync(
                     queue: QueueName,
@@ -85,7 +85,7 @@ public class InquiryStatusPushWorkerService : BackgroundService
                     try
                     {
                         var body = Encoding.UTF8.GetString(ea.Body.ToArray());
-                        var msg = JsonSerializer.Deserialize<InquiryStatusPushPayload>(body,
+                        var msg = JsonSerializer.Deserialize<EnquiryStatusPushPayload>(body,
                             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                         if (msg != null)
@@ -95,7 +95,7 @@ public class InquiryStatusPushWorkerService : BackgroundService
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error processing inquiry status push message — nacking");
+                        _logger.LogError(ex, "Error processing enquiry status push message — nacking");
                         await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
                     }
                 };
@@ -106,7 +106,7 @@ public class InquiryStatusPushWorkerService : BackgroundService
                     consumer: consumer,
                     cancellationToken: stoppingToken);
 
-                _logger.LogInformation("InquiryStatusPushWorkerService consuming queue '{Queue}'", QueueName);
+                _logger.LogInformation("EnquiryStatusPushWorkerService consuming queue '{Queue}'", QueueName);
 
                 await Task.Delay(Timeout.Infinite, stoppingToken);
             }
@@ -116,15 +116,15 @@ public class InquiryStatusPushWorkerService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "InquiryStatusPushWorkerService connection lost, reconnecting in 5 seconds");
+                _logger.LogError(ex, "EnquiryStatusPushWorkerService connection lost, reconnecting in 5 seconds");
                 await Task.Delay(5000, stoppingToken);
             }
         }
 
-        _logger.LogInformation("InquiryStatusPushWorkerService stopped");
+        _logger.LogInformation("EnquiryStatusPushWorkerService stopped");
     }
 
-    private async Task ProcessMessageAsync(InquiryStatusPushPayload msg)
+    private async Task ProcessMessageAsync(EnquiryStatusPushPayload msg)
     {
         using var scope = _serviceScopeFactory.CreateScope();
         var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
@@ -139,16 +139,16 @@ public class InquiryStatusPushWorkerService : BackgroundService
         // ForAgent recipients are a co-assigned agent hearing about a lead they don't own, not the
         // consumer who submitted it — different wording, and a different notification_type so the
         // client routes the tap to Lead Detail (GET /agents/me/leads/{id}) instead of the
-        // consumer-only Inquiry Detail (which 403s for an agent — see InquiryHandlers.GetInquiryDetail's
+        // consumer-only Enquiry Detail (which 403s for an agent — see EnquiryHandlers.GetEnquiryDetail's
         // ownership check).
-        var title = msg.ForAgent ? "Lead status updated" : "Inquiry update";
+        var title = msg.ForAgent ? "Lead status updated" : "Enquiry update";
         var body = msg.ForAgent
             ? $"Your assigned lead for '{msg.ServiceName}' is now {msg.Status}."
-            : $"Your inquiry for '{msg.ServiceName}' is now {msg.Status}.";
-        var notificationType = msg.ForAgent ? "agent_lead_status" : "inquiry_status";
+            : $"Your enquiry for '{msg.ServiceName}' is now {msg.Status}.";
+        var notificationType = msg.ForAgent ? "agent_lead_status" : "enquiry_status";
         var data = new Dictionary<string, string>
         {
-            { "inquiry_id", msg.InquiryId.ToString() },
+            { "enquiry_id", msg.EnquiryId.ToString() },
             { "status", msg.Status },
         };
 
@@ -166,7 +166,7 @@ public class InquiryStatusPushWorkerService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Inquiry status FCM send exception for user {UserId}", msg.RecipientUserId);
+                _logger.LogError(ex, "Enquiry status FCM send exception for user {UserId}", msg.RecipientUserId);
                 return (deviceToken.Token, isSuccess: true); // transient error, not proof the token itself is invalid
             }
         }));

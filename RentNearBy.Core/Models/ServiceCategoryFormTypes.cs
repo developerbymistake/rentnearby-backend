@@ -1,7 +1,7 @@
 namespace RentNearBy.Core.Models;
 
-// Decides which of the two variable Inquiry fields (PreferredDateOrTripStart, NumberOfPeople) the
-// Inquiry Form shows/labels for a category's Service+Package — see ServiceCategory.FormType.
+// Decides which of the two variable Enquiry fields (PreferredDateOrTripStart, NumberOfPeople) the
+// Enquiry Form shows/labels for a category's Service+Package — see ServiceCategory.FormType.
 public static class ServiceCategoryFormTypes
 {
     public const string Travel = "Travel";

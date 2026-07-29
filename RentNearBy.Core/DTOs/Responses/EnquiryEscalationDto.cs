@@ -1,6 +1,6 @@
 namespace RentNearBy.Core.DTOs.Responses;
 
-public class InquiryEscalationDto
+public class EnquiryEscalationDto
 {
     public Guid Id { get; set; }
     public string Reason { get; set; } = string.Empty;

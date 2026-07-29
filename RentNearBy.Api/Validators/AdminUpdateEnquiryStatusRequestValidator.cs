@@ -4,14 +4,14 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Validators;
 
-public class AdminUpdateInquiryStatusRequestValidator : AbstractValidator<AdminUpdateInquiryStatusRequest>
+public class AdminUpdateEnquiryStatusRequestValidator : AbstractValidator<AdminUpdateEnquiryStatusRequest>
 {
     private static readonly string[] AllowedStatuses =
     [
-        InquiryStatuses.Submitted, InquiryStatuses.Contacted, InquiryStatuses.Closed
+        EnquiryStatuses.Submitted, EnquiryStatuses.Contacted, EnquiryStatuses.Closed
     ];
 
-    public AdminUpdateInquiryStatusRequestValidator()
+    public AdminUpdateEnquiryStatusRequestValidator()
     {
         RuleFor(x => x.Status)
             .NotEmpty().WithMessage("Status is required")

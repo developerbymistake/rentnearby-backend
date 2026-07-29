@@ -6,7 +6,7 @@ namespace RentNearBy.Core.Entities;
 // time so a row stays stable even if the source entity it was about later changes. ActionRoute +
 // ActionArgumentsJson together are the redirect target — ActionRoute is a literal AppRoutes.* path
 // string, ActionArgumentsJson is exactly the map the target screen expects via Get.arguments (e.g.
-// {"id":"<inquiryId>"}) — so the client's tap handler never needs per-Type routing logic.
+// {"id":"<enquiryId>"}) — so the client's tap handler never needs per-Type routing logic.
 public class NotificationEvent
 {
     public Guid Id { get; set; }

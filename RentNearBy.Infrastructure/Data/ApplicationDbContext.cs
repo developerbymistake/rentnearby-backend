@@ -47,10 +47,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<PackageInclusion> PackageInclusions { get; set; }
     public DbSet<Agent> Agents { get; set; }
     public DbSet<AgentService> AgentServices { get; set; }
-    public DbSet<Inquiry> Inquiries { get; set; }
-    public DbSet<InquiryAgent> InquiryAgents { get; set; }
-    public DbSet<InquiryStatusHistory> InquiryStatusHistories { get; set; }
-    public DbSet<InquiryEscalation> InquiryEscalations { get; set; }
+    public DbSet<Enquiry> Enquiries { get; set; }
+    public DbSet<EnquiryAgent> EnquiryAgents { get; set; }
+    public DbSet<EnquiryStatusHistory> EnquiryStatusHistories { get; set; }
+    public DbSet<EnquiryEscalation> EnquiryEscalations { get; set; }
     public DbSet<NotificationEvent> NotificationEvents { get; set; }
     public DbSet<NotificationRead> NotificationReads { get; set; }
     public DbSet<DeletedAccountRecord> DeletedAccountRecords { get; set; }
@@ -842,19 +842,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(a => a.ServiceId);
         });
 
-        modelBuilder.Entity<Inquiry>(e =>
+        modelBuilder.Entity<Enquiry>(e =>
         {
             e.HasKey(i => i.Id);
             e.Property(i => i.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(i => i.CreatedAt).HasDefaultValueSql("now()");
             e.Property(i => i.UpdatedAt).HasDefaultValueSql("now()");
             // Same reasoning as RoomListing/PlotListing above: an agent updating status and an admin
-            // re-assigning agents (or a second co-assigned agent) can both target the same Inquiry row
+            // re-assigning agents (or a second co-assigned agent) can both target the same Enquiry row
             // concurrently — without this, whichever SaveChangesAsync commits last silently wins.
             e.Property<uint>("xmin").IsRowVersion();
 
             // No FK to User (deliberately, matching ListingReport/Conversation/Message) — an
-            // Inquiry is a business lead record with its own denormalized FullName/Mobile/Email,
+            // Enquiry is a business lead record with its own denormalized FullName/Mobile/Email,
             // and must survive account deletion intact for the assigned agent/admin, not vanish
             // or block the deletion the way a live Restrict/Cascade FK would.
 
@@ -872,8 +872,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(i => i.ServiceId);
             e.HasIndex(i => i.ServicePackageId);
             e.HasIndex(i => i.Status);
-            // Composite: InquiryRepository.GetMonthlyStatusCountsForAgentAsync's year-range +
-            // status GroupBy (Agent/Admin lead-stats dashboards) — joins through InquiryAgent.AgentId
+            // Composite: EnquiryRepository.GetMonthlyStatusCountsForAgentAsync's year-range +
+            // status GroupBy (Agent/Admin lead-stats dashboards) — joins through EnquiryAgent.AgentId
             // (already indexed), then filters/groups by these two columns.
             e.HasIndex(i => new { i.CreatedAt, i.Status });
             // UserSeenAt (nullable DateTime?) needs no explicit config — mapped by convention. NULL means
@@ -881,15 +881,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         });
 
         // Composite-key many-to-many, exact shape of AgentService — both FKs Cascade (an
-        // assignment row about a deleted inquiry or agent doesn't need to survive either deletion).
-        modelBuilder.Entity<InquiryAgent>(e =>
+        // assignment row about a deleted enquiry or agent doesn't need to survive either deletion).
+        modelBuilder.Entity<EnquiryAgent>(e =>
         {
-            e.HasKey(ia => new { ia.InquiryId, ia.AgentId });
+            e.HasKey(ia => new { ia.EnquiryId, ia.AgentId });
             e.Property(ia => ia.AssignedAt).HasDefaultValueSql("now()");
 
-            e.HasOne(ia => ia.Inquiry)
-             .WithMany(i => i.InquiryAgents)
-             .HasForeignKey(ia => ia.InquiryId)
+            e.HasOne(ia => ia.Enquiry)
+             .WithMany(i => i.EnquiryAgents)
+             .HasForeignKey(ia => ia.EnquiryId)
              .OnDelete(DeleteBehavior.Cascade);
 
             e.HasOne(ia => ia.Agent)
@@ -902,16 +902,16 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // "never seen by this agent"; correct default for all existing rows, no backfill required.
         });
 
-        modelBuilder.Entity<InquiryEscalation>(e =>
+        modelBuilder.Entity<EnquiryEscalation>(e =>
         {
             e.HasKey(esc => esc.Id);
             e.Property(esc => esc.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(esc => esc.CreatedAt).HasDefaultValueSql("now()");
             e.Property(esc => esc.Status).HasDefaultValue("Pending");
 
-            e.HasOne(esc => esc.Inquiry)
+            e.HasOne(esc => esc.Enquiry)
              .WithMany(i => i.Escalations)
-             .HasForeignKey(esc => esc.InquiryId)
+             .HasForeignKey(esc => esc.EnquiryId)
              .OnDelete(DeleteBehavior.Cascade);
 
             e.HasOne(esc => esc.ResolvedByAdmin)
@@ -922,24 +922,24 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Used by the admin "Escalated" filter chip.
             e.HasIndex(esc => esc.Status);
 
-            // Stops a second simultaneous Pending escalation on the same inquiry — partial unique
+            // Stops a second simultaneous Pending escalation on the same enquiry — partial unique
             // index, race-safe under concurrent submits, unlike an app-level check-then-insert.
             // Exact mirror of ListingReport's ix_listingreports_reporter_listing_pending idiom.
-            e.HasIndex(esc => esc.InquiryId)
+            e.HasIndex(esc => esc.EnquiryId)
              .IsUnique()
-             .HasDatabaseName("ix_inquiryescalations_inquiry_pending")
+             .HasDatabaseName("ix_enquiryescalations_enquiry_pending")
              .HasFilter("\"Status\" = 'Pending'");
         });
 
-        modelBuilder.Entity<InquiryStatusHistory>(e =>
+        modelBuilder.Entity<EnquiryStatusHistory>(e =>
         {
             e.HasKey(h => h.Id);
             e.Property(h => h.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(h => h.CreatedAt).HasDefaultValueSql("now()");
 
-            e.HasOne<Inquiry>()
+            e.HasOne<Enquiry>()
              .WithMany(i => i.StatusHistory)
-             .HasForeignKey(h => h.InquiryId)
+             .HasForeignKey(h => h.EnquiryId)
              .OnDelete(DeleteBehavior.Cascade);
 
             e.HasOne(h => h.ChangedByAdmin)
@@ -954,7 +954,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
 
-            e.HasIndex(h => h.InquiryId);
+            e.HasIndex(h => h.EnquiryId);
             e.HasIndex(h => h.ChangedByAdminId);
             e.HasIndex(h => h.ChangedByAgentId);
         });

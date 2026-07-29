@@ -248,11 +248,11 @@ public static class ServiceCatalogHandlers
         var service = await unitOfWork.Services.GetByIdWithDetailsAsync(id);
         if (service == null) return NotFoundResponse("Service not found");
 
-        // Inquiry.ServiceId's FK is Restrict (same reasoning as ExistsByServicePackageIdAsync) — any
-        // referencing inquiry, terminal status or not, would make the DB cascade-delete of this
+        // Enquiry.ServiceId's FK is Restrict (same reasoning as ExistsByServicePackageIdAsync) — any
+        // referencing enquiry, terminal status or not, would make the DB cascade-delete of this
         // Service's packages throw. Pre-check so the admin gets a clean 409, not a raw DB exception.
-        if (await db.Inquiries.AnyAsync(i => i.ServiceId == id))
-            return ConflictResponse("Cannot delete a service that has inquiries. Deactivate it instead.");
+        if (await db.Enquiries.AnyAsync(i => i.ServiceId == id))
+            return ConflictResponse("Cannot delete a service that has enquiries. Deactivate it instead.");
 
         // Hard-delete order mirrors AdminDeleteBanner: Cloudinary asset(s) deleted BEFORE the DB row(s).
         // The Service row's own cover photo, then every child package's thumbnail (DB cascade will
@@ -412,8 +412,8 @@ public static class ServiceCatalogHandlers
         var package = await unitOfWork.ServicePackages.GetByIdAsync(id);
         if (package == null) return NotFoundResponse("Service package not found");
 
-        if (await unitOfWork.Inquiries.ExistsByServicePackageIdAsync(id))
-            return ConflictResponse("Cannot delete a package that has inquiries. Deactivate it instead.");
+        if (await unitOfWork.Enquiries.ExistsByServicePackageIdAsync(id))
+            return ConflictResponse("Cannot delete a package that has enquiries. Deactivate it instead.");
 
         if (!string.IsNullOrEmpty(package.ThumbnailFilePath))
             await photoService.DeletePhotoAsync(package.ThumbnailFilePath);
