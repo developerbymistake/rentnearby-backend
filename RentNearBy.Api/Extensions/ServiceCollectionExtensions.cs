@@ -89,14 +89,20 @@ public static class ServiceCollectionExtensions
             });
             services.AddSingleton<IRateLimitService, RedisRateLimitService>();
             services.AddSingleton<IOtpStore, RedisOtpStore>();
+            services.AddSingleton<IWebEnquiryTokenStore, RedisWebEnquiryTokenStore>();
         }
         else
         {
             services.AddSingleton<IRateLimitService, InMemoryRateLimitService>();
             services.AddSingleton<IOtpStore, MemoryOtpStore>();
+            services.AddSingleton<IWebEnquiryTokenStore, MemoryWebEnquiryTokenStore>();
         }
 
         services.AddHttpClient<IOtpService, WhatsAppOtpService>();
+
+        // Cloudflare Turnstile — server-side siteverify call for the public website enquiry flow
+        // (WebEnquiryHandlers). Free, no separate config beyond Turnstile:SecretKey.
+        services.AddHttpClient<ITurnstileService, TurnstileService>();
 
         // FCM — Singleton: FirebaseApp.Create() must be called only once
         services.AddSingleton<IFcmService, FcmService>();

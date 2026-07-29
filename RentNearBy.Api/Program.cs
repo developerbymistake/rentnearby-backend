@@ -358,6 +358,12 @@ app.MapGroup("/api/v1/enquiries")
     .WithTags("Enquiries")
     .MapEnquiryEndpoints();
 
+// Public (unauthenticated) website enquiry flow — see WebEnquiryHandlers' doc comment. Entirely separate
+// route group from the above; touches no existing enquiry route/handler.
+app.MapGroup("/api/v1/web-enquiry")
+    .WithTags("WebEnquiry")
+    .MapWebEnquiryEndpoints();
+
 app.MapGroup("/api/v1/admin/enquiries")
     .WithTags("AdminEnquiries")
     .MapAdminEnquiryEndpoints();

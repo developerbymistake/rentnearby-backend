@@ -23,15 +23,17 @@ public static class EnquiryHandlers
 {
     // ── Consumer-facing ──────────────────────────────────────────────────────
 
-    private static readonly TimeSpan EnquiryCreateWindow = TimeSpan.FromHours(24);
-    private const int EnquiryCreatePerUserMax = 10;
+    // internal (not private) — WebEnquiryHandlers.VerifyOtp reuses these exact same keys/limits so a
+    // website-originated enquiry is bound by the identical per-user/per-target-mobile caps as the app.
+    internal static readonly TimeSpan EnquiryCreateWindow = TimeSpan.FromHours(24);
+    internal const int EnquiryCreatePerUserMax = 10;
     // Tighter than the per-user cap and keyed on the TARGET number, not the caller — this is the one
     // that actually bounds real-world harm from the "submit for someone else" override (see
     // EnquiryContactSheet): the contact number is never verified, and it's exactly what category-
     // mapped agents place real outbound calls/WhatsApp messages to. A per-user cap alone doesn't stop
     // several attacker accounts (or the same one across days) from each independently targeting the
     // same real third-party phone number.
-    private const int EnquiryCreatePerMobileMax = 3;
+    internal const int EnquiryCreatePerMobileMax = 3;
 
     public static async Task<IResult> CreateEnquiry(
         CreateEnquiryRequest request, IValidator<CreateEnquiryRequest> validator,
@@ -58,6 +60,19 @@ public static class EnquiryHandlers
             return TooManyRequestsResponse();
         }
 
+        return await CreateEnquiryCore(userId, request, unitOfWork, db, hubContext, publisher);
+    }
+
+    // Extracted so WebEnquiryHandlers.VerifyOtp (no ClaimsPrincipal — userId comes from a phone-verified/
+    // just-created User instead) can reuse the exact same enquiry-creation + auto-assign + notify logic
+    // without duplicating it. Pure extraction — CreateEnquiry's own behavior above is unchanged, it now
+    // just calls this instead of inlining it. The caller is responsible for its own rate-limiting (the
+    // public CreateEnquiry above does its checks before calling in; WebEnquiryHandlers does its own,
+    // identical checks — see EnquiryCreatePerUserMax/EnquiryCreatePerMobileMax reuse there).
+    internal static async Task<IResult> CreateEnquiryCore(
+        Guid userId, CreateEnquiryRequest request, IUnitOfWork unitOfWork, ApplicationDbContext db,
+        IHubContext<EnquiryHub> hubContext, IRabbitMqPublisher publisher)
+    {
         var service = await unitOfWork.Services.GetByIdAsync(request.ServiceId);
         if (service == null) return NotFoundResponse("Service not found");
         if (!service.IsActive) return BadRequestResponse("This service is not currently available");
