@@ -68,7 +68,10 @@ public sealed class WhatsAppOtpService : IOtpService
             _logger.LogWarning("VerifyOtp: no OTP found for {PhonePrefix}", phoneNumber[..4] + "xxxxxx");
             return false;
         }
-        if (stored != otp)
+        // Constant-time compare — a plain `!=` short-circuits on the first mismatched character, which
+        // is a (largely theoretical, given the 3-attempts/hour cap in WebEnquiryHandlers/AuthHandlers)
+        // timing side-channel on a 4-digit numeric code. Fixed cost either way removes it outright.
+        if (!FixedTimeEquals(stored, otp))
         {
             _logger.LogWarning("VerifyOtp: OTP mismatch for {PhonePrefix}", phoneNumber[..4] + "xxxxxx");
             return false;
@@ -77,6 +80,15 @@ public sealed class WhatsAppOtpService : IOtpService
         // Delete only on successful match — wrong attempts keep OTP alive for retry
         await DeleteOtpAsync(phoneNumber, keyNamespace);
         return true;
+    }
+
+    private static bool FixedTimeEquals(string a, string b)
+    {
+        // CryptographicOperations.FixedTimeEquals requires equal-length spans; a length mismatch alone
+        // is not secret (OTPs are always the same fixed digit count), so it's fine to branch on that —
+        // only the digit-by-digit comparison needs to run in constant time.
+        if (a.Length != b.Length) return false;
+        return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(a), Encoding.UTF8.GetBytes(b));
     }
 
     private async Task StoreOtpAsync(string phone, string otp, string keyNamespace)

@@ -1,4 +1,5 @@
 ﻿using FluentValidation;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Api.Endpoints;
@@ -15,6 +16,22 @@ DtoMappings.ConfigureMappings();
 builder.Services.AddApplicationServices(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddSignalR();
+
+// Deployed behind Coolify's Traefik reverse proxy — without this, HttpContext.Connection.RemoteIpAddress
+// is always Traefik's own container IP, not the real client IP, which silently collapses every per-IP
+// rate limit in WebEnquiryHandlers into one shared bucket for all visitors instead of throttling any one
+// abuser (see that file's ClientIp() comment). KnownNetworks/KnownProxies are cleared deliberately —
+// Coolify's proxy IP isn't a fixed, known-in-advance address — which means the *immediate* hop's
+// X-Forwarded-For entry is trusted unconditionally. That is only safe as long as this container is never
+// reachable directly from the public internet (only through Traefik) — docker-compose.yml currently
+// publishes 5000:5000 on the host, so confirm the host firewall/security group blocks external access to
+// that port directly, or a caller could forge X-Forwarded-For and defeat these rate limits entirely.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 builder.Services.AddResponseCompression(options =>
 {
@@ -144,6 +161,7 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+app.UseForwardedHeaders();
 app.UseResponseCompression();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseCors("AllowAll");

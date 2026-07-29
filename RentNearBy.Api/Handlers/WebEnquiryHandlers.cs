@@ -197,9 +197,10 @@ public static class WebEnquiryHandlers
         return await EnquiryHandlers.CreateEnquiryCore(user.Id, createRequest, unitOfWork, db, hubContext, publisher);
     }
 
-    // TODO: swap for X-Forwarded-For-aware resolution once the app sits behind a reverse proxy/Cloudflare
-    // for this route (see UseForwardedHeaders) — RemoteIpAddress alone would otherwise show the proxy's
-    // own IP for every request, collapsing the per-IP limits above into one shared bucket.
+    // Program.cs now runs UseForwardedHeaders() ahead of everything else, so RemoteIpAddress here is
+    // already resolved from the (Coolify/Traefik) reverse proxy's X-Forwarded-For header, not the
+    // proxy's own container IP — see the ForwardedHeadersOptions comment in Program.cs for the trust
+    // caveat this depends on (this container must not be reachable directly, bypassing the proxy).
     private static string ClientIp(HttpContext httpContext) =>
         httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
