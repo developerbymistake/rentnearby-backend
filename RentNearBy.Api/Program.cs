@@ -33,7 +33,11 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
         policy.WithOrigins(
-            "https://developerbymistake.tech"
+            "https://developerbymistake.tech",
+            // Bakhli marketing website (bakhli-website repo) — added for the public web-enquiry flow
+            // (WebEnquiryEndpoints) and the read-only services/packages catalog it calls from the browser.
+            "https://bakhli.com",
+            "https://www.bakhli.com"
         )
         .AllowAnyHeader()
         .AllowAnyMethod());
