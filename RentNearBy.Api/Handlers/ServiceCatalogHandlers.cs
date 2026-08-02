@@ -29,8 +29,13 @@ public static class ServiceCatalogHandlers
 
     public static async Task<IResult> GetServiceCategories(IUnitOfWork unitOfWork)
     {
-        var categories = await unitOfWork.ServiceCategories.GetAllOrderedAsync();
-        return OkResponse(categories.Select(c => c.Adapt<ServiceCategoryDto>()));
+        var categories = await unitOfWork.ServiceCategories.GetAllOrderedWithServiceCountAsync();
+        return OkResponse(categories.Select(x =>
+        {
+            var dto = x.Category.Adapt<ServiceCategoryDto>();
+            dto.ServiceCount = x.ServiceCount;
+            return dto;
+        }));
     }
 
     public static async Task<IResult> GetServiceCategoryById(Guid id, IUnitOfWork unitOfWork)

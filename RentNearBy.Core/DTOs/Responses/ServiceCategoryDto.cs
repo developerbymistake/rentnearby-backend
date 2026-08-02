@@ -12,4 +12,5 @@ public class ServiceCategoryDto
     public int SortOrder { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
+    public int ServiceCount { get; set; }
 }
