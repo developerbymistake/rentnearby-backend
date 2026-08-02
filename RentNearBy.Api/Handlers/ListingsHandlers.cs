@@ -32,7 +32,7 @@ public static class RoomListingsHandlers
         var redis = sp.GetService<IConnectionMultiplexer>();
         var cacheKey = ContextCacheKey(lat, lng, includeAddress);
 
-        if (redis != null)
+        if (redis != null && !includeAddress)
         {
             RedisValue cached = default;
             try { cached = await redis.GetDatabase().StringGetAsync(cacheKey); } catch { }
@@ -95,7 +95,7 @@ public static class RoomListingsHandlers
             };
         }
 
-        if (redis != null)
+        if (redis != null && !includeAddress)
         {
             var json = JsonSerializer.Serialize(result);
             try { await redis.GetDatabase().StringSetAsync(cacheKey, json, ContextCacheTtl); } catch { }
