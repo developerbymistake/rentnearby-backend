@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -42,12 +43,24 @@ public static class SlugGenerator
         return $"{baseSlug}-{i}";
     }
 
+    // Lowercase alphanumeric only (no confusable-character exclusion needed here, unlike
+    // CouponCodeGenerator — slugs are read/shared via URL, not hand-typed from a support call).
+    private const string SuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+    private const int SuffixLength = 5;
+
     // Shared by RoomListing/PlotListing Create handlers: a pre-check-then-insert for slug uniqueness
     // would have the same TOCTOU gap the DB-level unique index exists to close, so both instead retry
-    // the insert itself with a counter suffix. `setSlug` assigns the candidate onto the entity already
-    // tracked by the caller; `trySaveAsync` must attempt to persist and return false (swallowing only
-    // the unique-index collision) on failure — kept as a delegate rather than an EF Core call so this
-    // dependency-free Core project never needs to reference EF Core/DbUpdateException directly.
+    // the insert itself. Every attempt — including the first — appends a random 5-char suffix rather
+    // than ever trying the bare base slug: at scale (millions of listings sharing a common
+    // type+locality base, e.g. "3bhk-haldwani") a human-countable -2/-3/... counter would exhaust its
+    // small attempt budget and start hard-failing listing creation for legitimate owners. A random
+    // suffix gives ~60M combinations per distinct base slug, so real collisions are near-zero
+    // probability regardless of how many listings share a base — the bounded retry below exists only
+    // as defensive insurance against that vanishing case, not as the actual uniqueness mechanism.
+    // `setSlug` assigns the candidate onto the entity already tracked by the caller; `trySaveAsync`
+    // must attempt to persist and return false (swallowing only the unique-index collision) on
+    // failure — kept as a delegate rather than an EF Core call so this dependency-free Core project
+    // never needs to reference EF Core/DbUpdateException directly.
     public static async Task<bool> GenerateUniqueSlugWithRetryAsync(
         string baseSlug,
         Action<string> setSlug,
@@ -56,10 +69,21 @@ public static class SlugGenerator
     {
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            setSlug(attempt == 1 ? baseSlug : $"{baseSlug}-{attempt}");
+            setSlug($"{baseSlug}-{RandomSuffix()}");
             if (await trySaveAsync()) return true;
         }
         return false;
+    }
+
+    // RandomNumberGenerator.GetInt32 uses rejection sampling internally and is unbiased, unlike
+    // GetBytes(...) % SuffixAlphabet.Length, which would skew towards the low end of the alphabet
+    // since 256 is not evenly divisible by 36 (mirrors CouponCodeGenerator.Generate's technique).
+    private static string RandomSuffix()
+    {
+        var chars = new char[SuffixLength];
+        for (var i = 0; i < SuffixLength; i++)
+            chars[i] = SuffixAlphabet[RandomNumberGenerator.GetInt32(SuffixAlphabet.Length)];
+        return new string(chars);
     }
 
     private static string RemoveDiacritics(string text)
