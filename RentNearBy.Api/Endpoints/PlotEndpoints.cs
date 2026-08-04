@@ -9,6 +9,8 @@ public static class PlotListingEndpoints
         group.MapGet("/plans", PlotListingHandlers.GetPublicPlotPlans);
         group.MapGet("/context", PlotListingHandlers.GetContext);
         group.MapGet("/nearby", PlotListingHandlers.GetNearby);
+        // Public (no-auth) share-link/QR resolver — see PlotListingHandlers.GetBySlug's doc comment.
+        group.MapGet("/by-slug/{slug}", PlotListingHandlers.GetBySlug);
         group.MapGet("/{id:guid}", PlotListingHandlers.GetById);
 
         group.MapGet("/my", PlotListingHandlers.GetMyPlotListings).RequireAuthorization();

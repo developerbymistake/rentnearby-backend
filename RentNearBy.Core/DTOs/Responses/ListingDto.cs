@@ -4,6 +4,7 @@ public class RoomListingDto
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
+    public string? Slug { get; set; }
     public string? Description { get; set; }
     public int PriceMonthly { get; set; }
     public decimal Latitude { get; set; }

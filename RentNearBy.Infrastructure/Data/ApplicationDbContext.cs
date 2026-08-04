@@ -362,6 +362,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => l.CityId);
             e.HasIndex(l => l.UserId);
             e.HasIndex(l => l.RoomTypeId);
+            // Public share link / QR lookup key (GET /listings/by-slug/{slug}) — generated once at
+            // create time (never price/status-derived, see SlugGenerator.cs) and backfilled for
+            // pre-existing rows by the AddListingSlug migration before this index was added. Nullable
+            // column, but Postgres unique indexes already ignore NULLs (same reasoning as
+            // ix_coupons_code_unique above), so no partial filter is needed here.
+            e.HasIndex(l => l.Slug).IsUnique();
             // Filter indexes
             e.HasIndex(l => l.IsActive);
             e.HasIndex(l => l.PriceMonthly);
@@ -623,6 +629,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => p.IsActive);
             e.HasIndex(p => p.CreatedAt);
             e.HasIndex(p => p.AreaSqft);
+            // Public share link / QR lookup key (GET /plots/by-slug/{slug}) — same reasoning as
+            // RoomListing.Slug above.
+            e.HasIndex(p => p.Slug).IsUnique();
             // Composite: DeleteDistrict guard — AnyAsync(p.DistrictId == id && p.IsActive)
             e.HasIndex(p => new { p.DistrictId, p.IsActive });
 

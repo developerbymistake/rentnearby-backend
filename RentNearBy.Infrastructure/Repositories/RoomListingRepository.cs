@@ -215,9 +215,20 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
             .FirstOrDefaultAsync(l => l.Id == id && !l.IsDeleted);
 
-    // Admin moderation needs to review reported listings even after the owner
-    // deletes them — photos are gone for good (deleted from storage on delete),
-    // but the listing record itself must still be visible.
+    // Public share-link/QR resolver — only a currently-live listing should stay reachable by slug.
+    // IsActive (not just !IsDeleted) is required so a Pending or admin-Rejected listing's full public
+    // page (owner name, exact GPS, address, photos) doesn't stay indefinitely reachable/indexable via
+    // a previously-issued slug; matches the Share entry point itself only being offered while Live.
+    public async Task<RoomListing?> GetBySlugWithPhotosAsync(string slug)
+        => await _dbSet
+            .AsNoTracking()
+            .Include(l => l.RoomType)
+            .Include(l => l.District)
+            .Include(l => l.City)
+            .Include(l => l.User)
+            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
+            .FirstOrDefaultAsync(l => l.Slug == slug && !l.IsDeleted && l.IsActive);
+
     public async Task<RoomListing?> GetByIdWithPhotosForAdminAsync(Guid id)
         => await _dbSet
             .AsNoTracking()

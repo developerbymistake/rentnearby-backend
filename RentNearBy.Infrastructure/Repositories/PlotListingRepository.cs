@@ -124,6 +124,20 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder))
             .FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
 
+    // Public share-link/QR resolver — only a currently-live listing should stay reachable by slug.
+    // IsActive (not just !IsDeleted) is required so a Pending or admin-Rejected plot's full public
+    // page (owner name, exact GPS, address, photos) doesn't stay indefinitely reachable/indexable via
+    // a previously-issued slug; matches the Share entry point itself only being offered while Live.
+    public async Task<PlotListing?> GetBySlugWithPhotosAsync(string slug)
+        => await _dbSet
+            .AsNoTracking()
+            .Include(p => p.PlotType)
+            .Include(p => p.District)
+            .Include(p => p.City)
+            .Include(p => p.User)
+            .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder))
+            .FirstOrDefaultAsync(p => p.Slug == slug && !p.IsDeleted && p.IsActive);
+
     // Admin moderation needs to review reported plots even after the owner
     // deletes them — photos are gone for good (deleted from storage on delete),
     // but the listing record itself must still be visible.

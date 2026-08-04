@@ -44,6 +44,26 @@ public static class DtoMappings
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
 
+        // Public (no-auth) by-slug DTOs — see PublicRoomListingDto/PublicPlotListingDto's doc comments
+        // for exactly which fields are deliberately omitted.
+        TypeAdapterConfig<RoomListing, PublicRoomListingDto>.NewConfig()
+            .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
+            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
+            .Map(dest => dest.RoomTypeName, src => src.RoomType != null ? src.RoomType.Name : null)
+            .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
+            .Map(dest => dest.Photos, src => src.Photos != null
+                ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
+                : new List<string>());
+
+        TypeAdapterConfig<PlotListing, PublicPlotListingDto>.NewConfig()
+            .Map(dest => dest.PlotType, src => src.PlotType != null ? src.PlotType.Name : string.Empty)
+            .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
+            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
+            .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
+            .Map(dest => dest.Photos, src => src.Photos != null
+                ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
+                : new List<string>());
+
         // ── Local Services Marketplace ─────────────────────────────────────────
 
         TypeAdapterConfig<ServiceCategory, ServiceCategoryDto>.NewConfig();

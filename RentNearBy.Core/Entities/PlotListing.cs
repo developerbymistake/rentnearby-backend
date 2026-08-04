@@ -15,6 +15,10 @@ public class PlotListing
     public Guid DistrictId { get; set; }
     public Guid? CityId { get; set; }
     public bool IsActive { get; set; } = false;
+    // Generated once at creation time (SlugGenerator, in PlotListingHandlers.CreatePlotListing) — immutable
+    // for the life of the listing. Powers the public share link (bakhli.com/l/p/{slug}) and the /go/p/{slug}
+    // QR redirect; never regenerated on update, and never derived from price/status (see SlugGenerator.cs).
+    public string? Slug { get; set; }
     public DateTime? ValidUntil { get; set; }
     public bool IsDeleted { get; set; } = false;
     public DateTime? DeletedAt { get; set; }

@@ -1,4 +1,5 @@
 ﻿using FluentValidation;
+using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
@@ -202,51 +203,29 @@ app.MapGet("/app", (IConfiguration configuration) =>
 {
     var playStoreUrl = configuration["AppLinks:PlayStoreUrl"] ?? "";
     var appStoreUrl = configuration["AppLinks:AppStoreUrl"] ?? "";
-    var appStoreButton = string.IsNullOrEmpty(appStoreUrl)
-        ? ""
-        : $"""<a class="btn store" href="{appStoreUrl}">Download on the App Store</a>""";
+    var html = RenderStoreRedirectHtml(playStoreUrl, appStoreUrl, "https://developerbymistake.tech/app");
+    return Results.Content(html, "text/html");
+});
 
-    var html = """
-<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bakhli — Rooms & Plots Near You</title>
-<meta name="description" content="Find nearby rooms, PG, flats & plots for rent. Browse on a live map and connect straight with owners.">
-<meta property="og:title" content="Bakhli — Rooms & Plots Near You">
-<meta property="og:description" content="Find nearby rooms, PG, flats & plots for rent. Browse on a live map and connect straight with owners.">
-<meta property="og:url" content="https://developerbymistake.tech/app">
-<meta property="og:type" content="website">
-<meta name="twitter:card" content="summary">
-<style>body{font-family:sans-serif;max-width:520px;margin:64px auto;padding:0 24px;color:#1e293b;text-align:center}h1{color:#1e3a8a;margin-bottom:8px}p.tagline{color:#475569;margin-top:0}.card{background:#f1f5f9;border-radius:12px;padding:32px 24px;margin:24px 0}.btn{display:block;background:#1e3a8a;color:white;text-decoration:none;padding:14px 20px;border-radius:8px;font-weight:bold;margin:12px auto;max-width:280px}.btn.store{background:#000}.hint{font-size:13px;color:#64748b;margin-top:16px}</style>
-</head>
-<body>
-<h1>Bakhli</h1>
-<p class="tagline">Rooms, PG, flats &amp; plots for rent — near you.</p>
-<div class="card">
-<p>Taking you to the app…</p>
-<a class="btn" href="__PLAY_STORE_URL__">Get it on Google Play</a>
-__APP_STORE_BUTTON__
-<p class="hint">If nothing happens automatically, tap the button above.</p>
-</div>
-<script>
-(function () {
-  var ua = navigator.userAgent || navigator.vendor || "";
-  var playStoreUrl = __PLAY_STORE_URL_JS__;
-  var appStoreUrl = __APP_STORE_URL_JS__;
-  if (/android/i.test(ua) && playStoreUrl) {
-    window.location.replace(playStoreUrl);
-  } else if (/iPad|iPhone|iPod/.test(ua) && appStoreUrl) {
-    window.location.replace(appStoreUrl);
-  }
-})();
-</script>
-</body></html>
-"""
-        .Replace("__PLAY_STORE_URL__", playStoreUrl)
-        .Replace("__APP_STORE_BUTTON__", appStoreButton)
-        .Replace("__PLAY_STORE_URL_JS__", System.Text.Json.JsonSerializer.Serialize(playStoreUrl))
-        .Replace("__APP_STORE_URL_JS__", System.Text.Json.JsonSerializer.Serialize(appStoreUrl));
-
+// Sibling to /app above, kept as its own path (per the user's explicit call to keep future QR
+// use-cases on their own paths under the same already-verified host) rather than a modification of
+// /app — {type}/{slug} identify which listing the QR code was printed for (Room "r" vs Plot "p"),
+// but this route deliberately does NOT fetch listing data or set listing-specific OG tags: like /app,
+// it exists only to catch "app not installed"/"verification not yet propagated" and hand off to the
+// Play/App Store, config-driven via the same AppLinks:PlayStoreUrl. The Android App Link + the app's
+// own deep-link resolver (GET /listings|plots/by-slug/{slug}) are what actually resolve {type}/{slug}
+// to a listing when the app IS installed — this HTML page is the "not installed" fallback only.
+// Route constraints below match the actual value shapes ("r"/"p" for type, SlugGenerator's
+// lowercase-alphanumeric-hyphenated output for slug — see SlugGenerator.cs) so a request carrying
+// anything else (e.g. an HTML/script-breakout payload) 404s before the handler ever runs, rather than
+// being accepted and relying solely on output encoding below.
+app.MapGet("/go/{type:regex(^(r|p)$)}/{slug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}", (string type, string slug, IConfiguration configuration) =>
+{
+    var playStoreUrl = configuration["AppLinks:PlayStoreUrl"] ?? "";
+    var appStoreUrl = configuration["AppLinks:AppStoreUrl"] ?? "";
+    // ogUrl is still HTML-encoded inside RenderStoreRedirectHtml before being placed into the og:url
+    // attribute — defense in depth, not reliant on the route constraints above being exhaustive.
+    var html = RenderStoreRedirectHtml(playStoreUrl, appStoreUrl, $"https://developerbymistake.tech/go/{type}/{slug}");
     return Results.Content(html, "text/html");
 });
 
@@ -424,3 +403,56 @@ app.MapHub<WalletHub>("/hubs/wallet");
 app.MapHub<EnquiryHub>("/hubs/enquiry");
 
 app.Run();
+
+// Shared UA-sniffed Play/App-Store redirect page, used by both /app (generic QR/poster link) and
+// /go/{type}/{slug} (per-listing QR link) above, so the two routes never duplicate this HTML — only
+// the og:url differs between callers. See the client-side-UA-check comment on the /app route for why
+// this is JS-driven rather than a server-side redirect.
+static string RenderStoreRedirectHtml(string playStoreUrl, string appStoreUrl, string ogUrl)
+{
+    var appStoreButton = string.IsNullOrEmpty(appStoreUrl)
+        ? ""
+        : $"""<a class="btn store" href="{appStoreUrl}">Download on the App Store</a>""";
+
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bakhli — Rooms & Plots Near You</title>
+<meta name="description" content="Find nearby rooms, PG, flats & plots for rent. Browse on a live map and connect straight with owners.">
+<meta property="og:title" content="Bakhli — Rooms & Plots Near You">
+<meta property="og:description" content="Find nearby rooms, PG, flats & plots for rent. Browse on a live map and connect straight with owners.">
+<meta property="og:url" content="__OG_URL__">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<style>body{font-family:sans-serif;max-width:520px;margin:64px auto;padding:0 24px;color:#1e293b;text-align:center}h1{color:#1e3a8a;margin-bottom:8px}p.tagline{color:#475569;margin-top:0}.card{background:#f1f5f9;border-radius:12px;padding:32px 24px;margin:24px 0}.btn{display:block;background:#1e3a8a;color:white;text-decoration:none;padding:14px 20px;border-radius:8px;font-weight:bold;margin:12px auto;max-width:280px}.btn.store{background:#000}.hint{font-size:13px;color:#64748b;margin-top:16px}</style>
+</head>
+<body>
+<h1>Bakhli</h1>
+<p class="tagline">Rooms, PG, flats &amp; plots for rent — near you.</p>
+<div class="card">
+<p>Taking you to the app…</p>
+<a class="btn" href="__PLAY_STORE_URL__">Get it on Google Play</a>
+__APP_STORE_BUTTON__
+<p class="hint">If nothing happens automatically, tap the button above.</p>
+</div>
+<script>
+(function () {
+  var ua = navigator.userAgent || navigator.vendor || "";
+  var playStoreUrl = __PLAY_STORE_URL_JS__;
+  var appStoreUrl = __APP_STORE_URL_JS__;
+  if (/android/i.test(ua) && playStoreUrl) {
+    window.location.replace(playStoreUrl);
+  } else if (/iPad|iPhone|iPod/.test(ua) && appStoreUrl) {
+    window.location.replace(appStoreUrl);
+  }
+})();
+</script>
+</body></html>
+"""
+        .Replace("__OG_URL__", HtmlEncoder.Default.Encode(ogUrl))
+        .Replace("__PLAY_STORE_URL__", playStoreUrl)
+        .Replace("__APP_STORE_BUTTON__", appStoreButton)
+        .Replace("__PLAY_STORE_URL_JS__", System.Text.Json.JsonSerializer.Serialize(playStoreUrl))
+        .Replace("__APP_STORE_URL_JS__", System.Text.Json.JsonSerializer.Serialize(appStoreUrl));
+}

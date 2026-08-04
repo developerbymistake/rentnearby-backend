@@ -42,6 +42,26 @@ public static class SlugGenerator
         return $"{baseSlug}-{i}";
     }
 
+    // Shared by RoomListing/PlotListing Create handlers: a pre-check-then-insert for slug uniqueness
+    // would have the same TOCTOU gap the DB-level unique index exists to close, so both instead retry
+    // the insert itself with a counter suffix. `setSlug` assigns the candidate onto the entity already
+    // tracked by the caller; `trySaveAsync` must attempt to persist and return false (swallowing only
+    // the unique-index collision) on failure — kept as a delegate rather than an EF Core call so this
+    // dependency-free Core project never needs to reference EF Core/DbUpdateException directly.
+    public static async Task<bool> GenerateUniqueSlugWithRetryAsync(
+        string baseSlug,
+        Action<string> setSlug,
+        Func<Task<bool>> trySaveAsync,
+        int maxAttempts = 5)
+    {
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            setSlug(attempt == 1 ? baseSlug : $"{baseSlug}-{attempt}");
+            if (await trySaveAsync()) return true;
+        }
+        return false;
+    }
+
     private static string RemoveDiacritics(string text)
     {
         var normalized = text.Normalize(NormalizationForm.FormD);

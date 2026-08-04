@@ -15,6 +15,10 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
     Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetByUserIdPagedAsync(Guid userId, int page, int pageSize);
     Task<PlotListing?> GetByIdWithPhotosAsync(Guid id);
     Task<PlotListing?> GetByIdWithPhotosForAdminAsync(Guid id);
+    // Public (no-auth) by-slug lookup — GET /plots/by-slug/{slug}. Same includes as
+    // GetByIdWithPhotosAsync; maps to PublicPlotListingDto, which already excludes OwnerPhone/UserId
+    // at the DTO level, so no separate redaction step is needed here.
+    Task<PlotListing?> GetBySlugWithPhotosAsync(string slug);
     Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetAllAsync(
         int page, int pageSize,
         string? plotType = null,

@@ -10,6 +10,7 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Extensions;
 using RentNearBy.Infrastructure.Services;
@@ -202,6 +203,17 @@ public static class PlotListingHandlers
         return OkResponse(dto);
     }
 
+    // Anonymous, no-auth lookup for the public website (bakhli.com/l/p/{slug}) and the app's
+    // deep-link resolver (/go/p/{slug}) — mirrors GetById's pattern but returns PublicPlotListingDto,
+    // which excludes OwnerPhone/UserId/HasReported/PendingReportCount/LiveRequestStatus/RejectedReason
+    // at the DTO level, so (unlike GetById) there is no auth-conditional redaction step needed here.
+    public static async Task<IResult> GetBySlug(string slug, IUnitOfWork unitOfWork)
+    {
+        var plot = await unitOfWork.PlotListings.GetBySlugWithPhotosAsync(slug);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
+        return OkResponse(plot.Adapt<PublicPlotListingDto>());
+    }
+
     public static async Task<IResult> GetMyPlotListings(
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 10)
     {
@@ -264,9 +276,16 @@ public static class PlotListingHandlers
         var plotType = await unitOfWork.PlotTypes.GetByIdAsync(request.PlotTypeId);
         if (plotType == null) return BadRequestResponse("Invalid plot type");
 
+        // Needed for the slug base (type + locality) below, not just validation — District otherwise
+        // never gets an existence check today (see CLAUDE.md's "district validation is not enforced
+        // server-side" note; this closes that gap as a side effect of needing the entity's Name).
+        var district = await unitOfWork.Districts.GetByIdAsync(request.DistrictId);
+        if (district == null) return BadRequestResponse("Invalid district");
+
+        City? city = null;
         if (request.CityId.HasValue)
         {
-            var city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);
+            city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);
             if (city == null) return BadRequestResponse("Selected city does not exist");
             if (city.DistrictId != request.DistrictId)
                 return BadRequestResponse("Selected city does not belong to the selected district");
@@ -299,8 +318,30 @@ public static class PlotListingHandlers
             UpdatedAt = DateTime.UtcNow
         };
 
+        // Slug generated once here, immutable for the plot's lifetime (see the field comment on
+        // PlotListing.Slug) — base is type + locality only, never price/status. Uniqueness is handled
+        // by SlugGenerator.GenerateUniqueSlugWithRetryAsync (shared with RoomListingsHandlers.CreateListing).
+        var baseSlug = SlugGenerator.Generate($"{plotType.Name} {city?.Name ?? district.Name}");
         await unitOfWork.PlotListings.AddAsync(plot);
-        await unitOfWork.SaveChangesAsync();
+        var inserted = await SlugGenerator.GenerateUniqueSlugWithRetryAsync(
+            baseSlug,
+            slug => plot.Slug = slug,
+            async () =>
+            {
+                try
+                {
+                    await unitOfWork.SaveChangesAsync();
+                    return true;
+                }
+                catch (DbUpdateException)
+                {
+                    // Unique-index collision on Slug — loop retries with the next counter suffix, or
+                    // falls through to the ConflictResponse below once attempts are exhausted.
+                    return false;
+                }
+            });
+        if (!inserted)
+            return ConflictResponse("Could not generate a unique link for this plot. Please try again.", "SLUG_GENERATION_FAILED");
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, plot.DistrictId);

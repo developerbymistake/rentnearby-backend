@@ -11,6 +11,8 @@ public static class RoomListingsEndpoints
         group.MapGet("/plans", RoomListingsHandlers.GetPlans);
         group.MapGet("/locations/districts", AdminHandlers.GetDistricts);
         group.MapGet("/locations/cities", AdminHandlers.GetCities);
+        // Public (no-auth) share-link/QR resolver — see RoomListingsHandlers.GetBySlug's doc comment.
+        group.MapGet("/by-slug/{slug}", RoomListingsHandlers.GetBySlug);
         group.MapGet("/{id:guid}", RoomListingsHandlers.GetById);
 
         group.MapGet("/my", RoomListingsHandlers.GetMyListings).RequireAuthorization();

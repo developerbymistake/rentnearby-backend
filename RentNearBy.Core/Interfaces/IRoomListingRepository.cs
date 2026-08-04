@@ -19,6 +19,10 @@ public interface IRoomRoomListingRepository : IRepository<RoomListing>
     Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> GetByUserIdPagedAsync(Guid userId, int page, int pageSize);
     Task<RoomListing?> GetByIdWithPhotosAsync(Guid id);
     Task<RoomListing?> GetByIdWithPhotosForAdminAsync(Guid id);
+    // Public (no-auth) by-slug lookup — GET /listings/by-slug/{slug}. Same includes as
+    // GetByIdWithPhotosAsync; maps to PublicRoomListingDto, which already excludes OwnerPhone/UserId
+    // at the DTO level, so no separate redaction step is needed here.
+    Task<RoomListing?> GetBySlugWithPhotosAsync(string slug);
     Task AddPhotoAsync(RoomPhoto photo);
     void RemovePhoto(RoomPhoto photo);
     Task<IReadOnlyList<PendingDigestListingDto>> GetPendingDigestListingsAsync();

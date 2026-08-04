@@ -4,6 +4,7 @@ public class PlotListingDto
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
+    public string? Slug { get; set; }
     public decimal AreaValue { get; set; }
     public string AreaUnit { get; set; } = string.Empty;
     public decimal AreaSqft { get; set; }

@@ -8,6 +8,7 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
 using StackExchange.Redis;
@@ -218,6 +219,17 @@ public static class RoomListingsHandlers
         return OkResponse(dto);
     }
 
+    // Anonymous, no-auth lookup for the public website (bakhli.com/l/r/{slug}) and the app's
+    // deep-link resolver (/go/r/{slug}) — mirrors GetById's pattern but returns PublicRoomListingDto,
+    // which excludes OwnerPhone/UserId/HasReported/PendingReportCount/LiveRequestStatus/RejectedReason
+    // at the DTO level, so (unlike GetById) there is no auth-conditional redaction step needed here.
+    public static async Task<IResult> GetBySlug(string slug, IUnitOfWork unitOfWork)
+    {
+        var listing = await unitOfWork.RoomListings.GetBySlugWithPhotosAsync(slug);
+        if (listing == null) return NotFoundResponse("RoomListing not found");
+        return OkResponse(listing.Adapt<PublicRoomListingDto>());
+    }
+
     public static async Task<IResult> GetPlans(IUnitOfWork unitOfWork)
     {
         var plans = await unitOfWork.CreditPlans.GetByFeatureKeyAsync(CreditFeatureKeys.RoomGoLive);
@@ -297,9 +309,20 @@ public static class RoomListingsHandlers
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
+        // Needed for the slug base (type + locality) below, not just validation — fetched here rather
+        // than deferred, since RoomTypeId/DistrictId otherwise never get an existence check today (see
+        // CLAUDE.md's "district validation is not enforced server-side" note; this closes that gap for
+        // RoomTypeId as a side effect of needing the entity's Name).
+        var roomType = await unitOfWork.RoomTypes.GetByIdAsync(request.RoomTypeId);
+        if (roomType == null) return BadRequestResponse("Invalid room type");
+
+        var district = await unitOfWork.Districts.GetByIdAsync(request.DistrictId);
+        if (district == null) return BadRequestResponse("Invalid district");
+
+        City? city = null;
         if (request.CityId.HasValue)
         {
-            var city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);
+            city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);
             if (city == null) return BadRequestResponse("Selected city does not exist");
             if (city.DistrictId != request.DistrictId)
                 return BadRequestResponse("Selected city does not belong to the selected district");
@@ -331,8 +354,30 @@ public static class RoomListingsHandlers
             UpdatedAt = DateTime.UtcNow
         };
 
+        // Slug generated once here, immutable for the listing's lifetime (see the field comment on
+        // RoomListing.Slug) — base is type + locality only, never price/status. Uniqueness is handled
+        // by SlugGenerator.GenerateUniqueSlugWithRetryAsync (shared with PlotListingHandlers.CreatePlotListing).
+        var baseSlug = SlugGenerator.Generate($"{roomType.Name} {city?.Name ?? district.Name}");
         await unitOfWork.RoomListings.AddAsync(listing);
-        await unitOfWork.SaveChangesAsync();
+        var inserted = await SlugGenerator.GenerateUniqueSlugWithRetryAsync(
+            baseSlug,
+            slug => listing.Slug = slug,
+            async () =>
+            {
+                try
+                {
+                    await unitOfWork.SaveChangesAsync();
+                    return true;
+                }
+                catch (DbUpdateException)
+                {
+                    // Unique-index collision on Slug — loop retries with the next counter suffix, or
+                    // falls through to the ConflictResponse below once attempts are exhausted.
+                    return false;
+                }
+            });
+        if (!inserted)
+            return ConflictResponse("Could not generate a unique link for this listing. Please try again.", "SLUG_GENERATION_FAILED");
 
         // Invalidate cache for the listing's district
         var redis = sp.GetService<IConnectionMultiplexer>();
