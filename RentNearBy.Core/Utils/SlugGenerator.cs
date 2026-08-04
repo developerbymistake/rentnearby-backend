@@ -46,15 +46,15 @@ public static class SlugGenerator
     // Lowercase alphanumeric only (no confusable-character exclusion needed here, unlike
     // CouponCodeGenerator — slugs are read/shared via URL, not hand-typed from a support call).
     private const string SuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-    private const int SuffixLength = 5;
+    private const int SuffixLength = 6;
 
     // Shared by RoomListing/PlotListing Create handlers: a pre-check-then-insert for slug uniqueness
     // would have the same TOCTOU gap the DB-level unique index exists to close, so both instead retry
-    // the insert itself. Every attempt — including the first — appends a random 5-char suffix rather
+    // the insert itself. Every attempt — including the first — appends a random 6-char suffix rather
     // than ever trying the bare base slug: at scale (millions of listings sharing a common
     // type+locality base, e.g. "3bhk-haldwani") a human-countable -2/-3/... counter would exhaust its
     // small attempt budget and start hard-failing listing creation for legitimate owners. A random
-    // suffix gives ~60M combinations per distinct base slug, so real collisions are near-zero
+    // suffix gives ~2.2B combinations per distinct base slug, so real collisions are near-zero
     // probability regardless of how many listings share a base — the bounded retry below exists only
     // as defensive insurance against that vanishing case, not as the actual uniqueness mechanism.
     // `setSlug` assigns the candidate onto the entity already tracked by the caller; `trySaveAsync`

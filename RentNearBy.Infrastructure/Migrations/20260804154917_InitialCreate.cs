@@ -814,6 +814,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     DistrictId = table.Column<Guid>(type: "uuid", nullable: false),
                     CityId = table.Column<Guid>(type: "uuid", nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    Slug = table.Column<string>(type: "text", nullable: true),
                     ValidUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
                     DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
@@ -873,6 +874,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     CityId = table.Column<Guid>(type: "uuid", nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     FurnishedStatus = table.Column<string>(type: "text", nullable: false),
+                    Slug = table.Column<string>(type: "text", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
@@ -1667,6 +1669,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"IsActive\" = true AND \"IsDeleted\" = false");
 
             migrationBuilder.CreateIndex(
+                name: "IX_PlotListings_Slug",
+                table: "PlotListings",
+                column: "Slug",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PlotListings_UserId",
                 table: "PlotListings",
                 column: "UserId");
@@ -1793,6 +1801,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_RoomListings_RoomTypeId",
                 table: "RoomListings",
                 column: "RoomTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoomListings_Slug",
+                table: "RoomListings",
+                column: "Slug",
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_RoomListings_UserId",

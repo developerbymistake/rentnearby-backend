@@ -13,8 +13,8 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260804105040_AddListingSlug")]
-    partial class AddListingSlug
+    [Migration("20260804154917_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
