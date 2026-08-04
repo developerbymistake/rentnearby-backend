@@ -1,8 +1,8 @@
 namespace RentNearBy.Core.DTOs.Responses;
 
 // Anonymous, no-auth response shape for GET /plots/by-slug/{slug} — same reasoning as
-// PublicRoomListingDto (see that file's doc comment). Deliberately excludes OwnerPhone, UserId,
-// HasReported, PendingReportCount, LiveRequestStatus, RejectedReason.
+// PublicRoomListingDto (see that file's doc comment). Deliberately excludes Address, OwnerName,
+// OwnerPhone, UserId, HasReported, PendingReportCount, LiveRequestStatus, RejectedReason.
 public class PublicPlotListingDto
 {
     public Guid Id { get; set; }
@@ -13,9 +13,7 @@ public class PublicPlotListingDto
     public string? Description { get; set; }
     public decimal Latitude { get; set; }
     public decimal Longitude { get; set; }
-    public string? Address { get; set; }
     public string? DistrictName { get; set; }
     public string? CityName { get; set; }
-    public string? OwnerName { get; set; }
     public List<string> Photos { get; set; } = new();
 }
