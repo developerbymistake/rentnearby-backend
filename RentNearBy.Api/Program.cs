@@ -223,9 +223,17 @@ app.MapGet("/go/{type:regex(^(r|p)$)}/{slug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}", (
 {
     var playStoreUrl = configuration["AppLinks:PlayStoreUrl"] ?? "";
     var appStoreUrl = configuration["AppLinks:AppStoreUrl"] ?? "";
+    // Deferred deep link (Google Play Install Referrer): carry type+slug through the Play Store
+    // install as one opaque `referrer` value, so the app's first-ever launch after a fresh
+    // install can land on this same listing (see Frontend's DeepLinkService._consumeInstallReferrer)
+    // instead of losing this context the way a plain store redirect would.
+    var referrerPayload = $"type={Uri.EscapeDataString(type)}&slug={Uri.EscapeDataString(slug)}";
+    var playStoreUrlWithReferrer = string.IsNullOrEmpty(playStoreUrl)
+        ? playStoreUrl
+        : $"{playStoreUrl}&referrer={Uri.EscapeDataString(referrerPayload)}";
     // ogUrl is still HTML-encoded inside RenderStoreRedirectHtml before being placed into the og:url
     // attribute — defense in depth, not reliant on the route constraints above being exhaustive.
-    var html = RenderStoreRedirectHtml(playStoreUrl, appStoreUrl, $"https://developerbymistake.tech/go/{type}/{slug}");
+    var html = RenderStoreRedirectHtml(playStoreUrlWithReferrer, appStoreUrl, $"https://developerbymistake.tech/go/{type}/{slug}");
     return Results.Content(html, "text/html");
 });
 
