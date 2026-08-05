@@ -9,6 +9,7 @@ public class ServiceDetailDto
     public string ServiceCategoryFormType { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
+    public string CategorySlug { get; set; } = string.Empty;
     public string IconName { get; set; } = string.Empty;
     public string ShortDescription { get; set; } = string.Empty;
     public string FullDescription { get; set; } = string.Empty;
@@ -19,6 +20,8 @@ public class ServiceDetailDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public List<ServicePackagePreviewDto> Packages { get; set; } = new();
+    // What's included — Service-scoped (every package/group-size tier shares the same set).
+    public List<InclusionDto> Inclusions { get; set; } = new();
 
     // Service Itinerary — populated in the handler after the Adapt call (ItineraryJson is
     // deserialized, ItineraryDisclaimer is resolved via ConfigHandlers), not by Mapster.

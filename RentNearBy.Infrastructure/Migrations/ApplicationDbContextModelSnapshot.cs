@@ -1355,21 +1355,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("NotificationReads");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.PackageInclusion", b =>
-                {
-                    b.Property<Guid>("ServicePackageId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("InclusionId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("ServicePackageId", "InclusionId");
-
-                    b.HasIndex("InclusionId");
-
-                    b.ToTable("PackageInclusions");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1999,6 +1984,21 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("ServiceCategories");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.ServiceInclusion", b =>
+                {
+                    b.Property<Guid>("ServiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InclusionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("ServiceId", "InclusionId");
+
+                    b.HasIndex("InclusionId");
+
+                    b.ToTable("ServiceInclusions");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.ServicePackage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2524,25 +2524,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.PackageInclusion", b =>
-                {
-                    b.HasOne("RentNearBy.Core.Entities.Inclusion", "Inclusion")
-                        .WithMany("PackageInclusions")
-                        .HasForeignKey("InclusionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("RentNearBy.Core.Entities.ServicePackage", "ServicePackage")
-                        .WithMany("PackageInclusions")
-                        .HasForeignKey("ServicePackageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Inclusion");
-
-                    b.Navigation("ServicePackage");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.City", "City")
@@ -2653,6 +2634,25 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("ServiceCategory");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.ServiceInclusion", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Inclusion", "Inclusion")
+                        .WithMany("ServiceInclusions")
+                        .HasForeignKey("InclusionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.Service", "Service")
+                        .WithMany("ServiceInclusions")
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Inclusion");
+
+                    b.Navigation("Service");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.ServicePackage", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Service", null)
@@ -2720,7 +2720,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Inclusion", b =>
                 {
-                    b.Navigation("PackageInclusions");
+                    b.Navigation("ServiceInclusions");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
@@ -2748,16 +2748,13 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("AgentServices");
 
                     b.Navigation("Packages");
+
+                    b.Navigation("ServiceInclusions");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.ServiceCategory", b =>
                 {
                     b.Navigation("Services");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.ServicePackage", b =>
-                {
-                    b.Navigation("PackageInclusions");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>

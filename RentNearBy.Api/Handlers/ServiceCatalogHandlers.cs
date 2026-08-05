@@ -171,14 +171,27 @@ public static class ServiceCatalogHandlers
     {
         var service = await unitOfWork.Services.GetByIdWithDetailsAsync(id);
         if (service == null) return NotFoundResponse("Service not found");
+        return OkResponse(await BuildDetailDtoAsync(service, unitOfWork, cache));
+    }
 
+    // Public (no-auth) share-link/QR resolver — see IServiceRepository.GetBySlugWithDetailsAsync's
+    // doc comment for why two slug segments are required together.
+    public static async Task<IResult> GetServiceByCategoryAndServiceSlug(
+        string categorySlug, string serviceSlug, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var service = await unitOfWork.Services.GetBySlugWithDetailsAsync(categorySlug, serviceSlug);
+        if (service == null) return NotFoundResponse("Service not found");
+        return OkResponse(await BuildDetailDtoAsync(service, unitOfWork, cache));
+    }
+
+    private static async Task<ServiceDetailDto> BuildDetailDtoAsync(Service service, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
         var dto = service.Adapt<ServiceDetailDto>();
         dto.ItineraryDays = string.IsNullOrEmpty(service.ItineraryJson)
             ? new List<ItineraryDayDto>()
             : JsonSerializer.Deserialize<List<ItineraryDayDto>>(service.ItineraryJson) ?? new List<ItineraryDayDto>();
         dto.ItineraryDisclaimer = await ConfigHandlers.ResolveItineraryDisclaimerAsync(service.TerrainType, unitOfWork, cache);
-
-        return OkResponse(dto);
+        return dto;
     }
 
     public static async Task<IResult> AdminCreateService(
@@ -342,7 +355,7 @@ public static class ServiceCatalogHandlers
 
     public static async Task<IResult> GetServicePackageById(Guid id, IUnitOfWork unitOfWork)
     {
-        var package = await unitOfWork.ServicePackages.GetByIdWithInclusionsAsync(id);
+        var package = await unitOfWork.ServicePackages.GetByIdAsync(id);
         if (package == null) return NotFoundResponse("Service package not found");
         return OkResponse(package.Adapt<ServicePackageDto>());
     }
@@ -422,8 +435,7 @@ public static class ServiceCatalogHandlers
 
         await unitOfWork.SaveChangesAsync();
 
-        var updated = await unitOfWork.ServicePackages.GetByIdWithInclusionsAsync(id);
-        return OkResponse(updated!.Adapt<ServicePackageDto>());
+        return OkResponse(package.Adapt<ServicePackageDto>());
     }
 
     public static async Task<IResult> AdminDeleteServicePackage(
@@ -480,15 +492,15 @@ public static class ServiceCatalogHandlers
         return NoContentResponse();
     }
 
-    public static async Task<IResult> AdminSetPackageInclusions(
-        Guid id, SetPackageInclusionsRequest request, IValidator<SetPackageInclusionsRequest> validator,
+    public static async Task<IResult> AdminSetServiceInclusions(
+        Guid id, SetServiceInclusionsRequest request, IValidator<SetServiceInclusionsRequest> validator,
         IUnitOfWork unitOfWork, ApplicationDbContext db)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        var package = await unitOfWork.ServicePackages.GetByIdAsync(id);
-        if (package == null) return NotFoundResponse("Service package not found");
+        var service = await unitOfWork.Services.GetByIdAsync(id);
+        if (service == null) return NotFoundResponse("Service not found");
 
         var distinctIds = request.InclusionIds.Distinct().ToList();
         if (distinctIds.Count > 0)
@@ -500,17 +512,22 @@ public static class ServiceCatalogHandlers
 
         // Full-replace, exact mirror of how BannerHandlers manipulates db.BannerDismissals directly:
         // RemoveRange + AddRange + one SaveChangesAsync, no diffing.
-        var existing = db.PackageInclusions.Where(pi => pi.ServicePackageId == id);
-        db.PackageInclusions.RemoveRange(existing);
-        db.PackageInclusions.AddRange(distinctIds.Select(inclusionId => new PackageInclusion
+        var existing = db.ServiceInclusions.Where(si => si.ServiceId == id);
+        db.ServiceInclusions.RemoveRange(existing);
+        db.ServiceInclusions.AddRange(distinctIds.Select(inclusionId => new ServiceInclusion
         {
-            ServicePackageId = id,
+            ServiceId = id,
             InclusionId = inclusionId,
         }));
         await db.SaveChangesAsync();
 
-        var updated = await unitOfWork.ServicePackages.GetByIdWithInclusionsAsync(id);
-        return OkResponse(updated!.Adapt<ServicePackageDto>());
+        var freshInclusions = await db.ServiceInclusions
+            .Where(si => si.ServiceId == id)
+            .Include(si => si.Inclusion)
+            .OrderBy(si => si.Inclusion.SortOrder)
+            .Select(si => si.Inclusion)
+            .ToListAsync();
+        return OkResponse(freshInclusions.Select(i => i.Adapt<InclusionDto>()));
     }
 
     // ── Inclusions ───────────────────────────────────────────────────────────
@@ -572,8 +589,8 @@ public static class ServiceCatalogHandlers
         var inclusion = await unitOfWork.Inclusions.GetByIdAsync(id);
         if (inclusion == null) return NotFoundResponse("Inclusion not found");
 
-        // PackageInclusion rows referencing this Inclusion cascade-delete automatically (FK Cascade) —
-        // deleting a master Inclusion just removes it from whatever packages had it checked, matching
+        // ServiceInclusion rows referencing this Inclusion cascade-delete automatically (FK Cascade) —
+        // deleting a master Inclusion just removes it from whatever services had it checked, matching
         // the plan's hard-delete-blocked list (Service/Package/Agent only, not Inclusion).
         await unitOfWork.Inclusions.DeleteAsync(inclusion);
         await unitOfWork.SaveChangesAsync();

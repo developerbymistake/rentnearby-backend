@@ -944,6 +944,30 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "ServiceInclusions",
+                columns: table => new
+                {
+                    ServiceId = table.Column<Guid>(type: "uuid", nullable: false),
+                    InclusionId = table.Column<Guid>(type: "uuid", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ServiceInclusions", x => new { x.ServiceId, x.InclusionId });
+                    table.ForeignKey(
+                        name: "FK_ServiceInclusions_Inclusions_InclusionId",
+                        column: x => x.InclusionId,
+                        principalTable: "Inclusions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_ServiceInclusions_Services_ServiceId",
+                        column: x => x.ServiceId,
+                        principalTable: "Services",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ServicePackages",
                 columns: table => new
                 {
@@ -1104,30 +1128,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalTable: "Services",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "PackageInclusions",
-                columns: table => new
-                {
-                    ServicePackageId = table.Column<Guid>(type: "uuid", nullable: false),
-                    InclusionId = table.Column<Guid>(type: "uuid", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_PackageInclusions", x => new { x.ServicePackageId, x.InclusionId });
-                    table.ForeignKey(
-                        name: "FK_PackageInclusions_Inclusions_InclusionId",
-                        column: x => x.InclusionId,
-                        principalTable: "Inclusions",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_PackageInclusions_ServicePackages_ServicePackageId",
-                        column: x => x.ServicePackageId,
-                        principalTable: "ServicePackages",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -1601,11 +1601,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "NotificationId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PackageInclusions_InclusionId",
-                table: "PackageInclusions",
-                column: "InclusionId");
-
-            migrationBuilder.CreateIndex(
                 name: "ix_plotlistings_active_validuntil",
                 table: "PlotListings",
                 column: "ValidUntil",
@@ -1835,6 +1830,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_ServiceInclusions_InclusionId",
+                table: "ServiceInclusions",
+                column: "InclusionId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_ServicePackages_ServiceId",
                 table: "ServicePackages",
                 column: "ServiceId");
@@ -1939,9 +1939,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "NotificationReads");
 
             migrationBuilder.DropTable(
-                name: "PackageInclusions");
-
-            migrationBuilder.DropTable(
                 name: "PlotPhotos");
 
             migrationBuilder.DropTable(
@@ -1949,6 +1946,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "RoomPhotos");
+
+            migrationBuilder.DropTable(
+                name: "ServiceInclusions");
 
             migrationBuilder.DropTable(
                 name: "Sessions");
@@ -1987,13 +1987,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "NotificationEvents");
 
             migrationBuilder.DropTable(
-                name: "Inclusions");
-
-            migrationBuilder.DropTable(
                 name: "PlotListings");
 
             migrationBuilder.DropTable(
                 name: "RoomListings");
+
+            migrationBuilder.DropTable(
+                name: "Inclusions");
 
             migrationBuilder.DropTable(
                 name: "ServicePackages");

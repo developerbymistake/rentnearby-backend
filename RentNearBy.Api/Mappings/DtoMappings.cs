@@ -71,12 +71,13 @@ public static class DtoMappings
 
         TypeAdapterConfig<Service, ServiceDetailDto>.NewConfig()
             .Map(dest => dest.Packages, src => src.Packages.OrderBy(p => p.SortOrder))
-            .Map(dest => dest.ServiceCategoryFormType, src => src.ServiceCategory.FormType);
+            .Map(dest => dest.ServiceCategoryFormType, src => src.ServiceCategory.FormType)
+            .Map(dest => dest.CategorySlug, src => src.ServiceCategory.Slug)
+            .Map(dest => dest.Inclusions, src => src.ServiceInclusions
+                .OrderBy(si => si.Inclusion.SortOrder)
+                .Select(si => si.Inclusion));
 
-        TypeAdapterConfig<ServicePackage, ServicePackageDto>.NewConfig()
-            .Map(dest => dest.Inclusions, src => src.PackageInclusions
-                .OrderBy(pi => pi.Inclusion.SortOrder)
-                .Select(pi => pi.Inclusion));
+        TypeAdapterConfig<ServicePackage, ServicePackageDto>.NewConfig();
 
         // ServiceIds/Names flattened from the AgentService join.
         // UserName/UserPhoneNumber flattened from the linked User, when loaded.

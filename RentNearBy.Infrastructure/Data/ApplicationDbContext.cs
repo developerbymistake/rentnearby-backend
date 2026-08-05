@@ -44,7 +44,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Service> Services { get; set; }
     public DbSet<ServicePackage> ServicePackages { get; set; }
     public DbSet<Inclusion> Inclusions { get; set; }
-    public DbSet<PackageInclusion> PackageInclusions { get; set; }
+    public DbSet<ServiceInclusion> ServiceInclusions { get; set; }
     public DbSet<Agent> Agents { get; set; }
     public DbSet<AgentService> AgentServices { get; set; }
     public DbSet<Enquiry> Enquiries { get; set; }
@@ -800,19 +800,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(i => i.Id).HasDefaultValueSql("gen_random_uuid()");
         });
 
-        modelBuilder.Entity<PackageInclusion>(e =>
+        modelBuilder.Entity<ServiceInclusion>(e =>
         {
-            e.HasKey(pi => new { pi.ServicePackageId, pi.InclusionId });
-            e.HasOne(pi => pi.ServicePackage)
-             .WithMany(p => p.PackageInclusions)
-             .HasForeignKey(pi => pi.ServicePackageId)
+            e.HasKey(si => new { si.ServiceId, si.InclusionId });
+            e.HasOne(si => si.Service)
+             .WithMany(s => s.ServiceInclusions)
+             .HasForeignKey(si => si.ServiceId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(pi => pi.Inclusion)
-             .WithMany(i => i.PackageInclusions)
-             .HasForeignKey(pi => pi.InclusionId)
+            e.HasOne(si => si.Inclusion)
+             .WithMany(i => i.ServiceInclusions)
+             .HasForeignKey(si => si.InclusionId)
              .OnDelete(DeleteBehavior.Cascade);
 
-            e.HasIndex(pi => pi.InclusionId);
+            e.HasIndex(si => si.InclusionId);
         });
 
         modelBuilder.Entity<Agent>(e =>

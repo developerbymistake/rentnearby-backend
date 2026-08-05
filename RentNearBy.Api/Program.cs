@@ -237,6 +237,28 @@ app.MapGet("/go/{type:regex(^(r|p)$)}/{slug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}", (
     return Results.Content(html, "text/html");
 });
 
+// Sibling to /go/{r|p} above, own path (same "future QR use-cases get their own path" decision) —
+// Services need TWO slug segments (categorySlug + serviceSlug) because Service.Slug is only unique
+// per-category, not globally (see Service.cs's own doc comment), which the {r|p} route's
+// single-segment regex structurally can't express. "s" is a fixed literal path segment here (not a
+// route-parameter regex like {r|p}), so no type-constraint regex is needed for it.
+app.MapGet("/go/s/{categorySlug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}/{serviceSlug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}",
+    (string categorySlug, string serviceSlug, IConfiguration configuration) =>
+{
+    var playStoreUrl = configuration["AppLinks:PlayStoreUrl"] ?? "";
+    var appStoreUrl = configuration["AppLinks:AppStoreUrl"] ?? "";
+    // Same "type=X&slug=<value>" referrer contract the {r|p} route already uses — for this
+    // multi-segment type, slug is the two segments joined by '/' before escaping, so the app's
+    // DeepLinkService can parse both shapes with one generic rule.
+    var referrerPayload = $"type=s&slug={Uri.EscapeDataString($"{categorySlug}/{serviceSlug}")}";
+    var playStoreUrlWithReferrer = string.IsNullOrEmpty(playStoreUrl)
+        ? playStoreUrl
+        : $"{playStoreUrl}&referrer={Uri.EscapeDataString(referrerPayload)}";
+    var html = RenderStoreRedirectHtml(playStoreUrlWithReferrer, appStoreUrl,
+        $"https://developerbymistake.tech/go/s/{categorySlug}/{serviceSlug}");
+    return Results.Content(html, "text/html");
+});
+
 app.MapGet("/delete-account", () => Results.Content("""
 <!DOCTYPE html>
 <html lang="en">

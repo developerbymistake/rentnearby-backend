@@ -21,6 +21,9 @@ public static class ServiceCatalogEndpoints
 
         group.MapGet("", ServiceCatalogHandlers.GetServices);
         group.MapGet("/preview", ServiceCatalogHandlers.GetServicesPreview);
+        // Public (no-auth) share-link/QR resolver — placed before /{id:guid} (no collision:
+        // "by-slug" never matches {id:guid}, and this is a distinct two-segment shape).
+        group.MapGet("/by-slug/{categorySlug}/{serviceSlug}", ServiceCatalogHandlers.GetServiceByCategoryAndServiceSlug);
         group.MapGet("/{id:guid}", ServiceCatalogHandlers.GetServiceById);
 
         group.MapGet("/packages", ServiceCatalogHandlers.GetServicePackages);
@@ -62,7 +65,10 @@ public static class ServiceCatalogEndpoints
         group.MapDelete("/service-packages/{id:guid}", ServiceCatalogHandlers.AdminDeleteServicePackage).RequireAuthorization("AdminOnly");
         group.MapPost("/service-packages/{id:guid}/thumbnail", ServiceCatalogHandlers.AdminUploadPackageThumbnail).RequireAuthorization("AdminOnly").DisableAntiforgery();
         group.MapDelete("/service-packages/{id:guid}/thumbnail", ServiceCatalogHandlers.AdminDeletePackageThumbnail).RequireAuthorization("AdminOnly");
-        group.MapPut("/service-packages/{id:guid}/inclusions", ServiceCatalogHandlers.AdminSetPackageInclusions).RequireAuthorization("AdminOnly");
+
+        // Inclusions are Service-scoped, not per-package (every package/group-size tier of a
+        // Service shares the same inclusion set) — set via the Service, not the package.
+        group.MapPut("/services/{id:guid}/inclusions", ServiceCatalogHandlers.AdminSetServiceInclusions).RequireAuthorization("AdminOnly");
 
         // Inclusions
         group.MapGet("/inclusions", ServiceCatalogHandlers.GetInclusions);

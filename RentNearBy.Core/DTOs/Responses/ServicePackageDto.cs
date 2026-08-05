@@ -18,5 +18,4 @@ public class ServicePackageDto
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-    public List<InclusionDto> Inclusions { get; set; } = new();
 }

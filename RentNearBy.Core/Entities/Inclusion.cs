@@ -1,6 +1,6 @@
 namespace RentNearBy.Core.Entities;
 
-// Fixed master list of package inclusions (e.g. "Hotel Stay", "Meals Included"), admin-managed.
+// Fixed master list of service inclusions (e.g. "Hotel Stay", "Meals Included"), admin-managed.
 public class Inclusion
 {
     public Guid Id { get; set; }
@@ -9,5 +9,5 @@ public class Inclusion
     public int SortOrder { get; set; }
     public bool IsActive { get; set; } = true;
 
-    public ICollection<PackageInclusion> PackageInclusions { get; set; } = new List<PackageInclusion>();
+    public ICollection<ServiceInclusion> ServiceInclusions { get; set; } = new List<ServiceInclusion>();
 }

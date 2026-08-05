@@ -48,7 +48,7 @@ public static class DataSeeder
         await SeedServiceItineraryDataAsync(db);
         await SeedItineraryDisclaimerAsync(db);
         await SeedServicePackagesAsync(db);
-        await SeedPackageInclusionsAsync(db);
+        await SeedServiceInclusionsAsync(db);
         // No Agent/sample-Enquiry seeding — an Agent is now a role linked to a real User account
         // (Agent.UserId), so there's nothing meaningful to fabricate here; Admin links real Agents
         // to real accounts through the admin panel.
@@ -1257,44 +1257,35 @@ public static class DataSeeder
         await db.SaveChangesAsync();
     }
 
-    private static async Task SeedPackageInclusionsAsync(ApplicationDbContext db)
+    private static async Task SeedServiceInclusionsAsync(ApplicationDbContext db)
     {
-        if (await db.PackageInclusions.AnyAsync()) return;
+        if (await db.ServiceInclusions.AnyAsync()) return;
 
-        // (packageIndex, inclusionIndices[]) — only Tourism packages get inclusions wired up
-        // (Consultation packages have no physical "inclusions" concept). Indices here match the
-        // restructured package list in SeedServicePackagesAsync above.
-        var mappings = new (int PackageIdx, int[] InclusionIdxs)[]
+        // (serviceIndex, inclusionIndices[]) — Service-scoped, not per-package: every group-size
+        // tier of a given Service shares the same inclusion set (group size changes the price,
+        // never what's included), so one row per Service is the whole story, not one per package.
+        // Only Tourism services get inclusions wired up (Consultation services have no physical
+        // "inclusions" concept). Indices match the service list in SeedServicesAsync above.
+        var mappings = new (int ServiceIdx, int[] InclusionIdxs)[]
         {
-            // All 4 Char Dham Yatra services (packages 1-12) — every group-size tier of every yatra
-            // includes the same 3: Hotel Stay, Meals, Local Transport. Group size changes the price,
-            // never what's included.
-            (1, new[] { 1, 2, 3 }), (2, new[] { 1, 2, 3 }), (3, new[] { 1, 2, 3 }),
-            (4, new[] { 1, 2, 3 }), (5, new[] { 1, 2, 3 }), (6, new[] { 1, 2, 3 }),
-            (7, new[] { 1, 2, 3 }), (8, new[] { 1, 2, 3 }), (9, new[] { 1, 2, 3 }),
-            (10, new[] { 1, 2, 3 }), (11, new[] { 1, 2, 3 }), (12, new[] { 1, 2, 3 }),
+            // Char Dham Yatra category (services 1-4) — Badrinath, Kedarnath, Do Dham, Char Dham:
+            // Hotel Stay, Meals, Local Transport.
+            (1, new[] { 1, 2, 3 }), (2, new[] { 1, 2, 3 }), (3, new[] { 1, 2, 3 }), (4, new[] { 1, 2, 3 }),
 
-            // 11 new Tour, Travel & Camping services (packages 13-45) — every group-size tier of
-            // every tour includes the same 4: Hotel Stay, Local Transport, Sightseeing, Breakfast.
-            (13, new[] { 1, 3, 6, 11 }), (14, new[] { 1, 3, 6, 11 }), (15, new[] { 1, 3, 6, 11 }),
-            (16, new[] { 1, 3, 6, 11 }), (17, new[] { 1, 3, 6, 11 }), (18, new[] { 1, 3, 6, 11 }),
-            (19, new[] { 1, 3, 6, 11 }), (20, new[] { 1, 3, 6, 11 }), (21, new[] { 1, 3, 6, 11 }),
-            (22, new[] { 1, 3, 6, 11 }), (23, new[] { 1, 3, 6, 11 }), (24, new[] { 1, 3, 6, 11 }),
-            (25, new[] { 1, 3, 6, 11 }), (26, new[] { 1, 3, 6, 11 }), (27, new[] { 1, 3, 6, 11 }),
-            (28, new[] { 1, 3, 6, 11 }), (29, new[] { 1, 3, 6, 11 }), (30, new[] { 1, 3, 6, 11 }),
-            (31, new[] { 1, 3, 6, 11 }), (32, new[] { 1, 3, 6, 11 }), (33, new[] { 1, 3, 6, 11 }),
-            (34, new[] { 1, 3, 6, 11 }), (35, new[] { 1, 3, 6, 11 }), (36, new[] { 1, 3, 6, 11 }),
-            (37, new[] { 1, 3, 6, 11 }), (38, new[] { 1, 3, 6, 11 }), (39, new[] { 1, 3, 6, 11 }),
-            (40, new[] { 1, 3, 6, 11 }), (41, new[] { 1, 3, 6, 11 }), (42, new[] { 1, 3, 6, 11 }),
-            (43, new[] { 1, 3, 6, 11 }), (44, new[] { 1, 3, 6, 11 }), (45, new[] { 1, 3, 6, 11 }),
+            // Tour, Travel & Camping category (services 5-15) — Hotel Stay, Local Transport,
+            // Sightseeing, Breakfast.
+            (5, new[] { 1, 3, 6, 11 }), (6, new[] { 1, 3, 6, 11 }), (7, new[] { 1, 3, 6, 11 }),
+            (8, new[] { 1, 3, 6, 11 }), (9, new[] { 1, 3, 6, 11 }), (10, new[] { 1, 3, 6, 11 }),
+            (11, new[] { 1, 3, 6, 11 }), (12, new[] { 1, 3, 6, 11 }), (13, new[] { 1, 3, 6, 11 }),
+            (14, new[] { 1, 3, 6, 11 }), (15, new[] { 1, 3, 6, 11 }),
         };
 
         foreach (var m in mappings)
         {
-            var packageId = ServiceCatalogId("e4000000", m.PackageIdx);
-            db.PackageInclusions.AddRange(m.InclusionIdxs.Select(i => new PackageInclusion
+            var serviceId = ServiceCatalogId("e3000000", m.ServiceIdx);
+            db.ServiceInclusions.AddRange(m.InclusionIdxs.Select(i => new ServiceInclusion
             {
-                ServicePackageId = packageId,
+                ServiceId = serviceId,
                 InclusionId = ServiceCatalogId("e5000000", i),
             }));
         }

@@ -18,7 +18,16 @@ public class ServiceRepository(ApplicationDbContext context)
         => await _dbSet.AsNoTracking()
             .Include(s => s.ServiceCategory)
             .Include(s => s.Packages.OrderBy(p => p.SortOrder))
+            .Include(s => s.ServiceInclusions).ThenInclude(si => si.Inclusion)
             .FirstOrDefaultAsync(s => s.Id == id);
+
+    public async Task<Service?> GetBySlugWithDetailsAsync(string categorySlug, string serviceSlug)
+        => await _dbSet.AsNoTracking()
+            .Include(s => s.ServiceCategory)
+            .Include(s => s.Packages.OrderBy(p => p.SortOrder))
+            .Include(s => s.ServiceInclusions).ThenInclude(si => si.Inclusion)
+            .FirstOrDefaultAsync(s => s.Slug == serviceSlug && s.ServiceCategory.Slug == categorySlug
+                && s.IsActive && s.ServiceCategory.IsActive);
 
     // Consumer-only (not dual-mounted for admin, unlike GetByServiceCategoryIdAsync above) — safe to
     // cascade-filter on the parent Category's own IsActive here without affecting any admin
