@@ -8,6 +8,7 @@ public static class RoomListingsEndpoints
     {
         group.MapGet("/context", RoomListingsHandlers.GetContext);
         group.MapGet("/nearby", RoomListingsHandlers.GetNearby);
+        group.MapGet("/nearest", RoomListingsHandlers.GetNearest);
         group.MapGet("/plans", RoomListingsHandlers.GetPlans);
         group.MapGet("/locations/districts", AdminHandlers.GetDistricts);
         group.MapGet("/locations/cities", AdminHandlers.GetCities);

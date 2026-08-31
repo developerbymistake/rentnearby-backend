@@ -6,6 +6,7 @@ namespace RentNearBy.Core.Interfaces;
 public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
 {
     Task<IEnumerable<NearbyPlotListingDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId);
+    Task<IEnumerable<NearbyPlotListingDto>> GetNearestAsync(double latitude, double longitude, int count, Guid districtId);
     Task<IEnumerable<PlotListing>> GetByUserIdAsync(Guid userId);
     // District-free — every user sees the same result, unlike GetAllAsync's district scoping.
     Task<IEnumerable<PlotListing>> GetRecentAsync(int limit);
