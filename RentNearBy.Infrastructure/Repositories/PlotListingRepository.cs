@@ -82,6 +82,64 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
             .ToList();
     }
 
+    private record KnnQueryResult(
+        Guid Id, double Lat, double Lng,
+        double AreaValue, string AreaUnit, string PlotType,
+        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, double DistanceMeters);
+
+    public async Task<IEnumerable<NearbyPlotListingDto>> GetNearestAsync(
+        double latitude, double longitude, int count, Guid districtId)
+    {
+        // <-> is KNN-index-assisted by ix_plots_location_gist — no bounding box needed.
+        var rows = await context.Database
+            .SqlQuery<KnnQueryResult>($"""
+                SELECT
+                    p."Id",
+                    p."Latitude"::float8   AS "Lat",
+                    p."Longitude"::float8  AS "Lng",
+                    p."AreaValue"::float8  AS "AreaValue",
+                    p."AreaUnit"           AS "AreaUnit",
+                    pt."Name"              AS "PlotType",
+                    u."Name"               AS "OwnerName",
+                    u."PhoneNumber"        AS "OwnerPhone",
+                    ph."PhotoUrl"          AS "ThumbnailUrl",
+                    ST_Distance(p."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters"
+                FROM "PlotListings" p
+                INNER JOIN "PlotTypes" pt ON pt."Id" = p."PlotTypeId"
+                LEFT JOIN "Users" u ON u."Id" = p."UserId"
+                LEFT JOIN LATERAL (
+                    SELECT ph."PhotoUrl"
+                    FROM "PlotPhotos" ph
+                    WHERE ph."PlotId" = p."Id"
+                    ORDER BY ph."PhotoOrder"
+                    LIMIT 1
+                ) ph ON TRUE
+                WHERE p."IsActive" = TRUE
+                  AND p."IsDeleted" = FALSE
+                  AND p."DistrictId" = {districtId}
+                ORDER BY p."Location" <-> ST_MakePoint({longitude}, {latitude})::geography
+                LIMIT {count}
+                """)
+            .ToListAsync();
+
+        return rows
+            .Select(r => new NearbyPlotListingDto
+            {
+                Id = r.Id,
+                Latitude = (decimal)r.Lat,
+                Longitude = (decimal)r.Lng,
+                AreaValue = (decimal)r.AreaValue,
+                AreaUnit = r.AreaUnit,
+                PlotType = r.PlotType,
+                IsActive = true,
+                OwnerName = r.OwnerName,
+                OwnerPhone = r.OwnerPhone,
+                ThumbnailUrl = r.ThumbnailUrl,
+                DistanceKm = r.DistanceMeters / 1000.0
+            })
+            .ToList();
+    }
+
     public async Task<IEnumerable<PlotListing>> GetByUserIdAsync(Guid userId)
         => await _dbSet
             .AsNoTracking()

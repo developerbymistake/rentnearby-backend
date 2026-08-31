@@ -123,6 +123,13 @@ public static class RoomListingsHandlers
 
     private static string NearbyDistrictPattern(Guid districtId) => $"nearby:{districtId}:*";
 
+    private static readonly TimeSpan NearestCacheTtl = TimeSpan.FromSeconds(60);
+
+    private static string NearestCacheKey(Guid districtId, int count, double lat, double lng)
+        => $"nearest:{districtId}:{count}:{lat:F3}:{lng:F3}";
+
+    private static string NearestDistrictPattern(Guid districtId) => $"nearest:{districtId}:*";
+
     private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
     {
         if (redis == null) return;
@@ -131,9 +138,9 @@ public static class RoomListingsHandlers
             var db = redis.GetDatabase();
             var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
             if (server == null) return;
-            var pattern = NearbyDistrictPattern(districtId);
-            await foreach (var key in server.KeysAsync(pattern: pattern))
-                await db.KeyDeleteAsync(key);
+            foreach (var pattern in new[] { NearbyDistrictPattern(districtId), NearestDistrictPattern(districtId) })
+                await foreach (var key in server.KeysAsync(pattern: pattern))
+                    await db.KeyDeleteAsync(key);
         }
         catch { /* best-effort: TTL (60s) covers Redis failures */ }
     }
@@ -197,6 +204,54 @@ public static class RoomListingsHandlers
         {
             var json = JsonSerializer.Serialize(fetched);
             try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearbyCacheTtl, When.NotExists); } catch { }
+        }
+
+        if (!isAuth) fetched.ForEach(d => d.OwnerPhone = null);
+        return OkResponse(new { items = fetched });
+    }
+
+    public static async Task<IResult> GetNearest(
+        double latitude, double longitude, Guid districtId,
+        IUnitOfWork unitOfWork,
+        ClaimsPrincipal principal,
+        IServiceProvider sp,
+        int count = 5)
+    {
+        if (count < 1 || count > 10)
+            return BadRequestResponse("Count must be between 1 and 10");
+        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
+            return BadRequestResponse("Invalid coordinates");
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var isAuth = principal.Identity?.IsAuthenticated == true;
+        var cacheKey = NearestCacheKey(districtId, count, latitude, longitude);
+
+        if (redis != null)
+        {
+            var db = redis.GetDatabase();
+            RedisValue cached = default;
+            try { cached = await db.StringGetAsync(cacheKey); } catch { }
+            if (cached.HasValue)
+            {
+                try
+                {
+                    var items = JsonSerializer.Deserialize<List<NearbyListingDto>>(cached!);
+                    if (items != null)
+                    {
+                        if (!isAuth) items.ForEach(d => d.OwnerPhone = null);
+                        return OkResponse(new { items });
+                    }
+                }
+                catch (JsonException) { /* corrupted cache entry — fall through to DB */ }
+            }
+        }
+
+        var fetched = (await unitOfWork.RoomListings.GetNearestAsync(latitude, longitude, count, districtId)).ToList();
+
+        if (redis != null)
+        {
+            var json = JsonSerializer.Serialize(fetched);
+            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearestCacheTtl, When.NotExists); } catch { }
         }
 
         if (!isAuth) fetched.ForEach(d => d.OwnerPhone = null);

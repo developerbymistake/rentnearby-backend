@@ -84,6 +84,64 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .ToList();
     }
 
+    private record KnnQueryResult(
+        Guid Id, int? PriceMonthly, double Lat, double Lng,
+        string? RoomTypeName, string? OwnerName, string? OwnerPhone, string? ThumbnailUrl,
+        string? FurnishedStatus, double DistanceMeters);
+
+    public async Task<IEnumerable<NearbyListingDto>> GetNearestAsync(
+        double latitude, double longitude, int count, Guid districtId)
+    {
+        // <-> is KNN-index-assisted by ix_listings_location_gist — no bounding box needed.
+        var rows = await context.Database
+            .SqlQuery<KnnQueryResult>($"""
+                SELECT
+                    l."Id",
+                    l."PriceMonthly",
+                    l."Latitude"::float8   AS "Lat",
+                    l."Longitude"::float8  AS "Lng",
+                    rt."Name"      AS "RoomTypeName",
+                    u."Name"       AS "OwnerName",
+                    u."PhoneNumber" AS "OwnerPhone",
+                    p."PhotoUrl"   AS "ThumbnailUrl",
+                    l."FurnishedStatus",
+                    ST_Distance(l."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters"
+                FROM "RoomListings" l
+                LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
+                LEFT JOIN "Users" u      ON u."Id"  = l."UserId"
+                LEFT JOIN LATERAL (
+                    SELECT p."PhotoUrl"
+                    FROM "RoomPhotos" p
+                    WHERE p."RoomListingId" = l."Id"
+                    ORDER BY p."PhotoOrder"
+                    LIMIT 1
+                ) p ON TRUE
+                WHERE l."IsActive" = TRUE
+                  AND l."IsDeleted" = FALSE
+                  AND l."DistrictId" = {districtId}
+                ORDER BY l."Location" <-> ST_MakePoint({longitude}, {latitude})::geography
+                LIMIT {count}
+                """)
+            .ToListAsync();
+
+        return rows
+            .Select(r => new NearbyListingDto
+            {
+                Id = r.Id,
+                PriceMonthly = r.PriceMonthly,
+                Latitude = (decimal)r.Lat,
+                Longitude = (decimal)r.Lng,
+                IsActive = true,
+                RoomTypeName = r.RoomTypeName,
+                OwnerName = r.OwnerName,
+                OwnerPhone = r.OwnerPhone,
+                ThumbnailUrl = r.ThumbnailUrl,
+                DistanceKm = r.DistanceMeters / 1000.0,
+                FurnishedStatus = r.FurnishedStatus ?? "None"
+            })
+            .ToList();
+    }
+
     public async Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, int? limit = null)
     {
         var query = _dbSet

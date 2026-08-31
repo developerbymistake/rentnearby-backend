@@ -42,6 +42,11 @@ public static class PlotListingHandlers
         => $"nearby_plot:{districtId}:{radius:F1}:{lat:F3}:{lng:F3}";
     private static string NearbyDistrictPattern(Guid districtId) => $"nearby_plot:{districtId}:*";
 
+    private static readonly TimeSpan NearestCacheTtl = TimeSpan.FromSeconds(60);
+    private static string NearestCacheKey(Guid districtId, int count, double lat, double lng)
+        => $"nearest_plot:{districtId}:{count}:{lat:F3}:{lng:F3}";
+    private static string NearestDistrictPattern(Guid districtId) => $"nearest_plot:{districtId}:*";
+
     private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
     {
         if (redis == null) return;
@@ -50,8 +55,9 @@ public static class PlotListingHandlers
             var db = redis.GetDatabase();
             var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
             if (server == null) return;
-            await foreach (var key in server.KeysAsync(pattern: NearbyDistrictPattern(districtId)))
-                await db.KeyDeleteAsync(key);
+            foreach (var pattern in new[] { NearbyDistrictPattern(districtId), NearestDistrictPattern(districtId) })
+                await foreach (var key in server.KeysAsync(pattern: pattern))
+                    await db.KeyDeleteAsync(key);
         }
         catch { }
     }
@@ -181,6 +187,53 @@ public static class PlotListingHandlers
         {
             var json = JsonSerializer.Serialize(fetched);
             try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearbyCacheTtl, When.NotExists); } catch { }
+        }
+
+        if (!isAuth) fetched.ForEach(d => d.OwnerPhone = null);
+        return OkResponse(new { items = fetched });
+    }
+
+    public static async Task<IResult> GetNearest(
+        double latitude, double longitude, Guid districtId,
+        IUnitOfWork unitOfWork,
+        ClaimsPrincipal principal,
+        IServiceProvider sp,
+        int count = 5)
+    {
+        if (count < 1 || count > 10)
+            return BadRequestResponse("Count must be between 1 and 10");
+        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
+            return BadRequestResponse("Invalid coordinates");
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var isAuth = principal.Identity?.IsAuthenticated == true;
+        var cacheKey = NearestCacheKey(districtId, count, latitude, longitude);
+
+        if (redis != null)
+        {
+            RedisValue cached = default;
+            try { cached = await redis.GetDatabase().StringGetAsync(cacheKey); } catch { }
+            if (cached.HasValue)
+            {
+                try
+                {
+                    var items = JsonSerializer.Deserialize<List<NearbyPlotListingDto>>(cached!);
+                    if (items != null)
+                    {
+                        if (!isAuth) items.ForEach(d => d.OwnerPhone = null);
+                        return OkResponse(new { items });
+                    }
+                }
+                catch (JsonException) { }
+            }
+        }
+
+        var fetched = (await unitOfWork.PlotListings.GetNearestAsync(latitude, longitude, count, districtId)).ToList();
+
+        if (redis != null)
+        {
+            var json = JsonSerializer.Serialize(fetched);
+            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearestCacheTtl, When.NotExists); } catch { }
         }
 
         if (!isAuth) fetched.ForEach(d => d.OwnerPhone = null);
