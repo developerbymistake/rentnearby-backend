@@ -510,15 +510,18 @@ public static class PlotListingHandlers
         var needsRefund = plot.LiveRequestStatus == GoLiveRequestStatuses.Pending
             && plot.RequestedPlanCreditsSpent is > 0;
 
-        // plot was loaded via a tracked query (not AsNoTracking), so mutating it here is enough —
-        // EF's own change tracker picks these two property changes up on SaveChangesAsync. Do NOT
-        // call PlotListings.UpdateAsync(plot): DbSet.Update() marks the ENTIRE loaded navigation
-        // graph (PlotType/District/City/User/Photos, all eager-loaded by GetByIdWithPhotosAsync) as
-        // Modified too, even though none of them actually changed — that was silently overwriting
-        // those unrelated rows with stale data on every delete, and made a concurrency clash on any
-        // one of those five tables (not just this plot) fail the whole delete.
-        plot.IsDeleted = true;
-        plot.DeletedAt = DateTime.UtcNow;
+        // GetByIdWithPhotosAsync above is AsNoTracking + Include()-heavy (needed for the Photos loop
+        // and the scalar reads above) — mutating that instance directly wouldn't persist anything
+        // (EF isn't tracking it), and calling UpdateAsync on it would re-attach and mark the ENTIRE
+        // loaded graph (PlotType/District/City/User) as Modified too, not just this plot. So the
+        // actual delete-flag mutation happens on a separate, plain tracked re-fetch instead (no
+        // Include() graph attached to it) — this is also a tighter optimistic-concurrency window
+        // than reusing the first read, since it's taken right before the save, after the photo
+        // deletion I/O above.
+        var trackedPlot = await unitOfWork.PlotListings.GetByIdAsync(id);
+        if (trackedPlot == null) return NotFoundResponse("PlotListing not found");
+        trackedPlot.IsDeleted = true;
+        trackedPlot.DeletedAt = DateTime.UtcNow;
 
         if (needsRefund)
         {
@@ -814,15 +817,18 @@ public static class PlotListingHandlers
         var needsRefund = plot.LiveRequestStatus == GoLiveRequestStatuses.Pending
             && plot.RequestedPlanCreditsSpent is > 0;
 
-        // plot was loaded via a tracked query (not AsNoTracking), so mutating it here is enough —
-        // EF's own change tracker picks these two property changes up on SaveChangesAsync. Do NOT
-        // call PlotListings.UpdateAsync(plot): DbSet.Update() marks the ENTIRE loaded navigation
-        // graph (PlotType/District/City/User/Photos, all eager-loaded by GetByIdWithPhotosAsync) as
-        // Modified too, even though none of them actually changed — that was silently overwriting
-        // those unrelated rows with stale data on every delete, and made a concurrency clash on any
-        // one of those five tables (not just this plot) fail the whole delete.
-        plot.IsDeleted = true;
-        plot.DeletedAt = DateTime.UtcNow;
+        // GetByIdWithPhotosAsync above is AsNoTracking + Include()-heavy (needed for the Photos loop
+        // and the scalar reads above) — mutating that instance directly wouldn't persist anything
+        // (EF isn't tracking it), and calling UpdateAsync on it would re-attach and mark the ENTIRE
+        // loaded graph (PlotType/District/City/User) as Modified too, not just this plot. So the
+        // actual delete-flag mutation happens on a separate, plain tracked re-fetch instead (no
+        // Include() graph attached to it) — this is also a tighter optimistic-concurrency window
+        // than reusing the first read, since it's taken right before the save, after the photo
+        // deletion I/O above.
+        var trackedPlot = await unitOfWork.PlotListings.GetByIdAsync(id);
+        if (trackedPlot == null) return NotFoundResponse("PlotListing not found");
+        trackedPlot.IsDeleted = true;
+        trackedPlot.DeletedAt = DateTime.UtcNow;
 
         if (needsRefund)
         {
