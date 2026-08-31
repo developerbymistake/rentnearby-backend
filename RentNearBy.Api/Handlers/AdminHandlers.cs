@@ -1401,7 +1401,14 @@ public static class AdminHandlers
         }
         else
         {
-            await unitOfWork.SaveChangesAsync();
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
         }
 
         var redis = sp.GetService<IConnectionMultiplexer>();
