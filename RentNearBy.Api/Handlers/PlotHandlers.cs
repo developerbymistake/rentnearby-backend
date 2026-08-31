@@ -193,17 +193,33 @@ public static class PlotListingHandlers
         return OkResponse(new { items = fetched });
     }
 
+    private static readonly TimeSpan NearestRateLimitWindow = TimeSpan.FromMinutes(10);
+    private const int NearestRateLimitMax = 20;
+
+    private static string ClientIp(HttpContext httpContext) =>
+        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
     public static async Task<IResult> GetNearest(
         double latitude, double longitude, Guid districtId,
         IUnitOfWork unitOfWork,
         ClaimsPrincipal principal,
         IServiceProvider sp,
+        IRateLimitService rateLimiter,
+        HttpContext httpContext,
         int count = 5)
     {
         if (count < 1 || count > 10)
             return BadRequestResponse("Count must be between 1 and 10");
         if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
             return BadRequestResponse("Invalid coordinates");
+
+        var ip = ClientIp(httpContext);
+        var rl = await rateLimiter.CheckAsync($"nearest:ip:{ip}", NearestRateLimitMax, NearestRateLimitWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
