@@ -772,7 +772,7 @@ public static class PlotListingHandlers
         IPhotoService photoService, ICreditWalletService wallet, IServiceProvider sp)
     {
         var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
-        if (plot == null) return NotFoundResponse("PlotListing not found");
+        if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
 
         var districtId = plot.DistrictId;
 
