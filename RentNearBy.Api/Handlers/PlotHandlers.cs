@@ -510,9 +510,15 @@ public static class PlotListingHandlers
         var needsRefund = plot.LiveRequestStatus == GoLiveRequestStatuses.Pending
             && plot.RequestedPlanCreditsSpent is > 0;
 
+        // plot was loaded via a tracked query (not AsNoTracking), so mutating it here is enough —
+        // EF's own change tracker picks these two property changes up on SaveChangesAsync. Do NOT
+        // call PlotListings.UpdateAsync(plot): DbSet.Update() marks the ENTIRE loaded navigation
+        // graph (PlotType/District/City/User/Photos, all eager-loaded by GetByIdWithPhotosAsync) as
+        // Modified too, even though none of them actually changed — that was silently overwriting
+        // those unrelated rows with stale data on every delete, and made a concurrency clash on any
+        // one of those five tables (not just this plot) fail the whole delete.
         plot.IsDeleted = true;
         plot.DeletedAt = DateTime.UtcNow;
-        await unitOfWork.PlotListings.UpdateAsync(plot);
 
         if (needsRefund)
         {
@@ -539,7 +545,14 @@ public static class PlotListingHandlers
         }
         else
         {
-            await unitOfWork.SaveChangesAsync();
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
         }
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
@@ -801,9 +814,15 @@ public static class PlotListingHandlers
         var needsRefund = plot.LiveRequestStatus == GoLiveRequestStatuses.Pending
             && plot.RequestedPlanCreditsSpent is > 0;
 
+        // plot was loaded via a tracked query (not AsNoTracking), so mutating it here is enough —
+        // EF's own change tracker picks these two property changes up on SaveChangesAsync. Do NOT
+        // call PlotListings.UpdateAsync(plot): DbSet.Update() marks the ENTIRE loaded navigation
+        // graph (PlotType/District/City/User/Photos, all eager-loaded by GetByIdWithPhotosAsync) as
+        // Modified too, even though none of them actually changed — that was silently overwriting
+        // those unrelated rows with stale data on every delete, and made a concurrency clash on any
+        // one of those five tables (not just this plot) fail the whole delete.
         plot.IsDeleted = true;
         plot.DeletedAt = DateTime.UtcNow;
-        await unitOfWork.PlotListings.UpdateAsync(plot);
 
         if (needsRefund)
         {
