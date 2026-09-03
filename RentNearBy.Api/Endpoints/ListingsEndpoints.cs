@@ -11,6 +11,7 @@ public static class RoomListingsEndpoints
         group.MapGet("/nearest", RoomListingsHandlers.GetNearest);
         group.MapGet("/plans", RoomListingsHandlers.GetPlans);
         group.MapGet("/locations/districts", AdminHandlers.GetDistricts);
+        group.MapGet("/locations/districts/{id:guid}/boundary", AdminHandlers.GetDistrictBoundary);
         group.MapGet("/locations/cities", AdminHandlers.GetCities);
         // Public (no-auth) share-link/QR resolver — see RoomListingsHandlers.GetBySlug's doc comment.
         group.MapGet("/by-slug/{slug}", RoomListingsHandlers.GetBySlug);

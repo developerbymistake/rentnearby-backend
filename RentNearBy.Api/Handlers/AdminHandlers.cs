@@ -3,6 +3,7 @@ using Mapster;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using NetTopologySuite.Features;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -31,6 +32,38 @@ public static class AdminHandlers
             var districts = await unitOfWork.Districts.GetAllAsync();
             cached = districts.Select(d => d.Adapt<DistrictDto>()).ToList();
             cache.Set("districts", cached, CacheTtl);
+        }
+        return OkResponse(cached);
+    }
+
+    // Simplification tolerance in degrees for the boundary the client renders as a map overlay — the
+    // full-fidelity District.Boundary column stays untouched and remains the authoritative ST_Contains gate
+    // at /listings/context and /plots/context.
+    private const double BoundarySimplifyToleranceDegrees = 0.0005;
+
+    public static async Task<IResult> GetDistrictBoundary(Guid id, ApplicationDbContext db, IMemoryCache cache)
+    {
+        var cacheKey = $"district_boundary_{id}";
+        if (!cache.TryGetValue(cacheKey, out FeatureCollection? cached) || cached == null)
+        {
+            var row = await db.Districts
+                .Where(d => d.Id == id && d.IsActive)
+                .Select(d => new { d.Id, d.Name, d.Boundary })
+                .FirstOrDefaultAsync();
+
+            if (row == null || row.Boundary == null)
+                return NotFoundResponse("District boundary not found");
+
+            var simplified = NetTopologySuite.Simplify.TopologyPreservingSimplifier.Simplify(
+                row.Boundary, BoundarySimplifyToleranceDegrees);
+
+            var feature = new Feature(simplified, new AttributesTable
+            {
+                ["districtId"] = row.Id,
+                ["name"] = row.Name,
+            });
+            cached = new FeatureCollection { feature };
+            cache.Set(cacheKey, cached, CacheTtl);
         }
         return OkResponse(cached);
     }
@@ -64,6 +97,7 @@ public static class AdminHandlers
         cache.Remove("districts");
         cache.Remove($"cities_{id}");
         cache.Remove("cities_all");
+        cache.Remove($"district_boundary_{id}");
         await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
         return OkResponse(new { success = true, isActive = district.IsActive });
@@ -134,6 +168,11 @@ public static class AdminHandlers
         string stateName, ToggleDistrictRequest request,
         ApplicationDbContext db, IMemoryCache cache, IServiceProvider sp)
     {
+        var affectedIds = await db.Districts
+            .Where(d => d.StateName == stateName)
+            .Select(d => d.Id)
+            .ToListAsync();
+
         var updated = await db.Districts
             .Where(d => d.StateName == stateName)
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsActive, request.IsActive));
@@ -144,6 +183,8 @@ public static class AdminHandlers
         cache.Remove("states");
         cache.Remove("districts");
         cache.Remove("cities_all");
+        foreach (var districtId in affectedIds)
+            cache.Remove($"district_boundary_{districtId}");
         await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
         return OkResponse(new { success = true, isActive = request.IsActive, updatedCount = updated });
@@ -160,6 +201,7 @@ public static class AdminHandlers
         cache.Remove("districts");
         cache.Remove($"cities_{id}");
         cache.Remove("cities_all");
+        cache.Remove($"district_boundary_{id}");
         await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
         return OkResponse(new { success = true, isActive = true });
     }
@@ -179,6 +221,7 @@ public static class AdminHandlers
         cache.Remove("districts");
         cache.Remove($"cities_{id}");
         cache.Remove("cities_all");
+        cache.Remove($"district_boundary_{id}");
         await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
         return NoContentResponse();

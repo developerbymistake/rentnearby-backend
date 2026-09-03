@@ -46,6 +46,12 @@ builder.Services.Configure<BrotliCompressionProviderOptions>(o =>
 builder.Services.Configure<GzipCompressionProviderOptions>(o =>
     o.Level = System.IO.Compression.CompressionLevel.Fastest);
 
+// Serializes NetTopologySuite Geometry (District.Boundary et al.) as GeoJSON when returned directly in a
+// minimal-API response (e.g. AdminHandlers.GetDistrictBoundary), matching the FeatureCollection shape the
+// Flutter map layer expects.
+builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(o =>
+    o.SerializerOptions.Converters.Add(new NetTopologySuite.IO.Converters.GeoJsonConverterFactory()));
+
 builder.Services.AddValidatorsFromAssemblyContaining<SendOtpRequestValidator>();
 
 builder.Services.AddCors(options =>
