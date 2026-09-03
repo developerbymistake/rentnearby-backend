@@ -57,11 +57,10 @@ public static class AdminHandlers
             var simplified = NetTopologySuite.Simplify.TopologyPreservingSimplifier.Simplify(
                 row.Boundary, BoundarySimplifyToleranceDegrees);
 
-            var feature = new Feature(simplified, new AttributesTable
-            {
-                ["districtId"] = row.Id,
-                ["name"] = row.Name,
-            });
+            var attributes = new AttributesTable();
+            attributes.Add("districtId", row.Id);
+            attributes.Add("name", row.Name);
+            var feature = new Feature(simplified, attributes);
             cached = new FeatureCollection { feature };
             cache.Set(cacheKey, cached, CacheTtl);
         }
