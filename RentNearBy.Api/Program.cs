@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Api.Endpoints;
+using RentNearBy.Api.Filters;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Mappings;
@@ -339,6 +340,7 @@ app.MapGroup("/api/v1/users")
 
 app.MapGroup("/api/v1/listings")
     .WithTags("RoomListings")
+    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Rooms))
     .MapListingsEndpoints();
 
 app.MapGroup("/api/v1/admin")
@@ -347,6 +349,7 @@ app.MapGroup("/api/v1/admin")
 
 app.MapGroup("/api/v1/plots")
     .WithTags("PlotListings")
+    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Plots))
     .MapPlotListingEndpoints();
 
 app.MapGroup("/api/v1/admin/plots")
@@ -375,6 +378,7 @@ app.MapGroup("/api/v1/admin")
 
 app.MapGroup("/api/v1/services")
     .WithTags("ServiceCatalog")
+    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Services))
     .MapServiceCatalogEndpoints();
 
 app.MapGroup("/api/v1/admin")
@@ -383,10 +387,12 @@ app.MapGroup("/api/v1/admin")
 
 app.MapGroup("/api/v1/agents")
     .WithTags("Agents")
+    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Services))
     .MapAgentEndpoints();
 
 app.MapGroup("/api/v1/enquiries")
     .WithTags("Enquiries")
+    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Services))
     .MapEnquiryEndpoints();
 
 // Public (unauthenticated) website enquiry flow — see WebEnquiryHandlers' doc comment. Entirely separate

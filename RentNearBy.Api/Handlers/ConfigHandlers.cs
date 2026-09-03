@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Caching.Memory;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using static RentNearBy.Api.Extensions.ApiResults;
@@ -13,6 +14,7 @@ public static class ConfigHandlers
 {
     public const string ListingLimitsCacheKey = "config_listing_limits";
     public const string PaymentFeatureCacheKey = "config_payment_feature";
+    public const string AppTabsCacheKey = "config_app_tabs";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
 
     public static async Task<IResult> GetListingLimits(IUnitOfWork unitOfWork, IMemoryCache cache)
@@ -49,6 +51,34 @@ public static class ConfigHandlers
         var (enabled, freeDurationDays) = await GetPaymentFeatureCachedAsync(unitOfWork, cache);
         return OkResponse(new { enabled, freeGoLiveDurationDays = freeDurationDays });
     }
+
+    // Master table for the 5 bottom-nav tabs (RentNearBy.Core.Models.AppTabKeys). Cached as one list
+    // (only 5 rows, never paginated) so both the public endpoint and TabGateFilter (Filters/TabGateFilter.cs,
+    // which blocks every request under a deactivated vertical's route group) share one cache entry —
+    // AdminHandlers.UpdateAppTab evicts this key on every change.
+    public static async Task<List<AppTabDto>> GetAppTabsCachedAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        if (!cache.TryGetValue(AppTabsCacheKey, out List<AppTabDto>? cached) || cached == null)
+        {
+            var tabs = await unitOfWork.AppTabs.GetAllAsync();
+            cached = tabs.OrderBy(t => t.SortOrder)
+                .Select(t => new AppTabDto { TabKey = t.TabKey, DisplayName = t.DisplayName, IsActive = t.IsActive, SortOrder = t.SortOrder })
+                .ToList();
+            cache.Set(AppTabsCacheKey, cached, CacheTtl);
+        }
+        return cached;
+    }
+
+    // Fail-open: a tab key with no seeded row (shouldn't happen post-seed, but never let a missing row
+    // silently take down a whole vertical's API surface) is treated as active.
+    public static async Task<bool> IsTabActiveCachedAsync(string tabKey, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var tabs = await GetAppTabsCachedAsync(unitOfWork, cache);
+        return tabs.FirstOrDefault(t => t.TabKey == tabKey)?.IsActive ?? true;
+    }
+
+    public static async Task<IResult> GetAppTabs(IUnitOfWork unitOfWork, IMemoryCache cache)
+        => OkResponse(await GetAppTabsCachedAsync(unitOfWork, cache));
 
     // Service Itinerary disclaimer text — one AppSetting row (AppSettingTypes.ItineraryDisclaimer)
     // holding both variants as JSON ({"hillRegionText":"...","generalText":"..."}); which variant is

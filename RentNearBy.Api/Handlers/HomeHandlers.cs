@@ -1,6 +1,8 @@
 using System.Text.Json;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -37,8 +39,19 @@ public static class HomeHandlers
     private static string ValidateRoomSort(string? sortBy) => RoomSortValues.Contains(sortBy ?? "") ? sortBy! : "newest";
     private static string ValidatePlotSort(string? sortBy) => PlotSortValues.Contains(sortBy ?? "") ? sortBy! : "newest";
 
-    public static async Task<IResult> GetRooms(Guid districtId, int limit, IUnitOfWork unitOfWork, IServiceProvider sp)
+    // Home's "for you"/"recently added" preview sections deliberately degrade to an EMPTY list (not
+    // a 403/error) when the Rooms or Plots tab is deactivated — the section itself is expected to
+    // hide client-side, so an error here would just be a wasted toast the user never sees. Contrast
+    // with TabGateFilter, which hard-rejects the vertical's own dedicated route group.
+    private static async Task<bool> IsRoomsTabInactiveAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
+        => !await ConfigHandlers.IsTabActiveCachedAsync(AppTabKeys.Rooms, unitOfWork, cache);
+
+    private static async Task<bool> IsPlotsTabInactiveAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
+        => !await ConfigHandlers.IsTabActiveCachedAsync(AppTabKeys.Plots, unitOfWork, cache);
+
+    public static async Task<IResult> GetRooms(Guid districtId, int limit, IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp)
     {
+        if (await IsRoomsTabInactiveAsync(unitOfWork, cache)) return OkResponse(new { items = Array.Empty<HomeRoomDto>() });
         var take = ClampLimit(limit);
         var redis = sp.GetService<IConnectionMultiplexer>();
         var cacheKey = ForYouRoomsCacheKey(districtId);
@@ -81,8 +94,9 @@ public static class HomeHandlers
         return OkResponse(new { items = result.Take(take) });
     }
 
-    public static async Task<IResult> GetPlots(Guid districtId, int limit, IUnitOfWork unitOfWork, IServiceProvider sp)
+    public static async Task<IResult> GetPlots(Guid districtId, int limit, IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp)
     {
+        if (await IsPlotsTabInactiveAsync(unitOfWork, cache)) return OkResponse(new { items = Array.Empty<HomePlotDto>() });
         var take = ClampLimit(limit);
         var redis = sp.GetService<IConnectionMultiplexer>();
         var cacheKey = ForYouPlotsCacheKey(districtId);
@@ -126,8 +140,9 @@ public static class HomeHandlers
     }
 
     public static async Task<IResult> GetRoomsBrowse(
-        Guid districtId, Guid? cityId, Guid? roomTypeId, string? sortBy, int page, int pageSize, IUnitOfWork unitOfWork)
+        Guid districtId, Guid? cityId, Guid? roomTypeId, string? sortBy, int page, int pageSize, IUnitOfWork unitOfWork, IMemoryCache cache)
     {
+        if (await IsRoomsTabInactiveAsync(unitOfWork, cache)) return OkResponse(new { items = Array.Empty<HomeRoomDto>(), hasMore = false });
         var (items, hasMore) = await unitOfWork.RoomListings.SearchPagedAsync(
             districtId, cityId, roomTypeId, ValidateRoomSort(sortBy), ClampPage(page), ClampPageSize(pageSize));
 
@@ -148,8 +163,9 @@ public static class HomeHandlers
     }
 
     public static async Task<IResult> GetPlotsBrowse(
-        Guid districtId, Guid? cityId, Guid? plotTypeId, string? sortBy, int page, int pageSize, IUnitOfWork unitOfWork)
+        Guid districtId, Guid? cityId, Guid? plotTypeId, string? sortBy, int page, int pageSize, IUnitOfWork unitOfWork, IMemoryCache cache)
     {
+        if (await IsPlotsTabInactiveAsync(unitOfWork, cache)) return OkResponse(new { items = Array.Empty<HomePlotDto>(), hasMore = false });
         var (items, hasMore) = await unitOfWork.PlotListings.GetAllPagedByTypeIdAsync(
             districtId, cityId, plotTypeId, ValidatePlotSort(sortBy), ClampPage(page), ClampPageSize(pageSize));
 
@@ -173,8 +189,9 @@ public static class HomeHandlers
     // overload of either: this is a structurally different query (no district/city locality
     // to filter or rank by) and, being identical for every caller, is cached — GetRooms/
     // GetRoomsBrowse are per-district and were never worth caching the same way.
-    public static async Task<IResult> GetRecentRooms(int limit, IUnitOfWork unitOfWork, IServiceProvider sp)
+    public static async Task<IResult> GetRecentRooms(int limit, IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp)
     {
+        if (await IsRoomsTabInactiveAsync(unitOfWork, cache)) return OkResponse(new { items = Array.Empty<HomeRoomDto>() });
         var take = ClampLimit(limit);
         var redis = sp.GetService<IConnectionMultiplexer>();
 
@@ -216,8 +233,9 @@ public static class HomeHandlers
         return OkResponse(new { items = result.Take(take) });
     }
 
-    public static async Task<IResult> GetRecentPlots(int limit, IUnitOfWork unitOfWork, IServiceProvider sp)
+    public static async Task<IResult> GetRecentPlots(int limit, IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp)
     {
+        if (await IsPlotsTabInactiveAsync(unitOfWork, cache)) return OkResponse(new { items = Array.Empty<HomePlotDto>() });
         var take = ClampLimit(limit);
         var redis = sp.GetService<IConnectionMultiplexer>();
 

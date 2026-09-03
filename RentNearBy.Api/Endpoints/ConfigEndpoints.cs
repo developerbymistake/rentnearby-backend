@@ -8,6 +8,7 @@ public static class ConfigEndpoints
     {
         group.MapGet("/listing-limits", ConfigHandlers.GetListingLimits).AllowAnonymous();
         group.MapGet("/payment-feature", ConfigHandlers.GetPaymentFeature).AllowAnonymous();
+        group.MapGet("/app-tabs", ConfigHandlers.GetAppTabs).AllowAnonymous();
         return group;
     }
 }

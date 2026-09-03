@@ -386,6 +386,30 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "AppTabs",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    TabKey = table.Column<string>(type: "text", nullable: false),
+                    DisplayName = table.Column<string>(type: "text", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    UpdatedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Reason = table.Column<string>(type: "text", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AppTabs", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AppTabs_Admins_UpdatedByAdminId",
+                        column: x => x.UpdatedByAdminId,
+                        principalTable: "Admins",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Messages",
                 columns: table => new
                 {
@@ -1292,6 +1316,17 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "UpdatedByAdminId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_AppTabs_TabKey",
+                table: "AppTabs",
+                column: "TabKey",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AppTabs_UpdatedByAdminId",
+                table: "AppTabs",
+                column: "UpdatedByAdminId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_BannerDismissals_BannerId",
                 table: "BannerDismissals",
                 column: "BannerId");
@@ -1889,6 +1924,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "AppSettings");
+
+            migrationBuilder.DropTable(
+                name: "AppTabs");
 
             migrationBuilder.DropTable(
                 name: "BannerDismissals");

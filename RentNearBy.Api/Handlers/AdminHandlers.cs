@@ -638,6 +638,57 @@ public static class AdminHandlers
         });
     }
 
+    // ── App Tabs (master table for the consumer app's bottom-nav) ───────────────
+    // 5 seeded rows (RentNearBy.Core.Models.AppTabKeys) — renaming applies to any row; deactivating
+    // only applies to Rooms/Plots/Services (Home/Profile are structural, rejected below). A deactivated
+    // tab's entire route group is rejected server-side by Filters/TabGateFilter.cs, not just hidden in
+    // the consumer app's bottom nav.
+
+    public static async Task<IResult> GetAppTabs(IUnitOfWork unitOfWork)
+    {
+        var tabs = await unitOfWork.AppTabs.GetAllAsync();
+        return OkResponse(tabs.OrderBy(t => t.SortOrder).Select(t => new AdminAppTabDto
+        {
+            Id = t.Id, TabKey = t.TabKey, DisplayName = t.DisplayName, IsActive = t.IsActive, SortOrder = t.SortOrder,
+            CanDeactivate = !AppTabKeys.NonDeactivatable.Contains(t.TabKey),
+            UpdatedByAdminId = t.UpdatedByAdminId, UpdatedAt = t.UpdatedAt, Reason = t.Reason,
+        }));
+    }
+
+    public static async Task<IResult> UpdateAppTab(
+        string tabKey, UpdateAppTabRequest request, IValidator<UpdateAppTabRequest> validator,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var tab = await unitOfWork.AppTabs.GetByKeyAsync(tabKey);
+        if (tab == null) return NotFoundResponse($"No app tab for key '{tabKey}'");
+
+        if (request.IsActive == false && AppTabKeys.NonDeactivatable.Contains(tabKey))
+            return BadRequestResponse($"'{tab.DisplayName}' is a structural tab and cannot be deactivated");
+
+        if (request.DisplayName != null) tab.DisplayName = request.DisplayName;
+        if (request.IsActive.HasValue) tab.IsActive = request.IsActive.Value;
+        if (request.Reason != null) tab.Reason = request.Reason;
+
+        var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        tab.UpdatedByAdminId = Guid.TryParse(adminIdClaim, out var parsedAdminId) ? parsedAdminId : null;
+        tab.UpdatedAt = DateTime.UtcNow;
+
+        await unitOfWork.AppTabs.UpdateAsync(tab);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove(ConfigHandlers.AppTabsCacheKey);
+
+        return OkResponse(new AdminAppTabDto
+        {
+            Id = tab.Id, TabKey = tab.TabKey, DisplayName = tab.DisplayName, IsActive = tab.IsActive, SortOrder = tab.SortOrder,
+            CanDeactivate = !AppTabKeys.NonDeactivatable.Contains(tab.TabKey),
+            UpdatedByAdminId = tab.UpdatedByAdminId, UpdatedAt = tab.UpdatedAt, Reason = tab.Reason,
+        });
+    }
+
     // ── Service Itinerary Disclaimer ─────────────────────────────────────────────
     // Single global row (RentNearBy.Core.Models.AppSettingTypes.ItineraryDisclaimer) in the generic
     // AppSetting master table — Value holds {"hillRegionText":"...","generalText":"..."} as JSON.

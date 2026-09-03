@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260805154008_InitialCreate")]
+    [Migration("20260903092415_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -279,6 +279,46 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("UpdatedByAdminId");
 
                     b.ToTable("AppSettings");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.AppTab", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TabKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TabKey")
+                        .IsUnique();
+
+                    b.HasIndex("UpdatedByAdminId");
+
+                    b.ToTable("AppTabs");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.BannerDismissal", b =>
@@ -2261,6 +2301,16 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.AppSetting", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Admin", "UpdatedByAdmin")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("UpdatedByAdmin");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.AppTab", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Admin", "UpdatedByAdmin")
                         .WithMany()

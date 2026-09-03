@@ -30,6 +30,7 @@ public static class DataSeeder
         await SeedCitiesAsync(db);
         await SeedListingLimitSettingsAsync(db);
         await SeedAppFeatureFlagsAsync(db);
+        await SeedAppTabsAsync(db);
         await SeedCouponsAsync(db);
         await SeedAdminsAsync(db);
 
@@ -112,6 +113,38 @@ public static class DataSeeder
             FreeDurationDays = 30,
             UpdatedAt = DateTime.UtcNow,
         });
+        await db.SaveChangesAsync();
+    }
+
+    // Master table for the consumer app's 5 bottom-nav tabs — all start active with today's real
+    // labels/order so behavior is identical to the pre-AppTab hardcoded AppTabs class in the mobile
+    // app. Home/Profile are seeded active and stay that way forever (AdminHandlers.UpdateAppTab
+    // refuses to deactivate them, see AppTabKeys.NonDeactivatable).
+    private static async Task SeedAppTabsAsync(ApplicationDbContext db)
+    {
+        if (await db.AppTabs.AnyAsync()) return;
+
+        var tabs = new (string Key, string DisplayName, int SortOrder)[]
+        {
+            (AppTabKeys.Home, "Home", 0),
+            (AppTabKeys.Rooms, "Rooms", 1),
+            (AppTabKeys.Plots, "Plots", 2),
+            (AppTabKeys.Services, "Services", 3),
+            (AppTabKeys.Profile, "Profile", 4),
+        };
+
+        foreach (var (key, displayName, sortOrder) in tabs)
+        {
+            db.AppTabs.Add(new AppTab
+            {
+                Id = Guid.NewGuid(),
+                TabKey = key,
+                DisplayName = displayName,
+                IsActive = true,
+                SortOrder = sortOrder,
+                UpdatedAt = DateTime.UtcNow,
+            });
+        }
         await db.SaveChangesAsync();
     }
 
