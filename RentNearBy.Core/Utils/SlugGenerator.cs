@@ -4,9 +4,9 @@ using System.Text.RegularExpressions;
 
 namespace RentNearBy.Core.Utils;
 
-// Turns a ServiceCategory/Service Name into a URL-friendly slug for the public website
-// (bakhli.com/services/{slug} instead of the raw Guid) — Google indexes hyphen-separated words in a
-// URL as individual keywords, so "Tour & Travel" becoming "tour-travel" carries real search-keyword
+// Turns a listing name into a URL-friendly slug for the public website
+// (bakhli.com/l/{type}/{slug} instead of the raw Guid) — Google indexes hyphen-separated words in a
+// URL as individual keywords, so "Sharma Boys PG" becoming "sharma-boys-pg" carries real search-keyword
 // value that a Guid never could. Stop-words ("&", "and", "the", ...) are dropped rather than
 // hyphenated in, since Google's own guidance is to keep slugs short/keyword-dense — every filler word
 // is one more hyphen with no ranking value.

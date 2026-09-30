@@ -681,8 +681,8 @@ public static class AdminHandlers
     }
 
     // ── App Tabs (master table for the consumer app's bottom-nav) ───────────────
-    // 5 seeded rows (RentNearBy.Core.Models.AppTabKeys) — renaming applies to any row; deactivating
-    // only applies to Rooms/Plots/Services (Home/Profile are structural, rejected below). A deactivated
+    // Seeded rows (RentNearBy.Core.Models.AppTabKeys) — renaming applies to any row; deactivating
+    // only applies to Rooms/Plots (Home/Profile are structural, rejected below). A deactivated
     // tab's entire route group is rejected server-side by Filters/TabGateFilter.cs, not just hidden in
     // the consumer app's bottom nav.
 
@@ -728,78 +728,6 @@ public static class AdminHandlers
             Id = tab.Id, TabKey = tab.TabKey, DisplayName = tab.DisplayName, IsActive = tab.IsActive, SortOrder = tab.SortOrder,
             CanDeactivate = !AppTabKeys.NonDeactivatable.Contains(tab.TabKey),
             UpdatedByAdminId = tab.UpdatedByAdminId, UpdatedAt = tab.UpdatedAt, Reason = tab.Reason,
-        });
-    }
-
-    // ── Service Itinerary Disclaimer ─────────────────────────────────────────────
-    // Single global row (RentNearBy.Core.Models.AppSettingTypes.ItineraryDisclaimer) in the generic
-    // AppSetting master table — Value holds {"hillRegionText":"...","generalText":"..."} as JSON.
-
-    public static async Task<IResult> GetItineraryDisclaimer(IUnitOfWork unitOfWork)
-    {
-        var setting = await unitOfWork.AppSettings.GetByTypeAsync(AppSettingTypes.ItineraryDisclaimer);
-        if (setting == null) return NotFoundResponse("Itinerary disclaimer setting not found");
-
-        var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(setting.Value) ?? new();
-        return OkResponse(new
-        {
-            hillRegionText = parsed.GetValueOrDefault("hillRegionText", ""),
-            generalText = parsed.GetValueOrDefault("generalText", ""),
-            updatedByAdminId = setting.UpdatedByAdminId,
-            updatedAt = setting.UpdatedAt,
-        });
-    }
-
-    public static async Task<IResult> UpdateItineraryDisclaimer(
-        UpdateItineraryDisclaimerRequest request, IValidator<UpdateItineraryDisclaimerRequest> validator,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IMemoryCache cache)
-    {
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
-
-        // Unlike AppFeatureFlag rows (seeded by DataSeeder), AppSetting rows have no seed path —
-        // fetch-or-create here so the very first admin write brings the row into existence.
-        var setting = await unitOfWork.AppSettings.GetByTypeAsync(AppSettingTypes.ItineraryDisclaimer);
-        var parsed = setting == null
-            ? new Dictionary<string, string>()
-            : JsonSerializer.Deserialize<Dictionary<string, string>>(setting.Value) ?? new();
-
-        if (request.HillRegionText != null) parsed["hillRegionText"] = request.HillRegionText;
-        if (request.GeneralText != null) parsed["generalText"] = request.GeneralText;
-
-        var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var adminId = Guid.TryParse(adminIdClaim, out var parsedAdminId) ? parsedAdminId : (Guid?)null;
-
-        if (setting == null)
-        {
-            setting = new AppSetting
-            {
-                Id = Guid.NewGuid(),
-                Type = AppSettingTypes.ItineraryDisclaimer,
-                Value = JsonSerializer.Serialize(parsed),
-                UpdatedByAdminId = adminId,
-                UpdatedAt = DateTime.UtcNow,
-            };
-            await unitOfWork.AppSettings.AddAsync(setting);
-        }
-        else
-        {
-            setting.Value = JsonSerializer.Serialize(parsed);
-            setting.UpdatedByAdminId = adminId;
-            setting.UpdatedAt = DateTime.UtcNow;
-            await unitOfWork.AppSettings.UpdateAsync(setting);
-        }
-
-        await unitOfWork.SaveChangesAsync();
-
-        cache.Remove(ConfigHandlers.ItineraryDisclaimerCacheKey);
-
-        return OkResponse(new
-        {
-            hillRegionText = parsed.GetValueOrDefault("hillRegionText", ""),
-            generalText = parsed.GetValueOrDefault("generalText", ""),
-            updatedByAdminId = setting.UpdatedByAdminId,
-            updatedAt = setting.UpdatedAt,
         });
     }
 
@@ -1663,7 +1591,7 @@ public static class AdminHandlers
     public static async Task<IResult> RejectReport(
         Guid id, RejectGoLiveRequest request, IValidator<RejectGoLiveRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        IHubContext<EnquiryHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -1686,7 +1614,7 @@ public static class AdminHandlers
     private static async Task<IResult> RejectReportedRoomAsync(
         ListingReport report, string reason, Guid? adminId,
         IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        IHubContext<EnquiryHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var listing = await unitOfWork.RoomListings.GetByIdAsync(report.ListingId);
         if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
@@ -1828,12 +1756,12 @@ public static class AdminHandlers
         CreatedAt = DateTime.UtcNow,
     };
 
-    // Clone of EnquiryHandlers.SendNotificationEventsAsync's single-notification shape — SignalR
-    // user_{id} push via EnquiryHub (the same hub every other generic NotificationEvent producer
+    // Single-notification push shape — SignalR
+    // user_{id} push via NotificationHub (the same hub every other generic NotificationEvent producer
     // reuses) + RabbitMQ notification.push publish for NotificationPushWorkerService. Best-effort:
     // a push failure must never turn an already-committed Approve/Reject into an error response.
     private static async Task SendGoLiveNotificationAsync(
-        IHubContext<EnquiryHub> hubContext, IRabbitMqPublisher publisher, NotificationEvent notification)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, NotificationEvent notification)
     {
         try
         {
@@ -1858,7 +1786,7 @@ public static class AdminHandlers
 
     public static async Task<IResult> ApproveRoomGoLiveRequest(
         Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        IHubContext<EnquiryHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
         if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
@@ -1911,7 +1839,7 @@ public static class AdminHandlers
     public static async Task<IResult> RejectRoomGoLiveRequest(
         Guid id, RejectGoLiveRequest request, IValidator<RejectGoLiveRequest> validator,
         IUnitOfWork unitOfWork, ApplicationDbContext db, ICreditWalletService wallet,
-        IHubContext<EnquiryHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);

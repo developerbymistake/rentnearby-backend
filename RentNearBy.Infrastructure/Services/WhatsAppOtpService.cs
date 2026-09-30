@@ -69,7 +69,7 @@ public sealed class WhatsAppOtpService : IOtpService
             return false;
         }
         // Constant-time compare — a plain `!=` short-circuits on the first mismatched character, which
-        // is a (largely theoretical, given the 3-attempts/hour cap in WebEnquiryHandlers/AuthHandlers)
+        // is a (largely theoretical, given the 3-attempts/hour cap in AuthHandlers)
         // timing side-channel on a 4-digit numeric code. Fixed cost either way removes it outright.
         if (!FixedTimeEquals(stored, otp))
         {

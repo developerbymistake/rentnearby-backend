@@ -1,16 +1,12 @@
 namespace RentNearBy.Core.Models;
 
 // Discriminator for NotificationEvent.Type — plain constants, no DB lookup table (matches
-// EnquiryStatuses/ListingKinds/CreditTransactionReasons's established idiom; a lookup table only pays
+// ListingKinds/CreditTransactionReasons's established idiom; a lookup table only pays
 // for itself if types need to be admin-configurable at runtime, which isn't the case here). Add a
 // new const here (and a matching wire-value entry below) for each new notification category —
 // nothing else about the schema changes.
 public static class NotificationTypes
 {
-    public const string LeadAssigned = "LeadAssigned";
-    public const string EscalationResolved = "EscalationResolved";
-    public const string LeadUnassigned = "LeadUnassigned";
-    public const string EnquiryAgentChanged = "EnquiryAgentChanged";
     public const string GoLiveApproved = "GoLiveApproved";
     public const string GoLiveRejected = "GoLiveRejected";
 
@@ -20,10 +16,6 @@ public static class NotificationTypes
     // switches on this exact string for its legacy per-type fallback.
     private static readonly Dictionary<string, string> WireValues = new()
     {
-        [LeadAssigned] = "lead_assigned",
-        [EscalationResolved] = "escalation_resolved",
-        [LeadUnassigned] = "lead_unassigned",
-        [EnquiryAgentChanged] = "enquiry_agent_changed",
         [GoLiveApproved] = "golive_approved",
         [GoLiveRejected] = "golive_rejected",
     };

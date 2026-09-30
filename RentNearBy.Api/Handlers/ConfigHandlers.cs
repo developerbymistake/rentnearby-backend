@@ -3,7 +3,6 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using static RentNearBy.Api.Extensions.ApiResults;
-using System.Text.Json;
 
 namespace RentNearBy.Api.Handlers;
 
@@ -52,8 +51,8 @@ public static class ConfigHandlers
         return OkResponse(new { enabled, freeGoLiveDurationDays = freeDurationDays });
     }
 
-    // Master table for the 5 bottom-nav tabs (RentNearBy.Core.Models.AppTabKeys). Cached as one list
-    // (only 5 rows, never paginated) so both the public endpoint and TabGateFilter (Filters/TabGateFilter.cs,
+    // Master table for the bottom-nav tabs (RentNearBy.Core.Models.AppTabKeys). Cached as one list
+    // (only a handful of rows, never paginated) so both the public endpoint and TabGateFilter (Filters/TabGateFilter.cs,
     // which blocks every request under a deactivated vertical's route group) share one cache entry —
     // AdminHandlers.UpdateAppTab evicts this key on every change.
     public static async Task<List<AppTabDto>> GetAppTabsCachedAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
@@ -79,24 +78,4 @@ public static class ConfigHandlers
 
     public static async Task<IResult> GetAppTabs(IUnitOfWork unitOfWork, IMemoryCache cache)
         => OkResponse(await GetAppTabsCachedAsync(unitOfWork, cache));
-
-    // Service Itinerary disclaimer text — one AppSetting row (AppSettingTypes.ItineraryDisclaimer)
-    // holding both variants as JSON ({"hillRegionText":"...","generalText":"..."}); which variant is
-    // shown depends on the Service's own TerrainType, not on any per-request input.
-    public const string ItineraryDisclaimerCacheKey = "config_itinerary_disclaimer";
-
-    public static async Task<string?> ResolveItineraryDisclaimerAsync(string? terrainType, IUnitOfWork unitOfWork, IMemoryCache cache)
-    {
-        if (!cache.TryGetValue(ItineraryDisclaimerCacheKey, out (string HillRegionText, string GeneralText) cached))
-        {
-            var setting = await unitOfWork.AppSettings.GetByTypeAsync(AppSettingTypes.ItineraryDisclaimer);
-            if (setting == null) return null;
-
-            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(setting.Value) ?? new();
-            cached = (parsed.GetValueOrDefault("hillRegionText", ""), parsed.GetValueOrDefault("generalText", ""));
-            cache.Set(ItineraryDisclaimerCacheKey, cached, CacheTtl);
-        }
-
-        return terrainType == "Hill" ? cached.HillRegionText : cached.GeneralText;
-    }
 }

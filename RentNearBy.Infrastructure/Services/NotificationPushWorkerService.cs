@@ -11,15 +11,8 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Fully separate from EnquiryStatusPushWorkerService — own queue, no shared code — deliberately, so
-// the existing Enquiry-status push to a submitting consumer is never touched by this feature. Unlike
-// that worker, this one formats nothing itself: Title/Body/ActionRoute/ActionArgumentsJson are
-// already persisted on the NotificationEvent row by whichever handler wrote it, so every current and
-// future producer gets FCM delivery for free through this one worker, with no per-category
-// formatting logic living here — with one deliberate exception: LeadAssigned rows also fan out to
-// every Admin device (see ProcessMessageAsync), so Admin stays aware of every lead an Agent gets,
-// without a separate queue/worker/storage. Mirrors ReportFiledWorkerService's existing
-// AdminDeviceTokens broadcast loop exactly.
+// Formats nothing itself: Title/Body/ActionRoute/ActionArgumentsJson are already persisted on the
+// NotificationEvent row by whichever handler wrote it, so every producer gets FCM delivery through this one worker.
 public class NotificationPushWorkerService : BackgroundService
 {
     private const string QueueName = "notification.push";
@@ -141,8 +134,7 @@ public class NotificationPushWorkerService : BackgroundService
         if (notification.ActionRoute != null) data["action_route"] = notification.ActionRoute;
         if (notification.ActionArgumentsJson != null) data["action_args_json"] = notification.ActionArgumentsJson;
 
-        // Sends are independent, so they run in parallel (same reasoning as
-        // EnquiryStatusPushWorkerService) — invalid-token cleanup collected here, applied
+        // Sends are independent, so they run in parallel — invalid-token cleanup collected here, applied
         // sequentially below since the DbContext behind unitOfWork isn't safe for concurrent writes.
         var sendResults = await Task.WhenAll(tokens.Select(async deviceToken =>
         {
@@ -162,28 +154,6 @@ public class NotificationPushWorkerService : BackgroundService
         foreach (var (token, isSuccess) in sendResults)
             if (!isSuccess)
                 await unitOfWork.DeviceTokens.MarkInvalidAsync(token);
-
-        // Admin awareness: every LeadAssigned row also pushes to every Admin device, reusing the same
-        // Title/Body/data already built above (no separate admin-phrased copy, no new storage) — a
-        // multi-agent enquiry creates one NotificationEvent per Agent, so Admin gets one push per
-        // Agent notified, matching the admin feed showing one row per Agent too.
-        if (notification.Type == NotificationTypes.LeadAssigned)
-        {
-            var adminTokens = (await unitOfWork.AdminDeviceTokens.GetAllValidAsync()).ToList();
-            foreach (var adminToken in adminTokens)
-            {
-                try
-                {
-                    var isSuccess = await _fcmService.SendAsync(adminToken.Token, notification.Title, notification.Body,
-                        NotificationTypes.ToWireValue(notification.Type), data);
-                    if (!isSuccess) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(adminToken.Token);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Notification FCM send exception for admin token");
-                }
-            }
-        }
 
         await unitOfWork.SaveChangesAsync();
     }

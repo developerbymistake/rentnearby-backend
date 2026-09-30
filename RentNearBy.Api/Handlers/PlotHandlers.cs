@@ -968,11 +968,11 @@ public static class PlotListingHandlers
     };
 
     // Clone of AdminHandlers.SendGoLiveNotificationAsync's shape — SignalR user_{id} push via
-    // EnquiryHub (the same hub every other generic NotificationEvent producer reuses) + RabbitMQ
+    // NotificationHub (the same hub every other generic NotificationEvent producer reuses) + RabbitMQ
     // notification.push publish for NotificationPushWorkerService. Best-effort: a push failure must
     // never turn an already-committed Approve/Reject into an error response.
     private static async Task SendGoLiveNotificationAsync(
-        IHubContext<EnquiryHub> hubContext, IRabbitMqPublisher publisher, NotificationEvent notification)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, NotificationEvent notification)
     {
         try
         {
@@ -997,7 +997,7 @@ public static class PlotListingHandlers
 
     public static async Task<IResult> ApprovePlotGoLiveRequest(
         Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        IHubContext<EnquiryHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
         if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
@@ -1050,7 +1050,7 @@ public static class PlotListingHandlers
     public static async Task<IResult> RejectPlotGoLiveRequest(
         Guid id, RejectGoLiveRequest request, IValidator<RejectGoLiveRequest> validator,
         IUnitOfWork unitOfWork, ApplicationDbContext db, ICreditWalletService wallet,
-        IHubContext<EnquiryHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -1124,7 +1124,7 @@ public static class PlotListingHandlers
     public static async Task<IResult> RejectReportedPlotAsync(
         ListingReport report, string reason, Guid? adminId,
         IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        IHubContext<EnquiryHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var plot = await unitOfWork.PlotListings.GetByIdAsync(report.ListingId);
         if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");

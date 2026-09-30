@@ -13,9 +13,6 @@ public sealed record NotificationDestination(string ActionRoute, string? ActionA
 // Must match rentnearby_Admin's notification_destinations.dart map keys character-for-character.
 public static class AdminNotificationRoutes
 {
-    public const string EnquiryEscalations = "/admin/enquiries/escalations";
-    public const string EnquiriesList = "/admin/enquiries";
-    public const string EnquiryDetail = "/admin/enquiry-detail";
     public const string ReportedListings = "/admin/reports";
     public const string GoLiveRequests = "/admin/golive-requests";
 }

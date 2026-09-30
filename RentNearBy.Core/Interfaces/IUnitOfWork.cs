@@ -29,17 +29,9 @@ public interface IUnitOfWork : IDisposable
     IListingLimitSettingRepository ListingLimitSettings { get; }
     IAppFeatureFlagRepository AppFeatureFlags { get; }
     IAppTabRepository AppTabs { get; }
-    IAppSettingRepository AppSettings { get; }
     ICouponRepository Coupons { get; }
     ICouponRedemptionRepository CouponRedemptions { get; }
     ICreditPackPurchaseRepository CreditPackPurchases { get; }
-    IServiceCategoryRepository ServiceCategories { get; }
-    IServiceRepository Services { get; }
-    IServicePackageRepository ServicePackages { get; }
-    IInclusionRepository Inclusions { get; }
-    IAgentRepository Agents { get; }
-    IEnquiryRepository Enquiries { get; }
-    IEnquiryStatusHistoryRepository EnquiryStatusHistories { get; }
     INotificationRepository Notifications { get; }
     Task<int> SaveChangesAsync();
 

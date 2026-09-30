@@ -60,9 +60,6 @@ public static class AdminEndpoints
         group.MapGet("/app-tabs", AdminHandlers.GetAppTabs).RequireAuthorization("AdminOnly");
         group.MapPut("/app-tabs/{tabKey}", AdminHandlers.UpdateAppTab).RequireAuthorization("AdminOnly");
 
-        group.MapGet("/itinerary-disclaimer", AdminHandlers.GetItineraryDisclaimer).RequireAuthorization("AdminOnly");
-        group.MapPut("/itinerary-disclaimer", AdminHandlers.UpdateItineraryDisclaimer).RequireAuthorization("AdminOnly");
-
         group.MapGet("/coupons", AdminHandlers.GetCoupons).RequireAuthorization("AdminOnly");
         group.MapGet("/coupons/{id:guid}", AdminHandlers.GetCouponById).RequireAuthorization("AdminOnly");
         group.MapPost("/coupons", AdminHandlers.CreateCoupon).RequireAuthorization("AdminOnly");

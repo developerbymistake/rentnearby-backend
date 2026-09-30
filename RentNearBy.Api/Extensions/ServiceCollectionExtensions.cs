@@ -89,20 +89,14 @@ public static class ServiceCollectionExtensions
             });
             services.AddSingleton<IRateLimitService, RedisRateLimitService>();
             services.AddSingleton<IOtpStore, RedisOtpStore>();
-            services.AddSingleton<IWebEnquiryTokenStore, RedisWebEnquiryTokenStore>();
         }
         else
         {
             services.AddSingleton<IRateLimitService, InMemoryRateLimitService>();
             services.AddSingleton<IOtpStore, MemoryOtpStore>();
-            services.AddSingleton<IWebEnquiryTokenStore, MemoryWebEnquiryTokenStore>();
         }
 
         services.AddHttpClient<IOtpService, WhatsAppOtpService>();
-
-        // Cloudflare Turnstile — server-side siteverify call for the public website enquiry flow
-        // (WebEnquiryHandlers). Free, no separate config beyond Turnstile:SecretKey.
-        services.AddHttpClient<ITurnstileService, TurnstileService>();
 
         // FCM — Singleton: FirebaseApp.Create() must be called only once
         services.AddSingleton<IFcmService, FcmService>();
@@ -132,30 +126,14 @@ public static class ServiceCollectionExtensions
         // Chat push worker — consumes chat.message.push queue and sends FCM via ChatFcmService
         services.AddHostedService<ChatMessageNotificationWorkerService>();
 
-        // Enquiry status push worker — consumes enquiry.status.push queue and sends FCM via the
-        // generic IFcmService (normal rendered notification, no dedup — see EnquiryStatusPushWorkerService)
-        services.AddHostedService<EnquiryStatusPushWorkerService>();
-
-        // Escalation-filed worker — consumes escalation.filed queue and notifies admins via
-        // AdminDeviceTokens + FCM (same pattern as ReportFiledWorkerService, admin side)
-        services.AddHostedService<EscalationFiledWorkerService>();
-
-        // Enquiry-unassigned worker — consumes enquiry.unassigned queue (CreateEnquiry's zero-agent
-        // branch) and notifies admins via AdminDeviceTokens + FCM
-        services.AddHostedService<EnquiryUnassignedWorkerService>();
-
-        // Agent-lead-status-updated worker — consumes agent.lead.status.updated queue
-        // (UpdateMyLeadStatus) and notifies admins via AdminDeviceTokens + FCM
-        services.AddHostedService<AgentLeadStatusUpdatedWorkerService>();
-
         // Notification-inbox push worker — consumes notification.push queue, delivers FCM for any
-        // NotificationEvent row (Agent lead-assignment today, any future producer for free) — fully
-        // separate from EnquiryStatusPushWorkerService, no shared queue or code.
+        // NotificationEvent row from any producer — fully
+        // separate from every other push worker, no shared queue or code.
         services.AddHostedService<NotificationPushWorkerService>();
 
         // Go-Live-requested worker — consumes golive.requested queue (a fresh, never-before-approved
         // Go-Live submission) and notifies admins via AdminDeviceTokens + FCM (same pattern as
-        // EscalationFiledWorkerService) — deliberately not the NotificationEvent/inbox system.
+        // ReportFiledWorkerService) — deliberately not the NotificationEvent/inbox system.
         services.AddHostedService<GoLiveRequestedWorkerService>();
 
         return services;

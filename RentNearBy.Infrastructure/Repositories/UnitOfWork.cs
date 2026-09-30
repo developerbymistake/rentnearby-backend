@@ -35,17 +35,9 @@ public class UnitOfWork : IUnitOfWork
     private IListingLimitSettingRepository? _listingLimitSettings;
     private IAppFeatureFlagRepository? _appFeatureFlags;
     private IAppTabRepository? _appTabs;
-    private IAppSettingRepository? _appSettings;
     private ICouponRepository? _coupons;
     private ICouponRedemptionRepository? _couponRedemptions;
     private ICreditPackPurchaseRepository? _creditPackPurchases;
-    private IServiceCategoryRepository? _serviceCategories;
-    private IServiceRepository? _services;
-    private IServicePackageRepository? _servicePackages;
-    private IInclusionRepository? _inclusions;
-    private IAgentRepository? _agents;
-    private IEnquiryRepository? _enquiries;
-    private IEnquiryStatusHistoryRepository? _enquiryStatusHistories;
     private INotificationRepository? _notifications;
 
     public UnitOfWork(ApplicationDbContext context)
@@ -80,17 +72,9 @@ public class UnitOfWork : IUnitOfWork
     public IListingLimitSettingRepository ListingLimitSettings => _listingLimitSettings ??= new ListingLimitSettingRepository(_context);
     public IAppFeatureFlagRepository AppFeatureFlags => _appFeatureFlags ??= new AppFeatureFlagRepository(_context);
     public IAppTabRepository AppTabs => _appTabs ??= new AppTabRepository(_context);
-    public IAppSettingRepository AppSettings => _appSettings ??= new AppSettingRepository(_context);
     public ICouponRepository Coupons => _coupons ??= new CouponRepository(_context);
     public ICouponRedemptionRepository CouponRedemptions => _couponRedemptions ??= new CouponRedemptionRepository(_context);
     public ICreditPackPurchaseRepository CreditPackPurchases => _creditPackPurchases ??= new CreditPackPurchaseRepository(_context);
-    public IServiceCategoryRepository ServiceCategories => _serviceCategories ??= new ServiceCategoryRepository(_context);
-    public IServiceRepository Services => _services ??= new ServiceRepository(_context);
-    public IServicePackageRepository ServicePackages => _servicePackages ??= new ServicePackageRepository(_context);
-    public IInclusionRepository Inclusions => _inclusions ??= new InclusionRepository(_context);
-    public IAgentRepository Agents => _agents ??= new AgentRepository(_context);
-    public IEnquiryRepository Enquiries => _enquiries ??= new EnquiryRepository(_context);
-    public IEnquiryStatusHistoryRepository EnquiryStatusHistories => _enquiryStatusHistories ??= new EnquiryStatusHistoryRepository(_context);
     public INotificationRepository Notifications => _notifications ??= new NotificationRepository(_context);
 
     public async Task<int> SaveChangesAsync()

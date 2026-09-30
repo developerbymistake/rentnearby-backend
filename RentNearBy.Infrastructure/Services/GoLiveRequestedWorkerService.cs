@@ -11,11 +11,10 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Structural copy of EscalationFiledWorkerService — pure "publish -> dedicated consumer ->
+// Structural copy of ReportFiledWorkerService — pure "publish -> dedicated consumer ->
 // AdminDeviceTokens + FCM" broadcast, deliberately NOT the NotificationEvent/inbox system: a
-// Go-Live request has no owner-facing recipient, and NotificationRepository.GetPagedForAdminAsync
-// reads NotificationEvents with no type filter at all, so a row created here would leak into
-// admin's unrelated notification inbox feed. No DLQ — a missed push is best-effort, the listing's
+// Go-Live request has no owner-facing recipient, so a row created here would be meaningless
+// to the user inbox. No DLQ — a missed push is best-effort, the listing's
 // Pending state is already durably saved regardless of push delivery.
 public class GoLiveRequestedWorkerService : BackgroundService
 {

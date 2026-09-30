@@ -62,63 +62,10 @@ public static class DtoMappings
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
 
-        // ── Local Services Marketplace ─────────────────────────────────────────
-
-        TypeAdapterConfig<ServiceCategory, ServiceCategoryDto>.NewConfig();
-        TypeAdapterConfig<Service, ServiceListItemDto>.NewConfig();
-        TypeAdapterConfig<ServicePackage, ServicePackagePreviewDto>.NewConfig();
-        TypeAdapterConfig<Inclusion, InclusionDto>.NewConfig();
-
-        TypeAdapterConfig<Service, ServiceDetailDto>.NewConfig()
-            .Map(dest => dest.Packages, src => src.Packages.OrderBy(p => p.SortOrder))
-            .Map(dest => dest.ServiceCategoryFormType, src => src.ServiceCategory.FormType)
-            .Map(dest => dest.CategorySlug, src => src.ServiceCategory.Slug)
-            .Map(dest => dest.Inclusions, src => src.ServiceInclusions
-                .OrderBy(si => si.Inclusion.SortOrder)
-                .Select(si => si.Inclusion));
-
-        TypeAdapterConfig<ServicePackage, ServicePackageDto>.NewConfig();
-
-        // ServiceIds/Names flattened from the AgentService join.
-        // UserName/UserPhoneNumber flattened from the linked User, when loaded.
-        TypeAdapterConfig<Agent, AgentDto>.NewConfig()
-            .Map(dest => dest.ServiceIds, src => src.AgentServices.Select(as_ => as_.ServiceId))
-            .Map(dest => dest.ServiceNames, src => src.AgentServices.Select(as_ => as_.Service.Name))
-            .Map(dest => dest.UserName, src => src.User != null ? src.User.Name : null)
-            .Map(dest => dest.UserPhoneNumber, src => src.User != null ? src.User.PhoneNumber : null);
-
-        TypeAdapterConfig<EnquiryStatusHistory, EnquiryStatusHistoryDto>.NewConfig()
-            .Map(dest => dest.ChangedByAdminName, src => src.ChangedByAdmin != null ? src.ChangedByAdmin.Name : null)
-            .Map(dest => dest.ChangedByAgentName, src => src.ChangedByAgent != null ? src.ChangedByAgent.Name : null);
-
-        // ServiceCategoryName resolved through Service -> ServiceCategory.
-        TypeAdapterConfig<Enquiry, EnquiryListItemDto>.NewConfig()
-            .Map(dest => dest.ServiceName, src => src.Service.Name)
-            .Map(dest => dest.ServiceCategoryId, src => src.Service.ServiceCategoryId)
-            .Map(dest => dest.ServiceCategoryName, src => src.Service.ServiceCategory.Name)
-            .Map(dest => dest.ServiceCategoryAgentRoleLabel, src => src.Service.ServiceCategory.AgentRoleLabel)
-            .Map(dest => dest.ServicePackageName, src => src.ServicePackage.Name)
-            .Map(dest => dest.AssignedAgentCount, src => src.EnquiryAgents.Count)
-            .Map(dest => dest.HasPendingEscalation, src => src.Escalations.Any(esc => esc.Status == "Pending"));
-
-        TypeAdapterConfig<Enquiry, EnquiryDetailDto>.NewConfig()
-            .Map(dest => dest.ServiceName, src => src.Service.Name)
-            .Map(dest => dest.ServiceCategoryId, src => src.Service.ServiceCategoryId)
-            .Map(dest => dest.ServiceCategoryName, src => src.Service.ServiceCategory.Name)
-            .Map(dest => dest.ServiceCategoryAgentRoleLabel, src => src.Service.ServiceCategory.AgentRoleLabel)
-            .Map(dest => dest.ServicePackageName, src => src.ServicePackage.Name)
-            .Map(dest => dest.AssignedAgents, src => src.EnquiryAgents.Select(ia => ia.Agent))
-            .Map(dest => dest.Escalations, src => src.Escalations.OrderByDescending(esc => esc.CreatedAt));
-
         // IsRead is deliberately NOT mapped here — it comes from a separate join
         // (NotificationListItem.IsRead), never a column on NotificationEvent itself. Handlers set it
         // explicitly after calling Adapt().
         TypeAdapterConfig<NotificationEvent, NotificationDto>.NewConfig()
-            .Map(dest => dest.ActionArguments, src => src.ActionArgumentsJson == null
-                ? null
-                : JsonSerializer.Deserialize<Dictionary<string, string>>(src.ActionArgumentsJson, (JsonSerializerOptions?)null));
-
-        TypeAdapterConfig<NotificationEvent, AdminNotificationDto>.NewConfig()
             .Map(dest => dest.ActionArguments, src => src.ActionArgumentsJson == null
                 ? null
                 : JsonSerializer.Deserialize<Dictionary<string, string>>(src.ActionArgumentsJson, (JsonSerializerOptions?)null));

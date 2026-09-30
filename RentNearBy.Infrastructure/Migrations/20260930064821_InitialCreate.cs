@@ -170,21 +170,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Inclusions",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    Name = table.Column<string>(type: "text", nullable: false),
-                    IconName = table.Column<string>(type: "text", nullable: false),
-                    SortOrder = table.Column<int>(type: "integer", nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Inclusions", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "ListingLimitSettings",
                 columns: table => new
                 {
@@ -241,27 +226,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_RoomTypes", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ServiceCategories",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    Name = table.Column<string>(type: "text", nullable: false),
-                    Slug = table.Column<string>(type: "text", nullable: false),
-                    IconName = table.Column<string>(type: "text", nullable: false),
-                    CoverPhotoUrl = table.Column<string>(type: "text", nullable: false),
-                    CoverPhotoFilePath = table.Column<string>(type: "text", nullable: false),
-                    FormType = table.Column<string>(type: "text", nullable: false),
-                    AgentRoleLabel = table.Column<string>(type: "text", nullable: false),
-                    SortOrder = table.Column<int>(type: "integer", nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ServiceCategories", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -358,27 +322,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.PrimaryKey("PK_AppFeatureFlags", x => x.Id);
                     table.ForeignKey(
                         name: "FK_AppFeatureFlags_Admins_UpdatedByAdminId",
-                        column: x => x.UpdatedByAdminId,
-                        principalTable: "Admins",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "AppSettings",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    Type = table.Column<string>(type: "text", nullable: false),
-                    Value = table.Column<string>(type: "text", nullable: false),
-                    UpdatedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_AppSettings", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_AppSettings_Admins_UpdatedByAdminId",
                         column: x => x.UpdatedByAdminId,
                         principalTable: "Admins",
                         principalColumn: "Id",
@@ -555,68 +498,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalTable: "RoomTypes",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Services",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    ServiceCategoryId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Name = table.Column<string>(type: "text", nullable: false),
-                    Slug = table.Column<string>(type: "text", nullable: false),
-                    IconName = table.Column<string>(type: "text", nullable: false),
-                    ShortDescription = table.Column<string>(type: "text", nullable: false),
-                    FullDescription = table.Column<string>(type: "text", nullable: false),
-                    CoverPhotoUrl = table.Column<string>(type: "text", nullable: false),
-                    CoverPhotoFilePath = table.Column<string>(type: "text", nullable: false),
-                    SortOrder = table.Column<int>(type: "integer", nullable: false),
-                    IsFeatured = table.Column<bool>(type: "boolean", nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    TerrainType = table.Column<string>(type: "text", nullable: true),
-                    PickupDropLocation = table.Column<string>(type: "text", nullable: true),
-                    NightsBreakdown = table.Column<string>(type: "text", nullable: true),
-                    MealsNote = table.Column<string>(type: "text", nullable: true),
-                    ItineraryJson = table.Column<string>(type: "text", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Services", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_Services_ServiceCategories_ServiceCategoryId",
-                        column: x => x.ServiceCategoryId,
-                        principalTable: "ServiceCategories",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Agents",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    Name = table.Column<string>(type: "text", nullable: false),
-                    Phone = table.Column<string>(type: "text", nullable: false),
-                    WhatsAppNumber = table.Column<string>(type: "text", nullable: false),
-                    PhotoUrl = table.Column<string>(type: "text", nullable: false),
-                    PhotoFilePath = table.Column<string>(type: "text", nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    Experience = table.Column<int>(type: "integer", nullable: true),
-                    CompanyName = table.Column<string>(type: "text", nullable: true),
-                    UserId = table.Column<Guid>(type: "uuid", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Agents", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_Agents_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
                 });
 
             migrationBuilder.CreateTable(
@@ -968,87 +849,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "ServiceInclusions",
-                columns: table => new
-                {
-                    ServiceId = table.Column<Guid>(type: "uuid", nullable: false),
-                    InclusionId = table.Column<Guid>(type: "uuid", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ServiceInclusions", x => new { x.ServiceId, x.InclusionId });
-                    table.ForeignKey(
-                        name: "FK_ServiceInclusions_Inclusions_InclusionId",
-                        column: x => x.InclusionId,
-                        principalTable: "Inclusions",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_ServiceInclusions_Services_ServiceId",
-                        column: x => x.ServiceId,
-                        principalTable: "Services",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ServicePackages",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    ServiceId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Name = table.Column<string>(type: "text", nullable: false),
-                    Price = table.Column<int>(type: "integer", nullable: true),
-                    OriginalPrice = table.Column<int>(type: "integer", nullable: true),
-                    DiscountPercent = table.Column<int>(type: "integer", nullable: true),
-                    IsStartingAtPrice = table.Column<bool>(type: "boolean", nullable: false),
-                    DurationDays = table.Column<int>(type: "integer", nullable: true),
-                    DurationNights = table.Column<int>(type: "integer", nullable: true),
-                    PriceUnit = table.Column<string>(type: "text", nullable: true),
-                    ThumbnailUrl = table.Column<string>(type: "text", nullable: false),
-                    ThumbnailFilePath = table.Column<string>(type: "text", nullable: false),
-                    SortOrder = table.Column<int>(type: "integer", nullable: false),
-                    IsFeatured = table.Column<bool>(type: "boolean", nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ServicePackages", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_ServicePackages_Services_ServiceId",
-                        column: x => x.ServiceId,
-                        principalTable: "Services",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "AgentServices",
-                columns: table => new
-                {
-                    AgentId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ServiceId = table.Column<Guid>(type: "uuid", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_AgentServices", x => new { x.AgentId, x.ServiceId });
-                    table.ForeignKey(
-                        name: "FK_AgentServices_Agents_AgentId",
-                        column: x => x.AgentId,
-                        principalTable: "Agents",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_AgentServices_Services_ServiceId",
-                        column: x => x.ServiceId,
-                        principalTable: "Services",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "NotificationReads",
                 columns: table => new
                 {
@@ -1117,134 +917,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
-            migrationBuilder.CreateTable(
-                name: "Enquiries",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ServiceId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ServicePackageId = table.Column<Guid>(type: "uuid", nullable: false),
-                    FullName = table.Column<string>(type: "text", nullable: false),
-                    Mobile = table.Column<string>(type: "text", nullable: false),
-                    Email = table.Column<string>(type: "text", nullable: true),
-                    PreferredDateOrTripStart = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    NumberOfPeople = table.Column<int>(type: "integer", nullable: true),
-                    Message = table.Column<string>(type: "text", nullable: true),
-                    Status = table.Column<string>(type: "text", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UserSeenAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Enquiries", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_Enquiries_ServicePackages_ServicePackageId",
-                        column: x => x.ServicePackageId,
-                        principalTable: "ServicePackages",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_Enquiries_Services_ServiceId",
-                        column: x => x.ServiceId,
-                        principalTable: "Services",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "EnquiryAgents",
-                columns: table => new
-                {
-                    EnquiryId = table.Column<Guid>(type: "uuid", nullable: false),
-                    AgentId = table.Column<Guid>(type: "uuid", nullable: false),
-                    AssignedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    SeenAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_EnquiryAgents", x => new { x.EnquiryId, x.AgentId });
-                    table.ForeignKey(
-                        name: "FK_EnquiryAgents_Agents_AgentId",
-                        column: x => x.AgentId,
-                        principalTable: "Agents",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_EnquiryAgents_Enquiries_EnquiryId",
-                        column: x => x.EnquiryId,
-                        principalTable: "Enquiries",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "EnquiryEscalations",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    EnquiryId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Reason = table.Column<string>(type: "text", nullable: false),
-                    Note = table.Column<string>(type: "text", nullable: true),
-                    Status = table.Column<string>(type: "text", nullable: false, defaultValue: "Pending"),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    ResolvedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    ResolvedByAdminId = table.Column<Guid>(type: "uuid", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_EnquiryEscalations", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_EnquiryEscalations_Admins_ResolvedByAdminId",
-                        column: x => x.ResolvedByAdminId,
-                        principalTable: "Admins",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
-                    table.ForeignKey(
-                        name: "FK_EnquiryEscalations_Enquiries_EnquiryId",
-                        column: x => x.EnquiryId,
-                        principalTable: "Enquiries",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "EnquiryStatusHistories",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    EnquiryId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Status = table.Column<string>(type: "text", nullable: false),
-                    ChangedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
-                    ChangedByAgentId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Note = table.Column<string>(type: "text", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_EnquiryStatusHistories", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_EnquiryStatusHistories_Admins_ChangedByAdminId",
-                        column: x => x.ChangedByAdminId,
-                        principalTable: "Admins",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
-                    table.ForeignKey(
-                        name: "FK_EnquiryStatusHistories_Agents_ChangedByAgentId",
-                        column: x => x.ChangedByAgentId,
-                        principalTable: "Agents",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
-                    table.ForeignKey(
-                        name: "FK_EnquiryStatusHistories_Enquiries_EnquiryId",
-                        column: x => x.EnquiryId,
-                        principalTable: "Enquiries",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
             migrationBuilder.CreateIndex(
                 name: "IX_AdminDeviceTokens_AdminId",
                 table: "AdminDeviceTokens",
@@ -1282,18 +954,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "ExpiresAt");
 
             migrationBuilder.CreateIndex(
-                name: "ix_agents_userid_unique",
-                table: "Agents",
-                column: "UserId",
-                unique: true,
-                filter: "\"UserId\" IS NOT NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_AgentServices_ServiceId",
-                table: "AgentServices",
-                column: "ServiceId");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_AppFeatureFlags_FeatureKey",
                 table: "AppFeatureFlags",
                 column: "FeatureKey",
@@ -1302,17 +962,6 @@ namespace RentNearBy.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_AppFeatureFlags_UpdatedByAdminId",
                 table: "AppFeatureFlags",
-                column: "UpdatedByAdminId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_AppSettings_Type",
-                table: "AppSettings",
-                column: "Type",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_AppSettings_UpdatedByAdminId",
-                table: "AppSettings",
                 column: "UpdatedByAdminId");
 
             migrationBuilder.CreateIndex(
@@ -1495,68 +1144,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "Districts",
                 columns: new[] { "StateName", "Name" },
                 unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Enquiries_CreatedAt_Status",
-                table: "Enquiries",
-                columns: new[] { "CreatedAt", "Status" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Enquiries_ServiceId",
-                table: "Enquiries",
-                column: "ServiceId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Enquiries_ServicePackageId",
-                table: "Enquiries",
-                column: "ServicePackageId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Enquiries_Status",
-                table: "Enquiries",
-                column: "Status");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Enquiries_UserId",
-                table: "Enquiries",
-                column: "UserId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_EnquiryAgents_AgentId",
-                table: "EnquiryAgents",
-                column: "AgentId");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_enquiryescalations_enquiry_pending",
-                table: "EnquiryEscalations",
-                column: "EnquiryId",
-                unique: true,
-                filter: "\"Status\" = 'Pending'");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_EnquiryEscalations_ResolvedByAdminId",
-                table: "EnquiryEscalations",
-                column: "ResolvedByAdminId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_EnquiryEscalations_Status",
-                table: "EnquiryEscalations",
-                column: "Status");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_EnquiryStatusHistories_ChangedByAdminId",
-                table: "EnquiryStatusHistories",
-                column: "ChangedByAdminId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_EnquiryStatusHistories_ChangedByAgentId",
-                table: "EnquiryStatusHistories",
-                column: "ChangedByAgentId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_EnquiryStatusHistories_EnquiryId",
-                table: "EnquiryStatusHistories",
-                column: "EnquiryId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ListingLimitSettings_ListingKind",
@@ -1865,21 +1452,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_ServiceInclusions_InclusionId",
-                table: "ServiceInclusions",
-                column: "InclusionId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ServicePackages_ServiceId",
-                table: "ServicePackages",
-                column: "ServiceId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Services_ServiceCategoryId",
-                table: "Services",
-                column: "ServiceCategoryId");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_Sessions_ExpiresAt",
                 table: "Sessions",
                 column: "ExpiresAt");
@@ -1917,13 +1489,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "AdminSessions");
 
             migrationBuilder.DropTable(
-                name: "AgentServices");
-
-            migrationBuilder.DropTable(
                 name: "AppFeatureFlags");
-
-            migrationBuilder.DropTable(
-                name: "AppSettings");
 
             migrationBuilder.DropTable(
                 name: "AppTabs");
@@ -1953,15 +1519,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "DeviceTokens");
 
             migrationBuilder.DropTable(
-                name: "EnquiryAgents");
-
-            migrationBuilder.DropTable(
-                name: "EnquiryEscalations");
-
-            migrationBuilder.DropTable(
-                name: "EnquiryStatusHistories");
-
-            migrationBuilder.DropTable(
                 name: "ListingLimitSettings");
 
             migrationBuilder.DropTable(
@@ -1986,9 +1543,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "RoomPhotos");
 
             migrationBuilder.DropTable(
-                name: "ServiceInclusions");
-
-            migrationBuilder.DropTable(
                 name: "Sessions");
 
             migrationBuilder.DropTable(
@@ -2005,12 +1559,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "CreditPacks");
-
-            migrationBuilder.DropTable(
-                name: "Agents");
-
-            migrationBuilder.DropTable(
-                name: "Enquiries");
 
             migrationBuilder.DropTable(
                 name: "Admins");
@@ -2031,12 +1579,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "RoomListings");
 
             migrationBuilder.DropTable(
-                name: "Inclusions");
-
-            migrationBuilder.DropTable(
-                name: "ServicePackages");
-
-            migrationBuilder.DropTable(
                 name: "PlotTypes");
 
             migrationBuilder.DropTable(
@@ -2049,13 +1591,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "Users");
 
             migrationBuilder.DropTable(
-                name: "Services");
-
-            migrationBuilder.DropTable(
                 name: "Districts");
-
-            migrationBuilder.DropTable(
-                name: "ServiceCategories");
         }
     }
 }

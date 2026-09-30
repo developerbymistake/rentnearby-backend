@@ -21,8 +21,8 @@ builder.Services.AddSignalR();
 
 // Deployed behind Coolify's Traefik reverse proxy — without this, HttpContext.Connection.RemoteIpAddress
 // is always Traefik's own container IP, not the real client IP, which silently collapses every per-IP
-// rate limit in WebEnquiryHandlers into one shared bucket for all visitors instead of throttling any one
-// abuser (see that file's ClientIp() comment). KnownNetworks/KnownProxies are cleared deliberately —
+// rate limit (e.g. the by-slug lookups in ListingsHandlers/PlotHandlers) into one shared bucket for all visitors instead of throttling any one
+// abuser (see their ClientIp() helpers). KnownNetworks/KnownProxies are cleared deliberately —
 // Coolify's proxy IP isn't a fixed, known-in-advance address — which means the *immediate* hop's
 // X-Forwarded-For entry is trusted unconditionally. That is only safe as long as this container is never
 // reachable directly from the public internet (only through Traefik) — docker-compose.yml currently
@@ -59,8 +59,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowAll", policy =>
         policy.WithOrigins(
             "https://developerbymistake.tech",
-            // Bakhli marketing website (bakhli-website repo) — added for the public web-enquiry flow
-            // (WebEnquiryEndpoints) and the read-only services/packages catalog it calls from the browser.
+            // Bakhli marketing website (bakhli-website repo) — public listing share pages
             "https://bakhli.com",
             "https://www.bakhli.com"
         )
@@ -244,28 +243,6 @@ app.MapGet("/go/{type:regex(^(r|p)$)}/{slug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}", (
     return Results.Content(html, "text/html");
 });
 
-// Sibling to /go/{r|p} above, own path (same "future QR use-cases get their own path" decision) —
-// Services need TWO slug segments (categorySlug + serviceSlug) because Service.Slug is only unique
-// per-category, not globally (see Service.cs's own doc comment), which the {r|p} route's
-// single-segment regex structurally can't express. "s" is a fixed literal path segment here (not a
-// route-parameter regex like {r|p}), so no type-constraint regex is needed for it.
-app.MapGet("/go/s/{categorySlug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}/{serviceSlug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}",
-    (string categorySlug, string serviceSlug, IConfiguration configuration) =>
-{
-    var playStoreUrl = configuration["AppLinks:PlayStoreUrl"] ?? "";
-    var appStoreUrl = configuration["AppLinks:AppStoreUrl"] ?? "";
-    // Same "type=X&slug=<value>" referrer contract the {r|p} route already uses — for this
-    // multi-segment type, slug is the two segments joined by '/' before escaping, so the app's
-    // DeepLinkService can parse both shapes with one generic rule.
-    var referrerPayload = $"type=s&slug={Uri.EscapeDataString($"{categorySlug}/{serviceSlug}")}";
-    var playStoreUrlWithReferrer = string.IsNullOrEmpty(playStoreUrl)
-        ? playStoreUrl
-        : $"{playStoreUrl}&referrer={Uri.EscapeDataString(referrerPayload)}";
-    var html = RenderStoreRedirectHtml(playStoreUrlWithReferrer, appStoreUrl,
-        $"https://developerbymistake.tech/go/s/{categorySlug}/{serviceSlug}");
-    return Results.Content(html, "text/html");
-});
-
 app.MapGet("/delete-account", () => Results.Content("""
 <!DOCTYPE html>
 <html lang="en">
@@ -382,39 +359,6 @@ app.MapGroup("/api/v1/admin")
     .WithTags("AdminBanners")
     .MapAdminBannerEndpoints();
 
-app.MapGroup("/api/v1/services")
-    .WithTags("ServiceCatalog")
-    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Services))
-    .MapServiceCatalogEndpoints();
-
-app.MapGroup("/api/v1/admin")
-    .WithTags("AdminServiceCatalog")
-    .MapAdminServiceCatalogEndpoints();
-
-app.MapGroup("/api/v1/agents")
-    .WithTags("Agents")
-    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Services))
-    .MapAgentEndpoints();
-
-app.MapGroup("/api/v1/enquiries")
-    .WithTags("Enquiries")
-    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Services))
-    .MapEnquiryEndpoints();
-
-// Public (unauthenticated) website enquiry flow — see WebEnquiryHandlers' doc comment. Entirely separate
-// route group from the above; touches no existing enquiry route/handler.
-app.MapGroup("/api/v1/web-enquiry")
-    .WithTags("WebEnquiry")
-    .MapWebEnquiryEndpoints();
-
-app.MapGroup("/api/v1/admin/enquiries")
-    .WithTags("AdminEnquiries")
-    .MapAdminEnquiryEndpoints();
-
-app.MapGroup("/api/v1/admin/notifications")
-    .WithTags("AdminNotifications")
-    .MapAdminNotificationEndpoints();
-
 app.MapGroup("/api/v1/chat")
     .WithTags("Chat")
     .MapChatEndpoints();
@@ -442,7 +386,7 @@ app.MapGroup("/api/v1/wallet")
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");
 app.MapHub<WalletHub>("/hubs/wallet");
-app.MapHub<EnquiryHub>("/hubs/enquiry");
+app.MapHub<NotificationHub>("/hubs/notification");
 
 app.Run();
 
