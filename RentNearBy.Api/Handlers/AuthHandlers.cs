@@ -109,6 +109,7 @@ public static class AuthHandlers
             PhoneNumber = request.PhoneNumber,
             Name = request.Name,
             IsPhoneVerified = true,
+            IsContactVisible = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };

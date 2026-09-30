@@ -64,8 +64,8 @@ public static class DataSeeder
         if (await db.ListingLimitSettings.AnyAsync()) return;
 
         db.ListingLimitSettings.AddRange(
-            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Room, MaxListings = 2, UpdatedAt = DateTime.UtcNow },
-            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Plot, MaxListings = 2, UpdatedAt = DateTime.UtcNow }
+            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Room, MaxListings = 5, UpdatedAt = DateTime.UtcNow },
+            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Plot, MaxListings = 5, UpdatedAt = DateTime.UtcNow }
         );
         await db.SaveChangesAsync();
     }
