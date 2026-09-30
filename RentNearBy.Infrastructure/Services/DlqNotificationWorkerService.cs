@@ -122,8 +122,8 @@ public class DlqNotificationWorkerService : BackgroundService
         var notifType      = isRoom ? "room_expired" : "plot_expired";
         var title          = "Listing Expired";
         var body           = isRoom
-            ? "Your room listing has gone offline — its paid period ended. Go live again to keep it visible."
-            : "Your plot listing has gone offline — its paid period ended. Go live again to keep it visible.";
+            ? "Your room listing has gone offline — its live period ended. Go live again to keep it visible."
+            : "Your plot listing has gone offline — its live period ended. Go live again to keep it visible.";
 
         // Skip if already sent today (might have succeeded via main worker earlier)
         if (await unitOfWork.NotificationLogs.WasSentTodayAsync(msg.UserId, notifType))

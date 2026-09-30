@@ -130,8 +130,8 @@ public class NotificationWorkerService : BackgroundService
         var notificationType = isRoom ? "room_expired" : "plot_expired";
         var title = "Listing Expired";
         var body = isRoom
-            ? "Your room listing has gone offline — its paid period ended. Go live again to keep it visible."
-            : "Your plot listing has gone offline — its paid period ended. Go live again to keep it visible.";
+            ? "Your room listing has gone offline — its live period ended. Go live again to keep it visible."
+            : "Your plot listing has gone offline — its live period ended. Go live again to keep it visible.";
 
         if (await unitOfWork.NotificationLogs.WasSentTodayAsync(msg.UserId, notificationType))
         {
