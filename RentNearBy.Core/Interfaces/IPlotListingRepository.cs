@@ -27,8 +27,9 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
         Guid? districtId = null,
         Guid? cityId = null,
         string? search = null);
-    Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetAllPagedByTypeIdAsync(
-        Guid? districtId, Guid? cityId, Guid? plotTypeId, string sortBy, int page, int pageSize);
+    // Newest sort pages by opaque keyset cursor (first page: null); area sorts page by offset.
+    Task<BrowsePage<HomePlotDto>> GetAllPagedByTypeIdAsync(
+        Guid districtId, Guid? cityId, Guid? plotTypeId, string sortBy, int page, int pageSize, string? cursor);
     Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId);
     Task AddPhotoAsync(PlotPhoto photo);
     void RemovePhoto(PlotPhoto photo);

@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
@@ -184,40 +185,95 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .ToListAsync();
     }
 
-    public async Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> SearchPagedAsync(
-        Guid? districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize)
+    private static readonly Expression<Func<RoomListing, HomeRoomDto>> BrowseProjection = l => new HomeRoomDto
     {
+        Id = l.Id,
+        UserId = l.UserId,
+        PriceMonthly = l.PriceMonthly,
+        RoomTypeName = l.RoomType.Name,
+        ThumbnailUrl = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
+        CityName = l.City != null ? l.City.Name : null,
+        DistrictName = l.District.Name,
+        FurnishedStatus = l.FurnishedStatus,
+        CreatedAt = l.CreatedAt,
+    };
+
+    public async Task<BrowsePage<HomeRoomDto>> SearchPagedAsync(
+        Guid districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize, string? cursor)
+    {
+        page = Math.Clamp(page, 1, BrowseCursor.MaxPage);
+
         var query = _dbSet
             .AsNoTracking()
-            .Include(l => l.RoomType)
-            .Include(l => l.District)
-            .Include(l => l.City)
-            .Include(l => l.User)
-            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
-            .Where(l =>
-                l.IsActive &&
-                !l.IsDeleted &&
-                (districtId == null || l.DistrictId == districtId) &&
-                (roomTypeId == null || l.RoomTypeId == roomTypeId));
+            .Where(l => l.IsActive && !l.IsDeleted && l.DistrictId == districtId);
+        if (roomTypeId.HasValue)
+            query = query.Where(l => l.RoomTypeId == roomTypeId.Value);
 
-        // District stays the hard filter (unchanged above). City is a soft
-        // ranking signal only, not a filter — matches sort first, then the
-        // rest of the district fills the rest of the page, so a city with no
-        // listings of its own never renders blank.
-        var ranked = query.OrderBy(l => cityId != null && l.CityId == cityId ? 0 : 1);
-
-        IOrderedQueryable<RoomListing> sorted = sortBy switch
+        if (sortBy is "price_asc" or "price_desc")
         {
-            "price_asc" => ranked.ThenBy(l => l.PriceMonthly),
-            "price_desc" => ranked.ThenByDescending(l => l.PriceMonthly),
-            _ => ranked.ThenByDescending(l => l.CreatedAt),
-        };
+            var byPrice = sortBy == "price_asc"
+                ? query.OrderBy(l => l.PriceMonthly).ThenBy(l => l.Id)
+                : query.OrderByDescending(l => l.PriceMonthly).ThenByDescending(l => l.Id);
+            var priced = await byPrice.Skip((page - 1) * pageSize).Take(pageSize + 1).Select(BrowseProjection).ToListAsync();
+            return BrowseCursor.OffsetPage(priced, pageSize);
+        }
 
-        var take = pageSize + 1;
-        var items = await sorted.Skip((page - 1) * pageSize).Take(take).ToListAsync();
+        if (string.IsNullOrEmpty(cursor) && page > 1)
+        {
+            var legacy = await query
+                .OrderBy(l => cityId != null && l.CityId == cityId ? 0 : 1)
+                .ThenByDescending(l => l.CreatedAt)
+                .ThenByDescending(l => l.Id)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize + 1)
+                .Select(BrowseProjection)
+                .ToListAsync();
+            return BrowseCursor.OffsetPage(legacy, pageSize);
+        }
 
-        var hasMore = items.Count > pageSize;
-        return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
+        var phase = cityId.HasValue ? 0 : 1;
+        DateTime? afterAt = null;
+        var afterId = Guid.Empty;
+        if (BrowseCursor.TryDecode(cursor, out var cursorPhase, out var cursorAt, out var cursorId) && cursorPhase >= phase)
+        {
+            phase = cursorPhase;
+            afterAt = cursorAt;
+            afterId = cursorId;
+        }
+
+        var items = new List<HomeRoomDto>(pageSize + 1);
+        var phase0Count = 0;
+        for (; phase <= 1; phase++)
+        {
+            var need = pageSize + 1 - items.Count;
+            var phaseQuery = query;
+            if (cityId.HasValue)
+            {
+                var cid = cityId.Value;
+                phaseQuery = phase == 0
+                    ? phaseQuery.Where(l => l.CityId == cid)
+                    : phaseQuery.Where(l => l.CityId == null || l.CityId != cid);
+            }
+            if (afterAt.HasValue)
+            {
+                var at = afterAt.Value;
+                var aid = afterId;
+                phaseQuery = phaseQuery.Where(l => l.CreatedAt <= at && (l.CreatedAt < at || l.Id.CompareTo(aid) < 0));
+            }
+
+            var rows = await phaseQuery
+                .OrderByDescending(l => l.CreatedAt)
+                .ThenByDescending(l => l.Id)
+                .Take(need)
+                .Select(BrowseProjection)
+                .ToListAsync();
+            items.AddRange(rows);
+            if (phase == 0) phase0Count = items.Count;
+            afterAt = null;
+            if (rows.Count == need) break;
+        }
+
+        return BrowseCursor.KeysetPage(items, pageSize, phase0Count, x => x.CreatedAt, x => x.Id);
     }
 
     public async Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId)

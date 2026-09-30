@@ -385,6 +385,21 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // one Home query with no server-side cache backing it (see HomeHandlers.GetRooms).
             e.HasIndex(l => new { l.DistrictId, l.IsActive, l.CreatedAt })
              .HasDatabaseName("ix_roomlistings_district_active_recent");
+            // Partial: Rooms browse (GET /home/rooms/browse) keyset pagination. Filtered like
+            // ix_roomlistings_recent_active so only live rows are indexed. (DistrictId, CreatedAt DESC)
+            // serves the whole-district scan; (DistrictId, CityId, CreatedAt DESC) serves the
+            // city-match phase; (DistrictId, PriceMonthly) serves the price sorts.
+            e.HasIndex(l => new { l.DistrictId, l.CreatedAt })
+             .IsDescending(false, true)
+             .HasDatabaseName("ix_roomlistings_browse_district_created")
+             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(l => new { l.DistrictId, l.CityId, l.CreatedAt })
+             .IsDescending(false, false, true)
+             .HasDatabaseName("ix_roomlistings_browse_district_city_created")
+             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(l => new { l.DistrictId, l.PriceMonthly })
+             .HasDatabaseName("ix_roomlistings_browse_district_price")
+             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
             // Composite: search with room type filter
             e.HasIndex(l => new { l.IsActive, l.RoomTypeId });
             // Partial: district digest job — find rooms not yet included in a daily digest.
@@ -642,6 +657,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // it (see HomeHandlers.GetPlots).
             e.HasIndex(p => new { p.DistrictId, p.IsActive, p.CreatedAt })
              .HasDatabaseName("ix_plotlistings_district_active_recent");
+            // Partial: Plots browse (GET /home/plots/browse) — same shape as the roomlistings_browse
+            // indexes above, with area (AreaSqft) in place of price.
+            e.HasIndex(p => new { p.DistrictId, p.CreatedAt })
+             .IsDescending(false, true)
+             .HasDatabaseName("ix_plotlistings_browse_district_created")
+             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(p => new { p.DistrictId, p.CityId, p.CreatedAt })
+             .IsDescending(false, false, true)
+             .HasDatabaseName("ix_plotlistings_browse_district_city_created")
+             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(p => new { p.DistrictId, p.AreaSqft })
+             .HasDatabaseName("ix_plotlistings_browse_district_area")
+             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
             // Composite: admin count queries — COUNT(UserId = x AND !IsDeleted)
             e.HasIndex(p => new { p.UserId, p.IsDeleted });
             // Partial: district digest job — find plots not yet included in a daily digest.

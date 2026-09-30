@@ -10,7 +10,8 @@ public interface IRoomRoomListingRepository : IRepository<RoomListing>
     Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, int? limit = null);
     // District-free — every user sees the same result, unlike SearchAsync's district scoping.
     Task<IEnumerable<RoomListing>> GetRecentAsync(int limit);
-    Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> SearchPagedAsync(Guid? districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize);
+    // Newest sort pages by opaque keyset cursor (first page: null); price sorts page by offset.
+    Task<BrowsePage<HomeRoomDto>> SearchPagedAsync(Guid districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize, string? cursor);
     Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId);
 
     // SQL COUNT, never load-then-filter — the listing-creation cap check runs on every Add Room

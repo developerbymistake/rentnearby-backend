@@ -1234,6 +1234,26 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "AreaSqft");
 
             migrationBuilder.CreateIndex(
+                name: "ix_plotlistings_browse_district_area",
+                table: "PlotListings",
+                columns: new[] { "DistrictId", "AreaSqft" },
+                filter: "\"IsActive\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_plotlistings_browse_district_city_created",
+                table: "PlotListings",
+                columns: new[] { "DistrictId", "CityId", "CreatedAt" },
+                descending: new[] { false, false, true },
+                filter: "\"IsActive\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_plotlistings_browse_district_created",
+                table: "PlotListings",
+                columns: new[] { "DistrictId", "CreatedAt" },
+                descending: new[] { false, true },
+                filter: "\"IsActive\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PlotListings_CityId",
                 table: "PlotListings",
                 column: "CityId");
@@ -1356,6 +1376,26 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "RoomListings",
                 column: "ValidUntil",
                 filter: "\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_roomlistings_browse_district_city_created",
+                table: "RoomListings",
+                columns: new[] { "DistrictId", "CityId", "CreatedAt" },
+                descending: new[] { false, false, true },
+                filter: "\"IsActive\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_roomlistings_browse_district_created",
+                table: "RoomListings",
+                columns: new[] { "DistrictId", "CreatedAt" },
+                descending: new[] { false, true },
+                filter: "\"IsActive\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_roomlistings_browse_district_price",
+                table: "RoomListings",
+                columns: new[] { "DistrictId", "PriceMonthly" },
+                filter: "\"IsActive\" = true AND \"IsDeleted\" = false");
 
             migrationBuilder.CreateIndex(
                 name: "IX_RoomListings_CityId",

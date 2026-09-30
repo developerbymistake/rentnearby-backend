@@ -1212,6 +1212,15 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CityId", "IsActive");
 
+                    b.HasIndex("DistrictId", "AreaSqft")
+                        .HasDatabaseName("ix_plotlistings_browse_district_area")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex("DistrictId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_plotlistings_browse_district_created")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+
                     b.HasIndex("DistrictId", "IsActive");
 
                     b.HasIndex("UserId", "CreatedAt");
@@ -1219,6 +1228,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("UserId", "IsDeleted");
 
                     b.HasIndex("CityId", "IsActive", "CreatedAt");
+
+                    b.HasIndex("DistrictId", "CityId", "CreatedAt")
+                        .IsDescending(false, false, true)
+                        .HasDatabaseName("ix_plotlistings_browse_district_city_created")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
 
                     b.HasIndex("DistrictId", "IsActive", "CreatedAt")
                         .HasDatabaseName("ix_plotlistings_district_active_recent");
@@ -1501,7 +1515,16 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CityId", "IsActive");
 
+                    b.HasIndex("DistrictId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_roomlistings_browse_district_created")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+
                     b.HasIndex("DistrictId", "IsActive");
+
+                    b.HasIndex("DistrictId", "PriceMonthly")
+                        .HasDatabaseName("ix_roomlistings_browse_district_price")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
 
                     b.HasIndex("IsActive", "RoomTypeId");
 
@@ -1510,6 +1533,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("UserId", "IsDeleted");
 
                     b.HasIndex("CityId", "IsActive", "CreatedAt");
+
+                    b.HasIndex("DistrictId", "CityId", "CreatedAt")
+                        .IsDescending(false, false, true)
+                        .HasDatabaseName("ix_roomlistings_browse_district_city_created")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
 
                     b.HasIndex("DistrictId", "IsActive", "CreatedAt")
                         .HasDatabaseName("ix_roomlistings_district_active_recent");

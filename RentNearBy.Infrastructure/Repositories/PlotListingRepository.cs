@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
@@ -250,41 +251,95 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
     }
 
-    public async Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetAllPagedByTypeIdAsync(
-        Guid? districtId, Guid? cityId, Guid? plotTypeId, string sortBy, int page, int pageSize)
+    private static readonly Expression<Func<PlotListing, HomePlotDto>> BrowseProjection = p => new HomePlotDto
     {
+        Id = p.Id,
+        UserId = p.UserId,
+        AreaValue = p.AreaValue,
+        AreaUnit = p.AreaUnit,
+        PlotTypeName = p.PlotType.Name,
+        ThumbnailUrl = p.Photos.OrderBy(ph => ph.PhotoOrder).Select(ph => ph.PhotoUrl).FirstOrDefault(),
+        CityName = p.City != null ? p.City.Name : null,
+        DistrictName = p.District.Name,
+        CreatedAt = p.CreatedAt,
+    };
+
+    public async Task<BrowsePage<HomePlotDto>> GetAllPagedByTypeIdAsync(
+        Guid districtId, Guid? cityId, Guid? plotTypeId, string sortBy, int page, int pageSize, string? cursor)
+    {
+        page = Math.Clamp(page, 1, BrowseCursor.MaxPage);
+
         var query = _dbSet
             .AsNoTracking()
-            .Include(p => p.PlotType)
-            .Include(p => p.District)
-            .Include(p => p.City)
-            .Include(p => p.User)
-            .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder).Take(1))
-            .Where(p =>
-                p.IsActive &&
-                !p.IsDeleted &&
-                (districtId == null || p.DistrictId == districtId) &&
-                (plotTypeId == null || p.PlotTypeId == plotTypeId));
+            .Where(p => p.IsActive && !p.IsDeleted && p.DistrictId == districtId);
+        if (plotTypeId.HasValue)
+            query = query.Where(p => p.PlotTypeId == plotTypeId.Value);
 
-        // District stays the hard filter (unchanged above). City is a soft
-        // ranking signal only, not a filter — matches sort first, then the
-        // rest of the district fills the rest of the page, so a city with no
-        // listings of its own never renders blank.
-        var ranked = query.OrderBy(p => cityId != null && p.CityId == cityId ? 0 : 1);
-
-        // PlotListing has no price field — sort options are Newest and Area (not Price, unlike Rooms)
-        IOrderedQueryable<PlotListing> sorted = sortBy switch
+        if (sortBy is "area_asc" or "area_desc")
         {
-            "area_asc" => ranked.ThenBy(p => p.AreaSqft),
-            "area_desc" => ranked.ThenByDescending(p => p.AreaSqft),
-            _ => ranked.ThenByDescending(p => p.CreatedAt),
-        };
+            var byArea = sortBy == "area_asc"
+                ? query.OrderBy(p => p.AreaSqft).ThenBy(p => p.Id)
+                : query.OrderByDescending(p => p.AreaSqft).ThenByDescending(p => p.Id);
+            var sized = await byArea.Skip((page - 1) * pageSize).Take(pageSize + 1).Select(BrowseProjection).ToListAsync();
+            return BrowseCursor.OffsetPage(sized, pageSize);
+        }
 
-        var take = pageSize + 1;
-        var items = await sorted.Skip((page - 1) * pageSize).Take(take).ToListAsync();
+        if (string.IsNullOrEmpty(cursor) && page > 1)
+        {
+            var legacy = await query
+                .OrderBy(p => cityId != null && p.CityId == cityId ? 0 : 1)
+                .ThenByDescending(p => p.CreatedAt)
+                .ThenByDescending(p => p.Id)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize + 1)
+                .Select(BrowseProjection)
+                .ToListAsync();
+            return BrowseCursor.OffsetPage(legacy, pageSize);
+        }
 
-        var hasMore = items.Count > pageSize;
-        return (hasMore ? items.Take(pageSize).ToList().AsReadOnly() : items.AsReadOnly(), hasMore);
+        var phase = cityId.HasValue ? 0 : 1;
+        DateTime? afterAt = null;
+        var afterId = Guid.Empty;
+        if (BrowseCursor.TryDecode(cursor, out var cursorPhase, out var cursorAt, out var cursorId) && cursorPhase >= phase)
+        {
+            phase = cursorPhase;
+            afterAt = cursorAt;
+            afterId = cursorId;
+        }
+
+        var items = new List<HomePlotDto>(pageSize + 1);
+        var phase0Count = 0;
+        for (; phase <= 1; phase++)
+        {
+            var need = pageSize + 1 - items.Count;
+            var phaseQuery = query;
+            if (cityId.HasValue)
+            {
+                var cid = cityId.Value;
+                phaseQuery = phase == 0
+                    ? phaseQuery.Where(p => p.CityId == cid)
+                    : phaseQuery.Where(p => p.CityId == null || p.CityId != cid);
+            }
+            if (afterAt.HasValue)
+            {
+                var at = afterAt.Value;
+                var aid = afterId;
+                phaseQuery = phaseQuery.Where(p => p.CreatedAt <= at && (p.CreatedAt < at || p.Id.CompareTo(aid) < 0));
+            }
+
+            var rows = await phaseQuery
+                .OrderByDescending(p => p.CreatedAt)
+                .ThenByDescending(p => p.Id)
+                .Take(need)
+                .Select(BrowseProjection)
+                .ToListAsync();
+            items.AddRange(rows);
+            if (phase == 0) phase0Count = items.Count;
+            afterAt = null;
+            if (rows.Count == need) break;
+        }
+
+        return BrowseCursor.KeysetPage(items, pageSize, phase0Count, x => x.CreatedAt, x => x.Id);
     }
 
     // District-free by design — backs the Home "Recently added" feed, which is identical
