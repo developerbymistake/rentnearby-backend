@@ -877,6 +877,17 @@ public static class AdminHandlers
             .SetProperty(l => l.IsActive, request.IsActive)
             .SetProperty(l => l.UpdatedAt, now));
 
+        // Revoke live sessions on suspend so the user's next request fails OnTokenValidated with 401
+        // and the app force-logs out; re-login is then blocked by the IsActive check in AuthHandlers.
+        if (!request.IsActive)
+        {
+            await db.Sessions
+                .Where(s => s.UserId == id && s.IsActive)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.IsActive, false)
+                    .SetProperty(x => x.LoggedOutAt, now));
+        }
+
         return OkResponse(new { id = user.Id, isActive = user.IsActive });
     }
 
