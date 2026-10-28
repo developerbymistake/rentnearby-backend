@@ -1456,6 +1456,125 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("ReportReasons");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.Role", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key")
+                        .IsUnique();
+
+                    b.ToTable("Roles");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000001"),
+                            Description = "Find rooms and plots",
+                            IsActive = true,
+                            Key = "SEEKER",
+                            Name = "Seeker",
+                            SortOrder = 1
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000002"),
+                            Description = "List rooms for rent",
+                            IsActive = true,
+                            Key = "RENT_OWNER",
+                            Name = "Rent Owner",
+                            SortOrder = 2
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000003"),
+                            Description = "List plots for sale",
+                            IsActive = true,
+                            Key = "PROPERTY_OWNER",
+                            Name = "Property Owner",
+                            SortOrder = 3
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.RoleChangeRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("FromRoleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReviewedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("PENDING");
+
+                    b.Property<Guid>("ToRoleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FromRoleId");
+
+                    b.HasIndex("ReviewedByAdminId");
+
+                    b.HasIndex("ToRoleId");
+
+                    b.HasIndex("Status", "RequestedAt");
+
+                    b.HasIndex("UserId", "RequestedAt");
+
+                    b.HasIndex(new[] { "UserId" }, "ix_rolechangerequests_user_pending")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'PENDING'");
+
+                    b.ToTable("RoleChangeRequests");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomListing", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1743,6 +1862,14 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("RoleConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RoleId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValue(new Guid("10000000-0000-0000-0000-000000000001"));
+
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -1754,6 +1881,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("PhoneNumber")
                         .IsUnique();
+
+                    b.HasIndex("RoleId");
 
                     b.ToTable("Users");
                 });
@@ -2091,6 +2220,40 @@ namespace RentNearBy.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.RoleChangeRequest", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Role", "FromRole")
+                        .WithMany()
+                        .HasForeignKey("FromRoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.Admin", "ReviewedByAdmin")
+                        .WithMany()
+                        .HasForeignKey("ReviewedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.Role", "ToRole")
+                        .WithMany()
+                        .HasForeignKey("ToRoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("FromRole");
+
+                    b.Navigation("ReviewedByAdmin");
+
+                    b.Navigation("ToRole");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomListing", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.City", "City")
@@ -2143,6 +2306,17 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Role", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Role");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Wallet", b =>

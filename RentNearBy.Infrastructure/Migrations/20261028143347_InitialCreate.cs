@@ -4,6 +4,8 @@ using NetTopologySuite.Geometries;
 
 #nullable disable
 
+#pragma warning disable CA1814 // Prefer jagged arrays over multidimensional
+
 namespace RentNearBy.Infrastructure.Migrations
 {
     /// <inheritdoc />
@@ -214,6 +216,22 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Roles",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Key = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Roles", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "RoomTypes",
                 columns: table => new
                 {
@@ -240,25 +258,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_UserBlocks", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Users",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    PhoneNumber = table.Column<string>(type: "text", nullable: false),
-                    Name = table.Column<string>(type: "text", nullable: true),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    IsPhoneVerified = table.Column<bool>(type: "boolean", nullable: false),
-                    HasUsedPhoneChange = table.Column<bool>(type: "boolean", nullable: false),
-                    IsContactVisible = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Users", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -346,6 +345,36 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.PrimaryKey("PK_AppTabs", x => x.Id);
                     table.ForeignKey(
                         name: "FK_AppTabs_Admins_UpdatedByAdminId",
+                        column: x => x.UpdatedByAdminId,
+                        principalTable: "Admins",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AppVersionConfigs",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Platform = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                    IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
+                    MinBuildNumber = table.Column<int>(type: "integer", nullable: false),
+                    MinVersionName = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                    LatestBuildNumber = table.Column<int>(type: "integer", nullable: false),
+                    LatestVersionName = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                    StoreUrl = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    Message = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    ForceCacheMaxAgeHours = table.Column<int>(type: "integer", nullable: false),
+                    MaxSeenBuild = table.Column<int>(type: "integer", nullable: false),
+                    UpdatedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Reason = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AppVersionConfigs", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AppVersionConfigs_Admins_UpdatedByAdminId",
                         column: x => x.UpdatedByAdminId,
                         principalTable: "Admins",
                         principalColumn: "Id",
@@ -469,6 +498,33 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Users",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    PhoneNumber = table.Column<string>(type: "text", nullable: false),
+                    Name = table.Column<string>(type: "text", nullable: true),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    IsPhoneVerified = table.Column<bool>(type: "boolean", nullable: false),
+                    HasUsedPhoneChange = table.Column<bool>(type: "boolean", nullable: false),
+                    IsContactVisible = table.Column<bool>(type: "boolean", nullable: false),
+                    RoleId = table.Column<Guid>(type: "uuid", nullable: false, defaultValue: new Guid("10000000-0000-0000-0000-000000000001")),
+                    RoleConfirmedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Users", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Users_Roles_RoleId",
+                        column: x => x.RoleId,
+                        principalTable: "Roles",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "QuestionTemplates",
                 columns: table => new
                 {
@@ -498,6 +554,31 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalTable: "RoomTypes",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "BannerDismissals",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    BannerId = table.Column<Guid>(type: "uuid", nullable: false),
+                    DismissedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_BannerDismissals", x => new { x.UserId, x.BannerId });
+                    table.ForeignKey(
+                        name: "FK_BannerDismissals_DistrictBanners_BannerId",
+                        column: x => x.BannerId,
+                        principalTable: "DistrictBanners",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_BannerDismissals_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -661,48 +742,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Sessions",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    ExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
-                    LoggedOutAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Sessions", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_Sessions_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Wallets",
-                columns: table => new
-                {
-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Balance = table.Column<int>(type: "integer", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Wallets", x => x.UserId);
-                    table.ForeignKey(
-                        name: "FK_Wallets_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "PlotListings",
                 columns: table => new
                 {
@@ -757,6 +796,49 @@ namespace RentNearBy.Infrastructure.Migrations
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_PlotListings_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "RoleChangeRequests",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    FromRoleId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ToRoleId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "PENDING"),
+                    RequestedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    ReviewedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ReviewedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
+                    RejectionReason = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_RoleChangeRequests", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_RoleChangeRequests_Admins_ReviewedByAdminId",
+                        column: x => x.ReviewedByAdminId,
+                        principalTable: "Admins",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_RoleChangeRequests_Roles_FromRoleId",
+                        column: x => x.FromRoleId,
+                        principalTable: "Roles",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_RoleChangeRequests_Roles_ToRoleId",
+                        column: x => x.ToRoleId,
+                        principalTable: "Roles",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_RoleChangeRequests_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
                         principalColumn: "Id",
@@ -824,24 +906,41 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "BannerDismissals",
+                name: "Sessions",
                 columns: table => new
                 {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    BannerId = table.Column<Guid>(type: "uuid", nullable: false),
-                    DismissedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    ExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    LoggedOutAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_BannerDismissals", x => new { x.UserId, x.BannerId });
+                    table.PrimaryKey("PK_Sessions", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_BannerDismissals_DistrictBanners_BannerId",
-                        column: x => x.BannerId,
-                        principalTable: "DistrictBanners",
+                        name: "FK_Sessions_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Wallets",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Balance = table.Column<int>(type: "integer", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Wallets", x => x.UserId);
                     table.ForeignKey(
-                        name: "FK_BannerDismissals_Users_UserId",
+                        name: "FK_Wallets_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
                         principalColumn: "Id",
@@ -917,6 +1016,16 @@ namespace RentNearBy.Infrastructure.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
+            migrationBuilder.InsertData(
+                table: "Roles",
+                columns: new[] { "Id", "Description", "IsActive", "Key", "Name", "SortOrder" },
+                values: new object[,]
+                {
+                    { new Guid("10000000-0000-0000-0000-000000000001"), "Find rooms and plots", true, "SEEKER", "Seeker", 1 },
+                    { new Guid("10000000-0000-0000-0000-000000000002"), "List rooms for rent", true, "RENT_OWNER", "Rent Owner", 2 },
+                    { new Guid("10000000-0000-0000-0000-000000000003"), "List plots for sale", true, "PROPERTY_OWNER", "Property Owner", 3 }
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_AdminDeviceTokens_AdminId",
                 table: "AdminDeviceTokens",
@@ -973,6 +1082,17 @@ namespace RentNearBy.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_AppTabs_UpdatedByAdminId",
                 table: "AppTabs",
+                column: "UpdatedByAdminId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AppVersionConfigs_Platform",
+                table: "AppVersionConfigs",
+                column: "Platform",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AppVersionConfigs_UpdatedByAdminId",
+                table: "AppVersionConfigs",
                 column: "UpdatedByAdminId");
 
             migrationBuilder.CreateIndex(
@@ -1366,6 +1486,44 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_RoleChangeRequests_FromRoleId",
+                table: "RoleChangeRequests",
+                column: "FromRoleId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoleChangeRequests_ReviewedByAdminId",
+                table: "RoleChangeRequests",
+                column: "ReviewedByAdminId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoleChangeRequests_Status_RequestedAt",
+                table: "RoleChangeRequests",
+                columns: new[] { "Status", "RequestedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoleChangeRequests_ToRoleId",
+                table: "RoleChangeRequests",
+                column: "ToRoleId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_rolechangerequests_user_pending",
+                table: "RoleChangeRequests",
+                column: "UserId",
+                unique: true,
+                filter: "\"Status\" = 'PENDING'");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoleChangeRequests_UserId_RequestedAt",
+                table: "RoleChangeRequests",
+                columns: new[] { "UserId", "RequestedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Roles_Key",
+                table: "Roles",
+                column: "Key",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "ix_listings_location_gist",
                 table: "RoomListings",
                 column: "Location")
@@ -1517,6 +1675,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "Users",
                 column: "PhoneNumber",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Users_RoleId",
+                table: "Users",
+                column: "RoleId");
         }
 
         /// <inheritdoc />
@@ -1533,6 +1696,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "AppTabs");
+
+            migrationBuilder.DropTable(
+                name: "AppVersionConfigs");
 
             migrationBuilder.DropTable(
                 name: "BannerDismissals");
@@ -1580,6 +1746,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "QuestionTemplates");
 
             migrationBuilder.DropTable(
+                name: "RoleChangeRequests");
+
+            migrationBuilder.DropTable(
                 name: "RoomPhotos");
 
             migrationBuilder.DropTable(
@@ -1601,9 +1770,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "CreditPacks");
 
             migrationBuilder.DropTable(
-                name: "Admins");
-
-            migrationBuilder.DropTable(
                 name: "ReportReasons");
 
             migrationBuilder.DropTable(
@@ -1614,6 +1780,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "PlotListings");
+
+            migrationBuilder.DropTable(
+                name: "Admins");
 
             migrationBuilder.DropTable(
                 name: "RoomListings");
@@ -1632,6 +1801,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "Districts");
+
+            migrationBuilder.DropTable(
+                name: "Roles");
         }
     }
 }
