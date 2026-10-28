@@ -17,19 +17,19 @@ public static class RoomListingsEndpoints
         group.MapGet("/by-slug/{slug}", RoomListingsHandlers.GetBySlug);
         group.MapGet("/{id:guid}", RoomListingsHandlers.GetById);
 
-        group.MapGet("/my", RoomListingsHandlers.GetMyListings).RequireAuthorization();
-        group.MapPost("/", RoomListingsHandlers.CreateListing).RequireAuthorization().DisableAntiforgery();
-        group.MapPut("/{id:guid}", RoomListingsHandlers.UpdateListing).RequireAuthorization();
-        group.MapDelete("/{id:guid}", RoomListingsHandlers.DeleteListing).RequireAuthorization();
+        group.MapGet("/my", RoomListingsHandlers.GetMyListings).RequireAuthorization("CanListRooms");
+        group.MapPost("/", RoomListingsHandlers.CreateListing).RequireAuthorization("CanListRooms").DisableAntiforgery();
+        group.MapPut("/{id:guid}", RoomListingsHandlers.UpdateListing).RequireAuthorization("CanListRooms");
+        group.MapDelete("/{id:guid}", RoomListingsHandlers.DeleteListing).RequireAuthorization("CanListRooms");
 
-        group.MapPost("/{id:guid}/photos", RoomListingsHandlers.UploadPhoto).RequireAuthorization().DisableAntiforgery();
-        group.MapDelete("/{id:guid}/photos/{photoId:guid}", RoomListingsHandlers.DeletePhoto).RequireAuthorization();
+        group.MapPost("/{id:guid}/photos", RoomListingsHandlers.UploadPhoto).RequireAuthorization("CanListRooms").DisableAntiforgery();
+        group.MapDelete("/{id:guid}/photos/{photoId:guid}", RoomListingsHandlers.DeletePhoto).RequireAuthorization("CanListRooms");
 
         group.MapPost("/{id:guid}/report", RoomListingsHandlers.ReportListing).RequireAuthorization();
-        group.MapGet("/{id:guid}/reports", RoomListingsHandlers.GetListingReports).RequireAuthorization();
+        group.MapGet("/{id:guid}/reports", RoomListingsHandlers.GetListingReports).RequireAuthorization("CanListRooms");
 
         // Credit-based Go Live — replaces the old Razorpay-per-listing payment routes entirely.
-        group.MapPost("/{listingId:guid}/go-live", GoLiveHandlers.GoLiveRoom).RequireAuthorization();
+        group.MapPost("/{listingId:guid}/go-live", GoLiveHandlers.GoLiveRoom).RequireAuthorization("CanListRooms");
 
         return group;
     }

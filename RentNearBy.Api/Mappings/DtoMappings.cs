@@ -2,6 +2,7 @@
 using Mapster;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Mappings;
 
@@ -17,7 +18,15 @@ public static class DtoMappings
             .Map(dest => dest.IsPhoneVerified, src => src.IsPhoneVerified)
             .Map(dest => dest.HasUsedPhoneChange, src => src.HasUsedPhoneChange)
             .Map(dest => dest.IsContactVisible, src => src.IsContactVisible)
-            .Map(dest => dest.CreatedAt, src => src.CreatedAt);
+            .Map(dest => dest.CreatedAt, src => src.CreatedAt)
+            .Map(dest => dest.Role, src => UserRoles.KeyOf(src.RoleId))
+            .Map(dest => dest.RoleConfirmed, src => src.RoleConfirmedAt != null);
+
+        TypeAdapterConfig<Role, RoleDto>.NewConfig();
+        TypeAdapterConfig<RoleChangeRequest, RoleChangeRequestDto>.NewConfig()
+            .Map(dest => dest.FromRole, src => UserRoles.KeyOf(src.FromRoleId))
+            .Map(dest => dest.ToRole, src => UserRoles.KeyOf(src.ToRoleId))
+            .Map(dest => dest.NextRequestAt, src => RoleChangeRules.NextRequestAllowedAt(src.Status, src.ReviewedAt, DateTime.UtcNow));
 
         TypeAdapterConfig<District, DistrictDto>.NewConfig();
         TypeAdapterConfig<City, CityDto>.NewConfig();

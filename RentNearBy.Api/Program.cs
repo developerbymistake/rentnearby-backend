@@ -321,6 +321,10 @@ app.MapGroup("/api/v1/users")
     .WithTags("Users")
     .MapUsersEndpoints();
 
+app.MapGroup("/api/v1/roles")
+    .WithTags("Roles")
+    .MapRolesEndpoints();
+
 app.MapGroup("/api/v1/listings")
     .WithTags("RoomListings")
     .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Rooms))

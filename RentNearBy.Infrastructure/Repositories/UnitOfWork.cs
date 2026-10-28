@@ -40,6 +40,8 @@ public class UnitOfWork : IUnitOfWork
     private ICouponRedemptionRepository? _couponRedemptions;
     private ICreditPackPurchaseRepository? _creditPackPurchases;
     private INotificationRepository? _notifications;
+    private IRoleRepository? _roles;
+    private IRoleChangeRequestRepository? _roleChangeRequests;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -78,6 +80,8 @@ public class UnitOfWork : IUnitOfWork
     public ICouponRedemptionRepository CouponRedemptions => _couponRedemptions ??= new CouponRedemptionRepository(_context);
     public ICreditPackPurchaseRepository CreditPackPurchases => _creditPackPurchases ??= new CreditPackPurchaseRepository(_context);
     public INotificationRepository Notifications => _notifications ??= new NotificationRepository(_context);
+    public IRoleRepository Roles => _roles ??= new RoleRepository(_context);
+    public IRoleChangeRequestRepository RoleChangeRequests => _roleChangeRequests ??= new RoleChangeRequestRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();

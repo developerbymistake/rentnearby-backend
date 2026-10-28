@@ -843,6 +843,7 @@ public static class AdminHandlers
 
     public static async Task<IResult> GetUsers(
         ApplicationDbContext db,
+        IRoleChangeGuardService guard,
         int page = 1,
         int pageSize = 20,
         bool? isActive = null,
@@ -875,6 +876,8 @@ public static class AdminHandlers
         var projected = query.Select(u => new
         {
             User = u,
+            RoleKey = u.Role.Key,
+            RoleName = u.Role.Name,
             TotalListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted),
             ActiveListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted && l.IsActive),
             TotalPlotListings = db.PlotListings.Count(l => l.UserId == u.Id && !l.IsDeleted),
@@ -900,8 +903,17 @@ public static class AdminHandlers
                     TotalPlotListings = x.TotalPlotListings,
                     ActivePlotListings = x.ActivePlotListings,
                     WalletBalance = x.WalletBalance,
+                    Role = x.RoleKey,
+                    RoleName = x.RoleName,
                 };
             });
+
+        var blocking = await guard.GetBlockingCountsAsync(result.Items.Select(u => u.Id).ToList());
+        foreach (var item in result.Items)
+        {
+            item.LiveRoomListings = blocking[item.Id].Rooms;
+            item.LivePlotListings = blocking[item.Id].Plots;
+        }
 
         return OkResponse(result);
     }
@@ -929,10 +941,12 @@ public static class AdminHandlers
         return OkResponse(new { items = result.Items, hasMore = result.HasMore });
     }
 
-    public static async Task<IResult> GetUserById(Guid id, ApplicationDbContext db)
+    public static async Task<IResult> GetUserById(Guid id, ApplicationDbContext db, IRoleChangeGuardService guard)
     {
-        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id);
+        var u = await db.Users.AsNoTracking().Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == id);
         if (u == null) return NotFoundResponse("User not found");
+
+        var blocking = await guard.GetBlockingCountsAsync(id);
 
         var dto = new AdminUserDto
         {
@@ -946,7 +960,11 @@ public static class AdminHandlers
             ActiveListings = await db.RoomListings.CountAsync(l => l.UserId == id && !l.IsDeleted && l.IsActive),
             TotalPlotListings = await db.PlotListings.CountAsync(l => l.UserId == id && !l.IsDeleted),
             ActivePlotListings = await db.PlotListings.CountAsync(l => l.UserId == id && !l.IsDeleted && l.IsActive),
+            LiveRoomListings = blocking.Rooms,
+            LivePlotListings = blocking.Plots,
             WalletBalance = await db.Wallets.Where(w => w.UserId == id).Select(w => (int?)w.Balance).FirstOrDefaultAsync() ?? 0,
+            Role = u.Role.Key,
+            RoleName = u.Role.Name,
         };
 
         return OkResponse(dto);
@@ -1881,7 +1899,7 @@ public static class AdminHandlers
     // user_{id} push via NotificationHub (the same hub every other generic NotificationEvent producer
     // reuses) + RabbitMQ notification.push publish for NotificationPushWorkerService. Best-effort:
     // a push failure must never turn an already-committed Approve/Reject into an error response.
-    private static async Task SendGoLiveNotificationAsync(
+    internal static async Task SendGoLiveNotificationAsync(
         IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, NotificationEvent notification)
     {
         try

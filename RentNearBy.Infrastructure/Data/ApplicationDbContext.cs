@@ -44,6 +44,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<NotificationEvent> NotificationEvents { get; set; }
     public DbSet<NotificationRead> NotificationReads { get; set; }
     public DbSet<DeletedAccountRecord> DeletedAccountRecords { get; set; }
+    public DbSet<Role> Roles { get; set; }
+    public DbSet<RoleChangeRequest> RoleChangeRequests { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -82,6 +84,59 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Backs AdminHandlers.GetUsers' OrderByDescending(CreatedAt) — an unbounded-growth
             // table with no other index covering this sort.
             e.HasIndex(u => u.CreatedAt);
+            e.Property(u => u.RoleId).HasDefaultValue(UserRoles.SeekerId);
+            e.HasIndex(u => u.RoleId);
+            e.HasOne(u => u.Role)
+             .WithMany()
+             .HasForeignKey(u => u.RoleId)
+             .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // HasData, not DataSeeder: rows must exist in the migration before the Users.RoleId FK is added.
+        modelBuilder.Entity<Role>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Key).HasMaxLength(16).IsRequired();
+            e.HasIndex(r => r.Key).IsUnique();
+            e.Property(r => r.Name).IsRequired();
+            e.Property(r => r.Description).IsRequired();
+            e.HasData(
+                new Role { Id = UserRoles.SeekerId, Key = UserRoles.Seeker, Name = "Seeker", Description = "Find rooms and plots", SortOrder = 1, IsActive = true },
+                new Role { Id = UserRoles.RentOwnerId, Key = UserRoles.RentOwner, Name = "Rent Owner", Description = "List rooms for rent", SortOrder = 2, IsActive = true },
+                new Role { Id = UserRoles.PropertyOwnerId, Key = UserRoles.PropertyOwner, Name = "Property Owner", Description = "List plots for sale", SortOrder = 3, IsActive = true });
+        });
+
+        modelBuilder.Entity<RoleChangeRequest>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(r => r.Status).HasMaxLength(16).HasDefaultValue(RoleChangeRequestStatuses.Pending);
+            e.Property(r => r.RejectionReason).HasMaxLength(300);
+            e.Property(r => r.RequestedAt).HasDefaultValueSql("now()");
+
+            e.HasOne(r => r.User)
+             .WithMany()
+             .HasForeignKey(r => r.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(r => r.FromRole)
+             .WithMany()
+             .HasForeignKey(r => r.FromRoleId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(r => r.ToRole)
+             .WithMany()
+             .HasForeignKey(r => r.ToRoleId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(r => r.ReviewedByAdmin)
+             .WithMany()
+             .HasForeignKey(r => r.ReviewedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(r => new { r.UserId, r.RequestedAt });
+            e.HasIndex(r => new { r.Status, r.RequestedAt });
+            e.HasIndex(r => r.UserId, "ix_rolechangerequests_user_pending")
+             .IsUnique()
+             .HasFilter("\"Status\" = 'PENDING'");
         });
 
         modelBuilder.Entity<Session>(e =>

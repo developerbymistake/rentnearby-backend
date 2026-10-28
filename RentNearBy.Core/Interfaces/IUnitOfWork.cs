@@ -34,6 +34,8 @@ public interface IUnitOfWork : IDisposable
     ICouponRedemptionRepository CouponRedemptions { get; }
     ICreditPackPurchaseRepository CreditPackPurchases { get; }
     INotificationRepository Notifications { get; }
+    IRoleRepository Roles { get; }
+    IRoleChangeRequestRepository RoleChangeRequests { get; }
     Task<int> SaveChangesAsync();
 
     // Canonical transaction-control surface for handler/service-level code that needs multiple

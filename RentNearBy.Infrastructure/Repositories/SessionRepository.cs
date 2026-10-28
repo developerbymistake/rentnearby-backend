@@ -14,6 +14,15 @@ public class SessionRepository(ApplicationDbContext context) : Repository<Sessio
             .ExecuteDeleteAsync();
     }
 
+    public async Task RevokeAllUserSessionsAsync(Guid userId)
+    {
+        await _context.Sessions
+            .Where(s => s.UserId == userId && s.IsActive)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.IsActive, false)
+                .SetProperty(x => x.LoggedOutAt, DateTime.UtcNow));
+    }
+
     public async Task<Session?> GetActiveSessionAsync(Guid sessionId)
     {
         return await _context.Sessions

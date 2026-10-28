@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using FluentValidation;
-using Mapster;
 using Microsoft.AspNetCore.SignalR;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
@@ -175,7 +174,7 @@ public static class AuthHandlers
         {
             NeedsOnboarding = false,
             Token = token,
-            User = user.Adapt<UserDto>()
+            User = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork)
         });
     }
 
@@ -201,8 +200,8 @@ public static class AuthHandlers
         if (currentUser.IsPhoneVerified && currentUser.HasUsedPhoneChange)
             return ForbiddenResponse("Phone number change is no longer allowed.");
 
-        if (await unitOfWork.Users.IsPhoneVerifiedByOtherUserAsync(request.PhoneNumber, userId))
-            return ConflictResponse("This number is already verified by another account. Please use a different number.", "PhoneAlreadyClaimed");
+        if (await unitOfWork.Users.IsPhoneUsedByOtherUserAsync(request.PhoneNumber, userId))
+            return ConflictResponse("This number is already registered to another account. Please use a different number.", "PhoneAlreadyClaimed");
 
         var phoneLimitRl = await rateLimiter.CheckAsync($"otp:send:{request.PhoneNumber}", OtpSendMax, OtpWindow);
         if (!phoneLimitRl.IsAllowed)
@@ -254,8 +253,8 @@ public static class AuthHandlers
         var user = await unitOfWork.Users.GetByIdAsync(userId);
         if (user == null) return NotFoundResponse("User not found");
 
-        if (await unitOfWork.Users.IsPhoneVerifiedByOtherUserAsync(request.PhoneNumber, userId))
-            return ConflictResponse("This number is already verified by another account. Please use a different number.", "PhoneAlreadyClaimed");
+        if (await unitOfWork.Users.IsPhoneUsedByOtherUserAsync(request.PhoneNumber, userId))
+            return ConflictResponse("This number is already registered to another account. Please use a different number.", "PhoneAlreadyClaimed");
 
         bool wasAlreadyVerified = user.IsPhoneVerified;
 
@@ -265,9 +264,16 @@ public static class AuthHandlers
         user.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.Users.UpdateAsync(user);
-        await unitOfWork.SaveChangesAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException)
+        {
+            return ConflictResponse("This number is already registered to another account. Please use a different number.", "PhoneAlreadyClaimed");
+        }
 
-        return OkResponse(user.Adapt<UserDto>());
+        return OkResponse(await UsersHandlers.BuildUserDtoAsync(user, unitOfWork));
     }
 
     public static async Task<IResult> Logout(ClaimsPrincipal principal, IUnitOfWork unitOfWork)

@@ -14,19 +14,19 @@ public static class PlotListingEndpoints
         group.MapGet("/by-slug/{slug}", PlotListingHandlers.GetBySlug);
         group.MapGet("/{id:guid}", PlotListingHandlers.GetById);
 
-        group.MapGet("/my", PlotListingHandlers.GetMyPlotListings).RequireAuthorization();
-        group.MapPost("/", PlotListingHandlers.CreatePlotListing).RequireAuthorization().DisableAntiforgery();
-        group.MapPut("/{id:guid}", PlotListingHandlers.UpdatePlotListing).RequireAuthorization();
-        group.MapDelete("/{id:guid}", PlotListingHandlers.DeletePlotListing).RequireAuthorization();
+        group.MapGet("/my", PlotListingHandlers.GetMyPlotListings).RequireAuthorization("CanListPlots");
+        group.MapPost("/", PlotListingHandlers.CreatePlotListing).RequireAuthorization("CanListPlots").DisableAntiforgery();
+        group.MapPut("/{id:guid}", PlotListingHandlers.UpdatePlotListing).RequireAuthorization("CanListPlots");
+        group.MapDelete("/{id:guid}", PlotListingHandlers.DeletePlotListing).RequireAuthorization("CanListPlots");
 
-        group.MapPost("/{id:guid}/photos", PlotListingHandlers.UploadPhoto).RequireAuthorization().DisableAntiforgery();
-        group.MapDelete("/{id:guid}/photos/{photoId:guid}", PlotListingHandlers.DeletePhoto).RequireAuthorization();
+        group.MapPost("/{id:guid}/photos", PlotListingHandlers.UploadPhoto).RequireAuthorization("CanListPlots").DisableAntiforgery();
+        group.MapDelete("/{id:guid}/photos/{photoId:guid}", PlotListingHandlers.DeletePhoto).RequireAuthorization("CanListPlots");
 
         group.MapPost("/{id:guid}/report", PlotListingHandlers.ReportPlotListing).RequireAuthorization();
-        group.MapGet("/{id:guid}/reports", PlotListingHandlers.GetPlotListingReports).RequireAuthorization();
+        group.MapGet("/{id:guid}/reports", PlotListingHandlers.GetPlotListingReports).RequireAuthorization("CanListPlots");
 
         // Credit-based Go Live — replaces the old Razorpay-per-plot payment routes entirely.
-        group.MapPost("/{plotId:guid}/go-live", GoLiveHandlers.GoLivePlot).RequireAuthorization();
+        group.MapPost("/{plotId:guid}/go-live", GoLiveHandlers.GoLivePlot).RequireAuthorization("CanListPlots");
 
         return group;
     }

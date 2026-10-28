@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -21,6 +22,7 @@ public class JwtService(IConfiguration configuration) : IJwtService
             new Claim(ClaimTypes.MobilePhone, user.PhoneNumber),
             new Claim(ClaimTypes.Name, user.Name ?? string.Empty),
             new Claim("actor_type", "user"),
+            new Claim(UserRoles.ClaimType, UserRoles.KeyOf(user.RoleId)),
         };
 
         return BuildToken(claims);

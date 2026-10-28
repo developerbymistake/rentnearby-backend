@@ -18,9 +18,26 @@ public class UserRepository(ApplicationDbContext context) : Repository<User>(con
         => await _dbSet.AsNoTracking()
             .FirstOrDefaultAsync(u => u.PhoneNumber == phoneNumber && u.IsPhoneVerified);
 
-    public async Task<bool> IsPhoneVerifiedByOtherUserAsync(string phoneNumber, Guid currentUserId)
-        => await _dbSet.AnyAsync(u => u.PhoneNumber == phoneNumber && u.IsPhoneVerified && u.Id != currentUserId);
+    public async Task<bool> IsPhoneUsedByOtherUserAsync(string phoneNumber, Guid currentUserId)
+        => await _dbSet.AnyAsync(u => u.PhoneNumber == phoneNumber && u.Id != currentUserId);
 
     public async Task<bool> IsPhoneVerifiedByAnyUserAsync(string phoneNumber)
         => await _dbSet.AnyAsync(u => u.PhoneNumber == phoneNumber && u.IsPhoneVerified);
+
+    public async Task<int> ConfirmRoleChoiceAsync(Guid userId, Guid roleId)
+        => await _dbSet
+            .Where(u => u.Id == userId && u.RoleConfirmedAt == null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(u => u.RoleId, roleId)
+                .SetProperty(u => u.RoleConfirmedAt, DateTime.UtcNow)
+                .SetProperty(u => u.UpdatedAt, DateTime.UtcNow));
+
+    // An admin-set role counts as confirmed, so the first-login role page can never override it.
+    public async Task<int> SetRoleAsync(Guid userId, Guid roleId)
+        => await _dbSet
+            .Where(u => u.Id == userId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(u => u.RoleId, roleId)
+                .SetProperty(u => u.RoleConfirmedAt, u => u.RoleConfirmedAt ?? DateTime.UtcNow)
+                .SetProperty(u => u.UpdatedAt, DateTime.UtcNow));
 }

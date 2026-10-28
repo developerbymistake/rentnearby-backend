@@ -3,7 +3,9 @@ using FluentValidation;
 using Mapster;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
+using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -18,7 +20,7 @@ public static class UsersHandlers
         var user = await unitOfWork.Users.GetByIdAsync(userId);
         if (user == null) return NotFoundResponse("User not found");
 
-        return OkResponse(user.Adapt<UserDto>());
+        return OkResponse(await BuildUserDtoAsync(user, unitOfWork));
     }
 
     // Two independent identity/privacy actions, two independent endpoints — was previously one
@@ -48,7 +50,7 @@ public static class UsersHandlers
         await unitOfWork.Users.UpdateAsync(user);
         await unitOfWork.SaveChangesAsync();
 
-        return OkResponse(user.Adapt<UserDto>());
+        return OkResponse(await BuildUserDtoAsync(user, unitOfWork));
     }
 
     public static async Task<IResult> UpdateContactVisibility(
@@ -73,7 +75,7 @@ public static class UsersHandlers
         await unitOfWork.Users.UpdateAsync(user);
         await unitOfWork.SaveChangesAsync();
 
-        return OkResponse(user.Adapt<UserDto>());
+        return OkResponse(await BuildUserDtoAsync(user, unitOfWork));
     }
 
     public static async Task<IResult> GetMyReports(
@@ -98,6 +100,16 @@ public static class UsersHandlers
             ResolvedAt = r.ResolvedAt,
         }).ToList();
         return OkResponse(new { items, hasMore = paged.HasMore });
+    }
+
+    internal static async Task<UserDto> BuildUserDtoAsync(User user, IUnitOfWork unitOfWork)
+    {
+        var dto = user.Adapt<UserDto>();
+        var latest = await unitOfWork.RoleChangeRequests.GetLatestForUserAsync(user.Id);
+        dto.RoleRequestStatus = latest?.Status;
+        dto.RoleRequestReason = latest?.Status == RoleChangeRequestStatuses.Rejected ? latest.RejectionReason : null;
+        dto.NextRoleRequestAt = RoleChangeRules.NextRequestAllowedAt(latest?.Status, latest?.ReviewedAt, DateTime.UtcNow);
+        return dto;
     }
 
     internal static bool TryGetUserId(ClaimsPrincipal principal, out Guid userId)

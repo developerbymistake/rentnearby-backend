@@ -44,6 +44,11 @@ public static class AdminEndpoints
         group.MapPut("/users/{id:guid}/status", AdminHandlers.UpdateUserStatus).RequireAuthorization("AdminOnly");
         group.MapPost("/users/{id:guid}/wallet/credit", AdminHandlers.CreditUserWallet).RequireAuthorization("AdminOnly");
         group.MapPost("/users/{id:guid}/wallet/debit", AdminHandlers.DebitUserWallet).RequireAuthorization("AdminOnly");
+        group.MapPut("/users/{id:guid}/role", AdminRoleHandlers.UpdateUserRole).RequireAuthorization("AdminOnly");
+
+        group.MapGet("/role-requests", AdminRoleHandlers.GetRoleRequests).RequireAuthorization("AdminOnly");
+        group.MapPut("/role-requests/{id:guid}/approve", AdminRoleHandlers.ApproveRoleRequest).RequireAuthorization("AdminOnly");
+        group.MapPut("/role-requests/{id:guid}/reject", AdminRoleHandlers.RejectRoleRequest).RequireAuthorization("AdminOnly");
 
         group.MapGet("/wallet-transactions", AdminHandlers.GetWalletTransactions).RequireAuthorization("AdminOnly");
 

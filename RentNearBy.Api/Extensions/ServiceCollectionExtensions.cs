@@ -32,6 +32,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IJwtService, JwtService>();
         services.AddScoped<IPhotoService, PhotoService>();
+        services.AddScoped<IListingPurgeService, ListingPurgeService>();
+        services.AddScoped<IRoleChangeGuardService, RoleChangeGuardService>();
         services.AddScoped<IAccountDeletionService, AccountDeletionService>();
         services.AddScoped<ICreditWalletService, CreditWalletService>();
         services.AddScoped<ICouponService, CouponService>();
@@ -135,6 +137,9 @@ public static class ServiceCollectionExtensions
         // Go-Live submission) and notifies admins via AdminDeviceTokens + FCM (same pattern as
         // ReportFiledWorkerService) — deliberately not the NotificationEvent/inbox system.
         services.AddHostedService<GoLiveRequestedWorkerService>();
+
+        // Role-requested worker: consumes role.requested and notifies admins via AdminDeviceTokens + FCM.
+        services.AddHostedService<RoleRequestedWorkerService>();
 
         return services;
     }

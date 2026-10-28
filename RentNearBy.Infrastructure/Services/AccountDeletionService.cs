@@ -5,14 +5,11 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-public class AccountDeletionService(ApplicationDbContext context, IPhotoService photoService)
+public class AccountDeletionService(ApplicationDbContext context, IListingPurgeService listingPurgeService)
     : IAccountDeletionService
 {
     public async Task DeleteAccountAsync(Guid userId)
     {
-        // Delete all Cloudinary photos for this user (covers listings + plots)
-        await photoService.DeleteAllUserPhotosAsync(userId);
-
         using var tx = await context.Database.BeginTransactionAsync();
 
         var user = await context.Users.AsNoTracking()
@@ -48,21 +45,7 @@ public class AccountDeletionService(ApplicationDbContext context, IPhotoService 
         // Wallet/CreditTransaction/CreditPackPurchase/CouponRedemption all cascade-delete via their
         // User FK — no explicit cleanup needed here, same as Sessions/DeviceTokens above.
 
-        await context.RoomPhotos
-            .Where(p => context.RoomListings.Any(l => l.Id == p.RoomListingId && l.UserId == userId))
-            .ExecuteDeleteAsync();
-
-        await context.RoomListings
-            .Where(l => l.UserId == userId)
-            .ExecuteDeleteAsync();
-
-        await context.Set<PlotPhoto>()
-            .Where(p => context.PlotListings.Any(l => l.Id == p.PlotId && l.UserId == userId))
-            .ExecuteDeleteAsync();
-
-        await context.PlotListings
-            .Where(p => p.UserId == userId)
-            .ExecuteDeleteAsync();
+        await listingPurgeService.PurgeUserListingsAsync(userId);
 
         await context.Users
             .Where(u => u.Id == userId)

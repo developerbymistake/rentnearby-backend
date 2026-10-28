@@ -1,7 +1,9 @@
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Extensions;
 
@@ -74,6 +76,11 @@ public static class AuthenticationExtensions
         {
             options.AddPolicy("AdminOnly", policy =>
                 policy.RequireClaim("actor_type", "admin"));
+            // JwtBearer's inbound claim map turns the token's "role" claim into ClaimTypes.Role.
+            options.AddPolicy("CanListRooms", policy =>
+                policy.RequireClaim(ClaimTypes.Role, UserRoles.RentOwner));
+            options.AddPolicy("CanListPlots", policy =>
+                policy.RequireClaim(ClaimTypes.Role, UserRoles.PropertyOwner));
         });
 
         return services;

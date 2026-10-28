@@ -9,6 +9,8 @@ public static class NotificationTypes
 {
     public const string GoLiveApproved = "GoLiveApproved";
     public const string GoLiveRejected = "GoLiveRejected";
+    public const string RoleRequestApproved = "RoleRequestApproved";
+    public const string RoleRequestRejected = "RoleRequestRejected";
 
     // The lowercase-snake value sent as the FCM data payload's "notification_type" key — kept
     // paired here (not derived by naive case-conversion) so the PascalCase DB value and the wire
@@ -18,6 +20,8 @@ public static class NotificationTypes
     {
         [GoLiveApproved] = "golive_approved",
         [GoLiveRejected] = "golive_rejected",
+        [RoleRequestApproved] = "role_request_approved",
+        [RoleRequestRejected] = "role_request_rejected",
     };
 
     public static string ToWireValue(string type) => WireValues.TryGetValue(type, out var wire) ? wire : type;

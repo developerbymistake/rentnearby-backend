@@ -47,4 +47,10 @@ public class NotificationRepository(ApplicationDbContext context)
             LEFT JOIN ""NotificationReads"" r ON r.""NotificationId"" = n.""Id"" AND r.""UserId"" = {userId}
             WHERE n.""TargetUserId"" = {userId} AND r.""NotificationId"" IS NULL
             ON CONFLICT (""UserId"", ""NotificationId"") DO NOTHING");
+
+    // NotificationRead rows go with their event via the cascade FK.
+    public async Task<int> DeleteByActionRouteForUserAsync(Guid userId, string actionRoute)
+        => await _context.NotificationEvents
+            .Where(n => n.TargetUserId == userId && n.ActionRoute == actionRoute)
+            .ExecuteDeleteAsync();
 }

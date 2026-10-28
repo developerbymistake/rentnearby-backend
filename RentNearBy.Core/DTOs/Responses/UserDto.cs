@@ -9,5 +9,10 @@ public class UserDto
     public bool IsPhoneVerified { get; set; }
     public bool HasUsedPhoneChange { get; set; }
     public bool IsContactVisible { get; set; }
+    public string Role { get; set; } = string.Empty;
+    public bool RoleConfirmed { get; set; }
+    public string? RoleRequestStatus { get; set; }
+    public string? RoleRequestReason { get; set; }
+    public DateTime? NextRoleRequestAt { get; set; }
     public DateTime CreatedAt { get; set; }
 }

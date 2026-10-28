@@ -12,5 +12,9 @@ public class AdminUserDto
     public int ActiveListings { get; set; }
     public int TotalPlotListings { get; set; }
     public int ActivePlotListings { get; set; }
+    public int LiveRoomListings { get; set; }
+    public int LivePlotListings { get; set; }
     public int WalletBalance { get; set; }
+    public string Role { get; set; } = string.Empty;
+    public string RoleName { get; set; } = string.Empty;
 }

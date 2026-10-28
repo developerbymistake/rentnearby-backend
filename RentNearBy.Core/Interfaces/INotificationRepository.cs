@@ -23,4 +23,6 @@ public interface INotificationRepository : IRepository<NotificationEvent>
 
     // Single bulk INSERT ... SELECT ... ON CONFLICT DO NOTHING — not a per-row loop.
     Task<int> MarkAllReadAsync(Guid userId);
+
+    Task<int> DeleteByActionRouteForUserAsync(Guid userId, string actionRoute);
 }
