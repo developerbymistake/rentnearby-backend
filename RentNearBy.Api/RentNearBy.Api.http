@@ -4,3 +4,35 @@ GET {{RentNearBy.Api_HostAddress}}/weatherforecast/
 Accept: application/json
 
 ###
+
+@baseUrl = http://localhost:5000
+@adminToken = <admin-jwt>
+
+GET {{baseUrl}}/api/v1/config/app-version?platform=android&build=52
+Accept: application/json
+
+###
+
+GET {{baseUrl}}/api/v1/admin/app-version
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+###
+
+PUT {{baseUrl}}/api/v1/admin/app-version/android
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "isEnabled": true,
+  "minBuildNumber": 52,
+  "minVersionName": "1.0.1",
+  "latestBuildNumber": 53,
+  "latestVersionName": "1.0.2",
+  "storeUrl": "https://play.google.com/store/apps/details?id=com.rentnearby.rentnearby",
+  "message": "",
+  "forceCacheMaxAgeHours": 168,
+  "reason": "Payment fix in build 53"
+}
+
+###

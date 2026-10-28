@@ -29,6 +29,7 @@ public interface IUnitOfWork : IDisposable
     IListingLimitSettingRepository ListingLimitSettings { get; }
     IAppFeatureFlagRepository AppFeatureFlags { get; }
     IAppTabRepository AppTabs { get; }
+    IAppVersionConfigRepository AppVersionConfigs { get; }
     ICouponRepository Coupons { get; }
     ICouponRedemptionRepository CouponRedemptions { get; }
     ICreditPackPurchaseRepository CreditPackPurchases { get; }

@@ -35,6 +35,7 @@ public class UnitOfWork : IUnitOfWork
     private IListingLimitSettingRepository? _listingLimitSettings;
     private IAppFeatureFlagRepository? _appFeatureFlags;
     private IAppTabRepository? _appTabs;
+    private IAppVersionConfigRepository? _appVersionConfigs;
     private ICouponRepository? _coupons;
     private ICouponRedemptionRepository? _couponRedemptions;
     private ICreditPackPurchaseRepository? _creditPackPurchases;
@@ -72,6 +73,7 @@ public class UnitOfWork : IUnitOfWork
     public IListingLimitSettingRepository ListingLimitSettings => _listingLimitSettings ??= new ListingLimitSettingRepository(_context);
     public IAppFeatureFlagRepository AppFeatureFlags => _appFeatureFlags ??= new AppFeatureFlagRepository(_context);
     public IAppTabRepository AppTabs => _appTabs ??= new AppTabRepository(_context);
+    public IAppVersionConfigRepository AppVersionConfigs => _appVersionConfigs ??= new AppVersionConfigRepository(_context);
     public ICouponRepository Coupons => _coupons ??= new CouponRepository(_context);
     public ICouponRedemptionRepository CouponRedemptions => _couponRedemptions ??= new CouponRedemptionRepository(_context);
     public ICreditPackPurchaseRepository CreditPackPurchases => _creditPackPurchases ??= new CreditPackPurchaseRepository(_context);

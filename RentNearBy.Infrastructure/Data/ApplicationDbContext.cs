@@ -37,6 +37,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ListingLimitSetting> ListingLimitSettings { get; set; }
     public DbSet<AppFeatureFlag> AppFeatureFlags { get; set; }
     public DbSet<AppTab> AppTabs { get; set; }
+    public DbSet<AppVersionConfig> AppVersionConfigs { get; set; }
     public DbSet<Coupon> Coupons { get; set; }
     public DbSet<CouponRedemption> CouponRedemptions { get; set; }
     public DbSet<CreditPackPurchase> CreditPackPurchases { get; set; }
@@ -521,6 +522,25 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasOne(t => t.UpdatedByAdmin)
              .WithMany()
              .HasForeignKey(t => t.UpdatedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<AppVersionConfig>(e =>
+        {
+            e.HasKey(v => v.Id);
+            e.Property(v => v.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(v => v.Platform).IsUnique();
+            e.Property(v => v.Platform).HasMaxLength(16);
+            e.Property(v => v.MinVersionName).HasMaxLength(AppVersionRules.MaxVersionNameLength);
+            e.Property(v => v.LatestVersionName).HasMaxLength(AppVersionRules.MaxVersionNameLength);
+            e.Property(v => v.StoreUrl).HasMaxLength(AppVersionRules.MaxStoreUrlLength);
+            e.Property(v => v.Message).HasMaxLength(AppVersionRules.MaxMessageLength);
+            e.Property(v => v.Reason).HasMaxLength(AppVersionRules.MaxReasonLength);
+
+            e.HasOne(v => v.UpdatedByAdmin)
+             .WithMany()
+             .HasForeignKey(v => v.UpdatedByAdminId)
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
         });

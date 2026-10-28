@@ -1,6 +1,7 @@
 ﻿using FluentValidation;
 using Mapster;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using NetTopologySuite.Features;
@@ -730,6 +731,115 @@ public static class AdminHandlers
             UpdatedByAdminId = tab.UpdatedByAdminId, UpdatedAt = tab.UpdatedAt, Reason = tab.Reason,
         });
     }
+
+    // ── App Version / Updates ───────────────────────────────────────────────────
+    // Reason describes this change only, so it is overwritten on every PUT (unlike payment-feature).
+
+    public static async Task<IResult> GetAppVersionConfigs(IUnitOfWork unitOfWork)
+    {
+        var rows = await unitOfWork.AppVersionConfigs.GetAllWithAdminAsync();
+        return OkResponse(rows
+            .OrderBy(r => Array.IndexOf(AppPlatforms.All, r.Platform))
+            .Select(r => ToAdminAppVersionDto(r, r.UpdatedByAdmin))
+            .ToList());
+    }
+
+    public static async Task<IResult> UpdateAppVersionConfig(
+        string platform, UpdateAppVersionConfigRequest request, IValidator<UpdateAppVersionConfigRequest> validator,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        if (!AppPlatforms.TryNormalize(platform, out var key))
+            return BadRequestResponse("platform must be 'android' or 'ios'");
+
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var row = await unitOfWork.AppVersionConfigs.GetByPlatformAsync(key);
+        if (row == null) return NotFoundResponse($"No app version config for platform '{key}'");
+
+        var wasEnabled = row.IsEnabled;
+        var previousMin = row.MinBuildNumber;
+        var previousLatest = row.LatestBuildNumber;
+
+        if (request.IsEnabled.HasValue) row.IsEnabled = request.IsEnabled.Value;
+        if (request.MinBuildNumber.HasValue) row.MinBuildNumber = request.MinBuildNumber.Value;
+        if (request.MinVersionName != null) row.MinVersionName = request.MinVersionName;
+        if (request.LatestBuildNumber.HasValue) row.LatestBuildNumber = request.LatestBuildNumber.Value;
+        if (request.LatestVersionName != null) row.LatestVersionName = request.LatestVersionName;
+        if (request.StoreUrl != null) row.StoreUrl = string.IsNullOrWhiteSpace(request.StoreUrl) ? null : request.StoreUrl.Trim();
+        if (request.Message != null) row.Message = string.IsNullOrWhiteSpace(request.Message) ? null : request.Message.Trim();
+        if (request.ForceCacheMaxAgeHours.HasValue) row.ForceCacheMaxAgeHours = request.ForceCacheMaxAgeHours.Value;
+        row.Reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+
+        if (row.MinBuildNumber > row.LatestBuildNumber)
+            return BadRequestResponse("Minimum build cannot be greater than latest build", "VERSION_RANGE_INVALID");
+
+        if (row.StoreUrl != null)
+        {
+            var expectedHost = AppPlatforms.StoreHosts[key];
+            if (!Uri.TryCreate(row.StoreUrl, UriKind.Absolute, out var storeUri)
+                || storeUri.Scheme != Uri.UriSchemeHttps
+                || !string.Equals(storeUri.Host, expectedHost, StringComparison.OrdinalIgnoreCase))
+                return BadRequestResponse($"Store URL for {key} must be an https link on {expectedHost}");
+
+            if (key == AppPlatforms.Android
+                && (!string.Equals(storeUri.AbsolutePath.TrimEnd('/'), AppPlatforms.AndroidStoreDetailsPath, StringComparison.OrdinalIgnoreCase)
+                    || !QueryHelpers.ParseQuery(storeUri.Query).TryGetValue("id", out var packageIds)
+                    || packageIds.Count != 1
+                    || !string.Equals(packageIds[0], AppPlatforms.AndroidPackageId, StringComparison.Ordinal)))
+                return BadRequestResponse($"Store URL for {key} must be {AppPlatforms.AndroidStoreUrl}");
+        }
+
+        if (row.IsEnabled && row.StoreUrl == null)
+            return BadRequestResponse("Store URL is required while update checks are enabled", "STORE_URL_REQUIRED");
+
+        if (row.IsEnabled && request.ConfirmUnseenBuild != true)
+        {
+            var ceiling = Math.Max(row.MaxSeenBuild, AppVersionRules.FirstGatedBuild);
+            var enabling = !wasEnabled;
+
+            if ((enabling || row.MinBuildNumber != previousMin) && row.MinBuildNumber > ceiling)
+                return BadRequestResponse(
+                    $"Minimum build {row.MinBuildNumber} has not been reported by any installed app yet (highest seen: {row.MaxSeenBuild}). Install it from the store first.",
+                    "BUILD_NOT_SEEN");
+
+            if ((enabling || row.LatestBuildNumber != previousLatest) && row.LatestBuildNumber > ceiling)
+                return BadRequestResponse(
+                    $"Latest build {row.LatestBuildNumber} has not been reported by any installed app yet (highest seen: {row.MaxSeenBuild}). Install it from the store first.",
+                    "BUILD_NOT_SEEN");
+        }
+
+        var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        row.UpdatedByAdminId = Guid.TryParse(adminIdClaim, out var parsedAdminId) ? parsedAdminId : null;
+        row.UpdatedAt = DateTime.UtcNow;
+
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove(ConfigHandlers.AppVersionCacheKey(key));
+
+        var admin = row.UpdatedByAdminId.HasValue ? await unitOfWork.Admins.GetByIdAsync(row.UpdatedByAdminId.Value) : null;
+        return OkResponse(ToAdminAppVersionDto(row, admin));
+    }
+
+    private static AdminAppVersionConfigDto ToAdminAppVersionDto(AppVersionConfig row, Admin? updatedBy) => new()
+    {
+        Id = row.Id,
+        Platform = row.Platform,
+        IsEnabled = row.IsEnabled,
+        MinBuildNumber = row.MinBuildNumber,
+        MinVersionName = row.MinVersionName,
+        LatestBuildNumber = row.LatestBuildNumber,
+        LatestVersionName = row.LatestVersionName,
+        StoreUrl = row.StoreUrl,
+        Message = row.Message,
+        ForceCacheMaxAgeHours = row.ForceCacheMaxAgeHours,
+        MaxSeenBuild = row.MaxSeenBuild,
+        FirstGatedBuild = AppVersionRules.FirstGatedBuild,
+        UpdatedByAdminId = row.UpdatedByAdminId,
+        UpdatedByAdminName = updatedBy == null ? null : (string.IsNullOrWhiteSpace(updatedBy.Name) ? updatedBy.Email : updatedBy.Name),
+        UpdatedAt = row.UpdatedAt,
+        Reason = row.Reason,
+    };
 
     public static async Task<IResult> GetUsers(
         ApplicationDbContext db,

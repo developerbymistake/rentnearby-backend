@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
@@ -78,4 +79,106 @@ public static class ConfigHandlers
 
     public static async Task<IResult> GetAppTabs(IUnitOfWork unitOfWork, IMemoryCache cache)
         => OkResponse(await GetAppTabsCachedAsync(unitOfWork, cache));
+
+    public static string AppVersionCacheKey(string normalizedPlatform) => $"config_app_version_{normalizedPlatform}";
+    private static readonly TimeSpan AppVersionCacheTtl = TimeSpan.FromMinutes(2);
+
+    private sealed class AppVersionCacheEntry
+    {
+        public required AppVersionConfigDto Dto { get; init; }
+        public required bool RowExists { get; init; }
+        public required int MaxAcceptedReportedBuild { get; init; }
+        public int MaxSeenBuild;
+    }
+
+    // Missing row => enabled:false (fail-open), so a client holding a cached FORCE clears it.
+    private static async Task<AppVersionCacheEntry> GetAppVersionCachedAsync(string platform, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var key = AppVersionCacheKey(platform);
+        if (cache.TryGetValue(key, out AppVersionCacheEntry? cached) && cached != null) return cached;
+
+        var row = await unitOfWork.AppVersionConfigs.GetByPlatformAsync(platform);
+        var entry = row == null
+            ? new AppVersionCacheEntry
+            {
+                Dto = new AppVersionConfigDto
+                {
+                    Platform = platform,
+                    Enabled = false,
+                    ForceCacheMaxAgeHours = AppVersionRules.DefaultForceCacheMaxAgeHours,
+                },
+                RowExists = false,
+                MaxAcceptedReportedBuild = 0,
+            }
+            : new AppVersionCacheEntry
+            {
+                Dto = new AppVersionConfigDto
+                {
+                    Platform = row.Platform,
+                    Enabled = row.IsEnabled,
+                    MinBuildNumber = row.MinBuildNumber,
+                    MinVersionName = row.MinVersionName,
+                    LatestBuildNumber = row.LatestBuildNumber,
+                    LatestVersionName = row.LatestVersionName,
+                    StoreUrl = row.StoreUrl,
+                    Message = row.Message,
+                    ForceCacheMaxAgeHours = row.ForceCacheMaxAgeHours,
+                },
+                RowExists = true,
+                MaxAcceptedReportedBuild = Math.Max(row.LatestBuildNumber, AppVersionRules.FirstGatedBuild) + AppVersionRules.MaxSeenBuildHeadroom,
+                MaxSeenBuild = row.MaxSeenBuild,
+            };
+
+        cache.Set(key, entry, AppVersionCacheTtl);
+        return entry;
+    }
+
+    public static async Task<IResult> GetAppVersion(
+        string? platform, string? build, HttpContext httpContext,
+        IUnitOfWork unitOfWork, IMemoryCache cache, ILoggerFactory loggerFactory)
+    {
+        if (!AppPlatforms.TryNormalize(platform, out var key))
+            return BadRequestResponse("platform must be 'android' or 'ios'");
+
+        var entry = await GetAppVersionCachedAsync(key, unitOfWork, cache);
+
+        if (entry.RowExists
+            && int.TryParse(build, NumberStyles.None, CultureInfo.InvariantCulture, out var reported)
+            && reported >= AppVersionRules.MinBuildNumber
+            && reported <= entry.MaxAcceptedReportedBuild)
+        {
+            await RecordSeenBuildAsync(entry, key, reported, unitOfWork, cache, loggerFactory);
+        }
+
+        httpContext.Response.Headers.CacheControl = "no-cache";
+        return OkResponse(entry.Dto);
+    }
+
+    private static async Task RecordSeenBuildAsync(
+        AppVersionCacheEntry entry, string platform, int reported,
+        IUnitOfWork unitOfWork, IMemoryCache cache, ILoggerFactory loggerFactory)
+    {
+        var seen = Volatile.Read(ref entry.MaxSeenBuild);
+        while (reported > seen)
+        {
+            var previous = Interlocked.CompareExchange(ref entry.MaxSeenBuild, reported, seen);
+            if (previous != seen)
+            {
+                seen = previous;
+                continue;
+            }
+
+            try
+            {
+                await unitOfWork.AppVersionConfigs.TryRaiseMaxSeenBuildAsync(platform, reported);
+            }
+            catch (Exception ex)
+            {
+                loggerFactory.CreateLogger(nameof(ConfigHandlers))
+                    .LogWarning(ex, "Failed to persist MaxSeenBuild {Build} for {Platform}", reported, platform);
+                cache.Remove(AppVersionCacheKey(platform));
+            }
+            return;
+        }
+    }
 }

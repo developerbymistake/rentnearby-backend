@@ -218,6 +218,71 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("AppTabs");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.AppVersionConfig", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<int>("ForceCacheMaxAgeHours")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("LatestBuildNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LatestVersionName")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("MaxSeenBuild")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("MinBuildNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MinVersionName")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Platform")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("StoreUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Platform")
+                        .IsUnique();
+
+                    b.HasIndex("UpdatedByAdminId");
+
+                    b.ToTable("AppVersionConfigs");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.BannerDismissal", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -1773,6 +1838,16 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.AppTab", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Admin", "UpdatedByAdmin")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("UpdatedByAdmin");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.AppVersionConfig", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Admin", "UpdatedByAdmin")
                         .WithMany()

@@ -31,6 +31,7 @@ public static class DataSeeder
         await SeedListingLimitSettingsAsync(db);
         await SeedAppFeatureFlagsAsync(db);
         await SeedAppTabsAsync(db);
+        await SeedAppVersionConfigsAsync(db);
         await SeedCouponsAsync(db);
         await SeedAdminsAsync(db);
     }
@@ -117,6 +118,35 @@ public static class DataSeeder
             });
         }
         await db.SaveChangesAsync();
+    }
+
+    // Seeded disabled with build 1 so deploying the backend never gates anyone until an admin opts in.
+    private static async Task SeedAppVersionConfigsAsync(ApplicationDbContext db)
+    {
+        var added = false;
+        foreach (var platform in AppPlatforms.All)
+        {
+            if (await db.AppVersionConfigs.AnyAsync(c => c.Platform == platform)) continue;
+
+            db.AppVersionConfigs.Add(new AppVersionConfig
+            {
+                Id = Guid.NewGuid(),
+                Platform = platform,
+                IsEnabled = false,
+                MinBuildNumber = 1,
+                MinVersionName = "1.0.0",
+                LatestBuildNumber = 1,
+                LatestVersionName = "1.0.0",
+                StoreUrl = platform == AppPlatforms.Android
+                    ? AppPlatforms.AndroidStoreUrl
+                    : null,
+                ForceCacheMaxAgeHours = AppVersionRules.DefaultForceCacheMaxAgeHours,
+                MaxSeenBuild = 0,
+                UpdatedAt = DateTime.UtcNow,
+            });
+            added = true;
+        }
+        if (added) await db.SaveChangesAsync();
     }
 
     // Seed-only catalog of "what credits can be spent on" — Room/Plot Go-Live today, future credit-gated
