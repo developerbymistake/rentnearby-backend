@@ -9,7 +9,9 @@ using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Extensions;
+using StackExchange.Redis;
 using System.Security.Claims;
+using Role = RentNearBy.Core.Entities.Role;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -66,7 +68,7 @@ public static class AdminRoleHandlers
     public static async Task<IResult> ApproveRoleRequest(
         Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
         IListingPurgeService listingPurge, IRoleChangeGuardService guard, ICreditWalletService wallet,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp)
     {
         var request = await unitOfWork.RoleChangeRequests.GetByIdAsync(id);
         if (request == null) return NotFoundResponse("Role request not found");
@@ -81,7 +83,7 @@ public static class AdminRoleHandlers
 
         var outcome = await ChangeUserRoleCoreAsync(
             user, target, GetAdminId(principal), request.Id, enforceLiveGuard: true,
-            unitOfWork, db, listingPurge, guard, wallet, hubContext, publisher);
+            unitOfWork, db, listingPurge, guard, wallet, hubContext, publisher, sp);
 
         return outcome switch
         {
@@ -142,7 +144,7 @@ public static class AdminRoleHandlers
         Guid id, RoleKeyRequest request, IValidator<RoleKeyRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
         IListingPurgeService listingPurge, IRoleChangeGuardService guard, ICreditWalletService wallet,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -156,7 +158,7 @@ public static class AdminRoleHandlers
 
         await ChangeUserRoleCoreAsync(
             user, target, GetAdminId(principal), approveRequestId: null, enforceLiveGuard: false,
-            unitOfWork, db, listingPurge, guard, wallet, hubContext, publisher);
+            unitOfWork, db, listingPurge, guard, wallet, hubContext, publisher, sp);
 
         return OkResponse(new { id = user.Id, role = target.Key });
     }
@@ -164,12 +166,13 @@ public static class AdminRoleHandlers
     private static async Task<RoleChangeOutcome> ChangeUserRoleCoreAsync(
         User user, Role target, Guid? adminId, Guid? approveRequestId, bool enforceLiveGuard,
         IUnitOfWork unitOfWork, ApplicationDbContext db, IListingPurgeService listingPurge, IRoleChangeGuardService guard,
-        ICreditWalletService wallet, IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
+        ICreditWalletService wallet, IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp)
     {
         var leftKind = UserRoles.ListingKindOf(user.RoleId);
         var targetKind = UserRoles.ListingKindOf(target.Id);
         var purgeKind = leftKind != null && leftKind != targetKind ? leftKind : null;
         IReadOnlyList<Guid> purgedListingIds = [];
+        IReadOnlyList<Guid> purgedDistrictIds = [];
 
         await unitOfWork.BeginTransactionAsync();
         try
@@ -200,7 +203,11 @@ public static class AdminRoleHandlers
             if (purgeKind != null)
             {
                 await RefundPendingGoLiveCreditsAsync(user.Id, purgeKind, db, wallet);
+                purgedDistrictIds = purgeKind == ListingKinds.Room
+                    ? await db.RoomListings.Where(l => l.UserId == user.Id && !l.IsDeleted).Select(l => l.DistrictId).Distinct().ToListAsync()
+                    : await db.PlotListings.Where(p => p.UserId == user.Id && !p.IsDeleted).Select(p => p.DistrictId).Distinct().ToListAsync();
                 purgedListingIds = await listingPurge.DeleteUserListingRowsAsync(user.Id, purgeKind);
+                await unitOfWork.ListingReports.AutoResolvePendingForListingsAsync(purgedListingIds, purgeKind);
                 await unitOfWork.Notifications.DeleteByActionRouteForUserAsync(user.Id, UserNotificationRoutes.ForListingKind(purgeKind));
             }
 
@@ -213,6 +220,9 @@ public static class AdminRoleHandlers
             await unitOfWork.Sessions.RevokeAllUserSessionsAsync(user.Id);
 
             await unitOfWork.CommitTransactionAsync();
+
+            if (purgeKind != null)
+                await InvalidateListingCachesAsync(sp.GetService<IConnectionMultiplexer>(), purgeKind, purgedDistrictIds);
 
             await listingPurge.DeleteListingPhotosBestEffortAsync(user.Id, purgedListingIds);
 
@@ -245,6 +255,30 @@ public static class AdminRoleHandlers
 
         foreach (var refund in refunds)
             await wallet.AddCreditsAsync(userId, refund.Credits, CreditTransactionReasons.GoLivePendingRefund, refund.Id);
+    }
+
+    private static async Task InvalidateListingCachesAsync(IConnectionMultiplexer? redis, string listingKind, IReadOnlyList<Guid> districtIds)
+    {
+        if (redis == null) return;
+        try
+        {
+            var cache = redis.GetDatabase();
+            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
+            var isRoom = listingKind == ListingKinds.Room;
+            await cache.KeyDeleteAsync(isRoom ? "home:recentRooms" : "home:recentPlots");
+            foreach (var districtId in districtIds)
+            {
+                await cache.KeyDeleteAsync(isRoom ? $"home:forYouRooms:{districtId}" : $"home:forYouPlots:{districtId}");
+                if (server == null) continue;
+                var patterns = isRoom
+                    ? new[] { $"nearby:{districtId}:*", $"nearest:{districtId}:*" }
+                    : new[] { $"nearby_plot:{districtId}:*", $"nearest_plot:{districtId}:*" };
+                foreach (var pattern in patterns)
+                    await foreach (var key in server.KeysAsync(pattern: pattern))
+                        await cache.KeyDeleteAsync(key);
+            }
+        }
+        catch { }
     }
 
     private static Guid? GetAdminId(ClaimsPrincipal principal)

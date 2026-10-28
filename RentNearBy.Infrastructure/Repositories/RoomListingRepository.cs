@@ -40,7 +40,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                     l."Longitude"::float8  AS "Lng",
                     rt."Name"      AS "RoomTypeName",
                     u."Name"       AS "OwnerName",
-                    u."PhoneNumber" AS "OwnerPhone",
+                    CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
                     p."PhotoUrl"   AS "ThumbnailUrl",
                     l."FurnishedStatus",
                     l."IsAc"
@@ -105,7 +105,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                     l."Longitude"::float8  AS "Lng",
                     rt."Name"      AS "RoomTypeName",
                     u."Name"       AS "OwnerName",
-                    u."PhoneNumber" AS "OwnerPhone",
+                    CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
                     p."PhotoUrl"   AS "ThumbnailUrl",
                     l."FurnishedStatus",
                     l."IsAc",

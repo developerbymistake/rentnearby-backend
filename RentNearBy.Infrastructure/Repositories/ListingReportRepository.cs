@@ -50,6 +50,18 @@ public class ListingReportRepository(ApplicationDbContext context) : IListingRep
                 .SetProperty(r => r.ResolvedAt, DateTime.UtcNow));
     }
 
+    public async Task<int> AutoResolvePendingForListingsAsync(IEnumerable<Guid> listingIds, string listingType)
+    {
+        var ids = listingIds.ToList();
+        if (ids.Count == 0) return 0;
+        return await context.ListingReports
+            .Where(r => ids.Contains(r.ListingId) && r.ListingType == listingType && r.Status == "Pending")
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.Status, "Resolved")
+                .SetProperty(r => r.ResolutionAction, "AutoResolvedByOwner")
+                .SetProperty(r => r.ResolvedAt, DateTime.UtcNow));
+    }
+
     public async Task ResolveAsync(Guid reportId, Guid? adminId, string resolutionAction)
     {
         await context.ListingReports

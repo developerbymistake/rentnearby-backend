@@ -39,7 +39,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                     p."AreaUnit"           AS "AreaUnit",
                     pt."Name"              AS "PlotType",
                     u."Name"               AS "OwnerName",
-                    u."PhoneNumber"        AS "OwnerPhone",
+                    CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
                     ph."PhotoUrl"          AS "ThumbnailUrl"
                 FROM "PlotListings" p
                 INNER JOIN "PlotTypes" pt ON pt."Id" = p."PlotTypeId"
@@ -102,7 +102,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                     p."AreaUnit"           AS "AreaUnit",
                     pt."Name"              AS "PlotType",
                     u."Name"               AS "OwnerName",
-                    u."PhoneNumber"        AS "OwnerPhone",
+                    CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
                     ph."PhotoUrl"          AS "ThumbnailUrl",
                     ST_Distance(p."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters"
                 FROM "PlotListings" p
