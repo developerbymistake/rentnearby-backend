@@ -29,6 +29,9 @@ public class GoLiveRequestDto
     // Room-only
     public string? RoomTypeName { get; set; }
     public string? FurnishedStatus { get; set; }
+    public bool? IsAc { get; set; }
+    public int? SecurityDeposit { get; set; }
+    public short? Floor { get; set; }
     public int? PriceMonthly { get; set; }
 
     // Plot-only

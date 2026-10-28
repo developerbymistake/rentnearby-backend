@@ -11,4 +11,7 @@ public class UpdateListingRequest
     public Guid? CityId { get; set; }
     public bool? IsActive { get; set; }
     public string? FurnishedStatus { get; set; }
+    public bool? IsAc { get; set; }
+    public int? SecurityDeposit { get; set; }
+    public short? Floor { get; set; }
 }

@@ -12,7 +12,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
     private record BoxQueryResult(
         Guid Id, int? PriceMonthly, double Lat, double Lng,
         string? RoomTypeName, string? OwnerName, string? OwnerPhone, string? ThumbnailUrl,
-        string? FurnishedStatus);
+        string? FurnishedStatus, bool? IsAc);
 
     private static (double MinLat, double MaxLat, double MinLng, double MaxLng)
         GetBoundingBox(double lat, double lng, double radiusKm)
@@ -42,7 +42,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                     u."Name"       AS "OwnerName",
                     u."PhoneNumber" AS "OwnerPhone",
                     p."PhotoUrl"   AS "ThumbnailUrl",
-                    l."FurnishedStatus"
+                    l."FurnishedStatus",
+                    l."IsAc"
                 FROM "RoomListings" l
                 LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
                 LEFT JOIN "Users" u      ON u."Id"  = l."UserId"
@@ -80,7 +81,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                 OwnerPhone = x.Row.OwnerPhone,
                 ThumbnailUrl = x.Row.ThumbnailUrl,
                 DistanceKm = x.Dist,
-                FurnishedStatus = x.Row.FurnishedStatus ?? "None"
+                FurnishedStatus = x.Row.FurnishedStatus ?? "None",
+                IsAc = x.Row.IsAc
             })
             .ToList();
     }
@@ -88,7 +90,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
     private record KnnQueryResult(
         Guid Id, int? PriceMonthly, double Lat, double Lng,
         string? RoomTypeName, string? OwnerName, string? OwnerPhone, string? ThumbnailUrl,
-        string? FurnishedStatus, double DistanceMeters);
+        string? FurnishedStatus, bool? IsAc, double DistanceMeters);
 
     public async Task<IEnumerable<NearbyListingDto>> GetNearestAsync(
         double latitude, double longitude, int count, Guid districtId)
@@ -106,6 +108,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                     u."PhoneNumber" AS "OwnerPhone",
                     p."PhotoUrl"   AS "ThumbnailUrl",
                     l."FurnishedStatus",
+                    l."IsAc",
                     ST_Distance(l."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters"
                 FROM "RoomListings" l
                 LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
@@ -138,7 +141,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                 OwnerPhone = r.OwnerPhone,
                 ThumbnailUrl = r.ThumbnailUrl,
                 DistanceKm = r.DistanceMeters / 1000.0,
-                FurnishedStatus = r.FurnishedStatus ?? "None"
+                FurnishedStatus = r.FurnishedStatus ?? "None",
+                IsAc = r.IsAc
             })
             .ToList();
     }
@@ -195,6 +199,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
         CityName = l.City != null ? l.City.Name : null,
         DistrictName = l.District.Name,
         FurnishedStatus = l.FurnishedStatus,
+        IsAc = l.IsAc,
         CreatedAt = l.CreatedAt,
     };
 
@@ -211,9 +216,10 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
 
         if (sortBy is "price_asc" or "price_desc")
         {
+            var cityFirst = query.OrderBy(l => cityId != null && l.CityId == cityId ? 0 : 1);
             var byPrice = sortBy == "price_asc"
-                ? query.OrderBy(l => l.PriceMonthly).ThenBy(l => l.Id)
-                : query.OrderByDescending(l => l.PriceMonthly).ThenByDescending(l => l.Id);
+                ? cityFirst.ThenBy(l => l.PriceMonthly).ThenBy(l => l.Id)
+                : cityFirst.ThenByDescending(l => l.PriceMonthly).ThenByDescending(l => l.Id);
             var priced = await byPrice.Skip((page - 1) * pageSize).Take(pageSize + 1).Select(BrowseProjection).ToListAsync();
             return BrowseCursor.OffsetPage(priced, pageSize);
         }

@@ -11,4 +11,7 @@ public class CreateListingRequest
     public Guid DistrictId { get; set; }
     public Guid? CityId { get; set; }
     public string FurnishedStatus { get; set; } = "None";
+    public bool? IsAc { get; set; }
+    public int? SecurityDeposit { get; set; }
+    public short? Floor { get; set; }
 }

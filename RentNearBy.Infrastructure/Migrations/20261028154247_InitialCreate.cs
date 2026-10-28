@@ -861,6 +861,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     CityId = table.Column<Guid>(type: "uuid", nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     FurnishedStatus = table.Column<string>(type: "text", nullable: false),
+                    IsAc = table.Column<bool>(type: "boolean", nullable: true),
+                    SecurityDeposit = table.Column<int>(type: "integer", nullable: true),
+                    Floor = table.Column<short>(type: "smallint", nullable: true),
                     Slug = table.Column<string>(type: "text", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
@@ -879,6 +882,8 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_RoomListings", x => x.Id);
+                    table.CheckConstraint("ck_roomlistings_floor_range", "\"Floor\" IS NULL OR (\"Floor\" >= 0 AND \"Floor\" <= 3)");
+                    table.CheckConstraint("ck_roomlistings_security_deposit_range", "\"SecurityDeposit\" IS NULL OR (\"SecurityDeposit\" >= 0 AND \"SecurityDeposit\" <= 9900000)");
                     table.ForeignKey(
                         name: "FK_RoomListings_Cities_CityId",
                         column: x => x.CityId,

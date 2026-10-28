@@ -18,6 +18,9 @@ public class RoomListingDto
     public string? CityName { get; set; }
     public bool IsActive { get; set; }
     public string FurnishedStatus { get; set; } = "None";
+    public bool? IsAc { get; set; }
+    public int? SecurityDeposit { get; set; }
+    public short? Floor { get; set; }
     public string? OwnerName { get; set; }
     public string? OwnerPhone { get; set; }
     public List<string> Photos { get; set; } = new();

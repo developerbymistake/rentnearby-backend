@@ -4,5 +4,7 @@ public interface IListingPurgeService
 {
     Task PurgeUserListingsAsync(Guid userId);
 
-    Task PurgeUserListingsAsync(Guid userId, string listingKind);
+    Task<IReadOnlyList<Guid>> DeleteUserListingRowsAsync(Guid userId, string listingKind);
+
+    Task DeleteListingPhotosBestEffortAsync(Guid userId, IReadOnlyList<Guid> listingIds);
 }

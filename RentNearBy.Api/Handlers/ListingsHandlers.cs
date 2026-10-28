@@ -420,6 +420,9 @@ public static class RoomListingsHandlers
             DistrictId = request.DistrictId,
             CityId = request.CityId,
             FurnishedStatus = request.FurnishedStatus,
+            IsAc = request.IsAc,
+            SecurityDeposit = request.SecurityDeposit,
+            Floor = request.Floor,
             IsActive = false, // always — POST /{id}/go-live is now the only path to activation
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -479,6 +482,9 @@ public static class RoomListingsHandlers
         if (request.Longitude.HasValue) listing.Longitude = request.Longitude.Value;
         if (request.Address != null) listing.Address = request.Address;
         if (request.FurnishedStatus != null) listing.FurnishedStatus = request.FurnishedStatus;
+        if (request.IsAc.HasValue) listing.IsAc = request.IsAc;
+        if (request.SecurityDeposit.HasValue) listing.SecurityDeposit = request.SecurityDeposit;
+        if (request.Floor.HasValue) listing.Floor = request.Floor;
         if (request.CityId.HasValue)
         {
             var city = await unitOfWork.Cities.GetByIdAsync(request.CityId.Value);

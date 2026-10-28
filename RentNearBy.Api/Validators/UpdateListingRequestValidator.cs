@@ -32,5 +32,13 @@ public class UpdateListingRequestValidator : AbstractValidator<UpdateListingRequ
             .Must(v => v == "None" || v == "Semi" || v == "Full")
             .WithMessage("Furnished status must be None, Semi, or Full")
             .When(x => x.FurnishedStatus != null);
+
+        RuleFor(x => x.SecurityDeposit)
+            .InclusiveBetween(0, 9900000).WithMessage("Security deposit must be between ₹0 and ₹99,00,000")
+            .When(x => x.SecurityDeposit.HasValue);
+
+        RuleFor(x => x.Floor)
+            .InclusiveBetween((short)0, (short)3).WithMessage("Floor must be Ground, 1, 2 or 3+")
+            .When(x => x.Floor.HasValue);
     }
 }

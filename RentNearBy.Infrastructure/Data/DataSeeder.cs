@@ -237,7 +237,7 @@ public static class DataSeeder
             new RoomType { Id = Guid.NewGuid(), Name = "3BHK",   SortOrder = 3, Description = "3 bedroom, hall and kitchen",          CreatedAt = DateTime.UtcNow },
             new RoomType { Id = Guid.NewGuid(), Name = "1RK",    SortOrder = 4, Description = "Single room with kitchen",             CreatedAt = DateTime.UtcNow },
             new RoomType { Id = Guid.NewGuid(), Name = "PG",     SortOrder = 5, Description = "Paying guest accommodation",           CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "Shop",   SortOrder = 6, Description = "Commercial shop or retail space",        CreatedAt = DateTime.UtcNow },
+            new RoomType { Id = Guid.NewGuid(), Name = "House",  SortOrder = 6, Description = "Independent house",                      CreatedAt = DateTime.UtcNow },
         };
 
         db.RoomTypes.AddRange(roomTypes);

@@ -18,5 +18,8 @@ public class PublicRoomListingDto
     public string? RoomTypeName { get; set; }
     public string? CityName { get; set; }
     public string FurnishedStatus { get; set; } = "None";
+    public bool? IsAc { get; set; }
+    public int? SecurityDeposit { get; set; }
+    public short? Floor { get; set; }
     public List<string> Photos { get; set; } = new();
 }

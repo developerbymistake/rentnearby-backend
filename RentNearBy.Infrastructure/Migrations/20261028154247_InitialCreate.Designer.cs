@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261028143347_InitialCreate")]
+    [Migration("20261028154247_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -1608,9 +1608,15 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid>("DistrictId")
                         .HasColumnType("uuid");
 
+                    b.Property<short?>("Floor")
+                        .HasColumnType("smallint");
+
                     b.Property<string>("FurnishedStatus")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool?>("IsAc")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -1649,6 +1655,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Guid>("RoomTypeId")
                         .HasColumnType("uuid");
+
+                    b.Property<int?>("SecurityDeposit")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Slug")
                         .HasColumnType("text");
@@ -1733,7 +1742,12 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDatabaseName("ix_roomlistings_digest_pending")
                         .HasFilter("\"DigestNotifiedAt\" IS NULL");
 
-                    b.ToTable("RoomListings");
+                    b.ToTable("RoomListings", t =>
+                        {
+                            t.HasCheckConstraint("ck_roomlistings_floor_range", "\"Floor\" IS NULL OR (\"Floor\" >= 0 AND \"Floor\" <= 3)");
+
+                            t.HasCheckConstraint("ck_roomlistings_security_deposit_range", "\"SecurityDeposit\" IS NULL OR (\"SecurityDeposit\" >= 0 AND \"SecurityDeposit\" <= 9900000)");
+                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomPhoto", b =>

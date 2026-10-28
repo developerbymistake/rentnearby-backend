@@ -277,9 +277,10 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
 
         if (sortBy is "area_asc" or "area_desc")
         {
+            var cityFirst = query.OrderBy(p => cityId != null && p.CityId == cityId ? 0 : 1);
             var byArea = sortBy == "area_asc"
-                ? query.OrderBy(p => p.AreaSqft).ThenBy(p => p.Id)
-                : query.OrderByDescending(p => p.AreaSqft).ThenByDescending(p => p.Id);
+                ? cityFirst.ThenBy(p => p.AreaSqft).ThenBy(p => p.Id)
+                : cityFirst.ThenByDescending(p => p.AreaSqft).ThenByDescending(p => p.Id);
             var sized = await byArea.Skip((page - 1) * pageSize).Take(pageSize + 1).Select(BrowseProjection).ToListAsync();
             return BrowseCursor.OffsetPage(sized, pageSize);
         }

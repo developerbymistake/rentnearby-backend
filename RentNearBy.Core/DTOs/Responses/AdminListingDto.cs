@@ -13,6 +13,7 @@ public class AdminListingDto
     public bool IsActive { get; set; }
     public DateTime? ValidUntil { get; set; }
     public string FurnishedStatus { get; set; } = "None";
+    public bool? IsAc { get; set; }
     public string? Address { get; set; }
     public string? ThumbnailUrl { get; set; }
     public int PhotoCount { get; set; }

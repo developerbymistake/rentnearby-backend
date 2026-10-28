@@ -13,4 +13,5 @@ public class NearbyListingDto
     public double DistanceKm { get; set; }
     public bool IsActive { get; set; }
     public string FurnishedStatus { get; set; } = "None";
+    public bool? IsAc { get; set; }
 }

@@ -169,6 +169,7 @@ public static class AdminRoleHandlers
         var leftKind = UserRoles.ListingKindOf(user.RoleId);
         var targetKind = UserRoles.ListingKindOf(target.Id);
         var purgeKind = leftKind != null && leftKind != targetKind ? leftKind : null;
+        IReadOnlyList<Guid> purgedListingIds = [];
 
         await unitOfWork.BeginTransactionAsync();
         try
@@ -199,7 +200,7 @@ public static class AdminRoleHandlers
             if (purgeKind != null)
             {
                 await RefundPendingGoLiveCreditsAsync(user.Id, purgeKind, db, wallet);
-                await listingPurge.PurgeUserListingsAsync(user.Id, purgeKind);
+                purgedListingIds = await listingPurge.DeleteUserListingRowsAsync(user.Id, purgeKind);
                 await unitOfWork.Notifications.DeleteByActionRouteForUserAsync(user.Id, UserNotificationRoutes.ForListingKind(purgeKind));
             }
 
@@ -212,6 +213,8 @@ public static class AdminRoleHandlers
             await unitOfWork.Sessions.RevokeAllUserSessionsAsync(user.Id);
 
             await unitOfWork.CommitTransactionAsync();
+
+            await listingPurge.DeleteListingPhotosBestEffortAsync(user.Id, purgedListingIds);
 
             await AdminHandlers.SendGoLiveNotificationAsync(hubContext, publisher, notification);
 

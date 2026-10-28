@@ -10,5 +10,6 @@ public class HomeRoomDto
     public string? CityName { get; set; }
     public string DistrictName { get; set; } = string.Empty;
     public string FurnishedStatus { get; set; } = "None";
+    public bool? IsAc { get; set; }
     public DateTime CreatedAt { get; set; }
 }

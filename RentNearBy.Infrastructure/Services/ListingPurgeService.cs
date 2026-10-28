@@ -1,12 +1,14 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Opens no transaction: callers run it inside their own transaction on the same scoped context.
-public class ListingPurgeService(ApplicationDbContext context, IPhotoService photoService)
+// Opens no transaction: the caller owns it. Role-change photo deletion runs after the caller's commit.
+public class ListingPurgeService(
+    ApplicationDbContext context, IPhotoService photoService, ILogger<ListingPurgeService> logger)
     : IListingPurgeService
 {
     public async Task PurgeUserListingsAsync(Guid userId)
@@ -30,30 +32,45 @@ public class ListingPurgeService(ApplicationDbContext context, IPhotoService pho
             .ExecuteDeleteAsync();
     }
 
-    public async Task PurgeUserListingsAsync(Guid userId, string listingKind)
+    public Task<IReadOnlyList<Guid>> DeleteUserListingRowsAsync(Guid userId, string listingKind) => listingKind switch
     {
-        switch (listingKind)
+        ListingKinds.Room => DeleteRoomRowsAsync(userId),
+        ListingKinds.Plot => DeletePlotRowsAsync(userId),
+        _ => throw new ArgumentOutOfRangeException(nameof(listingKind), listingKind, "Unknown listing kind"),
+    };
+
+    // Runs after the caller's commit: a Cloudinary failure only orphans files, it must never surface.
+    public async Task DeleteListingPhotosBestEffortAsync(Guid userId, IReadOnlyList<Guid> listingIds)
+    {
+        var failedIds = new List<Guid>();
+        Exception? lastError = null;
+
+        // Plot photos share the listing-id prefix scheme used by DeleteRoomPhotosAsync.
+        foreach (var listingId in listingIds)
         {
-            case ListingKinds.Room:
-                await PurgeRoomsAsync(userId);
-                break;
-            case ListingKinds.Plot:
-                await PurgePlotsAsync(userId);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(listingKind), listingKind, "Unknown listing kind");
+            try
+            {
+                await photoService.DeleteRoomPhotosAsync(userId, listingId);
+            }
+            catch (Exception ex)
+            {
+                failedIds.Add(listingId);
+                lastError = ex;
+            }
         }
+
+        if (failedIds.Count > 0)
+            logger.LogError(lastError,
+                "Cloudinary photo cleanup failed for user {UserId}, listings {ListingIds}",
+                userId, string.Join(",", failedIds));
     }
 
-    private async Task PurgeRoomsAsync(Guid userId)
+    private async Task<IReadOnlyList<Guid>> DeleteRoomRowsAsync(Guid userId)
     {
         var listingIds = await context.RoomListings
             .Where(l => l.UserId == userId)
             .Select(l => l.Id)
             .ToListAsync();
-
-        foreach (var listingId in listingIds)
-            await photoService.DeleteRoomPhotosAsync(userId, listingId);
 
         await context.RoomPhotos
             .Where(p => context.RoomListings.Any(l => l.Id == p.RoomListingId && l.UserId == userId))
@@ -62,18 +79,16 @@ public class ListingPurgeService(ApplicationDbContext context, IPhotoService pho
         await context.RoomListings
             .Where(l => l.UserId == userId)
             .ExecuteDeleteAsync();
+
+        return listingIds;
     }
 
-    private async Task PurgePlotsAsync(Guid userId)
+    private async Task<IReadOnlyList<Guid>> DeletePlotRowsAsync(Guid userId)
     {
         var plotIds = await context.PlotListings
             .Where(p => p.UserId == userId)
             .Select(p => p.Id)
             .ToListAsync();
-
-        // Plot photos share the listing-id prefix scheme used by DeleteRoomPhotosAsync.
-        foreach (var plotId in plotIds)
-            await photoService.DeleteRoomPhotosAsync(userId, plotId);
 
         await context.PlotPhotos
             .Where(p => context.PlotListings.Any(l => l.Id == p.PlotId && l.UserId == userId))
@@ -82,5 +97,7 @@ public class ListingPurgeService(ApplicationDbContext context, IPhotoService pho
         await context.PlotListings
             .Where(p => p.UserId == userId)
             .ExecuteDeleteAsync();
+
+        return plotIds;
     }
 }

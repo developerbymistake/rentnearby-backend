@@ -107,6 +107,7 @@ public static class HomeHandlers
             CityName = l.City?.Name,
             DistrictName = l.District?.Name ?? string.Empty,
             FurnishedStatus = l.FurnishedStatus,
+            IsAc = l.IsAc,
             CreatedAt = l.CreatedAt,
         }).ToList();
 
@@ -248,6 +249,7 @@ public static class HomeHandlers
             CityName = l.City?.Name,
             DistrictName = l.District?.Name ?? string.Empty,
             FurnishedStatus = l.FurnishedStatus,
+            IsAc = l.IsAc,
             CreatedAt = l.CreatedAt,
         }).ToList();
 

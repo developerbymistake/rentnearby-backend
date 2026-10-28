@@ -69,7 +69,11 @@ public static class UsersHandlers
         var user = await unitOfWork.Users.GetByIdAsync(userId);
         if (user == null) return NotFoundResponse("User not found");
 
-        user.IsContactVisible = request.IsContactVisible!.Value;
+        var visible = request.IsContactVisible!.Value;
+        if (!visible && UserRoles.ListingKindOf(user.RoleId) != null)
+            return ConflictResponse("Owners keep their contact number visible.", "ContactVisibilityLocked");
+
+        user.IsContactVisible = visible;
         user.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.Users.UpdateAsync(user);

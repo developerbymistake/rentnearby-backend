@@ -1419,6 +1419,7 @@ public static class AdminHandlers
                 PriceMonthly = l.PriceMonthly,
                 IsActive = l.IsActive,
                 ValidUntil = l.ValidUntil,
+                IsAc = l.IsAc,
                 Address = l.Address,
                 ThumbnailUrl = l.Photos.FirstOrDefault()?.PhotoUrl,
                 PhotoCount = l.Photos.Count,
@@ -1606,6 +1607,9 @@ public static class AdminHandlers
         dto.CityName = l.City?.Name;
         dto.RoomTypeName = l.RoomType?.Name;
         dto.FurnishedStatus = l.FurnishedStatus;
+        dto.IsAc = l.IsAc;
+        dto.SecurityDeposit = l.SecurityDeposit;
+        dto.Floor = l.Floor;
         dto.PriceMonthly = l.PriceMonthly;
     }
 
@@ -1834,6 +1838,9 @@ public static class AdminHandlers
         CityName = l.City?.Name,
         RoomTypeName = l.RoomType?.Name,
         FurnishedStatus = l.FurnishedStatus,
+        IsAc = l.IsAc,
+        SecurityDeposit = l.SecurityDeposit,
+        Floor = l.Floor,
         PriceMonthly = l.PriceMonthly,
     };
 

@@ -14,6 +14,9 @@ public class RoomListing
     public Guid? CityId { get; set; }
     public bool IsActive { get; set; } = false;
     public string FurnishedStatus { get; set; } = "None";
+    public bool? IsAc { get; set; }
+    public int? SecurityDeposit { get; set; }
+    public short? Floor { get; set; }   // 0 = Ground, 3 = 3 or more
     // Generated once at creation time (SlugGenerator, in RoomListingsHandlers.CreateListing) — immutable
     // for the life of the listing. Powers the public share link (bakhli.com/l/r/{slug}) and the /go/r/{slug}
     // QR redirect; never regenerated on update, and never derived from price/status (see SlugGenerator.cs).

@@ -478,6 +478,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => l.ValidUntil)
              .HasDatabaseName("ix_roomlistings_active_validuntil")
              .HasFilter("\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_roomlistings_security_deposit_range", "\"SecurityDeposit\" IS NULL OR (\"SecurityDeposit\" >= 0 AND \"SecurityDeposit\" <= 9900000)");
+                t.HasCheckConstraint("ck_roomlistings_floor_range", "\"Floor\" IS NULL OR (\"Floor\" >= 0 AND \"Floor\" <= 3)");
+            });
         });
 
         modelBuilder.Entity<RoomPhoto>(e =>
