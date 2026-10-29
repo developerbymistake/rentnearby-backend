@@ -1,7 +1,7 @@
 namespace RentNearBy.Core.Models;
 
 // Discriminator for NotificationEvent.Type — plain constants, no DB lookup table (matches
-// ListingKinds/CreditTransactionReasons's established idiom; a lookup table only pays
+// ListingKinds's established idiom; a lookup table only pays
 // for itself if types need to be admin-configurable at runtime, which isn't the case here). Add a
 // new const here (and a matching wire-value entry below) for each new notification category —
 // nothing else about the schema changes.
@@ -15,6 +15,9 @@ public static class NotificationTypes
     public const string StayRejected = "StayRejected";
     public const string TaxiApproved = "TaxiApproved";
     public const string TaxiRejected = "TaxiRejected";
+    public const string PlanActivated = "PlanActivated";
+    public const string PlanExpiring = "PlanExpiring";
+    public const string PlanExpired = "PlanExpired";
     // Push-only (FCM notification_type for the seeker and admin job pushes), no NotificationEvent row.
     public const string StayJobPosted = "StayJobPosted";
 
@@ -32,6 +35,9 @@ public static class NotificationTypes
         [StayRejected] = "stay_rejected",
         [TaxiApproved] = "taxi_approved",
         [TaxiRejected] = "taxi_rejected",
+        [PlanActivated] = "plan_activated",
+        [PlanExpiring] = "plan_expiring",
+        [PlanExpired] = "plan_expired",
         [StayJobPosted] = "stay_job_posted",
     };
 

@@ -1,8 +1,6 @@
 using System.Security.Claims;
 using FluentValidation;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Memory;
-using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -92,9 +90,6 @@ public static class AuthHandlers
         IValidator<PhoneOnboardingRequest> validator,
         IUnitOfWork unitOfWork,
         IJwtService jwtService,
-        ICouponService couponService,
-        ILogger<CouponService> logger,
-        IHubContext<WalletHub> hubContext,
         IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
@@ -123,35 +118,6 @@ public static class AuthHandlers
         catch (Microsoft.EntityFrameworkCore.DbUpdateException)
         {
             return ConflictResponse("This phone number is already registered. Please sign in.", "PhoneExists");
-        }
-
-        // Best-effort — a welcome-bonus hiccup must never block signup itself. The redemption's own
-        // (CouponId, UserId) unique index also protects against a retried signup double-crediting.
-        try
-        {
-            var welcomeResult = await couponService.RedeemCouponAsync(newUser.Id, WellKnownCoupons.WelcomeSignupCouponId);
-            if (welcomeResult.Outcome == CouponRedeemOutcome.Success)
-            {
-                // Scoped separately so a push hiccup is never logged as a redemption failure — the
-                // coupon itself already succeeded by this point. The client isn't connected to any
-                // hub yet at this exact moment (login hasn't completed), so this mainly matters for
-                // multi-device/future-connect edge cases — cheap to add, keeps "every balance
-                // mutation gets a push" honest with no exceptions.
-                try
-                {
-                    await hubContext.Clients.Group($"user_{newUser.Id}").SendAsync("WalletBalanceChanged", new
-                    {
-                        balance = welcomeResult.NewBalance ?? 0,
-                        reason = CreditTransactionReasons.WelcomeBonus,
-                        occurredAt = DateTime.UtcNow,
-                    });
-                }
-                catch { }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Welcome bonus redemption failed for new user {UserId} — continuing signup", newUser.Id);
         }
 
         return await CreateSessionAndRespond(newUser, unitOfWork, jwtService, cache);

@@ -1,13 +1,18 @@
 namespace RentNearBy.Core.DTOs.Requests;
 
-// ClearMaxTotalRedemptions/ClearValidUntil exist because the corresponding nullable fields can't
-// otherwise distinguish "field omitted, leave unchanged" from "explicitly set to null" — both arrive
-// as null. Default false, so existing callers that never set them behave exactly as before.
+// Full replace. Kind, Value and scope (FeatureKey, AllowedPlanIds) are locked once RedemptionCount > 0.
 public record UpdateCouponRequest(
-    int? CreditValue,
+    string Kind,
+    int Value,
+    int? MaxDiscountInr,
+    int? MinPlanPriceInr,
+    string? FeatureKey,
+    List<Guid>? AllowedPlanIds,
+    bool NewUsersOnly,
+    bool FirstPurchaseOnly,
+    int PerUserLimit,
     int? MaxTotalRedemptions,
-    bool ClearMaxTotalRedemptions,
+    DateTime? ValidFrom,
     DateTime? ValidUntil,
-    bool ClearValidUntil,
-    string? CampaignLabel,
-    string? Status);
+    bool AutoApply,
+    string? CampaignLabel);

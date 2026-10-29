@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using RentNearBy.Api.Services;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
@@ -24,7 +23,7 @@ public static class ServiceCollectionExtensions
         // Backend for the two pooling pitfalls: ApplicationDbContext itself has no custom
         // fields to leak state between requests, and every consumer (all handlers, all 10
         // background workers via IServiceScopeFactory.CreateScope(), AccountDeletionService,
-        // CreditWalletService) resolves it as Scoped, never captured by a Singleton.
+        // the plan services) resolves it as Scoped, never captured by a Singleton.
         services.AddDbContextPool<ApplicationDbContext>(options =>
             options.UseNpgsql(connectionString, o => o.UseNetTopologySuite()));
 
@@ -35,15 +34,20 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IListingPurgeService, ListingPurgeService>();
         services.AddScoped<IRoleChangeGuardService, RoleChangeGuardService>();
         services.AddScoped<IAccountDeletionService, AccountDeletionService>();
-        services.AddScoped<ICreditWalletService, CreditWalletService>();
-        services.AddScoped<ICouponService, CouponService>();
-        services.AddScoped<ICreditPackPurchaseService, CreditPackPurchaseService>();
-        services.AddScoped<IWalletNotifier, WalletNotifier>();
         services.AddScoped<ICityResolutionService, CityResolutionService>();
-        services.AddHostedService<PendingCreditPurchaseCleanupService>();
+        services.AddScoped<IPlanCatalogCache, PlanCatalogCache>();
+        services.AddScoped<IPaymentFeatureReader, PaymentFeatureReader>();
+        services.AddScoped<IPlanEntitlementService, PlanEntitlementService>();
+        services.AddScoped<ILiveSlotService, PlanSlotService>();
+        services.AddScoped<IPlanPurchaseService, PlanPurchaseService>();
+        services.AddScoped<IListingCacheInvalidator, ListingCacheInvalidator>();
 
-        // Replaces MembershipExpiryService + PlotMembershipExpiryService — one unified sweep,
-        // by ValidUntil on the listings themselves, no membership record involved (runs at 12:00 AM IST daily)
+        // Hourly: plan expiry claims, 7-day reminders, daily rank reconcile.
+        services.AddHostedService<PlanLifecycleService>();
+        // Every 2 min: settles paid orders, refunds blocked grants, expires stale open orders.
+        services.AddHostedService<PlanPurchaseReconcilerService>();
+
+        // Hourly (anchored at :15) sweep of rooms/plots past their own ValidUntil.
         services.AddHostedService<ListingExpirySweepService>();
         // Register background service for district digest aggregation (runs at 4:00 AM IST daily)
         services.AddHostedService<DistrictDigestJobService>();

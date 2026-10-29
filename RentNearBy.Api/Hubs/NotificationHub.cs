@@ -4,8 +4,7 @@ using RentNearBy.Api.Handlers;
 
 namespace RentNearBy.Api.Hubs;
 
-// Independent of WalletHub/ChatHub/BannerHub — no shared code, mirrors WalletHub's always-join-
-// user_{id} shape only. Push-only: no client-invokable methods, no sub-group concept (a push event
+// Independent of ChatHub/BannerHub — no shared code, always joins the user_{id} group. Push-only: no client-invokable methods, no sub-group concept (a push event
 // is scoped to the owning user, never to anything narrower).
 [Authorize]
 public class NotificationHub : Hub

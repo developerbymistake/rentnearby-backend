@@ -303,6 +303,7 @@ public static class TaxiHandlers
         IUnitOfWork unitOfWork,
         ApplicationDbContext db,
         IRabbitMqPublisher publisher,
+        IPlanEntitlementService entitlements,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -343,14 +344,20 @@ public static class TaxiHandlers
 
         var isNew = taxi == null;
         var now = DateTime.UtcNow;
-        taxi ??= new TaxiListing
+        if (taxi == null)
         {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            Status = TaxiStatuses.Draft,
-            IsAvailable = true,
-            CreatedAt = now,
-        };
+            var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Taxi);
+            taxi = new TaxiListing
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Status = TaxiStatuses.Draft,
+                IsAvailable = true,
+                PriorityRank = limits.PriorityRank,
+                IsFeatured = limits.IsFeatured,
+                CreatedAt = now,
+            };
+        }
 
         var wasApproved = taxi.Status == TaxiStatuses.Approved;
         var plateChanged = taxi.NumberPlate != plate;

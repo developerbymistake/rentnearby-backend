@@ -21,5 +21,7 @@ public class PublicRoomListingDto
     public bool? IsAc { get; set; }
     public int? SecurityDeposit { get; set; }
     public short? Floor { get; set; }
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
     public List<string> Photos { get; set; } = new();
 }

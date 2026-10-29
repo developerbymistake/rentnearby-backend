@@ -9,50 +9,46 @@ using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
 
-// Public, non-admin config the client apps need before any specific action — currently just the
-// listing-creation caps, read by the consumer app's Add Room/Add Plot gating and by the admin app
-// for parity. Anonymous by design: this is read-only reference data, not user-specific.
+// Public, non-admin config the client apps need before any specific action. Anonymous by design:
+// read-only reference data, not user-specific.
 public static class ConfigHandlers
 {
     public const string ListingLimitsCacheKey = "config_listing_limits";
-    public const string PaymentFeatureCacheKey = "config_payment_feature";
+    public const string PaymentFeatureCacheKey = IPaymentFeatureReader.CacheKey;
     public const string AppTabsCacheKey = AppTabCache.Key;
     public const string RolesCacheKey = "config_roles";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
 
-    public static async Task<IResult> GetListingLimits(IUnitOfWork unitOfWork, IMemoryCache cache)
+    // Kept for old builds: the default plan's ListingLimit (or the free-mode limit while payment is off).
+    public static async Task<IResult> GetListingLimits(IPlanEntitlementService entitlements, IMemoryCache cache)
     {
-        if (!cache.TryGetValue(ListingLimitsCacheKey, out (int RoomLimit, int PlotLimit) cached))
+        if (!cache.TryGetValue(ListingLimitsCacheKey, out (int Room, int Plot) cached))
         {
-            var settings = await unitOfWork.ListingLimitSettings.GetAllAsync();
-            var roomLimit = settings.FirstOrDefault(s => s.ListingKind == ListingKinds.Room)?.MaxListings ?? 5;
-            var plotLimit = settings.FirstOrDefault(s => s.ListingKind == ListingKinds.Plot)?.MaxListings ?? 5;
-            cached = (roomLimit, plotLimit);
+            cached = await entitlements.GetPublicListingLimitsAsync();
             cache.Set(ListingLimitsCacheKey, cached, CacheTtl);
         }
 
-        return OkResponse(new { roomLimit = cached.RoomLimit, plotLimit = cached.PlotLimit });
+        return OkResponse(new { room = cached.Room, plot = cached.Plot, roomLimit = cached.Room, plotLimit = cached.Plot });
     }
 
-    // Fallback when the row is missing/null is Enabled = true — fail toward REQUIRING payment. This is
-    // deliberately the OPPOSITE polarity from the seed's IsEnabled = false default: a missing row must
-    // never silently make Go-Live free for everyone. Do not "simplify" this to match the seed default.
-    public static async Task<(bool Enabled, int FreeDurationDays)> GetPaymentFeatureCachedAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
+    // Plan catalog, payment flag or free-mode limit changed.
+    public static void BustPlanDerivedConfig(IMemoryCache cache) => cache.Remove(ListingLimitsCacheKey);
+
+    public static async Task<(bool Enabled, int FreeDurationDays)> GetPaymentFeatureCachedAsync(IPaymentFeatureReader reader)
     {
-        if (!cache.TryGetValue(PaymentFeatureCacheKey, out (bool Enabled, int FreeDurationDays) cached))
+        var state = await reader.GetAsync();
+        return (state.Enabled, state.FreeDays);
+    }
+
+    public static async Task<IResult> GetPaymentFeature(IPaymentFeatureReader reader)
+    {
+        var state = await reader.GetAsync();
+        return OkResponse(new
         {
-            var flag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.PaymentEnabled);
-            cached = (flag?.IsEnabled ?? true, flag?.FreeDurationDays ?? 30);
-            cache.Set(PaymentFeatureCacheKey, cached, CacheTtl);
-        }
-
-        return cached;
-    }
-
-    public static async Task<IResult> GetPaymentFeature(IUnitOfWork unitOfWork, IMemoryCache cache)
-    {
-        var (enabled, freeDurationDays) = await GetPaymentFeatureCachedAsync(unitOfWork, cache);
-        return OkResponse(new { enabled, freeGoLiveDurationDays = freeDurationDays });
+            enabled = state.Enabled,
+            freeGoLiveDurationDays = state.FreeDays,
+            freeModeListingLimit = state.FreeModeListingLimit,
+        });
     }
 
     // Master table for the bottom-nav tabs (RentNearBy.Core.Models.AppTabKeys), read through AppTabCache so

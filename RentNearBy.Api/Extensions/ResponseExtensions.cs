@@ -1,5 +1,6 @@
 using System.Net;
 using RentNearBy.Core.DTOs.Responses;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Extensions;
 
@@ -62,6 +63,21 @@ public static class ApiResults
             Status = "429", Code = 429, Timestamp = Timestamp(),
             Error = new ApiError { Message = "Too many attempts. Please try again later.", Type = "TooManyRequests" }
         }, statusCode: 429);
+
+    // Error envelope that also carries data, e.g. {limit, used} for ListingLimitReached.
+    public static IResult ErrorResponse(int statusCode, string message, string type, object? data = null) =>
+        Results.Json(new ApiResponse<object>
+        {
+            Data = data, Status = statusCode.ToString(), Code = statusCode, Timestamp = Timestamp(),
+            Error = new ApiError { Message = message, Type = type }
+        }, statusCode: statusCode);
+
+    public static IResult PlanErrorResponse(PlanServiceException ex, HttpContext? httpContext = null)
+    {
+        if (ex.RetryAfter is { } retry && httpContext != null)
+            httpContext.Response.Headers["Retry-After"] = ((int)Math.Ceiling(retry.TotalSeconds)).ToString();
+        return ErrorResponse(ex.StatusCode, ex.Message, ex.ErrorType, ex.Payload);
+    }
 
     public static IResult ServerErrorResponse(string message = "An unexpected error occurred. Please try again later.") =>
         Results.Json(new ApiResponse<object>

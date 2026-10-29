@@ -301,26 +301,6 @@ public static class RoomListingsHandlers
         return OkResponse(listing.Adapt<PublicRoomListingDto>());
     }
 
-    public static async Task<IResult> GetPlans(IUnitOfWork unitOfWork)
-    {
-        var plans = await unitOfWork.CreditPlans.GetByFeatureKeyAsync(CreditFeatureKeys.RoomGoLive);
-        var result = plans
-            .Where(p => p.IsEnabled)
-            .OrderBy(p => p.Price)
-            .Select(p => new
-            {
-                planType      = p.PlanType,
-                days          = p.Days,
-                price         = p.Price,
-                originalPrice = p.OriginalPrice,
-                discountPercent = p.DiscountPercent,
-                roomLimit     = p.Quota,
-                isFeatured    = p.IsFeatured,
-            })
-            .ToList();
-        return OkResponse(result);
-    }
-
     public static async Task<IResult> GetMyListings(
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 10)
     {
@@ -371,6 +351,8 @@ public static class RoomListingsHandlers
         ClaimsPrincipal principal,
         IValidator<CreateListingRequest> validator,
         IUnitOfWork unitOfWork,
+        ILiveSlotService slots,
+        IPlanEntitlementService entitlements,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -399,14 +381,6 @@ public static class RoomListingsHandlers
                 return BadRequestResponse("Selected city does not belong to the selected district");
         }
 
-        // Flat, credits-independent cap on how many listings a user can create — separate concern from
-        // whether they can afford to go live on one (that's credit-gated, at /go-live time instead).
-        var roomLimit = await unitOfWork.ListingLimitSettings.GetByKindAsync(ListingKinds.Room);
-        var maxListings = roomLimit?.MaxListings ?? 5;
-        var currentCount = await unitOfWork.RoomListings.CountByUserIdAsync(userId);
-        if (currentCount >= maxListings)
-            return BadRequestResponse($"You can have at most {maxListings} room listing(s). Delete one to add more.");
-
         var listing = new RoomListing
         {
             Id = Guid.NewGuid(),
@@ -432,25 +406,19 @@ public static class RoomListingsHandlers
         // RoomListing.Slug) — base is type + locality only, never price/status. Uniqueness is handled
         // by SlugGenerator.GenerateUniqueSlugWithRetryAsync (shared with PlotListingHandlers.CreatePlotListing).
         var baseSlug = SlugGenerator.Generate($"{roomType.Name} {city?.Name ?? district.Name}");
+        // The plan limit (used = not deleted, not Rejected) is checked under the owner lock in the same transaction.
         await unitOfWork.RoomListings.AddAsync(listing);
-        var inserted = await SlugGenerator.GenerateUniqueSlugWithRetryAsync(
-            baseSlug,
+        var outcome = await ListingSlotHelpers.InsertWithinLimitAsync(
+            unitOfWork, slots, entitlements, userId, ListingKinds.Room, baseSlug,
             slug => listing.Slug = slug,
-            async () =>
+            limits =>
             {
-                try
-                {
-                    await unitOfWork.SaveChangesAsync();
-                    return true;
-                }
-                catch (DbUpdateException)
-                {
-                    // Unique-index collision on Slug — loop retries with the next counter suffix, or
-                    // falls through to the ConflictResponse below once attempts are exhausted.
-                    return false;
-                }
+                listing.PriorityRank = limits.PriorityRank;
+                listing.IsFeatured = limits.IsFeatured;
             });
-        if (!inserted)
+        if (outcome.Limit is { } limit)
+            return GoLiveHandlers.ListingLimitReached(limit, outcome.Used ?? limit);
+        if (!outcome.Inserted)
             return ConflictResponse("Could not generate a unique link for this listing. Please try again.", "SLUG_GENERATION_FAILED");
 
         // Invalidate cache for the listing's district
@@ -460,7 +428,7 @@ public static class RoomListingsHandlers
         return CreatedResponse(new { listingId = listing.Id }, $"/api/v1/listings/{listing.Id}");
     }
 
-    public static async Task<IResult> UpdateListing(Guid id, UpdateListingRequest request, ClaimsPrincipal principal, IValidator<UpdateListingRequest> validator, IUnitOfWork unitOfWork, IServiceProvider sp)
+    public static async Task<IResult> UpdateListing(Guid id, UpdateListingRequest request, ClaimsPrincipal principal, IValidator<UpdateListingRequest> validator, IUnitOfWork unitOfWork, ILiveSlotService slots, IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -492,64 +460,30 @@ public static class RoomListingsHandlers
             listing.CityId = request.CityId.Value;
             listing.DistrictId = city.DistrictId;
         }
+        var freesSlot = false;
         if (request.IsActive.HasValue)
         {
             if (request.IsActive.Value)
                 return BadRequestResponse("Use POST /listings/{id}/go-live to activate a listing.");
-            listing.IsActive = false; // deactivating is always free — ValidUntil is untouched, so a
-                                       // later Go-Live within the same window reactivates for free too
+            if (listing.IsActive)
+            {
+                // Owner pause: never auto-resumed; Go Live within the limit brings it back. Its slot goes to
+                // the newest plan-paused row.
+                freesSlot = listing.LiveRequestStatus != GoLiveRequestStatuses.Pending;
+                listing.IsActive = false;
+                listing.PauseReason = PauseReasons.Owner;
+            }
         }
         listing.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.RoomListings.UpdateAsync(listing);
-        await unitOfWork.SaveChangesAsync();
-
-        if (request.IsActive.HasValue && request.IsActive.Value == false)
-            await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
-
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
-        await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
-        if (oldDistrictId != listing.DistrictId)
-        {
-            await InvalidateNearbyCacheAsync(redis, oldDistrictId);
-            await InvalidateForYouRoomsCacheAsync(redis, oldDistrictId);
-        }
-        if (request.IsActive.HasValue && request.IsActive.Value == false)
-            await InvalidateRecentRoomsCacheAsync(redis);
-
-        return OkResponse(new { success = true });
-    }
-
-    public static async Task<IResult> DeleteListing(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, ICreditWalletService wallet, IServiceProvider sp)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
-        if (listing == null) return NotFoundResponse("RoomListing not found");
-        if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
-
-        var districtId = listing.DistrictId;
-
-        await photoService.DeleteRoomPhotosAsync(userId, id);
-
-        // A still-Pending Go-Live request (never approved/activated) with credits already spent
-        // must be refunded on delete — mirrors GoLiveHandlers's own transaction shape since folding
-        // a credit mutation into a bare SaveChangesAsync would be a correctness gap.
-        var needsRefund = listing.LiveRequestStatus == GoLiveRequestStatuses.Pending
-            && listing.RequestedPlanCreditsSpent is > 0;
-
-        listing.IsDeleted = true;
-        listing.DeletedAt = DateTime.UtcNow;
-        await unitOfWork.RoomListings.UpdateAsync(listing);
-
-        if (needsRefund)
+        var resumed = 0;
+        if (freesSlot)
         {
             await unitOfWork.BeginTransactionAsync();
             try
             {
-                await wallet.AddCreditsAsync(userId, listing.RequestedPlanCreditsSpent!.Value, CreditTransactionReasons.GoLivePendingRefund, listing.Id);
+                await slots.LockOwnerAsync(userId);
                 try
                 {
                     await unitOfWork.SaveChangesAsync();
@@ -559,6 +493,7 @@ public static class RoomListingsHandlers
                     await unitOfWork.RollbackTransactionAsync();
                     return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
                 }
+                resumed = await slots.ResumeAfterSlotFreedAsync(userId, ListingKinds.Room);
                 await unitOfWork.CommitTransactionAsync();
             }
             catch
@@ -579,14 +514,155 @@ public static class RoomListingsHandlers
             }
         }
 
+        if (request.IsActive.HasValue && request.IsActive.Value == false)
+            await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
+        await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
+        if (oldDistrictId != listing.DistrictId)
+        {
+            await InvalidateNearbyCacheAsync(redis, oldDistrictId);
+            await InvalidateForYouRoomsCacheAsync(redis, oldDistrictId);
+        }
+        if (request.IsActive.HasValue && request.IsActive.Value == false)
+            await InvalidateRecentRoomsCacheAsync(redis);
+        if (resumed > 0)
+            await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(userId, ListingKinds.Room);
+
+        return OkResponse(new { success = true });
+    }
+
+    public static async Task<IResult> DeleteListing(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, ILiveSlotService slots, IServiceProvider sp)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
+        if (listing == null) return NotFoundResponse("RoomListing not found");
+        if (listing.UserId != userId) return ForbiddenResponse("You do not own this listing");
+
+        var districtId = listing.DistrictId;
+
+        await photoService.DeleteRoomPhotosAsync(userId, id);
+
+        // Deleting a live (or pending) row frees a slot: the newest plan-paused row resumes in the same transaction.
+        var resumed = 0;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await slots.LockOwnerAsync(userId);
+            var wasLive = listing.IsActive || listing.LiveRequestStatus == GoLiveRequestStatuses.Pending;
+            listing.IsDeleted = true;
+            listing.DeletedAt = DateTime.UtcNow;
+            await unitOfWork.RoomListings.UpdateAsync(listing);
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+            if (wasLive)
+                resumed = await slots.ResumeAfterSlotFreedAsync(userId, ListingKinds.Room);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, districtId);
         await InvalidateRecentRoomsCacheAsync(redis);
         await InvalidateForYouRoomsCacheAsync(redis, districtId);
+        if (resumed > 0)
+            await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(userId, ListingKinds.Room);
 
         return NoContentResponse();
+    }
+
+    // Makes a paused, approved listing live in place of a live one (owner lock, both rows xmin-guarded).
+    public static async Task<IResult> SwapLive(
+        Guid id,
+        SwapLiveRequest request,
+        ClaimsPrincipal principal,
+        IUnitOfWork unitOfWork,
+        ILiveSlotService slots,
+        IPlanEntitlementService entitlements,
+        IListingCacheInvalidator cacheInvalidator)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+        if (request == null || request.PauseListingId == Guid.Empty || request.PauseListingId == id)
+            return BadRequestResponse("Choose a live listing to pause.", PlanErrorTypes.SwapInvalid);
+
+        int limit, live;
+        var districts = new List<Guid>();
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await slots.LockOwnerAsync(userId);
+            var target = await unitOfWork.RoomListings.GetByIdAsync(id);
+            var other = await unitOfWork.RoomListings.GetByIdAsync(request.PauseListingId);
+            if (target == null || other == null || target.IsDeleted || other.IsDeleted
+                || target.UserId != userId || other.UserId != userId
+                || target.IsActive || target.LiveRequestStatus != GoLiveRequestStatuses.Approved
+                || target.PauseReason is PauseReasons.Admin or PauseReasons.Suspended
+                || !other.IsActive)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return BadRequestResponse("These listings cannot be swapped.", PlanErrorTypes.SwapInvalid);
+            }
+
+            var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Room);
+            // Swap only at the limit: with a free slot, plan-pausing `other` would strand it next to an empty slot.
+            if (await slots.CountLiveAsync(userId, ListingKinds.Room, excludeId: target.Id) < limits.ListingLimit)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return BadRequestResponse("A slot is free. Use Go Live instead.", PlanErrorTypes.SwapInvalid);
+            }
+            var now = DateTime.UtcNow;
+            other.IsActive = false;
+            other.PauseReason = PauseReasons.Plan;
+            other.UpdatedAt = now;
+            target.IsActive = true;
+            target.PauseReason = null;
+            target.ValidUntil = entitlements.ResolveValidUntil(limits);
+            target.PriorityRank = limits.PriorityRank;
+            target.IsFeatured = limits.IsFeatured;
+            target.UpdatedAt = now;
+            await unitOfWork.RoomListings.UpdateAsync(other);
+            await unitOfWork.RoomListings.UpdateAsync(target);
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+            limit = limits.ListingLimit;
+            live = await slots.CountLiveAsync(userId, ListingKinds.Room);
+            await unitOfWork.CommitTransactionAsync();
+            districts.Add(target.DistrictId);
+            districts.Add(other.DistrictId);
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+
+        await cacheInvalidator.BustDistrictsAsync(ListingKinds.Room, districts);
+        return OkResponse(new { limits = new LiveLimitsDto { ListingLimit = limit, Live = live } });
     }
 
     public static async Task<IResult> ReportListing(

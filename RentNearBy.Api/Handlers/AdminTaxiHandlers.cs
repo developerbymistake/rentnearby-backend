@@ -87,12 +87,14 @@ public static class AdminTaxiHandlers
 
     public static async Task<IResult> ApproveTaxi(
         Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
+        IPlanEntitlementService entitlements, IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var taxi = await unitOfWork.Taxis.GetByIdAsync(id);
         if (taxi == null || taxi.IsDeleted) return NotFoundResponse(TaxiNotFound);
         if (taxi.Status != TaxiStatuses.PendingReview)
             return BadRequestResponse("This request has already been resolved");
+
+        var limits = await entitlements.GetLimitsAsync(taxi.UserId, ListingKinds.Taxi);
 
         var ownerActive = await db.Users.AnyAsync(u => u.Id == taxi.UserId && u.IsActive);
 
@@ -102,6 +104,8 @@ public static class AdminTaxiHandlers
             var now = DateTime.UtcNow;
             taxi.Status = TaxiStatuses.Approved;
             taxi.EverApproved = true;
+            taxi.PriorityRank = limits.PriorityRank;
+            taxi.IsFeatured = limits.IsFeatured;
             // A suspended driver's taxi stays hidden; un-suspend turns it back on.
             if (!ownerActive) taxi.IsAvailable = false;
             taxi.RejectedReason = null;

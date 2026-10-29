@@ -14,4 +14,6 @@ public class StayNearbyDto
     public string? OwnerName { get; set; }
     public string? OwnerPhone { get; set; }
     public bool IsActive { get; set; } = true;
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
 }

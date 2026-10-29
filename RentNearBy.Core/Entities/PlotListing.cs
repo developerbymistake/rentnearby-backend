@@ -29,11 +29,14 @@ public class PlotListing
     // Go-Live moderation — null means this listing has never gone through a Go-Live request.
     public string? LiveRequestStatus { get; set; }
     public string? RejectedReason { get; set; }
-    // Snapshot of the plan selected/spent at request time, so approval computes ValidUntil from
-    // this snapshot rather than re-resolving the (admin-mutable) CreditPlan.
-    public string? RequestedPlanType { get; set; }
+    // Days until the owner's resolved ValidUntil at request time; approval falls back to it.
     public int? RequestedPlanDays { get; set; }
-    public int? RequestedPlanCreditsSpent { get; set; }
+
+    // Why IsActive is false (PauseReasons.*); null whenever the row is live.
+    public string? PauseReason { get; set; }
+    // Copied from the owner's plan (PlanEntitlementService); public ordering reads these, never UserPlans.
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
 
     public PlotType PlotType { get; set; } = null!;
     public User User { get; set; } = null!;

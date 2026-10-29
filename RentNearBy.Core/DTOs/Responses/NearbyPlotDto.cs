@@ -13,4 +13,6 @@ public class NearbyPlotListingDto
     public string? ThumbnailUrl { get; set; }
     public double DistanceKm { get; set; }
     public bool IsActive { get; set; }
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
 }

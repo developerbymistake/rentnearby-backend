@@ -15,8 +15,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<District> Districts { get; set; }
     public DbSet<City> Cities { get; set; }
     public DbSet<RoomType> RoomTypes { get; set; }
-    public DbSet<CreditFeature> CreditFeatures { get; set; }
-    public DbSet<CreditPlan> CreditPlans { get; set; }
     public DbSet<PlotType> PlotTypes { get; set; }
     public DbSet<PlotListing> PlotListings { get; set; }
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
@@ -44,21 +42,26 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Message> Messages { get; set; }
     public DbSet<UserBlock> UserBlocks { get; set; }
     public DbSet<QuestionTemplate> QuestionTemplates { get; set; }
-    public DbSet<Wallet> Wallets { get; set; }
-    public DbSet<CreditTransaction> CreditTransactions { get; set; }
-    public DbSet<CreditPack> CreditPacks { get; set; }
-    public DbSet<ListingLimitSetting> ListingLimitSettings { get; set; }
     public DbSet<AppFeatureFlag> AppFeatureFlags { get; set; }
     public DbSet<AppTab> AppTabs { get; set; }
     public DbSet<AppVersionConfig> AppVersionConfigs { get; set; }
     public DbSet<Coupon> Coupons { get; set; }
     public DbSet<CouponRedemption> CouponRedemptions { get; set; }
-    public DbSet<CreditPackPurchase> CreditPackPurchases { get; set; }
+    public DbSet<Plan> Plans { get; set; }
+    public DbSet<PlanFeature> PlanFeatures { get; set; }
+    public DbSet<PlanPrice> PlanPrices { get; set; }
+    public DbSet<UserPlan> UserPlans { get; set; }
+    public DbSet<PlanPurchase> PlanPurchases { get; set; }
+    public DbSet<PaymentEvent> PaymentEvents { get; set; }
     public DbSet<NotificationEvent> NotificationEvents { get; set; }
     public DbSet<NotificationRead> NotificationReads { get; set; }
     public DbSet<DeletedAccountRecord> DeletedAccountRecords { get; set; }
     public DbSet<Role> Roles { get; set; }
     public DbSet<RoleChangeRequest> RoleChangeRequests { get; set; }
+
+    // A live row never carries a pause reason; a reason is one of PauseReasons.*.
+    private const string PauseReasonCheck =
+        "(\"IsActive\" = false OR \"PauseReason\" IS NULL) AND (\"PauseReason\" IS NULL OR \"PauseReason\" IN ('Owner', 'Plan', 'Admin', 'Suspended'))";
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -376,26 +379,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(q => q.StayTypeId);
         });
 
-        modelBuilder.Entity<CreditFeature>(e =>
-        {
-            e.HasKey(f => f.Id);
-            e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(f => f.Key).IsUnique();
-            e.Property(f => f.CreatedAt).HasDefaultValueSql("now()");
-            e.Property(f => f.UpdatedAt).HasDefaultValueSql("now()");
-        });
-
-        modelBuilder.Entity<CreditPlan>(e =>
-        {
-            e.HasKey(p => p.Id);
-            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
-            // Unique per feature, not globally — Room and Plot (and any future credit-gated feature)
-            // each need their own "BASIC"/"STANDARD"/"PREMIUM".
-            e.HasIndex(p => new { p.FeatureKey, p.PlanType }).IsUnique();
-            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
-            e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
-        });
-
         modelBuilder.Entity<RoomListing>(e =>
         {
             e.HasKey(l => l.Id);
@@ -409,6 +392,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property<uint>("xmin").IsRowVersion();
             e.Property(l => l.CreatedAt).HasDefaultValueSql("now()");
             e.Property(l => l.UpdatedAt).HasDefaultValueSql("now()");
+            e.Property(l => l.PauseReason).HasMaxLength(16);
+            e.Property(l => l.PriorityRank).HasDefaultValue((short)0);
+            e.Property(l => l.IsFeatured).HasDefaultValue(false);
 
             e.HasOne(l => l.User)
              .WithMany()
@@ -435,12 +421,17 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => l.DistrictId);
             e.HasIndex(l => l.CityId);
             e.HasIndex(l => l.UserId);
+            // Second, distinct UserId index — named explicitly on purpose: an unnamed HasIndex() on the
+            // same property list resolves to the index above (EF Core reuses the index object for an
+            // identical property list, last writer wins). Backs ILiveSlotService's
+            // COUNT(*) WHERE UserId = @u AND NOT IsDeleted for the plan limit checks.
+            e.HasIndex(l => l.UserId, "ix_roomlistings_owner_count")
+             .HasFilter("\"IsDeleted\" = false");
             e.HasIndex(l => l.RoomTypeId);
             // Public share link / QR lookup key (GET /listings/by-slug/{slug}) — generated once at
             // create time (never price/status-derived, see SlugGenerator.cs) and backfilled for
             // pre-existing rows by the AddListingSlug migration before this index was added. Nullable
-            // column, but Postgres unique indexes already ignore NULLs (same reasoning as
-            // ix_coupons_code_unique above), so no partial filter is needed here.
+            // column, but Postgres unique indexes already ignore NULLs, so no partial filter is needed here.
             e.HasIndex(l => l.Slug).IsUnique();
             // Filter indexes
             e.HasIndex(l => l.IsActive);
@@ -465,24 +456,24 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(l => new { l.CityId, l.IsActive });
             // Composite: city-based active listings newest first (replaces district composite)
             e.HasIndex(l => new { l.CityId, l.IsActive, l.CreatedAt });
-            // Composite: Home "Rooms for you" — district + active, newest first. Re-added: the
-            // {DistrictId, IsActive} index above doesn't cover CreatedAt ordering, and this is the
-            // one Home query with no server-side cache backing it (see HomeHandlers.GetRooms).
-            e.HasIndex(l => new { l.DistrictId, l.IsActive, l.CreatedAt })
+            // Composite: Home "Rooms for you" — district + active, paid rank first, then newest.
+            e.HasIndex(l => new { l.DistrictId, l.IsActive, l.PriorityRank, l.CreatedAt })
+             .IsDescending(false, false, true, true)
              .HasDatabaseName("ix_roomlistings_district_active_recent");
             // Partial: Rooms browse (GET /home/rooms/browse) keyset pagination. Filtered like
-            // ix_roomlistings_recent_active so only live rows are indexed. (DistrictId, CreatedAt DESC)
-            // serves the whole-district scan; (DistrictId, CityId, CreatedAt DESC) serves the
-            // city-match phase; (DistrictId, PriceMonthly) serves the price sorts.
-            e.HasIndex(l => new { l.DistrictId, l.CreatedAt })
-             .IsDescending(false, true)
+            // ix_roomlistings_recent_active so only live rows are indexed. Each BrowseCursor phase is one
+            // (DistrictId[, CityId], PriorityRank = r) range scan in CreatedAt DESC order;
+            // (DistrictId, PriorityRank DESC, PriceMonthly) serves the price sorts.
+            e.HasIndex(l => new { l.DistrictId, l.PriorityRank, l.CreatedAt })
+             .IsDescending(false, true, true)
              .HasDatabaseName("ix_roomlistings_browse_district_created")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(l => new { l.DistrictId, l.CityId, l.CreatedAt })
-             .IsDescending(false, false, true)
+            e.HasIndex(l => new { l.DistrictId, l.CityId, l.PriorityRank, l.CreatedAt })
+             .IsDescending(false, false, true, true)
              .HasDatabaseName("ix_roomlistings_browse_district_city_created")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(l => new { l.DistrictId, l.PriceMonthly })
+            e.HasIndex(l => new { l.DistrictId, l.PriorityRank, l.PriceMonthly })
+             .IsDescending(false, true, false)
              .HasDatabaseName("ix_roomlistings_browse_district_price")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
             // Composite: search with room type filter
@@ -497,7 +488,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // ordering by CreatedAt must be covered directly rather than via a district/city
             // composite. Filtered the same way as the digest-pending index above, just on
             // IsActive/IsDeleted instead, to keep it small as inactive/deleted rows accumulate.
-            e.HasIndex(l => l.CreatedAt)
+            e.HasIndex(l => new { l.PriorityRank, l.CreatedAt })
+             .IsDescending(true, true)
              .HasDatabaseName("ix_roomlistings_recent_active")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
             // Partial: ListingExpirySweepService's daily WHERE IsActive AND ValidUntil IS NOT NULL
@@ -511,6 +503,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             {
                 t.HasCheckConstraint("ck_roomlistings_security_deposit_range", "\"SecurityDeposit\" IS NULL OR (\"SecurityDeposit\" >= 0 AND \"SecurityDeposit\" <= 9900000)");
                 t.HasCheckConstraint("ck_roomlistings_floor_range", "\"Floor\" IS NULL OR (\"Floor\" >= 0 AND \"Floor\" <= 3)");
+                t.HasCheckConstraint("ck_roomlistings_pause_reason", PauseReasonCheck);
             });
         });
 
@@ -524,69 +517,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasForeignKey(p => p.RoomListingId)
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(p => p.RoomListingId);
-        });
-
-        modelBuilder.Entity<Wallet>(e =>
-        {
-            e.HasKey(w => w.UserId);
-            e.HasOne(w => w.User)
-             .WithOne(u => u.Wallet)
-             .HasForeignKey<Wallet>(w => w.UserId)
-             .OnDelete(DeleteBehavior.Cascade);
-            e.Property(w => w.CreatedAt).HasDefaultValueSql("now()");
-        });
-
-        modelBuilder.Entity<CreditTransaction>(e =>
-        {
-            e.HasKey(t => t.Id);
-            e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
-
-            e.HasOne(t => t.User)
-             .WithMany()
-             .HasForeignKey(t => t.UserId)
-             .OnDelete(DeleteBehavior.Cascade);
-
-            // Separate, optional FK to the admin who performed a manual credit/debit — must not
-            // cascade-delete a user's whole ledger if that admin account is ever removed.
-            e.HasOne(t => t.PerformedByUser)
-             .WithMany()
-             .HasForeignKey(t => t.PerformedByUserId)
-             .IsRequired(false)
-             .OnDelete(DeleteBehavior.SetNull);
-
-            // "My ledger, newest first, paginated" — same shape as RoomListing/PlotListing/
-            // Conversation's existing per-user list indexes.
-            e.HasIndex(t => new { t.UserId, t.CreatedAt });
-            // Admin-wide ledger view filters by Reason, sorted by date — same shape as today's
-            // admin-transactions status-filter + date-sort query.
-            e.HasIndex(t => new { t.Reason, t.CreatedAt });
-
-            // Exactly-once guard for reasons where the same (UserId, Reason, ReferenceId) must never
-            // apply twice — a retried recharge webhook, coupon redemption, welcome-bonus hook, or a
-            // double-tapped admin credit/debit. Deliberately excludes ROOM_GOLIVE/PLOT_GOLIVE, which
-            // legitimately reuse the same listing Guid as ReferenceId across renewals. The filter is
-            // generated from CreditTransactionReasons.AllOneShotReasons, not hand-typed, so the C# list
-            // and the SQL filter can never drift apart — same discipline as
-            // ix_paymenttransactions_pending_room_upgrade's naming lesson above.
-            var oneShotReasonList = string.Join(", ", CreditTransactionReasons.AllOneShotReasons.Select(r => $"'{r}'"));
-            e.HasIndex(t => new { t.UserId, t.Reason, t.ReferenceId }, "ix_credittransactions_oneshot_unique")
-             .IsUnique()
-             .HasFilter($"\"Reason\" IN ({oneShotReasonList}) AND \"ReferenceId\" IS NOT NULL");
-        });
-
-        modelBuilder.Entity<CreditPack>(e =>
-        {
-            e.HasKey(p => p.Id);
-            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
-        });
-
-        modelBuilder.Entity<ListingLimitSetting>(e =>
-        {
-            e.HasKey(s => s.Id);
-            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(s => s.ListingKind).IsUnique();
         });
 
         modelBuilder.Entity<AppFeatureFlag>(e =>
@@ -634,76 +564,249 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.SetNull);
         });
 
+        // ---- Plans (catalog, entitlement, purchases, coupons) ----
+
+        modelBuilder.Entity<Plan>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.FeatureKey).HasMaxLength(16).IsRequired();
+            e.Property(p => p.Code).HasMaxLength(32).IsRequired();
+            e.Property(p => p.Name).HasMaxLength(40).IsRequired();
+            e.Property(p => p.Tagline).HasMaxLength(120);
+            e.Property(p => p.TrialDays).HasDefaultValue(0);
+            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(p => new { p.FeatureKey, p.Code }).IsUnique();
+            // Exactly one default (free) plan per feature.
+            e.HasIndex(p => p.FeatureKey, "ix_plans_default_per_feature")
+             .IsUnique()
+             .HasFilter("\"IsDefault\"");
+            e.ToTable(t => t.HasCheckConstraint("ck_plans_trial_days", "\"TrialDays\" BETWEEN 0 AND 30"));
+        });
+
+        modelBuilder.Entity<PlanFeature>(e =>
+        {
+            e.HasKey(f => f.Id);
+            e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(f => f.Key).HasMaxLength(32).IsRequired();
+            e.HasOne<Plan>()
+             .WithMany(p => p.Features)
+             .HasForeignKey(f => f.PlanId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(f => new { f.PlanId, f.Key }).IsUnique();
+            e.ToTable(t => t.HasCheckConstraint("ck_planfeatures_value", "\"Value\" >= 0"));
+        });
+
+        modelBuilder.Entity<PlanPrice>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.RazorpayPlanId).HasMaxLength(64);
+            e.HasOne<Plan>()
+             .WithMany(p => p.Prices)
+             .HasForeignKey(p => p.PlanId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(p => new { p.PlanId, p.CycleMonths }).IsUnique();
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_planprices_cycle", "\"CycleMonths\" IN (1, 3, 12)");
+                t.HasCheckConstraint("ck_planprices_price", "\"PriceInr\" >= 1");
+            });
+        });
+
+        modelBuilder.Entity<UserPlan>(e =>
+        {
+            e.HasKey(u => u.Id);
+            e.Property(u => u.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing
+            e.Property(u => u.FeatureKey).HasMaxLength(16).IsRequired();
+            e.Property(u => u.Source).HasMaxLength(16).IsRequired();
+            e.Property(u => u.Status).HasMaxLength(16).IsRequired();
+            e.Property(u => u.Note).HasMaxLength(300);
+            e.Property(u => u.TotalPaidInr).HasDefaultValue(0);
+            e.Property(u => u.TotalDays).HasDefaultValue(0);
+            e.Property(u => u.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(u => u.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne<User>()
+             .WithMany()
+             .HasForeignKey(u => u.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(u => u.Plan)
+             .WithMany()
+             .HasForeignKey(u => u.PlanId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Admin>()
+             .WithMany()
+             .HasForeignKey(u => u.GrantedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // Race guards, not lookup helpers: one Active row per (user, feature), one trial ever per (user, feature).
+            e.HasIndex(u => new { u.UserId, u.FeatureKey }, "ix_userplans_active_per_feature")
+             .IsUnique()
+             .HasFilter("\"Status\" = 'Active'");
+            e.HasIndex(u => new { u.UserId, u.FeatureKey }, "ix_userplans_trial_once")
+             .IsUnique()
+             .HasFilter("\"Source\" = 'Trial'");
+            // Expiry claim and reminder scans.
+            e.HasIndex(u => new { u.Status, u.EndsAt }, "ix_userplans_status_endsat");
+            // Admin history / trial eligibility.
+            e.HasIndex(u => new { u.UserId, u.FeatureKey, u.CreatedAt }, "ix_userplans_user_feature_created")
+             .IsDescending(false, false, true);
+            e.HasIndex(u => u.PlanId);
+            e.ToTable(t => t.HasCheckConstraint("ck_userplans_window", "\"EndsAt\" > \"StartsAt\""));
+        });
+
+        modelBuilder.Entity<PlanPurchase>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.FeatureKey).HasMaxLength(16).IsRequired();
+            e.Property(p => p.PlanNameSnapshot).HasMaxLength(40).IsRequired();
+            e.Property(p => p.Intent).HasMaxLength(16).IsRequired();
+            e.Property(p => p.Provider).HasMaxLength(16).IsRequired();
+            e.Property(p => p.Currency).HasMaxLength(3).HasDefaultValue("INR");
+            e.Property(p => p.CouponCodeSnapshot).HasMaxLength(32);
+            e.Property(p => p.Status).HasMaxLength(16).IsRequired();
+            e.Property(p => p.RazorpayOrderId).HasMaxLength(64);
+            e.Property(p => p.RazorpayPaymentId).HasMaxLength(64);
+            e.Property(p => p.RazorpayRefundId).HasMaxLength(64);
+            e.Property(p => p.GrantBlockedReason).HasMaxLength(32);
+            e.Property(p => p.FailureReason).HasMaxLength(300);
+            e.Property(p => p.FailedPaymentId).HasMaxLength(64);
+            e.Property(p => p.ClientIdempotencyKey).HasMaxLength(64);
+            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+
+            // SetNull, not Cascade: purchase rows are financial records kept (anonymised) after account deletion.
+            e.HasOne<User>()
+             .WithMany()
+             .HasForeignKey(p => p.UserId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<Plan>()
+             .WithMany()
+             .HasForeignKey(p => p.PlanId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Coupon>()
+             .WithMany()
+             .HasForeignKey(p => p.CouponId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<UserPlan>()
+             .WithMany()
+             .HasForeignKey(p => p.GrantedUserPlanId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<Admin>()
+             .WithMany()
+             .HasForeignKey(p => p.GrantedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(p => p.RazorpayOrderId, "ix_planpurchases_order")
+             .IsUnique()
+             .HasFilter("\"RazorpayOrderId\" IS NOT NULL");
+            e.HasIndex(p => p.RazorpayPaymentId, "ix_planpurchases_payment")
+             .IsUnique()
+             .HasFilter("\"RazorpayPaymentId\" IS NOT NULL");
+            e.HasIndex(p => p.RazorpayRefundId, "ix_planpurchases_refund")
+             .IsUnique()
+             .HasFilter("\"RazorpayRefundId\" IS NOT NULL");
+            e.HasIndex(p => p.ClientIdempotencyKey, "ix_planpurchases_idempotency")
+             .IsUnique()
+             .HasFilter("\"ClientIdempotencyKey\" IS NOT NULL");
+            // One open order per (user, feature): closes the concurrent create-order race.
+            e.HasIndex(p => new { p.UserId, p.FeatureKey }, "ix_planpurchases_one_open")
+             .IsUnique()
+             .HasFilter("\"Status\" IN ('Created', 'Pending')");
+            e.HasIndex(p => new { p.Status, p.CreatedAt }, "ix_planpurchases_status_created");
+            // Two indexes lead with UserId (above and here) — both named explicitly, because an unnamed
+            // HasIndex() on an identical property list silently resolves to the same index object
+            // (last writer wins), the exact collision the old credit-pack purchase config warned about.
+            e.HasIndex(p => new { p.UserId, p.CreatedAt }, "ix_planpurchases_user_created")
+             .IsDescending(false, true);
+            e.HasIndex(p => new { p.CreatedAt, p.Id }, "ix_planpurchases_created_keyset")
+             .IsDescending(true, true);
+            e.HasIndex(p => p.PlanId);
+            e.HasIndex(p => p.CouponId);
+            e.HasIndex(p => p.GrantedUserPlanId);
+        });
+
+        modelBuilder.Entity<PaymentEvent>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.EventId).HasMaxLength(128).IsRequired();
+            e.Property(p => p.EventType).HasMaxLength(64).IsRequired();
+            e.Property(p => p.RazorpayOrderId).HasMaxLength(64);
+            e.Property(p => p.RazorpayPaymentId).HasMaxLength(64);
+            e.Property(p => p.Outcome).HasMaxLength(32);
+            e.Property(p => p.ReceivedAt).HasDefaultValueSql("now()");
+            e.HasIndex(p => p.EventId).IsUnique();
+            e.HasIndex(p => p.ReceivedAt);
+            e.HasIndex(p => p.RazorpayOrderId);
+        });
+
         modelBuilder.Entity<Coupon>(e =>
         {
             e.HasKey(c => c.Id);
             e.Property(c => c.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(c => c.Code).HasMaxLength(32).IsRequired();
+            e.Property(c => c.Kind).HasMaxLength(16).IsRequired();
+            e.Property(c => c.FeatureKey).HasMaxLength(16);
+            e.Property(c => c.AllowedPlanIds).HasColumnType("uuid[]");
+            e.Property(c => c.PerUserLimit).HasDefaultValue(1);
+            e.Property(c => c.RedemptionCount).HasDefaultValue(0);
+            e.Property(c => c.Status).HasMaxLength(16).IsRequired();
+            e.Property(c => c.CampaignLabel).HasMaxLength(80);
             e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(c => c.UpdatedAt).HasDefaultValueSql("now()");
+            e.HasOne<Admin>()
+             .WithMany()
+             .HasForeignKey(c => c.CreatedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
 
-            // Most rows have a null Code (welcome-bonus/future non-typed triggers) — a plain unique
-            // index would treat every one of those nulls as a separate value anyway (Postgres unique
-            // indexes already ignore NULLs), but the filter documents the intent explicitly, same as
-            // Messages.RespondsToMessageId's partial-unique pattern.
-            e.HasIndex(c => c.Code)
-             .IsUnique()
-             .HasDatabaseName("ix_coupons_code_unique")
-             .HasFilter("\"Code\" IS NOT NULL");
+            e.HasIndex(c => c.Code).IsUnique();
             e.HasIndex(c => c.Status);
-            e.HasIndex(c => c.TriggerType);
-
-            // PerUserLimit > 1 (real multi-use-per-user coupons) isn't implemented in v1 — hard-enforced
-            // here so a bug can't silently create one; see design doc §7 Open Flags.
-            e.ToTable(t => t.HasCheckConstraint("ck_coupons_peruserlimit_one", "\"PerUserLimit\" = 1"));
+            // At most one auto-apply coupon per feature.
+            e.HasIndex(c => c.FeatureKey, "ix_coupons_autoapply_per_feature")
+             .IsUnique()
+             .HasFilter("\"AutoApply\" AND \"Status\" = 'Active'");
+            e.ToTable(t => t.HasCheckConstraint("ck_coupons_value",
+                "(\"Kind\" = 'Percent' AND \"Value\" BETWEEN 1 AND 100) OR (\"Kind\" <> 'Percent' AND \"Value\" >= 0)"));
         });
 
         modelBuilder.Entity<CouponRedemption>(e =>
         {
             e.HasKey(r => r.Id);
             e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(r => r.Status).HasMaxLength(16).IsRequired();
+            e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(r => r.UpdatedAt).HasDefaultValueSql("now()");
 
             e.HasOne(r => r.Coupon)
              .WithMany()
              .HasForeignKey(r => r.CouponId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(r => r.User)
-             .WithMany()
-             .HasForeignKey(r => r.UserId)
-             .OnDelete(DeleteBehavior.Cascade);
-
-            // The actual double-claim guard — closes the TOCTOU window the app-level status/limit
-            // check in CouponService can't prevent on its own, same pattern as PaymentTransaction's
-            // pending-order indexes and Conversation's renter/owner/listing unique index.
-            e.HasIndex(r => new { r.CouponId, r.UserId })
-             .IsUnique()
-             .HasDatabaseName("ix_couponredemptions_coupon_user_unique");
-        });
-
-        modelBuilder.Entity<CreditPackPurchase>(e =>
-        {
-            e.HasKey(p => p.Id);
-            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
-
             e.HasOne<User>()
              .WithMany()
-             .HasForeignKey(p => p.UserId)
-             .OnDelete(DeleteBehavior.Cascade);
-            e.HasOne<CreditPack>()
+             .HasForeignKey(r => r.UserId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<PlanPurchase>()
              .WithMany()
-             .HasForeignKey(p => p.CreditPackId)
-             .OnDelete(DeleteBehavior.Restrict);
+             .HasForeignKey(r => r.PurchaseId)
+             .OnDelete(DeleteBehavior.Cascade);
 
-            e.HasIndex(p => p.RazorpayOrderId);
-
-            // Two DISTINCT indexes on the same UserId column — named explicitly on both HasIndex()
-            // calls. Calling HasIndex(p => p.UserId) unnamed a second time here would silently
-            // collide with the first (EF Core resolves repeated HasIndex() calls on the identical
-            // property list to the same underlying index object, last-writer-wins) — the exact bug
-            // this codebase's own PaymentTransaction config already warns about.
-            e.HasIndex(p => p.UserId, "ix_creditpackpurchases_user"); // general "all purchases for this user" lookups
-            e.HasIndex(p => p.UserId, "ix_creditpackpurchases_pending_user") // race-safety guard, not a lookup index
+            e.HasIndex(r => r.PurchaseId).IsUnique();
+            // Closes the last-slot / double-use race for the same user.
+            e.HasIndex(r => new { r.CouponId, r.UserId }, "ix_couponredemptions_coupon_user_active")
              .IsUnique()
-             .HasFilter("\"Status\" = 'PENDING'");
+             .HasFilter("\"Status\" IN ('Reserved', 'Consumed')");
+            e.HasIndex(r => r.UserId);
         });
 
         modelBuilder.Entity<PlotListing>(e =>
@@ -713,6 +816,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
             e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
+            e.Property(p => p.PauseReason).HasMaxLength(16);
+            e.Property(p => p.PriorityRank).HasDefaultValue((short)0);
+            e.Property(p => p.IsFeatured).HasDefaultValue(false);
 
             e.HasOne(p => p.PlotType)
              .WithMany(t => t.PlotListings)
@@ -737,6 +843,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
             e.HasIndex(p => p.PlotTypeId);
             e.HasIndex(p => p.UserId);
+            // Named for the same reason as ix_roomlistings_owner_count.
+            e.HasIndex(p => p.UserId, "ix_plotlistings_owner_count")
+             .HasFilter("\"IsDeleted\" = false");
             e.HasIndex(p => p.DistrictId);
             e.HasIndex(p => p.CityId);
             e.HasIndex(p => p.IsActive);
@@ -760,23 +869,22 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => new { p.UserId, p.CreatedAt });
             e.HasIndex(p => new { p.CityId, p.IsActive });
             e.HasIndex(p => new { p.CityId, p.IsActive, p.CreatedAt });
-            // Composite: Home "Plots for you" — district + active, newest first. Same reasoning
-            // as ix_roomlistings_district_active_recent: {DistrictId, IsActive} above doesn't cover
-            // CreatedAt ordering, and this is the one Home query with no server-side cache backing
-            // it (see HomeHandlers.GetPlots).
-            e.HasIndex(p => new { p.DistrictId, p.IsActive, p.CreatedAt })
+            // Composite: Home "Plots for you" — same shape as ix_roomlistings_district_active_recent.
+            e.HasIndex(p => new { p.DistrictId, p.IsActive, p.PriorityRank, p.CreatedAt })
+             .IsDescending(false, false, true, true)
              .HasDatabaseName("ix_plotlistings_district_active_recent");
             // Partial: Plots browse (GET /home/plots/browse) — same shape as the roomlistings_browse
             // indexes above, with area (AreaSqft) in place of price.
-            e.HasIndex(p => new { p.DistrictId, p.CreatedAt })
-             .IsDescending(false, true)
+            e.HasIndex(p => new { p.DistrictId, p.PriorityRank, p.CreatedAt })
+             .IsDescending(false, true, true)
              .HasDatabaseName("ix_plotlistings_browse_district_created")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(p => new { p.DistrictId, p.CityId, p.CreatedAt })
-             .IsDescending(false, false, true)
+            e.HasIndex(p => new { p.DistrictId, p.CityId, p.PriorityRank, p.CreatedAt })
+             .IsDescending(false, false, true, true)
              .HasDatabaseName("ix_plotlistings_browse_district_city_created")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(p => new { p.DistrictId, p.AreaSqft })
+            e.HasIndex(p => new { p.DistrictId, p.PriorityRank, p.AreaSqft })
+             .IsDescending(false, true, false)
              .HasDatabaseName("ix_plotlistings_browse_district_area")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
             // Composite: admin count queries — COUNT(UserId = x AND !IsDeleted)
@@ -791,7 +899,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // ordering by CreatedAt must be covered directly rather than via a district/city
             // composite. Filtered the same way as the digest-pending index above, just on
             // IsActive/IsDeleted instead, to keep it small as inactive/deleted rows accumulate.
-            e.HasIndex(p => p.CreatedAt)
+            e.HasIndex(p => new { p.PriorityRank, p.CreatedAt })
+             .IsDescending(true, true)
              .HasDatabaseName("ix_plotlistings_recent_active")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
             // Partial: ListingExpirySweepService's daily WHERE IsActive AND ValidUntil IS NOT NULL
@@ -799,6 +908,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => p.ValidUntil)
              .HasDatabaseName("ix_plotlistings_active_validuntil")
              .HasFilter("\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
+
+            e.ToTable(t => t.HasCheckConstraint("ck_plotlistings_pause_reason", PauseReasonCheck));
         });
 
         modelBuilder.Entity<PlotPhoto>(e =>
@@ -831,6 +942,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(s => s.EverApproved).HasDefaultValue(false);
             e.Property(s => s.AcceptingGuests).HasDefaultValue(true);
             e.Property(s => s.RejectedReason).HasMaxLength(300);
+            e.Property(s => s.PriorityRank).HasDefaultValue((short)0);
+            e.Property(s => s.IsFeatured).HasDefaultValue(false);
 
             e.HasOne(s => s.User)
              .WithMany()
@@ -884,20 +997,21 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasDatabaseName("ix_staylistings_location_gist");
 
             // Partial: Stays browse — same shape as the roomlistings_browse indexes, live = Approved + accepting.
-            e.HasIndex(s => new { s.DistrictId, s.CreatedAt })
-             .IsDescending(false, true)
+            e.HasIndex(s => new { s.DistrictId, s.PriorityRank, s.CreatedAt })
+             .IsDescending(false, true, true)
              .HasDatabaseName("ix_staylistings_browse_district_created")
              .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(s => new { s.DistrictId, s.CityId, s.CreatedAt })
-             .IsDescending(false, false, true)
+            e.HasIndex(s => new { s.DistrictId, s.CityId, s.PriorityRank, s.CreatedAt })
+             .IsDescending(false, false, true, true)
              .HasDatabaseName("ix_staylistings_browse_district_city_created")
              .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(s => new { s.DistrictId, s.MinPricePerNight })
+            e.HasIndex(s => new { s.DistrictId, s.PriorityRank, s.MinPricePerNight })
+             .IsDescending(false, true, false)
              .HasDatabaseName("ix_staylistings_browse_district_price")
              .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
-            // Partial: Home "Recently added" stays (district-free, newest first).
-            e.HasIndex(s => s.CreatedAt, "ix_staylistings_recent_active")
-             .IsDescending(true)
+            // Partial: Home "Recently added" stays (district-free, paid rank first, then newest).
+            e.HasIndex(s => new { s.PriorityRank, s.CreatedAt }, "ix_staylistings_recent_active")
+             .IsDescending(true, true)
              .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
 
             e.ToTable(t =>
@@ -1042,6 +1156,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Sentinel true, so an explicit false is still sent on insert.
             e.Property(t => t.IsAvailable).HasDefaultValue(true).HasSentinel(true);
             e.Property(t => t.RejectedReason).HasMaxLength(300);
+            e.Property(t => t.PriorityRank).HasDefaultValue((short)0);
+            e.Property(t => t.IsFeatured).HasDefaultValue(false);
 
             e.HasOne(t => t.User)
              .WithMany()
@@ -1098,10 +1214,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasMethod("gist")
              .HasDatabaseName("ix_taxilistings_location_gist");
 
-            // Partial: local view (cheapest first) and the route-search join; public = Approved + available.
-            e.HasIndex(t => new { t.DistrictId, t.MinFare }, "ix_taxilistings_browse_district_fare")
+            // Partial: local view (paid rank first, then cheapest) and the route-search join; public = Approved + available.
+            e.HasIndex(t => new { t.DistrictId, t.PriorityRank, t.MinFare }, "ix_taxilistings_browse_district_fare")
+             .IsDescending(false, true, false)
              .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(t => new { t.DistrictId, t.CityId, t.MinFare }, "ix_taxilistings_browse_district_city_fare")
+            e.HasIndex(t => new { t.DistrictId, t.CityId, t.PriorityRank, t.MinFare }, "ix_taxilistings_browse_district_city_fare")
+             .IsDescending(false, false, true, false)
              .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
             e.HasIndex(t => t.Id, "ix_taxilistings_public_id")
              .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");

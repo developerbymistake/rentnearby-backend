@@ -156,6 +156,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<int?>("FreeDurationDays")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("FreeModeListingLimit")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
 
@@ -411,63 +414,98 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.PrimitiveCollection<Guid[]>("AllowedPlanIds")
+                        .HasColumnType("uuid[]");
+
+                    b.Property<bool>("AutoApply")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("CampaignLabel")
-                        .HasColumnType("text");
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
 
                     b.Property<string>("Code")
-                        .HasColumnType("text");
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<Guid?>("CreatedBy")
+                    b.Property<Guid?>("CreatedByAdminId")
                         .HasColumnType("uuid");
 
-                    b.Property<int>("CreditValue")
-                        .HasColumnType("integer");
+                    b.Property<string>("FeatureKey")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
-                    b.Property<int>("CurrentRedemptions")
+                    b.Property<bool>("FirstPurchaseOnly")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<int?>("MaxDiscountInr")
                         .HasColumnType("integer");
 
                     b.Property<int?>("MaxTotalRedemptions")
                         .HasColumnType("integer");
 
-                    b.Property<int>("PerUserLimit")
+                    b.Property<int?>("MinPlanPriceInr")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("NewUsersOnly")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("PerUserLimit")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<int>("RedemptionCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("TriggerType")
-                        .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
                     b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
 
-                    b.Property<DateTime>("ValidFrom")
+                    b.Property<DateTime?>("ValidFrom")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("ValidUntil")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("Value")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique()
-                        .HasDatabaseName("ix_coupons_code_unique")
-                        .HasFilter("\"Code\" IS NOT NULL");
+                        .IsUnique();
+
+                    b.HasIndex("CreatedByAdminId");
 
                     b.HasIndex("Status");
 
-                    b.HasIndex("TriggerType");
+                    b.HasIndex(new[] { "FeatureKey" }, "ix_coupons_autoapply_per_feature")
+                        .IsUnique()
+                        .HasFilter("\"AutoApply\" AND \"Status\" = 'Active'");
 
                     b.ToTable("Coupons", t =>
                         {
-                            t.HasCheckConstraint("ck_coupons_peruserlimit_one", "\"PerUserLimit\" = 1");
+                            t.HasCheckConstraint("ck_coupons_value", "(\"Kind\" = 'Percent' AND \"Value\" BETWEEN 1 AND 100) OR (\"Kind\" <> 'Percent' AND \"Value\" >= 0)");
                         });
                 });
 
@@ -481,263 +519,42 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid>("CouponId")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("RedeemedAt")
-                        .HasColumnType("timestamp with time zone");
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
 
-                    b.Property<Guid>("UserId")
+                    b.Property<int>("DiscountInr")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("PurchaseId")
                         .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("CouponId", "UserId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_couponredemptions_coupon_user_unique");
-
-                    b.ToTable("CouponRedemptions");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.CreditFeature", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Key")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("QuotaUnitLabel")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Key")
-                        .IsUnique();
-
-                    b.ToTable("CreditFeatures");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.CreditPack", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<int>("BonusCredits")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<int>("Credits")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsFeatured")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("PriceInr")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("CreditPacks");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.CreditPackPurchase", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<int>("BonusCredits")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<Guid>("CreditPackId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Credits")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("FailureReason")
-                        .HasColumnType("text");
-
-                    b.Property<int>("PriceInr")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("RazorpayOrderId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("RazorpayPaymentId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("RazorpaySignature")
-                        .HasColumnType("text");
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreditPackId");
-
-                    b.HasIndex("RazorpayOrderId");
-
-                    b.HasIndex(new[] { "UserId" }, "ix_creditpackpurchases_pending_user")
-                        .IsUnique()
-                        .HasFilter("\"Status\" = 'PENDING'");
-
-                    b.HasIndex(new[] { "UserId" }, "ix_creditpackpurchases_user");
-
-                    b.ToTable("CreditPackPurchases");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.CreditPlan", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<int>("Days")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("DiscountPercent")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("FeatureKey")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsFeatured")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("OriginalPrice")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("PlanType")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("Price")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("Quota")
-                        .HasColumnType("integer");
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("FeatureKey", "PlanType")
+                    b.HasIndex("PurchaseId")
                         .IsUnique();
 
-                    b.ToTable("CreditPlans");
-                });
+                    b.HasIndex("UserId");
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.CreditTransaction", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<int>("Amount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("BalanceAfter")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<string>("Note")
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("PerformedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("ReferenceId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PerformedByUserId");
-
-                    b.HasIndex("Reason", "CreatedAt");
-
-                    b.HasIndex("UserId", "CreatedAt");
-
-                    b.HasIndex(new[] { "UserId", "Reason", "ReferenceId" }, "ix_credittransactions_oneshot_unique")
+                    b.HasIndex(new[] { "CouponId", "UserId" }, "ix_couponredemptions_coupon_user_active")
                         .IsUnique()
-                        .HasFilter("\"Reason\" IN ('RECHARGE', 'COUPON_REDEEM', 'WELCOME_BONUS', 'ADMIN_CREDIT', 'GOLIVE_PENDING_REFUND', 'ADMIN_DEBIT') AND \"ReferenceId\" IS NOT NULL");
+                        .HasFilter("\"Status\" IN ('Reserved', 'Consumed')");
 
-                    b.ToTable("CreditTransactions");
+                    b.ToTable("CouponRedemptions");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.DeletedAccountRecord", b =>
@@ -1091,31 +908,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("JobTypes");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.ListingLimitSetting", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<string>("ListingKind")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("MaxListings")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ListingKind")
-                        .IsUnique();
-
-                    b.ToTable("ListingLimitSettings");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.ListingReport", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1345,6 +1137,357 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("NotificationReads");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.PaymentEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("EventId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Outcome")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RawBody")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RazorpayOrderId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RazorpayPaymentId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventId")
+                        .IsUnique();
+
+                    b.HasIndex("RazorpayOrderId");
+
+                    b.HasIndex("ReceivedAt");
+
+                    b.ToTable("PaymentEvents");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Plan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("FeatureKey")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Tagline")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<int>("TrialDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FeatureKey", "Code")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "FeatureKey" }, "ix_plans_default_per_feature")
+                        .IsUnique()
+                        .HasFilter("\"IsDefault\"");
+
+                    b.ToTable("Plans", t =>
+                        {
+                            t.HasCheckConstraint("ck_plans_trial_days", "\"TrialDays\" BETWEEN 0 AND 30");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlanFeature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Value")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlanId", "Key")
+                        .IsUnique();
+
+                    b.ToTable("PlanFeatures", t =>
+                        {
+                            t.HasCheckConstraint("ck_planfeatures_value", "\"Value\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlanPrice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<short>("CycleMonths")
+                        .HasColumnType("smallint");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PriceInr")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RazorpayPlanId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlanId", "CycleMonths")
+                        .IsUnique();
+
+                    b.ToTable("PlanPrices", t =>
+                        {
+                            t.HasCheckConstraint("ck_planprices_cycle", "\"CycleMonths\" IN (1, 3, 12)");
+
+                            t.HasCheckConstraint("ck_planprices_price", "\"PriceInr\" >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlanPurchase", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime?>("AnonymisedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CapturedAmountPaise")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ClientIdempotencyKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("CouponCodeSnapshot")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("CouponId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int>("CreditInr")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasDefaultValue("INR");
+
+                    b.Property<short?>("CycleMonths")
+                        .HasColumnType("smallint");
+
+                    b.Property<int>("DiscountInr")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailedPaymentId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("FeatureKey")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("GrantBlockedReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("GrantedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("GrantedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("GrantedDays")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("GrantedUserPlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Intent")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<int>("ListPriceInr")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PayableInr")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PlanNameSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("RazorpayOrderId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RazorpayPaymentId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RazorpayRefundId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("RefundedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CouponId");
+
+                    b.HasIndex("GrantedByAdminId");
+
+                    b.HasIndex("GrantedUserPlanId");
+
+                    b.HasIndex("PlanId");
+
+                    b.HasIndex(new[] { "CreatedAt", "Id" }, "ix_planpurchases_created_keyset")
+                        .IsDescending();
+
+                    b.HasIndex(new[] { "ClientIdempotencyKey" }, "ix_planpurchases_idempotency")
+                        .IsUnique()
+                        .HasFilter("\"ClientIdempotencyKey\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "UserId", "FeatureKey" }, "ix_planpurchases_one_open")
+                        .IsUnique()
+                        .HasFilter("\"Status\" IN ('Created', 'Pending')");
+
+                    b.HasIndex(new[] { "RazorpayOrderId" }, "ix_planpurchases_order")
+                        .IsUnique()
+                        .HasFilter("\"RazorpayOrderId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "RazorpayPaymentId" }, "ix_planpurchases_payment")
+                        .IsUnique()
+                        .HasFilter("\"RazorpayPaymentId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "RazorpayRefundId" }, "ix_planpurchases_refund")
+                        .IsUnique()
+                        .HasFilter("\"RazorpayRefundId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "Status", "CreatedAt" }, "ix_planpurchases_status_created");
+
+                    b.HasIndex(new[] { "UserId", "CreatedAt" }, "ix_planpurchases_user_created")
+                        .IsDescending(false, true);
+
+                    b.ToTable("PlanPurchases");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1391,6 +1534,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsFeatured")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<decimal>("Latitude")
                         .HasColumnType("numeric");
 
@@ -1405,20 +1553,23 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<decimal>("Longitude")
                         .HasColumnType("numeric");
 
+                    b.Property<string>("PauseReason")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<Guid>("PlotTypeId")
                         .HasColumnType("uuid");
+
+                    b.Property<short>("PriorityRank")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0);
 
                     b.Property<string>("RejectedReason")
                         .HasColumnType("text");
 
-                    b.Property<int?>("RequestedPlanCreditsSpent")
-                        .HasColumnType("integer");
-
                     b.Property<int?>("RequestedPlanDays")
                         .HasColumnType("integer");
-
-                    b.Property<string>("RequestedPlanType")
-                        .HasColumnType("text");
 
                     b.Property<string>("Slug")
                         .HasColumnType("text");
@@ -1446,9 +1597,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CityId");
 
-                    b.HasIndex("CreatedAt")
-                        .HasDatabaseName("ix_plotlistings_recent_active")
-                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+                    b.HasIndex("CreatedAt");
 
                     b.HasIndex("DistrictId");
 
@@ -1472,16 +1621,12 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CityId", "IsActive");
 
-                    b.HasIndex("DistrictId", "AreaSqft")
-                        .HasDatabaseName("ix_plotlistings_browse_district_area")
-                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-
-                    b.HasIndex("DistrictId", "CreatedAt")
-                        .IsDescending(false, true)
-                        .HasDatabaseName("ix_plotlistings_browse_district_created")
-                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-
                     b.HasIndex("DistrictId", "IsActive");
+
+                    b.HasIndex("PriorityRank", "CreatedAt")
+                        .IsDescending()
+                        .HasDatabaseName("ix_plotlistings_recent_active")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
 
                     b.HasIndex("UserId", "CreatedAt");
 
@@ -1489,19 +1634,36 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CityId", "IsActive", "CreatedAt");
 
-                    b.HasIndex("DistrictId", "CityId", "CreatedAt")
-                        .IsDescending(false, false, true)
+                    b.HasIndex("DistrictId", "PriorityRank", "AreaSqft")
+                        .IsDescending(false, true, false)
+                        .HasDatabaseName("ix_plotlistings_browse_district_area")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex("DistrictId", "PriorityRank", "CreatedAt")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("ix_plotlistings_browse_district_created")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex("DistrictId", "CityId", "PriorityRank", "CreatedAt")
+                        .IsDescending(false, false, true, true)
                         .HasDatabaseName("ix_plotlistings_browse_district_city_created")
                         .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
 
-                    b.HasIndex("DistrictId", "IsActive", "CreatedAt")
+                    b.HasIndex("DistrictId", "IsActive", "PriorityRank", "CreatedAt")
+                        .IsDescending(false, false, true, true)
                         .HasDatabaseName("ix_plotlistings_district_active_recent");
 
                     b.HasIndex("IsActive", "IsDeleted", "DigestNotifiedAt", "DistrictId")
                         .HasDatabaseName("ix_plotlistings_digest_pending")
                         .HasFilter("\"DigestNotifiedAt\" IS NULL");
 
-                    b.ToTable("PlotListings");
+                    b.HasIndex(new[] { "UserId" }, "ix_plotlistings_owner_count")
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.ToTable("PlotListings", t =>
+                        {
+                            t.HasCheckConstraint("ck_plotlistings_pause_reason", "(\"IsActive\" = false OR \"PauseReason\" IS NULL) AND (\"PauseReason\" IS NULL OR \"PauseReason\" IN ('Owner', 'Plan', 'Admin', 'Suspended'))");
+                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotPhoto", b =>
@@ -1839,6 +2001,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsFeatured")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<decimal>("Latitude")
                         .HasColumnType("numeric");
 
@@ -1853,20 +2020,23 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<decimal>("Longitude")
                         .HasColumnType("numeric");
 
+                    b.Property<string>("PauseReason")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<int>("PriceMonthly")
                         .HasColumnType("integer");
+
+                    b.Property<short>("PriorityRank")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0);
 
                     b.Property<string>("RejectedReason")
                         .HasColumnType("text");
 
-                    b.Property<int?>("RequestedPlanCreditsSpent")
-                        .HasColumnType("integer");
-
                     b.Property<int?>("RequestedPlanDays")
                         .HasColumnType("integer");
-
-                    b.Property<string>("RequestedPlanType")
-                        .HasColumnType("text");
 
                     b.Property<Guid>("RoomTypeId")
                         .HasColumnType("uuid");
@@ -1898,9 +2068,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CityId");
 
-                    b.HasIndex("CreatedAt")
-                        .HasDatabaseName("ix_roomlistings_recent_active")
-                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+                    b.HasIndex("CreatedAt");
 
                     b.HasIndex("DistrictId");
 
@@ -1926,18 +2094,14 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CityId", "IsActive");
 
-                    b.HasIndex("DistrictId", "CreatedAt")
-                        .IsDescending(false, true)
-                        .HasDatabaseName("ix_roomlistings_browse_district_created")
-                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-
                     b.HasIndex("DistrictId", "IsActive");
 
-                    b.HasIndex("DistrictId", "PriceMonthly")
-                        .HasDatabaseName("ix_roomlistings_browse_district_price")
-                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-
                     b.HasIndex("IsActive", "RoomTypeId");
+
+                    b.HasIndex("PriorityRank", "CreatedAt")
+                        .IsDescending()
+                        .HasDatabaseName("ix_roomlistings_recent_active")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
 
                     b.HasIndex("UserId", "CreatedAt");
 
@@ -1945,21 +2109,37 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("CityId", "IsActive", "CreatedAt");
 
-                    b.HasIndex("DistrictId", "CityId", "CreatedAt")
-                        .IsDescending(false, false, true)
+                    b.HasIndex("DistrictId", "PriorityRank", "CreatedAt")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("ix_roomlistings_browse_district_created")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex("DistrictId", "PriorityRank", "PriceMonthly")
+                        .IsDescending(false, true, false)
+                        .HasDatabaseName("ix_roomlistings_browse_district_price")
+                        .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex("DistrictId", "CityId", "PriorityRank", "CreatedAt")
+                        .IsDescending(false, false, true, true)
                         .HasDatabaseName("ix_roomlistings_browse_district_city_created")
                         .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
 
-                    b.HasIndex("DistrictId", "IsActive", "CreatedAt")
+                    b.HasIndex("DistrictId", "IsActive", "PriorityRank", "CreatedAt")
+                        .IsDescending(false, false, true, true)
                         .HasDatabaseName("ix_roomlistings_district_active_recent");
 
                     b.HasIndex("IsActive", "IsDeleted", "DigestNotifiedAt", "DistrictId")
                         .HasDatabaseName("ix_roomlistings_digest_pending")
                         .HasFilter("\"DigestNotifiedAt\" IS NULL");
 
+                    b.HasIndex(new[] { "UserId" }, "ix_roomlistings_owner_count")
+                        .HasFilter("\"IsDeleted\" = false");
+
                     b.ToTable("RoomListings", t =>
                         {
                             t.HasCheckConstraint("ck_roomlistings_floor_range", "\"Floor\" IS NULL OR (\"Floor\" >= 0 AND \"Floor\" <= 3)");
+
+                            t.HasCheckConstraint("ck_roomlistings_pause_reason", "(\"IsActive\" = false OR \"PauseReason\" IS NULL) AND (\"PauseReason\" IS NULL OR \"PauseReason\" IN ('Owner', 'Plan', 'Admin', 'Suspended'))");
 
                             t.HasCheckConstraint("ck_roomlistings_security_deposit_range", "\"SecurityDeposit\" IS NULL OR (\"SecurityDeposit\" >= 0 AND \"SecurityDeposit\" <= 9900000)");
                         });
@@ -2240,6 +2420,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsFeatured")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<decimal?>("Latitude")
                         .HasColumnType("numeric");
 
@@ -2260,6 +2445,11 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<bool>("PetsAllowed")
                         .HasColumnType("boolean");
+
+                    b.Property<short>("PriorityRank")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0);
 
                     b.Property<string>("RejectedReason")
                         .HasMaxLength(300)
@@ -2332,25 +2522,26 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("StayTypeId");
 
-                    b.HasIndex("DistrictId", "CreatedAt")
-                        .IsDescending(false, true)
-                        .HasDatabaseName("ix_staylistings_browse_district_created")
-                        .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
-
-                    b.HasIndex("DistrictId", "MinPricePerNight")
-                        .HasDatabaseName("ix_staylistings_browse_district_price")
-                        .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
-
                     b.HasIndex("Status", "SubmittedAt");
 
                     b.HasIndex("UserId", "IsDeleted");
 
-                    b.HasIndex("DistrictId", "CityId", "CreatedAt")
-                        .IsDescending(false, false, true)
+                    b.HasIndex("DistrictId", "PriorityRank", "CreatedAt")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("ix_staylistings_browse_district_created")
+                        .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex("DistrictId", "PriorityRank", "MinPricePerNight")
+                        .IsDescending(false, true, false)
+                        .HasDatabaseName("ix_staylistings_browse_district_price")
+                        .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex("DistrictId", "CityId", "PriorityRank", "CreatedAt")
+                        .IsDescending(false, false, true, true)
                         .HasDatabaseName("ix_staylistings_browse_district_city_created")
                         .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
 
-                    b.HasIndex(new[] { "CreatedAt" }, "ix_staylistings_recent_active")
+                    b.HasIndex(new[] { "PriorityRank", "CreatedAt" }, "ix_staylistings_recent_active")
                         .IsDescending()
                         .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
 
@@ -2521,6 +2712,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsFeatured")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<decimal?>("Latitude")
                         .HasColumnType("numeric(9,6)");
 
@@ -2546,6 +2742,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<string>("PlatePhotoUrl")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<short>("PriorityRank")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0);
 
                     b.Property<string>("RejectedReason")
                         .HasMaxLength(300)
@@ -2616,10 +2817,12 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("UserId", "IsDeleted");
 
-                    b.HasIndex(new[] { "DistrictId", "CityId", "MinFare" }, "ix_taxilistings_browse_district_city_fare")
+                    b.HasIndex(new[] { "DistrictId", "CityId", "PriorityRank", "MinFare" }, "ix_taxilistings_browse_district_city_fare")
+                        .IsDescending(false, false, true, false)
                         .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
 
-                    b.HasIndex(new[] { "DistrictId", "MinFare" }, "ix_taxilistings_browse_district_fare")
+                    b.HasIndex(new[] { "DistrictId", "PriorityRank", "MinFare" }, "ix_taxilistings_browse_district_fare")
+                        .IsDescending(false, true, false)
                         .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
 
                     b.HasIndex(new[] { "NumberPlate" }, "ix_taxilistings_plate_live")
@@ -2871,25 +3074,99 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("UserBlocks");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.Wallet", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.UserPlan", b =>
                 {
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Balance")
-                        .HasColumnType("integer");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<DateTime>("UpdatedAt")
+                    b.Property<DateTime>("EndsAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("UserId");
+                    b.Property<string>("FeatureKey")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
-                    b.ToTable("Wallets");
+                    b.Property<Guid?>("GrantedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ReminderSentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime>("StartsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<int>("TotalDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("TotalPaidInr")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GrantedByAdminId");
+
+                    b.HasIndex("PlanId");
+
+                    b.HasIndex(new[] { "UserId", "FeatureKey" }, "ix_userplans_active_per_feature")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Active'");
+
+                    b.HasIndex(new[] { "Status", "EndsAt" }, "ix_userplans_status_endsat");
+
+                    b.HasIndex(new[] { "UserId", "FeatureKey" }, "ix_userplans_trial_once")
+                        .IsUnique()
+                        .HasFilter("\"Source\" = 'Trial'");
+
+                    b.HasIndex(new[] { "UserId", "FeatureKey", "CreatedAt" }, "ix_userplans_user_feature_created")
+                        .IsDescending(false, false, true);
+
+                    b.ToTable("UserPlans", t =>
+                        {
+                            t.HasCheckConstraint("ck_userplans_window", "\"EndsAt\" > \"StartsAt\"");
+                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.AdminDeviceToken", b =>
@@ -2974,6 +3251,14 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("District");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.Coupon", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Admin", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.CouponRedemption", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Coupon", "Coupon")
@@ -2982,48 +3267,18 @@ namespace RentNearBy.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("RentNearBy.Core.Entities.User", "User")
+                    b.HasOne("RentNearBy.Core.Entities.PlanPurchase", null)
                         .WithMany()
-                        .HasForeignKey("UserId")
+                        .HasForeignKey("PurchaseId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Coupon");
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.CreditPackPurchase", b =>
-                {
-                    b.HasOne("RentNearBy.Core.Entities.CreditPack", null)
-                        .WithMany()
-                        .HasForeignKey("CreditPackId")
-                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("RentNearBy.Core.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.CreditTransaction", b =>
-                {
-                    b.HasOne("RentNearBy.Core.Entities.User", "PerformedByUser")
-                        .WithMany()
-                        .HasForeignKey("PerformedByUserId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("RentNearBy.Core.Entities.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("PerformedByUser");
-
-                    b.Navigation("User");
+                    b.Navigation("Coupon");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.DeviceToken", b =>
@@ -3131,6 +3386,53 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("Notification");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlanFeature", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Plan", null)
+                        .WithMany("Features")
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlanPrice", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Plan", null)
+                        .WithMany("Prices")
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlanPurchase", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Coupon", null)
+                        .WithMany()
+                        .HasForeignKey("CouponId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.Admin", null)
+                        .WithMany()
+                        .HasForeignKey("GrantedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.UserPlan", null)
+                        .WithMany()
+                        .HasForeignKey("GrantedUserPlanId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.Plan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
@@ -3437,15 +3739,26 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("Role");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.Wallet", b =>
+            modelBuilder.Entity("RentNearBy.Core.Entities.UserPlan", b =>
                 {
-                    b.HasOne("RentNearBy.Core.Entities.User", "User")
-                        .WithOne("Wallet")
-                        .HasForeignKey("RentNearBy.Core.Entities.Wallet", "UserId")
+                    b.HasOne("RentNearBy.Core.Entities.Admin", null)
+                        .WithMany()
+                        .HasForeignKey("GrantedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.Plan", "Plan")
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("User");
+                    b.Navigation("Plan");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Admin", b =>
@@ -3466,6 +3779,13 @@ namespace RentNearBy.Infrastructure.Migrations
             modelBuilder.Entity("RentNearBy.Core.Entities.DistrictBanner", b =>
                 {
                     b.Navigation("Dismissals");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Plan", b =>
+                {
+                    b.Navigation("Features");
+
+                    b.Navigation("Prices");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
@@ -3508,11 +3828,6 @@ namespace RentNearBy.Infrastructure.Migrations
             modelBuilder.Entity("RentNearBy.Core.Entities.TaxiVehicleType", b =>
                 {
                     b.Navigation("TaxiListings");
-                });
-
-            modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
-                {
-                    b.Navigation("Wallet");
                 });
 #pragma warning restore 612, 618
         }

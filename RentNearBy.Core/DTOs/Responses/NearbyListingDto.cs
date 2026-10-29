@@ -14,4 +14,6 @@ public class NearbyListingDto
     public bool IsActive { get; set; }
     public string FurnishedStatus { get; set; } = "None";
     public bool? IsAc { get; set; }
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
 }

@@ -15,9 +15,7 @@ public interface IRoomRoomListingRepository : IRepository<RoomListing>
     Task<BrowsePage<HomeRoomDto>> SearchPagedAsync(Guid districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize, string? cursor);
     Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId);
 
-    // SQL COUNT, never load-then-filter — the listing-creation cap check runs on every Add Room
-    // attempt and must not repeat GetActiveRoomCountAsync's old load-the-whole-collection mistake.
-    Task<int> CountByUserIdAsync(Guid userId);
+    // Plan slot counts live in ILiveSlotService (CountForCreationAsync / CountLiveAsync).
     Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId);
     Task<(IReadOnlyList<RoomListing> Items, bool HasMore)> GetByUserIdPagedAsync(Guid userId, int page, int pageSize);
     Task<RoomListing?> GetByIdWithPhotosAsync(Guid id);

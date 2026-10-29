@@ -11,18 +11,21 @@ namespace RentNearBy.Infrastructure.Services;
 
 public interface IRazorpayService
 {
-    Task<(string OrderId, int Amount)> CreateOrderAsync(int amount, string receipt);
+    // amount in rupees; receipt doubles as the Idempotency-Key, so retrying the same receipt never makes a second order.
+    Task<(string OrderId, int Amount)> CreateOrderAsync(int amount, string receipt, IReadOnlyDictionary<string, string>? notes = null);
     bool VerifyPaymentSignature(string orderId, string paymentId, string signature);
     bool VerifyWebhookSignature(string rawBody, string? signatureHeader);
     string GetKeyId();
     bool IsWebhookConfigured { get; }
     Task<IReadOnlyList<RazorpayPaymentAttempt>> FetchPaymentsForOrderAsync(string orderId);
+    // Full or partial refund in paise; receipt is the Idempotency-Key. Returns the refund id.
+    Task<string> RefundAsync(string paymentId, long amountPaise, string receipt);
 }
 
 // One entry per payment attempt Razorpay recorded against an order (an order can have more than one
 // attempt — e.g. a failed try followed by a successful retry). Status is Razorpay's own vocabulary:
-// created|authorized|captured|refunded|failed.
-public record RazorpayPaymentAttempt(string Id, string Status);
+// created|authorized|captured|refunded|failed. AmountPaise/Currency are what Razorpay recorded.
+public record RazorpayPaymentAttempt(string Id, string Status, long AmountPaise = 0, string Currency = "INR", string? OrderId = null);
 
 public class RazorpayService : IRazorpayService
 {
@@ -93,13 +96,10 @@ public class RazorpayService : IRazorpayService
         return retryPolicy.WrapAsync(circuitBreakerPolicy);
     }
 
-    public async Task<(string OrderId, int Amount)> CreateOrderAsync(int amount, string receipt)
+    public async Task<(string OrderId, int Amount)> CreateOrderAsync(int amount, string receipt, IReadOnlyDictionary<string, string>? notes = null)
     {
         if (amount <= 0)
             throw new ArgumentException("Amount must be greater than 0");
-
-        // Idempotency key: prevents duplicate orders if request is retried
-        var idempotencyKey = $"{receipt}-{DateTime.UtcNow:yyyyMMdd}";
 
         // expire_by was here to bound how long a stale checkout page could still be paid — but
         // this Razorpay account's own settings reject it outright: {"error":{"description":
@@ -107,22 +107,32 @@ public class RazorpayService : IRazorpayService
         // a hard 400 on every single order-creation call. Confirmed via production logs — not a
         // credentials/account-activation issue, just this field. Removed; orders now use
         // Razorpay's own account-level default expiry instead of one we control per-order.
-        var content = new FormUrlEncodedContent(new[]
+        var fields = new List<KeyValuePair<string, string>>
         {
-            new KeyValuePair<string, string>("amount", (amount * 100).ToString()),
-            new KeyValuePair<string, string>("currency", "INR"),
-            new KeyValuePair<string, string>("receipt", receipt),
-            new KeyValuePair<string, string>("notes[platform]", "RentNearBy"),
-        });
-
-        _httpClient.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
+            new("amount", ((long)amount * 100).ToString()),
+            new("currency", "INR"),
+            new("receipt", receipt),
+            new("notes[platform]", "RentNearBy"),
+        };
+        if (notes != null)
+            foreach (var (key, value) in notes)
+                fields.Add(new($"notes[{key}]", value));
 
         try
         {
             _logger.LogInformation($"Creating Razorpay order for receipt: {receipt}, amount: {amount}");
 
+            // A fresh message per attempt: a sent HttpRequestMessage cannot be resent, and the header must
+            // not go on the shared HttpClient (concurrent requests would see each other's key).
             var response = await _retryPolicy.ExecuteAsync(() =>
-                _httpClient.PostAsync($"{BaseUrl}/orders", content));
+            {
+                var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/orders")
+                {
+                    Content = new FormUrlEncodedContent(fields),
+                };
+                request.Headers.TryAddWithoutValidation("Idempotency-Key", receipt);
+                return _httpClient.SendAsync(request);
+            });
 
             if (!response.IsSuccessStatusCode)
             {
@@ -172,10 +182,6 @@ public class RazorpayService : IRazorpayService
             _logger.LogError($"Unexpected error creating Razorpay order: {ex.Message}");
             throw;
         }
-        finally
-        {
-            _httpClient.DefaultRequestHeaders.Remove("Idempotency-Key");
-        }
     }
 
     public bool VerifyPaymentSignature(string orderId, string paymentId, string signature)
@@ -193,9 +199,11 @@ public class RazorpayService : IRazorpayService
             var text = $"{orderId}|{paymentId}";
             using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_keySecret));
             var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(text));
-            var computedSignature = BitConverter.ToString(hash).Replace("-", "").ToLower();
+            var computedSignature = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
 
-            var isValid = computedSignature == signature.ToLower();
+            var isValid = CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(computedSignature),
+                Encoding.UTF8.GetBytes(signature.ToLowerInvariant()));
 
             if (!isValid)
             {
@@ -261,10 +269,9 @@ public class RazorpayService : IRazorpayService
     // without making it fatal.
     public bool IsWebhookConfigured => !string.IsNullOrWhiteSpace(_webhookSecret);
 
-    // Reconciliation primitive for PendingCreditPurchaseCleanupService: given only the order id we
-    // already have for a stuck-Pending purchase (no payment id yet — that's only known once a
-    // client-driven verify or a webhook has actually told us), ask Razorpay directly whether any
-    // payment attempt against that order ever captured. Reuses the same retry+circuit-breaker
+    // Reconciliation primitive for the plan purchase reconciler and the client verify path: given only
+    // the order id of an open purchase, ask Razorpay directly whether any payment attempt against that
+    // order ever captured, and for how much. Reuses the same retry+circuit-breaker
     // policy as CreateOrderAsync; failures propagate so the caller can distinguish "confirmed not
     // paid" from "couldn't find out right now".
     public async Task<IReadOnlyList<RazorpayPaymentAttempt>> FetchPaymentsForOrderAsync(string orderId)
@@ -304,9 +311,48 @@ public class RazorpayService : IRazorpayService
         {
             var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
             var status = item.TryGetProperty("status", out var statusEl) ? statusEl.GetString() : null;
+            var amount = item.TryGetProperty("amount", out var amountEl) && amountEl.ValueKind == JsonValueKind.Number ? amountEl.GetInt64() : 0;
+            var currency = item.TryGetProperty("currency", out var curEl) ? curEl.GetString() ?? "INR" : "INR";
+            var order = item.TryGetProperty("order_id", out var orderEl) ? orderEl.GetString() : null;
             if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(status))
-                attempts.Add(new RazorpayPaymentAttempt(id, status));
+                attempts.Add(new RazorpayPaymentAttempt(id, status, amount, currency, order));
         }
         return attempts;
+    }
+
+    public async Task<string> RefundAsync(string paymentId, long amountPaise, string receipt)
+    {
+        if (amountPaise <= 0) throw new ArgumentException("Refund amount must be greater than 0");
+
+        var fields = new List<KeyValuePair<string, string>>
+        {
+            new("amount", amountPaise.ToString()),
+            new("receipt", receipt),
+            new("speed", "normal"),
+        };
+
+        var response = await _retryPolicy.ExecuteAsync(() =>
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/payments/{paymentId}/refund")
+            {
+                Content = new FormUrlEncodedContent(fields),
+            };
+            request.Headers.TryAddWithoutValidation("Idempotency-Key", receipt);
+            return _httpClient.SendAsync(request);
+        });
+
+        var body = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("Razorpay refund failed for payment {PaymentId} with status {StatusCode}: {Body}",
+                paymentId, response.StatusCode, body);
+            throw new InvalidOperationException($"Razorpay refund failed with status {response.StatusCode}");
+        }
+
+        var json = JsonSerializer.Deserialize<JsonElement>(body);
+        var refundId = json.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+        if (string.IsNullOrEmpty(refundId))
+            throw new InvalidOperationException("Razorpay returned an invalid refund id");
+        return refundId;
     }
 }

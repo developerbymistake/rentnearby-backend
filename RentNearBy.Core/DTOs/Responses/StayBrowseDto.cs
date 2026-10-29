@@ -13,5 +13,7 @@ public class StayBrowseDto
     public int? MinPricePerNight { get; set; }
     public string? MealsChip { get; set; }      // best meals across rooms: AllMeals > Breakfast > null
     public string? RoomNameChip { get; set; }   // name of the cheapest room
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
     public DateTime CreatedAt { get; set; }
 }

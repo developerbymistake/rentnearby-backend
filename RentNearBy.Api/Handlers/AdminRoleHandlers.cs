@@ -82,7 +82,7 @@ public static class AdminRoleHandlers
 
     public static async Task<IResult> ApproveRoleRequest(
         Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
-        IListingPurgeService listingPurge, IRoleChangeGuardService guard, ICreditWalletService wallet,
+        IListingPurgeService listingPurge, IRoleChangeGuardService guard, IPlanPurchaseService purchases,
         IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp, IMemoryCache cache)
     {
         var request = await unitOfWork.RoleChangeRequests.GetByIdAsync(id);
@@ -102,7 +102,7 @@ public static class AdminRoleHandlers
 
         var outcome = await ChangeUserRoleCoreAsync(
             user, target, GetAdminId(principal), request.Id, enforceLiveGuard: true,
-            unitOfWork, db, listingPurge, guard, wallet, hubContext, publisher, sp);
+            unitOfWork, db, listingPurge, guard, purchases, hubContext, publisher, sp);
 
         return outcome switch
         {
@@ -162,7 +162,7 @@ public static class AdminRoleHandlers
     public static async Task<IResult> UpdateUserRole(
         Guid id, RoleKeyRequest request, IValidator<RoleKeyRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
-        IListingPurgeService listingPurge, IRoleChangeGuardService guard, ICreditWalletService wallet,
+        IListingPurgeService listingPurge, IRoleChangeGuardService guard, IPlanPurchaseService purchases,
         IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp, IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
@@ -179,7 +179,7 @@ public static class AdminRoleHandlers
 
         await ChangeUserRoleCoreAsync(
             user, target, GetAdminId(principal), approveRequestId: null, enforceLiveGuard: false,
-            unitOfWork, db, listingPurge, guard, wallet, hubContext, publisher, sp);
+            unitOfWork, db, listingPurge, guard, purchases, hubContext, publisher, sp);
 
         return OkResponse(new { id = user.Id, role = target.Key });
     }
@@ -187,7 +187,7 @@ public static class AdminRoleHandlers
     private static async Task<RoleChangeOutcome> ChangeUserRoleCoreAsync(
         User user, Role target, Guid? adminId, Guid? approveRequestId, bool enforceLiveGuard,
         IUnitOfWork unitOfWork, ApplicationDbContext db, IListingPurgeService listingPurge, IRoleChangeGuardService guard,
-        ICreditWalletService wallet, IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp)
+        IPlanPurchaseService purchases, IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp)
     {
         var leftKind = UserRoles.ListingKindOf(user.RoleId);
         var targetKind = UserRoles.ListingKindOf(target.Id);
@@ -198,6 +198,10 @@ public static class AdminRoleHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            // Owner lock first: a concurrent plan grant either commits before (and is cancelled here) or
+            // runs after and sees the new role (Paid + RoleMismatch, auto refund).
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Users\" WHERE \"Id\" = {user.Id} FOR UPDATE");
+
             if (enforceLiveGuard && purgeKind != null
                 && await guard.GetBlockingCountAsync(user.Id, purgeKind) > 0)
             {
@@ -223,7 +227,8 @@ public static class AdminRoleHandlers
 
             if (purgeKind != null)
             {
-                await RefundPendingGoLiveCreditsAsync(user.Id, purgeKind, db, wallet);
+                // The leaving feature's plan ends with the role (no refund); open orders expire.
+                await purchases.CancelActivePlansAsync(user.Id, purgeKind, "Role changed");
                 purgedDistrictIds = purgeKind switch
                 {
                     ListingKinds.Room => await db.RoomListings.Where(l => l.UserId == user.Id && !l.IsDeleted).Select(l => l.DistrictId).Distinct().ToListAsync(),
@@ -260,28 +265,6 @@ public static class AdminRoleHandlers
             await unitOfWork.RollbackTransactionAsync();
             throw;
         }
-    }
-
-    // The wallet survives a role change, so credits spent on a never-approved Go-Live must be refunded before the purge.
-    private static async Task RefundPendingGoLiveCreditsAsync(
-        Guid userId, string listingKind, ApplicationDbContext db, ICreditWalletService wallet)
-    {
-        if (listingKind is ListingKinds.Stay or ListingKinds.Taxi) return;
-
-        var refunds = listingKind == ListingKinds.Room
-            ? await db.RoomListings
-                .Where(l => l.UserId == userId && !l.IsDeleted
-                    && l.LiveRequestStatus == GoLiveRequestStatuses.Pending && l.RequestedPlanCreditsSpent > 0)
-                .Select(l => new { l.Id, Credits = l.RequestedPlanCreditsSpent!.Value })
-                .ToListAsync()
-            : await db.PlotListings
-                .Where(p => p.UserId == userId && !p.IsDeleted
-                    && p.LiveRequestStatus == GoLiveRequestStatuses.Pending && p.RequestedPlanCreditsSpent > 0)
-                .Select(p => new { p.Id, Credits = p.RequestedPlanCreditsSpent!.Value })
-                .ToListAsync();
-
-        foreach (var refund in refunds)
-            await wallet.AddCreditsAsync(userId, refund.Credits, CreditTransactionReasons.GoLivePendingRefund, refund.Id);
     }
 
     private static async Task InvalidateListingCachesAsync(IConnectionMultiplexer? redis, string listingKind, IReadOnlyList<Guid> districtIds)

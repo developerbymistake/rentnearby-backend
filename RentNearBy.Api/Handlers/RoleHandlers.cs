@@ -94,6 +94,7 @@ public static class RoleHandlers
         IUnitOfWork unitOfWork,
         ApplicationDbContext db,
         IListingPurgeService listingPurge,
+        IPlanPurchaseService purchases,
         IJwtService jwtService,
         IMemoryCache cache)
     {
@@ -147,6 +148,8 @@ public static class RoleHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            // Owner lock first, same order as a plan grant, so the two never interleave.
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Users\" WHERE \"Id\" = {userId} FOR UPDATE");
             var updated = await unitOfWork.Users.CorrectRoleAsync(userId, user.RoleId, role.Id);
             if (updated == 0)
             {
@@ -178,6 +181,7 @@ public static class RoleHandlers
                 return ConflictResponse(RoleRequestPendingMessage, RoleRequestPendingType);
             }
 
+            await purchases.CancelActivePlansAsync(userId, leftKind, "Role corrected");
             purgedIds = await listingPurge.DeleteUserListingRowsAsync(userId, leftKind);
 
             // Every token with the old role claim, the caller's included, dies here; the caller gets a new session.

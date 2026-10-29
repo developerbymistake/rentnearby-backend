@@ -11,7 +11,6 @@ public static class RoomListingsEndpoints
         group.MapGet("/context", RoomListingsHandlers.GetContext).WithMetadata(new SkipTabGateAttribute());
         group.MapGet("/nearby", RoomListingsHandlers.GetNearby);
         group.MapGet("/nearest", RoomListingsHandlers.GetNearest);
-        group.MapGet("/plans", RoomListingsHandlers.GetPlans);
         group.MapGet("/locations/districts", AdminHandlers.GetDistricts).WithMetadata(new SkipTabGateAttribute());
         group.MapGet("/locations/districts/{id:guid}/boundary", AdminHandlers.GetDistrictBoundary).WithMetadata(new SkipTabGateAttribute());
         group.MapGet("/locations/cities", AdminHandlers.GetCities).WithMetadata(new SkipTabGateAttribute());
@@ -30,8 +29,9 @@ public static class RoomListingsEndpoints
         group.MapPost("/{id:guid}/report", RoomListingsHandlers.ReportListing).RequireAuthorization();
         group.MapGet("/{id:guid}/reports", RoomListingsHandlers.GetListingReports).RequireAuthorization("CanListRooms");
 
-        // Credit-based Go Live — replaces the old Razorpay-per-listing payment routes entirely.
+        // Plan-limited Go Live (no body) and live-slot swap.
         group.MapPost("/{listingId:guid}/go-live", GoLiveHandlers.GoLiveRoom).RequireAuthorization("CanListRooms");
+        group.MapPost("/{id:guid}/swap-live", RoomListingsHandlers.SwapLive).RequireAuthorization("CanListRooms");
 
         return group;
     }

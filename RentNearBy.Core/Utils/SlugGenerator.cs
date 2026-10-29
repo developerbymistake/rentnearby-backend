@@ -43,8 +43,8 @@ public static class SlugGenerator
         return $"{baseSlug}-{i}";
     }
 
-    // Lowercase alphanumeric only (no confusable-character exclusion needed here, unlike
-    // CouponCodeGenerator — slugs are read/shared via URL, not hand-typed from a support call).
+    // Lowercase alphanumeric only (no confusable-character exclusion needed: slugs are read/shared
+    // via URL, not hand-typed from a support call).
     private const string SuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
     private const int SuffixLength = 6;
 
@@ -77,7 +77,7 @@ public static class SlugGenerator
 
     // RandomNumberGenerator.GetInt32 uses rejection sampling internally and is unbiased, unlike
     // GetBytes(...) % SuffixAlphabet.Length, which would skew towards the low end of the alphabet
-    // since 256 is not evenly divisible by 36 (mirrors CouponCodeGenerator.Generate's technique).
+    // since 256 is not evenly divisible by 36.
     private static string RandomSuffix()
     {
         var chars = new char[SuffixLength];

@@ -3,7 +3,9 @@ using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services;
 
 namespace RentNearBy.Infrastructure.Repositories;
 
@@ -12,7 +14,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
     private record BoxQueryResult(
         Guid Id, double Lat, double Lng,
         double AreaValue, string AreaUnit, string PlotType,
-        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl);
+        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured);
 
     private static (double MinLat, double MaxLat, double MinLng, double MaxLng)
         GetBoundingBox(double lat, double lng, double radiusKm)
@@ -40,7 +42,9 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                     pt."Name"              AS "PlotType",
                     u."Name"               AS "OwnerName",
                     CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
-                    ph."PhotoUrl"          AS "ThumbnailUrl"
+                    ph."PhotoUrl"          AS "ThumbnailUrl",
+                    p."PriorityRank",
+                    p."IsFeatured"
                 FROM "PlotListings" p
                 INNER JOIN "PlotTypes" pt ON pt."Id" = p."PlotTypeId"
                 LEFT JOIN "Users" u ON u."Id" = p."UserId"
@@ -65,7 +69,8 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         return box
             .Select(r => (Row: r, Dist: Haversine(latitude, longitude, r.Lat, r.Lng)))
             .Where(x => x.Dist <= radiusKm)
-            .OrderBy(x => x.Dist)
+            .OrderByDescending(x => x.Row.PriorityRank)
+            .ThenBy(x => x.Dist)
             .Select(x => new NearbyPlotListingDto
             {
                 Id = x.Row.Id,
@@ -78,7 +83,9 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                 OwnerName = x.Row.OwnerName,
                 OwnerPhone = x.Row.OwnerPhone,
                 ThumbnailUrl = x.Row.ThumbnailUrl,
-                DistanceKm = x.Dist
+                DistanceKm = x.Dist,
+                PriorityRank = x.Row.PriorityRank,
+                IsFeatured = x.Row.IsFeatured,
             })
             .ToList();
     }
@@ -86,12 +93,13 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
     private record KnnQueryResult(
         Guid Id, double Lat, double Lng,
         double AreaValue, string AreaUnit, string PlotType,
-        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, double DistanceMeters);
+        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured, double DistanceMeters);
 
     public async Task<IEnumerable<NearbyPlotListingDto>> GetNearestAsync(
         double latitude, double longitude, int count, Guid districtId)
     {
-        // <-> is KNN-index-assisted by ix_plots_location_gist — no bounding box needed.
+        // <-> is KNN-index-assisted by ix_plots_location_gist — no bounding box needed. The n nearest
+        // rows are then re-sorted in memory, paid rank first.
         var rows = await context.Database
             .SqlQuery<KnnQueryResult>($"""
                 SELECT
@@ -104,6 +112,8 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                     u."Name"               AS "OwnerName",
                     CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
                     ph."PhotoUrl"          AS "ThumbnailUrl",
+                    p."PriorityRank",
+                    p."IsFeatured",
                     ST_Distance(p."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters"
                 FROM "PlotListings" p
                 INNER JOIN "PlotTypes" pt ON pt."Id" = p."PlotTypeId"
@@ -124,6 +134,8 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
             .ToListAsync();
 
         return rows
+            .OrderByDescending(r => r.PriorityRank)
+            .ThenBy(r => r.DistanceMeters)
             .Select(r => new NearbyPlotListingDto
             {
                 Id = r.Id,
@@ -136,7 +148,9 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                 OwnerName = r.OwnerName,
                 OwnerPhone = r.OwnerPhone,
                 ThumbnailUrl = r.ThumbnailUrl,
-                DistanceKm = r.DistanceMeters / 1000.0
+                DistanceKm = r.DistanceMeters / 1000.0,
+                PriorityRank = r.PriorityRank,
+                IsFeatured = r.IsFeatured,
             })
             .ToList();
     }
@@ -261,14 +275,17 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         ThumbnailUrl = p.Photos.OrderBy(ph => ph.PhotoOrder).Select(ph => ph.PhotoUrl).FirstOrDefault(),
         CityName = p.City != null ? p.City.Name : null,
         DistrictName = p.District.Name,
+        PriorityRank = p.PriorityRank,
+        IsFeatured = p.IsFeatured,
         CreatedAt = p.CreatedAt,
     };
 
-    // Home "for you": newest live rows of the district (ix_plotlistings_district_active_recent).
+    // Home "for you": paid rank first, then newest live rows of the district (ix_plotlistings_district_active_recent).
     public async Task<List<HomePlotDto>> GetHomeForYouProjectedAsync(Guid districtId, int limit)
         => await _dbSet.AsNoTracking()
             .Where(p => p.IsActive && !p.IsDeleted && p.DistrictId == districtId)
-            .OrderByDescending(p => p.CreatedAt)
+            .OrderByDescending(p => p.PriorityRank)
+            .ThenByDescending(p => p.CreatedAt)
             .Take(limit)
             .Select(BrowseProjection)
             .ToListAsync();
@@ -277,7 +294,8 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
     public async Task<List<HomePlotDto>> GetRecentProjectedAsync(int limit)
         => await _dbSet.AsNoTracking()
             .Where(p => p.IsActive && !p.IsDeleted)
-            .OrderByDescending(p => p.CreatedAt)
+            .OrderByDescending(p => p.PriorityRank)
+            .ThenByDescending(p => p.CreatedAt)
             .Take(limit)
             .Select(BrowseProjection)
             .ToListAsync();
@@ -295,7 +313,9 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
 
         if (sortBy is "area_asc" or "area_desc")
         {
-            var cityFirst = query.OrderBy(p => cityId != null && p.CityId == cityId ? 0 : 1);
+            var cityFirst = query
+                .OrderByDescending(p => p.PriorityRank)
+                .ThenBy(p => cityId != null && p.CityId == cityId ? 0 : 1);
             var byArea = sortBy == "area_asc"
                 ? cityFirst.ThenBy(p => p.AreaSqft).ThenBy(p => p.Id)
                 : cityFirst.ThenByDescending(p => p.AreaSqft).ThenByDescending(p => p.Id);
@@ -306,7 +326,8 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         if (string.IsNullOrEmpty(cursor) && page > 1)
         {
             var legacy = await query
-                .OrderBy(p => cityId != null && p.CityId == cityId ? 0 : 1)
+                .OrderByDescending(p => p.PriorityRank)
+                .ThenBy(p => cityId != null && p.CityId == cityId ? 0 : 1)
                 .ThenByDescending(p => p.CreatedAt)
                 .ThenByDescending(p => p.Id)
                 .Skip((page - 1) * pageSize)
@@ -316,26 +337,26 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
             return BrowseCursor.OffsetPage(legacy, pageSize);
         }
 
-        var phase = cityId.HasValue ? 0 : 1;
-        DateTime? afterAt = null;
-        var afterId = Guid.Empty;
-        if (BrowseCursor.TryDecode(cursor, out var cursorPhase, out var cursorAt, out var cursorId) && cursorPhase >= phase)
-        {
-            phase = cursorPhase;
-            afterAt = cursorAt;
-            afterId = cursorId;
-        }
+        // Keyset: same phase walk as RoomListingRepository.SearchPagedAsync.
+        var ranks = await PlanCatalogCache.RanksForAsync(context, ListingKinds.Plot);
+        var outsideRanks = BrowseCursor.OutsideRanks<PlotListing>(p => p.PriorityRank, ranks);
+        var phases = BrowseCursor.Phases(ranks, cityId.HasValue);
+        var (start, afterAt, afterId) = BrowseCursor.Resume(cursor, phases);
 
         var items = new List<HomePlotDto>(pageSize + 1);
-        var phase0Count = 0;
-        for (; phase <= 1; phase++)
+        var itemPhases = new List<BrowsePhase>(pageSize + 1);
+        for (var i = start; i < phases.Count; i++)
         {
+            var phase = phases[i];
             var need = pageSize + 1 - items.Count;
-            var phaseQuery = query;
+            var rank = phase.Rank;
+            var phaseQuery = rank == BrowseCursor.OtherRanks
+                ? query.Where(outsideRanks)
+                : query.Where(p => p.PriorityRank == rank);
             if (cityId.HasValue)
             {
                 var cid = cityId.Value;
-                phaseQuery = phase == 0
+                phaseQuery = phase.CityOnly
                     ? phaseQuery.Where(p => p.CityId == cid)
                     : phaseQuery.Where(p => p.CityId == null || p.CityId != cid);
             }
@@ -353,16 +374,13 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                 .Select(BrowseProjection)
                 .ToListAsync();
             items.AddRange(rows);
-            if (phase == 0) phase0Count = items.Count;
+            itemPhases.AddRange(Enumerable.Repeat(phase, rows.Count));
             afterAt = null;
             if (rows.Count == need) break;
         }
 
-        return BrowseCursor.KeysetPage(items, pageSize, phase0Count, x => x.CreatedAt, x => x.Id);
+        return BrowseCursor.KeysetPage(items, itemPhases, pageSize, x => x.CreatedAt, x => x.Id);
     }
-
-    public async Task<int> CountByUserIdAsync(Guid userId)
-        => await _dbSet.Where(p => p.UserId == userId && !p.IsDeleted).CountAsync();
 
     public async Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId)
         => await _dbSet

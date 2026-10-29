@@ -10,5 +10,7 @@ public class HomePlotDto
     public string? ThumbnailUrl { get; set; }
     public string? CityName { get; set; }
     public string DistrictName { get; set; } = string.Empty;
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
     public DateTime CreatedAt { get; set; }
 }

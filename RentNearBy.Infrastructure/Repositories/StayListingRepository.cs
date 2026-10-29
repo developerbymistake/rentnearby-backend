@@ -5,6 +5,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services;
 
 namespace RentNearBy.Infrastructure.Repositories;
 
@@ -90,14 +91,17 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
             : s.Rooms.Any(r => r.Meals == StayMeals.Breakfast) ? "Breakfast"
             : null,
         RoomNameChip = s.Rooms.OrderBy(r => r.PricePerNight).Select(r => r.RoomName).FirstOrDefault(),
+        PriorityRank = s.PriorityRank,
+        IsFeatured = s.IsFeatured,
         CreatedAt = s.CreatedAt,
     };
 
-    // District-free Home "Recently added" (ix_staylistings_recent_active).
+    // District-free Home "Recently added", paid rank first (ix_staylistings_recent_active).
     public async Task<List<StayBrowseDto>> GetRecentProjectedAsync(int limit)
         => await _dbSet.AsNoTracking()
             .Where(s => s.Status == StayStatuses.Approved && s.AcceptingGuests && !s.IsDeleted)
-            .OrderByDescending(s => s.CreatedAt)
+            .OrderByDescending(s => s.PriorityRank)
+            .ThenByDescending(s => s.CreatedAt)
             .Take(limit)
             .Select(BrowseProjection)
             .ToListAsync();
@@ -118,7 +122,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
 
         if (sortBy is "price_asc" or "price_desc")
         {
-            var cityFirst = query.OrderBy(s => cityId != null && s.CityId == cityId ? 0 : 1);
+            var cityFirst = query
+                .OrderByDescending(s => s.PriorityRank)
+                .ThenBy(s => cityId != null && s.CityId == cityId ? 0 : 1);
             var byPrice = sortBy == "price_asc"
                 ? cityFirst.ThenBy(s => s.MinPricePerNight).ThenBy(s => s.Id)
                 : cityFirst.ThenByDescending(s => s.MinPricePerNight).ThenByDescending(s => s.Id);
@@ -129,7 +135,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
         if (string.IsNullOrEmpty(cursor) && page > 1)
         {
             var offset = await query
-                .OrderBy(s => cityId != null && s.CityId == cityId ? 0 : 1)
+                .OrderByDescending(s => s.PriorityRank)
+                .ThenBy(s => cityId != null && s.CityId == cityId ? 0 : 1)
                 .ThenByDescending(s => s.CreatedAt)
                 .ThenByDescending(s => s.Id)
                 .Skip((page - 1) * pageSize)
@@ -139,26 +146,26 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
             return BrowseCursor.OffsetPage(offset, pageSize);
         }
 
-        var phase = cityId.HasValue ? 0 : 1;
-        DateTime? afterAt = null;
-        var afterId = Guid.Empty;
-        if (BrowseCursor.TryDecode(cursor, out var cursorPhase, out var cursorAt, out var cursorId) && cursorPhase >= phase)
-        {
-            phase = cursorPhase;
-            afterAt = cursorAt;
-            afterId = cursorId;
-        }
+        // Keyset: same phase walk as RoomListingRepository.SearchPagedAsync.
+        var ranks = await PlanCatalogCache.RanksForAsync(context, ListingKinds.Stay);
+        var outsideRanks = BrowseCursor.OutsideRanks<StayListing>(s => s.PriorityRank, ranks);
+        var phases = BrowseCursor.Phases(ranks, cityId.HasValue);
+        var (start, afterAt, afterId) = BrowseCursor.Resume(cursor, phases);
 
         var items = new List<StayBrowseDto>(pageSize + 1);
-        var phase0Count = 0;
-        for (; phase <= 1; phase++)
+        var itemPhases = new List<BrowsePhase>(pageSize + 1);
+        for (var i = start; i < phases.Count; i++)
         {
+            var phase = phases[i];
             var need = pageSize + 1 - items.Count;
-            var phaseQuery = query;
+            var rank = phase.Rank;
+            var phaseQuery = rank == BrowseCursor.OtherRanks
+                ? query.Where(outsideRanks)
+                : query.Where(s => s.PriorityRank == rank);
             if (cityId.HasValue)
             {
                 var cid = cityId.Value;
-                phaseQuery = phase == 0
+                phaseQuery = phase.CityOnly
                     ? phaseQuery.Where(s => s.CityId == cid)
                     : phaseQuery.Where(s => s.CityId == null || s.CityId != cid);
             }
@@ -176,17 +183,17 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 .Select(BrowseProjection)
                 .ToListAsync();
             items.AddRange(rows);
-            if (phase == 0) phase0Count = items.Count;
+            itemPhases.AddRange(Enumerable.Repeat(phase, rows.Count));
             afterAt = null;
             if (rows.Count == need) break;
         }
 
-        return BrowseCursor.KeysetPage(items, pageSize, phase0Count, x => x.CreatedAt, x => x.Id);
+        return BrowseCursor.KeysetPage(items, itemPhases, pageSize, x => x.CreatedAt, x => x.Id);
     }
 
     private record BoxQueryResult(
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
-        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl);
+        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured);
 
     private static (double MinLat, double MaxLat, double MinLng, double MaxLng)
         GetBoundingBox(double lat, double lng, double radiusKm)
@@ -214,7 +221,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     s."Longitude"::float8  AS "Lng",
                     u."Name"       AS "OwnerName",
                     CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
-                    p."PhotoUrl"   AS "ThumbnailUrl"
+                    p."PhotoUrl"   AS "ThumbnailUrl",
+                    s."PriorityRank",
+                    s."IsFeatured"
                 FROM "StayListings" s
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
                 LEFT JOIN "StayTypes" t ON t."Id" = s."StayTypeId"
@@ -241,7 +250,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
         return box
             .Select(r => (Row: r, Dist: Haversine(latitude, longitude, r.Lat, r.Lng)))
             .Where(x => x.Dist <= radiusKm)
-            .OrderBy(x => x.Dist)
+            .OrderByDescending(x => x.Row.PriorityRank)
+            .ThenBy(x => x.Dist)
             .Select(x => new StayNearbyDto
             {
                 Id = x.Row.Id,
@@ -256,18 +266,20 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 OwnerPhone = x.Row.OwnerPhone,
                 ThumbnailUrl = x.Row.ThumbnailUrl,
                 DistanceKm = x.Dist,
+                PriorityRank = x.Row.PriorityRank,
+                IsFeatured = x.Row.IsFeatured,
             })
             .ToList();
     }
 
     private record KnnQueryResult(
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
-        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, double DistanceMeters);
+        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured, double DistanceMeters);
 
     public async Task<IEnumerable<StayNearbyDto>> GetNearestAsync(
         double latitude, double longitude, int count, Guid districtId, Guid? stayTypeId)
     {
-        // <-> is KNN-index-assisted by ix_staylistings_location_gist.
+        // <-> is KNN-index-assisted by ix_staylistings_location_gist; the n rows are re-sorted paid rank first.
         var rows = await context.Database
             .SqlQuery<KnnQueryResult>($"""
                 SELECT
@@ -281,6 +293,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     u."Name"       AS "OwnerName",
                     CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
                     p."PhotoUrl"   AS "ThumbnailUrl",
+                    s."PriorityRank",
+                    s."IsFeatured",
                     ST_Distance(s."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters"
                 FROM "StayListings" s
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
@@ -304,6 +318,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
             .ToListAsync();
 
         return rows
+            .OrderByDescending(r => r.PriorityRank)
+            .ThenBy(r => r.DistanceMeters)
             .Select(r => new StayNearbyDto
             {
                 Id = r.Id,
@@ -318,6 +334,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 OwnerPhone = r.OwnerPhone,
                 ThumbnailUrl = r.ThumbnailUrl,
                 DistanceKm = r.DistanceMeters / 1000.0,
+                PriorityRank = r.PriorityRank,
+                IsFeatured = r.IsFeatured,
             })
             .ToList();
     }

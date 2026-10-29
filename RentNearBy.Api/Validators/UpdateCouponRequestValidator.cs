@@ -1,6 +1,5 @@
 using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
-using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Validators;
 
@@ -8,20 +7,8 @@ public class UpdateCouponRequestValidator : AbstractValidator<UpdateCouponReques
 {
     public UpdateCouponRequestValidator()
     {
-        RuleFor(x => x.CreditValue).GreaterThan(0).When(x => x.CreditValue.HasValue);
-        RuleFor(x => x.MaxTotalRedemptions).GreaterThan(0).When(x => x.MaxTotalRedemptions.HasValue);
-
-        RuleFor(x => x)
-            .Must(x => !(x.ClearMaxTotalRedemptions && x.MaxTotalRedemptions.HasValue))
-            .WithMessage("Cannot both set and clear MaxTotalRedemptions in the same request.");
-
-        RuleFor(x => x)
-            .Must(x => !(x.ClearValidUntil && x.ValidUntil.HasValue))
-            .WithMessage("Cannot both set and clear ValidUntil in the same request.");
-
-        RuleFor(x => x.Status)
-            .Must(s => s == CouponStatuses.Active || s == CouponStatuses.Revoked)
-            .When(x => x.Status != null)
-            .WithMessage("Status can only be manually set to Active or Revoked — Exhausted/Expired are system-managed.");
+        RuleFor(x => new CouponRuleInput(x.Kind, x.Value, x.MaxDiscountInr, x.MinPlanPriceInr, x.FeatureKey,
+                x.PerUserLimit, x.MaxTotalRedemptions, x.ValidFrom, x.ValidUntil, x.AutoApply, x.CampaignLabel))
+            .SetValidator(new CouponRuleValidator());
     }
 }

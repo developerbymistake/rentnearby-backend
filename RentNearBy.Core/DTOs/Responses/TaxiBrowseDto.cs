@@ -19,5 +19,7 @@ public class TaxiBrowseDto
     public string? MatchedToName { get; set; }
     public string? MatchedTripType { get; set; }
     public bool MatchReversed { get; set; }
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
     public DateTime CreatedAt { get; set; }
 }

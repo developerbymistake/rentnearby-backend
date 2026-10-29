@@ -151,7 +151,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Non-fatal by design (see RazorpayService's _webhookSecret field comment) — the client-driven
-// verify-call and the 30-min Razorpay reconciliation sweep both work without it, so this must not
+// verify-call and the 2-min plan purchase reconciler both work without it, so this must not
 // block startup. Still needs to be loud: also surfaced at GET /health as razorpayWebhook.
 using (var scope = app.Services.CreateScope())
 {
@@ -161,7 +161,7 @@ using (var scope = app.Services.CreateScope())
         var startupLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
         startupLogger.LogError(
             "Razorpay:WebhookSecret / RAZORPAY_WEBHOOK_SECRET is not configured — every incoming Razorpay webhook will be rejected. " +
-            "Credit purchases still complete via the client verify-call and the 30-min reconciliation sweep, but instant crash-recovery credit is degraded.");
+            "Plan purchases still complete via the client verify-call and the 2-min reconciler, but instant crash recovery is degraded.");
     }
 }
 
@@ -262,7 +262,7 @@ app.MapGet("/delete-account", () => Results.Content("""
 <div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> — your account is deleted instantly</span></div>
 </div>
 <div class="warn">
-<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, photos, bookings, and wallet credit balance will be permanently removed.
+<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, stays, photos and any active plan will be permanently removed. Payment receipts are kept without your personal details.
 </div>
 <p>If you are unable to access the app, contact us at <a href="mailto:supportbakhli@gmail.com">supportbakhli@gmail.com</a> with subject <em>"Account Deletion Request"</em>.</p>
 <p><a href="https://developerbymistake.github.io/bakhli-privacy-policy/">Privacy Policy</a></p>
@@ -294,9 +294,9 @@ app.MapGet("/health", async (IServiceProvider sp) =>
     var cloudinaryOk = await photoService.PingAsync();
 
     // Deliberately not fatal at startup if missing (see the field comment on RazorpayService's
-    // _webhookSecret) — but a missing/misrotated webhook secret silently disables the fastest credit-
-    // add path (the client-driven verify-call and the 30-min Razorpay reconciliation sweep both
-    // still work), so it needs to be loudly visible somewhere. Here, not a thrown exception.
+    // _webhookSecret) — but a missing/misrotated webhook secret silently disables the fastest plan
+    // grant path (the client verify-call and the 2-min reconciler still work), so it needs to be
+    // loudly visible somewhere. Here, not a thrown exception.
     var razorpayService = sp.GetRequiredService<RentNearBy.Infrastructure.Services.IRazorpayService>();
 
     return Results.Ok(new
@@ -406,21 +406,12 @@ app.MapGroup("/api/v1/config")
     .WithTags("Config")
     .MapConfigEndpoints();
 
-app.MapGroup("/api/v1/coupons")
-    .WithTags("Coupons")
-    .MapCouponEndpoints();
-
-app.MapGroup("/api/v1/credit-packs")
-    .WithTags("CreditPacks")
-    .MapCreditPackEndpoints();
-
-app.MapGroup("/api/v1/wallet")
-    .WithTags("Wallet")
-    .MapWalletEndpoints();
+app.MapGroup("/api/v1/plans")
+    .WithTags("Plans")
+    .MapPlanEndpoints();
 
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");
-app.MapHub<WalletHub>("/hubs/wallet");
 app.MapHub<NotificationHub>("/hubs/notification");
 
 app.Run();

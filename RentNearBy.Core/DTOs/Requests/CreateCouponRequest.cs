@@ -1,4 +1,18 @@
 namespace RentNearBy.Core.DTOs.Requests;
 
-// PerUserLimit intentionally absent — hardcoded server-side to 1 (see design doc §7 Open Flags).
-public record CreateCouponRequest(string TriggerType, int CreditValue, int? MaxTotalRedemptions, DateTime ValidFrom, DateTime? ValidUntil, string? CampaignLabel);
+public record CreateCouponRequest(
+    string Code,
+    string Kind,
+    int Value,
+    int? MaxDiscountInr,
+    int? MinPlanPriceInr,
+    string? FeatureKey,
+    List<Guid>? AllowedPlanIds,
+    bool NewUsersOnly,
+    bool FirstPurchaseOnly,
+    int PerUserLimit,
+    int? MaxTotalRedemptions,
+    DateTime? ValidFrom,
+    DateTime? ValidUntil,
+    bool AutoApply,
+    string? CampaignLabel);

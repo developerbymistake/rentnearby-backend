@@ -20,7 +20,7 @@ public class AdminUserDto
     public int TotalTaxis { get; set; }
     public int LiveTaxiListings { get; set; }   // taxis under review
     public string? TaxiStatus { get; set; }
-    public int WalletBalance { get; set; }
+    public AdminUserPlanSummaryDto? Plan { get; set; }   // active paid/trial/granted plan; null = default plan
     public string Role { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
 }

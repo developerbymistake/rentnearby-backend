@@ -12,8 +12,7 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
     Task<List<HomePlotDto>> GetHomeForYouProjectedAsync(Guid districtId, int limit);
     Task<List<HomePlotDto>> GetRecentProjectedAsync(int limit);
 
-    // SQL COUNT, never load-then-filter — same reasoning as IRoomRoomListingRepository's.
-    Task<int> CountByUserIdAsync(Guid userId);
+    // Plan slot counts live in ILiveSlotService (CountForCreationAsync / CountLiveAsync).
     Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetByUserIdPagedAsync(Guid userId, int page, int pageSize);
     Task<PlotListing?> GetByIdWithPhotosAsync(Guid id);
     Task<PlotListing?> GetByIdWithPhotosForAdminAsync(Guid id);

@@ -341,7 +341,8 @@ public static class StayHandlers
         ClaimsPrincipal principal,
         IValidator<UpsertStayBasicRequest> validator,
         IUnitOfWork unitOfWork,
-        ApplicationDbContext db)
+        ApplicationDbContext db,
+        IPlanEntitlementService entitlements)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -370,14 +371,20 @@ public static class StayHandlers
         if (stay != null && !IsEditable(stay)) return LockedResponse(stay);
 
         var now = DateTime.UtcNow;
-        stay ??= new StayListing
+        if (stay == null)
         {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            Status = StayStatuses.Draft,
-            AcceptingGuests = true,
-            CreatedAt = now,
-        };
+            var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
+            stay = new StayListing
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Status = StayStatuses.Draft,
+                AcceptingGuests = true,
+                PriorityRank = limits.PriorityRank,
+                IsFeatured = limits.IsFeatured,
+                CreatedAt = now,
+            };
+        }
 
         stay.Name = request.Name!.Trim();
         stay.StayTypeId = stayType.Id;

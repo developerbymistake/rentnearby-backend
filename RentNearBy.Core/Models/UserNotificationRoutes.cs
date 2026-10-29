@@ -8,6 +8,7 @@ public static class UserNotificationRoutes
     public const string MyTaxi = "/my-taxi";
     public const string Notifications = "/notifications";
     public const string JobDetail = "/job-detail";
+    public const string Plans = "/plans";
 
     public static string ForListingKind(string listingKind) => listingKind switch
     {

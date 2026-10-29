@@ -27,52 +27,13 @@ public static class DataSeeder
         await SeedTaxiVehicleTypesAsync(db);
         await SeedReportReasonsAsync(db);
         await SeedQuestionTemplatesAsync(db);
-        await SeedCreditFeaturesAsync(db);
-        await SeedCreditPlansAsync(db);
-        await SeedCreditPacksAsync(db);
+        await SeedPlansAsync(db);
         await SeedDistrictsAsync(db);
         await SeedCitiesAsync(db);
-        await SeedListingLimitSettingsAsync(db);
         await SeedAppFeatureFlagsAsync(db);
         await SeedAppTabsAsync(db);
         await SeedAppVersionConfigsAsync(db);
-        await SeedCouponsAsync(db);
         await SeedAdminsAsync(db);
-    }
-
-    private static async Task SeedCouponsAsync(ApplicationDbContext db)
-    {
-        if (await db.Coupons.AnyAsync(c => c.Id == WellKnownCoupons.WelcomeSignupCouponId)) return;
-
-        db.Coupons.Add(new Coupon
-        {
-            Id = WellKnownCoupons.WelcomeSignupCouponId,
-            Code = null,
-            CreditValue = 300,
-            TriggerType = WellKnownCoupons.WelcomeSignupTrigger,
-            PerUserLimit = 1,
-            MaxTotalRedemptions = null,
-            CurrentRedemptions = 0,
-            ValidFrom = DateTime.UtcNow,
-            ValidUntil = null,
-            Status = CouponStatuses.Active,
-            CreatedBy = null,
-            CampaignLabel = "Welcome Bonus",
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-        });
-        await db.SaveChangesAsync();
-    }
-
-    private static async Task SeedListingLimitSettingsAsync(ApplicationDbContext db)
-    {
-        if (await db.ListingLimitSettings.AnyAsync()) return;
-
-        db.ListingLimitSettings.AddRange(
-            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Room, MaxListings = 5, UpdatedAt = DateTime.UtcNow },
-            new ListingLimitSetting { Id = Guid.NewGuid(), ListingKind = ListingKinds.Plot, MaxListings = 5, UpdatedAt = DateTime.UtcNow }
-        );
-        await db.SaveChangesAsync();
     }
 
     // Payment kill switch — starts OFF (payment not required) so Go-Live is free by default until an
@@ -170,80 +131,80 @@ public static class DataSeeder
         if (added) await db.SaveChangesAsync();
     }
 
-    // Seed-only catalog of "what credits can be spent on" — Room/Plot Go-Live today, future credit-gated
-    // features (contact reveal, chat, etc.) later, each as a new row here, never a schema change.
-    private static async Task SeedCreditFeaturesAsync(ApplicationDbContext db)
+    // Starting plan catalog (prices are guesses; admin-editable). Free is the default plan of each
+    // feature (no prices); paid plans carry 1/3/12-month prices with a longer-cycle discount. Stable ids:
+    // plans b1000000-...-0000000FFNN (FF feature 01-04, NN 01 free / 02 paid), prices b2000000-...-0000FFCC.
+    private static async Task SeedPlansAsync(ApplicationDbContext db)
     {
-        if (await db.CreditFeatures.AnyAsync()) return;
+        if (await db.Plans.AnyAsync()) return;
 
-        db.CreditFeatures.AddRange(
-            new CreditFeature { Id = Guid.NewGuid(), Key = CreditFeatureKeys.RoomGoLive, DisplayName = "Room Go-Live", QuotaUnitLabel = "rooms", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
-            new CreditFeature { Id = Guid.NewGuid(), Key = CreditFeatureKeys.PlotGoLive, DisplayName = "Plot Go-Live", QuotaUnitLabel = "plots", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow }
-        );
-        await db.SaveChangesAsync();
-    }
-
-    // Real credit-priced tiers matching the approved credit-economy mockups exactly (Basic/Standard/Premium,
-    // Standard marked featured/"popular") — replaces the old RoomPlan/PlotPlan seed, which left stale
-    // rupee-shaped placeholder values (Days=5/30, Price=99/199) behind after the credit-economy rework and
-    // never seeded a third/Premium tier at all. Room and Plot use identical numbers, matching this
-    // seeder's own prior precedent of equal values across both kinds.
-    private static async Task SeedCreditPlansAsync(ApplicationDbContext db)
-    {
-        if (await db.CreditPlans.AnyAsync()) return;
-
-        CreditPlan Make(string featureKey, string type, int days, int quota, int credits, bool featured) => new()
+        var now = DateTime.UtcNow;
+        var features = new (int Index, string Kind, string Code)[]
         {
-            Id = Guid.NewGuid(),
-            FeatureKey = featureKey,
-            PlanType = type,
-            Days = days,
-            Quota = quota,
-            Price = credits,
-            DiscountPercent = 0,
-            OriginalPrice = credits,
-            IsFeatured = featured,
-            IsEnabled = true,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
+            (1, ListingKinds.Room, "ROOM"),
+            (2, ListingKinds.Plot, "PLOT"),
+            (3, ListingKinds.Stay, "STAY"),
+            (4, ListingKinds.Taxi, "TAXI"),
         };
 
-        db.CreditPlans.AddRange(
-            Make(CreditFeatureKeys.RoomGoLive, CreditPlanTypes.Basic, days: 15, quota: 1, credits: 99, featured: false),
-            Make(CreditFeatureKeys.RoomGoLive, CreditPlanTypes.Standard, days: 30, quota: 2, credits: 299, featured: true),
-            Make(CreditFeatureKeys.RoomGoLive, CreditPlanTypes.Premium, days: 60, quota: 3, credits: 499, featured: false),
-            Make(CreditFeatureKeys.PlotGoLive, CreditPlanTypes.Basic, days: 15, quota: 1, credits: 99, featured: false),
-            Make(CreditFeatureKeys.PlotGoLive, CreditPlanTypes.Standard, days: 30, quota: 2, credits: 299, featured: true),
-            Make(CreditFeatureKeys.PlotGoLive, CreditPlanTypes.Premium, days: 60, quota: 3, credits: 499, featured: false)
-        );
-        await db.SaveChangesAsync();
-    }
+        static Guid PlanId(int feature, int n) => new($"b1000000-0000-0000-0000-000000000{feature}{n:D2}");
+        static Guid PriceId(int feature, int cycle) => new($"b2000000-0000-0000-0000-00000000{feature:D2}{cycle:D2}");
 
-    // Credit packs (buy-credits tiers) — previously never seeded anywhere; the only INSERT path was the
-    // admin app's create form, so GET /credit-packs/ had only ever returned an empty array on every real
-    // deployment. Matches the approved mockups' Starter/Popular/Mega numbers exactly.
-    private static async Task SeedCreditPacksAsync(ApplicationDbContext db)
-    {
-        if (await db.CreditPacks.AnyAsync()) return;
-
-        CreditPack Make(int credits, int bonus, int priceInr, int sortOrder, bool featured) => new()
+        foreach (var (index, kind, code) in features)
         {
-            Id = Guid.NewGuid(),
-            Credits = credits,
-            BonusCredits = bonus,
-            PriceInr = priceInr,
-            IsEnabled = true,
-            SortOrder = sortOrder,
-            IsFeatured = featured,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-        };
+            var isStay = kind == ListingKinds.Stay;
+            var isSlots = kind is ListingKinds.Room or ListingKinds.Plot;
 
-        db.CreditPacks.AddRange(
-            Make(credits: 100, bonus: 0, priceInr: 99, sortOrder: 1, featured: false), // Starter
-            Make(credits: 300, bonus: 30, priceInr: 299, sortOrder: 2, featured: true),  // Popular / Best Value
-            Make(credits: 500, bonus: 50, priceInr: 399, sortOrder: 3, featured: false)  // Mega
-        );
+            var free = new Plan
+            {
+                Id = PlanId(index, 1),
+                FeatureKey = kind,
+                Code = $"{code}_FREE",
+                Name = "Free",
+                Tagline = "Get started",
+                IsDefault = true,
+                IsEnabled = true,
+                TrialDays = 0,
+                SortOrder = 0,
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+            free.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.ListingLimit, Value = 1 });
+            free.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Priority, Value = 0 });
+            free.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Featured, Value = 0 });
+            if (isStay) free.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.JobsPosts, Value = 1 });
+
+            var plus = new Plan
+            {
+                Id = PlanId(index, 2),
+                FeatureKey = kind,
+                Code = $"{code}_PLUS",
+                Name = "Plus",
+                Tagline = isSlots ? "2 listings, shown first" : "Featured and shown first",
+                IsDefault = false,
+                IsEnabled = true,
+                TrialDays = 7,
+                SortOrder = 1,
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.ListingLimit, Value = isSlots ? 2 : 1 });
+            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Priority, Value = 1 });
+            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Featured, Value = isSlots ? 0 : 1 });
+            if (isStay) plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.JobsPosts, Value = 4 });
+
+            var (m1, m3, m12) = kind switch
+            {
+                ListingKinds.Stay => (399, 1077, 3830),
+                ListingKinds.Taxi => (149, 402, 1430),
+                _ => (199, 537, 1910),
+            };
+            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 1), CycleMonths = 1, PriceInr = m1, IsEnabled = true });
+            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 3), CycleMonths = 3, PriceInr = m3, IsEnabled = true });
+            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 12), CycleMonths = 12, PriceInr = m12, IsEnabled = true });
+
+            db.Plans.AddRange(free, plus);
+        }
         await db.SaveChangesAsync();
     }
 

@@ -31,4 +31,7 @@ public class RoomListingDto
     public int PendingReportCount { get; set; }
     public string? LiveRequestStatus { get; set; }
     public string? RejectedReason { get; set; }
+    public string? PauseReason { get; set; }
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
 }

@@ -3,7 +3,9 @@ using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services;
 
 namespace RentNearBy.Infrastructure.Repositories;
 
@@ -12,7 +14,7 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
     private record BoxQueryResult(
         Guid Id, int? PriceMonthly, double Lat, double Lng,
         string? RoomTypeName, string? OwnerName, string? OwnerPhone, string? ThumbnailUrl,
-        string? FurnishedStatus, bool? IsAc);
+        string? FurnishedStatus, bool? IsAc, short PriorityRank, bool IsFeatured);
 
     private static (double MinLat, double MaxLat, double MinLng, double MaxLng)
         GetBoundingBox(double lat, double lng, double radiusKm)
@@ -43,7 +45,9 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                     CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
                     p."PhotoUrl"   AS "ThumbnailUrl",
                     l."FurnishedStatus",
-                    l."IsAc"
+                    l."IsAc",
+                    l."PriorityRank",
+                    l."IsFeatured"
                 FROM "RoomListings" l
                 LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
                 LEFT JOIN "Users" u      ON u."Id"  = l."UserId"
@@ -68,7 +72,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
         return box
             .Select(r => (Row: r, Dist: Haversine(latitude, longitude, r.Lat, r.Lng)))
             .Where(x => x.Dist <= radiusKm)
-            .OrderBy(x => x.Dist)
+            .OrderByDescending(x => x.Row.PriorityRank)
+            .ThenBy(x => x.Dist)
             .Select(x => new NearbyListingDto
             {
                 Id = x.Row.Id,
@@ -82,7 +87,9 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                 ThumbnailUrl = x.Row.ThumbnailUrl,
                 DistanceKm = x.Dist,
                 FurnishedStatus = x.Row.FurnishedStatus ?? "None",
-                IsAc = x.Row.IsAc
+                IsAc = x.Row.IsAc,
+                PriorityRank = x.Row.PriorityRank,
+                IsFeatured = x.Row.IsFeatured,
             })
             .ToList();
     }
@@ -90,12 +97,13 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
     private record KnnQueryResult(
         Guid Id, int? PriceMonthly, double Lat, double Lng,
         string? RoomTypeName, string? OwnerName, string? OwnerPhone, string? ThumbnailUrl,
-        string? FurnishedStatus, bool? IsAc, double DistanceMeters);
+        string? FurnishedStatus, bool? IsAc, short PriorityRank, bool IsFeatured, double DistanceMeters);
 
     public async Task<IEnumerable<NearbyListingDto>> GetNearestAsync(
         double latitude, double longitude, int count, Guid districtId)
     {
-        // <-> is KNN-index-assisted by ix_listings_location_gist — no bounding box needed.
+        // <-> is KNN-index-assisted by ix_listings_location_gist — no bounding box needed. The n nearest
+        // rows are then re-sorted in memory, paid rank first.
         var rows = await context.Database
             .SqlQuery<KnnQueryResult>($"""
                 SELECT
@@ -109,6 +117,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                     p."PhotoUrl"   AS "ThumbnailUrl",
                     l."FurnishedStatus",
                     l."IsAc",
+                    l."PriorityRank",
+                    l."IsFeatured",
                     ST_Distance(l."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters"
                 FROM "RoomListings" l
                 LEFT JOIN "RoomTypes" rt ON rt."Id" = l."RoomTypeId"
@@ -129,6 +139,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .ToListAsync();
 
         return rows
+            .OrderByDescending(r => r.PriorityRank)
+            .ThenBy(r => r.DistanceMeters)
             .Select(r => new NearbyListingDto
             {
                 Id = r.Id,
@@ -142,7 +154,9 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                 ThumbnailUrl = r.ThumbnailUrl,
                 DistanceKm = r.DistanceMeters / 1000.0,
                 FurnishedStatus = r.FurnishedStatus ?? "None",
-                IsAc = r.IsAc
+                IsAc = r.IsAc,
+                PriorityRank = r.PriorityRank,
+                IsFeatured = r.IsFeatured,
             })
             .ToList();
     }
@@ -158,14 +172,17 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
         DistrictName = l.District.Name,
         FurnishedStatus = l.FurnishedStatus,
         IsAc = l.IsAc,
+        PriorityRank = l.PriorityRank,
+        IsFeatured = l.IsFeatured,
         CreatedAt = l.CreatedAt,
     };
 
-    // Home "for you": newest live rows of the district (ix_roomlistings_district_active_recent).
+    // Home "for you": paid rank first, then newest live rows of the district (ix_roomlistings_district_active_recent).
     public async Task<List<HomeRoomDto>> GetHomeForYouProjectedAsync(Guid districtId, int limit)
         => await _dbSet.AsNoTracking()
             .Where(l => l.IsActive && !l.IsDeleted && l.DistrictId == districtId)
-            .OrderByDescending(l => l.CreatedAt)
+            .OrderByDescending(l => l.PriorityRank)
+            .ThenByDescending(l => l.CreatedAt)
             .Take(limit)
             .Select(BrowseProjection)
             .ToListAsync();
@@ -174,7 +191,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
     public async Task<List<HomeRoomDto>> GetRecentProjectedAsync(int limit)
         => await _dbSet.AsNoTracking()
             .Where(l => l.IsActive && !l.IsDeleted)
-            .OrderByDescending(l => l.CreatedAt)
+            .OrderByDescending(l => l.PriorityRank)
+            .ThenByDescending(l => l.CreatedAt)
             .Take(limit)
             .Select(BrowseProjection)
             .ToListAsync();
@@ -192,7 +210,9 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
 
         if (sortBy is "price_asc" or "price_desc")
         {
-            var cityFirst = query.OrderBy(l => cityId != null && l.CityId == cityId ? 0 : 1);
+            var cityFirst = query
+                .OrderByDescending(l => l.PriorityRank)
+                .ThenBy(l => cityId != null && l.CityId == cityId ? 0 : 1);
             var byPrice = sortBy == "price_asc"
                 ? cityFirst.ThenBy(l => l.PriceMonthly).ThenBy(l => l.Id)
                 : cityFirst.ThenByDescending(l => l.PriceMonthly).ThenByDescending(l => l.Id);
@@ -203,7 +223,8 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
         if (string.IsNullOrEmpty(cursor) && page > 1)
         {
             var legacy = await query
-                .OrderBy(l => cityId != null && l.CityId == cityId ? 0 : 1)
+                .OrderByDescending(l => l.PriorityRank)
+                .ThenBy(l => cityId != null && l.CityId == cityId ? 0 : 1)
                 .ThenByDescending(l => l.CreatedAt)
                 .ThenByDescending(l => l.Id)
                 .Skip((page - 1) * pageSize)
@@ -213,26 +234,26 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             return BrowseCursor.OffsetPage(legacy, pageSize);
         }
 
-        var phase = cityId.HasValue ? 0 : 1;
-        DateTime? afterAt = null;
-        var afterId = Guid.Empty;
-        if (BrowseCursor.TryDecode(cursor, out var cursorPhase, out var cursorAt, out var cursorId) && cursorPhase >= phase)
-        {
-            phase = cursorPhase;
-            afterAt = cursorAt;
-            afterId = cursorId;
-        }
+        // Keyset: one (rank, city|rest) phase at a time, each an index range scan in CreatedAt DESC order.
+        var ranks = await PlanCatalogCache.RanksForAsync(context, ListingKinds.Room);
+        var outsideRanks = BrowseCursor.OutsideRanks<RoomListing>(l => l.PriorityRank, ranks);
+        var phases = BrowseCursor.Phases(ranks, cityId.HasValue);
+        var (start, afterAt, afterId) = BrowseCursor.Resume(cursor, phases);
 
         var items = new List<HomeRoomDto>(pageSize + 1);
-        var phase0Count = 0;
-        for (; phase <= 1; phase++)
+        var itemPhases = new List<BrowsePhase>(pageSize + 1);
+        for (var i = start; i < phases.Count; i++)
         {
+            var phase = phases[i];
             var need = pageSize + 1 - items.Count;
-            var phaseQuery = query;
+            var rank = phase.Rank;
+            var phaseQuery = rank == BrowseCursor.OtherRanks
+                ? query.Where(outsideRanks)
+                : query.Where(l => l.PriorityRank == rank);
             if (cityId.HasValue)
             {
                 var cid = cityId.Value;
-                phaseQuery = phase == 0
+                phaseQuery = phase.CityOnly
                     ? phaseQuery.Where(l => l.CityId == cid)
                     : phaseQuery.Where(l => l.CityId == null || l.CityId != cid);
             }
@@ -250,12 +271,12 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
                 .Select(BrowseProjection)
                 .ToListAsync();
             items.AddRange(rows);
-            if (phase == 0) phase0Count = items.Count;
+            itemPhases.AddRange(Enumerable.Repeat(phase, rows.Count));
             afterAt = null;
             if (rows.Count == need) break;
         }
 
-        return BrowseCursor.KeysetPage(items, pageSize, phase0Count, x => x.CreatedAt, x => x.Id);
+        return BrowseCursor.KeysetPage(items, itemPhases, pageSize, x => x.CreatedAt, x => x.Id);
     }
 
     public async Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId)
@@ -268,9 +289,6 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .Where(l => l.UserId == userId && !l.IsDeleted)
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync();
-
-    public async Task<int> CountByUserIdAsync(Guid userId)
-        => await _dbSet.Where(l => l.UserId == userId && !l.IsDeleted).CountAsync();
 
     public async Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId)
         => await _dbSet

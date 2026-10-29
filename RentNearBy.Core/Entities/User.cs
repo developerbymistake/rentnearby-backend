@@ -18,5 +18,4 @@ public class User
     public DateTime UpdatedAt { get; set; }
 
     public Role Role { get; set; } = null!;
-    public Wallet? Wallet { get; set; }
 }

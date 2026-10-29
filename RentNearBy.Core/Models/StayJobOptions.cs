@@ -10,7 +10,6 @@ public static class StayJobStatuses
 
 public static class StayJobRules
 {
-    public const int MaxActiveJobsPerOwner = 4;
     public const int TitleMin = 3;
     public const int TitleMax = 100;
     public const int DescriptionMax = 2000;
@@ -22,7 +21,10 @@ public static class StayJobRules
     public const int PhoneLength = 10;
     public const string PhonePattern = @"^[6-9]\d{9}$";
 
-    public static string LimitMessage => $"You can have up to {MaxActiveJobsPerOwner} active jobs. Close one to add a new job.";
+    // The cap comes from the owner's plan (PlanFeatureKeys.JobsPosts).
+    public static string LimitMessage(int maxActive) => maxActive <= 1
+        ? "You can have 1 active job. Close it or upgrade to add more."
+        : $"You can have up to {maxActive} active jobs. Close one or upgrade to add more.";
 }
 
 public static class StayJobErrorTypes

@@ -12,6 +12,9 @@ public class AdminListingDto
     public int PriceMonthly { get; set; }
     public bool IsActive { get; set; }
     public DateTime? ValidUntil { get; set; }
+    public string? PauseReason { get; set; }
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
     public string FurnishedStatus { get; set; } = "None";
     public bool? IsAc { get; set; }
     public string? Address { get; set; }

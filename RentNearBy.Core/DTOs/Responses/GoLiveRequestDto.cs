@@ -11,15 +11,13 @@ public class GoLiveRequestDto
     public string? OwnerName { get; set; }
     public string? OwnerMobile { get; set; }
     public string Status { get; set; } = string.Empty; // GoLiveRequestStatuses.*
-    public string? RequestedPlanType { get; set; }
     public int? RequestedPlanDays { get; set; }
-    public int? RequestedPlanCreditsSpent { get; set; }
+    public string? OwnerPlanName { get; set; }
     public DateTime SubmittedAt { get; set; }
     public List<string> Photos { get; set; } = new();
 
     // Listing details, added so admin can verify against the actual listing content
-    // (address, description, price/area, type, furnished status), not just photos + owner
-    // + plan. A null value here means "not applicable to this listing kind" (e.g.
+    // (address, description, price/area, type, furnished status), not just photos + owner. A null value here means "not applicable to this listing kind" (e.g.
     // PriceMonthly is always null for a Plot request), not "value missing".
     public string? Address { get; set; }
     public string? Description { get; set; }

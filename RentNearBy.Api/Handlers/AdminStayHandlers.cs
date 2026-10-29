@@ -78,12 +78,14 @@ public static class AdminStayHandlers
 
     public static async Task<IResult> ApproveStay(
         Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
+        IPlanEntitlementService entitlements, IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var stay = await unitOfWork.Stays.GetByIdAsync(id);
         if (stay == null || stay.IsDeleted) return NotFoundResponse("Stay not found");
         if (stay.Status != StayStatuses.PendingReview)
             return BadRequestResponse("This request has already been resolved");
+
+        var limits = await entitlements.GetLimitsAsync(stay.UserId, ListingKinds.Stay);
 
         var ownerActive = await db.Users.AnyAsync(u => u.Id == stay.UserId && u.IsActive);
 
@@ -93,6 +95,8 @@ public static class AdminStayHandlers
             var now = DateTime.UtcNow;
             stay.Status = StayStatuses.Approved;
             stay.EverApproved = true;
+            stay.PriorityRank = limits.PriorityRank;
+            stay.IsFeatured = limits.IsFeatured;
             // A suspended owner's stay stays hidden; un-suspend turns it back on.
             if (!ownerActive) stay.AcceptingGuests = false;
             stay.RejectedReason = null;

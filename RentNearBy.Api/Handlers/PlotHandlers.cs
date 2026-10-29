@@ -333,6 +333,8 @@ public static class PlotListingHandlers
         ClaimsPrincipal principal,
         IValidator<CreatePlotListingRequest> validator,
         IUnitOfWork unitOfWork,
+        ILiveSlotService slots,
+        IPlanEntitlementService entitlements,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -360,14 +362,6 @@ public static class PlotListingHandlers
                 return BadRequestResponse("Selected city does not belong to the selected district");
         }
 
-        // Flat, credits-independent cap on how many plots a user can create — separate concern from
-        // whether they can afford to go live on one (that's credit-gated, at /go-live time instead).
-        var plotLimit = await unitOfWork.ListingLimitSettings.GetByKindAsync(ListingKinds.Plot);
-        var maxListings = plotLimit?.MaxListings ?? 5;
-        var currentCount = await unitOfWork.PlotListings.CountByUserIdAsync(userId);
-        if (currentCount >= maxListings)
-            return BadRequestResponse($"You can have at most {maxListings} plot(s). Delete one to add more.");
-
         var plot = new PlotListing
         {
             Id = Guid.NewGuid(),
@@ -391,25 +385,19 @@ public static class PlotListingHandlers
         // PlotListing.Slug) — base is type + locality only, never price/status. Uniqueness is handled
         // by SlugGenerator.GenerateUniqueSlugWithRetryAsync (shared with RoomListingsHandlers.CreateListing).
         var baseSlug = SlugGenerator.Generate($"{plotType.Name} {city?.Name ?? district.Name}");
+        // The plan limit (used = not deleted, not Rejected) is checked under the owner lock in the same transaction.
         await unitOfWork.PlotListings.AddAsync(plot);
-        var inserted = await SlugGenerator.GenerateUniqueSlugWithRetryAsync(
-            baseSlug,
+        var outcome = await ListingSlotHelpers.InsertWithinLimitAsync(
+            unitOfWork, slots, entitlements, userId, ListingKinds.Plot, baseSlug,
             slug => plot.Slug = slug,
-            async () =>
+            limits =>
             {
-                try
-                {
-                    await unitOfWork.SaveChangesAsync();
-                    return true;
-                }
-                catch (DbUpdateException)
-                {
-                    // Unique-index collision on Slug — loop retries with the next counter suffix, or
-                    // falls through to the ConflictResponse below once attempts are exhausted.
-                    return false;
-                }
+                plot.PriorityRank = limits.PriorityRank;
+                plot.IsFeatured = limits.IsFeatured;
             });
-        if (!inserted)
+        if (outcome.Limit is { } limit)
+            return GoLiveHandlers.ListingLimitReached(limit, outcome.Used ?? limit);
+        if (!outcome.Inserted)
             return ConflictResponse("Could not generate a unique link for this plot. Please try again.", "SLUG_GENERATION_FAILED");
 
         var redis = sp.GetService<IConnectionMultiplexer>();
@@ -423,6 +411,7 @@ public static class PlotListingHandlers
         ClaimsPrincipal principal,
         IValidator<UpdatePlotListingRequest> validator,
         IUnitOfWork unitOfWork,
+        ILiveSlotService slots,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -459,76 +448,30 @@ public static class PlotListingHandlers
             plot.CityId = request.CityId.Value;
             plot.DistrictId = city.DistrictId;
         }
+        var freesSlot = false;
         if (request.IsActive.HasValue)
         {
             if (request.IsActive.Value)
                 return BadRequestResponse("Use POST /plots/{id}/go-live to activate a plot.");
-            plot.IsActive = false; // deactivating is always free — ValidUntil is untouched, so a
-                                    // later Go-Live within the same window reactivates for free too
+            if (plot.IsActive)
+            {
+                // Owner pause: never auto-resumed; Go Live within the limit brings it back. Its slot goes to
+                // the newest plan-paused row.
+                freesSlot = plot.LiveRequestStatus != GoLiveRequestStatuses.Pending;
+                plot.IsActive = false;
+                plot.PauseReason = PauseReasons.Owner;
+            }
         }
         plot.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.PlotListings.UpdateAsync(plot);
-        await unitOfWork.SaveChangesAsync();
-
-        if (request.IsActive.HasValue && request.IsActive.Value == false)
-            await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
-
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
-        await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
-        if (oldDistrictId != plot.DistrictId)
-        {
-            await InvalidateNearbyCacheAsync(redis, oldDistrictId);
-            await InvalidateForYouPlotsCacheAsync(redis, oldDistrictId);
-        }
-        if (request.IsActive.HasValue && request.IsActive.Value == false)
-            await InvalidateRecentPlotsCacheAsync(redis);
-
-        return OkResponse(new { success = true });
-    }
-
-    public static async Task<IResult> DeletePlotListing(
-        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
-        IPhotoService photoService, ICreditWalletService wallet, IServiceProvider sp)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var userId))
-            return UnauthorizedResponse();
-
-        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
-        if (plot == null) return NotFoundResponse("PlotListing not found");
-        if (plot.UserId != userId) return ForbiddenResponse("You do not own this plot");
-
-        var districtId = plot.DistrictId;
-
-        foreach (var photo in plot.Photos)
-            await photoService.DeletePhotoAsync(photo.FilePath);
-
-        // A still-Pending Go-Live request (never approved/activated) with credits already spent
-        // must be refunded on delete — mirrors GoLiveHandlers's own transaction shape since folding
-        // a credit mutation into a bare SaveChangesAsync would be a correctness gap.
-        var needsRefund = plot.LiveRequestStatus == GoLiveRequestStatuses.Pending
-            && plot.RequestedPlanCreditsSpent is > 0;
-
-        // GetByIdWithPhotosAsync above is AsNoTracking + Include()-heavy (needed for the Photos loop
-        // and the scalar reads above) — mutating that instance directly wouldn't persist anything
-        // (EF isn't tracking it), and calling UpdateAsync on it would re-attach and mark the ENTIRE
-        // loaded graph (PlotType/District/City/User) as Modified too, not just this plot. So the
-        // actual delete-flag mutation happens on a separate, plain tracked re-fetch instead (no
-        // Include() graph attached to it) — this is also a tighter optimistic-concurrency window
-        // than reusing the first read, since it's taken right before the save, after the photo
-        // deletion I/O above.
-        var trackedPlot = await unitOfWork.PlotListings.GetByIdAsync(id);
-        if (trackedPlot == null) return NotFoundResponse("PlotListing not found");
-        trackedPlot.IsDeleted = true;
-        trackedPlot.DeletedAt = DateTime.UtcNow;
-
-        if (needsRefund)
+        var resumed = 0;
+        if (freesSlot)
         {
             await unitOfWork.BeginTransactionAsync();
             try
             {
-                await wallet.AddCreditsAsync(userId, plot.RequestedPlanCreditsSpent!.Value, CreditTransactionReasons.GoLivePendingRefund, plot.Id);
+                await slots.LockOwnerAsync(userId);
                 try
                 {
                     await unitOfWork.SaveChangesAsync();
@@ -538,6 +481,7 @@ public static class PlotListingHandlers
                     await unitOfWork.RollbackTransactionAsync();
                     return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
                 }
+                resumed = await slots.ResumeAfterSlotFreedAsync(userId, ListingKinds.Plot);
                 await unitOfWork.CommitTransactionAsync();
             }
             catch
@@ -558,14 +502,164 @@ public static class PlotListingHandlers
             }
         }
 
+        if (request.IsActive.HasValue && request.IsActive.Value == false)
+            await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
+        await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
+        if (oldDistrictId != plot.DistrictId)
+        {
+            await InvalidateNearbyCacheAsync(redis, oldDistrictId);
+            await InvalidateForYouPlotsCacheAsync(redis, oldDistrictId);
+        }
+        if (request.IsActive.HasValue && request.IsActive.Value == false)
+            await InvalidateRecentPlotsCacheAsync(redis);
+        if (resumed > 0)
+            await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(userId, ListingKinds.Plot);
+
+        return OkResponse(new { success = true });
+    }
+
+    public static async Task<IResult> DeletePlotListing(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
+        IPhotoService photoService, ILiveSlotService slots, IServiceProvider sp)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
+        if (plot == null) return NotFoundResponse("PlotListing not found");
+        if (plot.UserId != userId) return ForbiddenResponse("You do not own this plot");
+
+        var districtId = plot.DistrictId;
+
+        foreach (var photo in plot.Photos)
+            await photoService.DeletePhotoAsync(photo.FilePath);
+
+        // GetByIdWithPhotosAsync is AsNoTracking + Include()-heavy, so the delete flag goes on a plain
+        // tracked re-fetch, taken under the owner lock right before the save.
+        // Deleting a live (or pending) row frees a slot: the newest plan-paused row resumes in the same transaction.
+        var resumed = 0;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await slots.LockOwnerAsync(userId);
+            var trackedPlot = await unitOfWork.PlotListings.GetByIdAsync(id);
+            if (trackedPlot == null)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return NotFoundResponse("PlotListing not found");
+            }
+            var wasLive = trackedPlot.IsActive || trackedPlot.LiveRequestStatus == GoLiveRequestStatuses.Pending;
+            trackedPlot.IsDeleted = true;
+            trackedPlot.DeletedAt = DateTime.UtcNow;
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+            if (wasLive)
+                resumed = await slots.ResumeAfterSlotFreedAsync(userId, ListingKinds.Plot);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, districtId);
         await InvalidateRecentPlotsCacheAsync(redis);
         await InvalidateForYouPlotsCacheAsync(redis, districtId);
+        if (resumed > 0)
+            await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(userId, ListingKinds.Plot);
 
         return NoContentResponse();
+    }
+
+    // Makes a paused, approved listing live in place of a live one (owner lock, both rows xmin-guarded).
+    public static async Task<IResult> SwapLive(
+        Guid id,
+        SwapLiveRequest request,
+        ClaimsPrincipal principal,
+        IUnitOfWork unitOfWork,
+        ILiveSlotService slots,
+        IPlanEntitlementService entitlements,
+        IListingCacheInvalidator cacheInvalidator)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+        if (request == null || request.PauseListingId == Guid.Empty || request.PauseListingId == id)
+            return BadRequestResponse("Choose a live listing to pause.", PlanErrorTypes.SwapInvalid);
+
+        int limit, live;
+        var districts = new List<Guid>();
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await slots.LockOwnerAsync(userId);
+            var target = await unitOfWork.PlotListings.GetByIdAsync(id);
+            var other = await unitOfWork.PlotListings.GetByIdAsync(request.PauseListingId);
+            if (target == null || other == null || target.IsDeleted || other.IsDeleted
+                || target.UserId != userId || other.UserId != userId
+                || target.IsActive || target.LiveRequestStatus != GoLiveRequestStatuses.Approved
+                || target.PauseReason is PauseReasons.Admin or PauseReasons.Suspended
+                || !other.IsActive)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return BadRequestResponse("These listings cannot be swapped.", PlanErrorTypes.SwapInvalid);
+            }
+
+            var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Plot);
+            // Swap only at the limit: with a free slot, plan-pausing `other` would strand it next to an empty slot.
+            if (await slots.CountLiveAsync(userId, ListingKinds.Plot, excludeId: target.Id) < limits.ListingLimit)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return BadRequestResponse("A slot is free. Use Go Live instead.", PlanErrorTypes.SwapInvalid);
+            }
+            var now = DateTime.UtcNow;
+            other.IsActive = false;
+            other.PauseReason = PauseReasons.Plan;
+            other.UpdatedAt = now;
+            target.IsActive = true;
+            target.PauseReason = null;
+            target.ValidUntil = entitlements.ResolveValidUntil(limits);
+            target.PriorityRank = limits.PriorityRank;
+            target.IsFeatured = limits.IsFeatured;
+            target.UpdatedAt = now;
+            await unitOfWork.PlotListings.UpdateAsync(other);
+            await unitOfWork.PlotListings.UpdateAsync(target);
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+            limit = limits.ListingLimit;
+            live = await slots.CountLiveAsync(userId, ListingKinds.Plot);
+            await unitOfWork.CommitTransactionAsync();
+            districts.Add(target.DistrictId);
+            districts.Add(other.DistrictId);
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+
+        await cacheInvalidator.BustDistrictsAsync(ListingKinds.Plot, districts);
+        return OkResponse(new { limits = new LiveLimitsDto { ListingLimit = limit, Live = live } });
     }
 
     public static async Task<IResult> ReportPlotListing(
@@ -729,7 +823,8 @@ public static class PlotListingHandlers
         string Id, string UserId, string? OwnerName, string? OwnerPhone,
         string PlotType, double AreaValue, string AreaUnit, double AreaSqft,
         bool IsActive, DateTime? ValidUntil, string? DistrictName, string? CityName, string? Address,
-        string? ThumbnailUrl, int PhotoCount, DateTime CreatedAt);
+        string? ThumbnailUrl, int PhotoCount, DateTime CreatedAt,
+        string? PauseReason, short PriorityRank, bool IsFeatured);
 
     public static async Task<IResult> GetAdminPlotListings(
         IUnitOfWork unitOfWork,
@@ -757,7 +852,10 @@ public static class PlotListingHandlers
             Address: p.Address,
             ThumbnailUrl: p.Photos.FirstOrDefault()?.PhotoUrl,
             PhotoCount: p.Photos.Count,
-            CreatedAt: p.CreatedAt
+            CreatedAt: p.CreatedAt,
+            PauseReason: p.PauseReason,
+            PriorityRank: p.PriorityRank,
+            IsFeatured: p.IsFeatured
         )).ToList();
 
         return OkResponse(new { items = dtos, hasMore });
@@ -770,116 +868,137 @@ public static class PlotListingHandlers
         return OkResponse(plot.Adapt<PlotListingDto>());
     }
 
+    // Deactivate = admin pause (owner cannot self-resume). Reactivate needs a valid ValidUntil and a free
+    // slot in the owner's plan, checked under the owner lock.
     public static async Task<IResult> AdminTogglePlotListing(
         Guid id, AdminTogglePlotListingRequest request,
-        IUnitOfWork unitOfWork, IServiceProvider sp)
+        IUnitOfWork unitOfWork, ILiveSlotService slots, IPlanEntitlementService entitlements, IServiceProvider sp)
     {
-        var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
-        if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
+        var probe = await unitOfWork.PlotListings.GetByIdAsync(id);
+        if (probe == null || probe.IsDeleted) return NotFoundResponse("PlotListing not found");
+        var ownerId = probe.UserId;
 
-        // See the matching comment in AdminHandlers.ToggleAdminListingStatus — no membership to
-        // check, no free-activation bypass around the credit-spend engine. Deactivate is always allowed.
-        if (request.IsActive)
+        var resumed = 0;
+        await unitOfWork.BeginTransactionAsync();
+        try
         {
-            var stillWithinValidity = plot.ValidUntil.HasValue && plot.ValidUntil > DateTime.UtcNow;
-            if (!stillWithinValidity)
-                return BadRequestResponse("This plot has no valid paid period. Ask the owner to Go Live, or add credits to their wallet so they can.");
-        }
-
-        plot.IsActive = request.IsActive;
-        plot.UpdatedAt = DateTime.UtcNow;
-        await unitOfWork.PlotListings.UpdateAsync(plot);
-        await unitOfWork.SaveChangesAsync();
-
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
-        await InvalidateRecentPlotsCacheAsync(redis);
-        await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
-
-        return OkResponse(new { success = true, isActive = plot.IsActive });
-    }
-
-    public static async Task<IResult> AdminDeletePlotListing(
-        Guid id, IUnitOfWork unitOfWork,
-        IPhotoService photoService, ICreditWalletService wallet, IServiceProvider sp)
-    {
-        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
-        if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
-
-        var districtId = plot.DistrictId;
-
-        foreach (var photo in plot.Photos)
-            await photoService.DeletePhotoAsync(photo.FilePath);
-
-        // A still-Pending Go-Live request (never approved/activated) with credits already spent
-        // must be refunded on delete — mirrors GoLiveHandlers's own transaction shape since folding
-        // a credit mutation into a bare SaveChangesAsync would be a correctness gap.
-        var needsRefund = plot.LiveRequestStatus == GoLiveRequestStatuses.Pending
-            && plot.RequestedPlanCreditsSpent is > 0;
-
-        // GetByIdWithPhotosAsync above is AsNoTracking + Include()-heavy (needed for the Photos loop
-        // and the scalar reads above) — mutating that instance directly wouldn't persist anything
-        // (EF isn't tracking it), and calling UpdateAsync on it would re-attach and mark the ENTIRE
-        // loaded graph (PlotType/District/City/User) as Modified too, not just this plot. So the
-        // actual delete-flag mutation happens on a separate, plain tracked re-fetch instead (no
-        // Include() graph attached to it) — this is also a tighter optimistic-concurrency window
-        // than reusing the first read, since it's taken right before the save, after the photo
-        // deletion I/O above.
-        var trackedPlot = await unitOfWork.PlotListings.GetByIdAsync(id);
-        if (trackedPlot == null) return NotFoundResponse("PlotListing not found");
-        trackedPlot.IsDeleted = true;
-        trackedPlot.DeletedAt = DateTime.UtcNow;
-
-        if (needsRefund)
-        {
-            await unitOfWork.BeginTransactionAsync();
-            try
+            await slots.LockOwnerAsync(ownerId);
+            var plot = probe;
+            var freesSlot = !request.IsActive && plot.IsActive && plot.LiveRequestStatus != GoLiveRequestStatuses.Pending;
+            if (request.IsActive)
             {
-                await wallet.AddCreditsAsync(plot.UserId, plot.RequestedPlanCreditsSpent!.Value, CreditTransactionReasons.GoLivePendingRefund, plot.Id);
-                try
+                if (!plot.IsActive)
                 {
-                    await unitOfWork.SaveChangesAsync();
+                    if (!(plot.ValidUntil > DateTime.UtcNow))
+                    {
+                        await unitOfWork.RollbackTransactionAsync();
+                        return BadRequestResponse("This plot has no valid live period. Ask the owner to Go Live.");
+                    }
+                    var limits = await entitlements.GetLimitsAsync(ownerId, ListingKinds.Plot);
+                    var live = await slots.CountLiveAsync(ownerId, ListingKinds.Plot, plot.Id);
+                    if (live >= limits.ListingLimit)
+                    {
+                        await unitOfWork.RollbackTransactionAsync();
+                        return GoLiveHandlers.PlanLimitReached(limits.ListingLimit, live);
+                    }
+                    plot.IsActive = true;
+                    plot.PauseReason = null;
+                    plot.PriorityRank = limits.PriorityRank;
+                    plot.IsFeatured = limits.IsFeatured;
                 }
-                catch (DbUpdateConcurrencyException)
-                {
-                    await unitOfWork.RollbackTransactionAsync();
-                    return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
-                }
-                await unitOfWork.CommitTransactionAsync();
             }
-            catch
+            else if (plot.IsActive || plot.PauseReason != PauseReasons.Admin)
             {
-                await unitOfWork.RollbackTransactionAsync();
-                throw;
+                plot.IsActive = false;
+                plot.PauseReason = PauseReasons.Admin;
             }
-        }
-        else
-        {
+            plot.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.PlotListings.UpdateAsync(plot);
             try
             {
                 await unitOfWork.SaveChangesAsync();
             }
             catch (DbUpdateConcurrencyException)
             {
+                await unitOfWork.RollbackTransactionAsync();
                 return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
             }
+            if (freesSlot)
+                resumed = await slots.ResumeAfterSlotFreedAsync(ownerId, ListingKinds.Plot);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        await InvalidateNearbyCacheAsync(redis, probe.DistrictId);
+        await InvalidateRecentPlotsCacheAsync(redis);
+        await InvalidateForYouPlotsCacheAsync(redis, probe.DistrictId);
+        if (resumed > 0)
+            await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(ownerId, ListingKinds.Plot);
+
+        return OkResponse(new { success = true, isActive = probe.IsActive, pauseReason = probe.PauseReason });
+    }
+
+    public static async Task<IResult> AdminDeletePlotListing(
+        Guid id, IUnitOfWork unitOfWork,
+        IPhotoService photoService, ILiveSlotService slots, IServiceProvider sp)
+    {
+        var plot = await unitOfWork.PlotListings.GetByIdWithPhotosAsync(id);
+        if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
+
+        var districtId = plot.DistrictId;
+        var ownerId = plot.UserId;
+
+        foreach (var photo in plot.Photos)
+            await photoService.DeletePhotoAsync(photo.FilePath);
+
+        // GetByIdWithPhotosAsync is AsNoTracking + Include()-heavy, so the delete flag goes on a plain
+        // tracked re-fetch, taken under the owner lock right before the save.
+        var resumed = 0;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await slots.LockOwnerAsync(ownerId);
+            var trackedPlot = await unitOfWork.PlotListings.GetByIdAsync(id);
+            if (trackedPlot == null)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return NotFoundResponse("PlotListing not found");
+            }
+            var wasLive = trackedPlot.IsActive || trackedPlot.LiveRequestStatus == GoLiveRequestStatuses.Pending;
+            trackedPlot.IsDeleted = true;
+            trackedPlot.DeletedAt = DateTime.UtcNow;
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
+            }
+            if (wasLive)
+                resumed = await slots.ResumeAfterSlotFreedAsync(ownerId, ListingKinds.Plot);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
         }
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         await InvalidateNearbyCacheAsync(redis, districtId);
         await InvalidateRecentPlotsCacheAsync(redis);
         await InvalidateForYouPlotsCacheAsync(redis, districtId);
+        if (resumed > 0)
+            await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(ownerId, ListingKinds.Plot);
 
         return NoContentResponse();
-    }
-
-    public static async Task<IResult> GetPublicPlotPlans(IUnitOfWork unitOfWork)
-    {
-        var plans = await unitOfWork.CreditPlans.GetByFeatureKeyAsync(CreditFeatureKeys.PlotGoLive);
-        var result = plans.Where(p => p.IsEnabled).OrderBy(p => p.Price)
-            .Select(p => new { planType = p.PlanType, days = p.Days, price = p.Price, originalPrice = p.OriginalPrice, discountPercent = p.DiscountPercent, plotLimit = p.Quota, isFeatured = p.IsFeatured })
-            .ToList();
-        return OkResponse(result);
     }
 
     // ── Plot Go-Live moderation ───────────────────────────────────────────────
@@ -895,9 +1014,7 @@ public static class PlotListingHandlers
         OwnerName = p.User?.Name,
         OwnerMobile = p.User?.PhoneNumber,
         Status = p.LiveRequestStatus ?? string.Empty,
-        RequestedPlanType = p.RequestedPlanType,
         RequestedPlanDays = p.RequestedPlanDays,
-        RequestedPlanCreditsSpent = p.RequestedPlanCreditsSpent,
         SubmittedAt = p.UpdatedAt,
         Photos = includePhotos ? p.Photos.Select(ph => ph.PhotoUrl).ToList() : new List<string>(),
         Address = p.Address,
@@ -911,7 +1028,7 @@ public static class PlotListingHandlers
     };
 
     public static async Task<IResult> GetPlotGoLiveRequests(
-        ApplicationDbContext db, int page = 1, int pageSize = 20, string? status = "Pending")
+        ApplicationDbContext db, IPlanEntitlementService entitlements, int page = 1, int pageSize = 20, string? status = "Pending")
     {
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
@@ -928,10 +1045,20 @@ public static class PlotListingHandlers
             .OrderByDescending(p => p.UpdatedAt);
 
         var result = await query.ToPagedResultAsync(page, pageSize, p => ToGoLiveRequestDto(p, includePhotos: false));
+        await FillOwnerPlanNamesAsync(entitlements, result.Items);
         return OkResponse(new { items = result.Items, hasMore = result.HasMore });
     }
 
-    public static async Task<IResult> GetPlotGoLiveRequestById(Guid id, ApplicationDbContext db)
+    // One UserPlans query for the page.
+    private static async Task FillOwnerPlanNamesAsync(IPlanEntitlementService entitlements, List<GoLiveRequestDto> items)
+    {
+        if (items.Count == 0) return;
+        var limits = await entitlements.GetLimitsBatchAsync(items.Select(i => i.UserId).Distinct().ToList(), ListingKinds.Plot);
+        foreach (var i in items)
+            i.OwnerPlanName = limits.TryGetValue(i.UserId, out var l) ? l.PlanName : null;
+    }
+
+    public static async Task<IResult> GetPlotGoLiveRequestById(Guid id, ApplicationDbContext db, IPlanEntitlementService entitlements)
     {
         var plot = await db.PlotListings
             .AsNoTracking()
@@ -942,7 +1069,9 @@ public static class PlotListingHandlers
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder))
             .FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
         if (plot == null) return NotFoundResponse("Go-Live request not found");
-        return OkResponse(ToGoLiveRequestDto(plot, includePhotos: true));
+        var dto = ToGoLiveRequestDto(plot, includePhotos: true);
+        dto.OwnerPlanName = (await entitlements.GetLimitsAsync(plot.UserId, ListingKinds.Plot)).PlanName;
+        return OkResponse(dto);
     }
 
     private static NotificationEvent BuildPlotGoLiveApprovedNotification(Guid userId) => new()
@@ -995,8 +1124,32 @@ public static class PlotListingHandlers
         catch { }
     }
 
+    private static NotificationEvent BuildPlotApprovedPausedNotification(Guid userId) => new()
+    {
+        Id = Guid.NewGuid(),
+        TargetUserId = userId,
+        Type = NotificationTypes.GoLiveApproved,
+        Title = "Your listing is approved",
+        Body = "Your Plot listing is approved. Your plan limit is full, so it is paused. Swap or upgrade to make it live.",
+        ActionRoute = "/my-plots",
+        CreatedAt = DateTime.UtcNow,
+    };
+
+    private static NotificationEvent BuildPlotApprovedSuspendedNotification(Guid userId) => new()
+    {
+        Id = Guid.NewGuid(),
+        TargetUserId = userId,
+        Type = NotificationTypes.GoLiveApproved,
+        Title = "Your listing is approved",
+        Body = "Your Plot listing is approved. It goes live when your account is active again.",
+        ActionRoute = "/my-plots",
+        CreatedAt = DateTime.UtcNow,
+    };
+
+    // Within the owner's plan limit -> live till the resolved ValidUntil; over it -> Approved but plan-paused.
     public static async Task<IResult> ApprovePlotGoLiveRequest(
         Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
+        ILiveSlotService slots, IPlanEntitlementService entitlements,
         IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var plot = await unitOfWork.PlotListings.GetByIdAsync(id);
@@ -1007,16 +1160,28 @@ public static class PlotListingHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
-            // CRITICAL: ValidUntil comes from the snapshot taken at request time
-            // (RequestedPlanDays), never by re-resolving CreditPlan — the catalog is admin-mutable
-            // and could have changed/been disabled between request and approval.
+            await slots.LockOwnerAsync(plot.UserId);
+            var limits = await entitlements.GetLimitsAsync(plot.UserId, ListingKinds.Plot);
+            var live = await slots.CountLiveAsync(plot.UserId, ListingKinds.Plot, plot.Id);
+            // A suspended owner's row is approved but held as Suspended, so UnsuspendAsync revives it within the slots.
+            var ownerActive = await db.Users.AsNoTracking()
+                .Where(u => u.Id == plot.UserId).Select(u => u.IsActive).FirstOrDefaultAsync();
+            var goesLive = ownerActive && live < limits.ListingLimit;
+
             plot.LiveRequestStatus = GoLiveRequestStatuses.Approved;
-            plot.IsActive = true;
-            plot.ValidUntil = DateTime.UtcNow.AddDays(plot.RequestedPlanDays!.Value);
+            plot.IsActive = goesLive;
+            plot.PauseReason = goesLive ? null : ownerActive ? PauseReasons.Plan : PauseReasons.Suspended;
+            plot.ValidUntil = goesLive ? entitlements.ResolveValidUntil(limits) : plot.ValidUntil;
+            plot.PriorityRank = limits.PriorityRank;
+            plot.IsFeatured = limits.IsFeatured;
             plot.UpdatedAt = DateTime.UtcNow;
             await unitOfWork.PlotListings.UpdateAsync(plot);
 
-            var notification = BuildPlotGoLiveApprovedNotification(plot.UserId);
+            var notification = goesLive
+                ? BuildPlotGoLiveApprovedNotification(plot.UserId)
+                : ownerActive
+                    ? BuildPlotApprovedPausedNotification(plot.UserId)
+                    : BuildPlotApprovedSuspendedNotification(plot.UserId);
             db.NotificationEvents.Add(notification);
 
             try
@@ -1031,14 +1196,17 @@ public static class PlotListingHandlers
 
             await unitOfWork.CommitTransactionAsync();
 
-            var redis = sp.GetService<IConnectionMultiplexer>();
-            await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
-            await InvalidateRecentPlotsCacheAsync(redis);
-            await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
+            if (goesLive)
+            {
+                var redis = sp.GetService<IConnectionMultiplexer>();
+                await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
+                await InvalidateRecentPlotsCacheAsync(redis);
+                await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
+            }
 
             await SendGoLiveNotificationAsync(hubContext, publisher, notification);
 
-            return OkResponse(new { success = true, isActive = true, validUntil = plot.ValidUntil });
+            return OkResponse(new { success = true, isActive = plot.IsActive, validUntil = plot.ValidUntil, pauseReason = plot.PauseReason });
         }
         catch
         {
@@ -1049,8 +1217,9 @@ public static class PlotListingHandlers
 
     public static async Task<IResult> RejectPlotGoLiveRequest(
         Guid id, RejectGoLiveRequest request, IValidator<RejectGoLiveRequest> validator,
-        IUnitOfWork unitOfWork, ApplicationDbContext db, ICreditWalletService wallet,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
+        IUnitOfWork unitOfWork, ApplicationDbContext db,
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher,
+        ILiveSlotService slots, IListingCacheInvalidator cacheInvalidator)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -1060,20 +1229,20 @@ public static class PlotListingHandlers
         if (plot.LiveRequestStatus != GoLiveRequestStatuses.Pending)
             return BadRequestResponse("This request has already been resolved");
 
-        // Same refund-transaction shape as AdminDeletePlotListing — folding a credit mutation into
-        // a bare SaveChangesAsync would be a correctness gap.
+        // The Pending row held a slot; the newest plan-paused row takes it in the same transaction.
+        var resumed = 0;
+        NotificationEvent notification;
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            await slots.LockOwnerAsync(plot.UserId);
             plot.LiveRequestStatus = GoLiveRequestStatuses.Rejected;
             plot.RejectedReason = request.Reason;
+            plot.PauseReason = null;
             plot.UpdatedAt = DateTime.UtcNow;
             await unitOfWork.PlotListings.UpdateAsync(plot);
 
-            if (plot.RequestedPlanCreditsSpent is > 0)
-                await wallet.AddCreditsAsync(plot.UserId, plot.RequestedPlanCreditsSpent.Value, CreditTransactionReasons.GoLivePendingRefund, plot.Id);
-
-            var notification = BuildPlotGoLiveRejectedNotification(plot.UserId, request.Reason);
+            notification = BuildPlotGoLiveRejectedNotification(plot.UserId, request.Reason);
             db.NotificationEvents.Add(notification);
 
             try
@@ -1086,17 +1255,21 @@ public static class PlotListingHandlers
                 return ConflictResponse("This plot was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
             }
 
+            resumed = await slots.ResumeAfterSlotFreedAsync(plot.UserId, ListingKinds.Plot);
             await unitOfWork.CommitTransactionAsync();
-
-            await SendGoLiveNotificationAsync(hubContext, publisher, notification);
-
-            return OkResponse(new { success = true });
         }
         catch
         {
             await unitOfWork.RollbackTransactionAsync();
             throw;
         }
+
+        if (resumed > 0)
+            await cacheInvalidator.BustForUserAsync(plot.UserId, ListingKinds.Plot);
+
+        await SendGoLiveNotificationAsync(hubContext, publisher, notification);
+
+        return OkResponse(new { success = true });
     }
 
     // ── Report-driven takedown ("Reject") — Plot side ─────────────────────────
@@ -1105,10 +1278,7 @@ public static class PlotListingHandlers
     // file's own Plot-specific cache-key helpers (InvalidateNearbyCacheAsync/
     // InvalidateRecentPlotsCacheAsync/InvalidateForYouPlotsCacheAsync use different Redis key
     // patterns than the Room versions) instead of duplicating those key strings elsewhere.
-    // Mirrors RejectPlotGoLiveRequest's transaction shape exactly, with one deliberate difference:
-    // NO wallet.AddCreditsAsync call. This listing was already live and already delivered value, so
-    // a report-driven takedown must never refund credits (unlike a Go-Live-moderation rejection,
-    // where the listing never went live).
+    // Rejected rows never count against the owner's plan limit.
 
     private static NotificationEvent BuildPlotReportRejectedNotification(Guid userId, string reason) => new()
     {
@@ -1124,15 +1294,19 @@ public static class PlotListingHandlers
     public static async Task<IResult> RejectReportedPlotAsync(
         ListingReport report, string reason, Guid? adminId,
         IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, ILiveSlotService slots)
     {
         var plot = await unitOfWork.PlotListings.GetByIdAsync(report.ListingId);
         if (plot == null || plot.IsDeleted) return NotFoundResponse("PlotListing not found");
 
+        var resumed = 0;
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            await slots.LockOwnerAsync(plot.UserId);
+            var wasLive = plot.IsActive || plot.LiveRequestStatus == GoLiveRequestStatuses.Pending;
             plot.IsActive = false;
+            plot.PauseReason = null;
             plot.LiveRequestStatus = GoLiveRequestStatuses.Rejected;
             plot.RejectedReason = reason;
             // See the identical comment in AdminHandlers.RejectReportedRoomAsync — expiring ValidUntil
@@ -1157,12 +1331,17 @@ public static class PlotListingHandlers
 
             await unitOfWork.ListingReports.ResolveAsync(report.Id, adminId, "PostRejected");
 
+            if (wasLive)
+                resumed = await slots.ResumeAfterSlotFreedAsync(plot.UserId, ListingKinds.Plot);
+
             await unitOfWork.CommitTransactionAsync();
 
             var redis = sp.GetService<IConnectionMultiplexer>();
             await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
             await InvalidateRecentPlotsCacheAsync(redis);
             await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
+            if (resumed > 0)
+                await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(plot.UserId, ListingKinds.Plot);
 
             await SendGoLiveNotificationAsync(hubContext, publisher, notification);
 

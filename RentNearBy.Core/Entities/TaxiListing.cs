@@ -32,6 +32,9 @@ public class TaxiListing
     // Cheapest route fare, rewritten on every route/fare write.
     public int? MinFare { get; set; }
     public string? Slug { get; set; }
+    // Copied from the owner's plan; public ordering reads these, never UserPlans.
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
 
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

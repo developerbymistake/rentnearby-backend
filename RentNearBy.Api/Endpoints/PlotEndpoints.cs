@@ -6,7 +6,6 @@ public static class PlotListingEndpoints
 {
     public static RouteGroupBuilder MapPlotListingEndpoints(this RouteGroupBuilder group)
     {
-        group.MapGet("/plans", PlotListingHandlers.GetPublicPlotPlans);
         group.MapGet("/context", PlotListingHandlers.GetContext);
         group.MapGet("/nearby", PlotListingHandlers.GetNearby);
         group.MapGet("/nearest", PlotListingHandlers.GetNearest);
@@ -25,8 +24,9 @@ public static class PlotListingEndpoints
         group.MapPost("/{id:guid}/report", PlotListingHandlers.ReportPlotListing).RequireAuthorization();
         group.MapGet("/{id:guid}/reports", PlotListingHandlers.GetPlotListingReports).RequireAuthorization("CanListPlots");
 
-        // Credit-based Go Live — replaces the old Razorpay-per-plot payment routes entirely.
+        // Plan-limited Go Live (no body) and live-slot swap.
         group.MapPost("/{plotId:guid}/go-live", GoLiveHandlers.GoLivePlot).RequireAuthorization("CanListPlots");
+        group.MapPost("/{id:guid}/swap-live", PlotListingHandlers.SwapLive).RequireAuthorization("CanListPlots");
 
         return group;
     }

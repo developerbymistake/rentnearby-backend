@@ -9,9 +9,9 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Replaces MembershipExpiryService + PlotMembershipExpiryService — there is no membership record to
-// expire under the credit model, so this sweeps RoomListing/PlotListing directly by their own
-// ValidUntil, one unified daily job instead of two near-identical ones per listing kind.
+// Hourly (anchored at :15 UTC) sweep of live rooms/plots past their own ValidUntil. Each batch is one
+// conditional UPDATE ... RETURNING that repeats "ValidUntil" < now(), so a renew or Go Live that moved
+// ValidUntil first is never switched off.
 public class ListingExpirySweepService : BackgroundService
 {
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -19,9 +19,15 @@ public class ListingExpirySweepService : BackgroundService
     private readonly ILogger<ListingExpirySweepService> _logger;
     private PeriodicTimer? _timer;
     private const int PageSize = 200;
+    private static readonly TimeSpan Interval = TimeSpan.FromHours(1);
+    private const int AnchorMinute = 15;
 
-    // 18:30 UTC = 00:00 IST — same schedule the old membership-expiry services ran on.
-    private static readonly TimeSpan RunTimeUtc = new(18, 30, 0);
+    private sealed class ExpiredRow
+    {
+        public Guid Id { get; set; }
+        public Guid UserId { get; set; }
+        public DateTime ValidUntil { get; set; }
+    }
 
     public ListingExpirySweepService(
         IServiceScopeFactory serviceScopeFactory,
@@ -40,13 +46,12 @@ public class ListingExpirySweepService : BackgroundService
         {
             var nextRunTime = GetNextRunTime();
             var initialDelay = nextRunTime - DateTime.UtcNow;
-            if (initialDelay.TotalMilliseconds <= 0)
-                initialDelay = TimeSpan.FromHours(24);
+            if (initialDelay < TimeSpan.Zero) initialDelay = TimeSpan.Zero;
 
             _logger.LogInformation("Next listing expiry sweep scheduled for {NextRunTime}", nextRunTime);
             await Task.Delay(initialDelay, stoppingToken);
 
-            _timer = new PeriodicTimer(TimeSpan.FromHours(24));
+            _timer = new PeriodicTimer(Interval);
             await RunSweepAsync();
             while (await _timer.WaitForNextTickAsync(stoppingToken))
                 await RunSweepAsync();
@@ -80,11 +85,9 @@ public class ListingExpirySweepService : BackgroundService
         try
         {
             using var scope = _serviceScopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var now = DateTime.UtcNow;
-
-            var roomsExpired = await SweepAsync(db, now, isRoom: true);
-            var plotsExpired = await SweepAsync(db, now, isRoom: false);
+            var sp = scope.ServiceProvider;
+            var roomsExpired = await SweepAsync(sp, "\"RoomListings\"", ListingKinds.Room);
+            var plotsExpired = await SweepAsync(sp, "\"PlotListings\"", ListingKinds.Plot);
 
             _logger.LogInformation(
                 "Listing expiry sweep completed — roomsExpired={Rooms}, plotsExpired={Plots}",
@@ -97,45 +100,79 @@ public class ListingExpirySweepService : BackgroundService
         _logger.LogInformation("=== LISTING EXPIRY SWEEP COMPLETED ===");
     }
 
-    private async Task<int> SweepAsync(ApplicationDbContext db, DateTime now, bool isRoom)
+    // table and kind are fixed whitelist values, never user input. Rows of an owner whose plan is still
+    // Active are left to PlanLifecycleService, which keeps the newest live and plan-pauses the rest.
+    // A lapsed row keeps PauseReason NULL (expired, not paused): it is never auto-resumed, only Go Live renews it.
+    private async Task<int> SweepAsync(IServiceProvider sp, string table, string kind)
     {
+        var db = sp.GetRequiredService<ApplicationDbContext>();
         var totalExpired = 0;
+        var owners = new HashSet<Guid>();
+        var noActivePlan = $"""
+                NOT EXISTS (SELECT 1 FROM "UserPlans" up
+                            WHERE up."UserId" = t."UserId" AND up."FeatureKey" = '{kind}' AND up."Status" = 'Active')
+                """;
+        var sql = $"""
+                UPDATE {table} t SET "IsActive" = false, "PauseReason" = NULL, "UpdatedAt" = now()
+                WHERE t."Id" IN (
+                    SELECT t."Id" FROM {table} t
+                    WHERE t."IsActive" = true AND t."IsDeleted" = false AND t."ValidUntil" < now()
+                      AND {noActivePlan}
+                    LIMIT {PageSize})
+                  AND t."IsActive" = true AND t."ValidUntil" < now()
+                  AND {noActivePlan}
+                RETURNING t."Id", t."UserId", t."ValidUntil"
+                """;
         while (true)
         {
-            // Processed rows drop out of the next iteration's query automatically (they no longer
-            // match IsActive == true), same paging trick MembershipExpiryService used.
-            var batch = isRoom
-                ? await db.RoomListings
-                    .Where(l => l.IsActive && l.ValidUntil != null && l.ValidUntil < now)
-                    .Take(PageSize)
-                    .Select(l => new { l.UserId, l.Id, ValidUntil = l.ValidUntil!.Value })
-                    .ToListAsync()
-                : await db.PlotListings
-                    .Where(p => p.IsActive && p.ValidUntil != null && p.ValidUntil < now)
-                    .Take(PageSize)
-                    .Select(p => new { p.UserId, p.Id, ValidUntil = p.ValidUntil!.Value })
-                    .ToListAsync();
-
-            if (batch.Count == 0) break;
-
-            var ids = batch.Select(b => b.Id).ToList();
-            if (isRoom)
-                await db.RoomListings.Where(l => ids.Contains(l.Id))
-                    .ExecuteUpdateAsync(s => s.SetProperty(l => l.IsActive, false).SetProperty(l => l.UpdatedAt, now));
-            else
-                await db.PlotListings.Where(p => ids.Contains(p.Id))
-                    .ExecuteUpdateAsync(s => s.SetProperty(p => p.IsActive, false).SetProperty(p => p.UpdatedAt, now));
+            var batch = await db.Database.SqlQueryRaw<ExpiredRow>(sql).ToListAsync();
 
             foreach (var item in batch)
             {
-                await PublishExpiredAsync(item.UserId, item.Id, isRoom ? ListingKinds.Room : ListingKinds.Plot, item.ValidUntil);
+                owners.Add(item.UserId);
+                await PublishExpiredAsync(item.UserId, item.Id, kind, item.ValidUntil);
                 totalExpired++;
             }
 
             if (batch.Count < PageSize) break;
         }
 
+        if (owners.Count > 0)
+            await ResumeFreedSlotsAsync(sp, db, owners, kind);
+
         return totalExpired;
+    }
+
+    // Each lapsed row freed a slot: per owner, a short transaction under the owner lock resumes the newest
+    // plan-paused rows into it, like every other slot-freeing path. Caches are busted after commit.
+    private async Task ResumeFreedSlotsAsync(IServiceProvider sp, ApplicationDbContext db, IReadOnlyCollection<Guid> owners, string kind)
+    {
+        var slots = sp.GetRequiredService<ILiveSlotService>();
+        foreach (var userId in owners)
+        {
+            try
+            {
+                await using var tx = await db.Database.BeginTransactionAsync();
+                await slots.LockOwnerAsync(userId);
+                var resumed = await slots.ResumeAfterSlotFreedAsync(userId, kind);
+                await tx.CommitAsync();
+                if (resumed > 0)
+                    _logger.LogInformation("Expiry sweep resumed {Resumed} plan-paused {Kind} rows for {UserId}", resumed, kind, userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Expiry sweep: resume after freed slot failed for {UserId} ({Kind})", userId, kind);
+            }
+        }
+
+        try
+        {
+            await sp.GetRequiredService<IListingCacheInvalidator>().BustForUsersAsync(owners, kind);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Expiry sweep cache bust failed ({Kind})", kind);
+        }
     }
 
     private async Task PublishExpiredAsync(Guid userId, Guid listingId, string kind, DateTime expiredAt)
@@ -169,7 +206,7 @@ public class ListingExpirySweepService : BackgroundService
     private static DateTime GetNextRunTime()
     {
         var now = DateTime.UtcNow;
-        var todayTarget = now.Date.Add(RunTimeUtc);
-        return now < todayTarget ? todayTarget : todayTarget.AddDays(1);
+        var target = new DateTime(now.Year, now.Month, now.Day, now.Hour, AnchorMinute, 0, DateTimeKind.Utc);
+        return now < target ? target : target.AddHours(1);
     }
 }

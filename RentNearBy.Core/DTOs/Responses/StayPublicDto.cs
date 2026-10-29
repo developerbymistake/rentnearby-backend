@@ -25,6 +25,8 @@ public class StayPublicDto
     public List<StayRoomDto> Rooms { get; set; } = new();
     public StayRulesDto? Rules { get; set; }
     public int? MinPricePerNight { get; set; }
+    public short PriorityRank { get; set; }
+    public bool IsFeatured { get; set; }
     public string? OwnerName { get; set; }
     public string? OwnerPhone { get; set; }
     public bool HasReported { get; set; }

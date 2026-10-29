@@ -76,7 +76,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
 
     private sealed record LocalRow(
         Guid Id, string? DriverName, string? VehicleTypeName, string? VehicleCategory, short? Seats,
-        string? NumberPlate, string? CityName, string? DistrictName, int? MinFare, int RouteCount, DateTime CreatedAt);
+        string? NumberPlate, string? CityName, string? DistrictName, int? MinFare, int RouteCount, DateTime CreatedAt,
+        short PriorityRank, bool IsFeatured);
 
     public async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
         Guid districtId, Guid? cityId, string? category, int page, int pageSize)
@@ -88,7 +89,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             query = query.Where(t => t.VehicleType != null && t.VehicleType.Category == category);
 
         var rows = await query
-            .OrderBy(t => cityId != null && t.CityId == cityId ? 0 : 1)
+            .OrderByDescending(t => t.PriorityRank)
+            .ThenBy(t => cityId != null && t.CityId == cityId ? 0 : 1)
             .ThenBy(t => t.MinFare)
             .ThenBy(t => t.Id)
             .Skip((page - 1) * pageSize)
@@ -104,7 +106,9 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                 t.District != null ? t.District.Name : null,
                 t.MinFare,
                 t.Routes.Count,
-                t.CreatedAt))
+                t.CreatedAt,
+                t.PriorityRank,
+                t.IsFeatured))
             .ToListAsync();
 
         var hasMore = rows.Count > pageSize;
@@ -120,6 +124,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             DistrictName = r.DistrictName,
             MinFare = r.MinFare,
             RouteCount = r.RouteCount,
+            PriorityRank = r.PriorityRank,
+            IsFeatured = r.IsFeatured,
             CreatedAt = r.CreatedAt,
         }).ToList();
         return (items, hasMore);
@@ -129,11 +135,11 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
         Guid Id, string? DriverName, string? VehicleTypeName, string? VehicleCategory, short? Seats,
         string? NumberPlate, string? CityName, string? DistrictName, int? MinFare, DateTime CreatedAt,
         long RouteCount, int MatchedFare, string MatchedFromName, string MatchedToName, string MatchedTripType,
-        bool MatchReversed);
+        bool MatchReversed, short PriorityRank, bool IsFeatured);
 
     // Route match runs first over TaxiRoutes (the two GiST indexes drive the ST_DWithin pairs), one
     // row per taxi via DISTINCT ON (direct before reverse, then cheapest), then the public filter and
-    // paging. A reversed match swaps the stored names so they follow the traveller's direction.
+    // paging, paid rank first. A reversed match swaps the stored names so they follow the traveller's direction.
     public async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> SearchByRoutePagedAsync(
         double fromLat, double fromLng, double toLat, double toLng, string? category, int page, int pageSize)
     {
@@ -180,7 +186,9 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                        b."FromName"  AS "MatchedFromName",
                        b."ToName"    AS "MatchedToName",
                        b."TripType"  AS "MatchedTripType",
-                       b."Reversed"  AS "MatchReversed"
+                       b."Reversed"  AS "MatchReversed",
+                       t."PriorityRank",
+                       t."IsFeatured"
                 FROM best b
                 JOIN "TaxiListings" t ON t."Id" = b."TaxiListingId"
                   AND t."Status" = 'Approved' AND t."IsAvailable" = TRUE AND t."IsDeleted" = FALSE
@@ -189,7 +197,7 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                 LEFT JOIN "Cities" c ON c."Id" = t."CityId"
                 LEFT JOIN "Districts" d ON d."Id" = t."DistrictId"
                 WHERE ({category}::text IS NULL OR v."Category" = {category}::text)
-                ORDER BY b."Reversed", b."Fare", t."Id"
+                ORDER BY t."PriorityRank" DESC, b."Reversed", b."Fare", t."Id"
                 OFFSET {offset} LIMIT {take}
                 """)
             .ToListAsync();
@@ -212,6 +220,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             MatchedToName = r.MatchedToName,
             MatchedTripType = r.MatchedTripType,
             MatchReversed = r.MatchReversed,
+            PriorityRank = r.PriorityRank,
+            IsFeatured = r.IsFeatured,
             CreatedAt = r.CreatedAt,
         }).ToList();
         return (items, hasMore);

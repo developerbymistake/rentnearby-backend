@@ -150,7 +150,7 @@ public static class StayJobHandlers
 
     // ---- Owner (CanListStays) ----
 
-    public static async Task<IResult> GetMine(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetMine(ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPlanEntitlementService entitlements)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -158,14 +158,15 @@ public static class StayJobHandlers
         var items = await unitOfWork.StayJobs.GetOwnerListAsync(userId);
         var activeCount = items.Count(j => j.Status == StayJobStatuses.Active);
         var stayStatus = await unitOfWork.Stays.GetStatusByUserAsync(userId);
+        var maxActive = (await entitlements.GetLimitsAsync(userId, ListingKinds.Stay)).JobsPosts;
 
         return OkResponse(new MyStayJobsDto
         {
             Items = items,
             ActiveCount = activeCount,
-            MaxActive = StayJobRules.MaxActiveJobsPerOwner,
+            MaxActive = maxActive,
             StayStatus = stayStatus,
-            CanPost = stayStatus == StayStatuses.Approved && activeCount < StayJobRules.MaxActiveJobsPerOwner,
+            CanPost = stayStatus == StayStatuses.Approved && activeCount < maxActive,
         });
     }
 
@@ -179,7 +180,7 @@ public static class StayJobHandlers
     }
 
     // Live on post. The FOR UPDATE lock on the stay row serialises parallel creates so the
-    // active-job cap cannot be passed twice. Seeker and admin pushes are best-effort after commit.
+    // active-job cap (the owner's plan JobsPosts) cannot be passed twice. Pushes are best-effort after commit.
     public static async Task<IResult> Create(
         UpsertStayJobRequest request,
         IValidator<UpsertStayJobRequest> validator,
@@ -187,6 +188,7 @@ public static class StayJobHandlers
         IUnitOfWork unitOfWork,
         ApplicationDbContext db,
         IRabbitMqPublisher publisher,
+        IPlanEntitlementService entitlements,
         ILoggerFactory loggerFactory)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -218,10 +220,13 @@ public static class StayJobHandlers
         {
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"StayListings\" WHERE \"Id\" = {stay.Id} FOR UPDATE");
 
-            if (await unitOfWork.StayJobs.CountActiveByUserAsync(userId) >= StayJobRules.MaxActiveJobsPerOwner)
+            var maxActive = (await entitlements.GetLimitsAsync(userId, ListingKinds.Stay)).JobsPosts;
+            var active = await unitOfWork.StayJobs.CountActiveByUserAsync(userId);
+            if (active >= maxActive)
             {
                 await unitOfWork.RollbackTransactionAsync();
-                return ConflictResponse(StayJobRules.LimitMessage, StayJobErrorTypes.StayJobLimit);
+                return ErrorResponse(409, StayJobRules.LimitMessage(maxActive), StayJobErrorTypes.StayJobLimit,
+                    new { limit = maxActive, active, canUpgrade = true });
             }
 
             await unitOfWork.StayJobs.AddAsync(job);
