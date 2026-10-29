@@ -74,4 +74,18 @@ public class DeviceTokenRepository(ApplicationDbContext context) : IDeviceTokenR
             .Skip(offset)
             .Take(limit)
             .ToListAsync();
+
+    public async Task<IReadOnlyList<(Guid Id, string Token)>> GetValidTokensByRoleAfterAsync(Guid roleId, Guid? afterId, int limit)
+    {
+        var rows = await context.DeviceTokens
+            .AsNoTracking()
+            .Where(d => d.IsValid && d.User.RoleId == roleId && d.User.IsActive)
+            .Where(d => afterId == null || d.Id > afterId.Value)
+            .OrderBy(d => d.Id)
+            .Take(limit)
+            .Select(d => new { d.Id, d.Token })
+            .ToListAsync();
+
+        return rows.Select(r => (r.Id, r.Token)).ToList();
+    }
 }

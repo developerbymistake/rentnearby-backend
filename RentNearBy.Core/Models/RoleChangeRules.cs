@@ -9,10 +9,13 @@ public static class RoleChangeRules
 
     public const string LiveListingErrorType = "RoleChangeBlockedByLiveListing";
 
-    public static string LiveListingBlockedMessage(string listingKind) =>
-        listingKind == ListingKinds.Room
-            ? "Live rooms or a pending Go Live request block this role change."
-            : "Live plots or a pending Go Live request block this role change.";
+    public static string LiveListingBlockedMessage(string listingKind) => listingKind switch
+    {
+        ListingKinds.Room => "Live rooms or a pending Go Live request block this role change.",
+        ListingKinds.Stay => "An approved stay or one under review blocks this role change.",
+        ListingKinds.Taxi => "An approved taxi or one under review blocks this role change.",
+        _ => "Live plots or a pending Go Live request block this role change.",
+    };
 
     // India has no DST, so a fixed offset is exact.
     public static readonly TimeSpan IstOffset = TimeSpan.FromMinutes(330);

@@ -116,17 +116,21 @@ public class GoLiveRequestedWorkerService : BackgroundService
 
         // Generic, non-deep-linking copy — no listing detail is needed since this is a pure
         // "go review the queue" nudge, not a per-listing routed notification.
-        const string adminTitle = "New Go-Live request";
-        const string adminBody = "New Go-Live request submitted for review";
+        var isStay = msg.ListingType == ListingKinds.Stay;
+        var isTaxi = msg.ListingType == ListingKinds.Taxi;
+        var adminTitle = isTaxi ? "New taxi submitted" : isStay ? "New stay submitted" : "New Go-Live request";
+        var adminBody = isTaxi ? "A taxi is waiting for review" : isStay ? "A stay is waiting for review" : "New Go-Live request submitted for review";
+        var destination = isTaxi
+            ? new NotificationDestination(AdminNotificationRoutes.Taxis, JsonSerializer.Serialize(new { kind = "Taxi" }))
+            : new NotificationDestination(AdminNotificationRoutes.GoLiveRequests,
+                JsonSerializer.Serialize(new { kind = msg.ListingType }));
 
         var adminTokens = (await unitOfWork.AdminDeviceTokens.GetAllValidAsync()).ToList();
         foreach (var token in adminTokens)
         {
             try
             {
-                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "golive_request",
-                    new NotificationDestination(AdminNotificationRoutes.GoLiveRequests,
-                        JsonSerializer.Serialize(new { kind = msg.ListingType })));
+                var ok = await _fcmService.SendAsync(token.Token, adminTitle, adminBody, "golive_request", destination);
                 if (!ok) await unitOfWork.AdminDeviceTokens.MarkInvalidAsync(token.Token);
             }
             catch (Exception ex)

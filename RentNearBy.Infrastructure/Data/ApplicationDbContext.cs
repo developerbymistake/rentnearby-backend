@@ -20,6 +20,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<PlotType> PlotTypes { get; set; }
     public DbSet<PlotListing> PlotListings { get; set; }
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
+    public DbSet<StayType> StayTypes { get; set; }
+    public DbSet<StayListing> StayListings { get; set; }
+    public DbSet<StayRoom> StayRooms { get; set; }
+    public DbSet<StayPhoto> StayPhotos { get; set; }
+    public DbSet<StayJob> StayJobs { get; set; }
+    public DbSet<TaxiVehicleType> TaxiVehicleTypes { get; set; }
+    public DbSet<TaxiListing> TaxiListings { get; set; }
+    public DbSet<TaxiRoute> TaxiRoutes { get; set; }
+    public DbSet<JobDepartment> JobDepartments { get; set; }
+    public DbSet<JobRole> JobRoles { get; set; }
+    public DbSet<JobType> JobTypes { get; set; }
+    public DbSet<JobShiftType> JobShiftTypes { get; set; }
+    public DbSet<JobSalaryType> JobSalaryTypes { get; set; }
     public DbSet<DeviceToken> DeviceTokens { get; set; }
     public DbSet<NotificationLog> NotificationLogs { get; set; }
     public DbSet<DistrictBanner> DistrictBanners { get; set; }
@@ -103,7 +116,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasData(
                 new Role { Id = UserRoles.SeekerId, Key = UserRoles.Seeker, Name = "Seeker", Description = "Find rooms and plots", SortOrder = 1, IsActive = true },
                 new Role { Id = UserRoles.RentOwnerId, Key = UserRoles.RentOwner, Name = "Rent Owner", Description = "List rooms for rent", SortOrder = 2, IsActive = true },
-                new Role { Id = UserRoles.PropertyOwnerId, Key = UserRoles.PropertyOwner, Name = "Property Owner", Description = "List plots for sale", SortOrder = 3, IsActive = true });
+                new Role { Id = UserRoles.PropertyOwnerId, Key = UserRoles.PropertyOwner, Name = "Property Owner", Description = "List plots for sale", SortOrder = 3, IsActive = true },
+                new Role { Id = UserRoles.StayOwnerId, Key = UserRoles.StayOwner, Name = "Stay Owner", Description = "List your stay", SortOrder = 4, IsActive = true },
+                new Role { Id = UserRoles.TaxiDriverId, Key = UserRoles.TaxiDriver, Name = "Taxi Driver", Description = "List your taxi", SortOrder = 5, IsActive = true });
         });
 
         modelBuilder.Entity<RoleChangeRequest>(e =>
@@ -209,6 +224,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(p => p.Name).IsUnique();
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<StayType>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(t => t.Name).IsUnique();
+            e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<ReportReason>(e =>
@@ -342,9 +365,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(q => q.PlotTypeId)
              .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<StayType>()
+             .WithMany()
+             .HasForeignKey(q => q.StayTypeId)
+             .OnDelete(DeleteBehavior.Restrict);
 
             e.HasIndex(q => q.RoomTypeId);
             e.HasIndex(q => q.PlotTypeId);
+            e.HasIndex(q => q.StayTypeId);
         });
 
         modelBuilder.Entity<CreditFeature>(e =>
@@ -784,6 +812,350 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(ph => ph.PlotId);
         });
 
+        modelBuilder.Entity<StayListing>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(s => s.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.Property(s => s.Name).HasMaxLength(80);
+            e.Property(s => s.VehicleAccess).HasMaxLength(16);
+            e.Property(s => s.Facilities).HasColumnType("text[]").HasDefaultValueSql("'{}'::text[]");
+            e.Property(s => s.Description).HasMaxLength(300);
+            e.Property(s => s.Address).HasMaxLength(500);
+            e.Property(s => s.CancellationPolicy).HasMaxLength(16);
+            e.Property(s => s.Status).HasMaxLength(16).HasDefaultValue(StayStatuses.Draft);
+            e.Property(s => s.AcceptingGuests).HasDefaultValue(true);
+            e.Property(s => s.RejectedReason).HasMaxLength(300);
+
+            e.HasOne(s => s.User)
+             .WithMany()
+             .HasForeignKey(s => s.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(s => s.StayType)
+             .WithMany(t => t.StayListings)
+             .HasForeignKey(s => s.StayTypeId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(s => s.District)
+             .WithMany()
+             .HasForeignKey(s => s.DistrictId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(s => s.City)
+             .WithMany()
+             .HasForeignKey(s => s.CityId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasOne<Admin>()
+             .WithMany()
+             .HasForeignKey(s => s.ReviewedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // One stay per account while not deleted; also serves as the UserId FK index.
+            e.HasIndex(s => s.UserId, "ix_staylistings_user_live")
+             .IsUnique()
+             .HasFilter("\"IsDeleted\" = false");
+            e.HasIndex(s => s.DistrictId);
+            e.HasIndex(s => s.CityId);
+            e.HasIndex(s => s.StayTypeId);
+            e.HasIndex(s => s.Slug).IsUnique();
+            e.HasIndex(s => new { s.UserId, s.IsDeleted });
+            // Admin review queue.
+            e.HasIndex(s => new { s.Status, s.SubmittedAt });
+
+            // NULL while lat/lng are unset; the GiST index and nearby SQL skip those rows.
+            e.Property<NetTopologySuite.Geometries.Point?>("Location")
+             .HasColumnType("geography(Point, 4326)")
+             .HasComputedColumnSql(
+                 "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography",
+                 stored: true);
+            e.HasIndex("Location")
+             .HasMethod("gist")
+             .HasDatabaseName("ix_staylistings_location_gist");
+
+            // Partial: Stays browse — same shape as the roomlistings_browse indexes, live = Approved + accepting.
+            e.HasIndex(s => new { s.DistrictId, s.CreatedAt })
+             .IsDescending(false, true)
+             .HasDatabaseName("ix_staylistings_browse_district_created")
+             .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(s => new { s.DistrictId, s.CityId, s.CreatedAt })
+             .IsDescending(false, false, true)
+             .HasDatabaseName("ix_staylistings_browse_district_city_created")
+             .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(s => new { s.DistrictId, s.MinPricePerNight })
+             .HasDatabaseName("ix_staylistings_browse_district_price")
+             .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_staylistings_min_price_range", "\"MinPricePerNight\" IS NULL OR (\"MinPricePerNight\" >= 100 AND \"MinPricePerNight\" <= 9900000)");
+                t.HasCheckConstraint("ck_staylistings_status", "\"Status\" IN ('Draft', 'PendingReview', 'Approved', 'Rejected')");
+            });
+        });
+
+        modelBuilder.Entity<StayRoom>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(r => r.UpdatedAt).HasDefaultValueSql("now()");
+            e.Property(r => r.RoomName).HasMaxLength(StayRoomNames.MaxLength).IsRequired();
+            e.Property(r => r.Meals).HasMaxLength(12).IsRequired();
+            e.HasOne<StayListing>()
+             .WithMany(s => s.Rooms)
+             .HasForeignKey(r => r.StayListingId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(r => new { r.StayListingId, r.RoomIndex }).IsUnique();
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_stayrooms_price_range", "\"PricePerNight\" >= 100 AND \"PricePerNight\" <= 9900000");
+                t.HasCheckConstraint("ck_stayrooms_max_guests", "\"MaxGuests\" >= 1 AND \"MaxGuests\" <= 4");
+                t.HasCheckConstraint("ck_stayrooms_room_name", "\"RoomName\" IN ('Standard', 'Deluxe', 'Premium', 'Suite', 'Family Room', 'Executive', 'Dormitory')");
+            });
+        });
+
+        modelBuilder.Entity<StayPhoto>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.UploadedAt).HasDefaultValueSql("now()");
+            e.HasOne<StayListing>()
+             .WithMany(s => s.Photos)
+             .HasForeignKey(p => p.StayListingId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(p => p.StayListingId);
+        });
+
+        // ---- Stay Jobs ----
+
+        ConfigureJobLookup<JobDepartment>(modelBuilder, uniqueName: true);
+        ConfigureJobLookup<JobType>(modelBuilder, uniqueName: true);
+        ConfigureJobLookup<JobShiftType>(modelBuilder, uniqueName: true);
+        ConfigureJobLookup<JobSalaryType>(modelBuilder, uniqueName: true);
+        ConfigureJobLookup<JobRole>(modelBuilder, uniqueName: false);
+
+        modelBuilder.Entity<JobRole>(e =>
+        {
+            e.HasOne(r => r.Department)
+             .WithMany()
+             .HasForeignKey(r => r.JobDepartmentId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(r => r.JobDepartmentId);
+            e.HasIndex(r => new { r.JobDepartmentId, r.Name }).IsUnique();
+        });
+
+        // StayListingId and UserId carry no FK, so the Jobs module can be dropped on its own.
+        modelBuilder.Entity<StayJob>(e =>
+        {
+            e.HasKey(j => j.Id);
+            e.Property(j => j.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(j => j.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(j => j.UpdatedAt).HasDefaultValueSql("now()");
+            e.Property(j => j.Title).HasMaxLength(StayJobRules.TitleMax).IsRequired();
+            e.Property(j => j.Description).HasMaxLength(StayJobRules.DescriptionMax).IsRequired();
+            e.Property(j => j.Status).HasMaxLength(16).HasDefaultValue(StayJobStatuses.Active);
+            e.Property(j => j.ContactPhone).HasMaxLength(StayJobRules.PhoneLength).IsRequired();
+            e.Property(j => j.WhatsAppNumber).HasMaxLength(StayJobRules.PhoneLength).IsRequired();
+
+            e.HasOne(j => j.Department)
+             .WithMany()
+             .HasForeignKey(j => j.JobDepartmentId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(j => j.Role)
+             .WithMany()
+             .HasForeignKey(j => j.JobRoleId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(j => j.JobType)
+             .WithMany()
+             .HasForeignKey(j => j.JobTypeId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(j => j.ShiftType)
+             .WithMany()
+             .HasForeignKey(j => j.JobShiftTypeId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(j => j.SalaryType)
+             .WithMany()
+             .HasForeignKey(j => j.JobSalaryTypeId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasIndex(j => j.StayListingId);
+            e.HasIndex(j => new { j.UserId, j.Status });
+            e.HasIndex(j => new { j.Status, j.CreatedAt })
+             .IsDescending(false, true)
+             .HasDatabaseName("ix_stayjobs_status_created");
+
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Closed')");
+                t.HasCheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
+                t.HasCheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" BETWEEN 0 AND 20");
+            });
+        });
+
+        // ---- Taxi ----
+
+        modelBuilder.Entity<TaxiVehicleType>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(t => t.Name).HasMaxLength(TaxiLimits.VehicleTypeNameMax).IsRequired();
+            e.Property(t => t.Category).HasMaxLength(20).IsRequired();
+            // Sentinel true, so an explicit false is still sent on insert.
+            e.Property(t => t.IsActive).HasDefaultValue(true).HasSentinel(true);
+            e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(t => t.Name).IsUnique().HasDatabaseName("ix_taxivehicletypes_name");
+            e.ToTable(t => t.HasCheckConstraint("ck_taxivehicletypes_category",
+                "\"Category\" IN ('Hatchback', 'Sedan', 'SUV', 'MUV', 'TempoTraveller', 'Bus')"));
+        });
+
+        modelBuilder.Entity<TaxiListing>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(t => t.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.Property(t => t.NumberPlate).HasMaxLength(TaxiPlate.MaxLength);
+            e.Property(t => t.PlatePhotoUrl).HasMaxLength(500);
+            e.Property(t => t.PlatePhotoPath).HasMaxLength(500);
+            e.Property(t => t.ContactPhone).HasMaxLength(TaxiLimits.PhoneLength);
+            e.Property(t => t.WhatsAppNumber).HasMaxLength(TaxiLimits.PhoneLength);
+            e.Property(t => t.Latitude).HasColumnType("numeric(9,6)");
+            e.Property(t => t.Longitude).HasColumnType("numeric(9,6)");
+            e.Property(t => t.Status).HasMaxLength(16).HasDefaultValue(TaxiStatuses.Draft);
+            // Sentinel true, so an explicit false is still sent on insert.
+            e.Property(t => t.IsAvailable).HasDefaultValue(true).HasSentinel(true);
+            e.Property(t => t.RejectedReason).HasMaxLength(300);
+
+            e.HasOne(t => t.User)
+             .WithMany()
+             .HasForeignKey(t => t.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(t => t.VehicleType)
+             .WithMany(v => v.TaxiListings)
+             .HasForeignKey(t => t.VehicleTypeId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(t => t.District)
+             .WithMany()
+             .HasForeignKey(t => t.DistrictId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(t => t.City)
+             .WithMany()
+             .HasForeignKey(t => t.CityId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasOne<Admin>()
+             .WithMany()
+             .HasForeignKey(t => t.ReviewedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // One taxi per account while not deleted; also serves as the UserId FK index.
+            e.HasIndex(t => t.UserId, "ix_taxilistings_user_live")
+             .IsUnique()
+             .HasFilter("\"IsDeleted\" = false");
+            // One live taxi per plate; closes the check-then-insert race in UpsertBasic.
+            e.HasIndex(t => t.NumberPlate, "ix_taxilistings_plate_live")
+             .IsUnique()
+             .HasFilter("\"IsDeleted\" = false AND \"NumberPlate\" IS NOT NULL");
+            e.HasIndex(t => t.VehicleTypeId);
+            e.HasIndex(t => t.DistrictId);
+            e.HasIndex(t => t.CityId);
+            e.HasIndex(t => t.Slug).IsUnique();
+            e.HasIndex(t => new { t.UserId, t.IsDeleted });
+            // Admin review queue.
+            e.HasIndex(t => new { t.Status, t.SubmittedAt });
+
+            // NULL while lat/lng are unset.
+            e.Property<NetTopologySuite.Geometries.Point?>("Location")
+             .HasColumnType("geography(Point, 4326)")
+             .HasComputedColumnSql(
+                 "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography",
+                 stored: true);
+            e.HasIndex("Location")
+             .HasMethod("gist")
+             .HasDatabaseName("ix_taxilistings_location_gist");
+
+            // Partial: local view (cheapest first) and the route-search join; public = Approved + available.
+            e.HasIndex(t => new { t.DistrictId, t.MinFare }, "ix_taxilistings_browse_district_fare")
+             .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(t => new { t.DistrictId, t.CityId, t.MinFare }, "ix_taxilistings_browse_district_city_fare")
+             .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(t => t.Id, "ix_taxilistings_public_id")
+             .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
+
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_taxilistings_status", "\"Status\" IN ('Draft', 'PendingReview', 'Approved', 'Rejected')");
+                t.HasCheckConstraint("ck_taxilistings_seats", "\"Seats\" IS NULL OR \"Seats\" IN (4, 6, 7, 12)");
+                t.HasCheckConstraint("ck_taxilistings_plate",
+                    "\"NumberPlate\" IS NULL OR \"NumberPlate\" ~ '^([A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$'");
+                t.HasCheckConstraint("ck_taxilistings_min_fare_range", "\"MinFare\" IS NULL OR (\"MinFare\" >= 100 AND \"MinFare\" <= 9900000)");
+            });
+        });
+
+        modelBuilder.Entity<TaxiRoute>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(r => r.UpdatedAt).HasDefaultValueSql("now()");
+            e.Property(r => r.FromName).HasMaxLength(TaxiLimits.PlaceNameMax).IsRequired();
+            e.Property(r => r.FromLabel).HasMaxLength(TaxiLimits.PlaceLabelMax);
+            e.Property(r => r.ToName).HasMaxLength(TaxiLimits.PlaceNameMax).IsRequired();
+            e.Property(r => r.ToLabel).HasMaxLength(TaxiLimits.PlaceLabelMax);
+            e.Property(r => r.FromLatitude).HasColumnType("numeric(9,6)");
+            e.Property(r => r.FromLongitude).HasColumnType("numeric(9,6)");
+            e.Property(r => r.ToLatitude).HasColumnType("numeric(9,6)");
+            e.Property(r => r.ToLongitude).HasColumnType("numeric(9,6)");
+            e.Property(r => r.TripType).HasMaxLength(12).IsRequired();
+
+            e.HasOne<TaxiListing>()
+             .WithMany(t => t.Routes)
+             .HasForeignKey(r => r.TaxiListingId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(r => new { r.TaxiListingId, r.RouteIndex }).IsUnique();
+
+            // Both ends as geography for the route search (TaxiListingRepository.SearchByRoutePagedAsync).
+            e.Property<NetTopologySuite.Geometries.Point?>("FromPoint")
+             .HasColumnType("geography(Point, 4326)")
+             .HasComputedColumnSql(
+                 "ST_SetSRID(ST_MakePoint(\"FromLongitude\"::float8, \"FromLatitude\"::float8), 4326)::geography",
+                 stored: true);
+            e.Property<NetTopologySuite.Geometries.Point?>("ToPoint")
+             .HasColumnType("geography(Point, 4326)")
+             .HasComputedColumnSql(
+                 "ST_SetSRID(ST_MakePoint(\"ToLongitude\"::float8, \"ToLatitude\"::float8), 4326)::geography",
+                 stored: true);
+            e.HasIndex("FromPoint")
+             .HasMethod("gist")
+             .HasDatabaseName("ix_taxiroutes_from_gist");
+            e.HasIndex("ToPoint")
+             .HasMethod("gist")
+             .HasDatabaseName("ix_taxiroutes_to_gist");
+
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_taxiroutes_fare_range", "\"Fare\" >= 100 AND \"Fare\" <= 9900000");
+                t.HasCheckConstraint("ck_taxiroutes_trip_type", "\"TripType\" IN ('OneWay', 'RoundTrip')");
+            });
+        });
+
         modelBuilder.Entity<DeviceToken>(e =>
         {
             e.HasKey(d => d.Id);
@@ -897,5 +1269,20 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(r => r.DeletedAt); // powers the purge job's cutoff scan
         });
 
+    }
+
+    private static void ConfigureJobLookup<T>(ModelBuilder modelBuilder, bool uniqueName) where T : JobLookupBase
+    {
+        modelBuilder.Entity<T>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(x => x.Name).HasMaxLength(StayJobRules.LookupNameMax).IsRequired();
+            // Sentinel true, so an explicit false is still sent on insert.
+            e.Property(x => x.IsActive).HasDefaultValue(true).HasSentinel(true);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
+            if (uniqueName) e.HasIndex(x => x.Name).IsUnique();
+        });
     }
 }

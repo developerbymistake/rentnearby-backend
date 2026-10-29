@@ -30,12 +30,17 @@ public class ListingPurgeService(
         await context.PlotListings
             .Where(p => p.UserId == userId)
             .ExecuteDeleteAsync();
+
+        await DeleteStayRowsAsync(userId);
+        await DeleteTaxiRowsAsync(userId);
     }
 
     public Task<IReadOnlyList<Guid>> DeleteUserListingRowsAsync(Guid userId, string listingKind) => listingKind switch
     {
         ListingKinds.Room => DeleteRoomRowsAsync(userId),
         ListingKinds.Plot => DeletePlotRowsAsync(userId),
+        ListingKinds.Stay => DeleteStayRowsAsync(userId),
+        ListingKinds.Taxi => DeleteTaxiRowsAsync(userId),
         _ => throw new ArgumentOutOfRangeException(nameof(listingKind), listingKind, "Unknown listing kind"),
     };
 
@@ -99,5 +104,51 @@ public class ListingPurgeService(
             .ExecuteDeleteAsync();
 
         return plotIds;
+    }
+
+    // Stay photos live under the same listing_{id} Cloudinary prefix, so photo cleanup needs no stay branch.
+    private async Task<IReadOnlyList<Guid>> DeleteStayRowsAsync(Guid userId)
+    {
+        var stayIds = await context.StayListings
+            .Where(s => s.UserId == userId)
+            .Select(s => s.Id)
+            .ToListAsync();
+
+        await context.StayJobs
+            .Where(j => j.UserId == userId)
+            .ExecuteDeleteAsync();
+
+        await context.StayPhotos
+            .Where(p => context.StayListings.Any(s => s.Id == p.StayListingId && s.UserId == userId))
+            .ExecuteDeleteAsync();
+
+        await context.StayRooms
+            .Where(r => context.StayListings.Any(s => s.Id == r.StayListingId && s.UserId == userId))
+            .ExecuteDeleteAsync();
+
+        await context.StayListings
+            .Where(s => s.UserId == userId)
+            .ExecuteDeleteAsync();
+
+        return stayIds;
+    }
+
+    // The plate photo lives under listing_{taxiId}, so the shared photo cleanup covers it.
+    private async Task<IReadOnlyList<Guid>> DeleteTaxiRowsAsync(Guid userId)
+    {
+        var taxiIds = await context.TaxiListings
+            .Where(t => t.UserId == userId)
+            .Select(t => t.Id)
+            .ToListAsync();
+
+        await context.TaxiRoutes
+            .Where(r => context.TaxiListings.Any(t => t.Id == r.TaxiListingId && t.UserId == userId))
+            .ExecuteDeleteAsync();
+
+        await context.TaxiListings
+            .Where(t => t.UserId == userId)
+            .ExecuteDeleteAsync();
+
+        return taxiIds;
     }
 }

@@ -52,6 +52,8 @@ public static class AdminRoleHandlers
                 RejectionReason = r.RejectionReason,
                 RoomListingCount = db.RoomListings.Count(l => l.UserId == r.UserId && !l.IsDeleted),
                 PlotListingCount = db.PlotListings.Count(l => l.UserId == r.UserId && !l.IsDeleted),
+                StayListingCount = db.StayListings.Count(s => s.UserId == r.UserId && !s.IsDeleted),
+                TaxiListingCount = db.TaxiListings.Count(t => t.UserId == r.UserId && !t.IsDeleted),
             })
             .ToPagedResultAsync(page, pageSize);
 
@@ -60,6 +62,8 @@ public static class AdminRoleHandlers
         {
             item.LiveRoomListingCount = blocking[item.UserId].Rooms;
             item.LivePlotListingCount = blocking[item.UserId].Plots;
+            item.LiveStayListingCount = blocking[item.UserId].Stays;
+            item.LiveTaxiListingCount = blocking[item.UserId].Taxis;
         }
 
         return OkResponse(new { items = result.Items, hasMore = result.HasMore });
@@ -203,9 +207,13 @@ public static class AdminRoleHandlers
             if (purgeKind != null)
             {
                 await RefundPendingGoLiveCreditsAsync(user.Id, purgeKind, db, wallet);
-                purgedDistrictIds = purgeKind == ListingKinds.Room
-                    ? await db.RoomListings.Where(l => l.UserId == user.Id && !l.IsDeleted).Select(l => l.DistrictId).Distinct().ToListAsync()
-                    : await db.PlotListings.Where(p => p.UserId == user.Id && !p.IsDeleted).Select(p => p.DistrictId).Distinct().ToListAsync();
+                purgedDistrictIds = purgeKind switch
+                {
+                    ListingKinds.Room => await db.RoomListings.Where(l => l.UserId == user.Id && !l.IsDeleted).Select(l => l.DistrictId).Distinct().ToListAsync(),
+                    ListingKinds.Plot => await db.PlotListings.Where(p => p.UserId == user.Id && !p.IsDeleted).Select(p => p.DistrictId).Distinct().ToListAsync(),
+                    ListingKinds.Taxi => await db.TaxiListings.Where(t => t.UserId == user.Id && !t.IsDeleted && t.DistrictId != null).Select(t => t.DistrictId!.Value).Distinct().ToListAsync(),
+                    _ => await db.StayListings.Where(s => s.UserId == user.Id && !s.IsDeleted && s.DistrictId != null).Select(s => s.DistrictId!.Value).Distinct().ToListAsync(),
+                };
                 purgedListingIds = await listingPurge.DeleteUserListingRowsAsync(user.Id, purgeKind);
                 await unitOfWork.ListingReports.AutoResolvePendingForListingsAsync(purgedListingIds, purgeKind);
                 await unitOfWork.Notifications.DeleteByActionRouteForUserAsync(user.Id, UserNotificationRoutes.ForListingKind(purgeKind));
@@ -241,6 +249,8 @@ public static class AdminRoleHandlers
     private static async Task RefundPendingGoLiveCreditsAsync(
         Guid userId, string listingKind, ApplicationDbContext db, ICreditWalletService wallet)
     {
+        if (listingKind is ListingKinds.Stay or ListingKinds.Taxi) return;
+
         var refunds = listingKind == ListingKinds.Room
             ? await db.RoomListings
                 .Where(l => l.UserId == userId && !l.IsDeleted
@@ -260,6 +270,18 @@ public static class AdminRoleHandlers
     private static async Task InvalidateListingCachesAsync(IConnectionMultiplexer? redis, string listingKind, IReadOnlyList<Guid> districtIds)
     {
         if (redis == null) return;
+        if (listingKind == ListingKinds.Stay)
+        {
+            foreach (var districtId in districtIds)
+                await StayCache.InvalidateAsync(redis, districtId);
+            return;
+        }
+        if (listingKind == ListingKinds.Taxi)
+        {
+            foreach (var districtId in districtIds)
+                await TaxiCache.InvalidateAsync(redis, districtId);
+            return;
+        }
         try
         {
             var cache = redis.GetDatabase();

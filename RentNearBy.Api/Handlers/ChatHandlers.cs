@@ -12,6 +12,7 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -98,6 +99,12 @@ public static class ChatHandlers
         {
             var l = await db.RoomListings.Where(x => x.Id == request.ListingId && !x.IsDeleted)
                 .Select(x => new { x.UserId, x.IsActive }).FirstOrDefaultAsync();
+            ownerId = l?.UserId; listingIsActive = l?.IsActive;
+        }
+        else if (request.ListingType == ListingKinds.Stay)
+        {
+            var l = await db.StayListings.Where(x => x.Id == request.ListingId && !x.IsDeleted)
+                .Select(x => new { x.UserId, IsActive = x.Status == StayStatuses.Approved && x.AcceptingGuests }).FirstOrDefaultAsync();
             ownerId = l?.UserId; listingIsActive = l?.IsActive;
         }
         else
@@ -780,6 +787,8 @@ public static class ChatHandlers
             return BadRequestResponse("Room type not found");
         if (request.PlotTypeId.HasValue && !await db.PlotTypes.AnyAsync(p => p.Id == request.PlotTypeId.Value))
             return BadRequestResponse("Plot type not found");
+        if (request.StayTypeId.HasValue && !await db.StayTypes.AnyAsync(t => t.Id == request.StayTypeId.Value))
+            return BadRequestResponse("Stay type not found");
 
         var template = new QuestionTemplate
         {
@@ -788,6 +797,7 @@ public static class ChatHandlers
             ListingType = request.ListingType,
             RoomTypeId = request.RoomTypeId,
             PlotTypeId = request.PlotTypeId,
+            StayTypeId = request.StayTypeId,
             QuestionText = request.QuestionText.Trim(),
             AnswerOptionsJson = request.AnswerOptionsJson,
             SortOrder = request.SortOrder,
@@ -857,7 +867,7 @@ public static class ChatHandlers
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    private readonly record struct ListingInfoLite(string Title, string? Photo, Guid? RoomTypeId, Guid? PlotTypeId, bool? IsDeleted, bool? IsActive, string? Area);
+    private readonly record struct ListingInfoLite(string Title, string? Photo, Guid? RoomTypeId, Guid? PlotTypeId, Guid? StayTypeId, bool? IsDeleted, bool? IsActive, string? Area);
 
     // otherPartyNames/listingInfo are optional page-level lookups built once by GetConversations
     // (see BuildListingInfoLookupAsync below) to avoid 2 queries per row on a paginated list.
@@ -879,6 +889,7 @@ public static class ChatHandlers
         string? thumbnailUrl;
         Guid? roomTypeId = null;
         Guid? plotTypeId = null;
+        Guid? stayTypeId = null;
         string? area;
 
         if (listingInfo != null && listingInfo.TryGetValue((c.ListingType, c.ListingId), out var info))
@@ -887,6 +898,7 @@ public static class ChatHandlers
             thumbnailUrl = info.Photo;
             roomTypeId = info.RoomTypeId;
             plotTypeId = info.PlotTypeId;
+            stayTypeId = info.StayTypeId;
             area = info.Area;
         }
         else if (c.ListingType == "Room")
@@ -902,6 +914,21 @@ public static class ChatHandlers
             listingTitle = l?.Name ?? "Room";
             thumbnailUrl = l?.Photo;
             roomTypeId = l?.RoomTypeId;
+            area = l?.CityName ?? l?.DistrictName;
+        }
+        else if (c.ListingType == ListingKinds.Stay)
+        {
+            var l = await db.StayListings.Where(x => x.Id == c.ListingId)
+                .Select(x => new {
+                    x.Name, x.StayTypeId,
+                    Photo = x.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
+                    CityName = x.City != null ? x.City.Name : null,
+                    DistrictName = x.District != null ? x.District.Name : null,
+                })
+                .FirstOrDefaultAsync();
+            listingTitle = l?.Name ?? "Stay";
+            thumbnailUrl = l?.Photo;
+            stayTypeId = l?.StayTypeId;
             area = l?.CityName ?? l?.DistrictName;
         }
         else
@@ -934,6 +961,7 @@ public static class ChatHandlers
             ListingId = c.ListingId,
             RoomTypeId = roomTypeId,
             PlotTypeId = plotTypeId,
+            StayTypeId = stayTypeId,
             ListingTitle = listingTitle,
             Area = area,
             ListingThumbnailUrl = thumbnailUrl,
@@ -970,7 +998,7 @@ public static class ChatHandlers
                 })
                 .ToListAsync();
             foreach (var r in rows)
-                result[("Room", r.Id)] = new ListingInfoLite(r.TypeName ?? "Room", r.Photo, r.RoomTypeId, null, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
+                result[("Room", r.Id)] = new ListingInfoLite(r.TypeName ?? "Room", r.Photo, r.RoomTypeId, null, null, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
         }
 
         var plotIds = conversations.Where(c => c.ListingType == "Plot").Select(c => c.ListingId).Distinct().ToList();
@@ -985,7 +1013,23 @@ public static class ChatHandlers
                 })
                 .ToListAsync();
             foreach (var r in rows)
-                result[("Plot", r.Id)] = new ListingInfoLite(r.TypeName ?? "Plot", r.Photo, null, r.PlotTypeId, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
+                result[("Plot", r.Id)] = new ListingInfoLite(r.TypeName ?? "Plot", r.Photo, null, r.PlotTypeId, null, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
+        }
+
+        var stayIds = conversations.Where(c => c.ListingType == ListingKinds.Stay).Select(c => c.ListingId).Distinct().ToList();
+        if (stayIds.Count > 0)
+        {
+            var rows = await db.StayListings.Where(l => stayIds.Contains(l.Id))
+                .Select(l => new {
+                    l.Id, l.Name, l.StayTypeId, l.IsDeleted,
+                    IsActive = l.Status == StayStatuses.Approved && l.AcceptingGuests,
+                    Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
+                    CityName = l.City != null ? l.City.Name : null,
+                    DistrictName = l.District != null ? l.District.Name : null,
+                })
+                .ToListAsync();
+            foreach (var r in rows)
+                result[(ListingKinds.Stay, r.Id)] = new ListingInfoLite(r.Name ?? "Stay", r.Photo, null, null, r.StayTypeId, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
         }
 
         return result;
@@ -1275,6 +1319,12 @@ public static class ChatHandlers
         {
             var l = await db.RoomListings.Where(x => x.Id == conversation.ListingId)
                 .Select(x => new { x.IsDeleted, x.IsActive }).FirstOrDefaultAsync();
+            isDeleted = l?.IsDeleted; isActive = l?.IsActive;
+        }
+        else if (conversation.ListingType == ListingKinds.Stay)
+        {
+            var l = await db.StayListings.Where(x => x.Id == conversation.ListingId)
+                .Select(x => new { x.IsDeleted, IsActive = x.Status == StayStatuses.Approved && x.AcceptingGuests }).FirstOrDefaultAsync();
             isDeleted = l?.IsDeleted; isActive = l?.IsActive;
         }
         else

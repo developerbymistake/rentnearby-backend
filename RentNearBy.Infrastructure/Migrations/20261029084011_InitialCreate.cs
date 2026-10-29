@@ -172,6 +172,70 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "JobDepartments",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Name = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_JobDepartments", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "JobSalaryTypes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Name = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_JobSalaryTypes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "JobShiftTypes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Name = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_JobShiftTypes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "JobTypes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Name = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_JobTypes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ListingLimitSettings",
                 columns: table => new
                 {
@@ -244,6 +308,39 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_RoomTypes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "StayTypes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: true),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayTypes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TaxiVehicleTypes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Name = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: false),
+                    Category = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    DefaultSeats = table.Column<short>(type: "smallint", nullable: true),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TaxiVehicleTypes", x => x.Id);
+                    table.CheckConstraint("ck_taxivehicletypes_category", "\"Category\" IN ('Hatchback', 'Sedan', 'SUV', 'MUV', 'TempoTraveller', 'Bus')");
                 });
 
             migrationBuilder.CreateTable(
@@ -460,6 +557,29 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "JobRoles",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    JobDepartmentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Name = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_JobRoles", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_JobRoles_JobDepartments_JobDepartmentId",
+                        column: x => x.JobDepartmentId,
+                        principalTable: "JobDepartments",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ListingReports",
                 columns: table => new
                 {
@@ -533,6 +653,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     ListingType = table.Column<string>(type: "text", nullable: false),
                     RoomTypeId = table.Column<Guid>(type: "uuid", nullable: true),
                     PlotTypeId = table.Column<Guid>(type: "uuid", nullable: true),
+                    StayTypeId = table.Column<Guid>(type: "uuid", nullable: true),
                     QuestionText = table.Column<string>(type: "text", nullable: false),
                     AnswerOptionsJson = table.Column<string>(type: "jsonb", nullable: false),
                     SortOrder = table.Column<int>(type: "integer", nullable: false),
@@ -552,6 +673,75 @@ namespace RentNearBy.Infrastructure.Migrations
                         name: "FK_QuestionTemplates_RoomTypes_RoomTypeId",
                         column: x => x.RoomTypeId,
                         principalTable: "RoomTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_QuestionTemplates_StayTypes_StayTypeId",
+                        column: x => x.StayTypeId,
+                        principalTable: "StayTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "StayJobs",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    StayListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Title = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    Description = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
+                    JobDepartmentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    JobRoleId = table.Column<Guid>(type: "uuid", nullable: false),
+                    JobTypeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    JobShiftTypeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    JobSalaryTypeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    MinimumExperienceYears = table.Column<int>(type: "integer", nullable: false),
+                    MinSalary = table.Column<int>(type: "integer", nullable: false),
+                    MaxSalary = table.Column<int>(type: "integer", nullable: false),
+                    ContactPhone = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
+                    WhatsAppNumber = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
+                    Status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "Active"),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    ClosedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    SeekerPushedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayJobs", x => x.Id);
+                    table.CheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" BETWEEN 0 AND 20");
+                    table.CheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
+                    table.CheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Closed')");
+                    table.ForeignKey(
+                        name: "FK_StayJobs_JobDepartments_JobDepartmentId",
+                        column: x => x.JobDepartmentId,
+                        principalTable: "JobDepartments",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_StayJobs_JobRoles_JobRoleId",
+                        column: x => x.JobRoleId,
+                        principalTable: "JobRoles",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_StayJobs_JobSalaryTypes_JobSalaryTypeId",
+                        column: x => x.JobSalaryTypeId,
+                        principalTable: "JobSalaryTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_StayJobs_JobShiftTypes_JobShiftTypeId",
+                        column: x => x.JobShiftTypeId,
+                        principalTable: "JobShiftTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_StayJobs_JobTypes_JobTypeId",
+                        column: x => x.JobTypeId,
+                        principalTable: "JobTypes",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
@@ -933,6 +1123,155 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "StayListings",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Name = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: true),
+                    StayTypeId = table.Column<Guid>(type: "uuid", nullable: true),
+                    VehicleAccess = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: true),
+                    HostLivesHere = table.Column<bool>(type: "boolean", nullable: true),
+                    Facilities = table.Column<string[]>(type: "text[]", nullable: false, defaultValueSql: "'{}'::text[]"),
+                    Description = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    Latitude = table.Column<decimal>(type: "numeric", nullable: true),
+                    Longitude = table.Column<decimal>(type: "numeric", nullable: true),
+                    Address = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    DistrictId = table.Column<Guid>(type: "uuid", nullable: true),
+                    CityId = table.Column<Guid>(type: "uuid", nullable: true),
+                    CheckInTime = table.Column<TimeOnly>(type: "time without time zone", nullable: true),
+                    CheckOutTime = table.Column<TimeOnly>(type: "time without time zone", nullable: true),
+                    PetsAllowed = table.Column<bool>(type: "boolean", nullable: false),
+                    SmokingAllowed = table.Column<bool>(type: "boolean", nullable: false),
+                    AlcoholAllowed = table.Column<bool>(type: "boolean", nullable: false),
+                    UnmarriedCouplesAllowed = table.Column<bool>(type: "boolean", nullable: false),
+                    IdProofRequired = table.Column<bool>(type: "boolean", nullable: false),
+                    CancellationPolicy = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: true),
+                    RulesSavedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    Status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "Draft"),
+                    AcceptingGuests = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    RejectedReason = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    SubmittedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ReviewedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ReviewedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
+                    MinPricePerNight = table.Column<int>(type: "integer", nullable: true),
+                    Slug = table.Column<string>(type: "text", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
+                    DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    Location = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", stored: true),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayListings", x => x.Id);
+                    table.CheckConstraint("ck_staylistings_min_price_range", "\"MinPricePerNight\" IS NULL OR (\"MinPricePerNight\" >= 100 AND \"MinPricePerNight\" <= 9900000)");
+                    table.CheckConstraint("ck_staylistings_status", "\"Status\" IN ('Draft', 'PendingReview', 'Approved', 'Rejected')");
+                    table.ForeignKey(
+                        name: "FK_StayListings_Admins_ReviewedByAdminId",
+                        column: x => x.ReviewedByAdminId,
+                        principalTable: "Admins",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_StayListings_Cities_CityId",
+                        column: x => x.CityId,
+                        principalTable: "Cities",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_StayListings_Districts_DistrictId",
+                        column: x => x.DistrictId,
+                        principalTable: "Districts",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_StayListings_StayTypes_StayTypeId",
+                        column: x => x.StayTypeId,
+                        principalTable: "StayTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_StayListings_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TaxiListings",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    VehicleTypeId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Seats = table.Column<short>(type: "smallint", nullable: true),
+                    NumberPlate = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: true),
+                    PlatePhotoUrl = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    PlatePhotoPath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    ContactPhone = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
+                    WhatsAppNumber = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
+                    Latitude = table.Column<decimal>(type: "numeric(9,6)", nullable: true),
+                    Longitude = table.Column<decimal>(type: "numeric(9,6)", nullable: true),
+                    DistrictId = table.Column<Guid>(type: "uuid", nullable: true),
+                    CityId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "Draft"),
+                    IsAvailable = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    RejectedReason = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    SubmittedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ReviewedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ReviewedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
+                    MinFare = table.Column<int>(type: "integer", nullable: true),
+                    Slug = table.Column<string>(type: "text", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
+                    DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    Location = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", stored: true),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TaxiListings", x => x.Id);
+                    table.CheckConstraint("ck_taxilistings_min_fare_range", "\"MinFare\" IS NULL OR (\"MinFare\" >= 100 AND \"MinFare\" <= 9900000)");
+                    table.CheckConstraint("ck_taxilistings_plate", "\"NumberPlate\" IS NULL OR \"NumberPlate\" ~ '^([A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$'");
+                    table.CheckConstraint("ck_taxilistings_seats", "\"Seats\" IS NULL OR \"Seats\" IN (4, 6, 7, 12)");
+                    table.CheckConstraint("ck_taxilistings_status", "\"Status\" IN ('Draft', 'PendingReview', 'Approved', 'Rejected')");
+                    table.ForeignKey(
+                        name: "FK_TaxiListings_Admins_ReviewedByAdminId",
+                        column: x => x.ReviewedByAdminId,
+                        principalTable: "Admins",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_TaxiListings_Cities_CityId",
+                        column: x => x.CityId,
+                        principalTable: "Cities",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_TaxiListings_Districts_DistrictId",
+                        column: x => x.DistrictId,
+                        principalTable: "Districts",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_TaxiListings_TaxiVehicleTypes_VehicleTypeId",
+                        column: x => x.VehicleTypeId,
+                        principalTable: "TaxiVehicleTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_TaxiListings_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Wallets",
                 columns: table => new
                 {
@@ -1021,6 +1360,91 @@ namespace RentNearBy.Infrastructure.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "StayPhotos",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    StayListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    PhotoUrl = table.Column<string>(type: "text", nullable: false),
+                    FilePath = table.Column<string>(type: "text", nullable: false),
+                    PhotoOrder = table.Column<int>(type: "integer", nullable: false),
+                    UploadedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayPhotos", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_StayPhotos_StayListings_StayListingId",
+                        column: x => x.StayListingId,
+                        principalTable: "StayListings",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "StayRooms",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    StayListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    RoomIndex = table.Column<short>(type: "smallint", nullable: false),
+                    PricePerNight = table.Column<int>(type: "integer", nullable: false),
+                    MaxGuests = table.Column<short>(type: "smallint", nullable: false),
+                    RoomName = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                    Meals = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayRooms", x => x.Id);
+                    table.CheckConstraint("ck_stayrooms_max_guests", "\"MaxGuests\" >= 1 AND \"MaxGuests\" <= 4");
+                    table.CheckConstraint("ck_stayrooms_price_range", "\"PricePerNight\" >= 100 AND \"PricePerNight\" <= 9900000");
+                    table.CheckConstraint("ck_stayrooms_room_name", "\"RoomName\" IN ('Standard', 'Deluxe', 'Premium', 'Suite', 'Family Room', 'Executive', 'Dormitory')");
+                    table.ForeignKey(
+                        name: "FK_StayRooms_StayListings_StayListingId",
+                        column: x => x.StayListingId,
+                        principalTable: "StayListings",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TaxiRoutes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    TaxiListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    RouteIndex = table.Column<short>(type: "smallint", nullable: false),
+                    FromName = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
+                    FromLabel = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: true),
+                    FromLatitude = table.Column<decimal>(type: "numeric(9,6)", nullable: false),
+                    FromLongitude = table.Column<decimal>(type: "numeric(9,6)", nullable: false),
+                    ToName = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
+                    ToLabel = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: true),
+                    ToLatitude = table.Column<decimal>(type: "numeric(9,6)", nullable: false),
+                    ToLongitude = table.Column<decimal>(type: "numeric(9,6)", nullable: false),
+                    Fare = table.Column<int>(type: "integer", nullable: false),
+                    TripType = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    FromPoint = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"FromLongitude\"::float8, \"FromLatitude\"::float8), 4326)::geography", stored: true),
+                    ToPoint = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"ToLongitude\"::float8, \"ToLatitude\"::float8), 4326)::geography", stored: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TaxiRoutes", x => x.Id);
+                    table.CheckConstraint("ck_taxiroutes_fare_range", "\"Fare\" >= 100 AND \"Fare\" <= 9900000");
+                    table.CheckConstraint("ck_taxiroutes_trip_type", "\"TripType\" IN ('OneWay', 'RoundTrip')");
+                    table.ForeignKey(
+                        name: "FK_TaxiRoutes_TaxiListings_TaxiListingId",
+                        column: x => x.TaxiListingId,
+                        principalTable: "TaxiListings",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
             migrationBuilder.InsertData(
                 table: "Roles",
                 columns: new[] { "Id", "Description", "IsActive", "Key", "Name", "SortOrder" },
@@ -1028,7 +1452,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     { new Guid("10000000-0000-0000-0000-000000000001"), "Find rooms and plots", true, "SEEKER", "Seeker", 1 },
                     { new Guid("10000000-0000-0000-0000-000000000002"), "List rooms for rent", true, "RENT_OWNER", "Rent Owner", 2 },
-                    { new Guid("10000000-0000-0000-0000-000000000003"), "List plots for sale", true, "PROPERTY_OWNER", "Property Owner", 3 }
+                    { new Guid("10000000-0000-0000-0000-000000000003"), "List plots for sale", true, "PROPERTY_OWNER", "Property Owner", 3 },
+                    { new Guid("10000000-0000-0000-0000-000000000004"), "List your stay", true, "STAY_OWNER", "Stay Owner", 4 },
+                    { new Guid("10000000-0000-0000-0000-000000000005"), "List your taxi", true, "TAXI_DRIVER", "Taxi Driver", 5 }
                 });
 
             migrationBuilder.CreateIndex(
@@ -1271,6 +1697,41 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_JobDepartments_Name",
+                table: "JobDepartments",
+                column: "Name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_JobRoles_JobDepartmentId",
+                table: "JobRoles",
+                column: "JobDepartmentId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_JobRoles_JobDepartmentId_Name",
+                table: "JobRoles",
+                columns: new[] { "JobDepartmentId", "Name" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_JobSalaryTypes_Name",
+                table: "JobSalaryTypes",
+                column: "Name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_JobShiftTypes_Name",
+                table: "JobShiftTypes",
+                column: "Name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_JobTypes_Name",
+                table: "JobTypes",
+                column: "Name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_ListingLimitSettings_ListingKind",
                 table: "ListingLimitSettings",
                 column: "ListingKind",
@@ -1485,6 +1946,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "RoomTypeId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_QuestionTemplates_StayTypeId",
+                table: "QuestionTemplates",
+                column: "StayTypeId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_ReportReasons_Name",
                 table: "ReportReasons",
                 column: "Name",
@@ -1665,6 +2131,231 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_StayJobs_JobDepartmentId",
+                table: "StayJobs",
+                column: "JobDepartmentId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayJobs_JobRoleId",
+                table: "StayJobs",
+                column: "JobRoleId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayJobs_JobSalaryTypeId",
+                table: "StayJobs",
+                column: "JobSalaryTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayJobs_JobShiftTypeId",
+                table: "StayJobs",
+                column: "JobShiftTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayJobs_JobTypeId",
+                table: "StayJobs",
+                column: "JobTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_stayjobs_status_created",
+                table: "StayJobs",
+                columns: new[] { "Status", "CreatedAt" },
+                descending: new[] { false, true });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayJobs_StayListingId",
+                table: "StayJobs",
+                column: "StayListingId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayJobs_UserId_Status",
+                table: "StayJobs",
+                columns: new[] { "UserId", "Status" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_staylistings_browse_district_city_created",
+                table: "StayListings",
+                columns: new[] { "DistrictId", "CityId", "CreatedAt" },
+                descending: new[] { false, false, true },
+                filter: "\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_staylistings_browse_district_created",
+                table: "StayListings",
+                columns: new[] { "DistrictId", "CreatedAt" },
+                descending: new[] { false, true },
+                filter: "\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_staylistings_browse_district_price",
+                table: "StayListings",
+                columns: new[] { "DistrictId", "MinPricePerNight" },
+                filter: "\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayListings_CityId",
+                table: "StayListings",
+                column: "CityId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayListings_DistrictId",
+                table: "StayListings",
+                column: "DistrictId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_staylistings_location_gist",
+                table: "StayListings",
+                column: "Location")
+                .Annotation("Npgsql:IndexMethod", "gist");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayListings_ReviewedByAdminId",
+                table: "StayListings",
+                column: "ReviewedByAdminId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayListings_Slug",
+                table: "StayListings",
+                column: "Slug",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayListings_Status_SubmittedAt",
+                table: "StayListings",
+                columns: new[] { "Status", "SubmittedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayListings_StayTypeId",
+                table: "StayListings",
+                column: "StayTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_staylistings_user_live",
+                table: "StayListings",
+                column: "UserId",
+                unique: true,
+                filter: "\"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayListings_UserId_IsDeleted",
+                table: "StayListings",
+                columns: new[] { "UserId", "IsDeleted" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayPhotos_StayListingId",
+                table: "StayPhotos",
+                column: "StayListingId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayRooms_StayListingId_RoomIndex",
+                table: "StayRooms",
+                columns: new[] { "StayListingId", "RoomIndex" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StayTypes_Name",
+                table: "StayTypes",
+                column: "Name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxilistings_browse_district_city_fare",
+                table: "TaxiListings",
+                columns: new[] { "DistrictId", "CityId", "MinFare" },
+                filter: "\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxilistings_browse_district_fare",
+                table: "TaxiListings",
+                columns: new[] { "DistrictId", "MinFare" },
+                filter: "\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TaxiListings_CityId",
+                table: "TaxiListings",
+                column: "CityId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TaxiListings_DistrictId",
+                table: "TaxiListings",
+                column: "DistrictId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxilistings_location_gist",
+                table: "TaxiListings",
+                column: "Location")
+                .Annotation("Npgsql:IndexMethod", "gist");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxilistings_plate_live",
+                table: "TaxiListings",
+                column: "NumberPlate",
+                unique: true,
+                filter: "\"IsDeleted\" = false AND \"NumberPlate\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxilistings_public_id",
+                table: "TaxiListings",
+                column: "Id",
+                filter: "\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TaxiListings_ReviewedByAdminId",
+                table: "TaxiListings",
+                column: "ReviewedByAdminId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TaxiListings_Slug",
+                table: "TaxiListings",
+                column: "Slug",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TaxiListings_Status_SubmittedAt",
+                table: "TaxiListings",
+                columns: new[] { "Status", "SubmittedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxilistings_user_live",
+                table: "TaxiListings",
+                column: "UserId",
+                unique: true,
+                filter: "\"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TaxiListings_UserId_IsDeleted",
+                table: "TaxiListings",
+                columns: new[] { "UserId", "IsDeleted" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TaxiListings_VehicleTypeId",
+                table: "TaxiListings",
+                column: "VehicleTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxiroutes_from_gist",
+                table: "TaxiRoutes",
+                column: "FromPoint")
+                .Annotation("Npgsql:IndexMethod", "gist");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TaxiRoutes_TaxiListingId_RouteIndex",
+                table: "TaxiRoutes",
+                columns: new[] { "TaxiListingId", "RouteIndex" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxiroutes_to_gist",
+                table: "TaxiRoutes",
+                column: "ToPoint")
+                .Annotation("Npgsql:IndexMethod", "gist");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxivehicletypes_name",
+                table: "TaxiVehicleTypes",
+                column: "Name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_UserBlocks_BlockerId_BlockedId",
                 table: "UserBlocks",
                 columns: new[] { "BlockerId", "BlockedId" },
@@ -1760,6 +2451,18 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "Sessions");
 
             migrationBuilder.DropTable(
+                name: "StayJobs");
+
+            migrationBuilder.DropTable(
+                name: "StayPhotos");
+
+            migrationBuilder.DropTable(
+                name: "StayRooms");
+
+            migrationBuilder.DropTable(
+                name: "TaxiRoutes");
+
+            migrationBuilder.DropTable(
                 name: "UserBlocks");
 
             migrationBuilder.DropTable(
@@ -1787,19 +2490,46 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "PlotListings");
 
             migrationBuilder.DropTable(
-                name: "Admins");
+                name: "RoomListings");
 
             migrationBuilder.DropTable(
-                name: "RoomListings");
+                name: "JobRoles");
+
+            migrationBuilder.DropTable(
+                name: "JobSalaryTypes");
+
+            migrationBuilder.DropTable(
+                name: "JobShiftTypes");
+
+            migrationBuilder.DropTable(
+                name: "JobTypes");
+
+            migrationBuilder.DropTable(
+                name: "StayListings");
+
+            migrationBuilder.DropTable(
+                name: "TaxiListings");
 
             migrationBuilder.DropTable(
                 name: "PlotTypes");
 
             migrationBuilder.DropTable(
+                name: "RoomTypes");
+
+            migrationBuilder.DropTable(
+                name: "JobDepartments");
+
+            migrationBuilder.DropTable(
+                name: "StayTypes");
+
+            migrationBuilder.DropTable(
+                name: "Admins");
+
+            migrationBuilder.DropTable(
                 name: "Cities");
 
             migrationBuilder.DropTable(
-                name: "RoomTypes");
+                name: "TaxiVehicleTypes");
 
             migrationBuilder.DropTable(
                 name: "Users");
