@@ -18,6 +18,7 @@ public static class DtoMappings
             .Map(dest => dest.IsActive, src => src.IsActive)
             .Map(dest => dest.IsPhoneVerified, src => src.IsPhoneVerified)
             .Map(dest => dest.HasUsedPhoneChange, src => src.HasUsedPhoneChange)
+            .Map(dest => dest.RoleCorrectionUsed, src => src.RoleCorrectionUsed)
             .Map(dest => dest.IsContactVisible, src => src.IsContactVisible)
             .Map(dest => dest.CreatedAt, src => src.CreatedAt)
             .Map(dest => dest.Role, src => UserRoles.KeyOf(src.RoleId))

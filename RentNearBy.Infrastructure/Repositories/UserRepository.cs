@@ -50,6 +50,25 @@ public class UserRepository(ApplicationDbContext context) : Repository<User>(con
                 .SetProperty(u => u.UpdatedAt, DateTime.UtcNow));
     }
 
+    // One-shot self-service correction: the WHERE is the gate, a second call updates 0 rows.
+    public async Task<int> CorrectRoleAsync(Guid userId, Guid fromRoleId, Guid toRoleId)
+    {
+        var contactVisible = IsContactVisibleForRole(toRoleId);
+        return await _dbSet
+            .Where(u => u.Id == userId && u.RoleId == fromRoleId && !u.RoleCorrectionUsed && u.RoleConfirmedAt != null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(u => u.RoleId, toRoleId)
+                .SetProperty(u => u.IsContactVisible, contactVisible)
+                .SetProperty(u => u.RoleCorrectionUsed, true)
+                .SetProperty(u => u.UpdatedAt, DateTime.UtcNow));
+    }
+
+    // Row lock for a role-dependent write; 0 rows means the role changed meanwhile.
+    public async Task<int> LockIfRoleAsync(Guid userId, Guid roleId)
+        => await _dbSet
+            .Where(u => u.Id == userId && u.RoleId == roleId)
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.UpdatedAt, DateTime.UtcNow));
+
     // Owners always show their number; a Seeker starts hidden.
     private static bool IsContactVisibleForRole(Guid roleId) => UserRoles.ListingKindOf(roleId) != null;
 }

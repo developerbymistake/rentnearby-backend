@@ -8,6 +8,10 @@ public interface ITaxiListingRepository : IRepository<TaxiListing>
     // Tracked, for the driver's own writes: route edits are applied on the loaded collection.
     Task<TaxiListing?> GetLiveByUserAsync(Guid userId);
     Task<string?> GetStatusByUserAsync(Guid userId);
+    // Both include soft-deleted rows.
+    Task<bool> HasEverApprovedAsync(Guid userId);
+    Task<bool> HasSubmittedHistoryAsync(Guid userId);
+    Task<int> TouchAllByUserAsync(Guid userId);
     // !IsDeleted only; the handler applies the public-or-owner rule.
     Task<TaxiListing?> GetByIdWithAllAsync(Guid id);
     // Public share link: only an Approved, available, not deleted taxi resolves.

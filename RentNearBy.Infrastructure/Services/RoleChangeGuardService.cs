@@ -6,14 +6,15 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: under review or approved.
+// Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: under review, approved,
+// or ever approved (even if later rejected or deleted), whatever the tab state. The batch overload counts live rows only (display).
 public class RoleChangeGuardService(ApplicationDbContext context, IUnitOfWork unitOfWork, IMemoryCache cache)
     : IRoleChangeGuardService
 {
     public async Task<int> GetBlockingCountAsync(Guid userId, string leavingKind)
     {
         var tabs = await AppTabCache.GetAsync(unitOfWork, cache);
-        if (!TabState.IsKindActive(tabs, leavingKind)) return 0;
+        if ((leavingKind == ListingKinds.Room || leavingKind == ListingKinds.Plot) && !TabState.IsKindActive(tabs, leavingKind)) return 0;
 
         var now = DateTime.UtcNow;
         return leavingKind switch
@@ -27,11 +28,13 @@ public class RoleChangeGuardService(ApplicationDbContext context, IUnitOfWork un
                     && ((l.IsActive && l.ValidUntil != null && l.ValidUntil > now)
                         || l.LiveRequestStatus == GoLiveRequestStatuses.Pending)),
             ListingKinds.Stay => await context.StayListings.AsNoTracking()
-                .CountAsync(s => s.UserId == userId && !s.IsDeleted
-                    && (s.Status == StayStatuses.PendingReview || s.Status == StayStatuses.Approved)),
+                .CountAsync(s => s.UserId == userId
+                    && (s.EverApproved
+                        || (!s.IsDeleted && (s.Status == StayStatuses.PendingReview || s.Status == StayStatuses.Approved)))),
             ListingKinds.Taxi => await context.TaxiListings.AsNoTracking()
-                .CountAsync(t => t.UserId == userId && !t.IsDeleted
-                    && (t.Status == TaxiStatuses.PendingReview || t.Status == TaxiStatuses.Approved)),
+                .CountAsync(t => t.UserId == userId
+                    && (t.EverApproved
+                        || (!t.IsDeleted && (t.Status == TaxiStatuses.PendingReview || t.Status == TaxiStatuses.Approved)))),
             _ => 0,
         };
     }

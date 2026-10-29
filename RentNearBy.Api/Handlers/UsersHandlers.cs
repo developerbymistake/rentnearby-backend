@@ -117,10 +117,25 @@ public static class UsersHandlers
         dto.RoleRequestStatus = latest?.Status;
         dto.RoleRequestReason = latest?.Status == RoleChangeRequestStatuses.Rejected ? latest.RejectionReason : null;
         dto.NextRoleRequestAt = RoleChangeRules.NextRequestAllowedAt(latest?.Status, latest?.ReviewedAt, DateTime.UtcNow);
+        bool submittedHistory = false, everApproved = false;
         if (user.RoleId == UserRoles.StayOwnerId)
+        {
             dto.StayStatus = await unitOfWork.Stays.GetStatusByUserAsync(user.Id);
+            submittedHistory = await unitOfWork.Stays.HasSubmittedHistoryAsync(user.Id);
+            everApproved = submittedHistory && await unitOfWork.Stays.HasEverApprovedAsync(user.Id);
+            dto.RoleLocked = dto.StayStatus is StayStatuses.PendingReview or StayStatuses.Approved || everApproved;
+        }
         if (user.RoleId == UserRoles.TaxiDriverId)
+        {
             dto.TaxiStatus = await unitOfWork.Taxis.GetStatusByUserAsync(user.Id);
+            submittedHistory = await unitOfWork.Taxis.HasSubmittedHistoryAsync(user.Id);
+            everApproved = submittedHistory && await unitOfWork.Taxis.HasEverApprovedAsync(user.Id);
+            dto.RoleLocked = dto.TaxiStatus is TaxiStatuses.PendingReview or TaxiStatuses.Approved || everApproved;
+        }
+        dto.CanCorrectRole = user.RoleConfirmedAt != null && !user.RoleCorrectionUsed
+            && (user.RoleId == UserRoles.StayOwnerId || user.RoleId == UserRoles.TaxiDriverId)
+            && latest?.Status != RoleChangeRequestStatuses.Pending
+            && !submittedHistory;
         return dto;
     }
 

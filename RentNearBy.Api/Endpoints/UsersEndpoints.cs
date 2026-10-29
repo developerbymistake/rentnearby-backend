@@ -11,6 +11,7 @@ public static class UsersEndpoints
         group.MapPut("/profile/contact-visibility", UsersHandlers.UpdateContactVisibility).RequireAuthorization();
         group.MapGet("/reports", UsersHandlers.GetMyReports).RequireAuthorization();
         group.MapPut("/me/role-choice", RoleHandlers.ChooseRole).RequireAuthorization();
+        group.MapPut("/me/role-correction", RoleHandlers.CorrectRole).RequireAuthorization();
         group.MapPost("/me/role-request", RoleHandlers.CreateRoleRequest).RequireAuthorization();
         group.MapGet("/me/role-request", RoleHandlers.GetMyRoleRequest).RequireAuthorization();
 

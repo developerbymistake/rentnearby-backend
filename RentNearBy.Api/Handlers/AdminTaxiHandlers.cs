@@ -101,6 +101,7 @@ public static class AdminTaxiHandlers
         {
             var now = DateTime.UtcNow;
             taxi.Status = TaxiStatuses.Approved;
+            taxi.EverApproved = true;
             // A suspended driver's taxi stays hidden; un-suspend turns it back on.
             if (!ownerActive) taxi.IsAvailable = false;
             taxi.RejectedReason = null;

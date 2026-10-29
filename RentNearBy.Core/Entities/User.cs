@@ -10,6 +10,7 @@ public class User
     public bool IsActive { get; set; } = true;
     public bool IsPhoneVerified { get; set; } = false;
     public bool HasUsedPhoneChange { get; set; } = false;
+    public bool RoleCorrectionUsed { get; set; } = false;
     public bool IsContactVisible { get; set; } = false;
     public Guid RoleId { get; set; } = UserRoles.SeekerId;
     public DateTime? RoleConfirmedAt { get; set; }

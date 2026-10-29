@@ -28,6 +28,19 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
             .Select(s => s.Status)
             .FirstOrDefaultAsync();
 
+    public async Task<bool> HasEverApprovedAsync(Guid userId)
+        => await _dbSet.AnyAsync(s => s.UserId == userId && s.EverApproved);
+
+    public async Task<bool> HasSubmittedHistoryAsync(Guid userId)
+        => await _dbSet.AnyAsync(s => s.UserId == userId
+            && (s.Status != StayStatuses.Draft || s.SubmittedAt != null || s.EverApproved));
+
+    // Row-locks every row of the user and bumps xmin, so a concurrent tracked write fails as a concurrency conflict.
+    public async Task<int> TouchAllByUserAsync(Guid userId)
+        => await _dbSet
+            .Where(s => s.UserId == userId)
+            .ExecuteUpdateAsync(x => x.SetProperty(s => s.UpdatedAt, DateTime.UtcNow));
+
     public async Task<StayListing?> GetByIdWithAllAsync(Guid id)
         => await _dbSet
             .AsNoTracking()

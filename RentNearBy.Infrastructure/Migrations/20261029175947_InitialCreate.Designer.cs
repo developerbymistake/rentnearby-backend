@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261029145323_InitialCreate")]
+    [Migration("20261029175947_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -2223,6 +2223,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid?>("DistrictId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("EverApproved")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.PrimitiveCollection<string[]>("Facilities")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -2505,6 +2510,11 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Guid?>("DistrictId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("EverApproved")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<bool>("IsAvailable")
                         .ValueGeneratedOnAdd()
@@ -2810,6 +2820,11 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<DateTime?>("RoleConfirmedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("RoleCorrectionUsed")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<Guid>("RoleId")
                         .ValueGeneratedOnAdd()

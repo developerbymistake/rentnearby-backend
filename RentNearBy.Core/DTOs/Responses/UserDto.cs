@@ -17,5 +17,8 @@ public class UserDto
     public DateTime? NextRoleRequestAt { get; set; }
     public string? StayStatus { get; set; }   // Stay Owner only; null when no live stay row
     public string? TaxiStatus { get; set; }   // Taxi Driver only; null when no live taxi row
+    public bool RoleCorrectionUsed { get; set; }
+    public bool CanCorrectRole { get; set; }   // one-time self-service change while the stay/taxi was never submitted
+    public bool RoleLocked { get; set; }   // stay/taxi under review, approved, or ever approved
     public DateTime CreatedAt { get; set; }
 }

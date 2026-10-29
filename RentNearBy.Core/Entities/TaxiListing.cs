@@ -21,6 +21,8 @@ public class TaxiListing
     public Guid? CityId { get; set; }
 
     public string Status { get; set; } = "Draft";
+    // Set on admin approval, never cleared: keeps the role locked after a later reject or delete.
+    public bool EverApproved { get; set; }
     public bool IsAvailable { get; set; } = true;
     public string? RejectedReason { get; set; }
     public DateTime? SubmittedAt { get; set; }

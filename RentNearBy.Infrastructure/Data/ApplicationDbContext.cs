@@ -98,6 +98,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // table with no other index covering this sort.
             e.HasIndex(u => u.CreatedAt);
             e.Property(u => u.RoleId).HasDefaultValue(UserRoles.SeekerId);
+            e.Property(u => u.RoleCorrectionUsed).HasDefaultValue(false);
             e.HasIndex(u => u.RoleId);
             e.HasOne(u => u.Role)
              .WithMany()
@@ -827,6 +828,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(s => s.Address).HasMaxLength(500);
             e.Property(s => s.CancellationPolicy).HasMaxLength(16);
             e.Property(s => s.Status).HasMaxLength(16).HasDefaultValue(StayStatuses.Draft);
+            e.Property(s => s.EverApproved).HasDefaultValue(false);
             e.Property(s => s.AcceptingGuests).HasDefaultValue(true);
             e.Property(s => s.RejectedReason).HasMaxLength(300);
 
@@ -1036,6 +1038,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(t => t.Latitude).HasColumnType("numeric(9,6)");
             e.Property(t => t.Longitude).HasColumnType("numeric(9,6)");
             e.Property(t => t.Status).HasMaxLength(16).HasDefaultValue(TaxiStatuses.Draft);
+            e.Property(t => t.EverApproved).HasDefaultValue(false);
             // Sentinel true, so an explicit false is still sent on insert.
             e.Property(t => t.IsAvailable).HasDefaultValue(true).HasSentinel(true);
             e.Property(t => t.RejectedReason).HasMaxLength(300);
