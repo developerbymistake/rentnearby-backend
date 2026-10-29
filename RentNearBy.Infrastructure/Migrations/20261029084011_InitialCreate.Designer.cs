@@ -13,8 +13,8 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261029061729_AddStayAndJobs")]
-    partial class AddStayAndJobs
+    [Migration("20261029084011_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -1727,6 +1727,15 @@ namespace RentNearBy.Infrastructure.Migrations
                             Key = "STAY_OWNER",
                             Name = "Stay Owner",
                             SortOrder = 4
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000005"),
+                            Description = "List your taxi",
+                            IsActive = true,
+                            Key = "TAXI_DRIVER",
+                            Name = "Taxi Driver",
+                            SortOrder = 5
                         });
                 });
 
@@ -2468,6 +2477,302 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("StayTypes");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.TaxiListing", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid?>("CityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContactPhone")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DistrictId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsAvailable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Latitude")
+                        .HasColumnType("numeric(9,6)");
+
+                    b.Property<Point>("Location")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("geography(Point, 4326)")
+                        .HasComputedColumnSql("ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", true);
+
+                    b.Property<decimal?>("Longitude")
+                        .HasColumnType("numeric(9,6)");
+
+                    b.Property<int?>("MinFare")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("NumberPlate")
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)");
+
+                    b.Property<string>("PlatePhotoPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("PlatePhotoUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("RejectedReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReviewedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<short?>("Seats")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("Slug")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Draft");
+
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("VehicleTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WhatsAppNumber")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CityId");
+
+                    b.HasIndex("DistrictId");
+
+                    b.HasIndex("Location")
+                        .HasDatabaseName("ix_taxilistings_location_gist");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Location"), "gist");
+
+                    b.HasIndex("ReviewedByAdminId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.HasIndex("VehicleTypeId");
+
+                    b.HasIndex("Status", "SubmittedAt");
+
+                    b.HasIndex("UserId", "IsDeleted");
+
+                    b.HasIndex(new[] { "DistrictId", "CityId", "MinFare" }, "ix_taxilistings_browse_district_city_fare")
+                        .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex(new[] { "DistrictId", "MinFare" }, "ix_taxilistings_browse_district_fare")
+                        .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex(new[] { "NumberPlate" }, "ix_taxilistings_plate_live")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false AND \"NumberPlate\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "Id" }, "ix_taxilistings_public_id")
+                        .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex(new[] { "UserId" }, "ix_taxilistings_user_live")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.ToTable("TaxiListings", t =>
+                        {
+                            t.HasCheckConstraint("ck_taxilistings_min_fare_range", "\"MinFare\" IS NULL OR (\"MinFare\" >= 100 AND \"MinFare\" <= 9900000)");
+
+                            t.HasCheckConstraint("ck_taxilistings_plate", "\"NumberPlate\" IS NULL OR \"NumberPlate\" ~ '^([A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$'");
+
+                            t.HasCheckConstraint("ck_taxilistings_seats", "\"Seats\" IS NULL OR \"Seats\" IN (4, 6, 7, 12)");
+
+                            t.HasCheckConstraint("ck_taxilistings_status", "\"Status\" IN ('Draft', 'PendingReview', 'Approved', 'Rejected')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.TaxiRoute", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int>("Fare")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FromLabel")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<decimal>("FromLatitude")
+                        .HasColumnType("numeric(9,6)");
+
+                    b.Property<decimal>("FromLongitude")
+                        .HasColumnType("numeric(9,6)");
+
+                    b.Property<string>("FromName")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<Point>("FromPoint")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("geography(Point, 4326)")
+                        .HasComputedColumnSql("ST_SetSRID(ST_MakePoint(\"FromLongitude\"::float8, \"FromLatitude\"::float8), 4326)::geography", true);
+
+                    b.Property<short>("RouteIndex")
+                        .HasColumnType("smallint");
+
+                    b.Property<Guid>("TaxiListingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ToLabel")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<decimal>("ToLatitude")
+                        .HasColumnType("numeric(9,6)");
+
+                    b.Property<decimal>("ToLongitude")
+                        .HasColumnType("numeric(9,6)");
+
+                    b.Property<string>("ToName")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<Point>("ToPoint")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("geography(Point, 4326)")
+                        .HasComputedColumnSql("ST_SetSRID(ST_MakePoint(\"ToLongitude\"::float8, \"ToLatitude\"::float8), 4326)::geography", true);
+
+                    b.Property<string>("TripType")
+                        .IsRequired()
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FromPoint")
+                        .HasDatabaseName("ix_taxiroutes_from_gist");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("FromPoint"), "gist");
+
+                    b.HasIndex("ToPoint")
+                        .HasDatabaseName("ix_taxiroutes_to_gist");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("ToPoint"), "gist");
+
+                    b.HasIndex("TaxiListingId", "RouteIndex")
+                        .IsUnique();
+
+                    b.ToTable("TaxiRoutes", t =>
+                        {
+                            t.HasCheckConstraint("ck_taxiroutes_fare_range", "\"Fare\" >= 100 AND \"Fare\" <= 9900000");
+
+                            t.HasCheckConstraint("ck_taxiroutes_trip_type", "\"TripType\" IN ('OneWay', 'RoundTrip')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.TaxiVehicleType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<short?>("DefaultSeats")
+                        .HasColumnType("smallint");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_taxivehicletypes_name");
+
+                    b.ToTable("TaxiVehicleTypes", t =>
+                        {
+                            t.HasCheckConstraint("ck_taxivehicletypes_category", "\"Category\" IN ('Hatchback', 'Sedan', 'SUV', 'MUV', 'TempoTraveller', 'Bus')");
+                        });
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3059,6 +3364,52 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.TaxiListing", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.City", "City")
+                        .WithMany()
+                        .HasForeignKey("CityId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.District", "District")
+                        .WithMany()
+                        .HasForeignKey("DistrictId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("RentNearBy.Core.Entities.Admin", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.TaxiVehicleType", "VehicleType")
+                        .WithMany("TaxiListings")
+                        .HasForeignKey("VehicleTypeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("City");
+
+                    b.Navigation("District");
+
+                    b.Navigation("User");
+
+                    b.Navigation("VehicleType");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.TaxiRoute", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.TaxiListing", null)
+                        .WithMany("Routes")
+                        .HasForeignKey("TaxiListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Role", "Role")
@@ -3131,6 +3482,16 @@ namespace RentNearBy.Infrastructure.Migrations
             modelBuilder.Entity("RentNearBy.Core.Entities.StayType", b =>
                 {
                     b.Navigation("StayListings");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.TaxiListing", b =>
+                {
+                    b.Navigation("Routes");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.TaxiVehicleType", b =>
+                {
+                    b.Navigation("TaxiListings");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
