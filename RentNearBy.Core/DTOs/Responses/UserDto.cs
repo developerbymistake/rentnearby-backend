@@ -15,5 +15,6 @@ public class UserDto
     public string? RoleRequestReason { get; set; }
     public DateTime? NextRoleRequestAt { get; set; }
     public string? StayStatus { get; set; }   // Stay Owner only; null when no live stay row
+    public string? TaxiStatus { get; set; }   // Taxi Driver only; null when no live taxi row
     public DateTime CreatedAt { get; set; }
 }

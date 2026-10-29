@@ -15,6 +15,8 @@ public interface IUnitOfWork : IDisposable
     IStayListingRepository Stays { get; }
     IStayTypeRepository StayTypes { get; }
     IStayJobRepository StayJobs { get; }
+    ITaxiListingRepository Taxis { get; }
+    ITaxiVehicleTypeRepository TaxiVehicleTypes { get; }
     ICreditPlanRepository CreditPlans { get; }
     IDeviceTokenRepository DeviceTokens { get; }
     INotificationLogRepository NotificationLogs { get; }

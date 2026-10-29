@@ -218,6 +218,10 @@ public static class AdminHandlers
         if (await db.StayListings.AnyAsync(s => s.DistrictId == id))
             return BadRequestResponse("Cannot delete district with stays");
 
+        // TaxiListing.DistrictId is FK Restrict too.
+        if (await db.TaxiListings.AnyAsync(t => t.DistrictId == id))
+            return BadRequestResponse("Cannot delete district with taxis");
+
         await unitOfWork.Districts.DeleteAsync(district);
         await unitOfWork.SaveChangesAsync();
 
@@ -891,6 +895,8 @@ public static class AdminHandlers
             ActivePlotListings = db.PlotListings.Count(l => l.UserId == u.Id && !l.IsDeleted && l.IsActive),
             TotalStays = db.StayListings.Count(s => s.UserId == u.Id && !s.IsDeleted),
             StayStatus = db.StayListings.Where(s => s.UserId == u.Id && !s.IsDeleted).Select(s => s.Status).FirstOrDefault(),
+            TotalTaxis = db.TaxiListings.Count(t => t.UserId == u.Id && !t.IsDeleted),
+            TaxiStatus = db.TaxiListings.Where(t => t.UserId == u.Id && !t.IsDeleted).Select(t => t.Status).FirstOrDefault(),
             WalletBalance = db.Wallets.Where(w => w.UserId == u.Id).Select(w => (int?)w.Balance).FirstOrDefault() ?? 0,
         });
 
@@ -913,6 +919,8 @@ public static class AdminHandlers
                     ActivePlotListings = x.ActivePlotListings,
                     TotalStays = x.TotalStays,
                     StayStatus = x.StayStatus,
+                    TotalTaxis = x.TotalTaxis,
+                    TaxiStatus = x.TaxiStatus,
                     WalletBalance = x.WalletBalance,
                     Role = x.RoleKey,
                     RoleName = x.RoleName,
@@ -925,6 +933,7 @@ public static class AdminHandlers
             item.LiveRoomListings = blocking[item.Id].Rooms;
             item.LivePlotListings = blocking[item.Id].Plots;
             item.LiveStayListings = blocking[item.Id].Stays;
+            item.LiveTaxiListings = blocking[item.Id].Taxis;
         }
 
         return OkResponse(result);
@@ -977,6 +986,9 @@ public static class AdminHandlers
             TotalStays = await db.StayListings.CountAsync(s => s.UserId == id && !s.IsDeleted),
             LiveStayListings = blocking.Stays,
             StayStatus = await db.StayListings.Where(s => s.UserId == id && !s.IsDeleted).Select(s => s.Status).FirstOrDefaultAsync(),
+            TotalTaxis = await db.TaxiListings.CountAsync(t => t.UserId == id && !t.IsDeleted),
+            LiveTaxiListings = blocking.Taxis,
+            TaxiStatus = await db.TaxiListings.Where(t => t.UserId == id && !t.IsDeleted).Select(t => t.Status).FirstOrDefaultAsync(),
             WalletBalance = await db.Wallets.Where(w => w.UserId == id).Select(w => (int?)w.Balance).FirstOrDefaultAsync() ?? 0,
             Role = u.Role.Key,
             RoleName = u.Role.Name,
@@ -1031,6 +1043,15 @@ public static class AdminHandlers
         var redis = sp.GetService<IConnectionMultiplexer>();
         foreach (var districtId in stayDistrictIds)
             await StayCache.InvalidateAsync(redis, districtId);
+
+        // Taxis follow the owner the same way through IsAvailable.
+        var taxiQuery = db.TaxiListings.Where(t => t.UserId == id && !t.IsDeleted && t.Status == TaxiStatuses.Approved);
+        var taxiDistrictIds = await taxiQuery.Select(t => t.DistrictId).Distinct().ToListAsync();
+        await taxiQuery.ExecuteUpdateAsync(s => s
+            .SetProperty(x => x.IsAvailable, request.IsActive)
+            .SetProperty(x => x.UpdatedAt, now));
+        foreach (var districtId in taxiDistrictIds)
+            await TaxiCache.InvalidateAsync(redis, districtId);
 
         // Revoke live sessions on suspend so the user's next request fails OnTokenValidated with 401
         // and the app force-logs out; re-login is then blocked by the IsActive check in AuthHandlers.
@@ -1666,6 +1687,7 @@ public static class AdminHandlers
         var roomIds = paged.Items.Where(r => r.ListingType == ListingKinds.Room).Select(r => r.ListingId).Distinct().ToList();
         var plotIds = paged.Items.Where(r => r.ListingType == ListingKinds.Plot).Select(r => r.ListingId).Distinct().ToList();
         var stayIds = paged.Items.Where(r => r.ListingType == ListingKinds.Stay).Select(r => r.ListingId).Distinct().ToList();
+        var taxiIds = paged.Items.Where(r => r.ListingType == ListingKinds.Taxi).Select(r => r.ListingId).Distinct().ToList();
 
         var roomsById = roomIds.Count == 0 ? new Dictionary<Guid, RoomListing>() : await db.RoomListings
             .AsNoTracking().Include(l => l.RoomType).Include(l => l.District).Include(l => l.City)
@@ -1676,6 +1698,9 @@ public static class AdminHandlers
         var staysById = stayIds.Count == 0 ? new Dictionary<Guid, StayListing>() : await db.StayListings
             .AsNoTracking().Include(s => s.StayType).Include(s => s.District).Include(s => s.City)
             .Where(s => stayIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id);
+        var taxisById = taxiIds.Count == 0 ? new Dictionary<Guid, TaxiListing>() : await db.TaxiListings
+            .AsNoTracking().Include(t => t.VehicleType).Include(t => t.District).Include(t => t.City)
+            .Where(t => taxiIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id);
 
         var items = paged.Items.Select(r =>
         {
@@ -1683,6 +1708,7 @@ public static class AdminHandlers
             if (r.ListingType == ListingKinds.Room && roomsById.TryGetValue(r.ListingId, out var room)) ApplyRoomReportDetails(dto, room);
             else if (r.ListingType == ListingKinds.Plot && plotsById.TryGetValue(r.ListingId, out var plot)) ApplyPlotReportDetails(dto, plot);
             else if (r.ListingType == ListingKinds.Stay && staysById.TryGetValue(r.ListingId, out var stay)) AdminStayHandlers.ApplyStayReportDetails(dto, stay);
+            else if (r.ListingType == ListingKinds.Taxi && taxisById.TryGetValue(r.ListingId, out var taxi)) AdminTaxiHandlers.ApplyTaxiReportDetails(dto, taxi);
             return dto;
         }).ToList();
 
@@ -1722,6 +1748,15 @@ public static class AdminHandlers
             {
                 AdminStayHandlers.ApplyStayReportDetails(dto, stay);
                 dto.Photos = stay.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList();
+            }
+        }
+        else if (report.ListingType == ListingKinds.Taxi)
+        {
+            var taxi = await unitOfWork.Taxis.GetByIdForAdminAsync(report.ListingId);
+            if (taxi != null)
+            {
+                AdminTaxiHandlers.ApplyTaxiReportDetails(dto, taxi);
+                if (taxi.PlatePhotoUrl != null) dto.Photos = [taxi.PlatePhotoUrl];
             }
         }
 
@@ -1792,6 +1827,7 @@ public static class AdminHandlers
             ListingKinds.Room => await RejectReportedRoomAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
             ListingKinds.Plot => await PlotListingHandlers.RejectReportedPlotAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
             ListingKinds.Stay => await AdminStayHandlers.RejectReportedStayAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
+            ListingKinds.Taxi => await AdminTaxiHandlers.RejectReportedTaxiAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
             _ => BadRequestResponse($"Unknown listing type '{report.ListingType}' on this report"),
         };
     }

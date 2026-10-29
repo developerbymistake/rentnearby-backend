@@ -32,6 +32,7 @@ public class ListingPurgeService(
             .ExecuteDeleteAsync();
 
         await DeleteStayRowsAsync(userId);
+        await DeleteTaxiRowsAsync(userId);
     }
 
     public Task<IReadOnlyList<Guid>> DeleteUserListingRowsAsync(Guid userId, string listingKind) => listingKind switch
@@ -39,6 +40,7 @@ public class ListingPurgeService(
         ListingKinds.Room => DeleteRoomRowsAsync(userId),
         ListingKinds.Plot => DeletePlotRowsAsync(userId),
         ListingKinds.Stay => DeleteStayRowsAsync(userId),
+        ListingKinds.Taxi => DeleteTaxiRowsAsync(userId),
         _ => throw new ArgumentOutOfRangeException(nameof(listingKind), listingKind, "Unknown listing kind"),
     };
 
@@ -129,5 +131,24 @@ public class ListingPurgeService(
             .ExecuteDeleteAsync();
 
         return stayIds;
+    }
+
+    // The plate photo lives under listing_{taxiId}, so the shared photo cleanup covers it.
+    private async Task<IReadOnlyList<Guid>> DeleteTaxiRowsAsync(Guid userId)
+    {
+        var taxiIds = await context.TaxiListings
+            .Where(t => t.UserId == userId)
+            .Select(t => t.Id)
+            .ToListAsync();
+
+        await context.TaxiRoutes
+            .Where(r => context.TaxiListings.Any(t => t.Id == r.TaxiListingId && t.UserId == userId))
+            .ExecuteDeleteAsync();
+
+        await context.TaxiListings
+            .Where(t => t.UserId == userId)
+            .ExecuteDeleteAsync();
+
+        return taxiIds;
     }
 }

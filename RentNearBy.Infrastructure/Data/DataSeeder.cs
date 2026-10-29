@@ -24,6 +24,7 @@ public static class DataSeeder
         await SeedPlotTypesAsync(db);
         await SeedStayTypesAsync(db);
         await SeedStayJobLookupsAsync(db);
+        await SeedTaxiVehicleTypesAsync(db);
         await SeedReportReasonsAsync(db);
         await SeedQuestionTemplatesAsync(db);
         await SeedCreditFeaturesAsync(db);
@@ -370,6 +371,56 @@ public static class DataSeeder
         if (toAdd.Count == 0) return;
 
         set.AddRange(toAdd);
+        await db.SaveChangesAsync();
+    }
+
+    // Per-row incremental like the job lookups: a row is added only when neither its Id nor its Name
+    // exists yet. Seeded rows can only be switched off (TaxiVehicleTypeSeed.IsSeeded guards delete).
+    private static async Task SeedTaxiVehicleTypesAsync(ApplicationDbContext db)
+    {
+        static Guid TaxiSeedId(int n) => Guid.Parse($"a1000000-0000-0000-0000-0000000000{n:D2}");
+
+        const string H = TaxiVehicleCategories.Hatchback, S = TaxiVehicleCategories.Sedan, M = TaxiVehicleCategories.Muv,
+            U = TaxiVehicleCategories.Suv, T = TaxiVehicleCategories.TempoTraveller, B = TaxiVehicleCategories.Bus;
+
+        var rows = new (int N, string Name, string Category, short Seats, int Sort)[]
+        {
+            (1, "Maruti Alto", H, 4, 1), (2, "Maruti WagonR", H, 4, 2), (3, "Maruti Swift", H, 4, 3),
+            (4, "Maruti Celerio", H, 4, 4), (5, "Hyundai Grand i10", H, 4, 5), (6, "Hyundai i20", H, 4, 6),
+            (7, "Tata Tiago", H, 4, 7), (8, "Renault Kwid", H, 4, 8),
+            (9, "Maruti Swift Dzire", S, 4, 10), (10, "Toyota Etios", S, 4, 11), (11, "Hyundai Aura", S, 4, 12),
+            (12, "Hyundai Xcent", S, 4, 13), (13, "Honda Amaze", S, 4, 14), (14, "Honda City", S, 4, 15),
+            (15, "Tata Tigor", S, 4, 16), (16, "Maruti Ciaz", S, 4, 17), (17, "Hyundai Verna", S, 4, 18),
+            (18, "Maruti Ertiga", M, 6, 20), (19, "Toyota Innova", M, 7, 21), (20, "Toyota Innova Crysta", M, 7, 22),
+            (21, "Toyota Innova Hycross", M, 7, 23), (22, "Mahindra Marazzo", M, 7, 24), (23, "Chevrolet Tavera", M, 7, 25),
+            (24, "Mahindra Xylo", M, 7, 26), (25, "Kia Carens", M, 6, 27), (26, "Renault Triber", M, 6, 28),
+            (27, "Mahindra Bolero", U, 7, 30), (28, "Mahindra Scorpio", U, 7, 31), (29, "Mahindra Scorpio-N", U, 7, 32),
+            (30, "Mahindra XUV500", U, 7, 33), (31, "Mahindra XUV700", U, 7, 34), (32, "Tata Sumo", U, 7, 35),
+            (33, "Tata Sumo Gold", U, 7, 36), (34, "Toyota Fortuner", U, 7, 37), (35, "Maruti Brezza", U, 4, 38),
+            (36, "Hyundai Creta", U, 4, 39), (37, "Mahindra Thar", U, 4, 40), (38, "Force Gurkha", U, 4, 41),
+            (39, "Tata Safari", U, 7, 42),
+            (40, "Tempo Traveller 9 seater", T, 7, 50), (41, "Tempo Traveller 12 seater", T, 12, 51),
+            (42, "Tempo Traveller 17 seater", T, 12, 52), (43, "Tempo Traveller 20 seater", T, 12, 53),
+            (44, "Force Urbania", T, 12, 54),
+            (45, "Mini Bus 26 seater", B, 12, 60), (46, "Mini Bus 32 seater", B, 12, 61),
+        };
+
+        var existing = await db.TaxiVehicleTypes.Select(t => new { t.Id, t.Name }).ToListAsync();
+        var existingIds = existing.Select(t => t.Id).ToHashSet();
+        var existingNames = existing.Select(t => t.Name.ToLowerInvariant()).ToHashSet();
+        var now = DateTime.UtcNow;
+
+        var toAdd = rows
+            .Select(r => new TaxiVehicleType
+            {
+                Id = TaxiSeedId(r.N), Name = r.Name, Category = r.Category, DefaultSeats = r.Seats,
+                SortOrder = r.Sort, IsActive = true, CreatedAt = now,
+            })
+            .Where(t => !existingIds.Contains(t.Id) && !existingNames.Contains(t.Name.ToLowerInvariant()))
+            .ToList();
+        if (toAdd.Count == 0) return;
+
+        db.TaxiVehicleTypes.AddRange(toAdd);
         await db.SaveChangesAsync();
     }
 

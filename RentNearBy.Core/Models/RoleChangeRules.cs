@@ -13,6 +13,7 @@ public static class RoleChangeRules
     {
         ListingKinds.Room => "Live rooms or a pending Go Live request block this role change.",
         ListingKinds.Stay => "A stay under review blocks this role change.",
+        ListingKinds.Taxi => "A taxi under review blocks this role change.",
         _ => "Live plots or a pending Go Live request block this role change.",
     };
 

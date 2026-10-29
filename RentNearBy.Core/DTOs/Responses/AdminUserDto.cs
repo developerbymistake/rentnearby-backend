@@ -17,6 +17,9 @@ public class AdminUserDto
     public int TotalStays { get; set; }
     public int LiveStayListings { get; set; }   // stays under review: the only stay state that blocks a role change
     public string? StayStatus { get; set; }
+    public int TotalTaxis { get; set; }
+    public int LiveTaxiListings { get; set; }   // taxis under review
+    public string? TaxiStatus { get; set; }
     public int WalletBalance { get; set; }
     public string Role { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;

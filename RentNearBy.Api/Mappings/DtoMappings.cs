@@ -112,6 +112,43 @@ public static class DtoMappings
             .Map(dest => dest.Rooms, src => ToStayRoomDtos(src))
             .Map(dest => dest.Rules, src => ToStayRulesDto(src));
 
+        // Taxi: contacts are always on the owner DTO; GetById nulls them on the public DTO for anonymous callers.
+        TypeAdapterConfig<TaxiVehicleType, TaxiVehicleTypeDto>.NewConfig()
+            .Map(dest => dest.IsSeeded, src => TaxiVehicleTypeSeed.IsSeeded(src.Id));
+
+        TypeAdapterConfig<TaxiListing, TaxiOwnerDto>.NewConfig()
+            .Map(dest => dest.Percent, src => TaxiSetupRules.Percent(src))
+            .Map(dest => dest.Step1Done, src => TaxiSetupRules.Step1Done(src))
+            .Map(dest => dest.RoutesDone, src => TaxiSetupRules.RoutesDone(src))
+            .Map(dest => dest.Submitted, src => TaxiSetupRules.Submitted(src))
+            .Map(dest => dest.VehicleTypeName, src => src.VehicleType != null ? src.VehicleType.Name : null)
+            .Map(dest => dest.VehicleCategory, src => src.VehicleType != null ? src.VehicleType.Category : null)
+            .Map(dest => dest.PlateDisplay, src => TaxiPlate.Format(src.NumberPlate))
+            .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
+            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
+            .Map(dest => dest.Routes, src => ToTaxiRouteDtos(src))
+            .Ignore(dest => dest.PendingReportCount);
+
+        TypeAdapterConfig<TaxiListing, TaxiPublicDto>.NewConfig()
+            .Map(dest => dest.DriverName, src => src.User != null ? src.User.Name : null)
+            .Map(dest => dest.VehicleTypeName, src => src.VehicleType != null ? src.VehicleType.Name : null)
+            .Map(dest => dest.VehicleCategory, src => src.VehicleType != null ? src.VehicleType.Category : null)
+            .Map(dest => dest.PlateDisplay, src => TaxiPlate.Format(src.NumberPlate))
+            .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
+            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
+            .Map(dest => dest.Routes, src => ToTaxiRouteDtos(src))
+            .Ignore(dest => dest.HasReported);
+
+        TypeAdapterConfig<TaxiListing, TaxiPublicSlugDto>.NewConfig()
+            .Map(dest => dest.Slug, src => src.Slug ?? string.Empty)
+            .Map(dest => dest.DriverName, src => src.User != null ? src.User.Name : null)
+            .Map(dest => dest.VehicleTypeName, src => src.VehicleType != null ? src.VehicleType.Name : null)
+            .Map(dest => dest.VehicleCategory, src => src.VehicleType != null ? src.VehicleType.Category : null)
+            .Map(dest => dest.PlateDisplay, src => TaxiPlate.Format(src.NumberPlate))
+            .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
+            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
+            .Map(dest => dest.Routes, src => ToTaxiRouteDtos(src));
+
         // IsRead is deliberately NOT mapped here — it comes from a separate join
         // (NotificationListItem.IsRead), never a column on NotificationEvent itself. Handlers set it
         // explicitly after calling Adapt().
@@ -131,6 +168,25 @@ public static class DtoMappings
                 MaxGuests = r.MaxGuests,
                 RoomName = r.RoomName,
                 Meals = r.Meals,
+            })
+            .ToList();
+
+    private static List<TaxiRouteDto> ToTaxiRouteDtos(TaxiListing t) =>
+        t.Routes.OrderBy(r => r.RouteIndex)
+            .Select(r => new TaxiRouteDto
+            {
+                Id = r.Id,
+                RouteIndex = r.RouteIndex,
+                FromName = r.FromName,
+                FromLabel = r.FromLabel,
+                FromLatitude = r.FromLatitude,
+                FromLongitude = r.FromLongitude,
+                ToName = r.ToName,
+                ToLabel = r.ToLabel,
+                ToLatitude = r.ToLatitude,
+                ToLongitude = r.ToLongitude,
+                Fare = r.Fare,
+                TripType = r.TripType,
             })
             .ToList();
 

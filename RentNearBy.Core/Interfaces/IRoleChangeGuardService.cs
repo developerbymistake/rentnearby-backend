@@ -2,12 +2,13 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Core.Interfaces;
 
-public record BlockingListingCounts(int Rooms, int Plots, int Stays)
+public record BlockingListingCounts(int Rooms, int Plots, int Stays, int Taxis)
 {
     public int ForKind(string listingKind) => listingKind switch
     {
         ListingKinds.Room => Rooms,
         ListingKinds.Stay => Stays,
+        ListingKinds.Taxi => Taxis,
         _ => Plots,
     };
 }

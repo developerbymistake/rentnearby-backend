@@ -115,6 +115,8 @@ public static class UsersHandlers
         dto.NextRoleRequestAt = RoleChangeRules.NextRequestAllowedAt(latest?.Status, latest?.ReviewedAt, DateTime.UtcNow);
         if (user.RoleId == UserRoles.StayOwnerId)
             dto.StayStatus = await unitOfWork.Stays.GetStatusByUserAsync(user.Id);
+        if (user.RoleId == UserRoles.TaxiDriverId)
+            dto.TaxiStatus = await unitOfWork.Taxis.GetStatusByUserAsync(user.Id);
         return dto;
     }
 

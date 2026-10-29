@@ -20,4 +20,6 @@ public class AdminRoleChangeRequestDto
     public int LivePlotListingCount { get; set; }
     public int StayListingCount { get; set; }
     public int LiveStayListingCount { get; set; }   // stays under review: the only stay state that blocks a role change
+    public int TaxiListingCount { get; set; }
+    public int LiveTaxiListingCount { get; set; }   // taxis under review
 }

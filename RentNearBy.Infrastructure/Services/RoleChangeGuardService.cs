@@ -5,7 +5,7 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Blocking = live with paid time left, or a pending Go Live request. Stays: a stay under review.
+// Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: one under review.
 public class RoleChangeGuardService(ApplicationDbContext context) : IRoleChangeGuardService
 {
     public async Task<BlockingListingCounts> GetBlockingCountsAsync(Guid userId)
@@ -25,7 +25,10 @@ public class RoleChangeGuardService(ApplicationDbContext context) : IRoleChangeG
         var stays = await context.StayListings.AsNoTracking()
             .CountAsync(s => s.UserId == userId && !s.IsDeleted && s.Status == StayStatuses.PendingReview);
 
-        return new BlockingListingCounts(rooms, plots, stays);
+        var taxis = await context.TaxiListings.AsNoTracking()
+            .CountAsync(t => t.UserId == userId && !t.IsDeleted && t.Status == TaxiStatuses.PendingReview);
+
+        return new BlockingListingCounts(rooms, plots, stays, taxis);
     }
 
     public async Task<IReadOnlyDictionary<Guid, BlockingListingCounts>> GetBlockingCountsAsync(
@@ -58,9 +61,16 @@ public class RoleChangeGuardService(ApplicationDbContext context) : IRoleChangeG
             .Select(g => new { UserId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.UserId, x => x.Count);
 
+        var taxis = await context.TaxiListings.AsNoTracking()
+            .Where(t => userIds.Contains(t.UserId) && !t.IsDeleted && t.Status == TaxiStatuses.PendingReview)
+            .GroupBy(t => t.UserId)
+            .Select(g => new { UserId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.UserId, x => x.Count);
+
         return userIds.Distinct().ToDictionary(
             id => id,
             id => new BlockingListingCounts(
-                rooms.GetValueOrDefault(id), plots.GetValueOrDefault(id), stays.GetValueOrDefault(id)));
+                rooms.GetValueOrDefault(id), plots.GetValueOrDefault(id), stays.GetValueOrDefault(id),
+                taxis.GetValueOrDefault(id)));
     }
 }

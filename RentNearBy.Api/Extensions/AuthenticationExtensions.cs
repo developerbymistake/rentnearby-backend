@@ -83,6 +83,8 @@ public static class AuthenticationExtensions
                 policy.RequireClaim(ClaimTypes.Role, UserRoles.PropertyOwner));
             options.AddPolicy("CanListStays", policy =>
                 policy.RequireClaim(ClaimTypes.Role, UserRoles.StayOwner));
+            options.AddPolicy("CanListTaxis", policy =>
+                policy.RequireClaim(ClaimTypes.Role, UserRoles.TaxiDriver));
         });
 
         return services;

@@ -13,6 +13,8 @@ public static class NotificationTypes
     public const string RoleRequestRejected = "RoleRequestRejected";
     public const string StayApproved = "StayApproved";
     public const string StayRejected = "StayRejected";
+    public const string TaxiApproved = "TaxiApproved";
+    public const string TaxiRejected = "TaxiRejected";
     // Push-only (FCM notification_type for the seeker and admin job pushes), no NotificationEvent row.
     public const string StayJobPosted = "StayJobPosted";
 
@@ -28,6 +30,8 @@ public static class NotificationTypes
         [RoleRequestRejected] = "role_request_rejected",
         [StayApproved] = "stay_approved",
         [StayRejected] = "stay_rejected",
+        [TaxiApproved] = "taxi_approved",
+        [TaxiRejected] = "taxi_rejected",
         [StayJobPosted] = "stay_job_posted",
     };
 

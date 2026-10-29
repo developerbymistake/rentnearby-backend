@@ -21,6 +21,8 @@ public class UnitOfWork : IUnitOfWork
     private IStayListingRepository? _stays;
     private IStayTypeRepository? _stayTypes;
     private IStayJobRepository? _stayJobs;
+    private ITaxiListingRepository? _taxis;
+    private ITaxiVehicleTypeRepository? _taxiVehicleTypes;
     private ICreditPlanRepository? _creditPlans;
     private IDeviceTokenRepository? _deviceTokens;
     private INotificationLogRepository? _notificationLogs;
@@ -64,6 +66,8 @@ public class UnitOfWork : IUnitOfWork
     public IStayListingRepository Stays => _stays ??= new StayListingRepository(_context);
     public IStayTypeRepository StayTypes => _stayTypes ??= new StayTypeRepository(_context);
     public IStayJobRepository StayJobs => _stayJobs ??= new StayJobRepository(_context);
+    public ITaxiListingRepository Taxis => _taxis ??= new TaxiListingRepository(_context);
+    public ITaxiVehicleTypeRepository TaxiVehicleTypes => _taxiVehicleTypes ??= new TaxiVehicleTypeRepository(_context);
     public ICreditPlanRepository CreditPlans => _creditPlans ??= new CreditPlanRepository(_context);
     public IDeviceTokenRepository DeviceTokens => _deviceTokens ??= new DeviceTokenRepository(_context);
     public INotificationLogRepository NotificationLogs => _notificationLogs ??= new NotificationLogRepository(_context);
