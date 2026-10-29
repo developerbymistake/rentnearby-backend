@@ -264,6 +264,24 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         CreatedAt = p.CreatedAt,
     };
 
+    // Home "for you": newest live rows of the district (ix_plotlistings_district_active_recent).
+    public async Task<List<HomePlotDto>> GetHomeForYouProjectedAsync(Guid districtId, int limit)
+        => await _dbSet.AsNoTracking()
+            .Where(p => p.IsActive && !p.IsDeleted && p.DistrictId == districtId)
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(limit)
+            .Select(BrowseProjection)
+            .ToListAsync();
+
+    // District-free by design — the Home "Recently added" feed is identical for every user (ix_plotlistings_recent_active).
+    public async Task<List<HomePlotDto>> GetRecentProjectedAsync(int limit)
+        => await _dbSet.AsNoTracking()
+            .Where(p => p.IsActive && !p.IsDeleted)
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(limit)
+            .Select(BrowseProjection)
+            .ToListAsync();
+
     public async Task<BrowsePage<HomePlotDto>> GetAllPagedByTypeIdAsync(
         Guid districtId, Guid? cityId, Guid? plotTypeId, string sortBy, int page, int pageSize, string? cursor)
     {
@@ -341,23 +359,6 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         }
 
         return BrowseCursor.KeysetPage(items, pageSize, phase0Count, x => x.CreatedAt, x => x.Id);
-    }
-
-    // District-free by design — backs the Home "Recently added" feed, which is identical
-    // for every user regardless of district (see ix_plotlistings_recent_active).
-    public async Task<IEnumerable<PlotListing>> GetRecentAsync(int limit)
-    {
-        return await _dbSet
-            .AsNoTracking()
-            .Include(p => p.PlotType)
-            .Include(p => p.District)
-            .Include(p => p.City)
-            .Include(p => p.User)
-            .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder).Take(1))
-            .Where(p => p.IsActive && !p.IsDeleted)
-            .OrderByDescending(p => p.CreatedAt)
-            .Take(limit)
-            .ToListAsync();
     }
 
     public async Task<int> CountByUserIdAsync(Guid userId)

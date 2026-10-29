@@ -7,4 +7,6 @@ public class AppTabDto
     public string DisplayName { get; set; } = string.Empty;
     public bool IsActive { get; set; }
     public int SortOrder { get; set; }
+    public bool ApiGated { get; set; }
+    public string? LinkedRoleKey { get; set; }
 }

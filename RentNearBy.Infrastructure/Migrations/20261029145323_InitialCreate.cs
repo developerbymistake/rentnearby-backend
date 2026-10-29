@@ -2208,6 +2208,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 .Annotation("Npgsql:IndexMethod", "gist");
 
             migrationBuilder.CreateIndex(
+                name: "ix_staylistings_recent_active",
+                table: "StayListings",
+                column: "CreatedAt",
+                descending: new bool[0],
+                filter: "\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_StayListings_ReviewedByAdminId",
                 table: "StayListings",
                 column: "ReviewedByAdminId");

@@ -1,4 +1,5 @@
-﻿using RentNearBy.Api.Handlers;
+﻿using RentNearBy.Api.Filters;
+using RentNearBy.Api.Handlers;
 
 namespace RentNearBy.Api.Endpoints;
 
@@ -6,13 +7,14 @@ public static class RoomListingsEndpoints
 {
     public static RouteGroupBuilder MapListingsEndpoints(this RouteGroupBuilder group)
     {
-        group.MapGet("/context", RoomListingsHandlers.GetContext);
+        // App-wide (district gate, every setup map); also served ungated under /api/v1/locations.
+        group.MapGet("/context", RoomListingsHandlers.GetContext).WithMetadata(new SkipTabGateAttribute());
         group.MapGet("/nearby", RoomListingsHandlers.GetNearby);
         group.MapGet("/nearest", RoomListingsHandlers.GetNearest);
         group.MapGet("/plans", RoomListingsHandlers.GetPlans);
-        group.MapGet("/locations/districts", AdminHandlers.GetDistricts);
-        group.MapGet("/locations/districts/{id:guid}/boundary", AdminHandlers.GetDistrictBoundary);
-        group.MapGet("/locations/cities", AdminHandlers.GetCities);
+        group.MapGet("/locations/districts", AdminHandlers.GetDistricts).WithMetadata(new SkipTabGateAttribute());
+        group.MapGet("/locations/districts/{id:guid}/boundary", AdminHandlers.GetDistrictBoundary).WithMetadata(new SkipTabGateAttribute());
+        group.MapGet("/locations/cities", AdminHandlers.GetCities).WithMetadata(new SkipTabGateAttribute());
         // Public (no-auth) share-link/QR resolver — see RoomListingsHandlers.GetBySlug's doc comment.
         group.MapGet("/by-slug/{slug}", RoomListingsHandlers.GetBySlug);
         group.MapGet("/{id:guid}", RoomListingsHandlers.GetById);

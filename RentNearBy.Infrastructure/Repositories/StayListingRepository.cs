@@ -80,6 +80,15 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
         CreatedAt = s.CreatedAt,
     };
 
+    // District-free Home "Recently added" (ix_staylistings_recent_active).
+    public async Task<List<StayBrowseDto>> GetRecentProjectedAsync(int limit)
+        => await _dbSet.AsNoTracking()
+            .Where(s => s.Status == StayStatuses.Approved && s.AcceptingGuests && !s.IsDeleted)
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(limit)
+            .Select(BrowseProjection)
+            .ToListAsync();
+
     public async Task<BrowsePage<StayBrowseDto>> BrowsePagedAsync(
         Guid districtId, Guid? cityId, string? meals, Guid? stayTypeId, string sortBy, int page, int pageSize, string? cursor)
     {

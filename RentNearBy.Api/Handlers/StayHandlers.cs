@@ -28,6 +28,11 @@ public static class StayCache
     public static string BrowseKey(Guid districtId, Guid? cityId, string? meals, Guid? stayTypeId, string sort, int pageSize)
         => $"stays:browse:{districtId:N}:{cityId:N}:{meals}:{stayTypeId:N}:{sort}:{pageSize}";
 
+    // Home "Recently added" stays: district-free, holds the newest RecentMax rows.
+    public const string RecentKey = "home:recentStays";
+    public const int RecentMax = 20;
+    public static readonly TimeSpan RecentTtl = TimeSpan.FromMinutes(3);
+
     public static string NearbyKey(Guid districtId, Guid? stayTypeId, double radius, double lat, double lng)
         => $"stays:nearby:{districtId}:{stayTypeId:N}:{radius:F1}:{lat:F3}:{lng:F3}";
 
@@ -36,10 +41,12 @@ public static class StayCache
 
     public static async Task InvalidateAsync(IConnectionMultiplexer? redis, Guid? districtId)
     {
-        if (redis == null || districtId == null) return;
+        if (redis == null) return;
         try
         {
             var db = redis.GetDatabase();
+            await db.KeyDeleteAsync(RecentKey);
+            if (districtId == null) return;
             var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
             if (server == null) return;
             var id = districtId.Value;

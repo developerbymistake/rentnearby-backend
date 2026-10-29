@@ -58,7 +58,8 @@ public static class TaxiHandlers
     private const int MaxPage = 1000;
     private const string TaxiNotFound = "Taxi not found";
 
-    private sealed record TaxiPage(List<TaxiBrowseDto> Items, bool HasMore);
+    // Cached first-page shape under TaxiCache keys; HomeHandlers.GetFeed reads the same entries.
+    internal sealed record TaxiPage(List<TaxiBrowseDto> Items, bool HasMore);
 
     private static bool IsPublic(TaxiListing t) => !t.IsDeleted && t.Status == TaxiStatuses.Approved && t.IsAvailable;
 

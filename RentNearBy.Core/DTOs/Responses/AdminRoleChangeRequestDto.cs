@@ -10,6 +10,7 @@ public class AdminRoleChangeRequestDto
     public string FromRoleName { get; set; } = string.Empty;
     public string ToRole { get; set; } = string.Empty;
     public string ToRoleName { get; set; } = string.Empty;
+    public bool ToRoleAvailable { get; set; }
     public string Status { get; set; } = string.Empty;
     public DateTime RequestedAt { get; set; }
     public DateTime? ReviewedAt { get; set; }

@@ -693,20 +693,15 @@ public static class AdminHandlers
     }
 
     // ── App Tabs (master table for the consumer app's bottom-nav) ───────────────
-    // Seeded rows (RentNearBy.Core.Models.AppTabKeys) — renaming applies to any row; deactivating
-    // only applies to Rooms/Plots (Home/Profile are structural, rejected below). A deactivated
-    // tab's entire route group is rejected server-side by Filters/TabGateFilter.cs, not just hidden in
-    // the consumer app's bottom nav.
+    // Seeded rows (RentNearBy.Core.Models.AppTabKeys) — renaming applies to any row; deactivating applies to the
+    // five business tabs (Home/Profile are structural, rejected below). An off tab's consumer route group is
+    // rejected by Filters/TabGateFilter.cs, its Home sections come back null and its linked role
+    // (AppTabKeys.LinkedRoleKey) is hidden from new choices; existing holders keep the role in the DB.
 
     public static async Task<IResult> GetAppTabs(IUnitOfWork unitOfWork)
     {
         var tabs = await unitOfWork.AppTabs.GetAllAsync();
-        return OkResponse(tabs.OrderBy(t => t.SortOrder).Select(t => new AdminAppTabDto
-        {
-            Id = t.Id, TabKey = t.TabKey, DisplayName = t.DisplayName, IsActive = t.IsActive, SortOrder = t.SortOrder,
-            CanDeactivate = !AppTabKeys.NonDeactivatable.Contains(t.TabKey),
-            UpdatedByAdminId = t.UpdatedByAdminId, UpdatedAt = t.UpdatedAt, Reason = t.Reason,
-        }));
+        return OkResponse(tabs.OrderBy(t => t.SortOrder).Select(ToAdminAppTabDto));
     }
 
     public static async Task<IResult> UpdateAppTab(
@@ -731,17 +726,25 @@ public static class AdminHandlers
         tab.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.AppTabs.UpdateAsync(tab);
+
+        // Write-through: invalidate before the commit and again after it, then re-read and set. Each invalidate
+        // bumps the cache version, so any reader that started before the commit skips its cache write.
+        AppTabCache.Invalidate(cache);
         await unitOfWork.SaveChangesAsync();
+        AppTabCache.Invalidate(cache);
+        await AppTabCache.RefreshAsync(unitOfWork, cache);
 
-        cache.Remove(ConfigHandlers.AppTabsCacheKey);
-
-        return OkResponse(new AdminAppTabDto
-        {
-            Id = tab.Id, TabKey = tab.TabKey, DisplayName = tab.DisplayName, IsActive = tab.IsActive, SortOrder = tab.SortOrder,
-            CanDeactivate = !AppTabKeys.NonDeactivatable.Contains(tab.TabKey),
-            UpdatedByAdminId = tab.UpdatedByAdminId, UpdatedAt = tab.UpdatedAt, Reason = tab.Reason,
-        });
+        return OkResponse(ToAdminAppTabDto(tab));
     }
+
+    private static AdminAppTabDto ToAdminAppTabDto(AppTab t) => new()
+    {
+        Id = t.Id, TabKey = t.TabKey, DisplayName = t.DisplayName, IsActive = t.IsActive, SortOrder = t.SortOrder,
+        CanDeactivate = !AppTabKeys.NonDeactivatable.Contains(t.TabKey),
+        ApiGated = AppTabKeys.ApiGated.Contains(t.TabKey),
+        LinkedRoleKey = AppTabKeys.LinkedRoleKey(t.TabKey),
+        UpdatedByAdminId = t.UpdatedByAdminId, UpdatedAt = t.UpdatedAt, Reason = t.Reason,
+    };
 
     // ── App Version / Updates ───────────────────────────────────────────────────
     // Reason describes this change only, so it is overwritten on every PUT (unlike payment-feature).
@@ -967,7 +970,7 @@ public static class AdminHandlers
         var u = await db.Users.AsNoTracking().Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == id);
         if (u == null) return NotFoundResponse("User not found");
 
-        var blocking = await guard.GetBlockingCountsAsync(id);
+        var blocking = (await guard.GetBlockingCountsAsync([id]))[id];
 
         var dto = new AdminUserDto
         {

@@ -16,6 +16,8 @@ public interface IStayListingRepository : IRepository<StayListing>
     Task<StayListing?> GetByIdForAdminAsync(Guid id);
     // Newest sort pages by opaque keyset cursor (first page: null); price sorts page by offset.
     Task<BrowsePage<StayBrowseDto>> BrowsePagedAsync(Guid districtId, Guid? cityId, string? meals, Guid? stayTypeId, string sortBy, int page, int pageSize, string? cursor);
+    // District-free, newest first; same live predicate as browse.
+    Task<List<StayBrowseDto>> GetRecentProjectedAsync(int limit);
     Task<IEnumerable<StayNearbyDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId, Guid? stayTypeId);
     Task<IEnumerable<StayNearbyDto>> GetNearestAsync(double latitude, double longitude, int count, Guid districtId, Guid? stayTypeId);
     Task<(IReadOnlyList<StayListing> Items, bool HasMore)> GetAdminPagedAsync(string status, int page, int pageSize);

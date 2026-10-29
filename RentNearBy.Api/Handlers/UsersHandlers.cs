@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using FluentValidation;
 using Mapster;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -12,7 +13,7 @@ namespace RentNearBy.Api.Handlers;
 
 public static class UsersHandlers
 {
-    public static async Task<IResult> GetProfile(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetProfile(ClaimsPrincipal principal, IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         if (!TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -20,7 +21,7 @@ public static class UsersHandlers
         var user = await unitOfWork.Users.GetByIdAsync(userId);
         if (user == null) return NotFoundResponse("User not found");
 
-        return OkResponse(await BuildUserDtoAsync(user, unitOfWork));
+        return OkResponse(await BuildUserDtoAsync(user, unitOfWork, cache));
     }
 
     // Two independent identity/privacy actions, two independent endpoints — was previously one
@@ -32,7 +33,8 @@ public static class UsersHandlers
         UpdateNameRequest request,
         ClaimsPrincipal principal,
         IValidator<UpdateNameRequest> validator,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -50,14 +52,15 @@ public static class UsersHandlers
         await unitOfWork.Users.UpdateAsync(user);
         await unitOfWork.SaveChangesAsync();
 
-        return OkResponse(await BuildUserDtoAsync(user, unitOfWork));
+        return OkResponse(await BuildUserDtoAsync(user, unitOfWork, cache));
     }
 
     public static async Task<IResult> UpdateContactVisibility(
         UpdateContactVisibilityRequest request,
         ClaimsPrincipal principal,
         IValidator<UpdateContactVisibilityRequest> validator,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -79,7 +82,7 @@ public static class UsersHandlers
         await unitOfWork.Users.UpdateAsync(user);
         await unitOfWork.SaveChangesAsync();
 
-        return OkResponse(await BuildUserDtoAsync(user, unitOfWork));
+        return OkResponse(await BuildUserDtoAsync(user, unitOfWork, cache));
     }
 
     public static async Task<IResult> GetMyReports(
@@ -106,9 +109,10 @@ public static class UsersHandlers
         return OkResponse(new { items, hasMore = paged.HasMore });
     }
 
-    internal static async Task<UserDto> BuildUserDtoAsync(User user, IUnitOfWork unitOfWork)
+    internal static async Task<UserDto> BuildUserDtoAsync(User user, IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         var dto = user.Adapt<UserDto>();
+        dto.RoleTabActive = TabState.IsActive(await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache), UserRoles.TabKeyOf(user.RoleId));
         var latest = await unitOfWork.RoleChangeRequests.GetLatestForUserAsync(user.Id);
         dto.RoleRequestStatus = latest?.Status;
         dto.RoleRequestReason = latest?.Status == RoleChangeRequestStatuses.Rejected ? latest.RejectionReason : null;

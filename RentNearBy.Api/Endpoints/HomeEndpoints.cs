@@ -12,6 +12,7 @@ public static class HomeEndpoints
         group.MapGet("/plots/browse", HomeHandlers.GetPlotsBrowse);
         group.MapGet("/rooms/recent", HomeHandlers.GetRecentRooms);
         group.MapGet("/plots/recent", HomeHandlers.GetRecentPlots);
+        group.MapGet("/feed", HomeHandlers.GetFeed);
 
         return group;
     }

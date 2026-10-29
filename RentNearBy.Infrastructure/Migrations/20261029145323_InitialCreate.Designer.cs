@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261029084011_InitialCreate")]
+    [Migration("20261029145323_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -2346,6 +2346,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("DistrictId", "CityId", "CreatedAt")
                         .IsDescending(false, false, true)
                         .HasDatabaseName("ix_staylistings_browse_district_city_created")
+                        .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex(new[] { "CreatedAt" }, "ix_staylistings_recent_active")
+                        .IsDescending()
                         .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
 
                     b.HasIndex(new[] { "UserId" }, "ix_staylistings_user_live")

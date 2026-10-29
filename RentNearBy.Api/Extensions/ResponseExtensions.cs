@@ -31,11 +31,13 @@ public static class ApiResults
             Error = new ApiError { Message = message, Type = "Unauthorized" }
         }, statusCode: 401);
 
-    public static IResult ForbiddenResponse(string message = "Forbidden") =>
+    public static IResult ForbiddenResponse(string message = "Forbidden") => ForbiddenResponse(message, "Forbidden");
+
+    public static IResult ForbiddenResponse(string message, string type) =>
         Results.Json(new ApiResponse<object>
         {
             Status = "403", Code = 403, Timestamp = Timestamp(),
-            Error = new ApiError { Message = message, Type = "Forbidden" }
+            Error = new ApiError { Message = message, Type = type }
         }, statusCode: 403);
 
     public static IResult NotFoundResponse(string message = "Resource not found") =>

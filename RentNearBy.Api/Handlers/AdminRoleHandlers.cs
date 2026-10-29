@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -20,8 +21,11 @@ public static class AdminRoleHandlers
 {
     private enum RoleChangeOutcome { Changed, AlreadyResolved, BlockedByLiveListing }
 
+    private static IResult RoleUnavailable(Role target) => ConflictResponse(
+        $"{target.Name} is not available while its tab is off.", RoleHandlers.RoleUnavailableType);
+
     public static async Task<IResult> GetRoleRequests(
-        ApplicationDbContext db, IRoleChangeGuardService guard,
+        ApplicationDbContext db, IRoleChangeGuardService guard, IUnitOfWork unitOfWork, IMemoryCache cache,
         int page = 1, int pageSize = 20, string? status = RoleChangeRequestStatuses.Pending)
     {
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -58,12 +62,21 @@ public static class AdminRoleHandlers
             .ToPagedResultAsync(page, pageSize);
 
         var blocking = await guard.GetBlockingCountsAsync(result.Items.Select(r => r.UserId).Distinct().ToList());
+        var tabs = await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache);
+        var availableRoleKeys = (await ConfigHandlers.GetAvailableRolesAsync(unitOfWork, cache)).Select(r => r.Key).ToHashSet();
+        // Live counts of an off-tab kind never block (same rule as the guard), so they are reported as 0.
+        var roomsOn = TabState.IsActive(tabs, AppTabKeys.Rooms);
+        var plotsOn = TabState.IsActive(tabs, AppTabKeys.Plots);
+        var staysOn = TabState.IsActive(tabs, AppTabKeys.Stays);
+        var taxiOn = TabState.IsActive(tabs, AppTabKeys.Taxi);
         foreach (var item in result.Items)
         {
-            item.LiveRoomListingCount = blocking[item.UserId].Rooms;
-            item.LivePlotListingCount = blocking[item.UserId].Plots;
-            item.LiveStayListingCount = blocking[item.UserId].Stays;
-            item.LiveTaxiListingCount = blocking[item.UserId].Taxis;
+            var counts = blocking[item.UserId];
+            item.LiveRoomListingCount = roomsOn ? counts.Rooms : 0;
+            item.LivePlotListingCount = plotsOn ? counts.Plots : 0;
+            item.LiveStayListingCount = staysOn ? counts.Stays : 0;
+            item.LiveTaxiListingCount = taxiOn ? counts.Taxis : 0;
+            item.ToRoleAvailable = availableRoleKeys.Contains(item.ToRole);
         }
 
         return OkResponse(new { items = result.Items, hasMore = result.HasMore });
@@ -72,7 +85,7 @@ public static class AdminRoleHandlers
     public static async Task<IResult> ApproveRoleRequest(
         Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
         IListingPurgeService listingPurge, IRoleChangeGuardService guard, ICreditWalletService wallet,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp, IMemoryCache cache)
     {
         var request = await unitOfWork.RoleChangeRequests.GetByIdAsync(id);
         if (request == null) return NotFoundResponse("Role request not found");
@@ -84,6 +97,10 @@ public static class AdminRoleHandlers
 
         var target = await unitOfWork.Roles.GetByIdAsync(request.ToRoleId);
         if (target == null) return BadRequestResponse("Unknown or inactive role.", "InvalidRole");
+
+        // Stays PENDING: approvable again once the role's tab is back on.
+        if (!TabState.IsRoleAvailable(await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache), target))
+            return RoleUnavailable(target);
 
         var outcome = await ChangeUserRoleCoreAsync(
             user, target, GetAdminId(principal), request.Id, enforceLiveGuard: true,
@@ -148,7 +165,7 @@ public static class AdminRoleHandlers
         Guid id, RoleKeyRequest request, IValidator<RoleKeyRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
         IListingPurgeService listingPurge, IRoleChangeGuardService guard, ICreditWalletService wallet,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, IServiceProvider sp, IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -159,6 +176,8 @@ public static class AdminRoleHandlers
         var target = await unitOfWork.Roles.GetActiveByKeyAsync(request.Role.Trim().ToUpperInvariant());
         if (target == null) return BadRequestResponse("Unknown or inactive role.", "InvalidRole");
         if (target.Id == user.RoleId) return BadRequestResponse("User already has this role.", "RoleUnchanged");
+        if (!TabState.IsRoleAvailable(await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache), target))
+            return RoleUnavailable(target);
 
         await ChangeUserRoleCoreAsync(
             user, target, GetAdminId(principal), approveRequestId: null, enforceLiveGuard: false,
@@ -182,7 +201,7 @@ public static class AdminRoleHandlers
         try
         {
             if (enforceLiveGuard && purgeKind != null
-                && (await guard.GetBlockingCountsAsync(user.Id)).ForKind(purgeKind) > 0)
+                && await guard.GetBlockingCountAsync(user.Id, purgeKind) > 0)
             {
                 await unitOfWork.RollbackTransactionAsync();
                 return RoleChangeOutcome.BlockedByLiveListing;

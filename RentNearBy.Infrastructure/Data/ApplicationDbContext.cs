@@ -893,6 +893,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(s => new { s.DistrictId, s.MinPricePerNight })
              .HasDatabaseName("ix_staylistings_browse_district_price")
              .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+            // Partial: Home "Recently added" stays (district-free, newest first).
+            e.HasIndex(s => s.CreatedAt, "ix_staylistings_recent_active")
+             .IsDescending(true)
+             .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
 
             e.ToTable(t =>
             {

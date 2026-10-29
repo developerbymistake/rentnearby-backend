@@ -1,8 +1,10 @@
 using System.Globalization;
 using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Responses;
+using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -14,7 +16,8 @@ public static class ConfigHandlers
 {
     public const string ListingLimitsCacheKey = "config_listing_limits";
     public const string PaymentFeatureCacheKey = "config_payment_feature";
-    public const string AppTabsCacheKey = "config_app_tabs";
+    public const string AppTabsCacheKey = AppTabCache.Key;
+    public const string RolesCacheKey = "config_roles";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
 
     public static async Task<IResult> GetListingLimits(IUnitOfWork unitOfWork, IMemoryCache cache)
@@ -52,29 +55,29 @@ public static class ConfigHandlers
         return OkResponse(new { enabled, freeGoLiveDurationDays = freeDurationDays });
     }
 
-    // Master table for the bottom-nav tabs (RentNearBy.Core.Models.AppTabKeys). Cached as one list
-    // (only a handful of rows, never paginated) so both the public endpoint and TabGateFilter (Filters/TabGateFilter.cs,
-    // which blocks every request under a deactivated vertical's route group) share one cache entry —
-    // AdminHandlers.UpdateAppTab evicts this key on every change.
-    public static async Task<List<AppTabDto>> GetAppTabsCachedAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
+    // Master table for the bottom-nav tabs (RentNearBy.Core.Models.AppTabKeys), read through AppTabCache so
+    // TabGateFilter, Home, roles, chat and the digest job all share one entry. AdminHandlers.UpdateAppTab
+    // rewrites it on every change.
+    public static Task<List<AppTabDto>> GetAppTabsCachedAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
+        => AppTabCache.GetAsync(unitOfWork, cache);
+
+    // Active Role rows only (tab-independent); availability is filtered per call from the tab snapshot, so a
+    // tab flip needs no eviction here.
+    public static async Task<IReadOnlyList<Role>> GetActiveRolesCachedAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
     {
-        if (!cache.TryGetValue(AppTabsCacheKey, out List<AppTabDto>? cached) || cached == null)
+        if (!cache.TryGetValue(RolesCacheKey, out IReadOnlyList<Role>? cached) || cached == null)
         {
-            var tabs = await unitOfWork.AppTabs.GetAllAsync();
-            cached = tabs.OrderBy(t => t.SortOrder)
-                .Select(t => new AppTabDto { TabKey = t.TabKey, DisplayName = t.DisplayName, IsActive = t.IsActive, SortOrder = t.SortOrder })
-                .ToList();
-            cache.Set(AppTabsCacheKey, cached, CacheTtl);
+            cached = await unitOfWork.Roles.GetActiveOrderedAsync();
+            cache.Set(RolesCacheKey, cached, CacheTtl);
         }
         return cached;
     }
 
-    // Fail-open: a tab key with no seeded row (shouldn't happen post-seed, but never let a missing row
-    // silently take down a whole vertical's API surface) is treated as active.
-    public static async Task<bool> IsTabActiveCachedAsync(string tabKey, IUnitOfWork unitOfWork, IMemoryCache cache)
+    public static async Task<List<Role>> GetAvailableRolesAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         var tabs = await GetAppTabsCachedAsync(unitOfWork, cache);
-        return tabs.FirstOrDefault(t => t.TabKey == tabKey)?.IsActive ?? true;
+        var roles = await GetActiveRolesCachedAsync(unitOfWork, cache);
+        return roles.Where(r => TabState.IsRoleAvailable(tabs, r)).ToList();
     }
 
     public static async Task<IResult> GetAppTabs(IUnitOfWork unitOfWork, IMemoryCache cache)

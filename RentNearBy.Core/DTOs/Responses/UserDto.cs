@@ -11,6 +11,7 @@ public class UserDto
     public bool IsContactVisible { get; set; }
     public string Role { get; set; } = string.Empty;
     public bool RoleConfirmed { get; set; }
+    public bool RoleTabActive { get; set; } = true;   // false while the role's tab is off; the role itself is kept
     public string? RoleRequestStatus { get; set; }
     public string? RoleRequestReason { get; set; }
     public DateTime? NextRoleRequestAt { get; set; }
