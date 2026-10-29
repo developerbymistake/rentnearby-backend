@@ -173,7 +173,7 @@ public static class PlotListingHandlers
                     var items = JsonSerializer.Deserialize<List<NearbyPlotListingDto>>(cached!);
                     if (items != null)
                     {
-                        if (!isAuth) items.ForEach(d => d.OwnerPhone = null);
+                        if (!isAuth) items.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
                         return OkResponse(new { items });
                     }
                 }
@@ -189,7 +189,7 @@ public static class PlotListingHandlers
             try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearbyCacheTtl, When.NotExists); } catch { }
         }
 
-        if (!isAuth) fetched.ForEach(d => d.OwnerPhone = null);
+        if (!isAuth) fetched.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
         return OkResponse(new { items = fetched });
     }
 
@@ -236,7 +236,7 @@ public static class PlotListingHandlers
                     var items = JsonSerializer.Deserialize<List<NearbyPlotListingDto>>(cached!);
                     if (items != null)
                     {
-                        if (!isAuth) items.ForEach(d => d.OwnerPhone = null);
+                        if (!isAuth) items.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
                         return OkResponse(new { items });
                     }
                 }
@@ -252,7 +252,7 @@ public static class PlotListingHandlers
             try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearestCacheTtl, When.NotExists); } catch { }
         }
 
-        if (!isAuth) fetched.ForEach(d => d.OwnerPhone = null);
+        if (!isAuth) fetched.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
         return OkResponse(new { items = fetched });
     }
 
