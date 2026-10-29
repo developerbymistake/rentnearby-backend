@@ -5,6 +5,9 @@ public static class AppTabKeys
     public const string Home = "HOME";
     public const string Rooms = "ROOMS";
     public const string Plots = "PLOTS";
+    public const string Stays = "STAYS";
+    public const string Jobs = "JOBS";
+    public const string Taxi = "TAXI";
     public const string Profile = "PROFILE";
 
     // Home/Profile are structural nav slots, not togglable business verticals — AdminHandlers.UpdateAppTab
@@ -12,5 +15,5 @@ public static class AppTabKeys
     // that rule (also used by DataSeeder to force-seed them IsEnabled = true).
     public static readonly HashSet<string> NonDeactivatable = [Home, Profile];
 
-    public static readonly string[] All = [Home, Rooms, Plots, Profile];
+    public static readonly string[] All = [Home, Rooms, Plots, Stays, Jobs, Taxi, Profile];
 }

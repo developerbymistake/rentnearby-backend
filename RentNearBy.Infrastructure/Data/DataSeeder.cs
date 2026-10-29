@@ -93,23 +93,40 @@ public static class DataSeeder
         await db.SaveChangesAsync();
     }
 
-    // Master table for the consumer app's 4 bottom-nav tabs — all start active with today's real
-    // labels/order so behavior is identical to the pre-AppTab hardcoded AppTabs class in the mobile
-    // app. Home/Profile are seeded active and stay that way forever (AdminHandlers.UpdateAppTab
-    // refuses to deactivate them, see AppTabKeys.NonDeactivatable).
+    // Master table for the consumer app's 7 bottom-nav tabs. Inserts only missing keys, so tabs added
+    // later reach old databases. Existing rows only get their SortOrder realigned (not admin-editable);
+    // admin renames/toggles are never touched.
+    // Home/Profile stay active forever (AdminHandlers.UpdateAppTab refuses to deactivate them, see
+    // AppTabKeys.NonDeactivatable).
     private static async Task SeedAppTabsAsync(ApplicationDbContext db)
     {
-        if (await db.AppTabs.AnyAsync()) return;
-
         var tabs = new (string Key, string DisplayName, int SortOrder)[]
         {
             (AppTabKeys.Home, "Home", 0),
             (AppTabKeys.Rooms, "Rooms", 1),
             (AppTabKeys.Plots, "Plots", 2),
-            (AppTabKeys.Profile, "Profile", 3),
+            (AppTabKeys.Stays, "Stays", 3),
+            (AppTabKeys.Jobs, "Jobs", 4),
+            (AppTabKeys.Taxi, "Taxi", 5),
+            (AppTabKeys.Profile, "Profile", 6),
         };
 
-        foreach (var (key, displayName, sortOrder) in tabs)
+        var existingRows = await db.AppTabs.ToListAsync();
+        var existing = existingRows.Select(t => t.TabKey).ToHashSet();
+        var missing = tabs.Where(t => !existing.Contains(t.Key)).ToList();
+
+        var changed = false;
+        foreach (var row in existingRows)
+        {
+            var canonical = Array.FindIndex(tabs, t => t.Key == row.TabKey);
+            if (canonical < 0 || row.SortOrder == tabs[canonical].SortOrder) continue;
+            row.SortOrder = tabs[canonical].SortOrder;
+            changed = true;
+        }
+
+        if (missing.Count == 0 && !changed) return;
+
+        foreach (var (key, displayName, sortOrder) in missing)
         {
             db.AppTabs.Add(new AppTab
             {
