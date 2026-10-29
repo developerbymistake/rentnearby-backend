@@ -16,4 +16,5 @@ public static class AdminNotificationRoutes
     public const string ReportedListings = "/admin/reports";
     public const string GoLiveRequests = "/admin/golive-requests";
     public const string RoleRequests = "/admin/role-requests";
+    public const string StayJobs = "/admin/stay-jobs";
 }

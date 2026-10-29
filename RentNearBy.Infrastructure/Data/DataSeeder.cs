@@ -339,10 +339,6 @@ public static class DataSeeder
             await db.SaveChangesAsync();
         }
 
-        await SeedJobLookupAsync(db.JobExperienceLevels, new (int, string)[]
-        {
-            (1, "Entry Level"), (2, "Mid Level"), (3, "Senior"),
-        }, n => SeedId('3', n), db);
         await SeedJobLookupAsync(db.JobTypes, new (int, string)[]
         {
             (1, "Full-Time"), (2, "Part-Time"), (3, "Contract"), (4, "Internship"),

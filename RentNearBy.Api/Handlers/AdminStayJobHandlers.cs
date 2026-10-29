@@ -77,7 +77,6 @@ public static class AdminStayJobHandlers
         {
             StayJobLookupKinds.Departments => await CreateAsync(db.JobDepartments, kind, request, db),
             StayJobLookupKinds.Roles => await CreateAsync(db.JobRoles, kind, request, db),
-            StayJobLookupKinds.ExperienceLevels => await CreateAsync(db.JobExperienceLevels, kind, request, db),
             StayJobLookupKinds.JobTypes => await CreateAsync(db.JobTypes, kind, request, db),
             StayJobLookupKinds.ShiftTypes => await CreateAsync(db.JobShiftTypes, kind, request, db),
             _ => await CreateAsync(db.JobSalaryTypes, kind, request, db),
@@ -96,7 +95,6 @@ public static class AdminStayJobHandlers
         {
             StayJobLookupKinds.Departments => await UpdateAsync(db.JobDepartments, id, request, db),
             StayJobLookupKinds.Roles => await UpdateAsync(db.JobRoles, id, request, db),
-            StayJobLookupKinds.ExperienceLevels => await UpdateAsync(db.JobExperienceLevels, id, request, db),
             StayJobLookupKinds.JobTypes => await UpdateAsync(db.JobTypes, id, request, db),
             StayJobLookupKinds.ShiftTypes => await UpdateAsync(db.JobShiftTypes, id, request, db),
             _ => await UpdateAsync(db.JobSalaryTypes, id, request, db),
@@ -113,7 +111,6 @@ public static class AdminStayJobHandlers
             StayJobLookupKinds.Departments => await db.StayJobs.AnyAsync(j => j.JobDepartmentId == id)
                 || await db.JobRoles.AnyAsync(r => r.JobDepartmentId == id),
             StayJobLookupKinds.Roles => await db.StayJobs.AnyAsync(j => j.JobRoleId == id),
-            StayJobLookupKinds.ExperienceLevels => await db.StayJobs.AnyAsync(j => j.JobExperienceLevelId == id),
             StayJobLookupKinds.JobTypes => await db.StayJobs.AnyAsync(j => j.JobTypeId == id),
             StayJobLookupKinds.ShiftTypes => await db.StayJobs.AnyAsync(j => j.JobShiftTypeId == id),
             _ => await db.StayJobs.AnyAsync(j => j.JobSalaryTypeId == id),
@@ -123,7 +120,6 @@ public static class AdminStayJobHandlers
         {
             StayJobLookupKinds.Departments => await DeleteAsync(db.JobDepartments, id, inUse, db),
             StayJobLookupKinds.Roles => await DeleteAsync(db.JobRoles, id, inUse, db),
-            StayJobLookupKinds.ExperienceLevels => await DeleteAsync(db.JobExperienceLevels, id, inUse, db),
             StayJobLookupKinds.JobTypes => await DeleteAsync(db.JobTypes, id, inUse, db),
             StayJobLookupKinds.ShiftTypes => await DeleteAsync(db.JobShiftTypes, id, inUse, db),
             _ => await DeleteAsync(db.JobSalaryTypes, id, inUse, db),

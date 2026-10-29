@@ -35,22 +35,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "JobExperienceLevels",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    Name = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
-                    SortOrder = table.Column<int>(type: "integer", nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_JobExperienceLevels", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "JobSalaryTypes",
                 columns: table => new
                 {
@@ -225,34 +209,30 @@ namespace RentNearBy.Infrastructure.Migrations
                     Description = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
                     JobDepartmentId = table.Column<Guid>(type: "uuid", nullable: false),
                     JobRoleId = table.Column<Guid>(type: "uuid", nullable: false),
-                    JobExperienceLevelId = table.Column<Guid>(type: "uuid", nullable: false),
-                    JobTypeId = table.Column<Guid>(type: "uuid", nullable: true),
-                    JobShiftTypeId = table.Column<Guid>(type: "uuid", nullable: true),
-                    JobSalaryTypeId = table.Column<Guid>(type: "uuid", nullable: true),
-                    MinimumExperienceYears = table.Column<int>(type: "integer", nullable: true),
+                    JobTypeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    JobShiftTypeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    JobSalaryTypeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    MinimumExperienceYears = table.Column<int>(type: "integer", nullable: false),
                     MinSalary = table.Column<int>(type: "integer", nullable: false),
                     MaxSalary = table.Column<int>(type: "integer", nullable: false),
+                    ContactPhone = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
+                    WhatsAppNumber = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
                     Status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "Active"),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    ClosedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                    ClosedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    SeekerPushedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_StayJobs", x => x.Id);
-                    table.CheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" IS NULL OR (\"MinimumExperienceYears\" BETWEEN 1 AND 20)");
+                    table.CheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" BETWEEN 0 AND 20");
                     table.CheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
                     table.CheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Closed')");
                     table.ForeignKey(
                         name: "FK_StayJobs_JobDepartments_JobDepartmentId",
                         column: x => x.JobDepartmentId,
                         principalTable: "JobDepartments",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_StayJobs_JobExperienceLevels_JobExperienceLevelId",
-                        column: x => x.JobExperienceLevelId,
-                        principalTable: "JobExperienceLevels",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
@@ -312,7 +292,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     RoomIndex = table.Column<short>(type: "smallint", nullable: false),
                     PricePerNight = table.Column<int>(type: "integer", nullable: false),
                     MaxGuests = table.Column<short>(type: "smallint", nullable: false),
-                    Bathroom = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: false),
+                    RoomName = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
                     Meals = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
@@ -322,6 +302,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.PrimaryKey("PK_StayRooms", x => x.Id);
                     table.CheckConstraint("ck_stayrooms_max_guests", "\"MaxGuests\" >= 1 AND \"MaxGuests\" <= 4");
                     table.CheckConstraint("ck_stayrooms_price_range", "\"PricePerNight\" >= 100 AND \"PricePerNight\" <= 9900000");
+                    table.CheckConstraint("ck_stayrooms_room_name", "\"RoomName\" IN ('Standard', 'Deluxe', 'Premium', 'Suite', 'Family Room', 'Executive', 'Dormitory')");
                     table.ForeignKey(
                         name: "FK_StayRooms_StayListings_StayListingId",
                         column: x => x.StayListingId,
@@ -343,12 +324,6 @@ namespace RentNearBy.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_JobDepartments_Name",
                 table: "JobDepartments",
-                column: "Name",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_JobExperienceLevels_Name",
-                table: "JobExperienceLevels",
                 column: "Name",
                 unique: true);
 
@@ -385,11 +360,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_StayJobs_JobDepartmentId",
                 table: "StayJobs",
                 column: "JobDepartmentId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_StayJobs_JobExperienceLevelId",
-                table: "StayJobs",
-                column: "JobExperienceLevelId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_StayJobs_JobRoleId",
@@ -537,9 +507,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "StayRooms");
-
-            migrationBuilder.DropTable(
-                name: "JobExperienceLevels");
 
             migrationBuilder.DropTable(
                 name: "JobRoles");

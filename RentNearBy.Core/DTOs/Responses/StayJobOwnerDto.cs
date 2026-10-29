@@ -7,8 +7,8 @@ public class StayJobOwnerDto
     public string? StayName { get; set; }
     public string DepartmentName { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
-    public string ExperienceLevelName { get; set; } = string.Empty;
-    public string? SalaryTypeName { get; set; }
+    public int MinimumExperienceYears { get; set; }
+    public string SalaryTypeName { get; set; } = string.Empty;
     public int MinSalary { get; set; }
     public int MaxSalary { get; set; }
     public string Status { get; set; } = string.Empty;

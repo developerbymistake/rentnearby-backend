@@ -6,6 +6,9 @@ public class AdminStayJobDto
     public string Title { get; set; } = string.Empty;
     public string DepartmentName { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
+    public int MinimumExperienceYears { get; set; }
+    public string? ContactPhone { get; set; }
+    public string? WhatsAppNumber { get; set; }
     public int MinSalary { get; set; }
     public int MaxSalary { get; set; }
     public string Status { get; set; } = string.Empty;

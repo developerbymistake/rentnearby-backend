@@ -6,6 +6,7 @@ public static class UserNotificationRoutes
     public const string MyPlots = "/my-plots";
     public const string MyStays = "/my-stays";
     public const string Notifications = "/notifications";
+    public const string JobDetail = "/job-detail";
 
     public static string ForListingKind(string listingKind) => listingKind switch
     {

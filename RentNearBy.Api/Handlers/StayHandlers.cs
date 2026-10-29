@@ -526,7 +526,7 @@ public static class StayHandlers
             }
             room.PricePerNight = input.PricePerNight;
             room.MaxGuests = input.MaxGuests;
-            room.Bathroom = input.Bathroom;
+            room.RoomName = input.RoomName;
             room.Meals = input.Meals;
             room.UpdatedAt = now;
         }

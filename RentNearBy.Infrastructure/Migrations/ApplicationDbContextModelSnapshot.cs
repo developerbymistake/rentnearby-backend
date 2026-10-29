@@ -934,44 +934,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("JobDepartments");
                 });
 
-            modelBuilder.Entity("RentNearBy.Core.Entities.JobExperienceLevel", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true);
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Name")
-                        .IsUnique();
-
-                    b.ToTable("JobExperienceLevels");
-                });
-
             modelBuilder.Entity("RentNearBy.Core.Entities.JobRole", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2102,6 +2064,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateTime?>("ClosedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ContactPhone")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -2115,19 +2082,16 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid>("JobDepartmentId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("JobExperienceLevelId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid>("JobRoleId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("JobSalaryTypeId")
+                    b.Property<Guid>("JobSalaryTypeId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("JobShiftTypeId")
+                    b.Property<Guid>("JobShiftTypeId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("JobTypeId")
+                    b.Property<Guid>("JobTypeId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("MaxSalary")
@@ -2136,8 +2100,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<int>("MinSalary")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("MinimumExperienceYears")
+                    b.Property<int>("MinimumExperienceYears")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("SeekerPushedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -2162,11 +2129,14 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("WhatsAppNumber")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("JobDepartmentId");
-
-                    b.HasIndex("JobExperienceLevelId");
 
                     b.HasIndex("JobRoleId");
 
@@ -2186,7 +2156,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.ToTable("StayJobs", t =>
                         {
-                            t.HasCheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" IS NULL OR (\"MinimumExperienceYears\" BETWEEN 1 AND 20)");
+                            t.HasCheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" BETWEEN 0 AND 20");
 
                             t.HasCheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
 
@@ -2418,11 +2388,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
-                    b.Property<string>("Bathroom")
-                        .IsRequired()
-                        .HasMaxLength(8)
-                        .HasColumnType("character varying(8)");
-
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -2442,6 +2407,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<short>("RoomIndex")
                         .HasColumnType("smallint");
 
+                    b.Property<string>("RoomName")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<Guid>("StayListingId")
                         .HasColumnType("uuid");
 
@@ -2460,6 +2430,8 @@ namespace RentNearBy.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_stayrooms_max_guests", "\"MaxGuests\" >= 1 AND \"MaxGuests\" <= 4");
 
                             t.HasCheckConstraint("ck_stayrooms_price_range", "\"PricePerNight\" >= 100 AND \"PricePerNight\" <= 9900000");
+
+                            t.HasCheckConstraint("ck_stayrooms_room_name", "\"RoomName\" IN ('Standard', 'Deluxe', 'Premium', 'Suite', 'Family Room', 'Executive', 'Dormitory')");
                         });
                 });
 
@@ -2994,12 +2966,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("RentNearBy.Core.Entities.JobExperienceLevel", "ExperienceLevel")
-                        .WithMany()
-                        .HasForeignKey("JobExperienceLevelId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("RentNearBy.Core.Entities.JobRole", "Role")
                         .WithMany()
                         .HasForeignKey("JobRoleId")
@@ -3009,21 +2975,22 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasOne("RentNearBy.Core.Entities.JobSalaryType", "SalaryType")
                         .WithMany()
                         .HasForeignKey("JobSalaryTypeId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("RentNearBy.Core.Entities.JobShiftType", "ShiftType")
                         .WithMany()
                         .HasForeignKey("JobShiftTypeId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("RentNearBy.Core.Entities.JobType", "JobType")
                         .WithMany()
                         .HasForeignKey("JobTypeId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.Navigation("Department");
-
-                    b.Navigation("ExperienceLevel");
 
                     b.Navigation("JobType");
 

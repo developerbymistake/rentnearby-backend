@@ -22,15 +22,14 @@ public class UpsertStayJobRequestValidator : AbstractValidator<UpsertStayJobRequ
 
         RuleFor(x => x.JobDepartmentId).NotEmpty().WithMessage("Pick a department");
         RuleFor(x => x.JobRoleId).NotEmpty().WithMessage("Pick a role");
-        RuleFor(x => x.JobExperienceLevelId).NotEmpty().WithMessage("Pick an experience level");
-
-        RuleFor(x => x.JobTypeId).NotEqual(Guid.Empty).When(x => x.JobTypeId.HasValue).WithMessage("Pick a valid job type");
-        RuleFor(x => x.JobShiftTypeId).NotEqual(Guid.Empty).When(x => x.JobShiftTypeId.HasValue).WithMessage("Pick a valid shift");
-        RuleFor(x => x.JobSalaryTypeId).NotEqual(Guid.Empty).When(x => x.JobSalaryTypeId.HasValue).WithMessage("Pick a valid salary type");
+        RuleFor(x => x.JobTypeId).NotEmpty().WithMessage("Pick a job type");
+        RuleFor(x => x.JobShiftTypeId).NotEmpty().WithMessage("Pick a shift");
+        RuleFor(x => x.JobSalaryTypeId).NotEmpty().WithMessage("Pick a salary type");
 
         RuleFor(x => x.MinimumExperienceYears)
+            .Cascade(CascadeMode.Stop)
+            .NotNull().WithMessage("Please select min experience")
             .InclusiveBetween(StayJobRules.MinExperienceYears, StayJobRules.MaxExperienceYears)
-            .When(x => x.MinimumExperienceYears.HasValue)
             .WithMessage($"Min experience must be {StayJobRules.MinExperienceYears} to {StayJobRules.MaxExperienceYears} years");
 
         RuleFor(x => x.MinSalary)
@@ -45,5 +44,15 @@ public class UpsertStayJobRequestValidator : AbstractValidator<UpsertStayJobRequ
             .Must(x => x.MinSalary <= x.MaxSalary)
             .WithName(nameof(UpsertStayJobRequest.MaxSalary))
             .WithMessage("Max salary must be at least min salary.");
+
+        RuleFor(x => x.ContactPhone)
+            .Cascade(CascadeMode.Stop)
+            .NotEmpty().WithMessage("Contact phone is required")
+            .Matches(StayJobRules.PhonePattern).WithMessage("Enter a valid 10-digit mobile number");
+
+        RuleFor(x => x.WhatsAppNumber)
+            .Cascade(CascadeMode.Stop)
+            .NotEmpty().WithMessage("WhatsApp number is required")
+            .Matches(StayJobRules.PhonePattern).WithMessage("Enter a valid 10-digit WhatsApp number");
     }
 }

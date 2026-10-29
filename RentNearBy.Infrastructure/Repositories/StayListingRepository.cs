@@ -76,7 +76,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
         MealsChip = s.Rooms.Any(r => r.Meals == StayMeals.AllMeals) ? "All meals"
             : s.Rooms.Any(r => r.Meals == StayMeals.Breakfast) ? "Breakfast"
             : null,
-        BathroomChip = s.Rooms.Any(r => r.Bathroom == StayBathroom.Attached) ? "Attached bath" : null,
+        RoomNameChip = s.Rooms.OrderBy(r => r.PricePerNight).Select(r => r.RoomName).FirstOrDefault(),
         CreatedAt = s.CreatedAt,
     };
 

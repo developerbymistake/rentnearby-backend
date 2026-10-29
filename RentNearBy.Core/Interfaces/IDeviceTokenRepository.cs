@@ -10,4 +10,6 @@ public interface IDeviceTokenRepository
     Task DeleteByUserIdAsync(Guid userId);
     Task<int> GetValidTokenUserCountAsync();
     Task<IReadOnlyList<Guid>> GetValidTokenUserIdsPagedAsync(int offset, int limit);
+    // Keyset by DeviceToken.Id so MarkInvalid between pages cannot shift the window.
+    Task<IReadOnlyList<(Guid Id, string Token)>> GetValidTokensByRoleAfterAsync(Guid roleId, Guid? afterId, int limit);
 }

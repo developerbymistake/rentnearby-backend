@@ -21,12 +21,19 @@ public static class StayVehicleAccess
     public static readonly string[] All = [CarToGate, ShortWalk, LongWalk];
 }
 
-public static class StayBathroom
+// Fixed server-side list; the app mirrors it. Stored verbatim as the display name.
+public static class StayRoomNames
 {
-    public const string Attached = "Attached";
-    public const string Shared = "Shared";
+    public const string Standard = "Standard";
+    public const string Deluxe = "Deluxe";
+    public const string Premium = "Premium";
+    public const string Suite = "Suite";
+    public const string FamilyRoom = "Family Room";
+    public const string Executive = "Executive";
+    public const string Dormitory = "Dormitory";
 
-    public static readonly string[] All = [Attached, Shared];
+    public static readonly string[] All = [Standard, Deluxe, Premium, Suite, FamilyRoom, Executive, Dormitory];
+    public const int MaxLength = 16;
 }
 
 public static class StayMeals

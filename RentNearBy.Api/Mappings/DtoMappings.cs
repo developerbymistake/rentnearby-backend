@@ -129,7 +129,7 @@ public static class DtoMappings
                 RoomIndex = r.RoomIndex,
                 PricePerNight = r.PricePerNight,
                 MaxGuests = r.MaxGuests,
-                Bathroom = r.Bathroom,
+                RoomName = r.RoomName,
                 Meals = r.Meals,
             })
             .ToList();

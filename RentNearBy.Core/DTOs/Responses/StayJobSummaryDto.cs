@@ -10,11 +10,10 @@ public class StayJobSummaryDto
     public string Title { get; set; } = string.Empty;
     public string DepartmentName { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
-    public string ExperienceLevelName { get; set; } = string.Empty;
-    public string? JobTypeName { get; set; }
-    public string? ShiftTypeName { get; set; }
-    public string? SalaryTypeName { get; set; }
-    public int? MinimumExperienceYears { get; set; }
+    public string JobTypeName { get; set; } = string.Empty;
+    public string ShiftTypeName { get; set; } = string.Empty;
+    public string SalaryTypeName { get; set; } = string.Empty;
+    public int MinimumExperienceYears { get; set; }
     public int MinSalary { get; set; }
     public int MaxSalary { get; set; }
     public Guid? DistrictId { get; set; }

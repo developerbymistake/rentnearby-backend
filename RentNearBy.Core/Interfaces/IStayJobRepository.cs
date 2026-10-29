@@ -10,9 +10,10 @@ public interface IStayJobRepository : IRepository<StayJob>
     Task<StayJob?> GetOwnedTrackedAsync(Guid id, Guid userId);
     // Active first, then newest.
     Task<List<StayJobOwnerDto>> GetOwnerListAsync(Guid userId);
-    // Public: Active job on an Approved, not deleted stay whose owner is active.
+    // Public: Active job on an Approved, not deleted stay whose owner is active (a paused stay keeps its jobs).
     Task<(IReadOnlyList<StayJobSummaryDto> Items, bool HasMore)> BrowseAsync(
-        Guid districtId, Guid? departmentId, Guid? experienceLevelId, int? minSalary, int? maxSalary, int page, int pageSize);
+        Guid districtId, Guid? departmentId, int? minExperience, int? maxExperience,
+        int? minSalary, int? maxSalary, int page, int pageSize);
     Task<StayJobDetailDto?> GetPublicDetailAsync(Guid id);
     // Any status, owner only.
     Task<StayJobDetailDto?> GetOwnerDetailAsync(Guid id, Guid userId);

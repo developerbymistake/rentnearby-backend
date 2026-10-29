@@ -6,11 +6,13 @@ public class UpsertStayJobRequest
     public string Description { get; set; } = string.Empty;
     public Guid JobDepartmentId { get; set; }
     public Guid JobRoleId { get; set; }
-    public Guid JobExperienceLevelId { get; set; }
-    public Guid? JobTypeId { get; set; }
-    public Guid? JobShiftTypeId { get; set; }
-    public Guid? JobSalaryTypeId { get; set; }
+    public Guid JobTypeId { get; set; }
+    public Guid JobShiftTypeId { get; set; }
+    public Guid JobSalaryTypeId { get; set; }
+    // Nullable only so a missing value is rejected instead of binding to 0 (Fresher).
     public int? MinimumExperienceYears { get; set; }
     public int MinSalary { get; set; }
     public int MaxSalary { get; set; }
+    public string ContactPhone { get; set; } = string.Empty;
+    public string WhatsAppNumber { get; set; } = string.Empty;
 }

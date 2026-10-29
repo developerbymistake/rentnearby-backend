@@ -7,15 +7,15 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
 
-// Public = Active job on an Approved, AcceptingGuests, not deleted stay whose owner is active. Unpublish,
-// pause, takedown, soft delete and suspension all hide jobs through this one predicate.
+// Public = Active job on an Approved, not deleted stay whose owner is active. Unpublish, takedown,
+// soft delete and suspension hide jobs through this one predicate; a paused stay keeps its jobs.
 public class StayJobRepository(ApplicationDbContext context) : Repository<StayJob>(context), IStayJobRepository
 {
     private IQueryable<StayJob> PublicJobs() => _dbSet
         .AsNoTracking()
         .Where(j => j.Status == StayJobStatuses.Active
             && context.StayListings.Any(s => s.Id == j.StayListingId
-                && s.Status == StayStatuses.Approved && s.AcceptingGuests && !s.IsDeleted && s.User.IsActive));
+                && s.Status == StayStatuses.Approved && !s.IsDeleted && s.User.IsActive));
 
     public async Task<int> CountActiveByUserAsync(Guid userId)
         => await _dbSet.CountAsync(j => j.UserId == userId && j.Status == StayJobStatuses.Active);
@@ -36,8 +36,8 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
                 StayName = context.StayListings.Where(s => s.Id == j.StayListingId).Select(s => s.Name).FirstOrDefault(),
                 DepartmentName = j.Department.Name,
                 RoleName = j.Role.Name,
-                ExperienceLevelName = j.ExperienceLevel.Name,
-                SalaryTypeName = j.SalaryType != null ? j.SalaryType.Name : null,
+                MinimumExperienceYears = j.MinimumExperienceYears,
+                SalaryTypeName = j.SalaryType.Name,
                 MinSalary = j.MinSalary,
                 MaxSalary = j.MaxSalary,
                 Status = j.Status,
@@ -48,14 +48,17 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
             .ToListAsync();
 
     public async Task<(IReadOnlyList<StayJobSummaryDto> Items, bool HasMore)> BrowseAsync(
-        Guid districtId, Guid? departmentId, Guid? experienceLevelId, int? minSalary, int? maxSalary, int page, int pageSize)
+        Guid districtId, Guid? departmentId, int? minExperience, int? maxExperience,
+        int? minSalary, int? maxSalary, int page, int pageSize)
     {
         var query = PublicJobs()
             .Where(j => context.StayListings.Any(s => s.Id == j.StayListingId && s.DistrictId == districtId));
         if (departmentId.HasValue)
             query = query.Where(j => j.JobDepartmentId == departmentId.Value);
-        if (experienceLevelId.HasValue)
-            query = query.Where(j => j.JobExperienceLevelId == experienceLevelId.Value);
+        if (minExperience.HasValue)
+            query = query.Where(j => j.MinimumExperienceYears >= minExperience.Value);
+        if (maxExperience.HasValue)
+            query = query.Where(j => j.MinimumExperienceYears <= maxExperience.Value);
         if (minSalary.HasValue)
             query = query.Where(j => j.MaxSalary >= minSalary.Value);
         if (maxSalary.HasValue)
@@ -75,10 +78,9 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
                     Title = j.Title,
                     DepartmentName = j.Department.Name,
                     RoleName = j.Role.Name,
-                    ExperienceLevelName = j.ExperienceLevel.Name,
-                    JobTypeName = j.JobType != null ? j.JobType.Name : null,
-                    ShiftTypeName = j.ShiftType != null ? j.ShiftType.Name : null,
-                    SalaryTypeName = j.SalaryType != null ? j.SalaryType.Name : null,
+                    JobTypeName = j.JobType.Name,
+                    ShiftTypeName = j.ShiftType.Name,
+                    SalaryTypeName = j.SalaryType.Name,
                     MinimumExperienceYears = j.MinimumExperienceYears,
                     MinSalary = j.MinSalary,
                     MaxSalary = j.MaxSalary,
@@ -114,10 +116,9 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
             Title = j.Title,
             DepartmentName = j.Department.Name,
             RoleName = j.Role.Name,
-            ExperienceLevelName = j.ExperienceLevel.Name,
-            JobTypeName = j.JobType != null ? j.JobType.Name : null,
-            ShiftTypeName = j.ShiftType != null ? j.ShiftType.Name : null,
-            SalaryTypeName = j.SalaryType != null ? j.SalaryType.Name : null,
+            JobTypeName = j.JobType.Name,
+            ShiftTypeName = j.ShiftType.Name,
+            SalaryTypeName = j.SalaryType.Name,
             MinimumExperienceYears = j.MinimumExperienceYears,
             MinSalary = j.MinSalary,
             MaxSalary = j.MaxSalary,
@@ -128,10 +129,11 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
             Description = j.Description,
             JobDepartmentId = j.JobDepartmentId,
             JobRoleId = j.JobRoleId,
-            JobExperienceLevelId = j.JobExperienceLevelId,
             JobTypeId = j.JobTypeId,
             JobShiftTypeId = j.JobShiftTypeId,
             JobSalaryTypeId = j.JobSalaryTypeId,
+            ContactPhone = j.ContactPhone,
+            WhatsAppNumber = j.WhatsAppNumber,
             Status = j.Status,
             ClosedAt = j.ClosedAt,
             UpdatedAt = j.UpdatedAt,
@@ -166,6 +168,9 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
                 Title = x.j.Title,
                 DepartmentName = x.j.Department.Name,
                 RoleName = x.j.Role.Name,
+                MinimumExperienceYears = x.j.MinimumExperienceYears,
+                ContactPhone = x.j.ContactPhone,
+                WhatsAppNumber = x.j.WhatsAppNumber,
                 MinSalary = x.j.MinSalary,
                 MaxSalary = x.j.MaxSalary,
                 Status = x.j.Status,

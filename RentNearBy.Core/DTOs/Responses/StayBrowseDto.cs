@@ -12,6 +12,6 @@ public class StayBrowseDto
     public string? DistrictName { get; set; }
     public int? MinPricePerNight { get; set; }
     public string? MealsChip { get; set; }      // best meals across rooms: AllMeals > Breakfast > null
-    public string? BathroomChip { get; set; }   // "Attached bath" when any room is Attached
+    public string? RoomNameChip { get; set; }   // name of the cheapest room
     public DateTime CreatedAt { get; set; }
 }

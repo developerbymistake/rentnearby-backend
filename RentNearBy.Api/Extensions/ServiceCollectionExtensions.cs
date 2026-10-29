@@ -141,6 +141,12 @@ public static class ServiceCollectionExtensions
         // Role-requested worker: consumes role.requested and notifies admins via AdminDeviceTokens + FCM.
         services.AddHostedService<RoleRequestedWorkerService>();
 
+        // Stay-job-posted seeker fan-out: consumes stayjob.posted.seekers (no DLQ — queue args must stay null to match RabbitMqPublisher), FCM to every active Seeker's valid tokens in batches.
+        services.AddHostedService<StayJobPostedSeekerWorkerService>();
+
+        // Stay-job-posted admin nudge: consumes stayjob.posted.admin, FCM via AdminDeviceTokens (own queue, not golive.requested).
+        services.AddHostedService<StayJobPostedAdminWorkerService>();
+
         return services;
     }
 }

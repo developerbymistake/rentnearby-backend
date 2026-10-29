@@ -13,24 +13,27 @@ public class StayJob
 
     public Guid JobDepartmentId { get; set; }
     public Guid JobRoleId { get; set; }
-    public Guid JobExperienceLevelId { get; set; }
-    public Guid? JobTypeId { get; set; }
-    public Guid? JobShiftTypeId { get; set; }
-    public Guid? JobSalaryTypeId { get; set; }
+    public Guid JobTypeId { get; set; }
+    public Guid JobShiftTypeId { get; set; }
+    public Guid JobSalaryTypeId { get; set; }
 
-    public int? MinimumExperienceYears { get; set; }
+    public int MinimumExperienceYears { get; set; }   // 0 = Fresher
     public int MinSalary { get; set; }
     public int MaxSalary { get; set; }
+
+    public string ContactPhone { get; set; } = string.Empty;
+    public string WhatsAppNumber { get; set; } = string.Empty;
 
     public string Status { get; set; } = "Active";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public DateTime? ClosedAt { get; set; }
+    // Set once by the seeker push worker so a redelivered message never pushes twice.
+    public DateTime? SeekerPushedAt { get; set; }
 
     public JobDepartment Department { get; set; } = null!;
     public JobRole Role { get; set; } = null!;
-    public JobExperienceLevel ExperienceLevel { get; set; } = null!;
-    public JobType? JobType { get; set; }
-    public JobShiftType? ShiftType { get; set; }
-    public JobSalaryType? SalaryType { get; set; }
+    public JobType JobType { get; set; } = null!;
+    public JobShiftType ShiftType { get; set; } = null!;
+    public JobSalaryType SalaryType { get; set; } = null!;
 }

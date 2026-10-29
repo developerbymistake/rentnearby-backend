@@ -27,7 +27,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<StayJob> StayJobs { get; set; }
     public DbSet<JobDepartment> JobDepartments { get; set; }
     public DbSet<JobRole> JobRoles { get; set; }
-    public DbSet<JobExperienceLevel> JobExperienceLevels { get; set; }
     public DbSet<JobType> JobTypes { get; set; }
     public DbSet<JobShiftType> JobShiftTypes { get; set; }
     public DbSet<JobSalaryType> JobSalaryTypes { get; set; }
@@ -904,7 +903,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
             e.Property(r => r.UpdatedAt).HasDefaultValueSql("now()");
-            e.Property(r => r.Bathroom).HasMaxLength(8).IsRequired();
+            e.Property(r => r.RoomName).HasMaxLength(StayRoomNames.MaxLength).IsRequired();
             e.Property(r => r.Meals).HasMaxLength(12).IsRequired();
             e.HasOne<StayListing>()
              .WithMany(s => s.Rooms)
@@ -915,6 +914,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             {
                 t.HasCheckConstraint("ck_stayrooms_price_range", "\"PricePerNight\" >= 100 AND \"PricePerNight\" <= 9900000");
                 t.HasCheckConstraint("ck_stayrooms_max_guests", "\"MaxGuests\" >= 1 AND \"MaxGuests\" <= 4");
+                t.HasCheckConstraint("ck_stayrooms_room_name", "\"RoomName\" IN ('Standard', 'Deluxe', 'Premium', 'Suite', 'Family Room', 'Executive', 'Dormitory')");
             });
         });
 
@@ -933,7 +933,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         // ---- Stay Jobs ----
 
         ConfigureJobLookup<JobDepartment>(modelBuilder, uniqueName: true);
-        ConfigureJobLookup<JobExperienceLevel>(modelBuilder, uniqueName: true);
         ConfigureJobLookup<JobType>(modelBuilder, uniqueName: true);
         ConfigureJobLookup<JobShiftType>(modelBuilder, uniqueName: true);
         ConfigureJobLookup<JobSalaryType>(modelBuilder, uniqueName: true);
@@ -959,6 +958,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(j => j.Title).HasMaxLength(StayJobRules.TitleMax).IsRequired();
             e.Property(j => j.Description).HasMaxLength(StayJobRules.DescriptionMax).IsRequired();
             e.Property(j => j.Status).HasMaxLength(16).HasDefaultValue(StayJobStatuses.Active);
+            e.Property(j => j.ContactPhone).HasMaxLength(StayJobRules.PhoneLength).IsRequired();
+            e.Property(j => j.WhatsAppNumber).HasMaxLength(StayJobRules.PhoneLength).IsRequired();
 
             e.HasOne(j => j.Department)
              .WithMany()
@@ -968,24 +969,17 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(j => j.JobRoleId)
              .OnDelete(DeleteBehavior.Restrict);
-            e.HasOne(j => j.ExperienceLevel)
-             .WithMany()
-             .HasForeignKey(j => j.JobExperienceLevelId)
-             .OnDelete(DeleteBehavior.Restrict);
             e.HasOne(j => j.JobType)
              .WithMany()
              .HasForeignKey(j => j.JobTypeId)
-             .IsRequired(false)
              .OnDelete(DeleteBehavior.Restrict);
             e.HasOne(j => j.ShiftType)
              .WithMany()
              .HasForeignKey(j => j.JobShiftTypeId)
-             .IsRequired(false)
              .OnDelete(DeleteBehavior.Restrict);
             e.HasOne(j => j.SalaryType)
              .WithMany()
              .HasForeignKey(j => j.JobSalaryTypeId)
-             .IsRequired(false)
              .OnDelete(DeleteBehavior.Restrict);
 
             e.HasIndex(j => j.StayListingId);
@@ -998,7 +992,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             {
                 t.HasCheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Closed')");
                 t.HasCheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
-                t.HasCheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" IS NULL OR (\"MinimumExperienceYears\" BETWEEN 1 AND 20)");
+                t.HasCheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" BETWEEN 0 AND 20");
             });
         });
 
