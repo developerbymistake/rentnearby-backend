@@ -12,8 +12,8 @@ public static class RoleChangeRules
     public static string LiveListingBlockedMessage(string listingKind) => listingKind switch
     {
         ListingKinds.Room => "Live rooms or a pending Go Live request block this role change.",
-        ListingKinds.Stay => "A stay under review blocks this role change.",
-        ListingKinds.Taxi => "A taxi under review blocks this role change.",
+        ListingKinds.Stay => "An approved stay or one under review blocks this role change.",
+        ListingKinds.Taxi => "An approved taxi or one under review blocks this role change.",
         _ => "Live plots or a pending Go Live request block this role change.",
     };
 

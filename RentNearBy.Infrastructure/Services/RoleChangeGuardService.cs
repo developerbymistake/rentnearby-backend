@@ -5,7 +5,7 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: one under review.
+// Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: under review or approved.
 public class RoleChangeGuardService(ApplicationDbContext context) : IRoleChangeGuardService
 {
     public async Task<BlockingListingCounts> GetBlockingCountsAsync(Guid userId)
@@ -23,10 +23,12 @@ public class RoleChangeGuardService(ApplicationDbContext context) : IRoleChangeG
                     || l.LiveRequestStatus == GoLiveRequestStatuses.Pending));
 
         var stays = await context.StayListings.AsNoTracking()
-            .CountAsync(s => s.UserId == userId && !s.IsDeleted && s.Status == StayStatuses.PendingReview);
+            .CountAsync(s => s.UserId == userId && !s.IsDeleted
+                && (s.Status == StayStatuses.PendingReview || s.Status == StayStatuses.Approved));
 
         var taxis = await context.TaxiListings.AsNoTracking()
-            .CountAsync(t => t.UserId == userId && !t.IsDeleted && t.Status == TaxiStatuses.PendingReview);
+            .CountAsync(t => t.UserId == userId && !t.IsDeleted
+                && (t.Status == TaxiStatuses.PendingReview || t.Status == TaxiStatuses.Approved));
 
         return new BlockingListingCounts(rooms, plots, stays, taxis);
     }
@@ -56,13 +58,15 @@ public class RoleChangeGuardService(ApplicationDbContext context) : IRoleChangeG
             .ToDictionaryAsync(x => x.UserId, x => x.Count);
 
         var stays = await context.StayListings.AsNoTracking()
-            .Where(s => userIds.Contains(s.UserId) && !s.IsDeleted && s.Status == StayStatuses.PendingReview)
+            .Where(s => userIds.Contains(s.UserId) && !s.IsDeleted
+                && (s.Status == StayStatuses.PendingReview || s.Status == StayStatuses.Approved))
             .GroupBy(s => s.UserId)
             .Select(g => new { UserId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.UserId, x => x.Count);
 
         var taxis = await context.TaxiListings.AsNoTracking()
-            .Where(t => userIds.Contains(t.UserId) && !t.IsDeleted && t.Status == TaxiStatuses.PendingReview)
+            .Where(t => userIds.Contains(t.UserId) && !t.IsDeleted
+                && (t.Status == TaxiStatuses.PendingReview || t.Status == TaxiStatuses.Approved))
             .GroupBy(t => t.UserId)
             .Select(g => new { UserId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.UserId, x => x.Count);
