@@ -113,6 +113,8 @@ public static class UsersHandlers
         dto.RoleRequestStatus = latest?.Status;
         dto.RoleRequestReason = latest?.Status == RoleChangeRequestStatuses.Rejected ? latest.RejectionReason : null;
         dto.NextRoleRequestAt = RoleChangeRules.NextRequestAllowedAt(latest?.Status, latest?.ReviewedAt, DateTime.UtcNow);
+        if (user.RoleId == UserRoles.StayOwnerId)
+            dto.StayStatus = await unitOfWork.Stays.GetStatusByUserAsync(user.Id);
         return dto;
     }
 

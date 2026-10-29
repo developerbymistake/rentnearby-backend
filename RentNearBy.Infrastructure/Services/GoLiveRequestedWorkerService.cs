@@ -116,8 +116,9 @@ public class GoLiveRequestedWorkerService : BackgroundService
 
         // Generic, non-deep-linking copy — no listing detail is needed since this is a pure
         // "go review the queue" nudge, not a per-listing routed notification.
-        const string adminTitle = "New Go-Live request";
-        const string adminBody = "New Go-Live request submitted for review";
+        var isStay = msg.ListingType == ListingKinds.Stay;
+        var adminTitle = isStay ? "New stay submitted" : "New Go-Live request";
+        var adminBody = isStay ? "A stay is waiting for review" : "New Go-Live request submitted for review";
 
         var adminTokens = (await unitOfWork.AdminDeviceTokens.GetAllValidAsync()).ToList();
         foreach (var token in adminTokens)

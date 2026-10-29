@@ -8,7 +8,7 @@ public class CreateConversationRequestValidator : AbstractValidator<CreateConver
     public CreateConversationRequestValidator()
     {
         RuleFor(x => x.ListingType)
-            .Must(t => t is "Room" or "Plot").WithMessage("ListingType must be 'Room' or 'Plot'");
+            .Must(t => t is "Room" or "Plot" or "Stay").WithMessage("ListingType must be 'Room', 'Plot' or 'Stay'");
 
         RuleFor(x => x.ListingId).NotEmpty();
     }

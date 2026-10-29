@@ -43,6 +43,11 @@ public class AdminListingReportDto
     public string? AreaUnit { get; set; }
     public decimal? AreaSqft { get; set; }
 
+    // Stay-only
+    public string? StayName { get; set; }
+    public string? StayTypeName { get; set; }
+    public int? MinPricePerNight { get; set; }
+
     // Populated only on GetReportById (single-item detail), left empty on the paginated list —
     // same convention as GoLiveRequestDto.Photos.
     public List<string> Photos { get; set; } = new();

@@ -3,10 +3,11 @@ namespace RentNearBy.Core.DTOs.Responses;
 public class ConversationDto
 {
     public Guid Id { get; set; }
-    public string ListingType { get; set; } = string.Empty; // "Room" | "Plot"
+    public string ListingType { get; set; } = string.Empty; // "Room" | "Plot" | "Stay"
     public Guid ListingId { get; set; }
     public Guid? RoomTypeId { get; set; } // set when ListingType == "Room" — used to filter question templates to this specific room type
     public Guid? PlotTypeId { get; set; } // set when ListingType == "Plot"
+    public Guid? StayTypeId { get; set; } // set when ListingType == "Stay"
     public string ListingTitle { get; set; } = string.Empty;
     // Concise locality label — City.Name, falling back to District.Name when no city is set.
     // Same precedence as ListingDto/PlotDto's CityName-then-DistrictName convention.

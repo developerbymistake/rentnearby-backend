@@ -221,11 +221,11 @@ app.MapGet("/app", (IConfiguration configuration) =>
 // Play/App Store, config-driven via the same AppLinks:PlayStoreUrl. The Android App Link + the app's
 // own deep-link resolver (GET /listings|plots/by-slug/{slug}) are what actually resolve {type}/{slug}
 // to a listing when the app IS installed — this HTML page is the "not installed" fallback only.
-// Route constraints below match the actual value shapes ("r"/"p" for type, SlugGenerator's
+// Route constraints below match the actual value shapes ("r"/"p"/"s" for type, SlugGenerator's
 // lowercase-alphanumeric-hyphenated output for slug — see SlugGenerator.cs) so a request carrying
 // anything else (e.g. an HTML/script-breakout payload) 404s before the handler ever runs, rather than
 // being accepted and relying solely on output encoding below.
-app.MapGet("/go/{type:regex(^(r|p)$)}/{slug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}", (string type, string slug, IConfiguration configuration) =>
+app.MapGet("/go/{type:regex(^(r|p|s)$)}/{slug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}", (string type, string slug, IConfiguration configuration) =>
 {
     var playStoreUrl = configuration["AppLinks:PlayStoreUrl"] ?? "";
     var appStoreUrl = configuration["AppLinks:AppStoreUrl"] ?? "";
@@ -342,6 +342,22 @@ app.MapGroup("/api/v1/plots")
 app.MapGroup("/api/v1/admin/plots")
     .WithTags("AdminPlotListings")
     .MapAdminPlotListingEndpoints();
+
+app.MapGroup("/api/v1/stays")
+    .WithTags("Stays")
+    .MapStayEndpoints();
+
+app.MapGroup("/api/v1/admin/stays")
+    .WithTags("AdminStays")
+    .MapAdminStayEndpoints();
+
+app.MapGroup("/api/v1/stay-jobs")
+    .WithTags("StayJobs")
+    .MapStayJobEndpoints();
+
+app.MapGroup("/api/v1/admin/stay-jobs")
+    .WithTags("AdminStayJobs")
+    .MapAdminStayJobEndpoints();
 
 app.MapGroup("/api/v1/account")
     .WithTags("Account")

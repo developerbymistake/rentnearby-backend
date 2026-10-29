@@ -4,8 +4,13 @@ public static class UserNotificationRoutes
 {
     public const string MyListings = "/my-listings";
     public const string MyPlots = "/my-plots";
+    public const string MyStays = "/my-stays";
     public const string Notifications = "/notifications";
 
-    public static string ForListingKind(string listingKind) =>
-        listingKind == ListingKinds.Room ? MyListings : MyPlots;
+    public static string ForListingKind(string listingKind) => listingKind switch
+    {
+        ListingKinds.Room => MyListings,
+        ListingKinds.Stay => MyStays,
+        _ => MyPlots,
+    };
 }

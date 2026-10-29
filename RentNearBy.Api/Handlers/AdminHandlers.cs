@@ -214,6 +214,10 @@ public static class AdminHandlers
         if (await db.RoomListings.AnyAsync(l => l.DistrictId == id && l.IsActive && !l.IsDeleted))
             return BadRequestResponse("Cannot delete district with active listings");
 
+        // StayListing.DistrictId is FK Restrict, so any stay row (deleted ones too) blocks the delete.
+        if (await db.StayListings.AnyAsync(s => s.DistrictId == id))
+            return BadRequestResponse("Cannot delete district with stays");
+
         await unitOfWork.Districts.DeleteAsync(district);
         await unitOfWork.SaveChangesAsync();
 
@@ -478,6 +482,9 @@ public static class AdminHandlers
     {
         var reason = await unitOfWork.ReportReasons.GetByIdAsync(id);
         if (reason == null) return NotFoundResponse("Report reason not found");
+
+        if (DataSeeder.IsSeededReportReason(id))
+            return BadRequestResponse("Built-in reason. Rename it instead");
 
         if (await db.ListingReports.AnyAsync(r => r.ReasonId == id))
             return BadRequestResponse("Cannot delete a reason that is referenced by existing reports");
@@ -882,6 +889,8 @@ public static class AdminHandlers
             ActiveListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted && l.IsActive),
             TotalPlotListings = db.PlotListings.Count(l => l.UserId == u.Id && !l.IsDeleted),
             ActivePlotListings = db.PlotListings.Count(l => l.UserId == u.Id && !l.IsDeleted && l.IsActive),
+            TotalStays = db.StayListings.Count(s => s.UserId == u.Id && !s.IsDeleted),
+            StayStatus = db.StayListings.Where(s => s.UserId == u.Id && !s.IsDeleted).Select(s => s.Status).FirstOrDefault(),
             WalletBalance = db.Wallets.Where(w => w.UserId == u.Id).Select(w => (int?)w.Balance).FirstOrDefault() ?? 0,
         });
 
@@ -902,6 +911,8 @@ public static class AdminHandlers
                     ActiveListings = x.ActiveListings,
                     TotalPlotListings = x.TotalPlotListings,
                     ActivePlotListings = x.ActivePlotListings,
+                    TotalStays = x.TotalStays,
+                    StayStatus = x.StayStatus,
                     WalletBalance = x.WalletBalance,
                     Role = x.RoleKey,
                     RoleName = x.RoleName,
@@ -913,6 +924,7 @@ public static class AdminHandlers
         {
             item.LiveRoomListings = blocking[item.Id].Rooms;
             item.LivePlotListings = blocking[item.Id].Plots;
+            item.LiveStayListings = blocking[item.Id].Stays;
         }
 
         return OkResponse(result);
@@ -962,6 +974,9 @@ public static class AdminHandlers
             ActivePlotListings = await db.PlotListings.CountAsync(l => l.UserId == id && !l.IsDeleted && l.IsActive),
             LiveRoomListings = blocking.Rooms,
             LivePlotListings = blocking.Plots,
+            TotalStays = await db.StayListings.CountAsync(s => s.UserId == id && !s.IsDeleted),
+            LiveStayListings = blocking.Stays,
+            StayStatus = await db.StayListings.Where(s => s.UserId == id && !s.IsDeleted).Select(s => s.Status).FirstOrDefaultAsync(),
             WalletBalance = await db.Wallets.Where(w => w.UserId == id).Select(w => (int?)w.Balance).FirstOrDefaultAsync() ?? 0,
             Role = u.Role.Key,
             RoleName = u.Role.Name,
@@ -973,7 +988,8 @@ public static class AdminHandlers
     public static async Task<IResult> UpdateUserStatus(
         Guid id,
         UpdateUserStatusRequest request,
-        ApplicationDbContext db)
+        ApplicationDbContext db,
+        IServiceProvider sp)
     {
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return NotFoundResponse("User not found");
@@ -1004,6 +1020,17 @@ public static class AdminHandlers
         await plotQuery.ExecuteUpdateAsync(s => s
             .SetProperty(l => l.IsActive, request.IsActive)
             .SetProperty(l => l.UpdatedAt, now));
+
+        // Stays have no paid window, so an approved stay simply follows the owner: hidden on suspend,
+        // accepting guests again on un-suspend, like rooms and plots above.
+        var stayQuery = db.StayListings.Where(s => s.UserId == id && !s.IsDeleted && s.Status == StayStatuses.Approved);
+        var stayDistrictIds = await stayQuery.Select(s => s.DistrictId).Distinct().ToListAsync();
+        await stayQuery.ExecuteUpdateAsync(s => s
+            .SetProperty(x => x.AcceptingGuests, request.IsActive)
+            .SetProperty(x => x.UpdatedAt, now));
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        foreach (var districtId in stayDistrictIds)
+            await StayCache.InvalidateAsync(redis, districtId);
 
         // Revoke live sessions on suspend so the user's next request fails OnTokenValidated with 401
         // and the app force-logs out; re-login is then blocked by the IsActive check in AuthHandlers.
@@ -1638,6 +1665,7 @@ public static class AdminHandlers
         // has to be joined in manually here.
         var roomIds = paged.Items.Where(r => r.ListingType == ListingKinds.Room).Select(r => r.ListingId).Distinct().ToList();
         var plotIds = paged.Items.Where(r => r.ListingType == ListingKinds.Plot).Select(r => r.ListingId).Distinct().ToList();
+        var stayIds = paged.Items.Where(r => r.ListingType == ListingKinds.Stay).Select(r => r.ListingId).Distinct().ToList();
 
         var roomsById = roomIds.Count == 0 ? new Dictionary<Guid, RoomListing>() : await db.RoomListings
             .AsNoTracking().Include(l => l.RoomType).Include(l => l.District).Include(l => l.City)
@@ -1645,12 +1673,16 @@ public static class AdminHandlers
         var plotsById = plotIds.Count == 0 ? new Dictionary<Guid, PlotListing>() : await db.PlotListings
             .AsNoTracking().Include(p => p.PlotType).Include(p => p.District).Include(p => p.City)
             .Where(p => plotIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
+        var staysById = stayIds.Count == 0 ? new Dictionary<Guid, StayListing>() : await db.StayListings
+            .AsNoTracking().Include(s => s.StayType).Include(s => s.District).Include(s => s.City)
+            .Where(s => stayIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id);
 
         var items = paged.Items.Select(r =>
         {
             var dto = ToAdminListingReportDto(r);
             if (r.ListingType == ListingKinds.Room && roomsById.TryGetValue(r.ListingId, out var room)) ApplyRoomReportDetails(dto, room);
             else if (r.ListingType == ListingKinds.Plot && plotsById.TryGetValue(r.ListingId, out var plot)) ApplyPlotReportDetails(dto, plot);
+            else if (r.ListingType == ListingKinds.Stay && staysById.TryGetValue(r.ListingId, out var stay)) AdminStayHandlers.ApplyStayReportDetails(dto, stay);
             return dto;
         }).ToList();
 
@@ -1681,6 +1713,15 @@ public static class AdminHandlers
             {
                 ApplyPlotReportDetails(dto, plot);
                 dto.Photos = plot.Photos.Select(p => p.PhotoUrl).ToList();
+            }
+        }
+        else if (report.ListingType == ListingKinds.Stay)
+        {
+            var stay = await unitOfWork.Stays.GetByIdForAdminAsync(report.ListingId);
+            if (stay != null)
+            {
+                AdminStayHandlers.ApplyStayReportDetails(dto, stay);
+                dto.Photos = stay.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList();
             }
         }
 
@@ -1750,6 +1791,7 @@ public static class AdminHandlers
         {
             ListingKinds.Room => await RejectReportedRoomAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
             ListingKinds.Plot => await PlotListingHandlers.RejectReportedPlotAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
+            ListingKinds.Stay => await AdminStayHandlers.RejectReportedStayAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
             _ => BadRequestResponse($"Unknown listing type '{report.ListingType}' on this report"),
         };
     }

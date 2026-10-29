@@ -896,6 +896,239 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("DistrictBanners");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.JobDepartment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("JobDepartments");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.JobExperienceLevel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("JobExperienceLevels");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.JobRole", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<Guid>("JobDepartmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobDepartmentId");
+
+                    b.HasIndex("JobDepartmentId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("JobRoles");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.JobSalaryType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("JobSalaryTypes");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.JobShiftType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("JobShiftTypes");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.JobType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("JobTypes");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.ListingLimitSetting", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1414,6 +1647,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("StayTypeId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Key")
@@ -1422,6 +1658,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("PlotTypeId");
 
                     b.HasIndex("RoomTypeId");
+
+                    b.HasIndex("StayTypeId");
 
                     b.ToTable("QuestionTemplates");
                 });
@@ -1515,6 +1753,15 @@ namespace RentNearBy.Infrastructure.Migrations
                             Key = "PROPERTY_OWNER",
                             Name = "Property Owner",
                             SortOrder = 3
+                        },
+                        new
+                        {
+                            Id = new Guid("10000000-0000-0000-0000-000000000004"),
+                            Description = "List your stay",
+                            IsActive = true,
+                            Key = "STAY_OWNER",
+                            Name = "Stay Owner",
+                            SortOrder = 4
                         });
                 });
 
@@ -1845,6 +2092,407 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("Sessions");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid>("JobDepartmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("JobExperienceLevelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("JobRoleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("JobSalaryTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("JobShiftTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("JobTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("MaxSalary")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MinSalary")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("MinimumExperienceYears")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Active");
+
+                    b.Property<Guid>("StayListingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobDepartmentId");
+
+                    b.HasIndex("JobExperienceLevelId");
+
+                    b.HasIndex("JobRoleId");
+
+                    b.HasIndex("JobSalaryTypeId");
+
+                    b.HasIndex("JobShiftTypeId");
+
+                    b.HasIndex("JobTypeId");
+
+                    b.HasIndex("StayListingId");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_stayjobs_status_created");
+
+                    b.HasIndex("UserId", "Status");
+
+                    b.ToTable("StayJobs", t =>
+                        {
+                            t.HasCheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" IS NULL OR (\"MinimumExperienceYears\" BETWEEN 1 AND 20)");
+
+                            t.HasCheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
+
+                            t.HasCheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Closed')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayListing", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<bool>("AcceptingGuests")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("AlcoholAllowed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("CancellationPolicy")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<TimeOnly?>("CheckInTime")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<TimeOnly?>("CheckOutTime")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<Guid?>("CityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid?>("DistrictId")
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<string[]>("Facilities")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'::text[]");
+
+                    b.Property<bool?>("HostLivesHere")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IdProofRequired")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Latitude")
+                        .HasColumnType("numeric");
+
+                    b.Property<Point>("Location")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("geography(Point, 4326)")
+                        .HasComputedColumnSql("ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", true);
+
+                    b.Property<decimal?>("Longitude")
+                        .HasColumnType("numeric");
+
+                    b.Property<int?>("MinPricePerNight")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<bool>("PetsAllowed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RejectedReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReviewedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("RulesSavedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Slug")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("SmokingAllowed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Draft");
+
+                    b.Property<Guid?>("StayTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("UnmarriedCouplesAllowed")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VehicleAccess")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CityId");
+
+                    b.HasIndex("DistrictId");
+
+                    b.HasIndex("Location")
+                        .HasDatabaseName("ix_staylistings_location_gist");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Location"), "gist");
+
+                    b.HasIndex("ReviewedByAdminId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.HasIndex("StayTypeId");
+
+                    b.HasIndex("DistrictId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_staylistings_browse_district_created")
+                        .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex("DistrictId", "MinPricePerNight")
+                        .HasDatabaseName("ix_staylistings_browse_district_price")
+                        .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex("Status", "SubmittedAt");
+
+                    b.HasIndex("UserId", "IsDeleted");
+
+                    b.HasIndex("DistrictId", "CityId", "CreatedAt")
+                        .IsDescending(false, false, true)
+                        .HasDatabaseName("ix_staylistings_browse_district_city_created")
+                        .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+                    b.HasIndex(new[] { "UserId" }, "ix_staylistings_user_live")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.ToTable("StayListings", t =>
+                        {
+                            t.HasCheckConstraint("ck_staylistings_min_price_range", "\"MinPricePerNight\" IS NULL OR (\"MinPricePerNight\" >= 100 AND \"MinPricePerNight\" <= 9900000)");
+
+                            t.HasCheckConstraint("ck_staylistings_status", "\"Status\" IN ('Draft', 'PendingReview', 'Approved', 'Rejected')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayPhoto", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("PhotoOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PhotoUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("StayListingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StayListingId");
+
+                    b.ToTable("StayPhotos");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayRoom", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Bathroom")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<short>("MaxGuests")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("Meals")
+                        .IsRequired()
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)");
+
+                    b.Property<int>("PricePerNight")
+                        .HasColumnType("integer");
+
+                    b.Property<short>("RoomIndex")
+                        .HasColumnType("smallint");
+
+                    b.Property<Guid>("StayListingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StayListingId", "RoomIndex")
+                        .IsUnique();
+
+                    b.ToTable("StayRooms", t =>
+                        {
+                            t.HasCheckConstraint("ck_stayrooms_max_guests", "\"MaxGuests\" >= 1 AND \"MaxGuests\" <= 4");
+
+                            t.HasCheckConstraint("ck_stayrooms_price_range", "\"PricePerNight\" >= 100 AND \"PricePerNight\" <= 9900000");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("StayTypes");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2104,6 +2752,17 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("District");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.JobRole", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.JobDepartment", "Department")
+                        .WithMany()
+                        .HasForeignKey("JobDepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Department");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.ListingReport", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.ReportReason", "Reason")
@@ -2232,6 +2891,11 @@ namespace RentNearBy.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("RoomTypeId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("RentNearBy.Core.Entities.StayType", null)
+                        .WithMany()
+                        .HasForeignKey("StayTypeId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.RoleChangeRequest", b =>
@@ -2322,6 +2986,109 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayJob", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.JobDepartment", "Department")
+                        .WithMany()
+                        .HasForeignKey("JobDepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.JobExperienceLevel", "ExperienceLevel")
+                        .WithMany()
+                        .HasForeignKey("JobExperienceLevelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.JobRole", "Role")
+                        .WithMany()
+                        .HasForeignKey("JobRoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.JobSalaryType", "SalaryType")
+                        .WithMany()
+                        .HasForeignKey("JobSalaryTypeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("RentNearBy.Core.Entities.JobShiftType", "ShiftType")
+                        .WithMany()
+                        .HasForeignKey("JobShiftTypeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("RentNearBy.Core.Entities.JobType", "JobType")
+                        .WithMany()
+                        .HasForeignKey("JobTypeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Department");
+
+                    b.Navigation("ExperienceLevel");
+
+                    b.Navigation("JobType");
+
+                    b.Navigation("Role");
+
+                    b.Navigation("SalaryType");
+
+                    b.Navigation("ShiftType");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayListing", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.City", "City")
+                        .WithMany()
+                        .HasForeignKey("CityId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.District", "District")
+                        .WithMany()
+                        .HasForeignKey("DistrictId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("RentNearBy.Core.Entities.Admin", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.StayType", "StayType")
+                        .WithMany("StayListings")
+                        .HasForeignKey("StayTypeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("RentNearBy.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("City");
+
+                    b.Navigation("District");
+
+                    b.Navigation("StayType");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayPhoto", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.StayListing", null)
+                        .WithMany("Photos")
+                        .HasForeignKey("StayListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayRoom", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.StayListing", null)
+                        .WithMany("Rooms")
+                        .HasForeignKey("StayListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
                 {
                     b.HasOne("RentNearBy.Core.Entities.Role", "Role")
@@ -2382,6 +3149,18 @@ namespace RentNearBy.Infrastructure.Migrations
             modelBuilder.Entity("RentNearBy.Core.Entities.RoomListing", b =>
                 {
                     b.Navigation("Photos");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayListing", b =>
+                {
+                    b.Navigation("Photos");
+
+                    b.Navigation("Rooms");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayType", b =>
+                {
+                    b.Navigation("StayListings");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>

@@ -20,6 +20,17 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<PlotType> PlotTypes { get; set; }
     public DbSet<PlotListing> PlotListings { get; set; }
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
+    public DbSet<StayType> StayTypes { get; set; }
+    public DbSet<StayListing> StayListings { get; set; }
+    public DbSet<StayRoom> StayRooms { get; set; }
+    public DbSet<StayPhoto> StayPhotos { get; set; }
+    public DbSet<StayJob> StayJobs { get; set; }
+    public DbSet<JobDepartment> JobDepartments { get; set; }
+    public DbSet<JobRole> JobRoles { get; set; }
+    public DbSet<JobExperienceLevel> JobExperienceLevels { get; set; }
+    public DbSet<JobType> JobTypes { get; set; }
+    public DbSet<JobShiftType> JobShiftTypes { get; set; }
+    public DbSet<JobSalaryType> JobSalaryTypes { get; set; }
     public DbSet<DeviceToken> DeviceTokens { get; set; }
     public DbSet<NotificationLog> NotificationLogs { get; set; }
     public DbSet<DistrictBanner> DistrictBanners { get; set; }
@@ -103,7 +114,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasData(
                 new Role { Id = UserRoles.SeekerId, Key = UserRoles.Seeker, Name = "Seeker", Description = "Find rooms and plots", SortOrder = 1, IsActive = true },
                 new Role { Id = UserRoles.RentOwnerId, Key = UserRoles.RentOwner, Name = "Rent Owner", Description = "List rooms for rent", SortOrder = 2, IsActive = true },
-                new Role { Id = UserRoles.PropertyOwnerId, Key = UserRoles.PropertyOwner, Name = "Property Owner", Description = "List plots for sale", SortOrder = 3, IsActive = true });
+                new Role { Id = UserRoles.PropertyOwnerId, Key = UserRoles.PropertyOwner, Name = "Property Owner", Description = "List plots for sale", SortOrder = 3, IsActive = true },
+                new Role { Id = UserRoles.StayOwnerId, Key = UserRoles.StayOwner, Name = "Stay Owner", Description = "List your stay", SortOrder = 4, IsActive = true });
         });
 
         modelBuilder.Entity<RoleChangeRequest>(e =>
@@ -209,6 +221,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(p => p.Name).IsUnique();
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<StayType>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(t => t.Name).IsUnique();
+            e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<ReportReason>(e =>
@@ -342,9 +362,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(q => q.PlotTypeId)
              .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<StayType>()
+             .WithMany()
+             .HasForeignKey(q => q.StayTypeId)
+             .OnDelete(DeleteBehavior.Restrict);
 
             e.HasIndex(q => q.RoomTypeId);
             e.HasIndex(q => q.PlotTypeId);
+            e.HasIndex(q => q.StayTypeId);
         });
 
         modelBuilder.Entity<CreditFeature>(e =>
@@ -784,6 +809,199 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(ph => ph.PlotId);
         });
 
+        modelBuilder.Entity<StayListing>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(s => s.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.Property(s => s.Name).HasMaxLength(80);
+            e.Property(s => s.VehicleAccess).HasMaxLength(16);
+            e.Property(s => s.Facilities).HasColumnType("text[]").HasDefaultValueSql("'{}'::text[]");
+            e.Property(s => s.Description).HasMaxLength(300);
+            e.Property(s => s.Address).HasMaxLength(500);
+            e.Property(s => s.CancellationPolicy).HasMaxLength(16);
+            e.Property(s => s.Status).HasMaxLength(16).HasDefaultValue(StayStatuses.Draft);
+            e.Property(s => s.AcceptingGuests).HasDefaultValue(true);
+            e.Property(s => s.RejectedReason).HasMaxLength(300);
+
+            e.HasOne(s => s.User)
+             .WithMany()
+             .HasForeignKey(s => s.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(s => s.StayType)
+             .WithMany(t => t.StayListings)
+             .HasForeignKey(s => s.StayTypeId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(s => s.District)
+             .WithMany()
+             .HasForeignKey(s => s.DistrictId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(s => s.City)
+             .WithMany()
+             .HasForeignKey(s => s.CityId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasOne<Admin>()
+             .WithMany()
+             .HasForeignKey(s => s.ReviewedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // One stay per account while not deleted; also serves as the UserId FK index.
+            e.HasIndex(s => s.UserId, "ix_staylistings_user_live")
+             .IsUnique()
+             .HasFilter("\"IsDeleted\" = false");
+            e.HasIndex(s => s.DistrictId);
+            e.HasIndex(s => s.CityId);
+            e.HasIndex(s => s.StayTypeId);
+            e.HasIndex(s => s.Slug).IsUnique();
+            e.HasIndex(s => new { s.UserId, s.IsDeleted });
+            // Admin review queue.
+            e.HasIndex(s => new { s.Status, s.SubmittedAt });
+
+            // NULL while lat/lng are unset; the GiST index and nearby SQL skip those rows.
+            e.Property<NetTopologySuite.Geometries.Point?>("Location")
+             .HasColumnType("geography(Point, 4326)")
+             .HasComputedColumnSql(
+                 "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography",
+                 stored: true);
+            e.HasIndex("Location")
+             .HasMethod("gist")
+             .HasDatabaseName("ix_staylistings_location_gist");
+
+            // Partial: Stays browse — same shape as the roomlistings_browse indexes, live = Approved + accepting.
+            e.HasIndex(s => new { s.DistrictId, s.CreatedAt })
+             .IsDescending(false, true)
+             .HasDatabaseName("ix_staylistings_browse_district_created")
+             .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(s => new { s.DistrictId, s.CityId, s.CreatedAt })
+             .IsDescending(false, false, true)
+             .HasDatabaseName("ix_staylistings_browse_district_city_created")
+             .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(s => new { s.DistrictId, s.MinPricePerNight })
+             .HasDatabaseName("ix_staylistings_browse_district_price")
+             .HasFilter("\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
+
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_staylistings_min_price_range", "\"MinPricePerNight\" IS NULL OR (\"MinPricePerNight\" >= 100 AND \"MinPricePerNight\" <= 9900000)");
+                t.HasCheckConstraint("ck_staylistings_status", "\"Status\" IN ('Draft', 'PendingReview', 'Approved', 'Rejected')");
+            });
+        });
+
+        modelBuilder.Entity<StayRoom>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(r => r.UpdatedAt).HasDefaultValueSql("now()");
+            e.Property(r => r.Bathroom).HasMaxLength(8).IsRequired();
+            e.Property(r => r.Meals).HasMaxLength(12).IsRequired();
+            e.HasOne<StayListing>()
+             .WithMany(s => s.Rooms)
+             .HasForeignKey(r => r.StayListingId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(r => new { r.StayListingId, r.RoomIndex }).IsUnique();
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_stayrooms_price_range", "\"PricePerNight\" >= 100 AND \"PricePerNight\" <= 9900000");
+                t.HasCheckConstraint("ck_stayrooms_max_guests", "\"MaxGuests\" >= 1 AND \"MaxGuests\" <= 4");
+            });
+        });
+
+        modelBuilder.Entity<StayPhoto>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(p => p.UploadedAt).HasDefaultValueSql("now()");
+            e.HasOne<StayListing>()
+             .WithMany(s => s.Photos)
+             .HasForeignKey(p => p.StayListingId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(p => p.StayListingId);
+        });
+
+        // ---- Stay Jobs ----
+
+        ConfigureJobLookup<JobDepartment>(modelBuilder, uniqueName: true);
+        ConfigureJobLookup<JobExperienceLevel>(modelBuilder, uniqueName: true);
+        ConfigureJobLookup<JobType>(modelBuilder, uniqueName: true);
+        ConfigureJobLookup<JobShiftType>(modelBuilder, uniqueName: true);
+        ConfigureJobLookup<JobSalaryType>(modelBuilder, uniqueName: true);
+        ConfigureJobLookup<JobRole>(modelBuilder, uniqueName: false);
+
+        modelBuilder.Entity<JobRole>(e =>
+        {
+            e.HasOne(r => r.Department)
+             .WithMany()
+             .HasForeignKey(r => r.JobDepartmentId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(r => r.JobDepartmentId);
+            e.HasIndex(r => new { r.JobDepartmentId, r.Name }).IsUnique();
+        });
+
+        // StayListingId and UserId carry no FK, so the Jobs module can be dropped on its own.
+        modelBuilder.Entity<StayJob>(e =>
+        {
+            e.HasKey(j => j.Id);
+            e.Property(j => j.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(j => j.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(j => j.UpdatedAt).HasDefaultValueSql("now()");
+            e.Property(j => j.Title).HasMaxLength(StayJobRules.TitleMax).IsRequired();
+            e.Property(j => j.Description).HasMaxLength(StayJobRules.DescriptionMax).IsRequired();
+            e.Property(j => j.Status).HasMaxLength(16).HasDefaultValue(StayJobStatuses.Active);
+
+            e.HasOne(j => j.Department)
+             .WithMany()
+             .HasForeignKey(j => j.JobDepartmentId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(j => j.Role)
+             .WithMany()
+             .HasForeignKey(j => j.JobRoleId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(j => j.ExperienceLevel)
+             .WithMany()
+             .HasForeignKey(j => j.JobExperienceLevelId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(j => j.JobType)
+             .WithMany()
+             .HasForeignKey(j => j.JobTypeId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(j => j.ShiftType)
+             .WithMany()
+             .HasForeignKey(j => j.JobShiftTypeId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(j => j.SalaryType)
+             .WithMany()
+             .HasForeignKey(j => j.JobSalaryTypeId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasIndex(j => j.StayListingId);
+            e.HasIndex(j => new { j.UserId, j.Status });
+            e.HasIndex(j => new { j.Status, j.CreatedAt })
+             .IsDescending(false, true)
+             .HasDatabaseName("ix_stayjobs_status_created");
+
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Closed')");
+                t.HasCheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
+                t.HasCheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" IS NULL OR (\"MinimumExperienceYears\" BETWEEN 1 AND 20)");
+            });
+        });
+
         modelBuilder.Entity<DeviceToken>(e =>
         {
             e.HasKey(d => d.Id);
@@ -897,5 +1115,20 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(r => r.DeletedAt); // powers the purge job's cutoff scan
         });
 
+    }
+
+    private static void ConfigureJobLookup<T>(ModelBuilder modelBuilder, bool uniqueName) where T : JobLookupBase
+    {
+        modelBuilder.Entity<T>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(x => x.Name).HasMaxLength(StayJobRules.LookupNameMax).IsRequired();
+            // Sentinel true, so an explicit false is still sent on insert.
+            e.Property(x => x.IsActive).HasDefaultValue(true).HasSentinel(true);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
+            if (uniqueName) e.HasIndex(x => x.Name).IsUnique();
+        });
     }
 }

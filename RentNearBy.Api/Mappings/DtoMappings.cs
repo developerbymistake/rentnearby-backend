@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Globalization;
+using System.Text.Json;
 using Mapster;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -32,6 +33,7 @@ public static class DtoMappings
         TypeAdapterConfig<City, CityDto>.NewConfig();
         TypeAdapterConfig<RoomType, RoomTypeDto>.NewConfig();
         TypeAdapterConfig<PlotType, PlotTypeDto>.NewConfig();
+        TypeAdapterConfig<StayType, StayTypeDto>.NewConfig();
 
         TypeAdapterConfig<RoomListing, RoomListingDto>.NewConfig()
             .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
@@ -71,6 +73,45 @@ public static class DtoMappings
                 ? src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList()
                 : new List<string>());
 
+        // Stay: Address only on the owner DTO; PendingReportCount is set by the handler.
+        TypeAdapterConfig<StayListing, StayOwnerDto>.NewConfig()
+            .Map(dest => dest.Percent, src => StaySetupRules.Percent(src))
+            .Map(dest => dest.Step1Done, src => StaySetupRules.Step1Done(src))
+            .Map(dest => dest.RoomsDone, src => StaySetupRules.RoomsDone(src))
+            .Map(dest => dest.RulesDone, src => StaySetupRules.RulesDone(src))
+            .Map(dest => dest.Submitted, src => StaySetupRules.Submitted(src))
+            .Map(dest => dest.Facilities, src => src.Facilities.ToList())
+            .Map(dest => dest.StayTypeName, src => src.StayType != null ? src.StayType.Name : null)
+            .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
+            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
+            .Map(dest => dest.Photos, src => src.Photos.OrderBy(p => p.PhotoOrder)
+                .Select(p => new StayPhotoDto { Id = p.Id, Url = p.PhotoUrl }).ToList())
+            .Map(dest => dest.Rooms, src => ToStayRoomDtos(src))
+            .Map(dest => dest.Rules, src => ToStayRulesDto(src))
+            .Ignore(dest => dest.PendingReportCount);
+
+        TypeAdapterConfig<StayListing, StayPublicDto>.NewConfig()
+            .Map(dest => dest.Facilities, src => src.Facilities.ToList())
+            .Map(dest => dest.StayTypeName, src => src.StayType != null ? src.StayType.Name : null)
+            .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
+            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
+            .Map(dest => dest.Photos, src => src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList())
+            .Map(dest => dest.Rooms, src => ToStayRoomDtos(src))
+            .Map(dest => dest.Rules, src => ToStayRulesDto(src))
+            .Map(dest => dest.OwnerName, src => src.User != null ? src.User.Name : null)
+            .Map(dest => dest.OwnerPhone, src => src.User != null && src.User.IsContactVisible ? src.User.PhoneNumber : null)
+            .Ignore(dest => dest.HasReported);
+
+        TypeAdapterConfig<StayListing, StayPublicSlugDto>.NewConfig()
+            .Map(dest => dest.Slug, src => src.Slug ?? string.Empty)
+            .Map(dest => dest.Facilities, src => src.Facilities.ToList())
+            .Map(dest => dest.StayTypeName, src => src.StayType != null ? src.StayType.Name : null)
+            .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
+            .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
+            .Map(dest => dest.Photos, src => src.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).ToList())
+            .Map(dest => dest.Rooms, src => ToStayRoomDtos(src))
+            .Map(dest => dest.Rules, src => ToStayRulesDto(src));
+
         // IsRead is deliberately NOT mapped here — it comes from a separate join
         // (NotificationListItem.IsRead), never a column on NotificationEvent itself. Handlers set it
         // explicitly after calling Adapt().
@@ -79,4 +120,32 @@ public static class DtoMappings
                 ? null
                 : JsonSerializer.Deserialize<Dictionary<string, string>>(src.ActionArgumentsJson, (JsonSerializerOptions?)null));
     }
+
+    private static List<StayRoomDto> ToStayRoomDtos(StayListing s) =>
+        s.Rooms.OrderBy(r => r.RoomIndex)
+            .Select(r => new StayRoomDto
+            {
+                Id = r.Id,
+                RoomIndex = r.RoomIndex,
+                PricePerNight = r.PricePerNight,
+                MaxGuests = r.MaxGuests,
+                Bathroom = r.Bathroom,
+                Meals = r.Meals,
+            })
+            .ToList();
+
+    // Null until the Rules step has been saved once.
+    private static StayRulesDto? ToStayRulesDto(StayListing s) => s.RulesSavedAt == null
+        ? null
+        : new StayRulesDto
+        {
+            CheckInTime = s.CheckInTime?.ToString("HH:mm", CultureInfo.InvariantCulture),
+            CheckOutTime = s.CheckOutTime?.ToString("HH:mm", CultureInfo.InvariantCulture),
+            PetsAllowed = s.PetsAllowed,
+            SmokingAllowed = s.SmokingAllowed,
+            AlcoholAllowed = s.AlcoholAllowed,
+            UnmarriedCouplesAllowed = s.UnmarriedCouplesAllowed,
+            IdProofRequired = s.IdProofRequired,
+            CancellationPolicy = s.CancellationPolicy,
+        };
 }

@@ -14,5 +14,6 @@ public class UserDto
     public string? RoleRequestStatus { get; set; }
     public string? RoleRequestReason { get; set; }
     public DateTime? NextRoleRequestAt { get; set; }
+    public string? StayStatus { get; set; }   // Stay Owner only; null when no live stay row
     public DateTime CreatedAt { get; set; }
 }

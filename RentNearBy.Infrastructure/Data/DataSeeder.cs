@@ -6,6 +6,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Utils;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace RentNearBy.Infrastructure.Data;
 
@@ -21,6 +22,8 @@ public static class DataSeeder
     {
         await SeedRoomTypesAsync(db);
         await SeedPlotTypesAsync(db);
+        await SeedStayTypesAsync(db);
+        await SeedStayJobLookupsAsync(db);
         await SeedReportReasonsAsync(db);
         await SeedQuestionTemplatesAsync(db);
         await SeedCreditFeaturesAsync(db);
@@ -260,17 +263,141 @@ public static class DataSeeder
         await db.SaveChangesAsync();
     }
 
+    private static async Task SeedStayTypesAsync(ApplicationDbContext db)
+    {
+        if (await db.StayTypes.AnyAsync()) return;
+
+        var stayTypes = new[]
+        {
+            new StayType { Id = Guid.Parse("e1000000-0000-0000-0000-000000000001"), Name = "Homestay",  SortOrder = 1, Description = "Stay in the host's home",         CreatedAt = DateTime.UtcNow },
+            new StayType { Id = Guid.Parse("e1000000-0000-0000-0000-000000000002"), Name = "Villa",     SortOrder = 2, Description = "Private villa or bungalow",       CreatedAt = DateTime.UtcNow },
+            new StayType { Id = Guid.Parse("e1000000-0000-0000-0000-000000000003"), Name = "Resort",    SortOrder = 3, Description = "Resort with shared facilities",   CreatedAt = DateTime.UtcNow },
+            new StayType { Id = Guid.Parse("e1000000-0000-0000-0000-000000000004"), Name = "Cottage",   SortOrder = 4, Description = "Small cottage or cabin",          CreatedAt = DateTime.UtcNow },
+            new StayType { Id = Guid.Parse("e1000000-0000-0000-0000-000000000005"), Name = "Farm stay", SortOrder = 5, Description = "Stay on a farm or orchard",       CreatedAt = DateTime.UtcNow },
+        };
+
+        db.StayTypes.AddRange(stayTypes);
+        await db.SaveChangesAsync();
+    }
+
+    // Per-row seeding re-adds any missing seed row, so seeded rows must never be hard-deleted
+    // (the admin delete handlers check these and ask to turn the row off or rename it instead).
+    private static readonly Regex SeededJobLookupId = new(@"^f[1-6]000000-0000-0000-0000-0000000000[0-9]{2}$");
+    private static readonly Regex SeededReportReasonId = new(@"^c1000000-0000-0000-0000-0000000000[0-9]{2}$");
+
+    public static bool IsSeededJobLookup(Guid id) => SeededJobLookupId.IsMatch(id.ToString());
+    public static bool IsSeededReportReason(Guid id) => SeededReportReasonId.IsMatch(id.ToString());
+
+    // Per-row incremental like report reasons: a row is added only when neither its Id nor its Name
+    // (for roles: the same department and Name) exists yet. Departments are saved before roles.
+    private static async Task SeedStayJobLookupsAsync(ApplicationDbContext db)
+    {
+        static Guid SeedId(char table, int n) => Guid.Parse($"f{table}000000-0000-0000-0000-0000000000{n:D2}");
+
+        await SeedJobLookupAsync(db.JobDepartments, new (int, string)[]
+        {
+            (1, "Front Office"), (2, "Housekeeping"), (3, "Food & Beverage"), (4, "Kitchen"), (5, "Sales & Marketing"),
+            (6, "Management"), (7, "Maintenance"), (8, "Security"), (9, "Guest Services"),
+        }, n => SeedId('1', n), db);
+
+        var roles = new (int N, int Dept, string Name, int Sort)[]
+        {
+            (1, 1, "Front Office Manager", 1), (2, 1, "Front Desk Executive", 2), (3, 1, "Guest Relations Executive", 3),
+            (4, 1, "Night Auditor", 4), (5, 1, "Receptionist", 5),
+            (6, 2, "Housekeeping Manager", 1), (7, 2, "Room Attendant", 2), (8, 2, "Laundry Supervisor", 3),
+            (9, 2, "Public Area Attendant", 4), (10, 2, "Housekeeper", 5), (11, 2, "Caretaker", 6),
+            (12, 3, "F&B Manager", 1), (13, 3, "Restaurant Supervisor", 2), (14, 3, "Waiter / Steward", 3), (15, 3, "Bartender", 4),
+            (16, 4, "Executive Chef", 1), (17, 4, "Sous Chef", 2), (18, 4, "Commis Chef", 3), (19, 4, "Kitchen Steward", 4),
+            (20, 4, "Cook", 5), (21, 4, "Kitchen Helper", 6),
+            (22, 5, "Sales Manager", 1), (23, 5, "Reservations Executive", 2), (24, 5, "Marketing Executive", 3),
+            (25, 5, "Digital Marketing Executive", 4),
+            (26, 6, "General Manager", 1), (27, 6, "Assistant General Manager", 2), (28, 6, "Duty Manager", 3),
+            (29, 6, "Guest Experience Manager", 4), (30, 6, "Property Manager", 5),
+            (31, 7, "Maintenance Manager", 1), (32, 7, "Electrician", 2), (33, 7, "Plumber", 3), (34, 7, "HVAC Technician", 4),
+            (35, 7, "Gardener", 5), (36, 7, "Handyman", 6),
+            (37, 8, "Security Supervisor", 1), (38, 8, "Security Guard", 2), (39, 8, "CCTV Operator", 3), (40, 8, "Watchman", 4),
+            (41, 9, "Guide", 1), (42, 9, "Driver", 2), (43, 9, "Activity Instructor", 3),
+        };
+
+        var deptIds = (await db.JobDepartments.Select(d => d.Id).ToListAsync()).ToHashSet();
+        var existingRoles = await db.JobRoles.Select(r => new { r.Id, r.JobDepartmentId, r.Name }).ToListAsync();
+        var roleIds = existingRoles.Select(r => r.Id).ToHashSet();
+        var roleKeys = existingRoles.Select(r => (r.JobDepartmentId, r.Name.ToLowerInvariant())).ToHashSet();
+        var now = DateTime.UtcNow;
+        var rolesToAdd = roles
+            .Select(r => new JobRole
+            {
+                Id = SeedId('2', r.N), JobDepartmentId = SeedId('1', r.Dept), Name = r.Name, SortOrder = r.Sort,
+                IsActive = true, CreatedAt = now, UpdatedAt = now,
+            })
+            .Where(r => deptIds.Contains(r.JobDepartmentId)
+                && !roleIds.Contains(r.Id) && !roleKeys.Contains((r.JobDepartmentId, r.Name.ToLowerInvariant())))
+            .ToList();
+        if (rolesToAdd.Count > 0)
+        {
+            db.JobRoles.AddRange(rolesToAdd);
+            await db.SaveChangesAsync();
+        }
+
+        await SeedJobLookupAsync(db.JobExperienceLevels, new (int, string)[]
+        {
+            (1, "Entry Level"), (2, "Mid Level"), (3, "Senior"),
+        }, n => SeedId('3', n), db);
+        await SeedJobLookupAsync(db.JobTypes, new (int, string)[]
+        {
+            (1, "Full-Time"), (2, "Part-Time"), (3, "Contract"), (4, "Internship"),
+        }, n => SeedId('4', n), db);
+        await SeedJobLookupAsync(db.JobShiftTypes, new (int, string)[]
+        {
+            (1, "Day Shift"), (2, "Night Shift"), (3, "Rotational"), (4, "Split Shift"),
+        }, n => SeedId('5', n), db);
+        await SeedJobLookupAsync(db.JobSalaryTypes, new (int, string)[]
+        {
+            (1, "Monthly"), (2, "Fixed"), (3, "Negotiable"),
+        }, n => SeedId('6', n), db);
+    }
+
+    // Sort order equals the row number for these flat lists.
+    private static async Task SeedJobLookupAsync<T>(
+        DbSet<T> set, (int N, string Name)[] rows, Func<int, Guid> id, ApplicationDbContext db)
+        where T : JobLookupBase, new()
+    {
+        var existing = await set.Select(x => new { x.Id, x.Name }).ToListAsync();
+        var existingIds = existing.Select(x => x.Id).ToHashSet();
+        var existingNames = existing.Select(x => x.Name.ToLowerInvariant()).ToHashSet();
+        var now = DateTime.UtcNow;
+
+        var toAdd = rows
+            .Select(r => new T { Id = id(r.N), Name = r.Name, SortOrder = r.N, IsActive = true, CreatedAt = now, UpdatedAt = now })
+            .Where(x => !existingIds.Contains(x.Id) && !existingNames.Contains(x.Name.ToLowerInvariant()))
+            .ToList();
+        if (toAdd.Count == 0) return;
+
+        set.AddRange(toAdd);
+        await db.SaveChangesAsync();
+    }
+
+    // Per-row incremental: a row is added only when neither its Id nor its Name exists yet, so new
+    // reasons reach databases that already hold some, and admin-made reasons are never duplicated.
     private static async Task SeedReportReasonsAsync(ApplicationDbContext db)
     {
-        if (await db.ReportReasons.AnyAsync()) return;
+        var existing = await db.ReportReasons.Select(r => new { r.Id, r.Name }).ToListAsync();
+        var existingIds = existing.Select(r => r.Id).ToHashSet();
+        var existingNames = existing.Select(r => r.Name.ToLowerInvariant()).ToHashSet();
 
         var reasons = new[]
         {
             new ReportReason { Id = Guid.Parse("c1000000-0000-0000-0000-000000000001"), Name = "Incorrect information", SortOrder = 1, Description = "Price, location or photos don't match the actual property", CreatedAt = DateTime.UtcNow },
             new ReportReason { Id = Guid.Parse("c1000000-0000-0000-0000-000000000002"), Name = "Offensive content",     SortOrder = 2, Description = "Contains nudity, abusive language or hate speech",          CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c1000000-0000-0000-0000-000000000003"), Name = "Fake or not available", SortOrder = 3, Description = "The place doesn't exist or isn't open to guests or tenants", CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c1000000-0000-0000-0000-000000000004"), Name = "Asked for advance payment", SortOrder = 4, Description = "Owner asked for money before a visit or stay",           CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c1000000-0000-0000-0000-000000000005"), Name = "Wrong contact details", SortOrder = 5, Description = "Phone number doesn't work or isn't the owner's",          CreatedAt = DateTime.UtcNow },
         };
 
-        db.ReportReasons.AddRange(reasons);
+        var toAdd = reasons.Where(r => !existingIds.Contains(r.Id) && !existingNames.Contains(r.Name.ToLowerInvariant())).ToList();
+        if (toAdd.Count == 0) return;
+
+        db.ReportReasons.AddRange(toAdd);
         await db.SaveChangesAsync();
     }
 
@@ -438,6 +565,97 @@ public static class DataSeeder
                 ListingType = "Plot",
                 QuestionText = "Is there proper approach road access?",
                 AnswerOptionsJson = "[{\"key\":\"yes_road_access\",\"text\":\"Yes, road access available\",\"sentiment\":\"positive\"},{\"key\":\"no_road_access\",\"text\":\"No proper road yet\",\"sentiment\":\"negative\"}]",
+                SortOrder = 8,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+
+            // Stay rows: only things the stay form does not already show (dates, extra guests,
+            // food type, pickup, visitors, discount, early check-in). "Both" stays Room and Plot.
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000014"),
+                Key = "stay_is_available",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Is it available this weekend?",
+                AnswerOptionsJson = "[{\"key\":\"yes_stay_available\",\"text\":\"Yes, available\",\"sentiment\":\"positive\"},{\"key\":\"no_stay_available\",\"text\":\"No, fully booked\",\"sentiment\":\"negative\"}]",
+                SortOrder = 1,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000015"),
+                Key = "stay_dates_free",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Is it free on my dates?",
+                AnswerOptionsJson = "[{\"key\":\"yes_dates_free\",\"text\":\"Yes, dates are free\",\"sentiment\":\"positive\"},{\"key\":\"call_to_confirm\",\"text\":\"Call me to confirm\",\"sentiment\":\"neutral\"},{\"key\":\"no_dates_free\",\"text\":\"No, already booked\",\"sentiment\":\"negative\"}]",
+                SortOrder = 2,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000016"),
+                Key = "stay_extra_guest",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Can one extra guest stay?",
+                AnswerOptionsJson = "[{\"key\":\"yes_extra_free\",\"text\":\"Yes, no extra cost\",\"sentiment\":\"positive\"},{\"key\":\"yes_extra_paid\",\"text\":\"Yes, extra charge applies\",\"sentiment\":\"neutral\"},{\"key\":\"no_extra_guest\",\"text\":\"No, listed guests only\",\"sentiment\":\"negative\"}]",
+                SortOrder = 3,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000017"),
+                Key = "stay_food_type",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "What food is served?",
+                AnswerOptionsJson = "[{\"key\":\"veg_nonveg\",\"text\":\"Veg and non-veg\",\"sentiment\":\"positive\"},{\"key\":\"veg_only\",\"text\":\"Veg only\",\"sentiment\":\"neutral\"},{\"key\":\"no_food_served\",\"text\":\"No food served\",\"sentiment\":\"negative\"}]",
+                SortOrder = 4,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000018"),
+                Key = "stay_pickup",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Is pickup from the bus stand available?",
+                AnswerOptionsJson = "[{\"key\":\"yes_pickup_free\",\"text\":\"Yes, free pickup\",\"sentiment\":\"positive\"},{\"key\":\"yes_pickup_paid\",\"text\":\"Yes, extra charge\",\"sentiment\":\"neutral\"},{\"key\":\"no_pickup\",\"text\":\"No pickup\",\"sentiment\":\"negative\"}]",
+                SortOrder = 5,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000019"),
+                Key = "stay_visitors",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Are outside visitors allowed?",
+                AnswerOptionsJson = "[{\"key\":\"yes_visitors\",\"text\":\"Yes, visitors allowed\",\"sentiment\":\"positive\"},{\"key\":\"no_visitors\",\"text\":\"No visitors\",\"sentiment\":\"negative\"}]",
+                SortOrder = 6,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000020"),
+                Key = "stay_long_stay_discount",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Any discount for a longer stay?",
+                AnswerOptionsJson = "[{\"key\":\"yes_discount\",\"text\":\"Yes, a discount is possible\",\"sentiment\":\"positive\"},{\"key\":\"no_discount\",\"text\":\"No, price is fixed\",\"sentiment\":\"negative\"}]",
+                SortOrder = 7,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000021"),
+                Key = "stay_early_checkin",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Is early check-in possible?",
+                AnswerOptionsJson = "[{\"key\":\"yes_early_checkin\",\"text\":\"Yes, if the room is free\",\"sentiment\":\"positive\"},{\"key\":\"no_early_checkin\",\"text\":\"No, standard time only\",\"sentiment\":\"negative\"}]",
                 SortOrder = 8,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,

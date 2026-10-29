@@ -13,7 +13,7 @@ public class CreateQuestionTemplateRequestValidator : AbstractValidator<CreateQu
             .Matches("^[a-z0-9_]+$").WithMessage("Key must be lowercase snake_case (e.g. is_available)");
 
         RuleFor(x => x.ListingType)
-            .Must(t => t is "Room" or "Plot" or "Both").WithMessage("ListingType must be 'Room', 'Plot' or 'Both'");
+            .Must(t => t is "Room" or "Plot" or "Stay" or "Both").WithMessage("ListingType must be 'Room', 'Plot', 'Stay' or 'Both'");
 
         RuleFor(x => x.RoomTypeId)
             .Null().When(x => x.ListingType != "Room")
@@ -22,6 +22,10 @@ public class CreateQuestionTemplateRequestValidator : AbstractValidator<CreateQu
         RuleFor(x => x.PlotTypeId)
             .Null().When(x => x.ListingType != "Plot")
             .WithMessage("PlotTypeId can only be set when ListingType is 'Plot'");
+
+        RuleFor(x => x.StayTypeId)
+            .Null().When(x => x.ListingType != "Stay")
+            .WithMessage("StayTypeId can only be set when ListingType is 'Stay'");
 
         RuleFor(x => x.QuestionText)
             .NotEmpty().WithMessage("Question text is required")
