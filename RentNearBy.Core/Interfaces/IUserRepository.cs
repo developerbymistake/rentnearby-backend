@@ -11,4 +11,6 @@ public interface IUserRepository : IRepository<User>
     Task<bool> IsPhoneVerifiedByAnyUserAsync(string phoneNumber);
     Task<int> ConfirmRoleChoiceAsync(Guid userId, Guid roleId);
     Task<int> SetRoleAsync(Guid userId, Guid roleId);
+    Task<int> CorrectRoleAsync(Guid userId, Guid fromRoleId, Guid toRoleId);
+    Task<int> LockIfRoleAsync(Guid userId, Guid roleId);
 }

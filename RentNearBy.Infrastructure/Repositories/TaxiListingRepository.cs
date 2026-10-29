@@ -26,6 +26,19 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             .Select(t => t.Status)
             .FirstOrDefaultAsync();
 
+    public async Task<bool> HasEverApprovedAsync(Guid userId)
+        => await _dbSet.AnyAsync(t => t.UserId == userId && t.EverApproved);
+
+    public async Task<bool> HasSubmittedHistoryAsync(Guid userId)
+        => await _dbSet.AnyAsync(t => t.UserId == userId
+            && (t.Status != TaxiStatuses.Draft || t.SubmittedAt != null || t.EverApproved));
+
+    // Row-locks every row of the user and bumps xmin, so a concurrent tracked write fails as a concurrency conflict.
+    public async Task<int> TouchAllByUserAsync(Guid userId)
+        => await _dbSet
+            .Where(t => t.UserId == userId)
+            .ExecuteUpdateAsync(x => x.SetProperty(t => t.UpdatedAt, DateTime.UtcNow));
+
     public async Task<TaxiListing?> GetByIdWithAllAsync(Guid id)
         => await _dbSet
             .AsNoTracking()

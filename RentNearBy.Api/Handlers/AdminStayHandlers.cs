@@ -92,6 +92,7 @@ public static class AdminStayHandlers
         {
             var now = DateTime.UtcNow;
             stay.Status = StayStatuses.Approved;
+            stay.EverApproved = true;
             // A suspended owner's stay stays hidden; un-suspend turns it back on.
             if (!ownerActive) stay.AcceptingGuests = false;
             stay.RejectedReason = null;

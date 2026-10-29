@@ -6,7 +6,8 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: under review or approved, whatever the tab state.
+// Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: under review, approved,
+// or ever approved (even if later rejected or deleted), whatever the tab state. The batch overload counts live rows only (display).
 public class RoleChangeGuardService(ApplicationDbContext context, IUnitOfWork unitOfWork, IMemoryCache cache)
     : IRoleChangeGuardService
 {
@@ -27,11 +28,13 @@ public class RoleChangeGuardService(ApplicationDbContext context, IUnitOfWork un
                     && ((l.IsActive && l.ValidUntil != null && l.ValidUntil > now)
                         || l.LiveRequestStatus == GoLiveRequestStatuses.Pending)),
             ListingKinds.Stay => await context.StayListings.AsNoTracking()
-                .CountAsync(s => s.UserId == userId && !s.IsDeleted
-                    && (s.Status == StayStatuses.PendingReview || s.Status == StayStatuses.Approved)),
+                .CountAsync(s => s.UserId == userId
+                    && (s.EverApproved
+                        || (!s.IsDeleted && (s.Status == StayStatuses.PendingReview || s.Status == StayStatuses.Approved)))),
             ListingKinds.Taxi => await context.TaxiListings.AsNoTracking()
-                .CountAsync(t => t.UserId == userId && !t.IsDeleted
-                    && (t.Status == TaxiStatuses.PendingReview || t.Status == TaxiStatuses.Approved)),
+                .CountAsync(t => t.UserId == userId
+                    && (t.EverApproved
+                        || (!t.IsDeleted && (t.Status == TaxiStatuses.PendingReview || t.Status == TaxiStatuses.Approved)))),
             _ => 0,
         };
     }

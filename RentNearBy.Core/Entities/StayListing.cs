@@ -31,6 +31,8 @@ public class StayListing
     public DateTime? RulesSavedAt { get; set; }
 
     public string Status { get; set; } = "Draft";
+    // Set on admin approval, never cleared: keeps the role locked after a later reject or delete.
+    public bool EverApproved { get; set; }
     public bool AcceptingGuests { get; set; } = true;
     public string? RejectedReason { get; set; }
     public DateTime? SubmittedAt { get; set; }

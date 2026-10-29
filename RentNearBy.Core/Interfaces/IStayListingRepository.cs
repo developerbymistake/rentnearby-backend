@@ -8,6 +8,10 @@ public interface IStayListingRepository : IRepository<StayListing>
     // Tracked, for the owner's own writes: Rooms/Photos edits are applied on the loaded collections.
     Task<StayListing?> GetLiveByUserAsync(Guid userId);
     Task<string?> GetStatusByUserAsync(Guid userId);
+    // Both include soft-deleted rows.
+    Task<bool> HasEverApprovedAsync(Guid userId);
+    Task<bool> HasSubmittedHistoryAsync(Guid userId);
+    Task<int> TouchAllByUserAsync(Guid userId);
     // !IsDeleted only; the handler applies the Approved-or-owner rule.
     Task<StayListing?> GetByIdWithAllAsync(Guid id);
     // Public share link: only an Approved, not deleted stay resolves.
