@@ -16,7 +16,10 @@ public class StayPublicSlugDto
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }
     public string? DistrictName { get; set; }
+    public Guid? CityId { get; set; }
     public string? CityName { get; set; }
+    public decimal? CityLatitude { get; set; }
+    public decimal? CityLongitude { get; set; }
     public List<string> Photos { get; set; } = new();
     public List<StayRoomDto> Rooms { get; set; } = new();
     public StayRulesDto? Rules { get; set; }

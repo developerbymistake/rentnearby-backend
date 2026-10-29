@@ -48,7 +48,7 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
             .ToListAsync();
 
     public async Task<(IReadOnlyList<StayJobSummaryDto> Items, bool HasMore)> BrowseAsync(
-        Guid districtId, Guid? departmentId, int? minExperience, int? maxExperience,
+        Guid districtId, Guid? cityId, Guid? departmentId, int? minExperience, int? maxExperience,
         int? minSalary, int? maxSalary, int page, int pageSize)
     {
         var query = PublicJobs()
@@ -67,7 +67,7 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
         var items = await (
                 from j in query
                 join s in context.StayListings on j.StayListingId equals s.Id
-                orderby j.CreatedAt descending, j.Id descending
+                orderby (cityId != null && s.CityId == cityId ? 0 : 1), j.CreatedAt descending, j.Id descending
                 select new StayJobSummaryDto
                 {
                     Id = j.Id,

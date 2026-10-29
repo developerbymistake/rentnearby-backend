@@ -111,7 +111,7 @@ public static class StayJobHandlers
         => OkResponse(await LoadLookupsAsync(db, activeOnly: true));
 
     public static async Task<IResult> GetBrowse(
-        Guid districtId, Guid? departmentId, int? minExperience, int? maxExperience, int? minSalary, int? maxSalary,
+        Guid districtId, Guid? cityId, Guid? departmentId, int? minExperience, int? maxExperience, int? minSalary, int? maxSalary,
         IUnitOfWork unitOfWork, int page = 1, int pageSize = DefaultPageSize)
     {
         var size = Math.Clamp(pageSize <= 0 ? DefaultPageSize : pageSize, 1, MaxPageSize);
@@ -121,7 +121,7 @@ public static class StayJobHandlers
         int? maxExp = maxExperience.HasValue
             ? Math.Clamp(maxExperience.Value, StayJobRules.MinExperienceYears, StayJobRules.MaxExperienceYears) : null;
         var (items, hasMore) = await unitOfWork.StayJobs.BrowseAsync(
-            districtId, departmentId, minExp, maxExp, minSalary, maxSalary, pageNo, size);
+            districtId, cityId, departmentId, minExp, maxExp, minSalary, maxSalary, pageNo, size);
         return OkResponse(new { items, hasMore });
     }
 
