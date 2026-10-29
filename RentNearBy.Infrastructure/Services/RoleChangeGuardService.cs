@@ -6,14 +6,14 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: under review or approved.
+// Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: under review or approved, whatever the tab state.
 public class RoleChangeGuardService(ApplicationDbContext context, IUnitOfWork unitOfWork, IMemoryCache cache)
     : IRoleChangeGuardService
 {
     public async Task<int> GetBlockingCountAsync(Guid userId, string leavingKind)
     {
         var tabs = await AppTabCache.GetAsync(unitOfWork, cache);
-        if (!TabState.IsKindActive(tabs, leavingKind)) return 0;
+        if ((leavingKind == ListingKinds.Room || leavingKind == ListingKinds.Plot) && !TabState.IsKindActive(tabs, leavingKind)) return 0;
 
         var now = DateTime.UtcNow;
         return leavingKind switch

@@ -64,18 +64,16 @@ public static class AdminRoleHandlers
         var blocking = await guard.GetBlockingCountsAsync(result.Items.Select(r => r.UserId).Distinct().ToList());
         var tabs = await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache);
         var availableRoleKeys = (await ConfigHandlers.GetAvailableRolesAsync(unitOfWork, cache)).Select(r => r.Key).ToHashSet();
-        // Live counts of an off-tab kind never block (same rule as the guard), so they are reported as 0.
+        // Live counts of an off-tab room or plot never block (same rule as the guard), so they are reported as 0.
         var roomsOn = TabState.IsActive(tabs, AppTabKeys.Rooms);
         var plotsOn = TabState.IsActive(tabs, AppTabKeys.Plots);
-        var staysOn = TabState.IsActive(tabs, AppTabKeys.Stays);
-        var taxiOn = TabState.IsActive(tabs, AppTabKeys.Taxi);
         foreach (var item in result.Items)
         {
             var counts = blocking[item.UserId];
             item.LiveRoomListingCount = roomsOn ? counts.Rooms : 0;
             item.LivePlotListingCount = plotsOn ? counts.Plots : 0;
-            item.LiveStayListingCount = staysOn ? counts.Stays : 0;
-            item.LiveTaxiListingCount = taxiOn ? counts.Taxis : 0;
+            item.LiveStayListingCount = counts.Stays;
+            item.LiveTaxiListingCount = counts.Taxis;
             item.ToRoleAvailable = availableRoleKeys.Contains(item.ToRole);
         }
 
