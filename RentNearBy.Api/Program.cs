@@ -330,6 +330,10 @@ app.MapGroup("/api/v1/listings")
     .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Rooms))
     .MapListingsEndpoints();
 
+app.MapGroup("/api/v1/locations")
+    .WithTags("Locations")
+    .MapLocationsEndpoints();
+
 app.MapGroup("/api/v1/admin")
     .WithTags("Admin")
     .MapAdminEndpoints();
@@ -345,6 +349,7 @@ app.MapGroup("/api/v1/admin/plots")
 
 app.MapGroup("/api/v1/stays")
     .WithTags("Stays")
+    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Stays))
     .MapStayEndpoints();
 
 app.MapGroup("/api/v1/admin/stays")
@@ -353,6 +358,7 @@ app.MapGroup("/api/v1/admin/stays")
 
 app.MapGroup("/api/v1/stay-jobs")
     .WithTags("StayJobs")
+    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Jobs, RentNearBy.Core.Models.AppTabKeys.Stays))
     .MapStayJobEndpoints();
 
 app.MapGroup("/api/v1/admin/stay-jobs")
@@ -361,6 +367,7 @@ app.MapGroup("/api/v1/admin/stay-jobs")
 
 app.MapGroup("/api/v1/taxis")
     .WithTags("Taxis")
+    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Taxi))
     .MapTaxiEndpoints();
 
 app.MapGroup("/api/v1/admin/taxis")

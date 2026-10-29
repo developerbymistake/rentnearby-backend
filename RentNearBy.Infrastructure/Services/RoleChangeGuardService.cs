@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
@@ -6,31 +7,33 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Services;
 
 // Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: under review or approved.
-public class RoleChangeGuardService(ApplicationDbContext context) : IRoleChangeGuardService
+public class RoleChangeGuardService(ApplicationDbContext context, IUnitOfWork unitOfWork, IMemoryCache cache)
+    : IRoleChangeGuardService
 {
-    public async Task<BlockingListingCounts> GetBlockingCountsAsync(Guid userId)
+    public async Task<int> GetBlockingCountAsync(Guid userId, string leavingKind)
     {
+        var tabs = await AppTabCache.GetAsync(unitOfWork, cache);
+        if (!TabState.IsKindActive(tabs, leavingKind)) return 0;
+
         var now = DateTime.UtcNow;
-
-        var rooms = await context.RoomListings.AsNoTracking()
-            .CountAsync(l => l.UserId == userId && !l.IsDeleted
-                && ((l.IsActive && l.ValidUntil != null && l.ValidUntil > now)
-                    || l.LiveRequestStatus == GoLiveRequestStatuses.Pending));
-
-        var plots = await context.PlotListings.AsNoTracking()
-            .CountAsync(l => l.UserId == userId && !l.IsDeleted
-                && ((l.IsActive && l.ValidUntil != null && l.ValidUntil > now)
-                    || l.LiveRequestStatus == GoLiveRequestStatuses.Pending));
-
-        var stays = await context.StayListings.AsNoTracking()
-            .CountAsync(s => s.UserId == userId && !s.IsDeleted
-                && (s.Status == StayStatuses.PendingReview || s.Status == StayStatuses.Approved));
-
-        var taxis = await context.TaxiListings.AsNoTracking()
-            .CountAsync(t => t.UserId == userId && !t.IsDeleted
-                && (t.Status == TaxiStatuses.PendingReview || t.Status == TaxiStatuses.Approved));
-
-        return new BlockingListingCounts(rooms, plots, stays, taxis);
+        return leavingKind switch
+        {
+            ListingKinds.Room => await context.RoomListings.AsNoTracking()
+                .CountAsync(l => l.UserId == userId && !l.IsDeleted
+                    && ((l.IsActive && l.ValidUntil != null && l.ValidUntil > now)
+                        || l.LiveRequestStatus == GoLiveRequestStatuses.Pending)),
+            ListingKinds.Plot => await context.PlotListings.AsNoTracking()
+                .CountAsync(l => l.UserId == userId && !l.IsDeleted
+                    && ((l.IsActive && l.ValidUntil != null && l.ValidUntil > now)
+                        || l.LiveRequestStatus == GoLiveRequestStatuses.Pending)),
+            ListingKinds.Stay => await context.StayListings.AsNoTracking()
+                .CountAsync(s => s.UserId == userId && !s.IsDeleted
+                    && (s.Status == StayStatuses.PendingReview || s.Status == StayStatuses.Approved)),
+            ListingKinds.Taxi => await context.TaxiListings.AsNoTracking()
+                .CountAsync(t => t.UserId == userId && !t.IsDeleted
+                    && (t.Status == TaxiStatuses.PendingReview || t.Status == TaxiStatuses.Approved)),
+            _ => 0,
+        };
     }
 
     public async Task<IReadOnlyDictionary<Guid, BlockingListingCounts>> GetBlockingCountsAsync(

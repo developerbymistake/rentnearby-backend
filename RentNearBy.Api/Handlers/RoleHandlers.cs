@@ -3,6 +3,7 @@ using System.Text.Json;
 using FluentValidation;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -15,10 +16,20 @@ namespace RentNearBy.Api.Handlers;
 
 public static class RoleHandlers
 {
-    public static async Task<IResult> GetRoles(IUnitOfWork unitOfWork)
+    public const string RoleUnavailableType = "RoleUnavailable";
+    private const string RoleUnavailableMessage = "This role is not available right now.";
+
+    // Only roles whose tab is on; filtered in memory from the cached roles and tabs (no DB on a hit).
+    public static async Task<IResult> GetRoles(IUnitOfWork unitOfWork, IMemoryCache cache)
     {
-        var roles = await unitOfWork.Roles.GetActiveOrderedAsync();
+        var roles = await ConfigHandlers.GetAvailableRolesAsync(unitOfWork, cache);
         return OkResponse(roles.Select(r => r.Adapt<RoleDto>()).ToList());
+    }
+
+    private static async Task<Role?> FindActiveRoleAsync(string key, IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        var normalized = key.Trim().ToUpperInvariant();
+        return (await ConfigHandlers.GetActiveRolesCachedAsync(unitOfWork, cache)).FirstOrDefault(r => r.Key == normalized);
     }
 
     public static async Task<IResult> ChooseRole(
@@ -26,7 +37,8 @@ public static class RoleHandlers
         IValidator<RoleKeyRequest> validator,
         ClaimsPrincipal principal,
         IUnitOfWork unitOfWork,
-        IJwtService jwtService)
+        IJwtService jwtService,
+        IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -38,9 +50,24 @@ public static class RoleHandlers
         if (!Guid.TryParse(principal.FindFirst("session_id")?.Value, out var sessionId))
             return UnauthorizedResponse();
 
-        var role = await unitOfWork.Roles.GetActiveByKeyAsync(request.Role.Trim().ToUpperInvariant());
+        var role = await FindActiveRoleAsync(request.Role, unitOfWork, cache);
         if (role == null)
             return BadRequestResponse("Unknown or inactive role.", "InvalidRole");
+
+        var tabs = await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache);
+        if (!TabState.IsRoleAvailable(tabs, role))
+        {
+            // The replay of a choice committed before the tab went off still gets its token.
+            var current = await unitOfWork.Users.GetByIdAsync(userId);
+            if (current == null) return NotFoundResponse("User not found");
+            if (current.RoleId != role.Id || current.RoleConfirmedAt == null)
+                return BadRequestResponse(RoleUnavailableMessage, RoleUnavailableType);
+            return OkResponse(new AuthResponse
+            {
+                Token = jwtService.GenerateToken(current, sessionId),
+                User = await UsersHandlers.BuildUserDtoAsync(current, unitOfWork, cache)
+            });
+        }
 
         var updated = await unitOfWork.Users.ConfirmRoleChoiceAsync(userId, role.Id);
 
@@ -54,7 +81,7 @@ public static class RoleHandlers
         return OkResponse(new AuthResponse
         {
             Token = jwtService.GenerateToken(user, sessionId),
-            User = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork)
+            User = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache)
         });
     }
 
@@ -66,7 +93,8 @@ public static class RoleHandlers
         IRabbitMqPublisher publisher,
         IRoleChangeGuardService guard,
         IRateLimitService rateLimiter,
-        HttpContext httpContext)
+        HttpContext httpContext,
+        IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -88,12 +116,17 @@ public static class RoleHandlers
         if (user.RoleConfirmedAt == null)
             return BadRequestResponse("Select your role first.", "RoleNotConfirmed");
 
-        var role = await unitOfWork.Roles.GetActiveByKeyAsync(request.Role.Trim().ToUpperInvariant());
+        var role = await FindActiveRoleAsync(request.Role, unitOfWork, cache);
         if (role == null)
             return BadRequestResponse("Unknown or inactive role.", "InvalidRole");
 
         if (role.Id == user.RoleId)
             return BadRequestResponse("This is already your role.", "RoleUnchanged");
+
+        // Leaving a role whose tab is off is always allowed; only the target must be available.
+        var tabs = await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache);
+        if (!TabState.IsRoleAvailable(tabs, role))
+            return BadRequestResponse(RoleUnavailableMessage, RoleUnavailableType);
 
         var latest = await unitOfWork.RoleChangeRequests.GetLatestForUserAsync(userId);
         if (latest?.Status == RoleChangeRequestStatuses.Pending)
@@ -103,7 +136,7 @@ public static class RoleHandlers
             return ConflictResponse(RoleChangeRules.CooldownMessage(nextAllowedAt), "RoleRequestCooldown");
 
         var leftKind = UserRoles.ListingKindOf(user.RoleId);
-        if (leftKind != null && (await guard.GetBlockingCountsAsync(userId)).ForKind(leftKind) > 0)
+        if (leftKind != null && await guard.GetBlockingCountAsync(userId, leftKind) > 0)
             return ConflictResponse(RoleChangeRules.LiveListingBlockedMessage(leftKind), RoleChangeRules.LiveListingErrorType);
 
         var roleRequest = new RoleChangeRequest

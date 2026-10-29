@@ -1,26 +1,31 @@
 using Microsoft.Extensions.Caching.Memory;
-using RentNearBy.Api.Handlers;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Filters;
 
-// Route-group-level gate for the consumer app's Rooms/Plots verticals — rejects every request
-// under a gated group with 403 the moment an admin flips that tab's AppTab.IsActive off, so a disabled
-// tab has zero reachable API surface (not just a hidden nav icon). Applied per-group in Program.cs to
-// the consumer-facing route groups only (/listings, /plots) — never to
-// the matching /admin/* groups, which must stay reachable so an admin can moderate existing data or
-// re-enable the tab while it's off. Chat is deliberately not gated: it is a shared Room+Plot entity
-// with no single owning tab.
-public class TabGateFilter(string tabKey) : IEndpointFilter
+// Route-group gate for the consumer verticals (/listings, /plots, /stays, /stay-jobs, /taxis): 403 TabInactive
+// while any of the given tabs is off, so a disabled tab has no reachable API surface. Never applied to the
+// /admin/* groups (admin moderates and re-enables while a tab is off), /home (soft per-section gating) or /chat
+// (checked per kind on CreateConversation). Routes tagged with SkipTabGateAttribute pass through.
+public class TabGateFilter(params string[] tabKeys) : IEndpointFilter
 {
+    public const string ErrorType = "TabInactive";
+
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
-        var unitOfWork = context.HttpContext.RequestServices.GetRequiredService<IUnitOfWork>();
-        var cache = context.HttpContext.RequestServices.GetRequiredService<IMemoryCache>();
+        var http = context.HttpContext;
+        if (http.GetEndpoint()?.Metadata.GetMetadata<SkipTabGateAttribute>() != null)
+            return await next(context);
 
-        if (!await ConfigHandlers.IsTabActiveCachedAsync(tabKey, unitOfWork, cache))
-            return ForbiddenResponse("This feature is currently unavailable.");
+        var unitOfWork = http.RequestServices.GetRequiredService<IUnitOfWork>();
+        var cache = http.RequestServices.GetRequiredService<IMemoryCache>();
+        var tabs = await AppTabCache.GetAsync(unitOfWork, cache);
+
+        if (!TabState.AllActive(tabs, tabKeys))
+            return ForbiddenResponse("This feature is currently unavailable.", ErrorType);
 
         return await next(context);
     }

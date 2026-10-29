@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using FluentValidation;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -54,7 +55,8 @@ public static class AuthHandlers
         IJwtService jwtService,
         IRateLimitService rateLimiter,
         IOtpService otpService,
-        HttpContext httpContext)
+        HttpContext httpContext,
+        IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -78,7 +80,7 @@ public static class AuthHandlers
             if (!existingUser.IsActive)
                 return ForbiddenResponse("Your account has been blocked. Contact admin.");
 
-            return await CreateSessionAndRespond(existingUser, unitOfWork, jwtService);
+            return await CreateSessionAndRespond(existingUser, unitOfWork, jwtService, cache);
         }
 
         // New user — needs onboarding
@@ -92,7 +94,8 @@ public static class AuthHandlers
         IJwtService jwtService,
         ICouponService couponService,
         ILogger<CouponService> logger,
-        IHubContext<WalletHub> hubContext)
+        IHubContext<WalletHub> hubContext,
+        IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -151,10 +154,10 @@ public static class AuthHandlers
             logger.LogWarning(ex, "Welcome bonus redemption failed for new user {UserId} — continuing signup", newUser.Id);
         }
 
-        return await CreateSessionAndRespond(newUser, unitOfWork, jwtService);
+        return await CreateSessionAndRespond(newUser, unitOfWork, jwtService, cache);
     }
 
-    private static async Task<IResult> CreateSessionAndRespond(User user, IUnitOfWork unitOfWork, IJwtService jwtService)
+    private static async Task<IResult> CreateSessionAndRespond(User user, IUnitOfWork unitOfWork, IJwtService jwtService, IMemoryCache cache)
     {
         await unitOfWork.Sessions.DeleteAllUserSessionsAsync(user.Id);
         await unitOfWork.DeviceTokens.DeleteByUserIdAsync(user.Id);
@@ -174,7 +177,7 @@ public static class AuthHandlers
         {
             NeedsOnboarding = false,
             Token = token,
-            User = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork)
+            User = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache)
         });
     }
 
@@ -231,7 +234,8 @@ public static class AuthHandlers
         IUnitOfWork unitOfWork,
         IRateLimitService rateLimiter,
         IOtpService otpService,
-        HttpContext httpContext)
+        HttpContext httpContext,
+        IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -273,7 +277,7 @@ public static class AuthHandlers
             return ConflictResponse("This number is already registered to another account. Please use a different number.", "PhoneAlreadyClaimed");
         }
 
-        return OkResponse(await UsersHandlers.BuildUserDtoAsync(user, unitOfWork));
+        return OkResponse(await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache));
     }
 
     public static async Task<IResult> Logout(ClaimsPrincipal principal, IUnitOfWork unitOfWork)

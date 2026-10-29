@@ -11,6 +11,8 @@ public class AdminAppTabDto
     // Home/Profile always report true — lets the admin app disable the toggle for these two rows
     // without hardcoding tab keys client-side.
     public bool CanDeactivate { get; set; }
+    public bool ApiGated { get; set; }
+    public string? LinkedRoleKey { get; set; }
     public Guid? UpdatedByAdminId { get; set; }
     public DateTime UpdatedAt { get; set; }
     public string? Reason { get; set; }

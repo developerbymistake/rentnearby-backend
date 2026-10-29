@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Extensions;
+using RentNearBy.Api.Filters;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -73,10 +74,14 @@ public static class ChatHandlers
     public static async Task<IResult> CreateConversation(
         CreateConversationRequest request, IValidator<CreateConversationRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, IRateLimitService rateLimiter,
-        ApplicationDbContext db, HttpContext httpContext)
+        ApplicationDbContext db, HttpContext httpContext, IMemoryCache cache)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        // Existing conversations stay readable; only starting one from an off tab's listing is refused.
+        if (!TabState.IsKindActive(await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache), request.ListingType))
+            return ForbiddenResponse("This feature is currently unavailable.", TabGateFilter.ErrorType);
 
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 

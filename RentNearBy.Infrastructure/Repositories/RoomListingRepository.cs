@@ -147,48 +147,6 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .ToList();
     }
 
-    public async Task<IEnumerable<RoomListing>> SearchAsync(Guid? districtId, Guid? roomTypeId, int? priceMin, int? priceMax, int? limit = null)
-    {
-        var query = _dbSet
-            .AsNoTracking()
-            .Include(l => l.RoomType)
-            .Include(l => l.District)
-            .Include(l => l.City)
-            .Include(l => l.User)
-            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
-            .Where(l =>
-                l.IsActive &&
-                !l.IsDeleted &&
-                (districtId == null || l.DistrictId == districtId) &&
-                (roomTypeId == null || l.RoomTypeId == roomTypeId) &&
-                (priceMin == null || l.PriceMonthly >= priceMin) &&
-                (priceMax == null || l.PriceMonthly <= priceMax))
-            .OrderByDescending(l => l.CreatedAt)
-            .AsQueryable();
-
-        if (limit.HasValue)
-            query = query.Take(limit.Value);
-
-        return await query.ToListAsync();
-    }
-
-    // District-free by design — backs the Home "Recently added" feed, which is identical
-    // for every user regardless of district (see ix_roomlistings_recent_active).
-    public async Task<IEnumerable<RoomListing>> GetRecentAsync(int limit)
-    {
-        return await _dbSet
-            .AsNoTracking()
-            .Include(l => l.RoomType)
-            .Include(l => l.District)
-            .Include(l => l.City)
-            .Include(l => l.User)
-            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
-            .Where(l => l.IsActive && !l.IsDeleted)
-            .OrderByDescending(l => l.CreatedAt)
-            .Take(limit)
-            .ToListAsync();
-    }
-
     private static readonly Expression<Func<RoomListing, HomeRoomDto>> BrowseProjection = l => new HomeRoomDto
     {
         Id = l.Id,
@@ -202,6 +160,24 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
         IsAc = l.IsAc,
         CreatedAt = l.CreatedAt,
     };
+
+    // Home "for you": newest live rows of the district (ix_roomlistings_district_active_recent).
+    public async Task<List<HomeRoomDto>> GetHomeForYouProjectedAsync(Guid districtId, int limit)
+        => await _dbSet.AsNoTracking()
+            .Where(l => l.IsActive && !l.IsDeleted && l.DistrictId == districtId)
+            .OrderByDescending(l => l.CreatedAt)
+            .Take(limit)
+            .Select(BrowseProjection)
+            .ToListAsync();
+
+    // District-free by design — the Home "Recently added" feed is identical for every user (ix_roomlistings_recent_active).
+    public async Task<List<HomeRoomDto>> GetRecentProjectedAsync(int limit)
+        => await _dbSet.AsNoTracking()
+            .Where(l => l.IsActive && !l.IsDeleted)
+            .OrderByDescending(l => l.CreatedAt)
+            .Take(limit)
+            .Select(BrowseProjection)
+            .ToListAsync();
 
     public async Task<BrowsePage<HomeRoomDto>> SearchPagedAsync(
         Guid districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize, string? cursor)

@@ -31,4 +31,6 @@ public static class UserRoles
         : roleId == TaxiDriverId ? ListingKinds.Taxi
         : roleId == SeekerId ? null
         : throw new InvalidOperationException($"Unknown role id {roleId}");
+
+    public static string? TabKeyOf(Guid roleId) => AppTabKeys.ForListingKind(ListingKindOf(roleId));
 }

@@ -1,8 +1,11 @@
 using System.Text.Json;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -92,9 +95,16 @@ public class DistrictDigestJobService : BackgroundService
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+            var cache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
 
-            var pendingRooms = await unitOfWork.RoomListings.GetPendingDigestListingsAsync();
-            var pendingPlots = await unitOfWork.PlotListings.GetPendingDigestListingsAsync();
+            // An off tab's listings stay pending (not marked) and join the first digest after it is back on.
+            var tabs = await AppTabCache.GetAsync(unitOfWork, cache);
+            IReadOnlyList<PendingDigestListingDto> pendingRooms = TabState.IsActive(tabs, AppTabKeys.Rooms)
+                ? await unitOfWork.RoomListings.GetPendingDigestListingsAsync()
+                : [];
+            IReadOnlyList<PendingDigestListingDto> pendingPlots = TabState.IsActive(tabs, AppTabKeys.Plots)
+                ? await unitOfWork.PlotListings.GetPendingDigestListingsAsync()
+                : [];
 
             var districts = new Dictionary<Guid, (string Name, List<Guid> RoomIds, List<Guid> PlotIds)>();
 
