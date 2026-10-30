@@ -96,7 +96,7 @@ public class PlanSlotService(
               AND "Id" NOT IN (
                 SELECT "Id" FROM {t}
                 WHERE "UserId" = {"{0}"} AND "IsDeleted" = false
-                  AND ("IsActive" = true OR "LiveRequestStatus" = 'Pending')
+                  AND "IsActive" = true
                 ORDER BY "CreatedAt" DESC, "Id" DESC
                 LIMIT {"{1}"})
             """, userId, Math.Max(0, keep));
