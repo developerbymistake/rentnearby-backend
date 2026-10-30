@@ -264,6 +264,14 @@ public static class RoleHandlers
             ? unitOfWork.Stays.HasSubmittedHistoryAsync(userId)
             : unitOfWork.Taxis.HasSubmittedHistoryAsync(userId);
 
+    // Stay/Taxi locks go through the live-listing guard instead.
+    private static async Task<bool> IsRoleLockedAsync(IUnitOfWork unitOfWork, Guid userId, string? kind) => kind switch
+    {
+        ListingKinds.Room => RoleChangeRules.IsLocked(kind, await unitOfWork.RoomListings.HasEverApprovedAsync(userId)),
+        ListingKinds.Plot => RoleChangeRules.IsLocked(kind, await unitOfWork.PlotListings.HasEverApprovedAsync(userId)),
+        _ => false,
+    };
+
     private static async Task<IResult> CorrectionResponseAsync(
         User user, Guid sessionId, IUnitOfWork unitOfWork, IJwtService jwtService, IMemoryCache cache)
         => OkResponse(new AuthResponse
@@ -315,6 +323,10 @@ public static class RoleHandlers
         if (!TabState.IsRoleAvailable(tabs, role))
             return BadRequestResponse(RoleUnavailableMessage, RoleUnavailableType);
 
+        var leftKind = UserRoles.ListingKindOf(user.RoleId);
+        if (await IsRoleLockedAsync(unitOfWork, userId, leftKind))
+            return ConflictResponse(RoleChangeRules.RoleLockedMessage(leftKind!), RoleChangeRules.RoleLockedErrorType);
+
         var latest = await unitOfWork.RoleChangeRequests.GetLatestForUserAsync(userId);
         if (latest?.Status == RoleChangeRequestStatuses.Pending)
             return ConflictResponse(RoleRequestPendingMessage, RoleRequestPendingType);
@@ -322,7 +334,6 @@ public static class RoleHandlers
         if (RoleChangeRules.NextRequestAllowedAt(latest?.Status, latest?.ReviewedAt, DateTime.UtcNow) is DateTime nextAllowedAt)
             return ConflictResponse(RoleChangeRules.CooldownMessage(nextAllowedAt), "RoleRequestCooldown");
 
-        var leftKind = UserRoles.ListingKindOf(user.RoleId);
         if (leftKind != null && await guard.GetBlockingCountAsync(userId, leftKind) > 0)
             return ConflictResponse(RoleChangeRules.LiveListingBlockedMessage(leftKind), RoleChangeRules.LiveListingErrorType);
 
@@ -343,6 +354,12 @@ public static class RoleHandlers
             {
                 await unitOfWork.RollbackTransactionAsync();
                 return ConflictResponse("Your role has changed. Reload and try again.", "RoleChanged");
+            }
+            // Go Live approval commits under the same user row lock, so this read cannot miss it.
+            if (await IsRoleLockedAsync(unitOfWork, userId, leftKind))
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse(RoleChangeRules.RoleLockedMessage(leftKind!), RoleChangeRules.RoleLockedErrorType);
             }
             await unitOfWork.RoleChangeRequests.AddAsync(roleRequest);
             await unitOfWork.SaveChangesAsync();

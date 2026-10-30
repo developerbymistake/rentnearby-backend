@@ -8,6 +8,7 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
     Task<IEnumerable<NearbyPlotListingDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId);
     Task<IEnumerable<NearbyPlotListingDto>> GetNearestAsync(double latitude, double longitude, int count, Guid districtId);
     Task<IEnumerable<PlotListing>> GetByUserIdAsync(Guid userId);
+    Task<bool> HasEverApprovedAsync(Guid userId);
     // Home rails, projected (no Include, no full entities). Recent is district-free.
     Task<List<HomePlotDto>> GetHomeForYouProjectedAsync(Guid districtId, int limit);
     Task<List<HomePlotDto>> GetRecentProjectedAsync(int limit);

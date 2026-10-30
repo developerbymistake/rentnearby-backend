@@ -290,6 +290,12 @@ public class RoomListingRepository(ApplicationDbContext context) : Repository<Ro
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync();
 
+    // Any IsDeleted on purpose: a soft-deleted approved room still locks the role.
+    public async Task<bool> HasEverApprovedAsync(Guid userId)
+        => await _dbSet
+            .AsNoTracking()
+            .AnyAsync(l => l.UserId == userId && l.LiveRequestStatus == GoLiveRequestStatuses.Approved);
+
     public async Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId)
         => await _dbSet
             .AsNoTracking()

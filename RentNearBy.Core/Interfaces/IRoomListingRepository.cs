@@ -14,6 +14,7 @@ public interface IRoomRoomListingRepository : IRepository<RoomListing>
     // Newest sort pages by opaque keyset cursor (first page: null); price sorts page by offset.
     Task<BrowsePage<HomeRoomDto>> SearchPagedAsync(Guid districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize, string? cursor);
     Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId);
+    Task<bool> HasEverApprovedAsync(Guid userId);
 
     // Plan slot counts live in ILiveSlotService (CountForCreationAsync / CountLiveAsync).
     Task<IEnumerable<RoomListing>> GetActiveByUserIdAsync(Guid userId);

@@ -17,6 +17,24 @@ public static class RoleChangeRules
         _ => "Live plots or a pending Go Live request block this role change.",
     };
 
+    public const string RoleLockedErrorType = "RoleLocked";
+
+    public static string RoleLockedMessage(string listingKind) => listingKind switch
+    {
+        ListingKinds.Room => "Role is locked after your first approved room.",
+        ListingKinds.Plot => "Role is locked after your first approved plot.",
+        ListingKinds.Stay => "Role is locked after your first approved stay.",
+        _ => "Role is locked after your first approved taxi.",
+    };
+
+    public static bool IsLocked(string? listingKind, bool everApproved, string? setupStatus = null) => listingKind switch
+    {
+        ListingKinds.Room or ListingKinds.Plot => everApproved,
+        ListingKinds.Stay => everApproved || setupStatus is StayStatuses.PendingReview or StayStatuses.Approved,
+        ListingKinds.Taxi => everApproved || setupStatus is TaxiStatuses.PendingReview or TaxiStatuses.Approved,
+        _ => false,
+    };
+
     // India has no DST, so a fixed offset is exact.
     public static readonly TimeSpan IstOffset = TimeSpan.FromMinutes(330);
 

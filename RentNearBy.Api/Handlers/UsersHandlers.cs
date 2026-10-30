@@ -123,15 +123,19 @@ public static class UsersHandlers
             dto.StayStatus = await unitOfWork.Stays.GetStatusByUserAsync(user.Id);
             submittedHistory = await unitOfWork.Stays.HasSubmittedHistoryAsync(user.Id);
             everApproved = submittedHistory && await unitOfWork.Stays.HasEverApprovedAsync(user.Id);
-            dto.RoleLocked = dto.StayStatus is StayStatuses.PendingReview or StayStatuses.Approved || everApproved;
+            dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Stay, everApproved, dto.StayStatus);
         }
         if (user.RoleId == UserRoles.TaxiDriverId)
         {
             dto.TaxiStatus = await unitOfWork.Taxis.GetStatusByUserAsync(user.Id);
             submittedHistory = await unitOfWork.Taxis.HasSubmittedHistoryAsync(user.Id);
             everApproved = submittedHistory && await unitOfWork.Taxis.HasEverApprovedAsync(user.Id);
-            dto.RoleLocked = dto.TaxiStatus is TaxiStatuses.PendingReview or TaxiStatuses.Approved || everApproved;
+            dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Taxi, everApproved, dto.TaxiStatus);
         }
+        if (user.RoleId == UserRoles.RentOwnerId)
+            dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Room, await unitOfWork.RoomListings.HasEverApprovedAsync(user.Id));
+        if (user.RoleId == UserRoles.PropertyOwnerId)
+            dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Plot, await unitOfWork.PlotListings.HasEverApprovedAsync(user.Id));
         dto.CanCorrectRole = user.RoleConfirmedAt != null && !user.RoleCorrectionUsed
             && (user.RoleId == UserRoles.StayOwnerId || user.RoleId == UserRoles.TaxiDriverId)
             && latest?.Status != RoleChangeRequestStatuses.Pending

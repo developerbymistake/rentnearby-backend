@@ -166,6 +166,12 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();
 
+    // Any IsDeleted on purpose: a soft-deleted approved plot still locks the role.
+    public async Task<bool> HasEverApprovedAsync(Guid userId)
+        => await _dbSet
+            .AsNoTracking()
+            .AnyAsync(p => p.UserId == userId && p.LiveRequestStatus == GoLiveRequestStatuses.Approved);
+
     public async Task<(IReadOnlyList<PlotListing> Items, bool HasMore)> GetByUserIdPagedAsync(
         Guid userId, int page, int pageSize)
     {
