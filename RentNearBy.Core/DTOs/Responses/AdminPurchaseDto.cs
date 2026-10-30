@@ -25,4 +25,18 @@ public class AdminPurchaseDto
     public DateTime CreatedAt { get; set; }
     public DateTime? GrantedAt { get; set; }
     public DateTime? RefundedAt { get; set; }
+    public string? PlayOrderId { get; set; }
+    public string? PlayProductId { get; set; }
+    public string? PlayBasePlanId { get; set; }
+    public string? PlayOfferId { get; set; }
+    public Guid? PlaySubscriptionId { get; set; }
+    public string? PlayTokenTail { get; set; }
+    public string? PlayState { get; set; }
+    public DateTime? PlayExpiryAt { get; set; }
+    public bool? PlayAutoRenew { get; set; }
+    public DateTime? PlayAcknowledgedAt { get; set; }
+    public bool? PlayIsTest { get; set; }
+    public string? PlayMappingStatus { get; set; }
+    public string? PlayDetachedReason { get; set; }
+    public DateTime? PlayChargebackReviewAt { get; set; }
 }

@@ -55,6 +55,7 @@ public static class AdminEndpoints
         group.MapGet("/purchases/{id:guid}", AdminPurchaseHandlers.GetPurchaseById).RequireAuthorization("AdminOnly");
         group.MapPost("/purchases/{id:guid}/recheck", AdminPurchaseHandlers.RecheckPurchase).RequireAuthorization("AdminOnly");
         group.MapPost("/purchases/{id:guid}/refund", AdminPurchaseHandlers.RefundPurchase).RequireAuthorization("AdminOnly");
+        group.MapGet("/purchases/{id:guid}/play-token", AdminPurchaseHandlers.GetPlayToken).RequireAuthorization("AdminOnly");
 
         group.MapGet("/payment-feature", AdminHandlers.GetPaymentFeature).RequireAuthorization("AdminOnly");
         group.MapPut("/payment-feature", AdminHandlers.UpdatePaymentFeature).RequireAuthorization("AdminOnly");

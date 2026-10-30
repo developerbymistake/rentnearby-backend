@@ -3,6 +3,7 @@ namespace RentNearBy.Core.DTOs.Responses;
 // GET /plans/catalog. Built from PlanCatalogCache; disabled plans are omitted.
 public class PlanCatalogDto
 {
+    public string PaymentProvider { get; set; } = string.Empty;
     public List<PlanCatalogFeatureDto> Features { get; set; } = new();
 }
 
@@ -21,6 +22,8 @@ public class PlanCatalogItemDto
     public bool IsDefault { get; set; }
     public bool IsEnabled { get; set; }
     public int TrialDays { get; set; }
+    // Null = not purchasable under Play (default plan or admin mid-setup).
+    public string? PlayProductId { get; set; }
     public Dictionary<string, int> Features { get; set; } = new();
     public List<PlanPriceDto> Prices { get; set; } = new();
 }
@@ -31,4 +34,6 @@ public class PlanPriceDto
     public int PriceInr { get; set; }
     public int PerMonthInr { get; set; }
     public int SavePercent { get; set; }
+    public string? PlayBasePlanId { get; set; }
+    public string? PlayTrialOfferId { get; set; }
 }

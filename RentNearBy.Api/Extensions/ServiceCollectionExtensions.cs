@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
 using RentNearBy.Infrastructure.Services;
@@ -42,9 +43,25 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPlanPurchaseService, PlanPurchaseService>();
         services.AddScoped<IListingCacheInvalidator, ListingCacheInvalidator>();
 
+        // Google Play Billing. Secrets come from PLAY_SERVICE_ACCOUNT_JSON / PLAY_ACCOUNT_ID_SALT when the
+        // PlayBilling section leaves them empty; missing config only turns the Play endpoints into 503s.
+        services.Configure<PlayBillingOptions>(configuration.GetSection(PlayBillingOptions.Section));
+        services.PostConfigure<PlayBillingOptions>(o =>
+        {
+            if (string.IsNullOrWhiteSpace(o.ServiceAccountJson)) o.ServiceAccountJson = configuration["PLAY_SERVICE_ACCOUNT_JSON"];
+            if (string.IsNullOrWhiteSpace(o.AccountIdSalt)) o.AccountIdSalt = configuration["PLAY_ACCOUNT_ID_SALT"] ?? string.Empty;
+            o.RoleChangeAction = NormalizeRoleChangeAction(o.RoleChangeAction) ?? PlayServerActions.RevokeProrated;
+        });
+        services.AddSingleton<IPlayBillingClient, PlayBillingClient>();
+        services.AddSingleton<IPlayRtdnAuthenticator, PlayRtdnAuthenticator>();
+        services.AddScoped<IPlaySubscriptionRepository, PlaySubscriptionRepository>();
+        services.AddScoped<IPlayEntitlementApplier, PlayEntitlementApplier>();
+        services.AddScoped<IPlayBillingSyncService, PlayBillingSyncService>();
+
         // Hourly: plan expiry claims, 7-day reminders, daily rank reconcile.
         services.AddHostedService<PlanLifecycleService>();
-        // Every 2 min: settles paid orders, refunds blocked grants, expires stale open orders.
+        // Every 2 min: settles paid orders, refunds blocked grants, expires stale open orders, and runs the
+        // Google Play passes (server actions, due/stale syncs, acknowledgements, daily voided purchases).
         services.AddHostedService<PlanPurchaseReconcilerService>();
 
         // Hourly (anchored at :15) sweep of rooms/plots past their own ValidUntil.
@@ -152,5 +169,14 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<StayJobPostedAdminWorkerService>();
 
         return services;
+    }
+
+    // Contract D-13: role change / account deletion queue Cancel or RevokeProrated only; anything else is a config error.
+    public static string? NormalizeRoleChangeAction(string? value)
+    {
+        var trimmed = value?.Trim();
+        if (string.Equals(trimmed, PlayServerActions.Cancel, StringComparison.OrdinalIgnoreCase)) return PlayServerActions.Cancel;
+        if (string.Equals(trimmed, PlayServerActions.RevokeProrated, StringComparison.OrdinalIgnoreCase)) return PlayServerActions.RevokeProrated;
+        return null;
     }
 }

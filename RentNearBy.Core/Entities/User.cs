@@ -14,6 +14,8 @@ public class User
     public bool IsContactVisible { get; set; } = false;
     public Guid RoleId { get; set; } = UserRoles.SeekerId;
     public DateTime? RoleConfirmedAt { get; set; }
+    // HMAC(PlayBilling:AccountIdSalt, Id) sent to Play as obfuscatedAccountId; written once, never changed.
+    public string? PlayAccountKey { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

@@ -20,6 +20,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
     <PackageReference Include="FirebaseAdmin" Version="3.1.0" />
     <PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
+    <PackageReference Include="Google.Apis.AndroidPublisher.v3" Version="1.77.0.4316" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -15,5 +15,10 @@ services:
       AppLinks__PackageName: com.rentnearby.rentnearby
       AppLinks__Sha256Fingerprints__0: ${APP_LINKS_SHA256_FINGERPRINT}
       AppLinks__PlayStoreUrl: https://play.google.com/store/apps/details?id=com.rentnearby.rentnearby
+      PLAY_SERVICE_ACCOUNT_JSON: ${PLAY_SERVICE_ACCOUNT_JSON}
+      PLAY_ACCOUNT_ID_SALT: ${PLAY_ACCOUNT_ID_SALT}
+      PlayBilling__PackageName: com.rentnearby.rentnearby
+      PlayBilling__RtdnAudience: https://developerbymistake.tech/api/v1/payments/play/rtdn
+      PlayBilling__RtdnServiceAccountEmail: ${PLAY_RTDN_SERVICE_ACCOUNT_EMAIL}
     ports:
       - "5000:5000"

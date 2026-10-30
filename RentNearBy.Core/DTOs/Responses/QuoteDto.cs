@@ -15,6 +15,11 @@ public class QuoteDto
     public bool RequiresPayment { get; set; }
     public QuoteCouponDto? Coupon { get; set; }
     public bool AutoCoupon { get; set; }
+    public string Provider { get; set; } = string.Empty;
+    public bool IsTrial { get; set; }
+    public string? PlayReplacementMode { get; set; } // PlayReplacementModes.*
+    // The app must show the store price, not ListPriceInr.
+    public bool StorePriceRequired { get; set; }
 }
 
 public class QuoteCouponDto

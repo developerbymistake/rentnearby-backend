@@ -53,7 +53,8 @@ public class PlanCatalogCache(ApplicationDbContext db, IMemoryCache cache) : IPl
         var pricesByPlan = prices.GroupBy(p => p.PlanId)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<CatalogPrice>)g
                 .OrderBy(p => p.CycleMonths)
-                .Select(p => new CatalogPrice(p.Id, p.CycleMonths, p.PriceInr, p.RazorpayPlanId, p.IsEnabled))
+                .Select(p => new CatalogPrice(p.Id, p.CycleMonths, p.PriceInr, p.RazorpayPlanId, p.IsEnabled,
+                    p.PlayBasePlanId, p.PlayTrialOfferId))
                 .ToList());
 
         return new PlanCatalogSnapshot(plans.Select(p =>
@@ -61,7 +62,8 @@ public class PlanCatalogCache(ApplicationDbContext db, IMemoryCache cache) : IPl
             var f = featuresByPlan.GetValueOrDefault(p.Id) ?? new Dictionary<string, int>();
             return new CatalogPlan(
                 p.Id, p.FeatureKey, p.Code, p.Name, p.Tagline, p.IsDefault, p.IsEnabled, p.TrialDays, p.SortOrder,
-                f, PlanFeatureValues.From(f), pricesByPlan.GetValueOrDefault(p.Id) ?? Array.Empty<CatalogPrice>());
+                f, PlanFeatureValues.From(f), pricesByPlan.GetValueOrDefault(p.Id) ?? Array.Empty<CatalogPrice>(),
+                p.PlayProductId);
         }));
     }
 

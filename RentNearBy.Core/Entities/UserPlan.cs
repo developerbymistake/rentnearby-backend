@@ -17,6 +17,13 @@ public class UserPlan
     public DateTime? ReminderSentAt { get; set; }
     public Guid? GrantedByAdminId { get; set; }
     public string? Note { get; set; }
+    // Play-owned when set: EndsAt follows Google's expiryTime, never the expiry sweep's clock.
+    public Guid? PlaySubscriptionId { get; set; }
+    public bool? PlayAutoRenewEnabled { get; set; }
+    public string? PlayState { get; set; }             // PlayStates.*
+    public DateTime? PlayTrialEndsAt { get; set; }
+    public int CarryOverDays { get; set; }
+    public Guid? PlayScheduledPlanId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

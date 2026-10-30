@@ -9,6 +9,7 @@ public class PurchaseStatusDto
     public DateTime? EndsAt { get; set; }
     public string? FailureReason { get; set; }
     public string? GrantBlockedReason { get; set; }
+    public string Provider { get; set; } = string.Empty;
 }
 
 public class PurchaseHistoryItemDto
@@ -21,4 +22,6 @@ public class PurchaseHistoryItemDto
     public DateTime CreatedAt { get; set; }
     public DateTime? GrantedAt { get; set; }
     public string? RazorpayPaymentId { get; set; }
+    public string Provider { get; set; } = string.Empty;
+    public string? PlayOrderId { get; set; }
 }

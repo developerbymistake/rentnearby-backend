@@ -39,10 +39,12 @@ public static class AdminCouponHandlers
 
     public static async Task<IResult> CreateCoupon(
         CreateCouponRequest request, IValidator<CreateCouponRequest> validator, ClaimsPrincipal principal,
-        IUnitOfWork unitOfWork, IPlanCatalogCache catalog)
+        IUnitOfWork unitOfWork, IPlanCatalogCache catalog, IPaymentFeatureReader payment)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+        if (await KindBlockedAsync(payment, request.Kind))
+            return ConflictResponse(KindNotAllowedMessage, PlanErrorTypes.CouponKindNotAllowed);
 
         var scopeError = await ValidateScopeAsync(catalog, request.FeatureKey, request.AllowedPlanIds);
         if (scopeError != null) return BadRequestResponse(scopeError);
@@ -84,10 +86,12 @@ public static class AdminCouponHandlers
 
     public static async Task<IResult> UpdateCoupon(
         Guid id, UpdateCouponRequest request, IValidator<UpdateCouponRequest> validator,
-        IUnitOfWork unitOfWork, IPlanCatalogCache catalog)
+        IUnitOfWork unitOfWork, IPlanCatalogCache catalog, IPaymentFeatureReader payment)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+        if (await KindBlockedAsync(payment, request.Kind))
+            return ConflictResponse(KindNotAllowedMessage, PlanErrorTypes.CouponKindNotAllowed);
 
         var coupon = await unitOfWork.Coupons.GetByIdAsync(id);
         if (coupon == null) return NotFoundResponse("Coupon not found");
@@ -151,6 +155,13 @@ public static class AdminCouponHandlers
             hasMore,
         });
     }
+
+    private const string KindNotAllowedMessage = "Only Free plan coupons work with Google Play billing.";
+
+    // Google Play cannot apply our Percent/Flat discounts; existing rows are kept for a switch back to Razorpay.
+    private static async Task<bool> KindBlockedAsync(IPaymentFeatureReader payment, string kind)
+        => kind is CouponKinds.Percent or CouponKinds.Flat
+           && (await payment.GetAsync()).Provider == PaymentProviders.Play;
 
     // Allowed plans must exist, be paid plans and match the coupon's feature (when set).
     private static async Task<string?> ValidateScopeAsync(IPlanCatalogCache catalog, string? featureKey, List<Guid>? planIds)

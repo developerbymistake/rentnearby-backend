@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
@@ -12,9 +13,12 @@ public class PaymentEventRepository(ApplicationDbContext context) : IPaymentEven
     {
         var id = e.Id == Guid.Empty ? Guid.NewGuid() : e.Id;
         var receivedAt = e.ReceivedAt == default ? DateTime.UtcNow : e.ReceivedAt;
+        var provider = string.IsNullOrEmpty(e.Provider) ? PaymentProviders.Razorpay : e.Provider;
         var rows = await context.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO "PaymentEvents" ("Id", "EventId", "EventType", "RazorpayOrderId", "RazorpayPaymentId", "RawBody", "Outcome", "ReceivedAt")
-            VALUES ({id}, {e.EventId}, {e.EventType}, {e.RazorpayOrderId}, {e.RazorpayPaymentId}, {e.RawBody}, {e.Outcome}, {receivedAt})
+            INSERT INTO "PaymentEvents" ("Id", "EventId", "Provider", "EventType", "RazorpayOrderId", "RazorpayPaymentId",
+                "PlayPurchaseToken", "PlayNotificationType", "PlayOrderId", "RawBody", "Outcome", "ReceivedAt")
+            VALUES ({id}, {e.EventId}, {provider}, {e.EventType}, {e.RazorpayOrderId}, {e.RazorpayPaymentId},
+                {e.PlayPurchaseToken}, {e.PlayNotificationType}, {e.PlayOrderId}, {e.RawBody}, {e.Outcome}, {receivedAt})
             ON CONFLICT ("EventId") DO NOTHING
             """);
         return rows > 0;
@@ -33,4 +37,22 @@ public class PaymentEventRepository(ApplicationDbContext context) : IPaymentEven
             .OrderByDescending(p => p.ReceivedAt)
             .Take(limit)
             .ToListAsync();
+
+    public async Task<List<PaymentEvent>> GetByPlayTokenAsync(string purchaseToken, int limit)
+        => await context.PaymentEvents.AsNoTracking()
+            .Where(p => p.PlayPurchaseToken == purchaseToken)
+            .OrderByDescending(p => p.ReceivedAt)
+            .Take(limit)
+            .ToListAsync();
+
+    public async Task<List<PaymentEvent>> GetByPlayTokenOrOrderAsync(string? purchaseToken, string? playOrderId, int limit)
+    {
+        if (purchaseToken == null && playOrderId == null) return [];
+        return await context.PaymentEvents.AsNoTracking()
+            .Where(p => (purchaseToken != null && p.PlayPurchaseToken == purchaseToken)
+                || (playOrderId != null && p.PlayOrderId == playOrderId))
+            .OrderByDescending(p => p.ReceivedAt)
+            .Take(limit)
+            .ToListAsync();
+    }
 }

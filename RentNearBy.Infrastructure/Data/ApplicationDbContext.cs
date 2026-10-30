@@ -53,6 +53,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<UserPlan> UserPlans { get; set; }
     public DbSet<PlanPurchase> PlanPurchases { get; set; }
     public DbSet<PaymentEvent> PaymentEvents { get; set; }
+    public DbSet<PlaySubscription> PlaySubscriptions { get; set; }
     public DbSet<NotificationEvent> NotificationEvents { get; set; }
     public DbSet<NotificationRead> NotificationReads { get; set; }
     public DbSet<DeletedAccountRecord> DeletedAccountRecords { get; set; }
@@ -103,6 +104,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(u => u.RoleId).HasDefaultValue(UserRoles.SeekerId);
             e.Property(u => u.RoleCorrectionUsed).HasDefaultValue(false);
             e.HasIndex(u => u.RoleId);
+            e.Property(u => u.PlayAccountKey).HasMaxLength(64);
+            e.HasIndex(u => u.PlayAccountKey, "ix_users_play_account_key")
+             .IsUnique()
+             .HasFilter("\"PlayAccountKey\" IS NOT NULL");
             e.HasOne(u => u.Role)
              .WithMany()
              .HasForeignKey(u => u.RoleId)
@@ -524,6 +529,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasKey(f => f.Id);
             e.Property(f => f.Id).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(f => f.FeatureKey).IsUnique();
+            e.Property(f => f.PaymentProvider).HasMaxLength(16).IsRequired().HasDefaultValue(PaymentProviders.Play);
 
             e.HasOne(f => f.UpdatedByAdmin)
              .WithMany()
@@ -582,6 +588,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => p.FeatureKey, "ix_plans_default_per_feature")
              .IsUnique()
              .HasFilter("\"IsDefault\"");
+            e.Property(p => p.PlayProductId).HasMaxLength(40);
+            e.HasIndex(p => p.PlayProductId, "ix_plans_play_product")
+             .IsUnique()
+             .HasFilter("\"PlayProductId\" IS NOT NULL");
             e.ToTable(t => t.HasCheckConstraint("ck_plans_trial_days", "\"TrialDays\" BETWEEN 0 AND 30"));
         });
 
@@ -603,15 +613,21 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasKey(p => p.Id);
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(p => p.RazorpayPlanId).HasMaxLength(64);
+            e.Property(p => p.PlayBasePlanId).HasMaxLength(40);
+            e.Property(p => p.PlayTrialOfferId).HasMaxLength(40);
             e.HasOne<Plan>()
              .WithMany(p => p.Prices)
              .HasForeignKey(p => p.PlanId)
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(p => new { p.PlanId, p.CycleMonths }).IsUnique();
+            e.HasIndex(p => new { p.PlanId, p.PlayBasePlanId }, "ix_planprices_play_baseplan")
+             .IsUnique()
+             .HasFilter("\"PlayBasePlanId\" IS NOT NULL");
             e.ToTable(t =>
             {
                 t.HasCheckConstraint("ck_planprices_cycle", "\"CycleMonths\" IN (1, 3, 12)");
                 t.HasCheckConstraint("ck_planprices_price", "\"PriceInr\" >= 1");
+                t.HasCheckConstraint("ck_planprices_trial_offer", "\"PlayTrialOfferId\" IS NULL OR \"PlayBasePlanId\" IS NOT NULL");
             });
         });
 
@@ -626,6 +642,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(u => u.Note).HasMaxLength(300);
             e.Property(u => u.TotalPaidInr).HasDefaultValue(0);
             e.Property(u => u.TotalDays).HasDefaultValue(0);
+            e.Property(u => u.PlayState).HasMaxLength(40);
+            e.Property(u => u.CarryOverDays).HasDefaultValue(0);
             e.Property(u => u.CreatedAt).HasDefaultValueSql("now()");
             e.Property(u => u.UpdatedAt).HasDefaultValueSql("now()");
 
@@ -633,6 +651,16 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(u => u.UserId)
              .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<PlaySubscription>()
+             .WithMany()
+             .HasForeignKey(u => u.PlaySubscriptionId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<Plan>()
+             .WithMany()
+             .HasForeignKey(u => u.PlayScheduledPlanId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
             e.HasOne(u => u.Plan)
              .WithMany()
              .HasForeignKey(u => u.PlanId)
@@ -656,7 +684,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(u => new { u.UserId, u.FeatureKey, u.CreatedAt }, "ix_userplans_user_feature_created")
              .IsDescending(false, false, true);
             e.HasIndex(u => u.PlanId);
-            e.ToTable(t => t.HasCheckConstraint("ck_userplans_window", "\"EndsAt\" > \"StartsAt\""));
+            e.HasIndex(u => u.PlaySubscriptionId, "ix_userplans_play_subscription");
+            e.HasIndex(u => u.PlayScheduledPlanId);
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_userplans_window", "\"EndsAt\" > \"StartsAt\"");
+                t.HasCheckConstraint("ck_userplans_carryover", "\"CarryOverDays\" >= 0");
+            });
         });
 
         modelBuilder.Entity<PlanPurchase>(e =>
@@ -677,6 +711,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(p => p.FailureReason).HasMaxLength(300);
             e.Property(p => p.FailedPaymentId).HasMaxLength(64);
             e.Property(p => p.ClientIdempotencyKey).HasMaxLength(64);
+            e.Property(p => p.PlayOrderId).HasMaxLength(64);
+            e.Property(p => p.PlayProductId).HasMaxLength(40);
+            e.Property(p => p.PlayBasePlanId).HasMaxLength(40);
+            e.Property(p => p.PlayOfferId).HasMaxLength(40);
+            e.Property(p => p.PlayPurchaseSource).HasMaxLength(16);
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
 
             // SetNull, not Cascade: purchase rows are financial records kept (anonymised) after account deletion.
@@ -702,6 +741,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasOne<Admin>()
              .WithMany()
              .HasForeignKey(p => p.GrantedByAdminId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<PlaySubscription>()
+             .WithMany()
+             .HasForeignKey(p => p.PlaySubscriptionId)
              .IsRequired(false)
              .OnDelete(DeleteBehavior.SetNull);
 
@@ -732,6 +776,73 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => p.PlanId);
             e.HasIndex(p => p.CouponId);
             e.HasIndex(p => p.GrantedUserPlanId);
+            // One charge row per Google order (initial + every renewal).
+            e.HasIndex(p => p.PlayOrderId, "ix_planpurchases_play_order")
+             .IsUnique()
+             .HasFilter("\"PlayOrderId\" IS NOT NULL");
+            e.HasIndex(p => p.PlaySubscriptionId, "ix_planpurchases_play_subscription");
+        });
+
+        modelBuilder.Entity<PlaySubscription>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(s => s.FeatureKey).HasMaxLength(16);
+            e.Property(s => s.PurchaseToken).HasMaxLength(1024).IsRequired();
+            e.Property(s => s.ProductId).HasMaxLength(40).IsRequired();
+            e.Property(s => s.PurchasedProductId).HasMaxLength(40).IsRequired();
+            e.Property(s => s.DetachedReason).HasMaxLength(40);
+            e.Property(s => s.BasePlanId).HasMaxLength(40);
+            e.Property(s => s.OfferId).HasMaxLength(40);
+            e.Property(s => s.LinkedPurchaseToken).HasMaxLength(1024);
+            e.Property(s => s.ExpiredPurchaseToken).HasMaxLength(1024);
+            e.Property(s => s.MappingStatus).HasMaxLength(16).IsRequired();
+            e.Property(s => s.State).HasMaxLength(40).IsRequired();
+            e.Property(s => s.AutoRenewEnabled).HasDefaultValue(false);
+            e.Property(s => s.LatestOrderId).HasMaxLength(64);
+            e.Property(s => s.AcknowledgementState).HasMaxLength(40).IsRequired();
+            e.Property(s => s.AckAttempts).HasDefaultValue(0);
+            e.Property(s => s.RegionCode).HasMaxLength(8);
+            e.Property(s => s.ObfuscatedAccountId).HasMaxLength(64);
+            e.Property(s => s.CancelReason).HasMaxLength(40);
+            e.Property(s => s.DeferredProductId).HasMaxLength(40);
+            e.Property(s => s.RecurringPriceCurrency).HasMaxLength(3);
+            e.Property(s => s.PriceChangeState).HasMaxLength(40);
+            e.Property(s => s.PriceChangeMode).HasMaxLength(40);
+            e.Property(s => s.LastSyncError).HasMaxLength(300);
+            e.Property(s => s.PendingServerAction).HasMaxLength(16);
+            e.Property(s => s.PendingActionReason).HasMaxLength(300);
+            e.Property(s => s.PendingActionAttempts).HasDefaultValue(0);
+            e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(s => s.UpdatedAt).HasDefaultValueSql("now()");
+
+            // SetNull, not Cascade: subscriptions are financial records kept (anonymised) after account deletion.
+            e.HasOne<User>()
+             .WithMany()
+             .HasForeignKey(s => s.UserId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<Plan>()
+             .WithMany()
+             .HasForeignKey(s => s.PlanId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<PlanPrice>()
+             .WithMany()
+             .HasForeignKey(s => s.PlanPriceId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(s => s.PurchaseToken, "ix_playsubscriptions_token").IsUnique();
+            e.HasIndex(s => new { s.UserId, s.FeatureKey }, "ix_playsubscriptions_user_feature");
+            e.HasIndex(s => new { s.State, s.ExpiryTime }, "ix_playsubscriptions_state_expiry");
+            e.HasIndex(s => s.MappingStatus, "ix_playsubscriptions_mapping");
+            e.HasIndex(s => s.PendingServerAction, "ix_playsubscriptions_pending_action")
+             .HasFilter("\"PendingServerAction\" IS NOT NULL");
+            e.HasIndex(s => s.LinkedPurchaseToken, "ix_playsubscriptions_linked_token");
+            e.HasIndex(s => s.LastSyncedAt, "ix_playsubscriptions_last_synced");
+            e.HasIndex(s => s.PlanId);
+            e.HasIndex(s => s.PlanPriceId);
         });
 
         modelBuilder.Entity<PaymentEvent>(e =>
@@ -742,11 +853,16 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(p => p.EventType).HasMaxLength(64).IsRequired();
             e.Property(p => p.RazorpayOrderId).HasMaxLength(64);
             e.Property(p => p.RazorpayPaymentId).HasMaxLength(64);
+            e.Property(p => p.Provider).HasMaxLength(16).IsRequired().HasDefaultValue(PaymentProviders.Razorpay);
+            e.Property(p => p.PlayPurchaseToken).HasMaxLength(1024);
+            e.Property(p => p.PlayOrderId).HasMaxLength(64);
             e.Property(p => p.Outcome).HasMaxLength(32);
             e.Property(p => p.ReceivedAt).HasDefaultValueSql("now()");
             e.HasIndex(p => p.EventId).IsUnique();
             e.HasIndex(p => p.ReceivedAt);
             e.HasIndex(p => p.RazorpayOrderId);
+            e.HasIndex(p => p.PlayPurchaseToken, "ix_paymentevents_play_token");
+            e.HasIndex(p => p.PlayOrderId, "ix_paymentevents_play_order");
         });
 
         modelBuilder.Entity<Coupon>(e =>

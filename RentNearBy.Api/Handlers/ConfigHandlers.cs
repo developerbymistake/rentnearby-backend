@@ -48,6 +48,7 @@ public static class ConfigHandlers
             enabled = state.Enabled,
             freeGoLiveDurationDays = state.FreeDays,
             freeModeListingLimit = state.FreeModeListingLimit,
+            provider = state.Provider,
         });
     }
 

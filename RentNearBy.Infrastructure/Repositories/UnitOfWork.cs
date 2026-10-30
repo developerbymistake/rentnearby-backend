@@ -42,6 +42,7 @@ public class UnitOfWork : IUnitOfWork
     private IUserPlanRepository? _userPlans;
     private IPlanPurchaseRepository? _planPurchases;
     private IPaymentEventRepository? _paymentEvents;
+    private IPlaySubscriptionRepository? _playSubscriptions;
     private INotificationRepository? _notifications;
     private IRoleRepository? _roles;
     private IRoleChangeRequestRepository? _roleChangeRequests;
@@ -85,6 +86,7 @@ public class UnitOfWork : IUnitOfWork
     public IUserPlanRepository UserPlans => _userPlans ??= new UserPlanRepository(_context);
     public IPlanPurchaseRepository PlanPurchases => _planPurchases ??= new PlanPurchaseRepository(_context);
     public IPaymentEventRepository PaymentEvents => _paymentEvents ??= new PaymentEventRepository(_context);
+    public IPlaySubscriptionRepository PlaySubscriptions => _playSubscriptions ??= new PlaySubscriptionRepository(_context);
     public INotificationRepository Notifications => _notifications ??= new NotificationRepository(_context);
     public IRoleRepository Roles => _roles ??= new RoleRepository(_context);
     public IRoleChangeRequestRepository RoleChangeRequests => _roleChangeRequests ??= new RoleChangeRequestRepository(_context);

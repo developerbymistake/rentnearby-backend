@@ -12,6 +12,7 @@ public class AdminPlanDto
     public bool IsEnabled { get; set; }
     public int TrialDays { get; set; }
     public int SortOrder { get; set; }
+    public string? PlayProductId { get; set; }
     public List<AdminPlanFeatureDto> Features { get; set; } = new();
     public List<AdminPlanPriceDto> Prices { get; set; } = new();
     public bool LowPriceWarning { get; set; }
@@ -32,4 +33,9 @@ public class AdminPlanPriceDto
     public int PriceInr { get; set; }
     public string? RazorpayPlanId { get; set; }
     public bool IsEnabled { get; set; }
+    public string? PlayBasePlanId { get; set; }
+    public string? PlayTrialOfferId { get; set; }
+    // From the latest synced subscription of this base plan; display only.
+    public int? PlayRecurringPriceInr { get; set; }
+    public bool PlayPriceMismatch { get; set; }
 }

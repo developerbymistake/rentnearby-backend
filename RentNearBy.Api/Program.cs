@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using RentNearBy.Api.Endpoints;
 using RentNearBy.Api.Filters;
 using RentNearBy.Api.Hubs;
@@ -10,6 +11,7 @@ using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Mappings;
 using RentNearBy.Api.Middleware;
 using RentNearBy.Api.Validators;
+using RentNearBy.Core.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -163,6 +165,26 @@ using (var scope = app.Services.CreateScope())
             "Razorpay:WebhookSecret / RAZORPAY_WEBHOOK_SECRET is not configured — every incoming Razorpay webhook will be rejected. " +
             "Plan purchases still complete via the client verify-call and the 2-min reconciler, but instant crash recovery is degraded.");
     }
+
+    // Same non-fatal stance for Google Play Billing: every Play endpoint answers 503 PlayNotConfigured and
+    // the Play reconciler passes stay idle; surfaced at GET /health as playBilling.
+    var playOptions = scope.ServiceProvider.GetRequiredService<IOptions<PlayBillingOptions>>().Value;
+    var playLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    if (!playOptions.IsConfigured)
+        playLogger.LogError(
+            "PlayBilling is not configured (PlayBilling:PackageName, PLAY_SERVICE_ACCOUNT_JSON or PlayBilling:ServiceAccountJsonPath, " +
+            "PLAY_ACCOUNT_ID_SALT of at least 32 chars) — Google Play purchases cannot be verified, synced or acknowledged.");
+    else if (string.IsNullOrWhiteSpace(playOptions.RtdnAudience) || string.IsNullOrWhiteSpace(playOptions.RtdnServiceAccountEmail))
+        playLogger.LogError(
+            "PlayBilling:RtdnAudience / PlayBilling:RtdnServiceAccountEmail are not configured — every Google Play RTDN push is rejected " +
+            "with 401; subscriptions still settle through verify-play, restore and the 2-min reconciler, but late.");
+
+    var rawRoleChangeAction = app.Configuration[$"{PlayBillingOptions.Section}:RoleChangeAction"];
+    if (!string.IsNullOrWhiteSpace(rawRoleChangeAction)
+        && RentNearBy.Api.Extensions.ServiceCollectionExtensions.NormalizeRoleChangeAction(rawRoleChangeAction) == null)
+        playLogger.LogError(
+            "PlayBilling:RoleChangeAction '{Value}' is not Cancel or RevokeProrated — using {Fallback} for role changes and account deletions.",
+            rawRoleChangeAction, playOptions.RoleChangeAction);
 }
 
 app.UseForwardedHeaders();
@@ -298,6 +320,7 @@ app.MapGet("/health", async (IServiceProvider sp) =>
     // grant path (the client verify-call and the 2-min reconciler still work), so it needs to be
     // loudly visible somewhere. Here, not a thrown exception.
     var razorpayService = sp.GetRequiredService<RentNearBy.Infrastructure.Services.IRazorpayService>();
+    var playBillingConfigured = sp.GetRequiredService<IOptions<PlayBillingOptions>>().Value.IsConfigured;
 
     return Results.Ok(new
     {
@@ -306,6 +329,7 @@ app.MapGet("/health", async (IServiceProvider sp) =>
         redis = redisStatus,
         cloudinary = cloudinaryOk ? "connected" : "unavailable",
         razorpayWebhook = razorpayService.IsWebhookConfigured ? "configured" : "not configured",
+        playBilling = playBillingConfigured ? "configured" : "not configured",
     });
 });
 

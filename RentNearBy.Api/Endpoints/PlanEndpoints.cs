@@ -15,6 +15,8 @@ public static class PlanEndpoints
         group.MapGet("/purchases/open", PlanHandlers.GetOpenPurchase).RequireAuthorization();
         group.MapGet("/purchases/{id:guid}", PlanHandlers.GetPurchase).RequireAuthorization();
         group.MapPost("/purchases/{id:guid}/verify", PlanHandlers.VerifyPurchase).RequireAuthorization();
+        group.MapPost("/purchases/{id:guid}/verify-play", PlayBillingHandlers.VerifyPlayPurchase).RequireAuthorization();
+        group.MapPost("/purchases/restore", PlayBillingHandlers.RestorePlayPurchases).RequireAuthorization();
         group.MapPost("/trial", PlanHandlers.StartTrial).RequireAuthorization();
         return group;
     }

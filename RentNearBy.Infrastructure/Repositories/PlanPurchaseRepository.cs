@@ -23,19 +23,56 @@ public class PlanPurchaseRepository(ApplicationDbContext context) : IPlanPurchas
     public async Task<PlanPurchase?> GetByIdempotencyKeyAsync(string key)
         => await context.PlanPurchases.AsNoTracking().FirstOrDefaultAsync(p => p.ClientIdempotencyKey == key);
 
+    public async Task<PlanPurchase?> GetByPlayOrderIdAsync(string playOrderId)
+        => await context.PlanPurchases.AsNoTracking().FirstOrDefaultAsync(p => p.PlayOrderId == playOrderId);
+
+    public async Task<List<PlanPurchase>> GetByPlayOrderIdsAsync(IReadOnlyCollection<string> playOrderIds)
+    {
+        if (playOrderIds.Count == 0) return [];
+        var ids = playOrderIds.Distinct().ToList();
+        return await context.PlanPurchases.AsNoTracking()
+            .Where(p => p.PlayOrderId != null && ids.Contains(p.PlayOrderId))
+            .ToListAsync();
+    }
+
+    public async Task<PlanPurchase?> GetLatestGrantedBySubscriptionAsync(Guid playSubscriptionId)
+        => await context.PlanPurchases.AsNoTracking()
+            .Where(p => p.PlaySubscriptionId == playSubscriptionId
+                && p.Provider == PaymentProviders.Play
+                && p.Status == PurchaseStatuses.Granted
+                && p.PlayOrderId != null)
+            .OrderByDescending(p => p.GrantedAt ?? p.CreatedAt)
+            .ThenByDescending(p => p.CreatedAt)
+            .FirstOrDefaultAsync();
+
+    public async Task<PlanPurchase?> GetOpenPlayByUserFeatureAsync(Guid userId, string featureKey, Guid planId, short cycleMonths)
+        => await context.PlanPurchases.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == userId && p.FeatureKey == featureKey
+                && p.Provider == PaymentProviders.Play
+                && p.PlanId == planId && p.CycleMonths == cycleMonths
+                && (p.Status == PurchaseStatuses.Created || p.Status == PurchaseStatuses.Pending));
+
     public async Task<PlanPurchase?> GetOpenByUserFeatureAsync(Guid userId, string featureKey)
         => await context.PlanPurchases.AsNoTracking()
             .FirstOrDefaultAsync(p => p.UserId == userId && p.FeatureKey == featureKey
                 && (p.Status == PurchaseStatuses.Created || p.Status == PurchaseStatuses.Pending));
 
+    // Play rows: Pending always (never time-expired), Created only inside the open-order window.
     public async Task<PlanPurchase?> GetLatestOpenByUserAsync(Guid userId)
-        => await context.PlanPurchases.AsNoTracking()
+    {
+        var createdSince = DateTime.UtcNow - PlanRules.OpenOrderTtl;
+        return await context.PlanPurchases.AsNoTracking()
             .Where(p => p.UserId == userId
-                && (p.Status == PurchaseStatuses.Created || p.Status == PurchaseStatuses.Pending
-                    || (p.Status == PurchaseStatuses.Paid && p.GrantBlockedReason == null))
-                && p.RazorpayOrderId != null)
+                && ((p.Provider != PaymentProviders.Play
+                        && (p.Status == PurchaseStatuses.Created || p.Status == PurchaseStatuses.Pending
+                            || (p.Status == PurchaseStatuses.Paid && p.GrantBlockedReason == null))
+                        && p.RazorpayOrderId != null)
+                    || (p.Provider == PaymentProviders.Play
+                        && (p.Status == PurchaseStatuses.Pending
+                            || (p.Status == PurchaseStatuses.Created && p.CreatedAt > createdSince)))))
             .OrderByDescending(p => p.CreatedAt)
             .FirstOrDefaultAsync();
+    }
 
     public async Task<List<PlanPurchase>> GetHistoryAsync(Guid userId, int limit)
         => await context.PlanPurchases.AsNoTracking()
@@ -65,13 +102,15 @@ public class PlanPurchaseRepository(ApplicationDbContext context) : IPlanPurchas
 
     // AmountMismatch rows wait for the admin (recheck/refund), so they never take a reconcile slot.
     public async Task<List<(Guid Id, DateTime CreatedAt)>> ListIdsForReconcileAsync(
-        string[] statuses, DateTime createdBefore, DateTime? createdAfter, int limit, bool newestFirst = false)
+        string[] statuses, DateTime createdBefore, DateTime? createdAfter, int limit, bool newestFirst = false,
+        string? providerNot = null)
     {
         var query = context.PlanPurchases.AsNoTracking()
             .Where(p => statuses.Contains(p.Status) && p.CreatedAt < createdBefore
                 && (createdAfter == null || p.CreatedAt > createdAfter)
                 && p.RazorpayOrderId != null
                 && !(p.Status == PurchaseStatuses.Paid && p.GrantBlockedReason == GrantBlockedReasons.AmountMismatch));
+        if (providerNot != null) query = query.Where(p => p.Provider != providerNot);
         query = newestFirst ? query.OrderByDescending(p => p.CreatedAt) : query.OrderBy(p => p.CreatedAt);
         var rows = await query
             .Take(limit)

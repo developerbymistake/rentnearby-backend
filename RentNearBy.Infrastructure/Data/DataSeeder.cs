@@ -49,6 +49,7 @@ public static class DataSeeder
             FeatureKey = AppFeatureKeys.PaymentEnabled,
             IsEnabled = false,
             FreeDurationDays = 30,
+            PaymentProvider = PaymentProviders.Play,
             UpdatedAt = DateTime.UtcNow,
         });
         await db.SaveChangesAsync();
@@ -185,6 +186,7 @@ public static class DataSeeder
                 IsEnabled = true,
                 TrialDays = 7,
                 SortOrder = 1,
+                PlayProductId = $"{code.ToLowerInvariant()}_plus",
                 CreatedAt = now,
                 UpdatedAt = now,
             };
@@ -199,9 +201,9 @@ public static class DataSeeder
                 ListingKinds.Taxi => (149, 402, 1430),
                 _ => (199, 537, 1910),
             };
-            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 1), CycleMonths = 1, PriceInr = m1, IsEnabled = true });
-            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 3), CycleMonths = 3, PriceInr = m3, IsEnabled = true });
-            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 12), CycleMonths = 12, PriceInr = m12, IsEnabled = true });
+            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 1), CycleMonths = 1, PriceInr = m1, IsEnabled = true, PlayBasePlanId = "cycle-1m", PlayTrialOfferId = "trial-7d" });
+            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 3), CycleMonths = 3, PriceInr = m3, IsEnabled = true, PlayBasePlanId = "cycle-3m" });
+            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 12), CycleMonths = 12, PriceInr = m12, IsEnabled = true, PlayBasePlanId = "cycle-12m" });
 
             db.Plans.AddRange(free, plus);
         }

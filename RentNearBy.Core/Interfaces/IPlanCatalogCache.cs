@@ -2,7 +2,8 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Core.Interfaces;
 
-public sealed record CatalogPrice(Guid Id, short CycleMonths, int PriceInr, string? RazorpayPlanId, bool IsEnabled);
+public sealed record CatalogPrice(Guid Id, short CycleMonths, int PriceInr, string? RazorpayPlanId, bool IsEnabled,
+    string? PlayBasePlanId, string? PlayTrialOfferId);
 
 // Typed view of a plan's PlanFeatures; a missing key reads as 0.
 public sealed record PlanFeatureValues(int ListingLimit, int Priority, bool Featured, int JobsPosts)
@@ -35,7 +36,8 @@ public sealed record CatalogPlan(
     int SortOrder,
     IReadOnlyDictionary<string, int> Features,
     PlanFeatureValues Values,
-    IReadOnlyList<CatalogPrice> Prices);
+    IReadOnlyList<CatalogPrice> Prices,
+    string? PlayProductId);
 
 public sealed class PlanCatalogSnapshot
 {
@@ -43,12 +45,16 @@ public sealed class PlanCatalogSnapshot
     private static readonly IReadOnlyList<short> ZeroRank = [0];
 
     private readonly Dictionary<Guid, CatalogPlan> _byId;
+    private readonly Dictionary<string, CatalogPlan> _byPlayProduct;
     private readonly Dictionary<string, IReadOnlyList<short>> _ranks;
 
     public PlanCatalogSnapshot(IEnumerable<CatalogPlan> plans)
     {
         var list = plans.OrderBy(p => p.FeatureKey).ThenBy(p => p.SortOrder).ThenBy(p => p.Name).ToList();
         _byId = list.ToDictionary(p => p.Id);
+        _byPlayProduct = list.Where(p => p.PlayProductId != null)
+            .GroupBy(p => p.PlayProductId!)
+            .ToDictionary(g => g.Key, g => g.First());
         PlansByFeature = list.GroupBy(p => p.FeatureKey)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<CatalogPlan>)g.ToList());
         // Disabled plans are included: their holders keep their rank until expiry.
@@ -69,6 +75,12 @@ public sealed class PlanCatalogSnapshot
 
     public IReadOnlyList<CatalogPrice> PricesOf(Guid planId)
         => _byId.TryGetValue(planId, out var p) ? p.Prices : Array.Empty<CatalogPrice>();
+
+    // Disabled plans included: an existing subscription of a disabled plan still maps.
+    public CatalogPlan? FindByPlayProduct(string productId) => _byPlayProduct.GetValueOrDefault(productId);
+
+    public CatalogPrice? FindPrice(Guid planId, string basePlanId)
+        => PricesOf(planId).FirstOrDefault(p => p.PlayBasePlanId == basePlanId);
 
     public CatalogPlan? DefaultPlan(string featureKey) => PlansOf(featureKey).FirstOrDefault(p => p.IsDefault);
 

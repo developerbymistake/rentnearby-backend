@@ -13,6 +13,7 @@ public class Plan
     public bool IsEnabled { get; set; } = true;
     public int TrialDays { get; set; }
     public int SortOrder { get; set; }
+    public string? PlayProductId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

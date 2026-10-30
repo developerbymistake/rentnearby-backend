@@ -38,6 +38,15 @@ public enum ReconcileOutcome
 
 public sealed record AdminGrantResult(AdminPurchaseDto Purchase, NotificationEvent? Notification, bool Replayed);
 
+// EndsAt = the entitled line item's expiryTime; CarryOverDaysFallback = the latest non-Active row of the same subscription's days.
+public sealed record PlayGrantCommand(Guid UserId, string FeatureKey, Guid PlanId, int Days, int PaidInr, DateTime EndsAt,
+    Guid PlaySubscriptionId, bool AutoRenew, string PlayState, DateTime? TrialEndsAt, Guid? ScheduledPlanId, PlanPurchase? Purchase, string PlanName,
+    int CarryOverDaysFallback = 0);
+
+public sealed record PlayGrantOutcome(UserPlan UserPlan, NotificationEvent Notification, bool WasNewRow, int CarryOverDaysTaken);
+
+public sealed record AdminRevokeResult(bool ProratedRefundQueued);
+
 // Prepaid plan purchases (Razorpay orders), trials, admin grants/revokes/refunds and the coupon engine.
 // Every failure is a PlanServiceException (StatusCode + PlanErrorTypes.*). External Razorpay calls never
 // run inside a DB transaction; every one-time effect is status-guarded and idempotent.
@@ -71,9 +80,16 @@ public interface IPlanPurchaseService
     Task<MyPlanDto> StartTrialAsync(Guid userId, Guid planId);
 
     Task<AdminGrantResult> AdminGrantAsync(Guid adminId, Guid userId, AdminGrantPlanRequest request);
-    Task AdminRevokeAsync(Guid adminId, Guid userId, AdminRevokePlanRequest request);
+    Task<AdminRevokeResult> AdminRevokeAsync(Guid adminId, Guid userId, AdminRevokePlanRequest request);
     Task<AdminPurchaseDto> AdminRefundAsync(Guid adminId, Guid purchaseId, string reason);
 
     // Role change / correction: cancel the leaving feature's active plans (no refund). Caller's transaction.
     Task<int> CancelActivePlansAsync(Guid userId, string featureKey, string note);
+
+    // Play: caller holds the transaction and the owner lock.
+    Task<PlayGrantOutcome> GrantPlayInTxAsync(PlayGrantCommand command);
+    // Provider=Play rows only, status-guarded; the only Play writer of Refunded besides ApplyVoidedAsync.
+    Task<bool> MarkPlayChargeRefundedAsync(string playOrderId, string note);
+    // Created -> Pending, ExpiresAt = now + PlayRules.PendingOrderTtl.
+    Task<bool> MarkPlayPendingAsync(Guid purchaseId);
 }

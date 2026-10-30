@@ -515,10 +515,10 @@ public static class AdminHandlers
             .Select(g => new { District = g.Key.DistrictName, Count = g.Count() })
             .ToListAsync();
 
-        // Revenue = granted Razorpay plan purchases (refunded ones drop out).
+        // Revenue = granted paid plan purchases, Razorpay and Play (refunded ones drop out).
         var now = DateTime.UtcNow;
         var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var revenue = db.PlanPurchases.Where(p => p.Status == PurchaseStatuses.Granted && p.Provider == PaymentProviders.Razorpay);
+        var revenue = db.PlanPurchases.Where(p => p.Status == PurchaseStatuses.Granted && p.Provider != PaymentProviders.None);
         var totalEarnings = await revenue.SumAsync(p => (int?)p.PayableInr) ?? 0;
         var currentMonthEarnings = await revenue.Where(p => p.GrantedAt >= monthStart).SumAsync(p => (int?)p.PayableInr) ?? 0;
 
@@ -553,6 +553,7 @@ public static class AdminHandlers
         isEnabled = flag.IsEnabled,
         freeDurationDays = flag.FreeDurationDays ?? 30,
         freeModeListingLimit = flag.FreeModeListingLimit,
+        provider = flag.PaymentProvider,
         updatedByAdminId = flag.UpdatedByAdminId,
         updatedAt = flag.UpdatedAt,
         reason = flag.Reason,
@@ -578,6 +579,7 @@ public static class AdminHandlers
         if (request.ClearFreeModeListingLimit) flag.FreeModeListingLimit = null;
         else if (request.FreeModeListingLimit.HasValue) flag.FreeModeListingLimit = request.FreeModeListingLimit.Value;
         if (request.Reason != null) flag.Reason = request.Reason;
+        if (request.Provider != null) flag.PaymentProvider = request.Provider;
 
         var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         flag.UpdatedByAdminId = Guid.TryParse(adminIdClaim, out var parsedAdminId) ? parsedAdminId : null;

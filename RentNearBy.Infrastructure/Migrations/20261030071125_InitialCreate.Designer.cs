@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261029213644_InitialCreate")]
+    [Migration("20261030071125_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -164,6 +164,13 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("PaymentProvider")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Play");
 
                     b.Property<string>("Reason")
                         .HasColumnType("text");
@@ -1161,8 +1168,26 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<int?>("PlayNotificationType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PlayOrderId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PlayPurchaseToken")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
                     b.Property<DateTime?>("ProcessedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Razorpay");
 
                     b.Property<string>("RawBody")
                         .IsRequired()
@@ -1189,6 +1214,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("RazorpayOrderId");
 
                     b.HasIndex("ReceivedAt");
+
+                    b.HasIndex(new[] { "PlayOrderId" }, "ix_paymentevents_play_order");
+
+                    b.HasIndex(new[] { "PlayPurchaseToken" }, "ix_paymentevents_play_token");
 
                     b.ToTable("PaymentEvents");
                 });
@@ -1226,6 +1255,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<string>("PlayProductId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -1251,6 +1284,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "FeatureKey" }, "ix_plans_default_per_feature")
                         .IsUnique()
                         .HasFilter("\"IsDefault\"");
+
+                    b.HasIndex(new[] { "PlayProductId" }, "ix_plans_play_product")
+                        .IsUnique()
+                        .HasFilter("\"PlayProductId\" IS NOT NULL");
 
                     b.ToTable("Plans", t =>
                         {
@@ -1303,6 +1340,14 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid>("PlanId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("PlayBasePlanId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PlayTrialOfferId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<int>("PriceInr")
                         .HasColumnType("integer");
 
@@ -1315,11 +1360,17 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("PlanId", "CycleMonths")
                         .IsUnique();
 
+                    b.HasIndex(new[] { "PlanId", "PlayBasePlanId" }, "ix_planprices_play_baseplan")
+                        .IsUnique()
+                        .HasFilter("\"PlayBasePlanId\" IS NOT NULL");
+
                     b.ToTable("PlanPrices", t =>
                         {
                             t.HasCheckConstraint("ck_planprices_cycle", "\"CycleMonths\" IN (1, 3, 12)");
 
                             t.HasCheckConstraint("ck_planprices_price", "\"PriceInr\" >= 1");
+
+                            t.HasCheckConstraint("ck_planprices_trial_offer", "\"PlayTrialOfferId\" IS NULL OR \"PlayBasePlanId\" IS NOT NULL");
                         });
                 });
 
@@ -1422,6 +1473,32 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<string>("PlayBasePlanId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime?>("PlayChargebackReviewAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PlayOfferId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PlayOrderId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PlayProductId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PlayPurchaseSource")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid?>("PlaySubscriptionId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Provider")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -1479,6 +1556,12 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RazorpayPaymentId\" IS NOT NULL");
 
+                    b.HasIndex(new[] { "PlayOrderId" }, "ix_planpurchases_play_order")
+                        .IsUnique()
+                        .HasFilter("\"PlayOrderId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "PlaySubscriptionId" }, "ix_planpurchases_play_subscription");
+
                     b.HasIndex(new[] { "RazorpayRefundId" }, "ix_planpurchases_refund")
                         .IsUnique()
                         .HasFilter("\"RazorpayRefundId\" IS NOT NULL");
@@ -1489,6 +1572,206 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsDescending(false, true);
 
                     b.ToTable("PlanPurchases");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlaySubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<int>("AckAttempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("AcknowledgedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AcknowledgementState")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime?>("AnonymisedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("AutoRenewEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("BasePlanId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("CancelReason")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("DeferredProductId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("DetachedReason")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ExpiredPurchaseToken")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTime?>("ExpiryTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FeatureKey")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<bool>("IsTestPurchase")
+                        .HasColumnType("boolean");
+
+                    b.Property<long?>("LastEventTimeMillis")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("LastRtdnType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastSnapshotJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastSyncError")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LatestOrderId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("LinkedPurchaseToken")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("MappingStatus")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime?>("NextActionAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ObfuscatedAccountId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("OfferId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime?>("PausedAutoResumeAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PendingActionAttempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("PendingActionReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("PendingServerAction")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid?>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PlanPriceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PriceChangeMode")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PriceChangeState")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ProductId")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PurchaseToken")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("PurchasedProductId")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("RecurringPriceCurrency")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<long?>("RecurringPriceMicros")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RegionCode")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<DateTime?>("StartTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlanId");
+
+                    b.HasIndex("PlanPriceId");
+
+                    b.HasIndex(new[] { "LastSyncedAt" }, "ix_playsubscriptions_last_synced");
+
+                    b.HasIndex(new[] { "LinkedPurchaseToken" }, "ix_playsubscriptions_linked_token");
+
+                    b.HasIndex(new[] { "MappingStatus" }, "ix_playsubscriptions_mapping");
+
+                    b.HasIndex(new[] { "PendingServerAction" }, "ix_playsubscriptions_pending_action")
+                        .HasFilter("\"PendingServerAction\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "State", "ExpiryTime" }, "ix_playsubscriptions_state_expiry");
+
+                    b.HasIndex(new[] { "PurchaseToken" }, "ix_playsubscriptions_token")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "UserId", "FeatureKey" }, "ix_playsubscriptions_user_feature");
+
+                    b.ToTable("PlaySubscriptions");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PlotListing", b =>
@@ -3021,6 +3304,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("PlayAccountKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<DateTime?>("RoleConfirmedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -3047,6 +3334,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique();
 
                     b.HasIndex("RoleId");
+
+                    b.HasIndex(new[] { "PlayAccountKey" }, "ix_users_play_account_key")
+                        .IsUnique()
+                        .HasFilter("\"PlayAccountKey\" IS NOT NULL");
 
                     b.ToTable("Users");
                 });
@@ -3084,6 +3375,11 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<int>("CarryOverDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -3106,6 +3402,22 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Guid>("PlanId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool?>("PlayAutoRenewEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("PlayScheduledPlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PlayState")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid?>("PlaySubscriptionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("PlayTrialEndsAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("ReminderSentAt")
                         .HasColumnType("timestamp with time zone");
@@ -3153,9 +3465,13 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("PlanId");
 
+                    b.HasIndex("PlayScheduledPlanId");
+
                     b.HasIndex(new[] { "UserId", "FeatureKey" }, "ix_userplans_active_per_feature")
                         .IsUnique()
                         .HasFilter("\"Status\" = 'Active'");
+
+                    b.HasIndex(new[] { "PlaySubscriptionId" }, "ix_userplans_play_subscription");
 
                     b.HasIndex(new[] { "Status", "EndsAt" }, "ix_userplans_status_endsat");
 
@@ -3168,6 +3484,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.ToTable("UserPlans", t =>
                         {
+                            t.HasCheckConstraint("ck_userplans_carryover", "\"CarryOverDays\" >= 0");
+
                             t.HasCheckConstraint("ck_userplans_window", "\"EndsAt\" > \"StartsAt\"");
                         });
                 });
@@ -3431,6 +3749,29 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasForeignKey("PlanId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.PlaySubscription", null)
+                        .WithMany()
+                        .HasForeignKey("PlaySubscriptionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.PlaySubscription", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Plan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("RentNearBy.Core.Entities.PlanPrice", null)
+                        .WithMany()
+                        .HasForeignKey("PlanPriceId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("RentNearBy.Core.Entities.User", null)
                         .WithMany()
@@ -3754,6 +4095,16 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasForeignKey("PlanId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.Plan", null)
+                        .WithMany()
+                        .HasForeignKey("PlayScheduledPlanId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("RentNearBy.Core.Entities.PlaySubscription", null)
+                        .WithMany()
+                        .HasForeignKey("PlaySubscriptionId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("RentNearBy.Core.Entities.User", null)
                         .WithMany()

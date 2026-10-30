@@ -8,5 +8,7 @@ public class PlanPrice
     public int PriceInr { get; set; }
     // Reserved for the designed (not built) AutoPay subscription layer.
     public string? RazorpayPlanId { get; set; }
+    public string? PlayBasePlanId { get; set; }
+    public string? PlayTrialOfferId { get; set; }
     public bool IsEnabled { get; set; } = true;
 }

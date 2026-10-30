@@ -36,6 +36,7 @@ public interface IUnitOfWork : IDisposable
     IUserPlanRepository UserPlans { get; }
     IPlanPurchaseRepository PlanPurchases { get; }
     IPaymentEventRepository PaymentEvents { get; }
+    IPlaySubscriptionRepository PlaySubscriptions { get; }
     INotificationRepository Notifications { get; }
     IRoleRepository Roles { get; }
     IRoleChangeRequestRepository RoleChangeRequests { get; }

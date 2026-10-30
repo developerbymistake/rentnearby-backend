@@ -91,6 +91,11 @@ public static class PurchaseSources
     public const string Webhook = "Webhook";
     public const string Reconcile = "Reconcile";
     public const string AdminRecheck = "AdminRecheck";
+    public const string VerifyPlay = "VerifyPlay";
+    public const string Restore = "Restore";
+    public const string Rtdn = "Rtdn";
+    public const string PlayReconcile = "PlayReconcile";
+    public const string AdminRefund = "AdminRefund";
 }
 
 public static class GrantBlockedReasons
@@ -98,12 +103,18 @@ public static class GrantBlockedReasons
     public const string AmountMismatch = "AmountMismatch";
     public const string RoleMismatch = "RoleMismatch";
     public const string QuoteExpired = "QuoteExpired";
+    public const string AccountMismatch = "AccountMismatch";
+    public const string ProductUnknown = "ProductUnknown";
 }
 
 public static class PaymentProviders
 {
     public const string Razorpay = "Razorpay";
     public const string None = "None";
+    public const string Play = "Play";
+
+    // Values an admin may pick for AppFeatureFlag.PaymentProvider.
+    public static readonly string[] Selectable = [Razorpay, Play];
 }
 
 public static class CouponKinds
@@ -163,4 +174,14 @@ public static class PlanErrorTypes
     public const string RenewLimitReached = "RenewLimitReached";
     public const string InvalidRequest = "InvalidRequest";
     public const string UserPlanNotFound = "UserPlanNotFound";
+    public const string AlreadySubscribed = "AlreadySubscribed";
+    public const string ProviderMismatch = "ProviderMismatch";
+    public const string PurchaseBelongsToAnotherAccount = "PurchaseBelongsToAnotherAccount";
+    public const string PlayTokenInvalid = "PlayTokenInvalid";
+    public const string PlayNotConfigured = "PlayNotConfigured";
+    public const string CouponKindNotAllowed = "CouponKindNotAllowed";
+    public const string RevokeRefundsOnPlay = "RevokeRefundsOnPlay";
+    public const string RestoreLimit = "RestoreLimit";
+    public const string SubscriptionOnHold = "SubscriptionOnHold";
+    public const string PlayIdExists = "PlayIdExists";
 }

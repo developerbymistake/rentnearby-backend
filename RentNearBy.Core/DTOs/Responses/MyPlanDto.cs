@@ -17,6 +17,11 @@ public class MyPlanDto
     public bool TrialAvailable { get; set; }
     public Guid? OpenPurchaseId { get; set; }
     public int PausedByPlanCount { get; set; }
+    public string PaymentProvider { get; set; } = string.Empty;
+    public int CarryOverDays { get; set; }
+    // Non-null exactly when Play is.
+    public string? ManageUrl { get; set; }
+    public MyPlanPlayDto? Play { get; set; }
 }
 
 public class MyPlanRefDto

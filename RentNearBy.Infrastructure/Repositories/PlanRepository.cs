@@ -32,21 +32,58 @@ public class PlanRepository(ApplicationDbContext context) : Repository<Plan>(con
     public async Task<bool> CodeExistsAsync(string featureKey, string code, Guid? exceptId)
         => await _dbSet.AnyAsync(p => p.FeatureKey == featureKey && p.Code == code && (exceptId == null || p.Id != exceptId));
 
+    // ix_planprices_play_baseplan is not deferrable, so base plan ids moving between cycles in one edit
+    // (a swap) would fail row by row. Call inside the edit transaction, before ReplaceDetails.
+    public async Task ReleaseChangedPlayIdsAsync(Plan plan, IEnumerable<PlanPrice> prices)
+    {
+        var incoming = prices.ToDictionary(p => p.CycleMonths, p => p.PlayBasePlanId);
+        var released = false;
+        foreach (var existing in plan.Prices)
+        {
+            if (existing.PlayBasePlanId == null) continue;
+            if (incoming.TryGetValue(existing.CycleMonths, out var next) && next == existing.PlayBasePlanId) continue;
+            existing.PlayBasePlanId = null;
+            existing.PlayTrialOfferId = null;
+            released = true;
+        }
+        if (released) await _context.SaveChangesAsync();
+    }
+
+    // Prices are matched by cycle and updated in place so their ids (PlaySubscriptions.PlanPriceId) survive an edit.
     public void ReplaceDetails(Plan plan, IEnumerable<PlanFeature> features, IEnumerable<PlanPrice> prices)
     {
         _context.PlanFeatures.RemoveRange(plan.Features);
-        _context.PlanPrices.RemoveRange(plan.Prices);
         plan.Features.Clear();
-        plan.Prices.Clear();
         foreach (var f in features)
         {
             f.PlanId = plan.Id;
             plan.Features.Add(f);
         }
+
+        var byCycle = plan.Prices.ToDictionary(p => p.CycleMonths);
+        var keep = new HashSet<PlanPrice>();
         foreach (var p in prices)
         {
-            p.PlanId = plan.Id;
-            plan.Prices.Add(p);
+            if (byCycle.TryGetValue(p.CycleMonths, out var existing))
+            {
+                existing.PriceInr = p.PriceInr;
+                existing.RazorpayPlanId = p.RazorpayPlanId;
+                existing.PlayBasePlanId = p.PlayBasePlanId;
+                existing.PlayTrialOfferId = p.PlayTrialOfferId;
+                existing.IsEnabled = p.IsEnabled;
+                keep.Add(existing);
+            }
+            else
+            {
+                p.PlanId = plan.Id;
+                plan.Prices.Add(p);
+                keep.Add(p);
+            }
+        }
+        foreach (var stale in plan.Prices.Where(p => !keep.Contains(p)).ToList())
+        {
+            _context.PlanPrices.Remove(stale);
+            plan.Prices.Remove(stale);
         }
     }
 

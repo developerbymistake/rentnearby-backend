@@ -69,6 +69,17 @@ public class UserRepository(ApplicationDbContext context) : Repository<User>(con
             .Where(u => u.Id == userId && u.RoleId == roleId)
             .ExecuteUpdateAsync(s => s.SetProperty(u => u.UpdatedAt, DateTime.UtcNow));
 
+    public async Task<bool> SetPlayAccountKeyIfNullAsync(Guid userId, string playAccountKey)
+        => await _dbSet
+            .Where(u => u.Id == userId && u.PlayAccountKey == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.PlayAccountKey, playAccountKey)) > 0;
+
+    public async Task<Guid?> GetIdByPlayAccountKeyAsync(string playAccountKey)
+        => await _dbSet.AsNoTracking()
+            .Where(u => u.PlayAccountKey == playAccountKey)
+            .Select(u => (Guid?)u.Id)
+            .FirstOrDefaultAsync();
+
     // Owners always show their number; a Seeker starts hidden.
     private static bool IsContactVisibleForRole(Guid roleId) => UserRoles.ListingKindOf(roleId) != null;
 }

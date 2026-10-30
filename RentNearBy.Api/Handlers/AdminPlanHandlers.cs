@@ -1,11 +1,13 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Npgsql;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Data;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -14,17 +16,18 @@ namespace RentNearBy.Api.Handlers;
 // New plans need no code: every rule reads PlanFeatureKeys through IPlanEntitlementService.
 public static class AdminPlanHandlers
 {
-    public static async Task<IResult> GetPlans(IUnitOfWork unitOfWork, string? featureKey = null)
+    public static async Task<IResult> GetPlans(IUnitOfWork unitOfWork, ApplicationDbContext db, string? featureKey = null)
     {
         if (featureKey != null && !PlanFeatures.IsValid(featureKey))
             return BadRequestResponse("Unknown featureKey");
         var plans = await unitOfWork.Plans.GetAllWithDetailsAsync(featureKey);
-        return OkResponse(plans.Select(ToDto).ToList());
+        var playPrices = await PlayPricesAsync(db);
+        return OkResponse(plans.Select(p => ToDto(p, playPrices)).ToList());
     }
 
     public static async Task<IResult> CreatePlan(
         UpsertPlanRequest request, IValidator<UpsertPlanRequest> validator,
-        IUnitOfWork unitOfWork, IPlanCatalogCache catalog, IMemoryCache cache)
+        IUnitOfWork unitOfWork, IPlanCatalogCache catalog, IMemoryCache cache, ApplicationDbContext db)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -34,6 +37,9 @@ public static class AdminPlanHandlers
         var code = NormalizeCode(request.Code);
         if (await unitOfWork.Plans.CodeExistsAsync(request.FeatureKey, code, null))
             return ConflictResponse("A plan with this code already exists for this feature.", "PlanCodeExists");
+        var playProductId = Clean(request.PlayProductId);
+        if (playProductId != null && await db.Plans.AnyAsync(p => p.PlayProductId == playProductId))
+            return ConflictResponse(PlayIdExistsMessage, PlanErrorTypes.PlayIdExists);
 
         var now = DateTime.UtcNow;
         var plan = new Plan
@@ -47,6 +53,7 @@ public static class AdminPlanHandlers
             IsEnabled = request.IsEnabled,
             TrialDays = request.TrialDays,
             SortOrder = request.SortOrder,
+            PlayProductId = playProductId,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -58,15 +65,17 @@ public static class AdminPlanHandlers
         {
             await unitOfWork.SaveChangesAsync();
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex)
         {
             await catalog.RefreshAsync();
-            return ConflictResponse("A plan with this code already exists for this feature.", "PlanCodeExists");
+            return IsPlayIdConflict(ex)
+                ? ConflictResponse(PlayIdExistsMessage, PlanErrorTypes.PlayIdExists)
+                : ConflictResponse("A plan with this code already exists for this feature.", "PlanCodeExists");
         }
         await catalog.RefreshAsync();
         ConfigHandlers.BustPlanDerivedConfig(cache);
 
-        return CreatedResponse(ToDto(plan), $"/api/v1/admin/plans/{plan.Id}");
+        return CreatedResponse(ToDto(plan, await PlayPricesAsync(db)), $"/api/v1/admin/plans/{plan.Id}");
     }
 
     // The default (free) plan keeps IsDefault, stays enabled and has no prices. Holders of an edited plan
@@ -75,7 +84,7 @@ public static class AdminPlanHandlers
     public static async Task<IResult> UpdatePlan(
         Guid id, UpsertPlanRequest request, IValidator<UpsertPlanRequest> validator,
         IUnitOfWork unitOfWork, IPlanCatalogCache catalog, IMemoryCache cache,
-        ILiveSlotService slots, IListingCacheInvalidator invalidator, ILoggerFactory loggerFactory)
+        ILiveSlotService slots, IListingCacheInvalidator invalidator, ILoggerFactory loggerFactory, ApplicationDbContext db)
     {
         var logger = loggerFactory.CreateLogger(nameof(AdminPlanHandlers));
         var validation = await validator.ValidateAsync(request);
@@ -91,6 +100,8 @@ public static class AdminPlanHandlers
             if (!request.IsEnabled) return BadRequestResponse("The default plan cannot be disabled.");
             if (request.Prices is { Count: > 0 }) return BadRequestResponse("The default plan cannot have prices.");
             if (request.TrialDays > 0) return BadRequestResponse("The default plan cannot have a trial.");
+            if (!string.IsNullOrWhiteSpace(request.PlayProductId))
+                return BadRequestResponse("The default plan cannot have a Play product id.");
         }
         else if (request.Prices == null || request.Prices.Count == 0)
         {
@@ -100,6 +111,9 @@ public static class AdminPlanHandlers
         var code = NormalizeCode(request.Code);
         if (await unitOfWork.Plans.CodeExistsAsync(plan.FeatureKey, code, plan.Id))
             return ConflictResponse("A plan with this code already exists for this feature.", "PlanCodeExists");
+        var playProductId = Clean(request.PlayProductId);
+        if (playProductId != null && await db.Plans.AnyAsync(p => p.PlayProductId == playProductId && p.Id != plan.Id))
+            return ConflictResponse(PlayIdExistsMessage, PlanErrorTypes.PlayIdExists);
 
         plan.Code = code;
         plan.Name = request.Name.Trim();
@@ -107,6 +121,7 @@ public static class AdminPlanHandlers
         plan.IsEnabled = request.IsEnabled;
         plan.TrialDays = request.TrialDays;
         plan.SortOrder = request.SortOrder;
+        plan.PlayProductId = playProductId;
         plan.UpdatedAt = DateTime.UtcNow;
         unitOfWork.Plans.ReplaceDetails(plan, ToFeatures(request), ToPrices(request));
 
@@ -117,11 +132,13 @@ public static class AdminPlanHandlers
             await unitOfWork.SaveChangesAsync();
             await unitOfWork.CommitTransactionAsync();
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex)
         {
             await unitOfWork.RollbackTransactionAsync();
             await catalog.RefreshAsync();
-            return ConflictResponse("A plan with this code already exists for this feature.", "PlanCodeExists");
+            return IsPlayIdConflict(ex)
+                ? ConflictResponse(PlayIdExistsMessage, PlanErrorTypes.PlayIdExists)
+                : ConflictResponse("A plan with this code already exists for this feature.", "PlanCodeExists");
         }
         catch
         {
@@ -157,10 +174,43 @@ public static class AdminPlanHandlers
             logger.LogWarning(ex, "Rank/limit re-apply after plan {PlanId} edit failed; the daily reconcile will repair it", plan.Id);
         }
 
-        return OkResponse(ToDto(plan));
+        return OkResponse(ToDto(plan, await PlayPricesAsync(db)));
+    }
+
+    private const string PlayIdExistsMessage = "This Google Play product or base plan id is already used by another plan.";
+
+    private sealed class PlayPriceRow
+    {
+        public string ProductId { get; set; } = string.Empty;
+        public string BasePlanId { get; set; } = string.Empty;
+        public long RecurringPriceMicros { get; set; }
     }
 
     private static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool IsPlayIdConflict(DbUpdateException ex)
+        => (ex.InnerException as PostgresException)?.ConstraintName is "ix_plans_play_product" or "ix_planprices_play_baseplan";
+
+    // Google's current INR price per (product, base plan), from the most recently synced subscription.
+    private static async Task<Dictionary<(string ProductId, string BasePlanId), int>> PlayPricesAsync(ApplicationDbContext db)
+    {
+        var rows = await db.Database.SqlQueryRaw<PlayPriceRow>("""
+            SELECT DISTINCT ON ("ProductId", "BasePlanId") "ProductId", "BasePlanId", "RecurringPriceMicros"
+            FROM "PlaySubscriptions"
+            WHERE "BasePlanId" IS NOT NULL AND "RecurringPriceMicros" IS NOT NULL AND "RecurringPriceCurrency" = 'INR'
+            ORDER BY "ProductId", "BasePlanId", "LastSyncedAt" DESC NULLS LAST
+            """).ToListAsync();
+        return rows.ToDictionary(
+            r => (r.ProductId, r.BasePlanId),
+            r => (int)Math.Round(r.RecurringPriceMicros / 1_000_000m, MidpointRounding.AwayFromZero));
+    }
+
+    private static int? PlayPriceOf(Plan p, PlanPrice x, IReadOnlyDictionary<(string ProductId, string BasePlanId), int> playPrices)
+        => p.PlayProductId != null && x.PlayBasePlanId != null && playPrices.TryGetValue((p.PlayProductId, x.PlayBasePlanId), out var inr)
+            ? inr
+            : null;
 
     private static IEnumerable<PlanFeature> ToFeatures(UpsertPlanRequest request)
         => (request.Features ?? []).Select(f => new PlanFeature { Id = Guid.NewGuid(), Key = f.Key, Value = f.Value });
@@ -172,10 +222,12 @@ public static class AdminPlanHandlers
             CycleMonths = (short)p.CycleMonths,
             PriceInr = p.PriceInr,
             RazorpayPlanId = string.IsNullOrWhiteSpace(p.RazorpayPlanId) ? null : p.RazorpayPlanId.Trim(),
+            PlayBasePlanId = Clean(p.PlayBasePlanId),
+            PlayTrialOfferId = Clean(p.PlayTrialOfferId),
             IsEnabled = p.IsEnabled,
         });
 
-    internal static AdminPlanDto ToDto(Plan p) => new()
+    internal static AdminPlanDto ToDto(Plan p, IReadOnlyDictionary<(string ProductId, string BasePlanId), int> playPrices) => new()
     {
         Id = p.Id,
         FeatureKey = p.FeatureKey,
@@ -186,6 +238,7 @@ public static class AdminPlanHandlers
         IsEnabled = p.IsEnabled,
         TrialDays = p.TrialDays,
         SortOrder = p.SortOrder,
+        PlayProductId = p.PlayProductId,
         Features = p.Features.OrderBy(f => Array.IndexOf(PlanFeatureKeys.All, f.Key))
             .Select(f => new AdminPlanFeatureDto { Key = f.Key, Value = f.Value }).ToList(),
         Prices = p.Prices.OrderBy(x => x.CycleMonths)
@@ -196,6 +249,10 @@ public static class AdminPlanHandlers
                 PriceInr = x.PriceInr,
                 RazorpayPlanId = x.RazorpayPlanId,
                 IsEnabled = x.IsEnabled,
+                PlayBasePlanId = x.PlayBasePlanId,
+                PlayTrialOfferId = x.PlayTrialOfferId,
+                PlayRecurringPriceInr = PlayPriceOf(p, x, playPrices),
+                PlayPriceMismatch = PlayPriceOf(p, x, playPrices) is { } play && play != x.PriceInr,
             }).ToList(),
         LowPriceWarning = p.Prices.Any(x => x.PriceInr < PlanRules.LowPriceWarningInr),
         CreatedAt = p.CreatedAt,

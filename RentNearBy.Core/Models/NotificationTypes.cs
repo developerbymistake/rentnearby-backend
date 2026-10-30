@@ -18,6 +18,11 @@ public static class NotificationTypes
     public const string PlanActivated = "PlanActivated";
     public const string PlanExpiring = "PlanExpiring";
     public const string PlanExpired = "PlanExpired";
+    public const string PlanRenewed = "PlanRenewed";
+    public const string PlanPaymentIssue = "PlanPaymentIssue";
+    public const string PlanOnHold = "PlanOnHold";
+    public const string PlanPaused = "PlanPaused";
+    public const string PlanCarryOverActivated = "PlanCarryOverActivated";
     // Push-only (FCM notification_type for the seeker and admin job pushes), no NotificationEvent row.
     public const string StayJobPosted = "StayJobPosted";
 
@@ -38,6 +43,11 @@ public static class NotificationTypes
         [PlanActivated] = "plan_activated",
         [PlanExpiring] = "plan_expiring",
         [PlanExpired] = "plan_expired",
+        [PlanRenewed] = "plan_renewed",
+        [PlanPaymentIssue] = "plan_payment_issue",
+        [PlanOnHold] = "plan_on_hold",
+        [PlanPaused] = "plan_paused",
+        [PlanCarryOverActivated] = "plan_carry_over_activated",
         [StayJobPosted] = "stay_job_posted",
     };
 

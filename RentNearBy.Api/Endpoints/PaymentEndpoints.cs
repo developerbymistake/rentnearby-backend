@@ -9,6 +9,8 @@ public static class PaymentEndpoints
         // Razorpay calls this directly, server-to-server — no user JWT, authenticated instead
         // by its own HMAC signature header (verified inside the handler).
         group.MapPost("/webhook", PaymentHandlers.RazorpayWebhook).AllowAnonymous();
+        // Pub/Sub push for Google Play RTDN; authenticated by its OIDC token inside the handler.
+        group.MapPost("/play/rtdn", PaymentHandlers.PlayRtdn).AllowAnonymous();
         return group;
     }
 }

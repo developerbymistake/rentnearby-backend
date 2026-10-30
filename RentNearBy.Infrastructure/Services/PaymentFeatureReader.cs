@@ -6,7 +6,7 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Missing row/null = Enabled true (fail toward requiring payment), FreeDays 30. This is deliberately the
+// Missing row/null = Enabled true (fail toward requiring payment), FreeDays 30, Provider Play. This is deliberately the
 // opposite polarity from the seed's IsEnabled = false; do not "simplify" it to match the seed.
 public class PaymentFeatureReader(ApplicationDbContext db, IMemoryCache cache) : IPaymentFeatureReader
 {
@@ -23,7 +23,8 @@ public class PaymentFeatureReader(ApplicationDbContext db, IMemoryCache cache) :
         var state = new PaymentFeatureState(
             flag?.IsEnabled ?? true,
             flag?.FreeDurationDays ?? DefaultFreeDays,
-            flag?.FreeModeListingLimit);
+            flag?.FreeModeListingLimit,
+            PaymentProviders.Selectable.Contains(flag?.PaymentProvider) ? flag!.PaymentProvider : PaymentProviders.Play);
         cache.Set(IPaymentFeatureReader.CacheKey, state, Ttl);
         return state;
     }

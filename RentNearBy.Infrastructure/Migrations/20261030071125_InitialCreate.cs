@@ -158,9 +158,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     EventId = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    Provider = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "Razorpay"),
                     EventType = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     RazorpayOrderId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     RazorpayPaymentId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    PlayPurchaseToken = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: true),
+                    PlayNotificationType = table.Column<int>(type: "integer", nullable: true),
+                    PlayOrderId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     RawBody = table.Column<string>(type: "text", nullable: false),
                     Outcome = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: true),
                     ReceivedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
@@ -184,6 +188,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     TrialDays = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    PlayProductId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
                 },
@@ -354,6 +359,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     IsEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     FreeDurationDays = table.Column<int>(type: "integer", nullable: true),
                     FreeModeListingLimit = table.Column<int>(type: "integer", nullable: true),
+                    PaymentProvider = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "Play"),
                     UpdatedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     Reason = table.Column<string>(type: "text", nullable: true)
@@ -592,6 +598,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     CycleMonths = table.Column<short>(type: "smallint", nullable: false),
                     PriceInr = table.Column<int>(type: "integer", nullable: false),
                     RazorpayPlanId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    PlayBasePlanId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    PlayTrialOfferId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
                     IsEnabled = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
@@ -599,6 +607,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.PrimaryKey("PK_PlanPrices", x => x.Id);
                     table.CheckConstraint("ck_planprices_cycle", "\"CycleMonths\" IN (1, 3, 12)");
                     table.CheckConstraint("ck_planprices_price", "\"PriceInr\" >= 1");
+                    table.CheckConstraint("ck_planprices_trial_offer", "\"PlayTrialOfferId\" IS NULL OR \"PlayBasePlanId\" IS NOT NULL");
                     table.ForeignKey(
                         name: "FK_PlanPrices_Plans_PlanId",
                         column: x => x.PlanId,
@@ -659,6 +668,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     IsContactVisible = table.Column<bool>(type: "boolean", nullable: false),
                     RoleId = table.Column<Guid>(type: "uuid", nullable: false, defaultValue: new Guid("10000000-0000-0000-0000-000000000001")),
                     RoleConfirmedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    PlayAccountKey = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
                 },
@@ -866,6 +876,78 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "PlaySubscriptions",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    FeatureKey = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: true),
+                    PlanId = table.Column<Guid>(type: "uuid", nullable: true),
+                    PlanPriceId = table.Column<Guid>(type: "uuid", nullable: true),
+                    PurchaseToken = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: false),
+                    ProductId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    PurchasedProductId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    DetachedReason = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    BasePlanId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    OfferId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    LinkedPurchaseToken = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: true),
+                    ExpiredPurchaseToken = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: true),
+                    MappingStatus = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                    State = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    AutoRenewEnabled = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    StartTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ExpiryTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LatestOrderId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    AcknowledgementState = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    AcknowledgedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    AckAttempts = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    RegionCode = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: true),
+                    IsTestPurchase = table.Column<bool>(type: "boolean", nullable: false),
+                    ObfuscatedAccountId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    CancelReason = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    PausedAutoResumeAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    DeferredProductId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    RecurringPriceMicros = table.Column<long>(type: "bigint", nullable: true),
+                    RecurringPriceCurrency = table.Column<string>(type: "character varying(3)", maxLength: 3, nullable: true),
+                    PriceChangeState = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    PriceChangeMode = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    LastRtdnType = table.Column<int>(type: "integer", nullable: true),
+                    LastEventTimeMillis = table.Column<long>(type: "bigint", nullable: true),
+                    LastSyncedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LastSyncError = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    LastSnapshotJson = table.Column<string>(type: "text", nullable: true),
+                    PendingServerAction = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: true),
+                    PendingActionReason = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    PendingActionAttempts = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    NextActionAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    AnonymisedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PlaySubscriptions", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_PlaySubscriptions_PlanPrices_PlanPriceId",
+                        column: x => x.PlanPriceId,
+                        principalTable: "PlanPrices",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_PlaySubscriptions_Plans_PlanId",
+                        column: x => x.PlanId,
+                        principalTable: "Plans",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_PlaySubscriptions_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
                 });
 
             migrationBuilder.CreateTable(
@@ -1219,51 +1301,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "UserPlans",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    FeatureKey = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
-                    PlanId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Source = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
-                    Status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
-                    StartsAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    EndsAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    TotalPaidInr = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
-                    TotalDays = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
-                    ReminderSentAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    GrantedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Note = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_UserPlans", x => x.Id);
-                    table.CheckConstraint("ck_userplans_window", "\"EndsAt\" > \"StartsAt\"");
-                    table.ForeignKey(
-                        name: "FK_UserPlans_Admins_GrantedByAdminId",
-                        column: x => x.GrantedByAdminId,
-                        principalTable: "Admins",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
-                    table.ForeignKey(
-                        name: "FK_UserPlans_Plans_PlanId",
-                        column: x => x.PlanId,
-                        principalTable: "Plans",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_UserPlans_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "NotificationReads",
                 columns: table => new
                 {
@@ -1282,6 +1319,70 @@ namespace RentNearBy.Infrastructure.Migrations
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "FK_NotificationReads_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "UserPlans",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    FeatureKey = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                    PlanId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Source = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                    Status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                    StartsAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    EndsAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    TotalPaidInr = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    TotalDays = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    ReminderSentAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    GrantedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Note = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    PlaySubscriptionId = table.Column<Guid>(type: "uuid", nullable: true),
+                    PlayAutoRenewEnabled = table.Column<bool>(type: "boolean", nullable: true),
+                    PlayState = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    PlayTrialEndsAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CarryOverDays = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    PlayScheduledPlanId = table.Column<Guid>(type: "uuid", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_UserPlans", x => x.Id);
+                    table.CheckConstraint("ck_userplans_carryover", "\"CarryOverDays\" >= 0");
+                    table.CheckConstraint("ck_userplans_window", "\"EndsAt\" > \"StartsAt\"");
+                    table.ForeignKey(
+                        name: "FK_UserPlans_Admins_GrantedByAdminId",
+                        column: x => x.GrantedByAdminId,
+                        principalTable: "Admins",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_UserPlans_Plans_PlanId",
+                        column: x => x.PlanId,
+                        principalTable: "Plans",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_UserPlans_Plans_PlayScheduledPlanId",
+                        column: x => x.PlayScheduledPlanId,
+                        principalTable: "Plans",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_UserPlans_PlaySubscriptions_PlaySubscriptionId",
+                        column: x => x.PlaySubscriptionId,
+                        principalTable: "PlaySubscriptions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_UserPlans_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
                         principalColumn: "Id",
@@ -1453,7 +1554,14 @@ namespace RentNearBy.Infrastructure.Migrations
                     GrantedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     RefundedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     AnonymisedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    GrantedByAdminId = table.Column<Guid>(type: "uuid", nullable: true)
+                    GrantedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
+                    PlaySubscriptionId = table.Column<Guid>(type: "uuid", nullable: true),
+                    PlayOrderId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    PlayProductId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    PlayBasePlanId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    PlayOfferId = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    PlayPurchaseSource = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: true),
+                    PlayChargebackReviewAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -1476,6 +1584,12 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalTable: "Plans",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_PlanPurchases_PlaySubscriptions_PlaySubscriptionId",
+                        column: x => x.PlaySubscriptionId,
+                        principalTable: "PlaySubscriptions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
                     table.ForeignKey(
                         name: "FK_PlanPurchases_UserPlans_GrantedUserPlanId",
                         column: x => x.GrantedUserPlanId,
@@ -1847,6 +1961,16 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "ix_paymentevents_play_order",
+                table: "PaymentEvents",
+                column: "PlayOrderId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_paymentevents_play_token",
+                table: "PaymentEvents",
+                column: "PlayPurchaseToken");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_PaymentEvents_RazorpayOrderId",
                 table: "PaymentEvents",
                 column: "RazorpayOrderId");
@@ -1867,6 +1991,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "PlanPrices",
                 columns: new[] { "PlanId", "CycleMonths" },
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_planprices_play_baseplan",
+                table: "PlanPrices",
+                columns: new[] { "PlanId", "PlayBasePlanId" },
+                unique: true,
+                filter: "\"PlayBasePlanId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_PlanPurchases_CouponId",
@@ -1923,6 +2054,18 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "PlanId");
 
             migrationBuilder.CreateIndex(
+                name: "ix_planpurchases_play_order",
+                table: "PlanPurchases",
+                column: "PlayOrderId",
+                unique: true,
+                filter: "\"PlayOrderId\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_planpurchases_play_subscription",
+                table: "PlanPurchases",
+                column: "PlaySubscriptionId");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_planpurchases_refund",
                 table: "PlanPurchases",
                 column: "RazorpayRefundId",
@@ -1952,6 +2095,60 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "Plans",
                 columns: new[] { "FeatureKey", "Code" },
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_plans_play_product",
+                table: "Plans",
+                column: "PlayProductId",
+                unique: true,
+                filter: "\"PlayProductId\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_playsubscriptions_last_synced",
+                table: "PlaySubscriptions",
+                column: "LastSyncedAt");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_playsubscriptions_linked_token",
+                table: "PlaySubscriptions",
+                column: "LinkedPurchaseToken");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_playsubscriptions_mapping",
+                table: "PlaySubscriptions",
+                column: "MappingStatus");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_playsubscriptions_pending_action",
+                table: "PlaySubscriptions",
+                column: "PendingServerAction",
+                filter: "\"PendingServerAction\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlaySubscriptions_PlanId",
+                table: "PlaySubscriptions",
+                column: "PlanId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlaySubscriptions_PlanPriceId",
+                table: "PlaySubscriptions",
+                column: "PlanPriceId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_playsubscriptions_state_expiry",
+                table: "PlaySubscriptions",
+                columns: new[] { "State", "ExpiryTime" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_playsubscriptions_token",
+                table: "PlaySubscriptions",
+                column: "PurchaseToken",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_playsubscriptions_user_feature",
+                table: "PlaySubscriptions",
+                columns: new[] { "UserId", "FeatureKey" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_plotlistings_active_validuntil",
@@ -2562,6 +2759,16 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "PlanId");
 
             migrationBuilder.CreateIndex(
+                name: "ix_userplans_play_subscription",
+                table: "UserPlans",
+                column: "PlaySubscriptionId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_UserPlans_PlayScheduledPlanId",
+                table: "UserPlans",
+                column: "PlayScheduledPlanId");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_userplans_status_endsat",
                 table: "UserPlans",
                 columns: new[] { "Status", "EndsAt" });
@@ -2589,6 +2796,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "Users",
                 column: "PhoneNumber",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_users_play_account_key",
+                table: "Users",
+                column: "PlayAccountKey",
+                unique: true,
+                filter: "\"PlayAccountKey\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_RoleId",
@@ -2643,9 +2857,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "PlanFeatures");
-
-            migrationBuilder.DropTable(
-                name: "PlanPrices");
 
             migrationBuilder.DropTable(
                 name: "PlotPhotos");
@@ -2744,13 +2955,19 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "Admins");
 
             migrationBuilder.DropTable(
-                name: "Plans");
+                name: "PlaySubscriptions");
+
+            migrationBuilder.DropTable(
+                name: "Districts");
+
+            migrationBuilder.DropTable(
+                name: "PlanPrices");
 
             migrationBuilder.DropTable(
                 name: "Users");
 
             migrationBuilder.DropTable(
-                name: "Districts");
+                name: "Plans");
 
             migrationBuilder.DropTable(
                 name: "Roles");

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -31,6 +32,33 @@ public static class PlanNotifications
 
     public static NotificationEvent Expired(Guid userId, string planName) =>
         Make(userId, NotificationTypes.PlanExpired, "Plan ended", $"{planName} has ended. You are on the free plan now.");
+
+    public static NotificationEvent Renewed(Guid userId, string planName, DateTime endsAt) =>
+        Make(userId, NotificationTypes.PlanRenewed, "Plan renewed", $"{planName} renewed till {Day(endsAt)}.");
+
+    public static NotificationEvent PaymentIssue(Guid userId, string planName) =>
+        Make(userId, NotificationTypes.PlanPaymentIssue, "Payment issue", "Payment failed. Update your payment method in Google Play.");
+
+    public static NotificationEvent OnHold(Guid userId, string planName) =>
+        Make(userId, NotificationTypes.PlanOnHold, "Payment on hold", $"{planName} is paused until the payment is fixed in Google Play.");
+
+    public static NotificationEvent Paused(Guid userId, string planName, DateTime? resumesAt) =>
+        Make(userId, NotificationTypes.PlanPaused, "Subscription paused",
+            resumesAt != null ? $"Resumes on {Day(resumesAt.Value)}." : "Resume it in Google Play.");
+
+    public static NotificationEvent ExpiringCancelled(Guid userId, string planName, DateTime endsAt) =>
+        Make(userId, NotificationTypes.PlanExpiring, "Plan ends soon", $"{planName} ends on {Day(endsAt)}. Resubscribe to keep your benefits.");
+
+    public static NotificationEvent Ended(Guid userId, string planName, bool refunded) =>
+        Make(userId, NotificationTypes.PlanExpired, "Plan ended", refunded
+            ? "Subscription refunded. You are on the free plan now."
+            : "Subscription ended. You are on the free plan now.");
+
+    public static NotificationEvent CarryOverActivated(Guid userId, string planName, int days, DateTime endsAt) =>
+        Make(userId, NotificationTypes.PlanCarryOverActivated, "Bonus days active", $"{days} bonus days on {planName} till {Day(endsAt)}.");
+
+    public static NotificationEvent AdminGrantCarryOver(Guid userId, int days) =>
+        Make(userId, NotificationTypes.PlanActivated, "Days added", $"+{days} days added after your subscription.");
 
     private static NotificationEvent Make(Guid userId, string type, string title, string body) => new()
     {
@@ -71,9 +99,12 @@ public class PlanPurchaseService(
     IRazorpayService razorpay,
     IRateLimitService rateLimiter,
     IRabbitMqPublisher publisher,
+    IPlaySubscriptionRepository playSubscriptions,
+    IOptions<PlayBillingOptions> playOptions,
     ILogger<PlanPurchaseService> logger) : IPlanPurchaseService
 {
     private const string CouponInvalidMessage = "This coupon cannot be used.";
+    private const string PlayNotConfiguredMessage = "Google Play billing is not available right now.";
     private const string Captured = "captured";
     private static readonly string[] StillResolving = ["created", "authorized"];
 
@@ -90,16 +121,25 @@ public class PlanPurchaseService(
         int PayableInr,
         int GrantedDays,
         Coupon? Coupon,
-        bool AutoCoupon);
+        bool AutoCoupon)
+    {
+        public string Provider { get; init; } = PayableInr > 0 ? PaymentProviders.Razorpay : PaymentProviders.None;
+        public bool RequiresPayment { get; init; } = PayableInr > 0;
+        public bool IsPlayOrder { get; init; }
+        public bool IsTrial { get; init; }
+        public string? PlayOfferId { get; init; }
+        public string? PlayOldPurchaseToken { get; init; }
+        public string? PlayReplacementMode { get; init; }
+    }
 
-    private sealed record GrantOutcome(UserPlan UserPlan, NotificationEvent Notification);
+    private sealed record GrantOutcome(UserPlan UserPlan, NotificationEvent Notification, bool WasNewRow = false, int CarryOverDaysTaken = 0);
 
     // ------------------------------------------------------------------ reads
 
     public async Task<PlanCatalogDto> GetCatalogAsync(string? featureKey)
     {
         var snapshot = await catalog.GetAsync();
-        var dto = new PlanCatalogDto();
+        var dto = new PlanCatalogDto { PaymentProvider = (await payment.GetAsync()).Provider };
         foreach (var feature in PlanFeatures.All)
         {
             if (featureKey != null && feature != featureKey) continue;
@@ -127,6 +167,7 @@ public class PlanPurchaseService(
             IsDefault = p.IsDefault,
             IsEnabled = p.IsEnabled,
             TrialDays = p.TrialDays,
+            PlayProductId = p.PlayProductId,
             Features = PlanFeatureKeys.All.ToDictionary(k => k, k => p.Features.GetValueOrDefault(k)),
             Prices = prices.Select(x =>
             {
@@ -140,6 +181,8 @@ public class PlanPurchaseService(
                     PriceInr = x.PriceInr,
                     PerMonthInr = perMonth,
                     SavePercent = Math.Max(0, save),
+                    PlayBasePlanId = x.PlayBasePlanId,
+                    PlayTrialOfferId = x.PlayTrialOfferId,
                 };
             }).ToList(),
         };
@@ -150,7 +193,7 @@ public class PlanPurchaseService(
         var user = await GetUserAsync(userId);
         var flag = await payment.GetAsync();
         var feature = UserRoles.ListingKindOf(user.RoleId);
-        var dto = new MyPlanDto { PaymentEnabled = flag.Enabled, FreeDays = flag.FreeDays, FeatureKey = feature };
+        var dto = new MyPlanDto { PaymentEnabled = flag.Enabled, FreeDays = flag.FreeDays, FeatureKey = feature, PaymentProvider = flag.Provider };
         if (feature == null) return dto;
 
         var limits = await entitlements.GetLimitsAsync(userId, feature);
@@ -180,13 +223,86 @@ public class PlanPurchaseService(
         if (flag.Enabled)
         {
             var snapshot = await catalog.GetAsync();
-            var trialPlan = snapshot.PlansOf(feature).Any(p => p.IsEnabled && !p.IsDefault && p.TrialDays > 0);
-            dto.TrialAvailable = trialPlan && !await db.UserPlans.AnyAsync(u => u.UserId == userId && u.FeatureKey == feature);
+            if (flag.Provider == PaymentProviders.Play)
+            {
+                dto.TrialAvailable = await PlayTrialAvailableAsync(userId, feature, snapshot);
+            }
+            else
+            {
+                var trialPlan = snapshot.PlansOf(feature).Any(p => p.IsEnabled && !p.IsDefault && p.TrialDays > 0);
+                dto.TrialAvailable = trialPlan && !await db.UserPlans.AnyAsync(u => u.UserId == userId && u.FeatureKey == feature);
+            }
         }
+
+        await FillPlayAsync(dto, userId, feature);
 
         dto.OpenPurchaseId = (await unitOfWork.PlanPurchases.GetOpenByUserFeatureAsync(userId, feature))?.Id;
         return dto;
     }
+
+    // 4.1 play rule: the Active row's subscription, else the latest Mapped one in hold/pause/grace or ended
+    // within EndedStateWindow (so the free-plan screen can still offer Fix / Resubscribe).
+    private async Task FillPlayAsync(MyPlanDto dto, Guid userId, string feature)
+    {
+        var active = await db.UserPlans.AsNoTracking()
+            .Where(u => u.UserId == userId && u.FeatureKey == feature && u.Status == UserPlanStatuses.Active)
+            .Select(u => new { u.PlaySubscriptionId, u.CarryOverDays, u.PlayTrialEndsAt, u.PlayScheduledPlanId })
+            .FirstOrDefaultAsync();
+        dto.CarryOverDays = active?.CarryOverDays ?? 0;
+
+        PlaySubscription? sub = null;
+        var owns = false;
+        if (active?.PlaySubscriptionId is { } ownedId)
+        {
+            sub = await db.PlaySubscriptions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == ownedId);
+            owns = sub != null;
+        }
+        sub ??= await playSubscriptions.GetLatestIssueByUserFeatureAsync(userId, feature, DateTime.UtcNow - PlayRules.EndedStateWindow);
+        if (sub == null) return;
+
+        string? scheduledName = null;
+        if (owns && active?.PlayScheduledPlanId is { } scheduledId)
+            scheduledName = (await catalog.GetAsync()).GetPlan(scheduledId)?.Name;
+
+        dto.Play = new MyPlanPlayDto
+        {
+            State = sub.State,
+            AutoRenewEnabled = sub.AutoRenewEnabled,
+            ExpiryAt = sub.ExpiryTime,
+            TrialEndsAt = owns ? active!.PlayTrialEndsAt : null,
+            ProductId = sub.ProductId,
+            BasePlanId = sub.BasePlanId,
+            OfferId = sub.OfferId,
+            ScheduledPlanName = scheduledName,
+            ScheduledAt = scheduledName != null ? sub.ExpiryTime : null,
+            IsTest = sub.IsTestPurchase,
+            Acknowledged = sub.AcknowledgedAt != null || sub.AcknowledgementState == PlayAckStates.Acknowledged,
+            PausedAutoResumeAt = sub.State == PlayStates.Paused ? sub.PausedAutoResumeAt : null,
+            CancelReason = sub.CancelReason,
+            OwnsActivePlan = owns,
+        };
+        dto.ManageUrl = ManageUrl(sub.ProductId);
+    }
+
+    private string ManageUrl(string productId)
+    {
+        var url = $"https://play.google.com/store/account/subscriptions?sku={Uri.EscapeDataString(productId)}";
+        var package = playOptions.Value.PackageName;
+        return string.IsNullOrEmpty(package) ? url : $"{url}&package={Uri.EscapeDataString(package)}";
+    }
+
+    // F-19 guard under Play: a configured trial offer, no Play subscription of the feature in any state and
+    // no backend trial row. Google decides the per-Google-account eligibility on top of this.
+    private async Task<bool> PlayTrialAvailableAsync(Guid userId, string feature, PlanCatalogSnapshot snapshot)
+    {
+        var offered = snapshot.PlansOf(feature).Any(p => p.IsEnabled && !p.IsDefault && p.PlayProductId != null
+            && p.Prices.Any(x => x.IsEnabled && x.CycleMonths == 1 && x.PlayBasePlanId != null && x.PlayTrialOfferId != null));
+        return offered && !await PlayTrialUsedAsync(userId, feature);
+    }
+
+    private async Task<bool> PlayTrialUsedAsync(Guid userId, string feature)
+        => await db.PlaySubscriptions.AsNoTracking().AnyAsync(s => s.UserId == userId && s.FeatureKey == feature)
+           || await db.UserPlans.AsNoTracking().AnyAsync(u => u.UserId == userId && u.FeatureKey == feature && u.Source == UserPlanSources.Trial);
 
     private sealed record SlotCounts(int Used, int Live, int PlanPaused);
 
@@ -247,6 +363,8 @@ public class PlanPurchaseService(
             CreatedAt = p.CreatedAt,
             GrantedAt = p.GrantedAt,
             RazorpayPaymentId = p.RazorpayPaymentId,
+            Provider = p.Provider,
+            PlayOrderId = p.PlayOrderId,
         }).ToList();
     }
 
@@ -267,6 +385,7 @@ public class PlanPurchaseService(
             EndsAt = endsAt,
             FailureReason = p.FailureReason,
             GrantBlockedReason = p.GrantBlockedReason,
+            Provider = p.Provider,
         };
     }
 
@@ -275,7 +394,7 @@ public class PlanPurchaseService(
     public async Task<QuoteDto> QuoteAsync(Guid userId, QuoteRequest request)
     {
         await RateLimitAsync($"plan:quote:{userId}", 30);
-        var q = await BuildQuoteAsync(userId, request.PlanId, request.CycleMonths, request.CouponCode);
+        var q = await BuildQuoteAsync(userId, request.PlanId, request.CycleMonths, request.CouponCode, request.UseTrial);
         return ToQuoteDto(q);
     }
 
@@ -290,9 +409,13 @@ public class PlanPurchaseService(
         CreditInr = q.CreditInr,
         PayableInr = q.PayableInr,
         GrantedDays = q.GrantedDays,
-        RequiresPayment = q.PayableInr > 0,
+        RequiresPayment = q.RequiresPayment,
         Coupon = q.Coupon == null ? null : new QuoteCouponDto { Code = q.Coupon.Code, Kind = q.Coupon.Kind, Value = q.Coupon.Value },
         AutoCoupon = q.AutoCoupon,
+        Provider = q.Provider,
+        IsTrial = q.IsTrial,
+        PlayReplacementMode = q.PlayReplacementMode,
+        StorePriceRequired = q.IsPlayOrder,
     };
 
     private async Task RateLimitAsync(string key, int max)
@@ -332,7 +455,7 @@ public class PlanPurchaseService(
         return (plan, user);
     }
 
-    private async Task<QuoteCalc> BuildQuoteAsync(Guid userId, Guid planId, int cycleMonths, string? couponCode)
+    private async Task<QuoteCalc> BuildQuoteAsync(Guid userId, Guid planId, int cycleMonths, string? couponCode, bool useTrial = false)
     {
         var (plan, user) = await GatePlanAsync(userId, planId);
         if (plan.IsDefault)
@@ -341,6 +464,15 @@ public class PlanPurchaseService(
             throw PlanServiceException.BadRequest(PlanErrorTypes.PlanDisabled, "This plan is no longer available.");
         var price = plan.Prices.FirstOrDefault(p => p.CycleMonths == cycleMonths && p.IsEnabled)
             ?? throw PlanServiceException.BadRequest(PlanErrorTypes.PlanPriceNotFound, "This billing cycle is not available.");
+
+        if ((await payment.GetAsync()).Provider == PaymentProviders.Play)
+            return await BuildPlayQuoteAsync(user, plan, price, couponCode, useTrial);
+        if (useTrial)
+            throw PlanServiceException.Conflict(PlanErrorTypes.TrialNotAvailable, "Free trial is not available.");
+        // Google owns a Play row's EndsAt: a Razorpay renew/switch on it would be overwritten by the next sync.
+        if (await db.UserPlans.AsNoTracking().AnyAsync(u => u.UserId == userId && u.FeatureKey == plan.FeatureKey
+                && u.Status == UserPlanStatuses.Active && u.PlaySubscriptionId != null))
+            throw PlanServiceException.Conflict(PlanErrorTypes.AlreadySubscribed, "Your plan is billed by Google Play. Manage it in Google Play.");
 
         var now = DateTime.UtcNow;
         var days = PlanCycles.DaysOf(cycleMonths);
@@ -409,6 +541,121 @@ public class PlanPurchaseService(
         return new QuoteCalc(plan, price, plan.FeatureKey, intent, list, discount, credit, payable, days, coupon, auto);
     }
 
+    // Under Play the price is Google's (mirror only), CreditInr is 0 (Google prorates), only FreePlan coupons
+    // apply (server grant, no Play product), and a Play-owned plan changes through Google's replacement flow.
+    private async Task<QuoteCalc> BuildPlayQuoteAsync(UserInfo user, CatalogPlan plan, CatalogPrice price, string? couponCode, bool useTrial)
+    {
+        if (!playOptions.Value.IsConfigured)
+            throw new PlanServiceException(503, PlanErrorTypes.PlayNotConfigured, PlayNotConfiguredMessage);
+
+        var feature = plan.FeatureKey;
+        var days = PlanCycles.DaysOf(price.CycleMonths);
+        var list = price.PriceInr;
+        var snapshot = await catalog.GetAsync();
+        var active = await db.UserPlans.AsNoTracking()
+            .Where(u => u.UserId == user.Id && u.FeatureKey == feature && u.Status == UserPlanStatuses.Active)
+            .Select(u => new { u.PlanId, u.PlaySubscriptionId })
+            .FirstOrDefaultAsync();
+
+        var intent = PurchaseIntents.New;
+        string? oldToken = null, mode = null;
+        if (active?.PlaySubscriptionId is { } subscriptionId)
+        {
+            var sub = await db.PlaySubscriptions.AsNoTracking()
+                .Where(s => s.Id == subscriptionId)
+                .Select(s => new { s.PurchaseToken, s.BasePlanId })
+                .FirstOrDefaultAsync()
+                ?? throw PlanServiceException.Conflict(PlanErrorTypes.AlreadySubscribed, "Manage your subscription in Google Play.");
+            var currentPrice = sub.BasePlanId == null ? null : snapshot.FindPrice(active.PlanId, sub.BasePlanId);
+            if (active.PlanId == plan.Id && currentPrice?.CycleMonths == price.CycleMonths)
+                throw PlanServiceException.Conflict(PlanErrorTypes.AlreadySubscribed, "You already have this plan.");
+            intent = PurchaseIntents.Switch;
+            oldToken = sub.PurchaseToken;
+            mode = ReplacementModeOf(active.PlanId, currentPrice, plan, price);
+        }
+        else if ((await playSubscriptions.GetMappedByUserFeatureAsync(user.Id, feature))?.State is PlayStates.OnHold or PlayStates.Paused)
+        {
+            throw PlanServiceException.Conflict(PlanErrorTypes.SubscriptionOnHold, "Fix the payment in Google Play to continue your subscription.");
+        }
+
+        Coupon? coupon = null;
+        var auto = false;
+        Guid? openId = null;
+        async Task<Guid?> OpenIdAsync() => openId ??= (await unitOfWork.PlanPurchases.GetOpenByUserFeatureAsync(user.Id, feature))?.Id;
+        if (useTrial)
+        {
+            if (!string.IsNullOrWhiteSpace(couponCode))
+                throw PlanServiceException.BadRequest(PlanErrorTypes.CouponInvalid, CouponInvalidMessage);
+            if (intent != PurchaseIntents.New || price.CycleMonths != 1 || plan.PlayProductId == null
+                || price.PlayBasePlanId == null || price.PlayTrialOfferId == null || await PlayTrialUsedAsync(user.Id, feature))
+                throw PlanServiceException.Conflict(PlanErrorTypes.TrialNotAvailable, "Free trial is not available.");
+        }
+        else if (!string.IsNullOrWhiteSpace(couponCode))
+        {
+            coupon = await unitOfWork.Coupons.GetByCodeAsync(NormalizeCode(couponCode));
+            if (coupon == null || coupon.Kind != CouponKinds.FreePlan
+                || !await IsCouponUsableAsync(coupon, user, plan, list, intent, await OpenIdAsync()))
+                throw PlanServiceException.BadRequest(PlanErrorTypes.CouponInvalid, CouponInvalidMessage);
+        }
+        else if (intent == PurchaseIntents.New)
+        {
+            var candidates = await db.Coupons.AsNoTracking()
+                .Where(c => c.AutoApply && c.Status == CouponStatuses.Active && c.Kind == CouponKinds.FreePlan
+                    && (c.FeatureKey == feature || c.FeatureKey == null))
+                .OrderBy(c => c.FeatureKey == null)
+                .ToListAsync();
+            foreach (var c in candidates)
+            {
+                if (!await IsCouponUsableAsync(c, user, plan, list, intent, await OpenIdAsync())) continue;
+                coupon = c;
+                auto = true;
+                break;
+            }
+        }
+
+        // R-ORDER: a FreePlan coupon is a server grant (no Play product bought); everything else is a Play order.
+        if (coupon != null)
+            return new QuoteCalc(plan, price, feature, intent, list, list, 0, 0, days, coupon, auto)
+            {
+                Provider = PaymentProviders.None,
+                RequiresPayment = false,
+            };
+
+        if (plan.PlayProductId == null || price.PlayBasePlanId == null)
+            throw PlanServiceException.BadRequest(PlanErrorTypes.PlayNotConfigured, "This plan is not available yet.");
+
+        if (useTrial)
+            return new QuoteCalc(plan, price, feature, PurchaseIntents.New, list, list, 0, 0, Math.Max(1, plan.TrialDays), null, false)
+            {
+                Provider = PaymentProviders.Play,
+                RequiresPayment = true,
+                IsPlayOrder = true,
+                IsTrial = true,
+                PlayOfferId = price.PlayTrialOfferId,
+            };
+
+        return new QuoteCalc(plan, price, feature, intent, list, 0, 0, list, days, null, false)
+        {
+            Provider = PaymentProviders.Play,
+            RequiresPayment = true,
+            IsPlayOrder = true,
+            PlayOldPurchaseToken = oldToken,
+            PlayReplacementMode = mode,
+        };
+    }
+
+    // D-07: within one product only chargeFullPrice / withoutProration; across products a cheaper plan
+    // (per-month mirror price) is a deferred downgrade, anything else an immediate charge.
+    private static string ReplacementModeOf(Guid currentPlanId, CatalogPrice? currentPrice, CatalogPlan plan, CatalogPrice price)
+    {
+        if (currentPrice == null) return PlayReplacementModes.ChargeFullPrice;
+        if (currentPlanId == plan.Id)
+            return price.CycleMonths > currentPrice.CycleMonths ? PlayReplacementModes.ChargeFullPrice : PlayReplacementModes.WithoutProration;
+        var newMonthly = (double)price.PriceInr / Math.Max(1, (int)price.CycleMonths);
+        var oldMonthly = (double)currentPrice.PriceInr / Math.Max(1, (int)currentPrice.CycleMonths);
+        return newMonthly >= oldMonthly ? PlayReplacementModes.ChargeFullPrice : PlayReplacementModes.Deferred;
+    }
+
     private static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
 
     private static int DiscountOf(Coupon c, int list) => c.Kind switch
@@ -454,7 +701,10 @@ public class PlanPurchaseService(
         await RateLimitAsync($"plan:create-order:{userId}", 10);
 
         var now = DateTime.UtcNow;
-        var q = await BuildQuoteAsync(userId, request.PlanId, request.CycleMonths, request.CouponCode);
+        var q = await BuildQuoteAsync(userId, request.PlanId, request.CycleMonths, request.CouponCode, request.UseTrial);
+        // R-ORDER before the Rs 0 branches: a Play order (trial included) is always bought through Google.
+        if (q.IsPlayOrder)
+            return await CreatePlayOrderAsync(userId, q, now);
         var couponSnapshot = q.Coupon?.Code;
 
         var open = await unitOfWork.PlanPurchases.GetOpenByUserFeatureAsync(userId, q.FeatureKey);
@@ -600,6 +850,118 @@ public class PlanPurchaseService(
         ExpiresAt = p.ExpiresAt,
         PlanName = p.PlanNameSnapshot,
         GrantedDays = p.GrantedDays,
+        Provider = p.Provider,
+        Intent = p.Intent,
+    };
+
+    // Play order: a Created row the app completes in Google Play (no gateway call, no inline grant). The open
+    // row of the same plan+cycle+offer is reused; a Pending Play payment blocks a second order.
+    private async Task<CreatePlanOrderDto> CreatePlayOrderAsync(Guid userId, QuoteCalc q, DateTime now)
+    {
+        var options = playOptions.Value;
+        if (!options.IsConfigured)
+            throw new PlanServiceException(503, PlanErrorTypes.PlayNotConfigured, PlayNotConfiguredMessage);
+
+        var open = await unitOfWork.PlanPurchases.GetOpenByUserFeatureAsync(userId, q.FeatureKey);
+        if (open != null)
+        {
+            if (open.Provider == PaymentProviders.Play && open.Status == PurchaseStatuses.Pending)
+                throw PlanServiceException.Conflict(PlanErrorTypes.PurchaseInProgress, "A payment is waiting in Google Play. Please try again later.");
+            var same = open.Provider == PaymentProviders.Play && open.Status == PurchaseStatuses.Created
+                && open.PlanId == q.Plan.Id && open.CycleMonths == q.Price.CycleMonths
+                && open.PlayOfferId == q.PlayOfferId && open.Intent == q.Intent && open.ExpiresAt > now;
+            if (same) return ToPlayOrderDto(open, q, await EnsurePlayAccountKeyAsync(userId, options));
+            await CloseOpenAsync(open.Id, PurchaseStatuses.Expired, "Replaced by a new order");
+        }
+
+        var purchase = new PlanPurchase
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            FeatureKey = q.FeatureKey,
+            PlanId = q.Plan.Id,
+            PlanNameSnapshot = q.Plan.Name,
+            CycleMonths = q.Price.CycleMonths,
+            GrantedDays = q.GrantedDays,
+            Intent = q.Intent,
+            Provider = PaymentProviders.Play,
+            Currency = "INR",
+            ListPriceInr = q.ListPriceInr,
+            DiscountInr = q.DiscountInr,
+            CreditInr = 0,
+            PayableInr = q.PayableInr,
+            Status = PurchaseStatuses.Created,
+            CreatedAt = now,
+            ExpiresAt = now + PlanRules.OpenOrderTtl,
+            PlayProductId = q.Plan.PlayProductId,
+            PlayBasePlanId = q.Price.PlayBasePlanId,
+            PlayOfferId = q.PlayOfferId,
+        };
+
+        string accountKey;
+        var tx = await db.Database.BeginTransactionAsync();
+        try
+        {
+            db.PlanPurchases.Add(purchase);
+            await db.SaveChangesAsync();
+            accountKey = await EnsurePlayAccountKeyAsync(userId, options);
+            await tx.CommitAsync();
+        }
+        catch (DbUpdateException ex) when ((ex.InnerException as PostgresException)?.ConstraintName == "ix_planpurchases_one_open")
+        {
+            await tx.RollbackAsync();
+            db.ChangeTracker.Clear();
+            var winner = await unitOfWork.PlanPurchases.GetOpenByUserFeatureAsync(userId, q.FeatureKey);
+            if (winner != null && winner.Provider == PaymentProviders.Play && winner.Status == PurchaseStatuses.Created
+                && winner.PlanId == q.Plan.Id && winner.CycleMonths == q.Price.CycleMonths && winner.PlayOfferId == q.PlayOfferId)
+                return ToPlayOrderDto(winner, q, await EnsurePlayAccountKeyAsync(userId, options));
+            throw PlanServiceException.Conflict(PlanErrorTypes.PurchaseInProgress, "A payment is already in progress. Please try again.");
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            db.ChangeTracker.Clear();
+            throw;
+        }
+        finally
+        {
+            await tx.DisposeAsync();
+        }
+
+        return ToPlayOrderDto(purchase, q, accountKey);
+    }
+
+    // D-11: written once; the stored key is what every sync compares against obfuscatedExternalAccountId.
+    private async Task<string> EnsurePlayAccountKeyAsync(Guid userId, PlayBillingOptions options)
+    {
+        await unitOfWork.Users.SetPlayAccountKeyIfNullAsync(userId, PlayAccountKeys.Compute(options.AccountIdSalt, userId));
+        return await db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => u.PlayAccountKey)
+            .FirstOrDefaultAsync()
+            ?? throw PlanServiceException.NotFound(PlanErrorTypes.PlanNotFound, "User not found.");
+    }
+
+    private static CreatePlanOrderDto ToPlayOrderDto(PlanPurchase p, QuoteCalc q, string accountKey) => new()
+    {
+        PurchaseId = p.Id,
+        Status = p.Status,
+        RequiresPayment = true,
+        Provider = PaymentProviders.Play,
+        RazorpayOrderId = null,
+        KeyId = null,
+        AmountPaise = p.PayableInr * 100,
+        Currency = p.Currency,
+        ExpiresAt = p.ExpiresAt,
+        PlanName = p.PlanNameSnapshot,
+        GrantedDays = p.GrantedDays,
+        Intent = p.Intent,
+        PlayProductId = p.PlayProductId,
+        PlayBasePlanId = p.PlayBasePlanId,
+        PlayOfferId = p.PlayOfferId,
+        PlayOldPurchaseToken = q.PlayOldPurchaseToken,
+        PlayReplacementMode = q.PlayOldPurchaseToken != null ? q.PlayReplacementMode : null,
+        ObfuscatedAccountId = accountKey,
     };
 
     // ------------------------------------------------------------------ coupon engine
@@ -653,13 +1015,14 @@ public class PlanPurchaseService(
     }
 
     // Open (Created/Pending) -> Expired/Failed, coupon released, in one short transaction.
-    private async Task<bool> CloseOpenAsync(Guid purchaseId, string status, string reason, string? paymentId = null)
+    private async Task<bool> CloseOpenAsync(Guid purchaseId, string status, string reason, string? paymentId = null, bool keepPlayPending = false)
     {
         var tx = db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync() : null;
         try
         {
             var changed = await db.PlanPurchases
-                .Where(p => p.Id == purchaseId && (p.Status == PurchaseStatuses.Created || p.Status == PurchaseStatuses.Pending))
+                .Where(p => p.Id == purchaseId && (p.Status == PurchaseStatuses.Created || p.Status == PurchaseStatuses.Pending)
+                    && !(keepPlayPending && p.Status == PurchaseStatuses.Pending && p.Provider == PaymentProviders.Play))
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(p => p.Status, status)
                     .SetProperty(p => p.FailureReason, reason)
@@ -687,6 +1050,8 @@ public class PlanPurchaseService(
         var p = await unitOfWork.PlanPurchases.GetByIdAsync(purchaseId);
         if (p == null || p.UserId != userId)
             throw PlanServiceException.NotFound(PlanErrorTypes.PurchaseNotFound, "Purchase not found.");
+        if (p.Provider == PaymentProviders.Play)
+            throw PlanServiceException.Conflict(PlanErrorTypes.ProviderMismatch, "This purchase is paid through Google Play.");
         if (p.Status is PurchaseStatuses.Granted or PurchaseStatuses.Refunded)
             return (await ToStatusAsync(p), null);
         if (p.RazorpayOrderId == null || p.RazorpayOrderId != request.RazorpayOrderId
@@ -857,16 +1222,19 @@ public class PlanPurchaseService(
 
     // Caller holds the transaction and the owner lock. Renew extends, a different plan (or a trial) is
     // switched in place, no active row inserts a new one. Listing effects run in the same transaction.
+    // Play rows (PlaySubscriptionId set) are only expired by sync, so the pre-expire skips them and the active
+    // row is found without an EndsAt filter; `play` carries Google's expiry instead of a day count.
     private async Task<GrantOutcome> GrantInTxAsync(
         Guid userId, string featureKey, Guid planId, int days, string source, int paidInr, int creditInr,
-        PlanPurchase? purchase, Guid? adminId, string? note)
+        PlanPurchase? purchase, Guid? adminId, string? note, PlayGrantCommand? play = null)
     {
         var now = DateTime.UtcNow;
         var snapshot = await catalog.GetAsync();
         var planName = snapshot.GetPlan(planId)?.Name ?? purchase?.PlanNameSnapshot ?? "Plan";
 
         await db.UserPlans
-            .Where(u => u.UserId == userId && u.FeatureKey == featureKey && u.Status == UserPlanStatuses.Active && u.EndsAt <= now)
+            .Where(u => u.UserId == userId && u.FeatureKey == featureKey && u.Status == UserPlanStatuses.Active && u.EndsAt <= now
+                && u.PlaySubscriptionId == null)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(u => u.Status, UserPlanStatuses.Expired)
                 .SetProperty(u => u.UpdatedAt, now));
@@ -875,6 +1243,11 @@ public class PlanPurchaseService(
             entry.State = EntityState.Detached;
         var active = await db.UserPlans.FirstOrDefaultAsync(u =>
             u.UserId == userId && u.FeatureKey == featureKey && u.Status == UserPlanStatuses.Active);
+
+        if (play != null)
+            return await GrantPlayRowAsync(active, play, planName, purchase, now);
+        if (active?.PlaySubscriptionId != null)
+            return await GrantCarryOverAsync(active, userId, days, purchase, now);
 
         var cap = now.AddDays(PlanRules.MaxRemainingDays);
         if (active != null && active.PlanId == planId && active.Source != UserPlanSources.Trial)
@@ -937,6 +1310,135 @@ public class PlanPurchaseService(
         return new GrantOutcome(active, notification);
     }
 
+    // Same subscription = renew in place (deferred change lands by moving PlanId); another Play subscription =
+    // replacement switch (carry-over kept); a non-Play row = carry-over switch (its whole days parked); none = new
+    // row. EndsAt is always Google's expiry; no 24-month cap. A switch that keeps the plan writes no push row.
+    private async Task<GrantOutcome> GrantPlayRowAsync(UserPlan? active, PlayGrantCommand play, string planName, PlanPurchase? purchase, DateTime now)
+    {
+        var wasNew = false;
+        var carryTaken = 0;
+        var persistNotification = true;
+        var renewed = false;
+
+        if (active != null && active.PlaySubscriptionId == play.PlaySubscriptionId)
+        {
+            var prevEnds = active.EndsAt;
+            var prevAutoRenew = active.PlayAutoRenewEnabled;
+            active.EndsAt = play.EndsAt;
+            active.TotalDays += Math.Max(0, (int)(play.EndsAt - prevEnds).TotalDays);
+            active.TotalPaidInr += play.PaidInr;
+            active.PlanId = play.PlanId;
+            active.PlayTrialEndsAt ??= play.TrialEndsAt;
+            if (play.EndsAt != prevEnds || (prevAutoRenew != false && !play.AutoRenew)) active.ReminderSentAt = null;
+            renewed = true;
+        }
+        else if (active != null)
+        {
+            var fromPlay = active.PlaySubscriptionId != null;
+            if (fromPlay)
+            {
+                active.TotalPaidInr += play.PaidInr;
+                active.TotalDays += Math.Max(0, (int)(play.EndsAt - active.EndsAt).TotalDays);
+            }
+            else
+            {
+                carryTaken = Math.Max(0, (int)Math.Floor((active.EndsAt - now).TotalDays));
+                active.CarryOverDays = Math.Min(PlayRules.MaxCarryOverDays, active.CarryOverDays + carryTaken);
+                active.StartsAt = now;
+                active.TotalPaidInr = play.PaidInr;
+                active.TotalDays = play.Days;
+                if (carryTaken > 0)
+                    logger.LogInformation(new EventId(0, "play.carryover.applied"),
+                        "Carry-over of {Days} days on plan {UserPlanId} of user {UserId}", carryTaken, active.Id, active.UserId);
+            }
+            persistNotification = !fromPlay || active.PlanId != play.PlanId;
+            active.PlanId = play.PlanId;
+            active.PlaySubscriptionId = play.PlaySubscriptionId;
+            active.EndsAt = play.EndsAt;
+            active.PlayTrialEndsAt = play.TrialEndsAt;
+            active.ReminderSentAt = null;
+        }
+        else
+        {
+            active = new UserPlan
+            {
+                Id = Guid.NewGuid(),
+                UserId = play.UserId,
+                FeatureKey = play.FeatureKey,
+                PlanId = play.PlanId,
+                Status = UserPlanStatuses.Active,
+                StartsAt = now,
+                EndsAt = play.EndsAt,
+                TotalPaidInr = play.PaidInr,
+                TotalDays = play.Days,
+                PlaySubscriptionId = play.PlaySubscriptionId,
+                PlayTrialEndsAt = play.TrialEndsAt,
+                CarryOverDays = Math.Clamp(play.CarryOverDaysFallback, 0, PlayRules.MaxCarryOverDays),
+                CreatedAt = now,
+            };
+            db.UserPlans.Add(active);
+            wasNew = true;
+        }
+
+        active.Source = UserPlanSources.Subscription;
+        active.PlayAutoRenewEnabled = play.AutoRenew;
+        active.PlayState = play.PlayState;
+        active.PlayScheduledPlanId = play.ScheduledPlanId;
+        active.UpdatedAt = now;
+        await db.SaveChangesAsync();
+
+        if (purchase != null) await MarkPurchaseGrantedAsync(purchase, active.Id, now);
+
+        await slots.ApplyGrantEffectsAsync(play.UserId, play.FeatureKey);
+
+        var notification = renewed
+            ? PlanNotifications.Renewed(play.UserId, planName, active.EndsAt)
+            : PlanNotifications.Activated(play.UserId, planName, active.EndsAt);
+        if (persistNotification)
+        {
+            db.NotificationEvents.Add(notification);
+            await db.SaveChangesAsync();
+        }
+        return new GrantOutcome(active, notification, wasNew, carryTaken);
+    }
+
+    // D-09: Google owns a Play row's EndsAt, so any other grant (admin days, a late Razorpay capture) becomes
+    // days used after the subscription ends.
+    private async Task<GrantOutcome> GrantCarryOverAsync(UserPlan active, Guid userId, int days, PlanPurchase? purchase, DateTime now)
+    {
+        active.CarryOverDays = Math.Min(PlayRules.MaxCarryOverDays, active.CarryOverDays + days);
+        active.UpdatedAt = now;
+        await db.SaveChangesAsync();
+        if (purchase != null) await MarkPurchaseGrantedAsync(purchase, active.Id, now);
+
+        logger.LogInformation(new EventId(0, "play.carryover.applied"),
+            "{Days} days parked as carry-over on Play plan {UserPlanId} of user {UserId}", days, active.Id, userId);
+        var notification = PlanNotifications.AdminGrantCarryOver(userId, days);
+        db.NotificationEvents.Add(notification);
+        await db.SaveChangesAsync();
+        return new GrantOutcome(active, notification);
+    }
+
+    private async Task MarkPurchaseGrantedAsync(PlanPurchase purchase, Guid userPlanId, DateTime now)
+    {
+        purchase.Status = PurchaseStatuses.Granted;
+        purchase.GrantedAt = now;
+        purchase.GrantedUserPlanId = userPlanId;
+        purchase.GrantBlockedReason = null;
+        purchase.FailureReason = null;
+        await db.SaveChangesAsync();
+        if (purchase.CouponId != null) await ConsumeCouponAsync(purchase.Id);
+    }
+
+    public async Task<PlayGrantOutcome> GrantPlayInTxAsync(PlayGrantCommand command)
+    {
+        if (db.Database.CurrentTransaction == null)
+            throw new InvalidOperationException("GrantPlayInTxAsync requires the caller's transaction and owner lock.");
+        var granted = await GrantInTxAsync(command.UserId, command.FeatureKey, command.PlanId, command.Days,
+            UserPlanSources.Subscription, command.PaidInr, 0, command.Purchase, adminId: null, note: null, play: command);
+        return new PlayGrantOutcome(granted.UserPlan, granted.Notification, granted.WasNewRow, granted.CarryOverDaysTaken);
+    }
+
     private async Task AfterGrantAsync(Guid userId, string featureKey, GrantOutcome granted)
     {
         await PlanNotifications.PublishAsync(publisher, granted.Notification, logger);
@@ -983,14 +1485,24 @@ public class PlanPurchaseService(
             purchase.RazorpayRefundId ??= refundId;
             await db.SaveChangesAsync();
 
-            if (wasGranted && purchase.UserId != null && purchase.UserId == ownerId && purchase.GrantedUserPlanId != null)
+            // A Play charge only changes status here: Google owns the entitlement and the next sync applies it.
+            if (wasGranted && purchase.Provider != PaymentProviders.Play
+                && purchase.UserId != null && purchase.UserId == ownerId && purchase.GrantedUserPlanId != null)
             {
                 userId = purchase.UserId.Value;
                 feature = purchase.FeatureKey;
                 foreach (var entry in db.ChangeTracker.Entries<UserPlan>().Where(e => e.Entity.Id == purchase.GrantedUserPlanId).ToList())
                     entry.State = EntityState.Detached;
                 var plan = await db.UserPlans.FirstOrDefaultAsync(u => u.Id == purchase.GrantedUserPlanId && u.Status == UserPlanStatuses.Active);
-                if (plan != null)
+                if (plan != null && plan.PlaySubscriptionId != null)
+                {
+                    // F-27: the row now belongs to a Play subscription; this purchase's days live in CarryOverDays only.
+                    plan.CarryOverDays = Math.Max(0, plan.CarryOverDays - purchase.GrantedDays);
+                    plan.TotalPaidInr = Math.Max(0, plan.TotalPaidInr - purchase.PayableInr);
+                    plan.UpdatedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+                }
+                else if (plan != null)
                 {
                     var now = DateTime.UtcNow;
                     // Later grants on the same row (renewals, admin days, Rs 0 coupons, a later switch) stay
@@ -1234,6 +1746,8 @@ public class PlanPurchaseService(
         var p = await unitOfWork.PlanPurchases.GetByIdAsync(purchaseId);
         if (p == null) return ReconcileOutcome.NotFound;
         if (p.Status is PurchaseStatuses.Granted or PurchaseStatuses.Refunded) return ReconcileOutcome.AlreadySettled;
+        // Play rows follow their purchase token (PlayBillingSyncService), never a Razorpay order lookup.
+        if (p.Provider == PaymentProviders.Play) return ReconcileOutcome.Inconclusive;
 
         if (p.Status == PurchaseStatuses.Paid && p.RazorpayPaymentId != null
             && p.GrantBlockedReason is GrantBlockedReasons.RoleMismatch or GrantBlockedReasons.QuoteExpired)
@@ -1292,15 +1806,47 @@ public class PlanPurchaseService(
     {
         var now = DateTime.UtcNow;
         var ids = await db.PlanPurchases.AsNoTracking()
-            .Where(p => (p.Status == PurchaseStatuses.Created || p.Status == PurchaseStatuses.Pending) && p.ExpiresAt <= now)
+            .Where(p => (p.Status == PurchaseStatuses.Created
+                    || (p.Status == PurchaseStatuses.Pending && p.Provider != PaymentProviders.Play))
+                && p.ExpiresAt <= now)
             .OrderBy(p => p.CreatedAt)
             .Take(Math.Clamp(batchSize, 1, 500))
             .Select(p => p.Id)
             .ToListAsync();
         var expired = 0;
         foreach (var id in ids)
-            if (await CloseOpenAsync(id, PurchaseStatuses.Expired, "Order expired")) expired++;
+            if (await CloseOpenAsync(id, PurchaseStatuses.Expired, "Order expired", keepPlayPending: true)) expired++;
         return expired;
+    }
+
+    // R-PENDING: Pending Play rows are never time-expired; ExpiresAt is only a display hint.
+    public async Task<bool> MarkPlayPendingAsync(Guid purchaseId)
+    {
+        var until = DateTime.UtcNow + PlayRules.PendingOrderTtl;
+        return await db.PlanPurchases
+            .Where(p => p.Id == purchaseId && p.Provider == PaymentProviders.Play
+                && (p.Status == PurchaseStatuses.Created || p.Status == PurchaseStatuses.Pending))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.Status, PurchaseStatuses.Pending)
+                .SetProperty(p => p.ExpiresAt, until)) > 0;
+    }
+
+    // R-MONEY: with ApplyVoidedAsync (which calls this) the only writer of Refunded on Play charge rows; the
+    // entitlement is never touched here, it follows the next sync.
+    public async Task<bool> MarkPlayChargeRefundedAsync(string playOrderId, string note)
+    {
+        var now = DateTime.UtcNow;
+        var reason = Truncate(note, 300);
+        var changed = await db.PlanPurchases
+            .Where(p => p.PlayOrderId == playOrderId && p.Provider == PaymentProviders.Play
+                && (p.Status == PurchaseStatuses.Granted || p.Status == PurchaseStatuses.Paid))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.Status, PurchaseStatuses.Refunded)
+                .SetProperty(p => p.RefundedAt, now)
+                .SetProperty(p => p.FailureReason, reason)) > 0;
+        if (changed)
+            logger.LogInformation(new EventId(0, "play.voided.applied"), "Play charge {OrderId} marked refunded", playOrderId);
+        return changed;
     }
 
     // ------------------------------------------------------------------ trial / admin
@@ -1308,6 +1854,8 @@ public class PlanPurchaseService(
     public async Task<MyPlanDto> StartTrialAsync(Guid userId, Guid planId)
     {
         var (plan, _) = await GatePlanAsync(userId, planId);
+        if ((await payment.GetAsync()).Provider == PaymentProviders.Play)
+            throw PlanServiceException.Conflict(PlanErrorTypes.TrialNotAvailable, "Start the free trial from the plan card.");
         if (plan.IsDefault || !plan.IsEnabled || plan.TrialDays <= 0)
             throw PlanServiceException.Conflict(PlanErrorTypes.TrialNotAvailable, "Free trial is not available.");
 
@@ -1420,9 +1968,10 @@ public class PlanPurchaseService(
         return new AdminGrantResult(await ToAdminDtoAsync(purchase), granted.Notification, false);
     }
 
-    public async Task AdminRevokeAsync(Guid adminId, Guid userId, AdminRevokePlanRequest request)
+    public async Task<AdminRevokeResult> AdminRevokeAsync(Guid adminId, Guid userId, AdminRevokePlanRequest request)
     {
         string feature;
+        var proratedQueued = false;
         var tx = await db.Database.BeginTransactionAsync();
         try
         {
@@ -1432,7 +1981,29 @@ public class PlanPurchaseService(
             if (plan == null)
                 throw PlanServiceException.NotFound(PlanErrorTypes.UserPlanNotFound, "No active plan to revoke.");
             feature = plan.FeatureKey;
-            Cancel(plan, DateTime.UtcNow, $"Revoked: {request.Reason}");
+            var now = DateTime.UtcNow;
+            if (plan.PlaySubscriptionId is { } subscriptionId)
+            {
+                // D-13: Google ends the subscription with a prorated refund (P1 executes it); an action already
+                // queued on a non-Mapped subscription is never overwritten.
+                var reason = Truncate($"Admin revoke: {request.Reason}", 300);
+                proratedQueued = await db.PlaySubscriptions
+                    .Where(s => s.Id == subscriptionId && s.MappingStatus == PlayMappingStatuses.Mapped)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(x => x.MappingStatus, PlayMappingStatuses.Detached)
+                        .SetProperty(x => x.DetachedReason, PlayDetachReasons.AdminRevoked)
+                        .SetProperty(x => x.PendingServerAction, PlayServerActions.RevokeProrated)
+                        .SetProperty(x => x.PendingActionReason, reason)
+                        .SetProperty(x => x.PendingActionAttempts, 0)
+                        .SetProperty(x => x.NextActionAt, (DateTime?)null)
+                        .SetProperty(x => x.UpdatedAt, now)) > 0;
+                plan.PlaySubscriptionId = null;
+                plan.PlayScheduledPlanId = null;
+                plan.CarryOverDays = 0;
+                logger.LogInformation(new EventId(0, "play.admin.revoke"),
+                    "Admin {AdminId} revoked Play plan {UserPlanId}; prorated refund queued: {Queued}", adminId, plan.Id, proratedQueued);
+            }
+            Cancel(plan, now, $"Revoked: {request.Reason}");
             await db.SaveChangesAsync();
             await slots.ExpireEffectsAsync(userId, feature);
             await tx.CommitAsync();
@@ -1449,6 +2020,7 @@ public class PlanPurchaseService(
         }
         logger.LogInformation("Admin {AdminId} revoked plan {UserPlanId} of user {UserId}", adminId, request.UserPlanId, userId);
         await cacheInvalidator.BustForUserAsync(userId, feature);
+        return new AdminRevokeResult(proratedQueued);
     }
 
     public async Task<AdminPurchaseDto> AdminRefundAsync(Guid adminId, Guid purchaseId, string reason)
@@ -1501,12 +2073,23 @@ public class PlanPurchaseService(
     public async Task<int> CancelActivePlansAsync(Guid userId, string featureKey, string note)
     {
         var now = DateTime.UtcNow;
+        // F-13: stop Google billing for the role being left (P1 runs the action); later syncs of the token are refresh-only.
+        var action = PlayServerActions.All.Contains(playOptions.Value.RoleChangeAction)
+            ? playOptions.Value.RoleChangeAction
+            : PlayServerActions.RevokeProrated;
+        var detached = await playSubscriptions.DetachForUserFeatureAsync(userId, featureKey, action, "Role changed");
+        if (detached > 0)
+            logger.LogInformation("Role change detached {Count} Play subscriptions of user {UserId} ({Feature}), action {Action}",
+                detached, userId, featureKey, action);
+
         var cancelled = await db.UserPlans
             .Where(u => u.UserId == userId && u.FeatureKey == featureKey && u.Status == UserPlanStatuses.Active)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(u => u.Status, UserPlanStatuses.Cancelled)
                 .SetProperty(u => u.EndsAt, u => u.StartsAt < now ? now : u.StartsAt.AddSeconds(1))
                 .SetProperty(u => u.Note, note)
+                .SetProperty(u => u.PlaySubscriptionId, (Guid?)null)
+                .SetProperty(u => u.PlayScheduledPlanId, (Guid?)null)
                 .SetProperty(u => u.UpdatedAt, now));
 
         var open = await db.PlanPurchases.AsNoTracking()
@@ -1553,6 +2136,12 @@ public class PlanPurchaseService(
         CreatedAt = p.CreatedAt,
         GrantedAt = p.GrantedAt,
         RefundedAt = p.RefundedAt,
+        PlayOrderId = p.PlayOrderId,
+        PlayProductId = p.PlayProductId,
+        PlayBasePlanId = p.PlayBasePlanId,
+        PlayOfferId = p.PlayOfferId,
+        PlaySubscriptionId = p.PlaySubscriptionId,
+        PlayChargebackReviewAt = p.PlayChargebackReviewAt,
     };
 
     public static string? MaskPhone(string? phone)

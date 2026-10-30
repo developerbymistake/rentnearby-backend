@@ -36,4 +36,11 @@ public class PlanPurchase
     public DateTime? RefundedAt { get; set; }
     public DateTime? AnonymisedAt { get; set; }
     public Guid? GrantedByAdminId { get; set; }
+    public Guid? PlaySubscriptionId { get; set; }
+    public string? PlayOrderId { get; set; }
+    public string? PlayProductId { get; set; }
+    public string? PlayBasePlanId { get; set; }
+    public string? PlayOfferId { get; set; }
+    public string? PlayPurchaseSource { get; set; }   // PurchaseSources.*
+    public DateTime? PlayChargebackReviewAt { get; set; }
 }

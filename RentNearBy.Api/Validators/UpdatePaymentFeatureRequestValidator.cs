@@ -1,5 +1,6 @@
 using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Validators;
 
@@ -13,5 +14,7 @@ public class UpdatePaymentFeatureRequestValidator : AbstractValidator<UpdatePaym
             .WithMessage("FreeModeListingLimit must be between 1 and 100");
         RuleFor(x => x).Must(x => !(x.ClearFreeModeListingLimit && x.FreeModeListingLimit.HasValue))
             .WithMessage("Cannot both set and clear FreeModeListingLimit");
+        RuleFor(x => x.Provider).Must(p => PaymentProviders.Selectable.Contains(p)).When(x => x.Provider != null)
+            .WithMessage($"Provider must be one of: {string.Join(", ", PaymentProviders.Selectable)}");
     }
 }

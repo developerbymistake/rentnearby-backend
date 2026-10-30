@@ -113,7 +113,8 @@ public class ListingExpirySweepService : BackgroundService
         var noActivePlan = $"""
                 NOT EXISTS (SELECT 1 FROM "UserPlans" up
                             WHERE up."UserId" = t."UserId" AND up."FeatureKey" = '{kind}' AND up."Status" = 'Active'
-                              AND up."EndsAt" > now() - interval '2 hours')
+                              AND up."EndsAt" > now() - (CASE WHEN up."PlaySubscriptionId" IS NULL
+                                                               THEN interval '2 hours' ELSE interval '72 hours' END))
                 """;
         var sql = $"""
                 UPDATE {table} t SET "IsActive" = false, "PauseReason" = NULL, "UpdatedAt" = now()

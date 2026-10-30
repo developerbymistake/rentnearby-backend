@@ -13,4 +13,7 @@ public interface IUserRepository : IRepository<User>
     Task<int> SetRoleAsync(Guid userId, Guid roleId);
     Task<int> CorrectRoleAsync(Guid userId, Guid fromRoleId, Guid toRoleId);
     Task<int> LockIfRoleAsync(Guid userId, Guid roleId);
+    // Writes Users.PlayAccountKey only while it is null; false = already set (or no such user).
+    Task<bool> SetPlayAccountKeyIfNullAsync(Guid userId, string playAccountKey);
+    Task<Guid?> GetIdByPlayAccountKeyAsync(string playAccountKey);
 }

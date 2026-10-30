@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
@@ -6,7 +7,11 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-public class AccountDeletionService(ApplicationDbContext context, IListingPurgeService listingPurgeService)
+public class AccountDeletionService(
+    ApplicationDbContext context,
+    IListingPurgeService listingPurgeService,
+    IPlaySubscriptionRepository playSubscriptions,
+    IOptions<PlayBillingOptions> playOptions)
     : IAccountDeletionService
 {
     public async Task DeleteAccountAsync(Guid userId)
@@ -81,6 +86,10 @@ public class AccountDeletionService(ApplicationDbContext context, IListingPurgeS
             .ExecuteUpdateAsync(s => s
                 .SetProperty(p => p.UserId, (Guid?)null)
                 .SetProperty(p => p.AnonymisedAt, now));
+
+        // Google subscriptions outlive the account: kept anonymised, Detached, and stopped on Google's side by
+        // the reconciler (PlayBilling:RoleChangeAction) so nobody keeps paying for a deleted account.
+        await playSubscriptions.AnonymiseForUserAsync(userId, now, playOptions.Value.RoleChangeAction);
 
         await listingPurgeService.PurgeUserListingsAsync(userId);
 
