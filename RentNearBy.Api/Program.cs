@@ -284,7 +284,10 @@ app.MapGet("/delete-account", () => Results.Content("""
 <div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> — your account is deleted instantly</span></div>
 </div>
 <div class="warn">
-<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, stays, photos and any active plan will be permanently removed. Payment receipts are kept without your personal details.
+<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, stays, photos and any active plan will be permanently removed. Payment receipts are kept without your personal details. The name, mobile number and dates of a deleted account may be kept for up to 180 days to prevent fraud and handle legal claims, and are then deleted.
+</div>
+<div class="warn">
+<strong>Subscriptions:</strong> Deleting your account stops your Bakhli plan, but it does not refund any payment already made. You can also check your subscriptions in Google Play (Play Store &gt; Payments and subscriptions &gt; Subscriptions).
 </div>
 <p>If you are unable to access the app, contact us at <a href="mailto:supportbakhli@gmail.com">supportbakhli@gmail.com</a> with subject <em>"Account Deletion Request"</em>.</p>
 <p><a href="https://developerbymistake.github.io/bakhli-privacy-policy/">Privacy Policy</a></p>
