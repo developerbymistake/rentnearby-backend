@@ -168,6 +168,9 @@ public static class ServiceCollectionExtensions
         // Stay-job-posted admin nudge: consumes stayjob.posted.admin, FCM via AdminDeviceTokens (own queue, not golive.requested).
         services.AddHostedService<StayJobPostedAdminWorkerService>();
 
+        // Plan purchase admin push: consumes plan.purchase.admin (granted Play charge, chargeback review), FCM via AdminDeviceTokens.
+        services.AddHostedService<PlanPurchaseAdminWorkerService>();
+
         return services;
     }
 

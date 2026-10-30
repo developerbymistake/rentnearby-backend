@@ -1062,9 +1062,10 @@ public class PlayBillingSyncService(
             .Select(p => new { p.Id, p.UserId, p.PlaySubscriptionId })
             .FirstOrDefaultAsync();
         string? token = null;
+        var claimed = 0;
         if (row != null)
         {
-            await db.PlanPurchases
+            claimed = await db.PlanPurchases
                 .Where(p => p.Id == row.Id && p.PlayChargebackReviewAt == null)
                 .ExecuteUpdateAsync(u => u.SetProperty(p => p.PlayChargebackReviewAt, DateTime.UtcNow));
             if (row.PlaySubscriptionId != null)
@@ -1076,6 +1077,9 @@ public class PlayBillingSyncService(
         logger.LogError(PlaySyncLogEvents.ChargebackReview,
             "Chargeback under review for Play order {OrderId} (purchase {PurchaseId}, user {UserId}, token {TokenTail}): answer in Play Console within 24 h",
             orderId, row?.Id, row?.UserId, PlaySyncLogEvents.Tail(token));
+        if (row == null || claimed > 0)
+            await PlanPurchaseAdminPublisher.PublishAsync(publisher,
+                new PlanPurchaseAdminMessage { Kind = PlanPurchaseAdminKinds.ChargebackReview, PurchaseId = row?.Id, PlayOrderId = orderId }, logger);
     }
 
     // ------------------------------------------------------------------ voided / refunds

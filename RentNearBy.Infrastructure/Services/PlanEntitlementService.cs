@@ -11,7 +11,7 @@ namespace RentNearBy.Infrastructure.Services;
 public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache catalog, IPaymentFeatureReader payment)
     : IPlanEntitlementService
 {
-    private sealed record ActiveRow(Guid Id, Guid UserId, Guid PlanId, string Source, DateTime StartsAt, DateTime EndsAt);
+    internal sealed record ActiveRow(Guid Id, Guid UserId, Guid PlanId, string Source, DateTime StartsAt, DateTime EndsAt);
 
     public async Task<PlanLimits> GetLimitsAsync(Guid userId, string featureKey)
     {
@@ -66,7 +66,7 @@ public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache c
         return (For(ListingKinds.Room), For(ListingKinds.Plot));
     }
 
-    private static PlanLimits Compute(PlanCatalogSnapshot snapshot, PaymentFeatureState flag, string featureKey, ActiveRow? row)
+    internal static PlanLimits Compute(PlanCatalogSnapshot snapshot, PaymentFeatureState flag, string featureKey, ActiveRow? row)
     {
         var defaultPlan = snapshot.DefaultPlan(featureKey);
         var defaults = defaultPlan?.Values ?? PlanFeatureValues.Fallback;

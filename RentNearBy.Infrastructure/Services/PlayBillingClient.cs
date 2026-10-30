@@ -243,7 +243,7 @@ public sealed class PlayBillingClient : IPlayBillingClient, IDisposable
 
     // ------------------------------------------------------------------ snapshot
 
-    private static PlaySubscriptionSnapshot Parse(string purchaseToken, string json)
+    internal static PlaySubscriptionSnapshot Parse(string purchaseToken, string json)
     {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;

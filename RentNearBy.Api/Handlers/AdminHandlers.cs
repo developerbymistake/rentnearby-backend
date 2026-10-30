@@ -501,7 +501,7 @@ public static class AdminHandlers
         return NoContentResponse();
     }
 
-    public static async Task<IResult> GetStats(ApplicationDbContext db)
+    public static async Task<IResult> GetStats(ApplicationDbContext db, IPlanCatalogCache catalog)
     {
         var totalUsers = await db.Users.CountAsync();
         var totalListings = await db.RoomListings.CountAsync();
@@ -522,6 +522,55 @@ public static class AdminHandlers
         var totalEarnings = await revenue.SumAsync(p => (int?)p.PayableInr) ?? 0;
         var currentMonthEarnings = await revenue.Where(p => p.GrantedAt >= monthStart).SumAsync(p => (int?)p.PayableInr) ?? 0;
 
+        var planRows = await db.UserPlans.AsNoTracking()
+            .Where(u => u.Status == UserPlanStatuses.Active && u.EndsAt > now && !u.Plan.IsDefault)
+            .GroupBy(u => new { u.FeatureKey, u.PlanId, PlanName = u.Plan.Name })
+            .Select(g => new
+            {
+                g.Key.FeatureKey,
+                g.Key.PlanId,
+                g.Key.PlanName,
+                Paid = g.Count(u => (u.Source == UserPlanSources.Subscription || u.Source == UserPlanSources.Prepaid)
+                    && (u.PlayTrialEndsAt == null || u.PlayTrialEndsAt <= now)),
+                Trial = g.Count(u => u.Source == UserPlanSources.Trial || (u.PlayTrialEndsAt != null && u.PlayTrialEndsAt > now)),
+                Granted = g.Count(u => u.Source == UserPlanSources.AdminGrant),
+            })
+            .ToListAsync();
+
+        var snapshot = await catalog.GetAsync();
+        var countsByPlan = planRows.ToDictionary(r => (r.FeatureKey, r.PlanId));
+        var planUsers = new List<AdminPlanUsersDto>();
+        foreach (var feature in PlanFeatures.All)
+        {
+            foreach (var plan in snapshot.PlansOf(feature).Where(p => !p.IsDefault))
+            {
+                countsByPlan.TryGetValue((feature, plan.Id), out var row);
+                if (!plan.IsEnabled && row == null) continue;
+                planUsers.Add(new AdminPlanUsersDto
+                {
+                    FeatureKey = feature,
+                    PlanId = plan.Id,
+                    PlanName = plan.Name,
+                    PaidUsers = row?.Paid ?? 0,
+                    TrialUsers = row?.Trial ?? 0,
+                    GrantedUsers = row?.Granted ?? 0,
+                });
+                countsByPlan.Remove((feature, plan.Id));
+            }
+        }
+        planUsers.AddRange(planRows
+            .Where(r => countsByPlan.ContainsKey((r.FeatureKey, r.PlanId)))
+            .OrderBy(r => r.FeatureKey).ThenBy(r => r.PlanName)
+            .Select(r => new AdminPlanUsersDto
+            {
+                FeatureKey = r.FeatureKey,
+                PlanId = r.PlanId,
+                PlanName = r.PlanName,
+                PaidUsers = r.Paid,
+                TrialUsers = r.Trial,
+                GrantedUsers = r.Granted,
+            }));
+
         return OkResponse(new AdminStatsDto
         {
             TotalUsers = totalUsers,
@@ -533,6 +582,8 @@ public static class AdminHandlers
             RoomListingsByDistrict = listingsByDistrict.ToDictionary(x => x.District, x => x.Count),
             TotalEarnings = totalEarnings,
             CurrentMonthEarnings = currentMonthEarnings,
+            ActivePaidUsers = planRows.Sum(r => r.Paid),
+            PlanUsers = planUsers,
         });
     }
 

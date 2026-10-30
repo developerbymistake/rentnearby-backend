@@ -324,12 +324,12 @@ public class PlayEntitlementApplier(
                 .SetProperty(p => p.FailureReason, "Replaced by a purchase"));
 
     // R-PRICE: what Google charges when it is INR, else the admin mirror.
-    private static int PayableOf(PlaySubscriptionLineItem item, int mirror)
+    internal static int PayableOf(PlaySubscriptionLineItem item, int mirror)
         => item.RecurringPriceCurrency == "INR" && item.RecurringPriceMicros is > 0
             ? (int)Math.Round(item.RecurringPriceMicros.Value / 1_000_000m, MidpointRounding.AwayFromZero)
             : mirror;
 
-    private static int DaysOf(PlayResolvedTarget target, bool trial)
+    internal static int DaysOf(PlayResolvedTarget target, bool trial)
         => trial ? Math.Max(1, target.Plan.TrialDays) : PlanCycles.DaysOf(target.Price.CycleMonths);
 
     // GrantPlayInTxAsync does not write a push row for a switch that keeps the plan (deferred downgrade).
@@ -357,6 +357,11 @@ public class PlayEntitlementApplier(
             throw new InvalidOperationException("AfterCommitAsync must run after the sync transaction is committed.");
         if (result.Notification != null)
             await PlanNotifications.PublishAsync(publisher, result.Notification, logger);
+        if (result.ChargeRow is { Status: PurchaseStatuses.Granted } charge
+            && (charge.PayableInr > 0 || charge.PlayOfferId != null)
+            && PlanPurchaseAdminPublisher.KindOf(result.Kind) is { } kind)
+            await PlanPurchaseAdminPublisher.PublishAsync(publisher,
+                new PlanPurchaseAdminMessage { Kind = kind, PurchaseId = charge.Id, PlayOrderId = charge.PlayOrderId }, logger);
         await cacheInvalidator.BustForUserAsync(result.UserId, result.FeatureKey);
         if (result.NeedsAcknowledge)
             await AcknowledgeAsync(result.PlaySubscriptionId, result.PurchaseToken, result.PurchasedProductId);

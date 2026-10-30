@@ -646,7 +646,7 @@ public class PlanPurchaseService(
 
     // D-07: within one product only chargeFullPrice / withoutProration; across products a cheaper plan
     // (per-month mirror price) is a deferred downgrade, anything else an immediate charge.
-    private static string ReplacementModeOf(Guid currentPlanId, CatalogPrice? currentPrice, CatalogPlan plan, CatalogPrice price)
+    internal static string ReplacementModeOf(Guid currentPlanId, CatalogPrice? currentPrice, CatalogPlan plan, CatalogPrice price)
     {
         if (currentPrice == null) return PlayReplacementModes.ChargeFullPrice;
         if (currentPlanId == plan.Id)
@@ -656,9 +656,9 @@ public class PlanPurchaseService(
         return newMonthly >= oldMonthly ? PlayReplacementModes.ChargeFullPrice : PlayReplacementModes.Deferred;
     }
 
-    private static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
+    internal static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
 
-    private static int DiscountOf(Coupon c, int list) => c.Kind switch
+    internal static int DiscountOf(Coupon c, int list) => c.Kind switch
     {
         CouponKinds.Percent => Math.Min(list * c.Value / 100, c.MaxDiscountInr ?? int.MaxValue),
         CouponKinds.Flat => Math.Min(Math.Max(0, c.Value), list),

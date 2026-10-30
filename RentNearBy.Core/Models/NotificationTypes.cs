@@ -25,6 +25,9 @@ public static class NotificationTypes
     public const string PlanCarryOverActivated = "PlanCarryOverActivated";
     // Push-only (FCM notification_type for the seeker and admin job pushes), no NotificationEvent row.
     public const string StayJobPosted = "StayJobPosted";
+    // Push-only admin pushes (plan.purchase.admin), no NotificationEvent row.
+    public const string PlanPurchased = "PlanPurchased";
+    public const string PlanChargebackReview = "PlanChargebackReview";
 
     // The lowercase-snake value sent as the FCM data payload's "notification_type" key — kept
     // paired here (not derived by naive case-conversion) so the PascalCase DB value and the wire
@@ -49,6 +52,8 @@ public static class NotificationTypes
         [PlanPaused] = "plan_paused",
         [PlanCarryOverActivated] = "plan_carry_over_activated",
         [StayJobPosted] = "stay_job_posted",
+        [PlanPurchased] = "plan_purchased",
+        [PlanChargebackReview] = "plan_chargeback_review",
     };
 
     public static string ToWireValue(string type) => WireValues.TryGetValue(type, out var wire) ? wire : type;

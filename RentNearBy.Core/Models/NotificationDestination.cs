@@ -18,4 +18,5 @@ public static class AdminNotificationRoutes
     public const string RoleRequests = "/admin/role-requests";
     public const string StayJobs = "/admin/stay-jobs";
     public const string Taxis = "/admin/taxis";
+    public const string Purchases = "/admin/purchases";
 }
