@@ -25,4 +25,6 @@ public interface IPlaySubscriptionRepository
     Task<int> DetachForUserFeatureAsync(Guid userId, string featureKey, string pendingAction, string reason);
     // Account deletion: UserId null, Detached (AccountDeleted), server action queued on the still-Mapped rows.
     Task<int> AnonymiseForUserAsync(Guid userId, DateTime now, string pendingAction);
+    // Admin deactivation: queues Cancel (stop renewals, no refund) on the user's Mapped subscriptions that still renew; they stay Mapped.
+    Task<int> QueueCancelForUserAsync(Guid userId, string reason);
 }

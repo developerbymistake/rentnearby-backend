@@ -137,6 +137,18 @@ public class PlaySubscriptionRepository(ApplicationDbContext context) : IPlaySub
                 .SetProperty(s => s.UpdatedAt, now));
     }
 
+    public async Task<int> QueueCancelForUserAsync(Guid userId, string reason)
+        => await context.PlaySubscriptions
+            .Where(s => s.UserId == userId && s.MappingStatus == PlayMappingStatuses.Mapped
+                && !NoActionStates.Contains(s.State) && s.State != PlayStates.Canceled
+                && s.PendingServerAction == null)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(s => s.PendingServerAction, PlayServerActions.Cancel)
+                .SetProperty(s => s.PendingActionReason, reason)
+                .SetProperty(s => s.PendingActionAttempts, 0)
+                .SetProperty(s => s.NextActionAt, (DateTime?)null)
+                .SetProperty(s => s.UpdatedAt, DateTime.UtcNow));
+
     // Only still-Mapped rows get Detached + the action; Rejected/Detached rows keep whatever action they already hold.
     public async Task<int> AnonymiseForUserAsync(Guid userId, DateTime now, string pendingAction)
     {

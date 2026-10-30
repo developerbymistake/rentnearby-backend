@@ -942,6 +942,7 @@ public static class AdminHandlers
         ApplicationDbContext db,
         ILiveSlotService slots,
         IListingCacheInvalidator cacheInvalidator,
+        IPlaySubscriptionRepository playSubscriptions,
         IServiceProvider sp)
     {
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
@@ -981,6 +982,9 @@ public static class AdminHandlers
                     .ExecuteUpdateAsync(s => s
                         .SetProperty(x => x.IsActive, false)
                         .SetProperty(x => x.LoggedOutAt, now));
+
+                // Stop Google renewals so a blocked user is not billed for an account they cannot use; no refund.
+                await playSubscriptions.QueueCancelForUserAsync(id, "Account deactivated");
             }
 
             await tx.CommitAsync();
