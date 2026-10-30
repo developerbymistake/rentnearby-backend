@@ -2076,7 +2076,7 @@ public class PlanPurchaseService(
         // F-13: stop Google billing for the role being left (P1 runs the action); later syncs of the token are refresh-only.
         var action = PlayServerActions.All.Contains(playOptions.Value.RoleChangeAction)
             ? playOptions.Value.RoleChangeAction
-            : PlayServerActions.RevokeProrated;
+            : PlayServerActions.Cancel;
         var detached = await playSubscriptions.DetachForUserFeatureAsync(userId, featureKey, action, "Role changed");
         if (detached > 0)
             logger.LogInformation("Role change detached {Count} Play subscriptions of user {UserId} ({Feature}), action {Action}",

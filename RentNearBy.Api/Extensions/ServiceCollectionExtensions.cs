@@ -50,7 +50,7 @@ public static class ServiceCollectionExtensions
         {
             if (string.IsNullOrWhiteSpace(o.ServiceAccountJson)) o.ServiceAccountJson = configuration["PLAY_SERVICE_ACCOUNT_JSON"];
             if (string.IsNullOrWhiteSpace(o.AccountIdSalt)) o.AccountIdSalt = configuration["PLAY_ACCOUNT_ID_SALT"] ?? string.Empty;
-            o.RoleChangeAction = NormalizeRoleChangeAction(o.RoleChangeAction) ?? PlayServerActions.RevokeProrated;
+            o.RoleChangeAction = NormalizeRoleChangeAction(o.RoleChangeAction) ?? PlayServerActions.Cancel;
         });
         services.AddSingleton<IPlayBillingClient, PlayBillingClient>();
         services.AddSingleton<IPlayRtdnAuthenticator, PlayRtdnAuthenticator>();

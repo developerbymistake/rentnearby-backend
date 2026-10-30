@@ -117,7 +117,7 @@ public sealed class PlayBillingOptions
     // Never rotate after the first purchase: it keys every Users.PlayAccountKey.
     public string AccountIdSalt { get; set; } = string.Empty;
     // Role change and account deletion: PlayServerActions.RevokeProrated | PlayServerActions.Cancel.
-    public string RoleChangeAction { get; set; } = PlayServerActions.RevokeProrated;
+    public string RoleChangeAction { get; set; } = PlayServerActions.Cancel;
 
     public bool IsConfigured =>
         !string.IsNullOrEmpty(PackageName)
