@@ -137,7 +137,11 @@ public static class DataSeeder
     // plans b1000000-...-0000000FFNN (FF feature 01-04, NN 01 free / 02 paid), prices b2000000-...-0000FFCC.
     private static async Task SeedPlansAsync(ApplicationDbContext db)
     {
-        if (await db.Plans.AnyAsync()) return;
+        if (await db.Plans.AnyAsync())
+        {
+            await SyncSeedPlayPricesAsync(db);
+            return;
+        }
 
         var now = DateTime.UtcNow;
         var features = new (int Index, string Kind, string Code)[]
@@ -197,9 +201,9 @@ public static class DataSeeder
 
             var (m1, m3, m12) = kind switch
             {
-                ListingKinds.Stay => (399, 1077, 3830),
-                ListingKinds.Taxi => (149, 402, 1430),
-                _ => (199, 537, 1910),
+                ListingKinds.Stay => (400, 1100, 3800),
+                ListingKinds.Taxi => (150, 400, 1400),
+                _ => (200, 550, 1900),
             };
             plus.Prices.Add(new PlanPrice { Id = PriceId(index, 1), CycleMonths = 1, PriceInr = m1, IsEnabled = true, PlayBasePlanId = "cycle-1m", PlayTrialOfferId = "trial-7d" });
             plus.Prices.Add(new PlanPrice { Id = PriceId(index, 3), CycleMonths = 3, PriceInr = m3, IsEnabled = true, PlayBasePlanId = "cycle-3m" });
@@ -208,6 +212,31 @@ public static class DataSeeder
             db.Plans.AddRange(free, plus);
         }
         await db.SaveChangesAsync();
+    }
+
+    // Moves seeded plan prices that still hold the first guess to the Play Console price points; an admin edit is left alone.
+    private static async Task SyncSeedPlayPricesAsync(ApplicationDbContext db)
+    {
+        var changes = new (int Feature, int Cycle, int Old, int New)[]
+        {
+            (1, 1, 199, 200), (1, 3, 537, 550), (1, 12, 1910, 1900),
+            (2, 1, 199, 200), (2, 3, 537, 550), (2, 12, 1910, 1900),
+            (3, 1, 399, 400), (3, 3, 1077, 1100), (3, 12, 3830, 3800),
+            (4, 1, 149, 150), (4, 3, 402, 400), (4, 12, 1430, 1400),
+        };
+        static Guid PriceId(int feature, int cycle) => new($"b2000000-0000-0000-0000-00000000{feature:D2}{cycle:D2}");
+
+        var ids = changes.Select(c => PriceId(c.Feature, c.Cycle)).ToList();
+        var rows = await db.PlanPrices.Where(p => ids.Contains(p.Id)).ToListAsync();
+        var changed = false;
+        foreach (var c in changes)
+        {
+            var row = rows.FirstOrDefault(r => r.Id == PriceId(c.Feature, c.Cycle));
+            if (row == null || row.PriceInr != c.Old) continue;
+            row.PriceInr = c.New;
+            changed = true;
+        }
+        if (changed) await db.SaveChangesAsync();
     }
 
     private static async Task SeedRoomTypesAsync(ApplicationDbContext db)
