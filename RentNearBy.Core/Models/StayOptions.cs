@@ -92,9 +92,6 @@ public static class StaySetupRules
 
     public static bool RulesDone(StayListing s) => s.RulesSavedAt != null;
 
-    // Not part of Step1Done/Percent, so legacy rows keep their progress; Submit checks it.
-    public static bool RegistrationDone(StayListing s) => s.RegistrationTypeId != null && s.RegistrationNumber != null;
-
     public static bool Submitted(StayListing s) =>
         s.Status is StayStatuses.PendingReview or StayStatuses.Approved;
 

@@ -15,10 +15,10 @@ public class StayListing
     public string? Description { get; set; }
 
     // Admin-only registration details; RegistrationTypeName is a snapshot of the type's name.
-    public Guid? RegistrationTypeId { get; set; }
-    public string? RegistrationTypeName { get; set; }
+    public required Guid RegistrationTypeId { get; set; }
+    public required string RegistrationTypeName { get; set; }
     public string? RegistrationOtherName { get; set; }
-    public string? RegistrationNumber { get; set; }
+    public required string RegistrationNumber { get; set; }
     public string? Gstin { get; set; }
 
     public decimal? Latitude { get; set; }
@@ -60,7 +60,7 @@ public class StayListing
 
     public User User { get; set; } = null!;
     public StayType? StayType { get; set; }
-    public StayRegistrationType? RegistrationType { get; set; }
+    public StayRegistrationType RegistrationType { get; set; } = null!;
     public District? District { get; set; }
     public City? City { get; set; }
     public ICollection<StayRoom> Rooms { get; set; } = new List<StayRoom>();

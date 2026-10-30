@@ -30,12 +30,12 @@ public class AccountDeletionService(
             // Latest licence/registration details (deleted listings included) outlive the listing purge below
             // for the same 180-day window; the licence blob is copied as-is, still encrypted.
             var taxi = await context.TaxiListings.AsNoTracking()
-                .Where(t => t.UserId == userId && (t.DrivingLicenceNumberEnc != null || t.DateOfBirth != null))
+                .Where(t => t.UserId == userId)
                 .OrderByDescending(t => t.UpdatedAt)
                 .Select(t => new { t.DrivingLicenceNumberEnc, t.DateOfBirth })
                 .FirstOrDefaultAsync();
             var stay = await context.StayListings.AsNoTracking()
-                .Where(s => s.UserId == userId && s.RegistrationNumber != null)
+                .Where(s => s.UserId == userId)
                 .OrderByDescending(s => s.UpdatedAt)
                 .Select(s => new { s.RegistrationTypeName, s.RegistrationOtherName, s.RegistrationNumber, s.Gstin })
                 .FirstOrDefaultAsync();

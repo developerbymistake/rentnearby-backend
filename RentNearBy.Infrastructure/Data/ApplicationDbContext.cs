@@ -1068,9 +1068,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(s => s.VehicleAccess).HasMaxLength(16);
             e.Property(s => s.Facilities).HasColumnType("text[]").HasDefaultValueSql("'{}'::text[]");
             e.Property(s => s.Description).HasMaxLength(300);
-            e.Property(s => s.RegistrationTypeName).HasMaxLength(StayRegistrationRules.TypeNameMax);
+            e.Property(s => s.RegistrationTypeId).IsRequired();
+            e.Property(s => s.RegistrationTypeName).IsRequired().HasMaxLength(StayRegistrationRules.TypeNameMax);
             e.Property(s => s.RegistrationOtherName).HasMaxLength(StayRegistrationRules.OtherNameMax);
-            e.Property(s => s.RegistrationNumber).HasMaxLength(StayRegistrationRules.RegistrationMax);
+            e.Property(s => s.RegistrationNumber).IsRequired().HasMaxLength(StayRegistrationRules.RegistrationMax);
             e.Property(s => s.Gstin).HasMaxLength(StayRegistrationRules.GstinLength);
             e.Property(s => s.Address).HasMaxLength(500);
             e.Property(s => s.CancellationPolicy).HasMaxLength(16);
@@ -1095,7 +1096,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasOne(s => s.RegistrationType)
              .WithMany(t => t.StayListings)
              .HasForeignKey(s => s.RegistrationTypeId)
-             .IsRequired(false)
+             .IsRequired()
              .OnDelete(DeleteBehavior.Restrict);
 
             e.HasOne(s => s.District)
@@ -1292,8 +1293,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(t => t.PlatePhotoPath).HasMaxLength(500);
             e.Property(t => t.ContactPhone).HasMaxLength(TaxiLimits.PhoneLength);
             e.Property(t => t.WhatsAppNumber).HasMaxLength(TaxiLimits.PhoneLength);
-            e.Property(t => t.DrivingLicenceNumberEnc).HasMaxLength(TaxiIdentityRules.DlEncMaxLength);
-            e.Property(t => t.DateOfBirth).HasColumnType("date");
+            e.Property(t => t.DrivingLicenceNumberEnc).IsRequired().HasMaxLength(TaxiIdentityRules.DlEncMaxLength);
+            e.Property(t => t.DateOfBirth).IsRequired().HasColumnType("date");
             e.Property(t => t.Latitude).HasColumnType("numeric(9,6)");
             e.Property(t => t.Longitude).HasColumnType("numeric(9,6)");
             e.Property(t => t.Status).HasMaxLength(16).HasDefaultValue(TaxiStatuses.Draft);

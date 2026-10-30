@@ -65,7 +65,13 @@ namespace RentNearBy.Infrastructure.Migrations
                     PhoneNumber = table.Column<string>(type: "text", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: true),
                     AccountCreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    DrivingLicenceNumberEnc = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
+                    DateOfBirth = table.Column<DateOnly>(type: "date", nullable: true),
+                    StayRegistrationTypeName = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: true),
+                    StayRegistrationOtherName = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    StayRegistrationNumber = table.Column<string>(type: "character varying(25)", maxLength: 25, nullable: true),
+                    StayGstin = table.Column<string>(type: "character varying(15)", maxLength: 15, nullable: true)
                 },
                 constraints: table =>
                 {
@@ -257,6 +263,24 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_RoomTypes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "StayRegistrationTypes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Code = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                    Name = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: false),
+                    HelpText = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: true),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    RequiresOtherName = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayRegistrationTypes", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -1157,6 +1181,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     HostLivesHere = table.Column<bool>(type: "boolean", nullable: true),
                     Facilities = table.Column<string[]>(type: "text[]", nullable: false, defaultValueSql: "'{}'::text[]"),
                     Description = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    RegistrationTypeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    RegistrationTypeName = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: false),
+                    RegistrationOtherName = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    RegistrationNumber = table.Column<string>(type: "character varying(25)", maxLength: 25, nullable: false),
+                    Gstin = table.Column<string>(type: "character varying(15)", maxLength: 15, nullable: true),
                     Latitude = table.Column<decimal>(type: "numeric", nullable: true),
                     Longitude = table.Column<decimal>(type: "numeric", nullable: true),
                     Address = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
@@ -1213,6 +1242,12 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
+                        name: "FK_StayListings_StayRegistrationTypes_RegistrationTypeId",
+                        column: x => x.RegistrationTypeId,
+                        principalTable: "StayRegistrationTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
                         name: "FK_StayListings_StayTypes_StayTypeId",
                         column: x => x.StayTypeId,
                         principalTable: "StayTypes",
@@ -1239,6 +1274,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     PlatePhotoPath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
                     ContactPhone = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
                     WhatsAppNumber = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
+                    DrivingLicenceNumberEnc = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    DateOfBirth = table.Column<DateOnly>(type: "date", nullable: false),
                     Latitude = table.Column<decimal>(type: "numeric(9,6)", nullable: true),
                     Longitude = table.Column<decimal>(type: "numeric(9,6)", nullable: true),
                     DistrictId = table.Column<Guid>(type: "uuid", nullable: true),
@@ -2586,6 +2623,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"Status\" = 'Approved' AND \"AcceptingGuests\" = true AND \"IsDeleted\" = false");
 
             migrationBuilder.CreateIndex(
+                name: "IX_StayListings_RegistrationTypeId",
+                table: "StayListings",
+                column: "RegistrationTypeId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_StayListings_ReviewedByAdminId",
                 table: "StayListings",
                 column: "ReviewedByAdminId");
@@ -2622,6 +2664,18 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_StayPhotos_StayListingId",
                 table: "StayPhotos",
                 column: "StayListingId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_stayregistrationtypes_code",
+                table: "StayRegistrationTypes",
+                column: "Code",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_stayregistrationtypes_name",
+                table: "StayRegistrationTypes",
+                column: "Name",
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_StayRooms_StayListingId_RoomIndex",
@@ -2941,6 +2995,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "JobDepartments");
+
+            migrationBuilder.DropTable(
+                name: "StayRegistrationTypes");
 
             migrationBuilder.DropTable(
                 name: "StayTypes");

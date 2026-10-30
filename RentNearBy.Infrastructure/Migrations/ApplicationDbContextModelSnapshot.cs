@@ -2762,6 +2762,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDefaultValue((short)0);
 
                     b.Property<string>("RegistrationNumber")
+                        .IsRequired()
                         .HasMaxLength(25)
                         .HasColumnType("character varying(25)");
 
@@ -2769,10 +2770,11 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
-                    b.Property<Guid?>("RegistrationTypeId")
+                    b.Property<Guid>("RegistrationTypeId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("RegistrationTypeName")
+                        .IsRequired()
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
@@ -3072,7 +3074,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<DateOnly?>("DateOfBirth")
+                    b.Property<DateOnly>("DateOfBirth")
                         .HasColumnType("date");
 
                     b.Property<DateTime?>("DeletedAt")
@@ -3082,6 +3084,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("DrivingLicenceNumberEnc")
+                        .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
@@ -4086,7 +4089,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasOne("RentNearBy.Core.Entities.StayRegistrationType", "RegistrationType")
                         .WithMany("StayListings")
                         .HasForeignKey("RegistrationTypeId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("RentNearBy.Core.Entities.Admin", null)
                         .WithMany()

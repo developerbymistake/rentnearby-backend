@@ -74,9 +74,6 @@ public static class TaxiSetupRules
 
     public static bool RoutesDone(TaxiListing t) => t.Routes.Count >= 1;
 
-    // Not part of Step1Done/Percent, so legacy approved rows keep their route edits; Submit checks it.
-    public static bool IdentityDone(TaxiListing t) => t.DrivingLicenceNumberEnc != null && t.DateOfBirth != null;
-
     public static bool Submitted(TaxiListing t) =>
         t.Status is TaxiStatuses.PendingReview or TaxiStatuses.Approved;
 

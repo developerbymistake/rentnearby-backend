@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261030071125_InitialCreate")]
+    [Migration("20261030155508_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -577,8 +577,15 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateTime>("AccountCreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateOnly?>("DateOfBirth")
+                        .HasColumnType("date");
+
                     b.Property<DateTime>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DrivingLicenceNumberEnc")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<string>("Name")
                         .HasColumnType("text");
@@ -589,6 +596,22 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<string>("PhoneNumber")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("StayGstin")
+                        .HasMaxLength(15)
+                        .HasColumnType("character varying(15)");
+
+                    b.Property<string>("StayRegistrationNumber")
+                        .HasMaxLength(25)
+                        .HasColumnType("character varying(25)");
+
+                    b.Property<string>("StayRegistrationOtherName")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("StayRegistrationTypeName")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
 
                     b.HasKey("Id");
 
@@ -2697,6 +2720,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("text[]")
                         .HasDefaultValueSql("'{}'::text[]");
 
+                    b.Property<string>("Gstin")
+                        .HasMaxLength(15)
+                        .HasColumnType("character varying(15)");
+
                     b.Property<bool?>("HostLivesHere")
                         .HasColumnType("boolean");
 
@@ -2736,6 +2763,23 @@ namespace RentNearBy.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("smallint")
                         .HasDefaultValue((short)0);
+
+                    b.Property<string>("RegistrationNumber")
+                        .IsRequired()
+                        .HasMaxLength(25)
+                        .HasColumnType("character varying(25)");
+
+                    b.Property<string>("RegistrationOtherName")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("RegistrationTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RegistrationTypeName")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
 
                     b.Property<string>("RejectedReason")
                         .HasMaxLength(300)
@@ -2800,6 +2844,8 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDatabaseName("ix_staylistings_location_gist");
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Location"), "gist");
+
+                    b.HasIndex("RegistrationTypeId");
 
                     b.HasIndex("ReviewedByAdminId");
 
@@ -2874,6 +2920,58 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("StayListingId");
 
                     b.ToTable("StayPhotos");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayRegistrationType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("HelpText")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<bool>("RequiresOtherName")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_stayregistrationtypes_code");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_stayregistrationtypes_name");
+
+                    b.ToTable("StayRegistrationTypes");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.StayRoom", b =>
@@ -2979,11 +3077,19 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<DateOnly>("DateOfBirth")
+                        .HasColumnType("date");
+
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("DistrictId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("DrivingLicenceNumberEnc")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<bool>("EverApproved")
                         .ValueGeneratedOnAdd()
@@ -3983,6 +4089,12 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasForeignKey("DistrictId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("RentNearBy.Core.Entities.StayRegistrationType", "RegistrationType")
+                        .WithMany("StayListings")
+                        .HasForeignKey("RegistrationTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("RentNearBy.Core.Entities.Admin", null)
                         .WithMany()
                         .HasForeignKey("ReviewedByAdminId")
@@ -4002,6 +4114,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("City");
 
                     b.Navigation("District");
+
+                    b.Navigation("RegistrationType");
 
                     b.Navigation("StayType");
 
@@ -4167,6 +4281,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("Photos");
 
                     b.Navigation("Rooms");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayRegistrationType", b =>
+                {
+                    b.Navigation("StayListings");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.StayType", b =>

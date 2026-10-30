@@ -40,11 +40,8 @@ public static class AdminTaxiHandlers
             var licence = TaxiHandlers.ReadLicence(cipher, taxi.DrivingLicenceNumberEnc, taxi.Id, logger);
             dto.DrivingLicenceNumber = licence == null ? null : TaxiIdentityRules.FormatDl(licence);
         }
-        if (taxi.DateOfBirth is { } dob)
-        {
-            dto.DateOfBirth = TaxiIdentityRules.FormatDob(dob);
-            dto.Age = TaxiIdentityRules.AgeOn(dob, TaxiIdentityRules.TodayIst());
-        }
+        dto.DateOfBirth = TaxiIdentityRules.FormatDob(taxi.DateOfBirth);
+        dto.Age = TaxiIdentityRules.AgeOn(taxi.DateOfBirth, TaxiIdentityRules.TodayIst());
         return dto;
     }
 

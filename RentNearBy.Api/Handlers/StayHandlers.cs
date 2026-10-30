@@ -380,7 +380,7 @@ public static class StayHandlers
         var numberNew = request.RegistrationNumber == null
             ? null
             : StayRegistrationRules.NormalizeForType(regType.Code, request.RegistrationNumber);
-        if (numberNew == null && (stay?.RegistrationNumber == null || typeChanged))
+        if (numberNew == null && (stay == null || typeChanged))
             return BadRequestResponse(StayRegistrationRules.RegistrationRequiredMessage, StayErrorTypes.StayRegistrationRequired);
         if (numberNew != null && !StayRegistrationRules.IsValidForType(regType.Code, numberNew))
             return BadRequestResponse(StayRegistrationRules.MessageForType(regType.Code));
@@ -410,6 +410,9 @@ public static class StayHandlers
                 AcceptingGuests = true,
                 PriorityRank = limits.PriorityRank,
                 IsFeatured = limits.IsFeatured,
+                RegistrationTypeId = regType.Id,
+                RegistrationTypeName = regType.Name,
+                RegistrationNumber = numberNew!,
                 CreatedAt = now,
             };
         }
@@ -641,11 +644,9 @@ public static class StayHandlers
         if (!StaySetupRules.Step1Done(stay)) return StepLocked(1);
         if (!StaySetupRules.RoomsDone(stay)) return StepLocked(2);
         if (!StaySetupRules.RulesDone(stay)) return StepLocked(3);
-        if (!StaySetupRules.RegistrationDone(stay))
-            return BadRequestResponse("Add your registration details", StayErrorTypes.StayRegistrationRequired);
 
         // Snapshot the type name as reviewed; a type renamed since the last basic save is refreshed here.
-        var regType = await unitOfWork.StayRegistrationTypes.GetByIdAsync(stay.RegistrationTypeId!.Value);
+        var regType = await unitOfWork.StayRegistrationTypes.GetByIdAsync(stay.RegistrationTypeId);
         if (regType != null) stay.RegistrationTypeName = regType.Name;
 
         var now = DateTime.UtcNow;

@@ -397,16 +397,17 @@ public static class TaxiHandlers
             dlEff = dlStored;
         }
 
-        var dobEff = dobNew ?? taxi?.DateOfBirth;
-        if (dobEff == null)
-            return BadRequestResponse(TaxiIdentityRules.DobRequiredMessage, TaxiErrorTypes.TaxiIdentityRequired);
-        if (dlEff != null && !TaxiIdentityRules.DlYearMatchesDob(TaxiIdentityRules.DlIssueYear(dlEff), dobEff.Value))
+        DateOnly dobEff;
+        if (dobNew is { } dobGiven) dobEff = dobGiven;
+        else if (taxi != null) dobEff = taxi.DateOfBirth;
+        else return BadRequestResponse(TaxiIdentityRules.DobRequiredMessage, TaxiErrorTypes.TaxiIdentityRequired);
+        if (dlEff != null && !TaxiIdentityRules.DlYearMatchesDob(TaxiIdentityRules.DlIssueYear(dlEff), dobEff))
             return BadRequestResponse(TaxiIdentityRules.DlYearMessage, TaxiErrorTypes.TaxiIdentityRequired);
 
-        // A first fill on a legacy row is written but is not a change of what was reviewed.
-        var dlWrite = dlNew != null && (dlStoredEnc == null || dlNew != dlStored);
-        var dlChanged = dlWrite && dlStoredEnc != null;
-        var dobChanged = dobNew != null && taxi?.DateOfBirth != null && dobNew != taxi.DateOfBirth;
+        // Never re-encrypt an unchanged licence: the stored blob stays the record of what was reviewed.
+        var dlEncNew = dlNew != null && (dlStoredEnc == null || dlNew != dlStored) ? cipher.Protect(dlNew) : null;
+        var dlChanged = dlEncNew != null && taxi != null;
+        var dobChanged = dobNew != null && taxi != null && dobNew != taxi.DateOfBirth;
         var identityChanged = dlChanged || dobChanged;
 
         var isNew = taxi == null;
@@ -422,6 +423,8 @@ public static class TaxiHandlers
                 IsAvailable = true,
                 PriorityRank = limits.PriorityRank,
                 IsFeatured = limits.IsFeatured,
+                DrivingLicenceNumberEnc = dlEncNew!,
+                DateOfBirth = dobEff,
                 CreatedAt = now,
             };
         }
@@ -436,8 +439,7 @@ public static class TaxiHandlers
         taxi.NumberPlate = plate;
         taxi.ContactPhone = request.ContactPhone.Trim();
         taxi.WhatsAppNumber = request.WhatsAppNumber.Trim();
-        // Never re-encrypt an unchanged licence: the stored blob stays the record of what was reviewed.
-        if (dlWrite) taxi.DrivingLicenceNumberEnc = cipher.Protect(dlNew!);
+        if (dlEncNew != null) taxi.DrivingLicenceNumberEnc = dlEncNew;
         taxi.DateOfBirth = dobEff;
         taxi.Latitude = request.Latitude;
         taxi.Longitude = request.Longitude;
@@ -672,8 +674,6 @@ public static class TaxiHandlers
             return ConflictResponse("Your taxi is already live.", TaxiErrorTypes.TaxiLocked);
         if (!TaxiSetupRules.Step1Done(taxi)) return StepLocked(1);
         if (!TaxiSetupRules.RoutesDone(taxi)) return StepLocked(2);
-        if (!TaxiSetupRules.IdentityDone(taxi))
-            return BadRequestResponse("Add your licence and date of birth", TaxiErrorTypes.TaxiIdentityRequired);
 
         var now = DateTime.UtcNow;
         SendBackToReview(taxi, now);
