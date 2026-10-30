@@ -923,8 +923,10 @@ public static class AdminHandlers
     }
 
     public static async Task<IResult> GetDeletedAccounts(
-        ApplicationDbContext db, int page = 1, int pageSize = 20, string? search = null)
+        ApplicationDbContext db, IIdentityCipher cipher, ILoggerFactory loggerFactory,
+        int page = 1, int pageSize = 20, string? search = null)
     {
+        var logger = loggerFactory.CreateLogger(nameof(AdminHandlers));
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
 
@@ -940,7 +942,14 @@ public static class AdminHandlers
 
         var result = await query
             .OrderByDescending(r => r.DeletedAt)
-            .ToPagedResultAsync(page, pageSize, r => r.Adapt<DeletedAccountRecordDto>());
+            .ToPagedResultAsync(page, pageSize, r =>
+            {
+                var dto = r.Adapt<DeletedAccountRecordDto>();
+                var licence = TaxiHandlers.ReadLicence(cipher, r.DrivingLicenceNumberEnc, r.Id, logger, deletedRecord: true);
+                dto.DrivingLicenceNumber = licence == null ? null : TaxiIdentityRules.FormatDl(licence);
+                dto.DateOfBirth = r.DateOfBirth is { } dob ? TaxiIdentityRules.FormatDob(dob) : null;
+                return dto;
+            });
 
         return OkResponse(new { items = result.Items, hasMore = result.HasMore });
     }

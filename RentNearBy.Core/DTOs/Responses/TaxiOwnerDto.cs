@@ -18,6 +18,9 @@ public class TaxiOwnerDto
     public string? PlatePhotoUrl { get; set; }
     public string? ContactPhone { get; set; }
     public string? WhatsAppNumber { get; set; }
+    // Only whether they are stored; the values are admin-only (AdminTaxiDto).
+    public bool HasDrivingLicence { get; set; }
+    public bool HasDateOfBirth { get; set; }
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }
     public Guid? DistrictId { get; set; }

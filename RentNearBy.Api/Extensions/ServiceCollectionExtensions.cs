@@ -43,6 +43,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPlanPurchaseService, PlanPurchaseService>();
         services.AddScoped<IListingCacheInvalidator, ListingCacheInvalidator>();
 
+        // Taxi driving licence encryption. Key from IDENTITY_ENCRYPTION_KEY; missing key fails closed (503 on a licence write).
+        services.AddSingleton<IIdentityCipher, AesGcmIdentityCipher>();
+
         // Google Play Billing. Secrets come from PLAY_SERVICE_ACCOUNT_JSON / PLAY_ACCOUNT_ID_SALT when the
         // PlayBilling section leaves them empty; missing config only turns the Play endpoints into 503s.
         services.Configure<PlayBillingOptions>(configuration.GetSection(PlayBillingOptions.Section));

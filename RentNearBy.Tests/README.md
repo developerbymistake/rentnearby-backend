@@ -19,12 +19,14 @@ class, named `<ProductionClass>Tests`.
 | `Listings/` | Browse, cache keys, slugs | `BrowseCursor`, `ListingCacheKeys`, `SlugGenerator` |
 | `Roles/` | Roles and tab gating | `UserRoles`, `RoleChangeRules`, `AppTabKeys`, `TabState` |
 | `Notifications/` | Notification constants and routes | `NotificationTypes`, `NotificationDestination`, `UserNotificationRoutes` |
-| `Validation/` | FluentValidation validators | `PlanRequestValidators`, `PlayBillingRequestValidators`, coupon validators, `UpsertPlanRequestValidator`, `UpdatePaymentFeatureRequestValidator` |
+| `Validation/` | FluentValidation validators | `PlanRequestValidators`, `PlayBillingRequestValidators`, coupon validators, `UpsertPlanRequestValidator`, `UpdatePaymentFeatureRequestValidator`, `UpsertTaxiBasicRequestValidator`, `UpsertStayBasicRequestValidator` |
+| `Taxis/` | Taxi rules | `TaxiIdentityRules` (driving licence, date of birth, age), `IndianStateCodes` |
+| `Stays/` | Stay rules | `StayRegistrationRules` (GSTIN check character, registration, Udyam, document name, type code), `StayRegistrationTypeSeed` |
 | `Api/` | Api layer helpers | `ErrorHandlingMiddleware`, `ServiceCollectionExtensions` |
-| `Infrastructure/` | Infrastructure helpers | `RabbitMqUrl` |
+| `Infrastructure/` | Infrastructure helpers | `RabbitMqUrl`, `AesGcmIdentityCipher` |
 
 Reserved for later (create the folder with its first test, no empty folders): `Pricing/`, `Admin/`, `Images/`
-(e.g. `Images/PhotoServiceTests`), `Stays/`, `Taxis/`, `Jobs/`, `Chat/`.
+(e.g. `Images/PhotoServiceTests`), `Jobs/`, `Chat/`.
 
 ## Support/
 
@@ -36,7 +38,7 @@ Reserved for later (create the folder with its first test, no empty folders): `P
 | `ActiveRowBuilder` | `PlanEntitlementService.ActiveRow` (internal) |
 | `EntityBuilders` | `UserPlanBuilder`, `PlanPurchaseBuilder`, `PlaySubscriptionBuilder`, `CouponBuilder` (in-memory entities, also ready for DB tests) |
 | `PlayBuilders` | `PlayLineItemBuilder`, `PlaySnapshotBuilder`, `PlayResolvedTargetBuilder` |
-| `Requests` | Fully valid request samples; change one field with `with { ... }` |
+| `Requests` | Fully valid request samples; change one field with `with { ... }` (records) or set it on the fresh sample (`UpsertTaxiBasic()`, `UpsertStayBasic()` are classes) |
 | `ValidationAssert` | `HasMessage`, `HasErrorOn(prefix)`, `Valid` for FluentValidation results |
 | `RecordingPublisher` | Hand-written `IRabbitMqPublisher` that records publishes or fails like a broker outage |
 | `Json` | Google-style JSON from anonymous objects (`Json.Of(new { ... })`, `Json.Empty`) |

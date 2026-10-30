@@ -23,6 +23,7 @@ public static class DataSeeder
         await SeedRoomTypesAsync(db);
         await SeedPlotTypesAsync(db);
         await SeedStayTypesAsync(db);
+        await SeedStayRegistrationTypesAsync(db);
         await SeedStayJobLookupsAsync(db);
         await SeedTaxiVehicleTypesAsync(db);
         await SeedReportReasonsAsync(db);
@@ -380,6 +381,41 @@ public static class DataSeeder
         if (toAdd.Count == 0) return;
 
         set.AddRange(toAdd);
+        await db.SaveChangesAsync();
+    }
+
+    // Per-row incremental: a row is added only when neither its Id, Name nor Code exists yet.
+    private static async Task SeedStayRegistrationTypesAsync(ApplicationDbContext db)
+    {
+        static Guid SeedId(int n) => Guid.Parse($"e2000000-0000-0000-0000-0000000000{n:D2}");
+
+        var rows = new (int N, string Code, string Name, string HelpText, bool RequiresOtherName)[]
+        {
+            (1, "UK_HOMESTAY", "Uttarakhand Homestay registration", "Number on your Homestay registration certificate", false),
+            (2, "TOURISM", "Tourism / hotel registration", "Number on your tourism or hotel registration", false),
+            (3, "TRADE_LICENCE", "Trade licence / shop establishment", "Licence number as printed", false),
+            (4, StayRegistrationRules.UdyamCode, "Udyam (MSME)", "e.g. UDYAM-UK-05-0001234", false),
+            (5, StayRegistrationRules.OtherCode, "Other", "Name the document and enter its number", true),
+        };
+
+        var existing = await db.StayRegistrationTypes.Select(t => new { t.Id, t.Name, t.Code }).ToListAsync();
+        var existingIds = existing.Select(t => t.Id).ToHashSet();
+        var existingNames = existing.Select(t => t.Name.ToLowerInvariant()).ToHashSet();
+        var existingCodes = existing.Select(t => t.Code).ToHashSet();
+        var now = DateTime.UtcNow;
+
+        var toAdd = rows
+            .Select(r => new StayRegistrationType
+            {
+                Id = SeedId(r.N), Code = r.Code, Name = r.Name, HelpText = r.HelpText, SortOrder = r.N,
+                RequiresOtherName = r.RequiresOtherName, IsActive = true, CreatedAt = now,
+            })
+            .Where(t => !existingIds.Contains(t.Id) && !existingNames.Contains(t.Name.ToLowerInvariant())
+                && !existingCodes.Contains(t.Code))
+            .ToList();
+        if (toAdd.Count == 0) return;
+
+        db.StayRegistrationTypes.AddRange(toAdd);
         await db.SaveChangesAsync();
     }
 

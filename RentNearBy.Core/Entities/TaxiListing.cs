@@ -14,6 +14,9 @@ public class TaxiListing
     public string? PlatePhotoPath { get; set; }
     public string? ContactPhone { get; set; }
     public string? WhatsAppNumber { get; set; }
+    // Admin-only. "v1.<nonce>.<ciphertext+tag>" from IIdentityCipher, never the plain number.
+    public string? DrivingLicenceNumberEnc { get; set; }
+    public DateOnly? DateOfBirth { get; set; }
 
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }

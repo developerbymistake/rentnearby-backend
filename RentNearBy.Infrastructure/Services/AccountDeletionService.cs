@@ -27,6 +27,19 @@ public class AccountDeletionService(
             .FirstOrDefaultAsync();
         if (user != null)
         {
+            // Latest licence/registration details (deleted listings included) outlive the listing purge below
+            // for the same 180-day window; the licence blob is copied as-is, still encrypted.
+            var taxi = await context.TaxiListings.AsNoTracking()
+                .Where(t => t.UserId == userId && (t.DrivingLicenceNumberEnc != null || t.DateOfBirth != null))
+                .OrderByDescending(t => t.UpdatedAt)
+                .Select(t => new { t.DrivingLicenceNumberEnc, t.DateOfBirth })
+                .FirstOrDefaultAsync();
+            var stay = await context.StayListings.AsNoTracking()
+                .Where(s => s.UserId == userId && s.RegistrationNumber != null)
+                .OrderByDescending(s => s.UpdatedAt)
+                .Select(s => new { s.RegistrationTypeName, s.RegistrationOtherName, s.RegistrationNumber, s.Gstin })
+                .FirstOrDefaultAsync();
+
             context.DeletedAccountRecords.Add(new DeletedAccountRecord
             {
                 Id = Guid.NewGuid(),
@@ -35,6 +48,12 @@ public class AccountDeletionService(
                 Name = user.Name,
                 AccountCreatedAt = user.CreatedAt,
                 DeletedAt = DateTime.UtcNow,
+                DrivingLicenceNumberEnc = taxi?.DrivingLicenceNumberEnc,
+                DateOfBirth = taxi?.DateOfBirth,
+                StayRegistrationTypeName = stay?.RegistrationTypeName,
+                StayRegistrationOtherName = stay?.RegistrationOtherName,
+                StayRegistrationNumber = stay?.RegistrationNumber,
+                StayGstin = stay?.Gstin,
             });
             await context.SaveChangesAsync();
         }

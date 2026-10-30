@@ -185,6 +185,9 @@ using (var scope = app.Services.CreateScope())
         playLogger.LogError(
             "PlayBilling:RoleChangeAction '{Value}' is not Cancel or RevokeProrated — using {Fallback} for role changes and account deletions.",
             rawRoleChangeAction, playOptions.RoleChangeAction);
+
+    // Resolved once here so a missing IDENTITY_ENCRYPTION_KEY is logged at startup, not on the first licence write.
+    scope.ServiceProvider.GetRequiredService<RentNearBy.Core.Interfaces.IIdentityCipher>();
 }
 
 app.UseForwardedHeaders();
@@ -284,7 +287,7 @@ app.MapGet("/delete-account", () => Results.Content("""
 <div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> — your account is deleted instantly</span></div>
 </div>
 <div class="warn">
-<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, stays, photos and any active plan will be permanently removed. Payment receipts are kept without your personal details. The name, mobile number and dates of a deleted account may be kept for up to 180 days to prevent fraud and handle legal claims, and are then deleted.
+<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, stays, photos and any active plan will be permanently removed. Payment receipts are kept without your personal details. The name, mobile number and dates of a deleted account may be kept for up to 180 days to prevent fraud and handle legal claims, and are then deleted. Licence, date of birth, registration and GSTIN details given by Taxi Drivers and Stay Owners are kept for the same 180 days and then deleted.
 </div>
 <div class="warn">
 <strong>Subscriptions:</strong> Deleting your account stops your Bakhli plan, but it does not refund any payment already made. You can also check your subscriptions in Google Play (Play Store &gt; Payments and subscriptions &gt; Subscriptions).
@@ -324,6 +327,7 @@ app.MapGet("/health", async (IServiceProvider sp) =>
     // loudly visible somewhere. Here, not a thrown exception.
     var razorpayService = sp.GetRequiredService<RentNearBy.Infrastructure.Services.IRazorpayService>();
     var playBillingConfigured = sp.GetRequiredService<IOptions<PlayBillingOptions>>().Value.IsConfigured;
+    var identityCipherConfigured = sp.GetRequiredService<RentNearBy.Core.Interfaces.IIdentityCipher>().IsConfigured;
 
     return Results.Ok(new
     {
@@ -333,6 +337,7 @@ app.MapGet("/health", async (IServiceProvider sp) =>
         cloudinary = cloudinaryOk ? "connected" : "unavailable",
         razorpayWebhook = razorpayService.IsWebhookConfigured ? "configured" : "not configured",
         playBilling = playBillingConfigured ? "configured" : "not configured",
+        identityCipher = identityCipherConfigured ? "ok" : "not configured",
     });
 });
 

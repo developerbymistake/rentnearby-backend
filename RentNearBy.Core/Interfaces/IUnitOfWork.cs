@@ -14,6 +14,7 @@ public interface IUnitOfWork : IDisposable
     IPlotListingRoomListingRepository PlotListings { get; }
     IStayListingRepository Stays { get; }
     IStayTypeRepository StayTypes { get; }
+    IStayRegistrationTypeRepository StayRegistrationTypes { get; }
     IStayJobRepository StayJobs { get; }
     ITaxiListingRepository Taxis { get; }
     ITaxiVehicleTypeRepository TaxiVehicleTypes { get; }

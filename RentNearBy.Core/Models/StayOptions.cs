@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using RentNearBy.Core.Entities;
 
 namespace RentNearBy.Core.Models;
@@ -91,6 +92,9 @@ public static class StaySetupRules
 
     public static bool RulesDone(StayListing s) => s.RulesSavedAt != null;
 
+    // Not part of Step1Done/Percent, so legacy rows keep their progress; Submit checks it.
+    public static bool RegistrationDone(StayListing s) => s.RegistrationTypeId != null && s.RegistrationNumber != null;
+
     public static bool Submitted(StayListing s) =>
         s.Status is StayStatuses.PendingReview or StayStatuses.Approved;
 
@@ -108,4 +112,14 @@ public static class StayErrorTypes
     public const string StayAlreadyExists = "StayAlreadyExists";
     public const string StayRoomLimit = "StayRoomLimit";
     public const string StayNotApproved = "StayNotApproved";
+    public const string StayRegistrationRequired = "StayRegistrationRequired";
+    public const string StayRegistrationTypeInUse = "StayRegistrationTypeInUse";
+}
+
+// Seeded rows are re-inserted on start when missing, so they can only be switched off, never deleted.
+public static class StayRegistrationTypeSeed
+{
+    private static readonly Regex SeededId = new(@"^e2000000-0000-0000-0000-0000000000[0-9]{2}$");
+
+    public static bool IsSeeded(Guid id) => SeededId.IsMatch(id.ToString());
 }

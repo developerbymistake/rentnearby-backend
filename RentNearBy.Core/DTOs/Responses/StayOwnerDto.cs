@@ -17,6 +17,12 @@ public class StayOwnerDto
     public bool? HostLivesHere { get; set; }
     public List<string> Facilities { get; set; } = new();
     public string? Description { get; set; }
+    // The number and GSTIN are admin-only (AdminStayDto); the owner sees only whether they are stored.
+    public Guid? RegistrationTypeId { get; set; }
+    public string? RegistrationTypeName { get; set; }
+    public string? RegistrationOtherName { get; set; }
+    public bool HasRegistrationNumber { get; set; }
+    public bool HasGstin { get; set; }
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }
     public string? Address { get; set; }

@@ -35,6 +35,12 @@ public static class DtoMappings
         TypeAdapterConfig<RoomType, RoomTypeDto>.NewConfig();
         TypeAdapterConfig<PlotType, PlotTypeDto>.NewConfig();
         TypeAdapterConfig<StayType, StayTypeDto>.NewConfig();
+        // The licence is decrypted and the date formatted by AdminHandlers.GetDeletedAccounts.
+        TypeAdapterConfig<DeletedAccountRecord, DeletedAccountRecordDto>.NewConfig()
+            .Ignore(dest => dest.DrivingLicenceNumber)
+            .Ignore(dest => dest.DateOfBirth);
+        TypeAdapterConfig<StayRegistrationType, StayRegistrationTypeDto>.NewConfig()
+            .Map(dest => dest.IsSeeded, src => StayRegistrationTypeSeed.IsSeeded(src.Id));
 
         TypeAdapterConfig<RoomListing, RoomListingDto>.NewConfig()
             .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
@@ -83,6 +89,9 @@ public static class DtoMappings
             .Map(dest => dest.Submitted, src => StaySetupRules.Submitted(src))
             .Map(dest => dest.Facilities, src => src.Facilities.ToList())
             .Map(dest => dest.StayTypeName, src => src.StayType != null ? src.StayType.Name : null)
+            .Map(dest => dest.RegistrationTypeName, src => src.RegistrationTypeName)
+            .Map(dest => dest.HasRegistrationNumber, src => src.RegistrationNumber != null)
+            .Map(dest => dest.HasGstin, src => src.Gstin != null)
             .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
             .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
             .Map(dest => dest.Photos, src => src.Photos.OrderBy(p => p.PhotoOrder)
@@ -128,6 +137,8 @@ public static class DtoMappings
             .Map(dest => dest.Step1Done, src => TaxiSetupRules.Step1Done(src))
             .Map(dest => dest.RoutesDone, src => TaxiSetupRules.RoutesDone(src))
             .Map(dest => dest.Submitted, src => TaxiSetupRules.Submitted(src))
+            .Map(dest => dest.HasDrivingLicence, src => src.DrivingLicenceNumberEnc != null)
+            .Map(dest => dest.HasDateOfBirth, src => src.DateOfBirth != null)
             .Map(dest => dest.VehicleTypeName, src => src.VehicleType != null ? src.VehicleType.Name : null)
             .Map(dest => dest.VehicleCategory, src => src.VehicleType != null ? src.VehicleType.Category : null)
             .Map(dest => dest.PlateDisplay, src => TaxiPlate.Format(src.NumberPlate))

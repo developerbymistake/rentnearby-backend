@@ -19,6 +19,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<PlotListing> PlotListings { get; set; }
     public DbSet<PlotPhoto> PlotPhotos { get; set; }
     public DbSet<StayType> StayTypes { get; set; }
+    public DbSet<StayRegistrationType> StayRegistrationTypes { get; set; }
     public DbSet<StayListing> StayListings { get; set; }
     public DbSet<StayRoom> StayRooms { get; set; }
     public DbSet<StayPhoto> StayPhotos { get; set; }
@@ -241,6 +242,21 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(t => t.Name).IsUnique();
             e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<StayRegistrationType>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(t => t.Code).HasMaxLength(StayRegistrationRules.CodeMax).IsRequired();
+            e.Property(t => t.Name).HasMaxLength(StayRegistrationRules.TypeNameMax).IsRequired();
+            e.Property(t => t.HelpText).HasMaxLength(StayRegistrationRules.HelpTextMax);
+            e.Property(t => t.RequiresOtherName).HasDefaultValue(false);
+            // Sentinel true, so an explicit false is still sent on insert.
+            e.Property(t => t.IsActive).HasDefaultValue(true).HasSentinel(true);
+            e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(t => t.Code).IsUnique().HasDatabaseName("ix_stayregistrationtypes_code");
+            e.HasIndex(t => t.Name).IsUnique().HasDatabaseName("ix_stayregistrationtypes_name");
         });
 
         modelBuilder.Entity<ReportReason>(e =>
@@ -1052,6 +1068,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(s => s.VehicleAccess).HasMaxLength(16);
             e.Property(s => s.Facilities).HasColumnType("text[]").HasDefaultValueSql("'{}'::text[]");
             e.Property(s => s.Description).HasMaxLength(300);
+            e.Property(s => s.RegistrationTypeName).HasMaxLength(StayRegistrationRules.TypeNameMax);
+            e.Property(s => s.RegistrationOtherName).HasMaxLength(StayRegistrationRules.OtherNameMax);
+            e.Property(s => s.RegistrationNumber).HasMaxLength(StayRegistrationRules.RegistrationMax);
+            e.Property(s => s.Gstin).HasMaxLength(StayRegistrationRules.GstinLength);
             e.Property(s => s.Address).HasMaxLength(500);
             e.Property(s => s.CancellationPolicy).HasMaxLength(16);
             e.Property(s => s.Status).HasMaxLength(16).HasDefaultValue(StayStatuses.Draft);
@@ -1069,6 +1089,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasOne(s => s.StayType)
              .WithMany(t => t.StayListings)
              .HasForeignKey(s => s.StayTypeId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(s => s.RegistrationType)
+             .WithMany(t => t.StayListings)
+             .HasForeignKey(s => s.RegistrationTypeId)
              .IsRequired(false)
              .OnDelete(DeleteBehavior.Restrict);
 
@@ -1097,6 +1123,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(s => s.DistrictId);
             e.HasIndex(s => s.CityId);
             e.HasIndex(s => s.StayTypeId);
+            e.HasIndex(s => s.RegistrationTypeId);
             e.HasIndex(s => s.Slug).IsUnique();
             e.HasIndex(s => new { s.UserId, s.IsDeleted });
             // Admin review queue.
@@ -1265,6 +1292,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(t => t.PlatePhotoPath).HasMaxLength(500);
             e.Property(t => t.ContactPhone).HasMaxLength(TaxiLimits.PhoneLength);
             e.Property(t => t.WhatsAppNumber).HasMaxLength(TaxiLimits.PhoneLength);
+            e.Property(t => t.DrivingLicenceNumberEnc).HasMaxLength(TaxiIdentityRules.DlEncMaxLength);
+            e.Property(t => t.DateOfBirth).HasColumnType("date");
             e.Property(t => t.Latitude).HasColumnType("numeric(9,6)");
             e.Property(t => t.Longitude).HasColumnType("numeric(9,6)");
             e.Property(t => t.Status).HasMaxLength(16).HasDefaultValue(TaxiStatuses.Draft);
@@ -1508,6 +1537,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(r => r.PhoneNumber);
             e.HasIndex(r => r.DeletedAt); // powers the purge job's cutoff scan
+            e.Property(r => r.DrivingLicenceNumberEnc).HasMaxLength(TaxiIdentityRules.DlEncMaxLength);
+            e.Property(r => r.DateOfBirth).HasColumnType("date");
+            e.Property(r => r.StayRegistrationTypeName).HasMaxLength(StayRegistrationRules.TypeNameMax);
+            e.Property(r => r.StayRegistrationOtherName).HasMaxLength(StayRegistrationRules.OtherNameMax);
+            e.Property(r => r.StayRegistrationNumber).HasMaxLength(StayRegistrationRules.RegistrationMax);
+            e.Property(r => r.StayGstin).HasMaxLength(StayRegistrationRules.GstinLength);
         });
 
     }

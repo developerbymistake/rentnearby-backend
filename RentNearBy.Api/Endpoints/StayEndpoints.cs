@@ -7,6 +7,7 @@ public static class StayEndpoints
     public static RouteGroupBuilder MapStayEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/types", AdminStayHandlers.GetStayTypes);
+        group.MapGet("/registration-types", AdminStayHandlers.GetStayRegistrationTypes);
         group.MapGet("/browse", StayHandlers.GetBrowse);
         group.MapGet("/nearby", StayHandlers.GetNearby);
         group.MapGet("/nearest", StayHandlers.GetNearest);

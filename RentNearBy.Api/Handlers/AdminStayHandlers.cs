@@ -21,6 +21,9 @@ public static class AdminStayHandlers
 {
     private const string StayTypesCacheKey = "stay_types";
     private static readonly TimeSpan StayTypesCacheTtl = TimeSpan.FromHours(24);
+    private const string RegistrationTypesCacheKey = "stay_registration_types";
+    private const string RegistrationTypeNotFound = "Registration type not found";
+    private const string RegistrationTypeExists = "A registration type with this name already exists";
 
     private static AdminStayDto ToAdminStayDto(StayListing stay, bool includePhotos)
     {
@@ -28,6 +31,8 @@ public static class AdminStayHandlers
         dto.UserId = stay.UserId;
         dto.OwnerName = stay.User?.Name;
         dto.OwnerPhone = stay.User?.PhoneNumber;
+        dto.RegistrationNumber = stay.RegistrationNumber;
+        dto.Gstin = stay.Gstin;
         if (!includePhotos) dto.Photos = new();
         return dto;
     }
@@ -363,6 +368,113 @@ public static class AdminStayHandlers
         await unitOfWork.SaveChangesAsync();
 
         cache.Remove(StayTypesCacheKey);
+
+        return NoContentResponse();
+    }
+
+    // ---- Registration types. The public GET (active only) feeds the owner's picker. ----
+
+    private static List<StayRegistrationTypeDto> OrderedRegistrationTypes(IEnumerable<StayRegistrationType> types) => types
+        .OrderBy(t => t.SortOrder)
+        .ThenBy(t => t.Name)
+        .Select(t => t.Adapt<StayRegistrationTypeDto>())
+        .ToList();
+
+    public static async Task<IResult> GetStayRegistrationTypes(IUnitOfWork unitOfWork, IMemoryCache cache)
+    {
+        if (!cache.TryGetValue(RegistrationTypesCacheKey, out List<StayRegistrationTypeDto>? cached) || cached == null)
+        {
+            cached = OrderedRegistrationTypes(await unitOfWork.StayRegistrationTypes.GetActiveAsync());
+            cache.Set(RegistrationTypesCacheKey, cached, StayTypesCacheTtl);
+        }
+        return OkResponse(cached);
+    }
+
+    // Admin list: every row, inactive included.
+    public static async Task<IResult> GetAllStayRegistrationTypes(IUnitOfWork unitOfWork)
+        => OkResponse(OrderedRegistrationTypes(await unitOfWork.StayRegistrationTypes.GetAllAsync()));
+
+    public static async Task<IResult> CreateStayRegistrationType(
+        CreateStayRegistrationTypeRequest request, IValidator<CreateStayRegistrationTypeRequest> validator,
+        IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var name = request.Name.Trim();
+        var code = StayRegistrationRules.CodeOf(name);
+        if (await db.StayRegistrationTypes.AnyAsync(t => t.Name.ToLower() == name.ToLower() || t.Code == code))
+            return ConflictResponse(RegistrationTypeExists);
+
+        var type = new StayRegistrationType
+        {
+            Id = Guid.NewGuid(),
+            Code = code,
+            Name = name,
+            HelpText = string.IsNullOrWhiteSpace(request.HelpText) ? null : request.HelpText.Trim(),
+            SortOrder = request.SortOrder,
+            RequiresOtherName = request.RequiresOtherName,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        await unitOfWork.StayRegistrationTypes.AddAsync(type);
+        try { await unitOfWork.SaveChangesAsync(); }
+        catch (DbUpdateException) { return ConflictResponse(RegistrationTypeExists); }
+
+        cache.Remove(RegistrationTypesCacheKey);
+
+        return CreatedResponse(type.Adapt<StayRegistrationTypeDto>(), $"/api/v1/admin/stays/registration-types/{type.Id}");
+    }
+
+    // Code never changes, so a rename keeps any per-type rule (e.g. Udyam) attached to the row.
+    public static async Task<IResult> UpdateStayRegistrationType(
+        Guid id, UpdateStayRegistrationTypeRequest request, IValidator<UpdateStayRegistrationTypeRequest> validator,
+        IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var type = await unitOfWork.StayRegistrationTypes.GetByIdAsync(id);
+        if (type == null) return NotFoundResponse(RegistrationTypeNotFound);
+
+        if (request.Name != null)
+        {
+            var renamed = request.Name.Trim();
+            if (await db.StayRegistrationTypes.AnyAsync(t => t.Id != id && t.Name.ToLower() == renamed.ToLower()))
+                return ConflictResponse(RegistrationTypeExists);
+            type.Name = renamed;
+        }
+        if (request.HelpText != null) type.HelpText = string.IsNullOrWhiteSpace(request.HelpText) ? null : request.HelpText.Trim();
+        if (request.SortOrder != null) type.SortOrder = request.SortOrder.Value;
+        if (request.RequiresOtherName != null) type.RequiresOtherName = request.RequiresOtherName.Value;
+        if (request.IsActive != null) type.IsActive = request.IsActive.Value;
+
+        await unitOfWork.StayRegistrationTypes.UpdateAsync(type);
+        try { await unitOfWork.SaveChangesAsync(); }
+        catch (DbUpdateException) { return ConflictResponse(RegistrationTypeExists); }
+
+        cache.Remove(RegistrationTypesCacheKey);
+
+        return OkResponse(type.Adapt<StayRegistrationTypeDto>());
+    }
+
+    // Seeded rows come back on the next start if deleted, so they can only be switched off. Custom rows
+    // delete only when no stay (deleted ones included, FK Restrict) references them.
+    public static async Task<IResult> DeleteStayRegistrationType(
+        Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
+    {
+        var type = await unitOfWork.StayRegistrationTypes.GetByIdAsync(id);
+        if (type == null) return NotFoundResponse(RegistrationTypeNotFound);
+
+        if (StayRegistrationTypeSeed.IsSeeded(id))
+            return BadRequestResponse("Seeded registration types can only be switched off");
+        if (await db.StayListings.AnyAsync(s => s.RegistrationTypeId == id))
+            return BadRequestResponse("Cannot delete a registration type used by stays", StayErrorTypes.StayRegistrationTypeInUse);
+
+        await unitOfWork.StayRegistrationTypes.DeleteAsync(type);
+        await unitOfWork.SaveChangesAsync();
+
+        cache.Remove(RegistrationTypesCacheKey);
 
         return NoContentResponse();
     }

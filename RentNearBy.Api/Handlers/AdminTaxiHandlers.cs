@@ -27,47 +27,63 @@ public static class AdminTaxiHandlers
     private static IResult Concurrent() =>
         ConflictResponse("This taxi was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
 
-    private static AdminTaxiDto ToAdminTaxiDto(TaxiListing taxi)
+    // The licence is decrypted on the detail endpoint only (includeLicence); the list carries DOB and age.
+    private static AdminTaxiDto ToAdminTaxiDto(TaxiListing taxi, IIdentityCipher cipher, bool includeLicence, ILogger logger)
     {
         var dto = taxi.Adapt<TaxiOwnerDto>().Adapt<AdminTaxiDto>();
         dto.UserId = taxi.UserId;
         dto.OwnerName = taxi.User?.Name;
         dto.OwnerPhone = taxi.User?.PhoneNumber;
         dto.IsDeleted = taxi.IsDeleted;
+        if (includeLicence)
+        {
+            var licence = TaxiHandlers.ReadLicence(cipher, taxi.DrivingLicenceNumberEnc, taxi.Id, logger);
+            dto.DrivingLicenceNumber = licence == null ? null : TaxiIdentityRules.FormatDl(licence);
+        }
+        if (taxi.DateOfBirth is { } dob)
+        {
+            dto.DateOfBirth = TaxiIdentityRules.FormatDob(dob);
+            dto.Age = TaxiIdentityRules.AgeOn(dob, TaxiIdentityRules.TodayIst());
+        }
         return dto;
     }
 
-    private static async Task<List<AdminTaxiDto>> WithReportCountsAsync(IReadOnlyList<TaxiListing> taxis, IUnitOfWork unitOfWork)
+    private static async Task<List<AdminTaxiDto>> WithReportCountsAsync(
+        IReadOnlyList<TaxiListing> taxis, IUnitOfWork unitOfWork, IIdentityCipher cipher, bool includeLicence, ILogger logger)
     {
         var counts = taxis.Count == 0
             ? new Dictionary<Guid, int>()
             : await unitOfWork.ListingReports.GetPendingCountsForListingsAsync(taxis.Select(t => t.Id).ToList(), ListingKinds.Taxi);
         return taxis.Select(t =>
         {
-            var dto = ToAdminTaxiDto(t);
+            var dto = ToAdminTaxiDto(t, cipher, includeLicence, logger);
             dto.PendingReportCount = counts.GetValueOrDefault(t.Id);
             return dto;
         }).ToList();
     }
 
     public static async Task<IResult> GetTaxis(
-        IUnitOfWork unitOfWork, int page = 1, int pageSize = 20, string status = TaxiStatuses.PendingReview)
+        IUnitOfWork unitOfWork, IIdentityCipher cipher, ILoggerFactory loggerFactory,
+        int page = 1, int pageSize = 20, string status = TaxiStatuses.PendingReview)
     {
         if (status != StatusAll && !TaxiStatuses.All.Contains(status)) return BadRequestResponse("Invalid status");
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
 
         var result = await unitOfWork.Taxis.GetAdminPagedAsync(status, page, pageSize);
-        var items = await WithReportCountsAsync(result.Items, unitOfWork);
+        var items = await WithReportCountsAsync(
+            result.Items, unitOfWork, cipher, includeLicence: false, loggerFactory.CreateLogger(nameof(AdminTaxiHandlers)));
         return OkResponse(new { items, hasMore = result.HasMore });
     }
 
     // Survives IsDeleted so a reported taxi can still be reviewed after it was deleted.
-    public static async Task<IResult> GetTaxiById(Guid id, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetTaxiById(
+        Guid id, IUnitOfWork unitOfWork, IIdentityCipher cipher, ILoggerFactory loggerFactory)
     {
         var taxi = await unitOfWork.Taxis.GetByIdForAdminAsync(id);
         if (taxi == null) return NotFoundResponse(TaxiNotFound);
-        var items = await WithReportCountsAsync([taxi], unitOfWork);
+        var items = await WithReportCountsAsync(
+            [taxi], unitOfWork, cipher, includeLicence: true, loggerFactory.CreateLogger(nameof(AdminTaxiHandlers)));
         return OkResponse(items[0]);
     }
 

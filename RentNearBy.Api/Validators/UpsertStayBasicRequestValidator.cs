@@ -44,5 +44,24 @@ public class UpsertStayBasicRequestValidator : AbstractValidator<UpsertStayBasic
 
         RuleFor(x => x.DistrictId)
             .NotEmpty().WithMessage("District is required");
+
+        RuleFor(x => x.RegistrationTypeId)
+            .NotEmpty().WithMessage(StayRegistrationRules.TypeRequiredMessage);
+
+        // Shape only; the per-type (Udyam) rule needs the type row and runs in the handler. null = keep.
+        RuleFor(x => x.RegistrationNumber)
+            .Must(v => StayRegistrationRules.RegistrationPattern.IsMatch(StayRegistrationRules.NormalizeRegistration(v)))
+            .WithMessage(StayRegistrationRules.RegistrationInvalidMessage)
+            .When(x => x.RegistrationNumber != null);
+
+        RuleFor(x => x.Gstin)
+            .Must(v => StayRegistrationRules.IsValidGstin(StayRegistrationRules.NormalizeGstin(v)))
+            .WithMessage(StayRegistrationRules.GstinInvalidMessage)
+            .When(x => !string.IsNullOrWhiteSpace(x.Gstin));
+
+        RuleFor(x => x.RegistrationOtherName)
+            .Must(v => StayRegistrationRules.IsValidOtherName(StayRegistrationRules.NormalizeOtherName(v)))
+            .WithMessage(StayRegistrationRules.OtherNameInvalidMessage)
+            .When(x => !string.IsNullOrWhiteSpace(x.RegistrationOtherName));
     }
 }

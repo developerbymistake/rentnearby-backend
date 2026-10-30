@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 using FluentValidation;
 using Mapster;
@@ -102,6 +103,26 @@ public static class TaxiHandlers
         taxi.Status = TaxiStatuses.PendingReview;
         taxi.SubmittedAt = now;
         taxi.RejectedReason = null;
+    }
+
+    private static IResult CipherNotConfigured() =>
+        ErrorResponse(503, "Licence capture is temporarily unavailable", TaxiErrorTypes.IdentityCipherNotConfigured);
+
+    // Normalised plain licence, or null when absent, the key is missing, or the value cannot be decrypted.
+    // Only the row id is ever logged, never the value.
+    internal static string? ReadLicence(IIdentityCipher cipher, string? stored, Guid id, ILogger logger, bool deletedRecord = false)
+    {
+        if (stored == null || !cipher.IsConfigured) return null;
+        try
+        {
+            return cipher.Unprotect(stored);
+        }
+        catch (CryptographicException)
+        {
+            if (deletedRecord) logger.LogWarning("deleted_account.dl.unreadable {RecordId}", id);
+            else logger.LogWarning("taxi.dl.unreadable {TaxiId}", id);
+            return null;
+        }
     }
 
     private static (int Page, int Size) ClampPaging(int page, int pageSize) =>
@@ -294,8 +315,8 @@ public static class TaxiHandlers
         return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
     }
 
-    // Allowed in Draft, Rejected and Approved. On an Approved taxi a new plate sends it back to review
-    // (hidden meanwhile); every other field applies at once.
+    // Allowed in Draft, Rejected and Approved. On an Approved taxi a new plate, licence number or date of
+    // birth sends it back to review (hidden meanwhile); every other field applies at once.
     public static async Task<IResult> UpsertBasic(
         UpsertTaxiBasicRequest request,
         ClaimsPrincipal principal,
@@ -304,6 +325,8 @@ public static class TaxiHandlers
         ApplicationDbContext db,
         IRabbitMqPublisher publisher,
         IPlanEntitlementService entitlements,
+        IIdentityCipher cipher,
+        ILoggerFactory loggerFactory,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -342,6 +365,50 @@ public static class TaxiHandlers
         var plate = TaxiPlate.Normalize(request.NumberPlate);
         if (await unitOfWork.Taxis.IsPlateTakenAsync(plate, userId)) return PlateTaken();
 
+        // Licence + date of birth: null in the request keeps the stored value; required when nothing usable is stored.
+        var dlNew = request.DrivingLicenceNumber == null ? null : TaxiIdentityRules.NormalizeDl(request.DrivingLicenceNumber);
+        DateOnly? dobNew = request.DateOfBirth != null && TaxiIdentityRules.TryParseDob(request.DateOfBirth, out var parsedDob)
+            ? parsedDob
+            : null;
+        if (dlNew != null && !cipher.IsConfigured) return CipherNotConfigured();
+
+        var dlStoredEnc = taxi?.DrivingLicenceNumberEnc;
+        string? dlStored = null;
+        if (dlStoredEnc != null && cipher.IsConfigured)
+            dlStored = ReadLicence(cipher, dlStoredEnc, taxi!.Id, loggerFactory.CreateLogger(nameof(TaxiHandlers)));
+
+        string? dlEff;
+        if (dlNew != null)
+        {
+            dlEff = dlNew;
+        }
+        else if (dlStoredEnc == null || (cipher.IsConfigured && dlStored == null))
+        {
+            return BadRequestResponse(TaxiIdentityRules.DlRequiredMessage, TaxiErrorTypes.TaxiIdentityRequired);
+        }
+        else if (!cipher.IsConfigured)
+        {
+            // The stored licence cannot be read without the key: keep it, but a new date of birth needs the cross-check.
+            if (dobNew != null && dobNew != taxi!.DateOfBirth) return CipherNotConfigured();
+            dlEff = null;
+        }
+        else
+        {
+            dlEff = dlStored;
+        }
+
+        var dobEff = dobNew ?? taxi?.DateOfBirth;
+        if (dobEff == null)
+            return BadRequestResponse(TaxiIdentityRules.DobRequiredMessage, TaxiErrorTypes.TaxiIdentityRequired);
+        if (dlEff != null && !TaxiIdentityRules.DlYearMatchesDob(TaxiIdentityRules.DlIssueYear(dlEff), dobEff.Value))
+            return BadRequestResponse(TaxiIdentityRules.DlYearMessage, TaxiErrorTypes.TaxiIdentityRequired);
+
+        // A first fill on a legacy row is written but is not a change of what was reviewed.
+        var dlWrite = dlNew != null && (dlStoredEnc == null || dlNew != dlStored);
+        var dlChanged = dlWrite && dlStoredEnc != null;
+        var dobChanged = dobNew != null && taxi?.DateOfBirth != null && dobNew != taxi.DateOfBirth;
+        var identityChanged = dlChanged || dobChanged;
+
         var isNew = taxi == null;
         var now = DateTime.UtcNow;
         if (taxi == null)
@@ -369,6 +436,9 @@ public static class TaxiHandlers
         taxi.NumberPlate = plate;
         taxi.ContactPhone = request.ContactPhone.Trim();
         taxi.WhatsAppNumber = request.WhatsAppNumber.Trim();
+        // Never re-encrypt an unchanged licence: the stored blob stays the record of what was reviewed.
+        if (dlWrite) taxi.DrivingLicenceNumberEnc = cipher.Protect(dlNew!);
+        taxi.DateOfBirth = dobEff;
         taxi.Latitude = request.Latitude;
         taxi.Longitude = request.Longitude;
         taxi.DistrictId = district.Id;
@@ -377,7 +447,7 @@ public static class TaxiHandlers
         taxi.City = city;
         taxi.UpdatedAt = now;
 
-        var sentBack = wasApproved && plateChanged;
+        var sentBack = wasApproved && (plateChanged || identityChanged);
         if (sentBack) SendBackToReview(taxi, now);
 
         if (!isNew)
@@ -602,6 +672,8 @@ public static class TaxiHandlers
             return ConflictResponse("Your taxi is already live.", TaxiErrorTypes.TaxiLocked);
         if (!TaxiSetupRules.Step1Done(taxi)) return StepLocked(1);
         if (!TaxiSetupRules.RoutesDone(taxi)) return StepLocked(2);
+        if (!TaxiSetupRules.IdentityDone(taxi))
+            return BadRequestResponse("Add your licence and date of birth", TaxiErrorTypes.TaxiIdentityRequired);
 
         var now = DateTime.UtcNow;
         SendBackToReview(taxi, now);

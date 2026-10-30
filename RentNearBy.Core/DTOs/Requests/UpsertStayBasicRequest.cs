@@ -13,4 +13,9 @@ public class UpsertStayBasicRequest
     public string Address { get; set; } = string.Empty;
     public Guid DistrictId { get; set; }
     public Guid? CityId { get; set; }
+    public Guid? RegistrationTypeId { get; set; }
+    public string? RegistrationOtherName { get; set; }
+    // null = keep the stored value; GSTIN "" clears it.
+    public string? RegistrationNumber { get; set; }
+    public string? Gstin { get; set; }
 }

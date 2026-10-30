@@ -74,6 +74,9 @@ public static class TaxiSetupRules
 
     public static bool RoutesDone(TaxiListing t) => t.Routes.Count >= 1;
 
+    // Not part of Step1Done/Percent, so legacy approved rows keep their route edits; Submit checks it.
+    public static bool IdentityDone(TaxiListing t) => t.DrivingLicenceNumberEnc != null && t.DateOfBirth != null;
+
     public static bool Submitted(TaxiListing t) =>
         t.Status is TaxiStatuses.PendingReview or TaxiStatuses.Approved;
 
@@ -119,6 +122,8 @@ public static class TaxiErrorTypes
     public const string TaxiPlateTaken = "TaxiPlateTaken";
     public const string TaxiVehicleTypeInUse = "TaxiVehicleTypeInUse";
     public const string TaxiBaseOutsideDistrict = "TaxiBaseOutsideDistrict";
+    public const string TaxiIdentityRequired = "TaxiIdentityRequired";
+    public const string IdentityCipherNotConfigured = "IdentityCipherNotConfigured";
 }
 
 // Seeded rows are re-inserted on start when missing, so they can only be switched off, never deleted.

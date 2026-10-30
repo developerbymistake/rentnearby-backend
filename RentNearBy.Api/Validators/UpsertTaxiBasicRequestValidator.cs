@@ -42,5 +42,24 @@ public class UpsertTaxiBasicRequestValidator : AbstractValidator<UpsertTaxiBasic
 
         RuleFor(x => x.DistrictId)
             .NotEmpty().WithMessage("District is required");
+
+        // null = keep the stored value; the handler requires them when nothing is stored.
+        RuleFor(x => x.DrivingLicenceNumber)
+            .Must(v => TaxiIdentityRules.IsValidDl(TaxiIdentityRules.NormalizeDl(v), TaxiIdentityRules.TodayIst().Year))
+            .WithMessage(TaxiIdentityRules.DlInvalidMessage)
+            .When(x => x.DrivingLicenceNumber != null);
+
+        RuleFor(x => x.DateOfBirth)
+            .Cascade(CascadeMode.Stop)
+            .Must(v => TaxiIdentityRules.TryParseDob(v, out _)).WithMessage(TaxiIdentityRules.DobInvalidMessage)
+            .Must(v => DobStatusOf(v) is not (DobStatus.Future or DobStatus.TooOld)).WithMessage(TaxiIdentityRules.DobInvalidMessage)
+            .Must(v => DobStatusOf(v) != DobStatus.Minor).WithMessage(TaxiIdentityRules.DobMinorMessage)
+            .When(x => x.DateOfBirth != null);
+    }
+
+    private static DobStatus DobStatusOf(string? value)
+    {
+        TaxiIdentityRules.TryParseDob(value, out var dob);
+        return TaxiIdentityRules.GetDobStatus(dob, TaxiIdentityRules.TodayIst());
     }
 }

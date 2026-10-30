@@ -20,6 +20,7 @@ public class UnitOfWork : IUnitOfWork
     private IPlotListingRoomListingRepository? _plots;
     private IStayListingRepository? _stays;
     private IStayTypeRepository? _stayTypes;
+    private IStayRegistrationTypeRepository? _stayRegistrationTypes;
     private IStayJobRepository? _stayJobs;
     private ITaxiListingRepository? _taxis;
     private ITaxiVehicleTypeRepository? _taxiVehicleTypes;
@@ -64,6 +65,7 @@ public class UnitOfWork : IUnitOfWork
     public IPlotListingRoomListingRepository PlotListings => _plots ??= new PlotListingRepository(_context);
     public IStayListingRepository Stays => _stays ??= new StayListingRepository(_context);
     public IStayTypeRepository StayTypes => _stayTypes ??= new StayTypeRepository(_context);
+    public IStayRegistrationTypeRepository StayRegistrationTypes => _stayRegistrationTypes ??= new StayRegistrationTypeRepository(_context);
     public IStayJobRepository StayJobs => _stayJobs ??= new StayJobRepository(_context);
     public ITaxiListingRepository Taxis => _taxis ??= new TaxiListingRepository(_context);
     public ITaxiVehicleTypeRepository TaxiVehicleTypes => _taxiVehicleTypes ??= new TaxiVehicleTypeRepository(_context);
