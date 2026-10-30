@@ -558,16 +558,20 @@ public static class AdminHandlers
         reason = flag.Reason,
     };
 
-    // Turning payment on never retro-pauses listings over the paid limit; limits apply at the next expiry or action.
+    // Flipping the flag or the free-mode limit re-applies listing limits (over-limit rooms/plots are plan-paused, newest kept).
     public static async Task<IResult> UpdatePaymentFeature(
         UpdatePaymentFeatureRequest request, IValidator<UpdatePaymentFeatureRequest> validator,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IMemoryCache cache, IPaymentFeatureReader paymentReader)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IMemoryCache cache, IPaymentFeatureReader paymentReader,
+        ILiveSlotService slots, IListingCacheInvalidator invalidator, ILoggerFactory loggerFactory)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
         var flag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.PaymentEnabled);
         if (flag == null) return NotFoundResponse("Payment feature flag not found");
+
+        var wasEnabled = flag.IsEnabled;
+        var wasLimit = flag.FreeModeListingLimit;
 
         if (request.IsEnabled.HasValue) flag.IsEnabled = request.IsEnabled.Value;
         if (request.FreeDurationDays.HasValue) flag.FreeDurationDays = request.FreeDurationDays.Value;
@@ -584,6 +588,28 @@ public static class AdminHandlers
 
         paymentReader.Invalidate();
         ConfigHandlers.BustPlanDerivedConfig(cache);
+
+        if (flag.IsEnabled != wasEnabled || flag.FreeModeListingLimit != wasLimit)
+        {
+            var logger = loggerFactory.CreateLogger(nameof(AdminHandlers));
+            foreach (var kind in new[] { ListingKinds.Room, ListingKinds.Plot })
+            {
+                try
+                {
+                    var r = await slots.EnforceLimitsAsync(kind);
+                    if (r.Paused > 0)
+                    {
+                        logger.LogInformation("Payment flag change plan-paused {Rows} {Kind} listings of {Owners} owners",
+                            r.Paused, kind, r.Owners.Count);
+                        await invalidator.BustForUsersAsync(r.Owners, kind);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Limit re-apply after payment flag change failed ({Kind}); the daily reconcile will repair it", kind);
+                }
+            }
+        }
 
         return OkResponse(ToPaymentFeatureDto(flag));
     }

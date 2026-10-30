@@ -2,6 +2,8 @@ namespace RentNearBy.Core.Interfaces;
 
 public sealed record ExpireEffectsResult(int Paused, int Extended, int Reranked);
 
+public sealed record RankReconcileResult(int Rows, IReadOnlyList<Guid> DistrictIds);
+
 // Count/claim logic for room and plot slots plus the set-based listing effects of plan changes.
 // Every create/activation of a room/plot: transaction -> LockOwnerAsync -> GetLimits -> count -> mutate -> commit.
 // Bulk methods never load listing rows and repeat the state predicate inside the UPDATE.
@@ -46,6 +48,19 @@ public interface ILiveSlotService
     Task<int> SuspendAsync(Guid userId);
     Task<int> UnsuspendAsync(Guid userId);
 
-    // Daily drift repair: rows whose rank/featured differ from the owner's plan. Returns rows fixed.
-    Task<int> ReconcileRanksAsync(string kind);
+    // Daily drift repair: rows whose rank/featured differ from the owner's plan. Returns rows fixed and their
+    // distinct districts for busting.
+    Task<RankReconcileResult> ReconcileRanksAsync(string kind);
+
+    // Owners of `kind` whose IsActive rows exceed their current ListingLimit (payment flag and catalog applied
+    // like GetLimits). Bounded.
+    Task<List<Guid>> ListOverLimitOwnersAsync(string kind, int limit);
+
+    // Plan-pauses this owner's IsActive rows beyond the current limit, newest kept. Requires tx + owner lock.
+    // Returns rows paused.
+    Task<int> EnforceLimitAsync(Guid userId, string kind);
+
+    // Batches ListOverLimitOwnersAsync, one short transaction per owner (lock, enforce, commit). Returns total
+    // paused and the owners touched (for cache busting). No open transaction on entry.
+    Task<(int Paused, IReadOnlyList<Guid> Owners)> EnforceLimitsAsync(string kind);
 }

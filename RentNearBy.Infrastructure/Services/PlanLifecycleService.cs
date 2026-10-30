@@ -14,7 +14,7 @@ namespace RentNearBy.Infrastructure.Services;
 //      transaction under the owner lock, then its listing effects run (plan-pause extra rooms/plots, ranks
 //      back to free) and a PlanExpired inbox row is written. A renew that moved EndsAt first wins (0 rows).
 //   2. Reminder: one claim of ReminderSentAt per plan (7 days ahead, half the term for short plans).
-//   3. Daily: set-based rank reconcile per kind (drift repair).
+//   3. Daily: set-based rank reconcile per kind and listing-limit enforcement for rooms/plots (drift repair).
 // Pushes go to notification.push after commit; caches are busted once per batch and kind.
 public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPublisher publisher, ILogger<PlanLifecycleService> logger)
     : BackgroundService
@@ -238,7 +238,7 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
         return total;
     }
 
-    // ---------------------------------------------------------------- pass 3: rank reconcile
+    // ---------------------------------------------------------------- pass 3: rank and limit reconcile
 
     private async Task ReconcilePassAsync()
     {
@@ -247,9 +247,24 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
             try
             {
                 using var scope = scopeFactory.CreateScope();
-                var fixedRows = await scope.ServiceProvider.GetRequiredService<ILiveSlotService>().ReconcileRanksAsync(kind);
-                if (fixedRows > 0)
-                    logger.LogWarning("Rank reconcile fixed {Rows} {Kind} rows (drift)", fixedRows, kind);
+                var slots = scope.ServiceProvider.GetRequiredService<ILiveSlotService>();
+                var invalidator = scope.ServiceProvider.GetRequiredService<IListingCacheInvalidator>();
+                var result = await slots.ReconcileRanksAsync(kind);
+                if (result.Rows > 0)
+                {
+                    logger.LogWarning("Rank reconcile fixed {Rows} {Kind} rows (drift)", result.Rows, kind);
+                    await invalidator.BustDistrictsAsync(kind, result.DistrictIds);
+                }
+
+                if (PlanFeatures.HasListingSlots(kind))
+                {
+                    var r = await slots.EnforceLimitsAsync(kind);
+                    if (r.Paused > 0)
+                    {
+                        logger.LogWarning("Limit reconcile plan-paused {Rows} {Kind} rows (drift)", r.Paused, kind);
+                        await invalidator.BustForUsersAsync(r.Owners, kind);
+                    }
+                }
             }
             catch (Exception ex)
             {

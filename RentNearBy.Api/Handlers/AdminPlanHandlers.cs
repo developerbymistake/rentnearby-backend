@@ -70,11 +70,12 @@ public static class AdminPlanHandlers
     }
 
     // The default (free) plan keeps IsDefault, stays enabled and has no prices. Holders of an edited plan
-    // get their listing ranks re-applied in one set-based pass.
+    // get their listing ranks re-applied in one set-based pass, and room/plot listing limits re-applied
+    // (over-limit rows plan-paused, newest kept).
     public static async Task<IResult> UpdatePlan(
         Guid id, UpsertPlanRequest request, IValidator<UpsertPlanRequest> validator,
         IUnitOfWork unitOfWork, IPlanCatalogCache catalog, IMemoryCache cache,
-        ILiveSlotService slots, ILoggerFactory loggerFactory)
+        ILiveSlotService slots, IListingCacheInvalidator invalidator, ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger(nameof(AdminPlanHandlers));
         var validation = await validator.ValidateAsync(request);
@@ -133,13 +134,27 @@ public static class AdminPlanHandlers
 
         try
         {
-            var fixedRows = await slots.ReconcileRanksAsync(plan.FeatureKey);
-            if (fixedRows > 0)
-                logger.LogInformation("Plan {PlanId} edit re-ranked {Rows} {Kind} listings", plan.Id, fixedRows, plan.FeatureKey);
+            var fixedRanks = await slots.ReconcileRanksAsync(plan.FeatureKey);
+            if (fixedRanks.Rows > 0)
+            {
+                logger.LogInformation("Plan {PlanId} edit re-ranked {Rows} {Kind} listings", plan.Id, fixedRanks.Rows, plan.FeatureKey);
+                await invalidator.BustDistrictsAsync(plan.FeatureKey, fixedRanks.DistrictIds);
+            }
+
+            if (PlanFeatures.HasListingSlots(plan.FeatureKey))
+            {
+                var enforced = await slots.EnforceLimitsAsync(plan.FeatureKey);
+                if (enforced.Paused > 0)
+                {
+                    logger.LogInformation("Plan {PlanId} edit plan-paused {Rows} {Kind} listings of {Owners} owners",
+                        plan.Id, enforced.Paused, plan.FeatureKey, enforced.Owners.Count);
+                    await invalidator.BustForUsersAsync(enforced.Owners, plan.FeatureKey);
+                }
+            }
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Rank re-apply after plan {PlanId} edit failed; the daily reconcile will repair it", plan.Id);
+            logger.LogWarning(ex, "Rank/limit re-apply after plan {PlanId} edit failed; the daily reconcile will repair it", plan.Id);
         }
 
         return OkResponse(ToDto(plan));

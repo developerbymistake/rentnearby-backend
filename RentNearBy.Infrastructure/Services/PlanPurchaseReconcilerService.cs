@@ -12,6 +12,8 @@ namespace RentNearBy.Infrastructure.Services;
 //      (Paid + AmountMismatch is left to the admin).
 //   B: Created/Pending past ExpiresAt -> Expired, coupon released.
 //   C: every 30th tick, Failed/Expired from the last 7 days -> a late capture still settles.
+//   D: every 15th tick, Paid older than 7 days, oldest first one page per pass -> a blocked grant whose
+//      auto refund kept failing is still refunded.
 // Razorpay calls are sequential and never inside a DB transaction; each purchase gets its own scope.
 public class PlanPurchaseReconcilerService(IServiceScopeFactory scopeFactory, ILogger<PlanPurchaseReconcilerService> logger)
     : BackgroundService
@@ -22,12 +24,14 @@ public class PlanPurchaseReconcilerService(IServiceScopeFactory scopeFactory, IL
     private const int PageSize = 200;
     private const int ExpireBatch = 500;
     private const int LateCaptureEveryTicks = 30;
+    private const int BlockedRetryEveryTicks = 15;
 
     private static readonly string[] OpenOrPaid = [PurchaseStatuses.Created, PurchaseStatuses.Pending, PurchaseStatuses.Paid];
     private static readonly string[] Closed = [PurchaseStatuses.Failed, PurchaseStatuses.Expired];
 
     private long _tick;
     private DateTime? _lateCursor;
+    private DateTime? _blockedCursor;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -67,8 +71,19 @@ public class PlanPurchaseReconcilerService(IServiceScopeFactory scopeFactory, IL
                 _lateCursor = full ? last : null;
             }
 
-            if (settled + expired + late > 0)
-                logger.LogInformation("Plan reconciler: settled={Settled} expired={Expired} lateCaptures={Late}", settled, expired, late);
+            var blockedRetried = 0;
+            if (tick % BlockedRetryEveryTicks == 0)
+            {
+                var (count, last, full) = await SettlePageAsync(
+                    [PurchaseStatuses.Paid], now - LookBack, _blockedCursor, newestFirst: false, ct);
+                blockedRetried = count;
+                _blockedCursor = full ? last : null;
+            }
+
+            if (settled + expired + late + blockedRetried > 0)
+                logger.LogInformation(
+                    "Plan reconciler: settled={Settled} expired={Expired} lateCaptures={Late} blockedRetried={Blocked}",
+                    settled, expired, late, blockedRetried);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -76,11 +91,11 @@ public class PlanPurchaseReconcilerService(IServiceScopeFactory scopeFactory, IL
         }
     }
 
-    private async Task<int> SettleAsync(string[] statuses, DateTime createdBefore, DateTime createdAfter, CancellationToken ct)
+    private async Task<int> SettleAsync(string[] statuses, DateTime createdBefore, DateTime? createdAfter, CancellationToken ct)
         => (await SettlePageAsync(statuses, createdBefore, createdAfter, newestFirst: false, ct)).Changed;
 
     private async Task<(int Changed, DateTime? Last, bool Full)> SettlePageAsync(
-        string[] statuses, DateTime createdBefore, DateTime createdAfter, bool newestFirst, CancellationToken ct)
+        string[] statuses, DateTime createdBefore, DateTime? createdAfter, bool newestFirst, CancellationToken ct)
     {
         List<(Guid Id, DateTime CreatedAt)> rows;
         using (var scope = scopeFactory.CreateScope())

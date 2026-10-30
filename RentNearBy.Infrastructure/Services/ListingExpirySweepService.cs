@@ -101,7 +101,9 @@ public class ListingExpirySweepService : BackgroundService
     }
 
     // table and kind are fixed whitelist values, never user input. Rows of an owner whose plan is still
-    // Active are left to PlanLifecycleService, which keeps the newest live and plan-pauses the rest.
+    // Active and not more than 2 hours past EndsAt are left to PlanLifecycleService, which keeps the newest live
+    // and plan-pauses the rest. The grace covers the gap to its next hourly tick; a plan it keeps failing to
+    // expire loses the shield after that.
     // A lapsed row keeps PauseReason NULL (expired, not paused): it is never auto-resumed, only Go Live renews it.
     private async Task<int> SweepAsync(IServiceProvider sp, string table, string kind)
     {
@@ -110,7 +112,8 @@ public class ListingExpirySweepService : BackgroundService
         var owners = new HashSet<Guid>();
         var noActivePlan = $"""
                 NOT EXISTS (SELECT 1 FROM "UserPlans" up
-                            WHERE up."UserId" = t."UserId" AND up."FeatureKey" = '{kind}' AND up."Status" = 'Active')
+                            WHERE up."UserId" = t."UserId" AND up."FeatureKey" = '{kind}' AND up."Status" = 'Active'
+                              AND up."EndsAt" > now() - interval '2 hours')
                 """;
         var sql = $"""
                 UPDATE {table} t SET "IsActive" = false, "PauseReason" = NULL, "UpdatedAt" = now()

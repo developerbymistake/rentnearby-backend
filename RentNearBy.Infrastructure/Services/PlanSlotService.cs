@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
@@ -14,9 +15,15 @@ namespace RentNearBy.Infrastructure.Services;
 // Room/plot slot counting and the set-based listing effects of plan changes. Bulk statements are raw
 // SQL over a fixed table whitelist (never user input) with the state predicate repeated in the UPDATE.
 public class PlanSlotService(
-    ApplicationDbContext db, IPlanEntitlementService entitlements, IPlanCatalogCache catalog, IPaymentFeatureReader payment)
+    ApplicationDbContext db, IPlanEntitlementService entitlements, IPlanCatalogCache catalog, IPaymentFeatureReader payment,
+    ILogger<PlanSlotService> logger)
     : ILiveSlotService
 {
+    private sealed class DistrictRow
+    {
+        public Guid? DistrictId { get; set; }
+    }
+
     private static string Table(string kind) => kind switch
     {
         ListingKinds.Room => "\"RoomListings\"",
@@ -217,7 +224,7 @@ public class PlanSlotService(
 
     // One set-based UPDATE per kind: rows whose rank/featured differ from the owner's current plan.
     // Plan values are inlined from the cached catalog (typed Guids/ints only, never user input).
-    public async Task<int> ReconcileRanksAsync(string kind)
+    public async Task<RankReconcileResult> ReconcileRanksAsync(string kind)
     {
         var t = Table(kind);
         var snapshot = await catalog.GetAsync();
@@ -234,7 +241,7 @@ public class PlanSlotService(
         var defRank = Math.Clamp(defaults.Priority, 0, short.MaxValue).ToString(CultureInfo.InvariantCulture);
         var defFeatured = defaults.Featured ? "true" : "false";
 
-        return await db.Database.ExecuteSqlRawAsync($"""
+        var rows = await db.Database.SqlQueryRaw<DistrictRow>($"""
             WITH pv ("PlanId", "Rank", "Featured") AS (VALUES {values}),
             target AS (
                 SELECT l."Id",
@@ -249,6 +256,101 @@ public class PlanSlotService(
             UPDATE {t} AS x SET "PriorityRank" = target."Rank", "IsFeatured" = target."Featured"
             FROM target
             WHERE x."Id" = target."Id" AND (x."PriorityRank" <> target."Rank" OR x."IsFeatured" <> target."Featured")
-            """, kind);
+            RETURNING x."DistrictId"
+            """, kind).ToListAsync();
+
+        return new RankReconcileResult(
+            rows.Count,
+            rows.Where(r => r.DistrictId != null).Select(r => r.DistrictId!.Value).Distinct().ToList());
+    }
+
+    public async Task<List<Guid>> ListOverLimitOwnersAsync(string kind, int limit)
+    {
+        var t = SlotTable(kind);
+        var snapshot = await catalog.GetAsync();
+        var flag = await payment.GetAsync();
+        var defaults = snapshot.DefaultValues(kind);
+        var freeMode = flag.FreeModeListingLimit ?? 0;
+
+        // Mirrors PlanEntitlementService.Compute; GetLimitsAsync stays authoritative under the owner lock.
+        var defLimit = Math.Max(0, flag.Enabled ? defaults.ListingLimit : Math.Max(defaults.ListingLimit, freeMode));
+        var minLimit = defLimit;
+        var values = new StringBuilder();
+        values.Append("('00000000-0000-0000-0000-000000000000'::uuid, 0)");
+        foreach (var plan in snapshot.PlansOf(kind))
+        {
+            var planLimit = Math.Max(0, flag.Enabled
+                ? plan.Values.ListingLimit
+                : Math.Max(Math.Max(defaults.ListingLimit, plan.Values.ListingLimit), freeMode));
+            minLimit = Math.Min(minLimit, planLimit);
+            values.Append(CultureInfo.InvariantCulture, $", ('{plan.Id}'::uuid, {planLimit})");
+        }
+        var def = defLimit.ToString(CultureInfo.InvariantCulture);
+        var min = minLimit.ToString(CultureInfo.InvariantCulture);
+
+        return await db.Database.SqlQueryRaw<Guid>($"""
+            WITH pv ("PlanId", "Limit") AS (VALUES {values}),
+            live AS (
+                SELECT l."UserId", COUNT(*) AS "N"
+                FROM {t} l
+                WHERE l."IsDeleted" = false AND l."IsActive" = true
+                GROUP BY l."UserId"
+                HAVING COUNT(*) > {min})
+            SELECT live."UserId" AS "Value"
+            FROM live
+            LEFT JOIN "UserPlans" up ON up."UserId" = live."UserId" AND up."FeatureKey" = {"{0}"}
+                AND up."Status" = 'Active' AND up."EndsAt" > now()
+            LEFT JOIN pv ON pv."PlanId" = up."PlanId"
+            WHERE live."N" > COALESCE(pv."Limit", {def}::int)
+            ORDER BY live."UserId"
+            LIMIT {"{1}"}
+            """, kind, limit).ToListAsync();
+    }
+
+    public async Task<int> EnforceLimitAsync(Guid userId, string kind)
+    {
+        var limits = await entitlements.GetLimitsAsync(userId, kind);
+        return await PlanPauseExtraAsync(userId, kind, limits.ListingLimit);
+    }
+
+    public async Task<(int Paused, IReadOnlyList<Guid> Owners)> EnforceLimitsAsync(string kind)
+    {
+        if (!PlanFeatures.HasListingSlots(kind)) return (0, []);
+        if (db.Database.CurrentTransaction != null)
+            throw new InvalidOperationException("EnforceLimitsAsync opens its own transactions.");
+
+        const int Batch = 500;
+        const int MaxBatches = 20;
+        var done = new HashSet<Guid>();
+        var touched = new List<Guid>();
+        var paused = 0;
+        for (var i = 0; i < MaxBatches; i++)
+        {
+            var found = await ListOverLimitOwnersAsync(kind, Batch);
+            var ids = found.Where(done.Add).ToList();
+            if (ids.Count == 0) break;
+
+            foreach (var id in ids)
+            {
+                try
+                {
+                    await using var tx = await db.Database.BeginTransactionAsync();
+                    await LockOwnerAsync(id);
+                    var n = await EnforceLimitAsync(id, kind);
+                    await tx.CommitAsync();
+                    if (n > 0)
+                    {
+                        paused += n;
+                        touched.Add(id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Limit enforcement failed for {UserId} ({Kind})", id, kind);
+                }
+            }
+            if (found.Count < Batch) break;
+        }
+        return (paused, touched);
     }
 }
