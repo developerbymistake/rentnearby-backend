@@ -19,6 +19,7 @@ public static class DataSeeder
     internal sealed record CitySeedRow(long CityKey, string Name, string DistrictName, double Latitude, double Longitude, string SeedStatus);
 
     private const string SeedStatusOk = "Ok";
+    private const string SeedStatusDuplicate = "Duplicate";
     private static readonly TimeSpan[] AtlasRetryDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)];
 
     private static readonly JsonSerializerOptions CaseInsensitiveJson = new() { PropertyNameCaseInsensitive = true };
@@ -1115,7 +1116,7 @@ public static class DataSeeder
 
     internal static IEnumerable<CitySeedRow> RowsFromAtlas(IEnumerable<AtlasExportCity>? items)
         => (items ?? Enumerable.Empty<AtlasExportCity>())
-            .Where(c => c.SeedStatus == SeedStatusOk)
+            .Where(c => c.SeedStatus == SeedStatusOk || c.SeedStatus == SeedStatusDuplicate)
             .Select(c => new CitySeedRow(c.CityKey, c.Name, c.DistrictName, c.Latitude, c.Longitude, c.SeedStatus));
 
     internal static string MatchKey(string districtName, string name)

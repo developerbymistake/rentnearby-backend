@@ -26,7 +26,7 @@ public class CitySeedMergeTests
     }
 
     [Fact]
-    public void AtlasRows_SkipNotOk()
+    public void AtlasRows_KeepOkAndDuplicate_SkipRest()
     {
         var items = new[]
         {
@@ -38,8 +38,7 @@ public class CitySeedMergeTests
 
         var rows = DataSeeder.RowsFromAtlas(items).ToList();
 
-        var row = Assert.Single(rows);
-        Assert.Equal(110000001L, row.CityKey);
+        Assert.Equal(new long[] { 110000001, 110000003 }, rows.Select(r => r.CityKey).ToArray());
     }
 
     [Fact]
