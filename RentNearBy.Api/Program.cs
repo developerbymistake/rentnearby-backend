@@ -141,7 +141,11 @@ using (var scope = app.Services.CreateScope())
             Console.WriteLine("[STARTUP] Migrations applied. Running seeder...");
         }
 
-        await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db);
+        await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(
+            db,
+            scope.ServiceProvider.GetRequiredService<RentNearBy.Core.Interfaces.IAtlasClient>(),
+            scope.ServiceProvider.GetRequiredService<ILogger<Program>>(),
+            scope.ServiceProvider.GetRequiredService<IOptions<AtlasOptions>>().Value);
         Console.WriteLine("[STARTUP] Seeder complete.");
     }
     catch (Exception ex)
@@ -188,6 +192,14 @@ using (var scope = app.Services.CreateScope())
 
     // Resolved once here so a missing IDENTITY_ENCRYPTION_KEY is logged at startup, not on the first licence write.
     scope.ServiceProvider.GetRequiredService<RentNearBy.Core.Interfaces.IIdentityCipher>();
+
+    // Trip Planner: non-fatal, surfaced at GET /health as atlas / osrm.
+    if (!scope.ServiceProvider.GetRequiredService<IOptions<AtlasOptions>>().Value.IsConfigured)
+        playLogger.LogError(
+            "Atlas is not configured (ATLAS_BASE_URL / ATLAS_API_KEY) — trip places come from the embedded seed only and /trips spots answer SpotsUnavailable.");
+    if (!scope.ServiceProvider.GetRequiredService<IOptions<OsrmOptions>>().Value.IsConfigured)
+        playLogger.LogWarning(
+            "OSRM is not configured (OSRM_URL) — trip road times are straight-line estimates and maps draw straight lines.");
 }
 
 app.UseForwardedHeaders();
@@ -328,6 +340,9 @@ app.MapGet("/health", async (IServiceProvider sp) =>
     var razorpayService = sp.GetRequiredService<RentNearBy.Infrastructure.Services.IRazorpayService>();
     var playBillingConfigured = sp.GetRequiredService<IOptions<PlayBillingOptions>>().Value.IsConfigured;
     var identityCipherConfigured = sp.GetRequiredService<RentNearBy.Core.Interfaces.IIdentityCipher>().IsConfigured;
+    var atlasConfigured = sp.GetRequiredService<RentNearBy.Core.Interfaces.IAtlasClient>().IsConfigured;
+    var osrmConfigured = sp.GetRequiredService<RentNearBy.Core.Interfaces.IOsrmClient>().IsConfigured;
+    var tripPlannerEnabled = sp.GetRequiredService<IOptions<TripPlannerOptions>>().Value.Enabled;
 
     return Results.Ok(new
     {
@@ -338,6 +353,9 @@ app.MapGet("/health", async (IServiceProvider sp) =>
         razorpayWebhook = razorpayService.IsWebhookConfigured ? "configured" : "not configured",
         playBilling = playBillingConfigured ? "configured" : "not configured",
         identityCipher = identityCipherConfigured ? "ok" : "not configured",
+        atlas = atlasConfigured ? "configured" : "not configured",
+        osrm = osrmConfigured ? "configured" : "not configured",
+        tripPlanner = tripPlannerEnabled ? "on" : "off",
     });
 });
 
@@ -441,6 +459,11 @@ app.MapGroup("/api/v1/config")
 app.MapGroup("/api/v1/plans")
     .WithTags("Plans")
     .MapPlanEndpoints();
+
+app.MapGroup("/api/v1/trips")
+    .WithTags("Trips")
+    .AddEndpointFilter<TripPlannerGateFilter>()
+    .MapTripEndpoints();
 
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");

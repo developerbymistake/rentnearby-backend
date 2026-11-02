@@ -20,7 +20,7 @@ public interface ITaxiListingRepository : IRepository<TaxiListing>
     Task<TaxiListing?> GetByIdForAdminAsync(Guid id);
     Task<bool> IsPlateTakenAsync(string numberPlate, Guid exceptUserId);
     Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
-        Guid districtId, Guid? cityId, string? category, int page, int pageSize);
+        Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly = false);
     Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> SearchByRoutePagedAsync(
         double fromLat, double fromLng, double toLat, double toLng, string? category, int page, int pageSize);
     // status: one of TaxiStatuses.All, or "All" for every non-deleted row.

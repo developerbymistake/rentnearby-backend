@@ -320,6 +320,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<long?>("CityKey")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -344,6 +347,11 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasComputedColumnSql("lower(\"Name\")", true);
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CityKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_cities_citykey_unique")
+                        .HasFilter("\"CityKey\" IS NOT NULL");
 
                     b.HasIndex("DistrictId");
 
@@ -666,6 +674,11 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Geometry>("Boundary")
                         .HasColumnType("geometry(Geometry, 4326)");
+
+                    b.Property<bool>("BusinessOnboardingEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -3376,6 +3389,80 @@ namespace RentNearBy.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.Trip", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("CityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("CityKey")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("CityName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int>("DayCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("DistrictId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PlanJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("SpotCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Draft");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CityId");
+
+                    b.HasIndex("DistrictId");
+
+                    b.HasIndex("OwnerUserId", "UpdatedAt")
+                        .HasDatabaseName("ix_trips_owner_updated");
+
+                    b.ToTable("Trips");
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4181,6 +4268,29 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasForeignKey("TaxiListingId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Trip", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.City", null)
+                        .WithMany()
+                        .HasForeignKey("CityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.District", null)
+                        .WithMany()
+                        .HasForeignKey("DistrictId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>

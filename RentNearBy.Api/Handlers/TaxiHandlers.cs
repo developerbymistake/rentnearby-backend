@@ -25,8 +25,8 @@ public static class TaxiCache
     public static readonly TimeSpan LocalTtl = TimeSpan.FromSeconds(30);
     public static readonly TimeSpan SearchTtl = TimeSpan.FromSeconds(60);
 
-    public static string LocalKey(Guid districtId, Guid? cityId, string? category, int pageSize)
-        => $"taxis:local:{districtId:N}:{cityId:N}:{category}:{pageSize}";
+    public static string LocalKey(Guid districtId, Guid? cityId, string? category, int pageSize, bool cityOnly = false)
+        => $"taxis:local:{districtId:N}:{cityId:N}:{category}:{pageSize}{(cityOnly ? ":city" : "")}";
 
     public static string SearchKey(string? category, double fromLat, double fromLng, double toLat, double toLng, int pageSize)
         => $"taxis:search:{category}:{fromLat:F3}:{fromLng:F3}:{toLat:F3}:{toLng:F3}:{pageSize}";
@@ -153,18 +153,19 @@ public static class TaxiHandlers
     // Local view: approved, available taxis whose base is in the district, city rows first, cheapest first.
     public static async Task<IResult> GetBrowse(
         Guid districtId, Guid? cityId, string? category,
-        IUnitOfWork unitOfWork, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize)
+        IUnitOfWork unitOfWork, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize, bool cityOnly = false)
     {
         if (districtId == Guid.Empty) return BadRequestResponse("District is required");
         var (pageNo, size) = ClampPaging(page, pageSize);
         var categoryFilter = NormalizeCategory(category);
+        var cityOnlyFilter = cityOnly && cityId.HasValue;
         var redis = pageNo == 1 ? sp.GetService<IConnectionMultiplexer>() : null;
-        var cacheKey = TaxiCache.LocalKey(districtId, cityId, categoryFilter, size);
+        var cacheKey = TaxiCache.LocalKey(districtId, cityId, categoryFilter, size, cityOnlyFilter);
 
         var result = await ReadPageCacheAsync(redis, cacheKey);
         if (result == null)
         {
-            var (items, hasMore) = await unitOfWork.Taxis.BrowseLocalPagedAsync(districtId, cityId, categoryFilter, pageNo, size);
+            var (items, hasMore) = await unitOfWork.Taxis.BrowseLocalPagedAsync(districtId, cityId, categoryFilter, pageNo, size, cityOnlyFilter);
             result = new TaxiPage(items.ToList(), hasMore);
             await WritePageCacheAsync(redis, cacheKey, result, TaxiCache.LocalTtl);
         }
@@ -355,12 +356,13 @@ public static class TaxiHandlers
                 return BadRequestResponse("Selected city does not belong to the selected district");
         }
 
-        var point = new NetTopologySuite.Geometries.Point((double)request.Longitude, (double)request.Latitude) { SRID = 4326 };
-        var districtId = request.DistrictId;
-        var insideDistrict = await db.Districts.AsNoTracking()
-            .AnyAsync(d => d.Id == districtId && d.IsActive && d.Boundary != null && d.Boundary.Contains(point));
-        if (!insideDistrict)
+        var check = BusinessOnboardingRules.ForSave(
+            await BusinessOnboardingGate.CheckAsync(db, request.DistrictId, request.Latitude, request.Longitude),
+            taxi?.EverApproved ?? false, taxi?.DistrictId, request.DistrictId, taxi?.Latitude, taxi?.Longitude, request.Latitude, request.Longitude);
+        if (BusinessOnboardingRules.IsOutsideDistrict(check))
             return BadRequestResponse("Pin your base inside the selected district", TaxiErrorTypes.TaxiBaseOutsideDistrict);
+        if (check == OnboardingCheck.OnboardingClosed)
+            return BadRequestResponse(BusinessOnboardingRules.OnboardingClosedMessage, BusinessOnboardingRules.OnboardingClosedType);
 
         var plate = TaxiPlate.Normalize(request.NumberPlate);
         if (await unitOfWork.Taxis.IsPlateTakenAsync(plate, userId)) return PlateTaken();
@@ -662,7 +664,7 @@ public static class TaxiHandlers
     }
 
     public static async Task<IResult> Submit(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IRabbitMqPublisher publisher)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IRabbitMqPublisher publisher)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -674,6 +676,14 @@ public static class TaxiHandlers
             return ConflictResponse("Your taxi is already live.", TaxiErrorTypes.TaxiLocked);
         if (!TaxiSetupRules.Step1Done(taxi)) return StepLocked(1);
         if (!TaxiSetupRules.RoutesDone(taxi)) return StepLocked(2);
+
+        var check = BusinessOnboardingRules.NeedsFlagCheckAtSubmit(taxi.EverApproved)
+            ? await BusinessOnboardingGate.CheckAsync(db, taxi.DistrictId!.Value, taxi.Latitude!.Value, taxi.Longitude!.Value)
+            : OnboardingCheck.Ok;
+        if (BusinessOnboardingRules.IsOutsideDistrict(check))
+            return BadRequestResponse("Pin your base inside the selected district", TaxiErrorTypes.TaxiBaseOutsideDistrict);
+        if (check == OnboardingCheck.OnboardingClosed)
+            return BadRequestResponse(BusinessOnboardingRules.OnboardingClosedMessage, BusinessOnboardingRules.OnboardingClosedType);
 
         var now = DateTime.UtcNow;
         SendBackToReview(taxi, now);

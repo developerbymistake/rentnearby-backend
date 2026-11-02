@@ -111,6 +111,7 @@ public static class StayErrorTypes
     public const string StayNotApproved = "StayNotApproved";
     public const string StayRegistrationRequired = "StayRegistrationRequired";
     public const string StayRegistrationTypeInUse = "StayRegistrationTypeInUse";
+    public const string StayOutsideDistrict = "StayOutsideDistrict";
 }
 
 // Seeded rows are re-inserted on start when missing, so they can only be switched off, never deleted.

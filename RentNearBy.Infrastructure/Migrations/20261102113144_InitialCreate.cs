@@ -86,6 +86,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     Name = table.Column<string>(type: "text", nullable: false),
                     StateName = table.Column<string>(type: "text", nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    BusinessOnboardingEnabled = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     Boundary = table.Column<Geometry>(type: "geometry(Geometry, 4326)", nullable: true)
                 },
@@ -531,6 +532,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     Name = table.Column<string>(type: "text", nullable: false),
                     Latitude = table.Column<decimal>(type: "numeric", nullable: true),
                     Longitude = table.Column<decimal>(type: "numeric", nullable: true),
+                    CityKey = table.Column<long>(type: "bigint", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     NameLower = table.Column<string>(type: "text", nullable: true, computedColumnSql: "lower(\"Name\")", stored: true)
                 },
@@ -1338,6 +1340,48 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Trips",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    OwnerUserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    CityId = table.Column<Guid>(type: "uuid", nullable: false),
+                    DistrictId = table.Column<Guid>(type: "uuid", nullable: false),
+                    CityKey = table.Column<long>(type: "bigint", nullable: true),
+                    CityName = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
+                    Title = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
+                    Status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "Draft"),
+                    PlanJson = table.Column<string>(type: "jsonb", nullable: false),
+                    DayCount = table.Column<int>(type: "integer", nullable: false),
+                    SpotCount = table.Column<int>(type: "integer", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Trips", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Trips_Cities_CityId",
+                        column: x => x.CityId,
+                        principalTable: "Cities",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_Trips_Districts_DistrictId",
+                        column: x => x.DistrictId,
+                        principalTable: "Districts",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_Trips_Users_OwnerUserId",
+                        column: x => x.OwnerUserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "NotificationReads",
                 columns: table => new
                 {
@@ -1762,6 +1806,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_BannerDismissals_BannerId",
                 table: "BannerDismissals",
                 column: "BannerId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_cities_citykey_unique",
+                table: "Cities",
+                column: "CityKey",
+                unique: true,
+                filter: "\"CityKey\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_cities_district_namelower_unique",
@@ -2790,6 +2841,21 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_Trips_CityId",
+                table: "Trips",
+                column: "CityId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Trips_DistrictId",
+                table: "Trips",
+                column: "DistrictId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_trips_owner_updated",
+                table: "Trips",
+                columns: new[] { "OwnerUserId", "UpdatedAt" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_UserBlocks_BlockerId_BlockedId",
                 table: "UserBlocks",
                 columns: new[] { "BlockerId", "BlockedId" },
@@ -2938,6 +3004,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "TaxiRoutes");
+
+            migrationBuilder.DropTable(
+                name: "Trips");
 
             migrationBuilder.DropTable(
                 name: "UserBlocks");

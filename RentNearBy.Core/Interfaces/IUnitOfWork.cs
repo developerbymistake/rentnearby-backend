@@ -41,6 +41,7 @@ public interface IUnitOfWork : IDisposable
     INotificationRepository Notifications { get; }
     IRoleRepository Roles { get; }
     IRoleChangeRequestRepository RoleChangeRequests { get; }
+    ITripRepository Trips { get; }
     Task<int> SaveChangesAsync();
 
     // Canonical transaction-control surface for handler/service-level code that needs multiple

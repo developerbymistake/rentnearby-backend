@@ -50,4 +50,7 @@ public static class ListingCacheKeys
         ListingKinds.Taxi => ["taxis:search:*"],
         _ => [],
     };
+
+    // Redis patterns holding the /context DTOs (district id, name, state, businessOnboardingEnabled).
+    public static readonly string[] ContextPatterns = ["context:*", "plot_context:*"];
 }

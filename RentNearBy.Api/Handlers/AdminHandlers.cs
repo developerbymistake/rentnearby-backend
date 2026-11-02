@@ -78,8 +78,9 @@ public static class AdminHandlers
             var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
             if (server == null) return;
             var redisDb = redis.GetDatabase();
-            await foreach (var key in server.KeysAsync(pattern: "context:*"))
-                await redisDb.KeyDeleteAsync(key);
+            foreach (var pattern in ListingCacheKeys.ContextPatterns)
+                await foreach (var key in server.KeysAsync(pattern: pattern))
+                    await redisDb.KeyDeleteAsync(key);
         }
         catch { /* best-effort: TTL (10 min) covers Redis failures */ }
     }
@@ -101,6 +102,24 @@ public static class AdminHandlers
         await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
 
         return OkResponse(new { success = true, isActive = district.IsActive });
+    }
+
+    public record ToggleOnboardingRequest(bool Enabled);
+
+    public static async Task<IResult> ToggleDistrictOnboarding(
+        Guid id, ToggleOnboardingRequest request,
+        ApplicationDbContext db, IMemoryCache cache, IServiceProvider sp)
+    {
+        var district = await db.Districts.FindAsync(id);
+        if (district == null) return NotFoundResponse("District not found");
+
+        district.BusinessOnboardingEnabled = request.Enabled;
+        await db.SaveChangesAsync();
+        cache.Remove("states");
+        cache.Remove("districts");
+        await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
+
+        return OkResponse(new { success = true, businessOnboardingEnabled = district.BusinessOnboardingEnabled });
     }
 
     public static async Task<IResult> CreateDistrict(
@@ -156,6 +175,7 @@ public static class AdminHandlers
                     Name = g.Key,
                     TotalDistricts = g.Count(),
                     ActiveDistricts = g.Count(d => d.IsActive),
+                    OnboardingDistricts = g.Count(d => d.BusinessOnboardingEnabled),
                 })
                 .OrderBy(s => s.Name)
                 .ToListAsync();
@@ -190,6 +210,24 @@ public static class AdminHandlers
         return OkResponse(new { success = true, isActive = request.IsActive, updatedCount = updated });
     }
 
+    public static async Task<IResult> BulkToggleStateOnboarding(
+        string stateName, ToggleOnboardingRequest request,
+        ApplicationDbContext db, IMemoryCache cache, IServiceProvider sp)
+    {
+        var updated = await db.Districts
+            .Where(d => d.StateName == stateName)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.BusinessOnboardingEnabled, request.Enabled));
+
+        if (updated == 0)
+            return NotFoundResponse($"No districts found for state '{stateName}'");
+
+        cache.Remove("states");
+        cache.Remove("districts");
+        await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
+
+        return OkResponse(new { success = true, businessOnboardingEnabled = request.Enabled, updatedCount = updated });
+    }
+
     public static async Task<IResult> ForceActivateDistrict(
         Guid id, ApplicationDbContext db, IMemoryCache cache, IServiceProvider sp)
     {
@@ -221,6 +259,10 @@ public static class AdminHandlers
         // TaxiListing.DistrictId is FK Restrict too.
         if (await db.TaxiListings.AnyAsync(t => t.DistrictId == id))
             return BadRequestResponse("Cannot delete district with taxis");
+
+        // Trip.DistrictId is FK Restrict too.
+        if (await db.Trips.AnyAsync(t => t.DistrictId == id))
+            return BadRequestResponse("Cannot delete district with trips");
 
         await unitOfWork.Districts.DeleteAsync(district);
         await unitOfWork.SaveChangesAsync();
@@ -306,6 +348,10 @@ public static class AdminHandlers
 
         if (await db.RoomListings.AnyAsync(l => l.CityId == id && l.IsActive))
             return BadRequestResponse("Cannot delete city with active listings");
+
+        // Trip.CityId is FK Restrict.
+        if (await db.Trips.AnyAsync(t => t.CityId == id))
+            return BadRequestResponse("Cannot delete city with trips");
 
         await unitOfWork.Cities.DeleteAsync(city);
         await unitOfWork.SaveChangesAsync();

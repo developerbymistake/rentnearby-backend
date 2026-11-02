@@ -5,6 +5,7 @@ public class StayOwnerDto
 {
     public Guid Id { get; set; }
     public string Status { get; set; } = string.Empty;
+    public bool EverApproved { get; set; }
     public int Percent { get; set; }
     public bool Step1Done { get; set; }
     public bool RoomsDone { get; set; }

@@ -47,6 +47,7 @@ public class UnitOfWork : IUnitOfWork
     private INotificationRepository? _notifications;
     private IRoleRepository? _roles;
     private IRoleChangeRequestRepository? _roleChangeRequests;
+    private ITripRepository? _trips;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -92,6 +93,7 @@ public class UnitOfWork : IUnitOfWork
     public INotificationRepository Notifications => _notifications ??= new NotificationRepository(_context);
     public IRoleRepository Roles => _roles ??= new RoleRepository(_context);
     public IRoleChangeRequestRepository RoleChangeRequests => _roleChangeRequests ??= new RoleChangeRequestRepository(_context);
+    public ITripRepository Trips => _trips ??= new TripRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();

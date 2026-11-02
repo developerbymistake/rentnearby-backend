@@ -76,17 +76,19 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
 
     private sealed record LocalRow(
         Guid Id, string? DriverName, string? VehicleTypeName, string? VehicleCategory, short? Seats,
-        string? NumberPlate, string? CityName, string? DistrictName, int? MinFare, int RouteCount, DateTime CreatedAt,
+        string? NumberPlate, Guid? CityId, string? CityName, string? DistrictName, int? MinFare, int RouteCount, DateTime CreatedAt,
         short PriorityRank, bool IsFeatured);
 
     public async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
-        Guid districtId, Guid? cityId, string? category, int page, int pageSize)
+        Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly = false)
     {
         var query = _dbSet
             .AsNoTracking()
             .Where(t => t.Status == TaxiStatuses.Approved && t.IsAvailable && !t.IsDeleted && t.DistrictId == districtId);
         if (category != null)
             query = query.Where(t => t.VehicleType != null && t.VehicleType.Category == category);
+        if (cityOnly && cityId.HasValue)
+            query = query.Where(t => t.CityId == cityId);
 
         var rows = await query
             .OrderByDescending(t => t.PriorityRank)
@@ -102,6 +104,7 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                 t.VehicleType != null ? t.VehicleType.Category : null,
                 t.Seats,
                 t.NumberPlate,
+                t.CityId,
                 t.City != null ? t.City.Name : null,
                 t.District != null ? t.District.Name : null,
                 t.MinFare,
@@ -120,6 +123,7 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             VehicleCategory = r.VehicleCategory,
             Seats = r.Seats,
             PlateDisplay = TaxiPlate.Format(r.NumberPlate),
+            CityId = r.CityId,
             CityName = r.CityName,
             DistrictName = r.DistrictName,
             MinFare = r.MinFare,

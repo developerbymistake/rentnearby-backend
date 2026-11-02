@@ -21,5 +21,10 @@ services:
       PlayBilling__RtdnAudience: https://developerbymistake.tech/api/v1/payments/play/rtdn
       PlayBilling__RtdnServiceAccountEmail: ${PLAY_RTDN_SERVICE_ACCOUNT_EMAIL}
       IDENTITY_ENCRYPTION_KEY: ${IDENTITY_ENCRYPTION_KEY}
+      ATLAS_BASE_URL: ${ATLAS_BASE_URL}
+      ATLAS_API_KEY: ${ATLAS_API_KEY}
+      OSRM_URL: ${OSRM_URL}
+      OSRM_MAX_TABLE_COORDINATES: ${OSRM_MAX_TABLE_COORDINATES}
+      TRIP_PLANNER_ENABLED: ${TRIP_PLANNER_ENABLED}
     ports:
       - "5000:5000"

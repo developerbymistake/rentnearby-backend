@@ -8,6 +8,7 @@ public class District
     public string Name { get; set; } = string.Empty;
     public string StateName { get; set; } = string.Empty;
     public bool IsActive { get; set; } = false;
+    public bool BusinessOnboardingEnabled { get; set; } = false;
     public DateTime CreatedAt { get; set; }
     public Geometry? Boundary { get; set; }
 

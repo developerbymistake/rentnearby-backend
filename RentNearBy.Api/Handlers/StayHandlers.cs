@@ -370,6 +370,14 @@ public static class StayHandlers
         var isNew = stay == null;
         if (stay != null && !IsEditable(stay)) return LockedResponse(stay);
 
+        var check = BusinessOnboardingRules.ForSave(
+            await BusinessOnboardingGate.CheckAsync(db, request.DistrictId, request.Latitude, request.Longitude),
+            stay?.EverApproved ?? false, stay?.DistrictId, request.DistrictId, stay?.Latitude, stay?.Longitude, request.Latitude, request.Longitude);
+        if (BusinessOnboardingRules.IsOutsideDistrict(check))
+            return BadRequestResponse("Pin your stay inside the selected district", StayErrorTypes.StayOutsideDistrict);
+        if (check == OnboardingCheck.OnboardingClosed)
+            return BadRequestResponse(BusinessOnboardingRules.OnboardingClosedMessage, BusinessOnboardingRules.OnboardingClosedType);
+
         // Registration: the type is always sent; number null = keep the stored one (required when none is
         // stored or the type changed); GSTIN null = keep, "" = clear.
         var regType = await unitOfWork.StayRegistrationTypes.GetByIdAsync(request.RegistrationTypeId!.Value);
@@ -633,7 +641,7 @@ public static class StayHandlers
     }
 
     public static async Task<IResult> Submit(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IRabbitMqPublisher publisher)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IRabbitMqPublisher publisher)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -644,6 +652,14 @@ public static class StayHandlers
         if (!StaySetupRules.Step1Done(stay)) return StepLocked(1);
         if (!StaySetupRules.RoomsDone(stay)) return StepLocked(2);
         if (!StaySetupRules.RulesDone(stay)) return StepLocked(3);
+
+        var check = BusinessOnboardingRules.NeedsFlagCheckAtSubmit(stay.EverApproved)
+            ? await BusinessOnboardingGate.CheckAsync(db, stay.DistrictId!.Value, stay.Latitude!.Value, stay.Longitude!.Value)
+            : OnboardingCheck.Ok;
+        if (BusinessOnboardingRules.IsOutsideDistrict(check))
+            return BadRequestResponse("Pin your stay inside the selected district", StayErrorTypes.StayOutsideDistrict);
+        if (check == OnboardingCheck.OnboardingClosed)
+            return BadRequestResponse(BusinessOnboardingRules.OnboardingClosedMessage, BusinessOnboardingRules.OnboardingClosedType);
 
         // Snapshot the type name as reviewed; a type renamed since the last basic save is refreshed here.
         var regType = await unitOfWork.StayRegistrationTypes.GetByIdAsync(stay.RegistrationTypeId);

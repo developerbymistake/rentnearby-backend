@@ -56,4 +56,8 @@ public class ListingCacheKeysTests
     [InlineData("Stay")]
     public void GlobalPatterns_OtherKinds_Empty(string kind)
         => Assert.Empty(ListingCacheKeys.GlobalPatterns(kind));
+
+    [Fact]
+    public void ContextPatterns_RoomAndPlotContext()
+        => Assert.Equal(new[] { "context:*", "plot_context:*" }, ListingCacheKeys.ContextPatterns);
 }

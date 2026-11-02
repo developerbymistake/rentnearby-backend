@@ -22,6 +22,7 @@ class, named `<ProductionClass>Tests`.
 | `Validation/` | FluentValidation validators | `PlanRequestValidators`, `PlayBillingRequestValidators`, coupon validators, `UpsertPlanRequestValidator`, `UpdatePaymentFeatureRequestValidator`, `UpsertTaxiBasicRequestValidator`, `UpsertStayBasicRequestValidator` |
 | `Taxis/` | Taxi rules | `TaxiIdentityRules` (driving licence, date of birth, age), `IndianStateCodes` |
 | `Stays/` | Stay rules | `StayRegistrationRules` (GSTIN check character, registration, Udyam, document name, type code), `StayRegistrationTypeSeed` |
+| `Districts/` | Business onboarding per district | `OnboardingLaunchStates`, `BusinessOnboardingRules`, `DataSeeder.SeedOnboardingFlag`, `DistrictDto` / owner-DTO `EverApproved` mapping |
 | `Api/` | Api layer helpers | `ErrorHandlingMiddleware`, `ServiceCollectionExtensions` |
 | `Infrastructure/` | Infrastructure helpers | `RabbitMqUrl`, `AesGcmIdentityCipher` |
 

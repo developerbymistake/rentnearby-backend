@@ -71,7 +71,7 @@ public static class RoomListingsHandlers
         {
             result = new
             {
-                district = new { id = match.Id, name = match.Name, stateName = match.StateName },
+                district = new { id = match.Id, name = match.Name, stateName = match.StateName, businessOnboardingEnabled = match.BusinessOnboardingEnabled },
                 nearestCityId = nearestCity?.Id,
                 cities = cities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
             };
@@ -89,7 +89,7 @@ public static class RoomListingsHandlers
 
             result = new
             {
-                district = new { id = match.Id, name = match.Name, stateName = match.StateName },
+                district = new { id = match.Id, name = match.Name, stateName = match.StateName, businessOnboardingEnabled = match.BusinessOnboardingEnabled },
                 nearestCityId = resolvedCity?.Id ?? nearestCity?.Id,
                 cities = responseCities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
                 address,

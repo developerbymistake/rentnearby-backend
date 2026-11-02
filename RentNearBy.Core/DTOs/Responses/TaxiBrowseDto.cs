@@ -10,6 +10,7 @@ public class TaxiBrowseDto
     public string? VehicleCategory { get; set; }
     public short? Seats { get; set; }
     public string? PlateDisplay { get; set; }
+    public Guid? CityId { get; set; }
     public string? CityName { get; set; }
     public string? DistrictName { get; set; }
     public int? MinFare { get; set; }

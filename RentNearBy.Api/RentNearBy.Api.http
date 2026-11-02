@@ -36,3 +36,114 @@ Content-Type: application/json
 }
 
 ###
+
+@userToken = <user-jwt>
+@cityId = <city-guid>
+@tripId = <trip-guid>
+
+GET {{baseUrl}}/api/v1/trips/cities/{{cityId}}/spots?pageSize=20
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+###
+
+POST {{baseUrl}}/api/v1/trips/plan
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "cityId": "{{cityId}}",
+  "mode": "auto",
+  "spots": [
+    { "id": "osm:W1001", "name": "Mall Road", "latitude": 29.3919, "longitude": 79.4542, "category": "attraction", "visitMinutes": 90 },
+    { "id": "osm:N1002", "name": "Naina Devi Temple", "latitude": 29.3925, "longitude": 79.4528, "category": "temple", "visitMinutes": 60 },
+    { "id": "wiki:12345", "name": "Snow View", "latitude": 29.3990, "longitude": 79.4610, "category": "viewpoint", "visitMinutes": 120 }
+  ]
+}
+
+###
+
+POST {{baseUrl}}/api/v1/trips/plan
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "cityId": "{{cityId}}",
+  "mode": "recalculate",
+  "days": [
+    { "day": 1, "spots": [
+      { "id": "osm:W1001", "name": "Mall Road", "latitude": 29.3919, "longitude": 79.4542, "category": "attraction", "visitMinutes": 90 },
+      { "id": "wiki:12345", "name": "Snow View", "latitude": 29.3990, "longitude": 79.4610, "category": "viewpoint", "visitMinutes": 120 }
+    ] }
+  ]
+}
+
+###
+
+GET {{baseUrl}}/api/v1/trips?page=1&pageSize=20
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+###
+
+POST {{baseUrl}}/api/v1/trips
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "status": "Draft",
+  "plan": {
+    "version": 1,
+    "cityId": "{{cityId}}",
+    "districtId": "<district-guid>",
+    "cityName": "Nainital",
+    "days": [
+      { "day": 1, "spots": [
+        { "id": "osm:W1001", "name": "Mall Road", "latitude": 29.3919, "longitude": 79.4542, "category": "attraction", "visitMinutes": 90 }
+      ] }
+    ],
+    "settings": { "dayLimitMinutes": 450 }
+  }
+}
+
+###
+
+GET {{baseUrl}}/api/v1/trips/{{tripId}}
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+###
+
+PUT {{baseUrl}}/api/v1/trips/{{tripId}}
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "title": "Nainital weekend",
+  "status": "Planned",
+  "plan": {
+    "version": 1,
+    "cityId": "{{cityId}}",
+    "districtId": "<district-guid>",
+    "cityName": "Nainital",
+    "days": [
+      { "day": 1, "spots": [
+        { "id": "osm:W1001", "name": "Mall Road", "latitude": 29.3919, "longitude": 79.4542, "category": "attraction", "visitMinutes": 90 }
+      ], "taxi": { "taxiId": "<taxi-guid>", "name": "Ramesh", "fare": 1800 } }
+    ],
+    "settings": { "dayLimitMinutes": 450 }
+  }
+}
+
+###
+
+DELETE {{baseUrl}}/api/v1/trips/{{tripId}}
+Authorization: Bearer {{userToken}}
+
+###
+
+GET {{baseUrl}}/api/v1/taxis/browse?districtId=<district-guid>&cityId={{cityId}}&cityOnly=true&page=1&pageSize=20
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+###

@@ -9,11 +9,13 @@ public static class AdminEndpoints
         group.MapGet("/districts", AdminHandlers.GetDistricts);
         group.MapPost("/districts", AdminHandlers.CreateDistrict).RequireAuthorization("AdminOnly");
         group.MapPut("/districts/{id:guid}/active", AdminHandlers.ToggleDistrictActive).RequireAuthorization("AdminOnly");
+        group.MapPut("/districts/{id:guid}/business-onboarding", AdminHandlers.ToggleDistrictOnboarding).RequireAuthorization("AdminOnly");
         group.MapPut("/districts/{id:guid}/force-active", AdminHandlers.ForceActivateDistrict).RequireAuthorization("AdminOnly");
         group.MapDelete("/districts/{id:guid}", AdminHandlers.DeleteDistrict).RequireAuthorization("AdminOnly");
 
         group.MapGet("/states", AdminHandlers.GetStates);
         group.MapPut("/states/{stateName}/active", AdminHandlers.BulkToggleStateActive).RequireAuthorization("AdminOnly");
+        group.MapPut("/states/{stateName}/business-onboarding", AdminHandlers.BulkToggleStateOnboarding).RequireAuthorization("AdminOnly");
 
         group.MapGet("/cities", AdminHandlers.GetCities);
         group.MapPost("/cities", AdminHandlers.CreateCity).RequireAuthorization("AdminOnly");

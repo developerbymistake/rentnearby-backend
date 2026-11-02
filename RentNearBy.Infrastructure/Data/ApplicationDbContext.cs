@@ -60,6 +60,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<DeletedAccountRecord> DeletedAccountRecords { get; set; }
     public DbSet<Role> Roles { get; set; }
     public DbSet<RoleChangeRequest> RoleChangeRequests { get; set; }
+    public DbSet<Trip> Trips { get; set; }
 
     // A live row never carries a pause reason; a reason is one of PauseReasons.*.
     private const string PauseReasonCheck =
@@ -187,6 +188,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(d => d.StateName).IsRequired();
             e.Property(d => d.IsActive).HasDefaultValue(false);
             e.HasIndex(d => d.IsActive);
+            e.Property(d => d.BusinessOnboardingEnabled).HasDefaultValue(false);
             e.HasIndex(d => d.StateName);
             e.Property(d => d.Boundary).HasColumnType("geometry(Geometry, 4326)");
             // Partial spatial index — only active districts in the GiST tree.
@@ -214,6 +216,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex("DistrictId", "NameLower")
              .IsUnique()
              .HasDatabaseName("ix_cities_district_namelower_unique");
+            e.Property(c => c.CityKey);
+            e.HasIndex(c => c.CityKey)
+             .IsUnique()
+             .HasFilter("\"CityKey\" IS NOT NULL")
+             .HasDatabaseName("ix_cities_citykey_unique");
             e.HasOne(c => c.District)
              .WithMany(d => d.Cities)
              .HasForeignKey(c => c.DistrictId)
@@ -1481,6 +1488,32 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(b => b.DistrictId)
              .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Trip>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(t => t.UpdatedAt).HasDefaultValueSql("now()");
+            e.Property(t => t.CityName).HasMaxLength(120);
+            e.Property(t => t.Title).HasMaxLength(80);
+            e.Property(t => t.Status).HasMaxLength(16).HasDefaultValue(TripStatuses.Draft);
+            e.Property(t => t.PlanJson).HasColumnType("jsonb");
+            e.HasIndex(t => new { t.OwnerUserId, t.UpdatedAt }).HasDatabaseName("ix_trips_owner_updated");
+            e.HasOne(t => t.User)
+             .WithMany()
+             .HasForeignKey(t => t.OwnerUserId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<City>()
+             .WithMany()
+             .HasForeignKey(t => t.CityId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<District>()
+             .WithMany()
+             .HasForeignKey(t => t.DistrictId)
+             .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<BannerDismissal>(e =>

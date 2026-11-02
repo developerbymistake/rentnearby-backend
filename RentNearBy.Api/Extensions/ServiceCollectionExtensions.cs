@@ -61,6 +61,32 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPlayEntitlementApplier, PlayEntitlementApplier>();
         services.AddScoped<IPlayBillingSyncService, PlayBillingSyncService>();
 
+        // Trip Planner: Atlas (places), OSRM (road times), config gate. Missing Atlas/OSRM config never crashes.
+        services.Configure<TripPlannerOptions>(configuration.GetSection(TripPlannerOptions.Section));
+        services.PostConfigure<TripPlannerOptions>(o =>
+        {
+            if (bool.TryParse(configuration["TRIP_PLANNER_ENABLED"], out var enabled)) o.Enabled = enabled;
+        });
+        services.Configure<AtlasOptions>(configuration.GetSection(AtlasOptions.Section));
+        services.PostConfigure<AtlasOptions>(o =>
+        {
+            if (string.IsNullOrWhiteSpace(o.BaseUrl)) o.BaseUrl = configuration["ATLAS_BASE_URL"];
+            if (string.IsNullOrWhiteSpace(o.ApiKey)) o.ApiKey = configuration["ATLAS_API_KEY"];
+        });
+        services.Configure<OsrmOptions>(configuration.GetSection(OsrmOptions.Section));
+        services.PostConfigure<OsrmOptions>(o =>
+        {
+            if (string.IsNullOrWhiteSpace(o.BaseUrl)) o.BaseUrl = configuration["OSRM_URL"];
+            if (int.TryParse(configuration["OSRM_MAX_TABLE_COORDINATES"], out var maxTable) && maxTable > 0) o.MaxTableCoordinates = maxTable;
+        });
+        services.AddHttpClient<IAtlasClient, AtlasClient>().RedactLoggedHeaders(new[] { "X-Atlas-Api-Key" });
+        services.AddHttpClient<IOsrmClient, OsrmClient>();
+        services.AddSingleton<ITripSpotCache, TripSpotCache>();
+        services.AddSingleton<ITripRoadCache, TripRoadCache>();
+        services.AddScoped<ITripPlannerService, TripPlannerService>();
+        // Consumes the atlas.city.changed fanout on queue atlas.city.changed.rentnearby.
+        services.AddHostedService<AtlasCityChangedWorkerService>();
+
         // Hourly: plan expiry claims, 7-day reminders, daily rank reconcile.
         services.AddHostedService<PlanLifecycleService>();
         // Every 2 min: settles paid orders, refunds blocked grants, expires stale open orders, and runs the

@@ -7,6 +7,8 @@ public class City
     public string Name { get; set; } = string.Empty;
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }
+    // Atlas common key; null for admin-created cities.
+    public long? CityKey { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public District District { get; set; } = null!;
