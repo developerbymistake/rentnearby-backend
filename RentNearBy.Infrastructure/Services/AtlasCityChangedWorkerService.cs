@@ -20,17 +20,20 @@ public class AtlasCityChangedWorkerService : BackgroundService
 
     private readonly ITripSpotCache _cache;
     private readonly ITripRoadCache _roadCache;
+    private readonly ITripCityCatalog _catalog;
     private readonly ILogger<AtlasCityChangedWorkerService> _logger;
     private readonly ConnectionFactory _factory;
 
     public AtlasCityChangedWorkerService(
         ITripSpotCache cache,
         ITripRoadCache roadCache,
+        ITripCityCatalog catalog,
         IConfiguration configuration,
         ILogger<AtlasCityChangedWorkerService> logger)
     {
         _cache = cache;
         _roadCache = roadCache;
+        _catalog = catalog;
         _logger = logger;
 
         _factory = new ConnectionFactory { Uri = new Uri(RabbitMqUrl.Build(configuration)) };
@@ -128,5 +131,6 @@ public class AtlasCityChangedWorkerService : BackgroundService
     {
         await _cache.InvalidateAsync(cityKey);
         await _roadCache.InvalidateAsync(cityKey);
+        await _catalog.InvalidateAsync();
     }
 }

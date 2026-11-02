@@ -4,15 +4,11 @@ namespace RentNearBy.Tests.Trips;
 
 public class TripPlanJsonTests
 {
-    private static readonly Guid CityId = Guid.Parse("11111111-2222-3333-4444-555555555555");
-    private static readonly Guid DistrictId = Guid.Parse("66666666-7777-8888-9999-000000000000");
     private static readonly Guid TaxiId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
 
     private static TripPlan Sample() => new()
     {
-        CityId = CityId,
-        DistrictId = DistrictId,
-        CityKey = 110000001,
+        CityKey = 502141,
         CityName = "Nainital",
         CentreLatitude = 29.3919,
         CentreLongitude = 79.4542,
@@ -40,10 +36,9 @@ public class TripPlanJsonTests
 
         var plan = JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options)!;
 
-        Assert.Equal(1, plan.Version);
-        Assert.Equal(CityId, plan.CityId);
-        Assert.Equal(DistrictId, plan.DistrictId);
-        Assert.Equal((long?)110000001, plan.CityKey);
+        Assert.Equal(2, plan.Version);
+        Assert.Null(plan.DistrictId);
+        Assert.Equal(502141L, plan.CityKey);
         Assert.Equal("Nainital", plan.CityName);
         Assert.Equal(2, plan.Days.Count);
         Assert.Equal("Mall Road", plan.Days[0].Spots[0].Name);
@@ -59,13 +54,14 @@ public class TripPlanJsonTests
     {
         var json = JsonSerializer.Serialize(Sample(), TripJson.Options);
 
-        Assert.Contains("\"cityId\":", json);
+        Assert.Contains("\"cityKey\":", json);
         Assert.Contains("\"centreLatitude\":", json);
         Assert.Contains("\"visitMinutes\":", json);
         Assert.Contains("\"dayLimitMinutes\":", json);
         Assert.Contains("\"startDate\":\"2026-11-02\"", json);
         Assert.Contains("\"vehicleTypeName\":\"Sedan\"", json);
-        Assert.DoesNotContain("\"CityId\"", json);
+        Assert.DoesNotContain("\"cityId\"", json);
+        Assert.DoesNotContain("\"CityKey\"", json);
     }
 
     [Fact]
@@ -76,6 +72,7 @@ public class TripPlanJsonTests
         var day2 = doc.RootElement.GetProperty("days")[1];
         var spot1 = doc.RootElement.GetProperty("days")[0].GetProperty("spots")[0];
 
+        Assert.False(doc.RootElement.TryGetProperty("districtId", out _));
         Assert.False(day2.TryGetProperty("taxi", out _));
         Assert.False(day2.TryGetProperty("stay", out _));
         Assert.False(spot1.TryGetProperty("imageUrl", out _));
@@ -85,11 +82,11 @@ public class TripPlanJsonTests
     [Fact]
     public void Deserialize_CaseInsensitive()
     {
-        var json = $"{{\"Version\":1,\"CityId\":\"{CityId}\",\"CITYNAME\":\"Nainital\",\"Days\":[{{\"Day\":1,\"Spots\":[{{\"Id\":\"osm:N1\",\"Name\":\"Lake\",\"VisitMinutes\":60}}]}}],\"Settings\":{{\"DayLimitMinutes\":400}}}}";
+        var json = $"{{\"Version\":2,\"CITYKEY\":502141,\"CITYNAME\":\"Nainital\",\"Days\":[{{\"Day\":1,\"Spots\":[{{\"Id\":\"osm:N1\",\"Name\":\"Lake\",\"VisitMinutes\":60}}]}}],\"Settings\":{{\"DayLimitMinutes\":400}}}}";
 
         var plan = JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options)!;
 
-        Assert.Equal(CityId, plan.CityId);
+        Assert.Equal(502141L, plan.CityKey);
         Assert.Equal("Nainital", plan.CityName);
         Assert.Equal("Lake", plan.Days[0].Spots[0].Name);
         Assert.Equal(400, plan.Settings.DayLimitMinutes);

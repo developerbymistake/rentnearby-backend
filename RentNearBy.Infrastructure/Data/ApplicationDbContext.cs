@@ -1497,6 +1497,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
             e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
             e.Property(t => t.UpdatedAt).HasDefaultValueSql("now()");
+            e.ToTable(t => t.HasCheckConstraint("ck_trips_citykey_positive", "\"CityKey\" > 0"));
+            e.Property(t => t.CityKey).IsRequired();
             e.Property(t => t.CityName).HasMaxLength(120);
             e.Property(t => t.Title).HasMaxLength(80);
             e.Property(t => t.Status).HasMaxLength(16).HasDefaultValue(TripStatuses.Draft);
@@ -1506,10 +1508,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(t => t.OwnerUserId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasOne<City>()
-             .WithMany()
-             .HasForeignKey(t => t.CityId)
-             .OnDelete(DeleteBehavior.Restrict);
             e.HasOne<District>()
              .WithMany()
              .HasForeignKey(t => t.DistrictId)

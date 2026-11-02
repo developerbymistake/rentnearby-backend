@@ -39,9 +39,22 @@ Content-Type: application/json
 
 @userToken = <user-jwt>
 @cityId = <city-guid>
+@cityKey = 502141
 @tripId = <trip-guid>
 
-GET {{baseUrl}}/api/v1/trips/cities/{{cityId}}/spots?pageSize=20
+GET {{baseUrl}}/api/v1/trips/cities?page=1&pageSize=100
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+###
+
+GET {{baseUrl}}/api/v1/trips/cities/version
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+###
+
+GET {{baseUrl}}/api/v1/trips/cities/{{cityKey}}/spots?pageSize=20
 Authorization: Bearer {{userToken}}
 Accept: application/json
 
@@ -52,7 +65,7 @@ Authorization: Bearer {{userToken}}
 Content-Type: application/json
 
 {
-  "cityId": "{{cityId}}",
+  "cityKey": {{cityKey}},
   "mode": "auto",
   "spots": [
     { "id": "osm:W1001", "name": "Mall Road", "latitude": 29.3919, "longitude": 79.4542, "category": "attraction", "visitMinutes": 90 },
@@ -68,7 +81,7 @@ Authorization: Bearer {{userToken}}
 Content-Type: application/json
 
 {
-  "cityId": "{{cityId}}",
+  "cityKey": {{cityKey}},
   "mode": "recalculate",
   "days": [
     { "day": 1, "spots": [
@@ -93,9 +106,8 @@ Content-Type: application/json
 {
   "status": "Draft",
   "plan": {
-    "version": 1,
-    "cityId": "{{cityId}}",
-    "districtId": "<district-guid>",
+    "version": 2,
+    "cityKey": {{cityKey}},
     "cityName": "Nainital",
     "days": [
       { "day": 1, "spots": [
@@ -122,9 +134,8 @@ Content-Type: application/json
   "title": "Nainital weekend",
   "status": "Planned",
   "plan": {
-    "version": 1,
-    "cityId": "{{cityId}}",
-    "districtId": "<district-guid>",
+    "version": 2,
+    "cityKey": {{cityKey}},
     "cityName": "Nainital",
     "days": [
       { "day": 1, "spots": [

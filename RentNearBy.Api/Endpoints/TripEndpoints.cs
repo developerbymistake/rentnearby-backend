@@ -6,7 +6,9 @@ public static class TripEndpoints
 {
     public static RouteGroupBuilder MapTripEndpoints(this RouteGroupBuilder group)
     {
-        group.MapGet("/cities/{cityId:guid}/spots", TripHandlers.GetCitySpots).RequireAuthorization();
+        group.MapGet("/cities", TripHandlers.GetCities).RequireAuthorization();
+        group.MapGet("/cities/version", TripHandlers.GetCitiesVersion).RequireAuthorization();
+        group.MapGet("/cities/{cityKey:long}/spots", TripHandlers.GetCitySpots).RequireAuthorization();
         group.MapPost("/plan", TripHandlers.Plan).RequireAuthorization();
 
         group.MapGet("/", TripHandlers.GetMine).RequireAuthorization();

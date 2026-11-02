@@ -29,7 +29,7 @@ public class TripSpotsPageDto
     public string? NextCursor { get; set; }
     public string Status { get; set; } = TripSpotStatuses.NotReady;
     public string CityName { get; set; } = string.Empty;
-    public long? CityKey { get; set; }
+    public long CityKey { get; set; }
     public int Total { get; set; }
     public DateTime? GeneratedAt { get; set; }
 }
@@ -81,10 +81,11 @@ public class TripDto
     public Guid Id { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Status { get; set; } = TripStatuses.Draft;
-    public Guid CityId { get; set; }
-    public Guid DistrictId { get; set; }
-    public long? CityKey { get; set; }
+    public long CityKey { get; set; }
     public string CityName { get; set; } = string.Empty;
+    public double CityLatitude { get; set; }
+    public double CityLongitude { get; set; }
+    public Guid? DistrictId { get; set; }
     public int DayCount { get; set; }
     public int SpotCount { get; set; }
     public TripPlan Plan { get; set; } = new();
@@ -112,4 +113,36 @@ public class TripListDto
 {
     public List<TripSummaryDto> Items { get; set; } = new();
     public bool HasMore { get; set; }
+}
+
+public class TripCityDto
+{
+    public long CityKey { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string DistrictName { get; set; } = string.Empty;
+    public string StateName { get; set; } = string.Empty;
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public string? ImageUrl { get; set; }
+    public string Status { get; set; } = TripSpotStatuses.NotReady;
+    public int SpotCount { get; set; }
+}
+
+public class TripCityPageDto
+{
+    public List<TripCityDto> Items { get; set; } = new();
+    public bool HasMore { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public string Version { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public bool Stale { get; set; }
+}
+
+public class TripCityVersionDto
+{
+    public string Version { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public bool Stale { get; set; }
 }

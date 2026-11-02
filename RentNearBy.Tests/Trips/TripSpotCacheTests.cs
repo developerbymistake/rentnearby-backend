@@ -25,6 +25,12 @@ public class TripSpotCacheTests
             Interlocked.Increment(ref Calls);
             return spots(cityKey);
         }
+
+        public Task<AtlasCityPage> SearchCitiesAsync(string? q, int page, int pageSize, bool readyOnly = false, CancellationToken ct = default)
+            => throw new NotSupportedException();
+
+        public Task<AtlasCatalogVersion> GetCatalogVersionAsync(CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 
     private static TripSpotCache Cache(IAtlasClient atlas)

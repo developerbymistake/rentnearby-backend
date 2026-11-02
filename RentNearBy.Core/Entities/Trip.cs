@@ -6,10 +6,13 @@ public class Trip
 {
     public Guid Id { get; set; }
     public Guid OwnerUserId { get; set; }
-    public Guid CityId { get; set; }
-    public Guid DistrictId { get; set; }
-    public long? CityKey { get; set; }
+    // Atlas city key = Wikidata item number.
+    public long CityKey { get; set; }
     public string CityName { get; set; } = string.Empty;
+    public double CityLatitude { get; set; }
+    public double CityLongitude { get; set; }
+    // Main DB district by point-in-polygon; null = outside every active district.
+    public Guid? DistrictId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Status { get; set; } = TripStatuses.Draft;
     public string PlanJson { get; set; } = "{}";

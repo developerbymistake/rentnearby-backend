@@ -46,6 +46,24 @@ public class AtlasClient : IAtlasClient
         return ParseData<AtlasCitySpots>(body);
     }
 
+    public async Task<AtlasCityPage> SearchCitiesAsync(string? q, int page, int pageSize, bool readyOnly = false, CancellationToken ct = default)
+    {
+        var path = $"api/v1/cities?page={page}&pageSize={pageSize}&ready={(readyOnly ? "true" : "false")}";
+        if (!string.IsNullOrWhiteSpace(q)) path += "&q=" + Uri.EscapeDataString(q);
+        var (status, body) = await GetAsync(path, ct);
+        if (status != HttpStatusCode.OK)
+            throw new AtlasUnavailableException($"Atlas cities answered {(int)status}");
+        return ParseData<AtlasCityPage>(body);
+    }
+
+    public async Task<AtlasCatalogVersion> GetCatalogVersionAsync(CancellationToken ct = default)
+    {
+        var (status, body) = await GetAsync("api/v1/cities/version", ct);
+        if (status != HttpStatusCode.OK)
+            throw new AtlasUnavailableException($"Atlas cities version answered {(int)status}");
+        return ParseData<AtlasCatalogVersion>(body);
+    }
+
     private async Task<(HttpStatusCode Status, string Body)> GetAsync(string path, CancellationToken ct)
     {
         if (!IsConfigured) throw new AtlasUnavailableException("Atlas is not configured");

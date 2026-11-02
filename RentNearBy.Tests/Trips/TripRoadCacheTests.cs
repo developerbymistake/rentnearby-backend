@@ -124,7 +124,23 @@ public class TripRoadCacheTests
     private static TripPlannerService Planner(FakeOsrm osrm, ITripRoadCache cache, TripPlannerOptions? o = null)
         => new(osrm, cache, Options.Create(o ?? new TripPlannerOptions()), NullLogger<TripPlannerService>.Instance);
 
-    private static City City() => new() { Id = Guid.NewGuid(), Name = "Nainital", Latitude = 29.38m, Longitude = 79.45m, CityKey = Key };
+    private static TripCityInfo City() => new() { CityKey = Key, Name = "Nainital", Latitude = 29.38, Longitude = 79.45 };
+
+    private sealed class FakeCatalog : ITripCityCatalog
+    {
+        public int Invalidated;
+
+        public Task<TripCityCatalogSnapshot?> GetAsync(CancellationToken ct = default) => Task.FromResult<TripCityCatalogSnapshot?>(null);
+
+        public Task<(bool Available, TripCityInfo? City)> FindAsync(long cityKey, CancellationToken ct = default)
+            => Task.FromResult<(bool, TripCityInfo?)>((false, null));
+
+        public Task InvalidateAsync()
+        {
+            Interlocked.Increment(ref Invalidated);
+            return Task.CompletedTask;
+        }
+    }
 
     private static PlanTripRequest Request(IEnumerable<TripSpotDto> spots) => new()
     {
@@ -332,13 +348,15 @@ public class TripRoadCacheTests
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection([new KeyValuePair<string, string?>("RABBITMQ_URL", "amqp://u:p@localhost:5672")])
             .Build();
-        var worker = new AtlasCityChangedWorkerService(spots, cache, config, NullLogger<AtlasCityChangedWorkerService>.Instance);
+        var catalog = new FakeCatalog();
+        var worker = new AtlasCityChangedWorkerService(spots, cache, catalog, config, NullLogger<AtlasCityChangedWorkerService>.Instance);
 
         await worker.InvalidateCityAsync(Key);
 
         Assert.False(redis.Has(TripCacheKeys.Matrix(Key)));
         Assert.False(redis.Has(TripCacheKeys.MatrixLock(Key)));
         Assert.Equal(1, spots.Invalidated);
+        Assert.Equal(1, catalog.Invalidated);
     }
 
     [Fact]

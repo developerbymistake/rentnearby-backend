@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261102113144_InitialCreate")]
+    [Migration("20261102163108_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -3399,11 +3399,14 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
-                    b.Property<Guid>("CityId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long?>("CityKey")
+                    b.Property<long>("CityKey")
                         .HasColumnType("bigint");
+
+                    b.Property<double>("CityLatitude")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("CityLongitude")
+                        .HasColumnType("double precision");
 
                     b.Property<string>("CityName")
                         .IsRequired()
@@ -3418,7 +3421,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<int>("DayCount")
                         .HasColumnType("integer");
 
-                    b.Property<Guid>("DistrictId")
+                    b.Property<Guid?>("DistrictId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("OwnerUserId")
@@ -3456,14 +3459,15 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CityId");
-
                     b.HasIndex("DistrictId");
 
                     b.HasIndex("OwnerUserId", "UpdatedAt")
                         .HasDatabaseName("ix_trips_owner_updated");
 
-                    b.ToTable("Trips");
+                    b.ToTable("Trips", t =>
+                        {
+                            t.HasCheckConstraint("ck_trips_citykey_positive", "\"CityKey\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
@@ -4275,17 +4279,10 @@ namespace RentNearBy.Infrastructure.Migrations
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Trip", b =>
                 {
-                    b.HasOne("RentNearBy.Core.Entities.City", null)
-                        .WithMany()
-                        .HasForeignKey("CityId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("RentNearBy.Core.Entities.District", null)
                         .WithMany()
                         .HasForeignKey("DistrictId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("RentNearBy.Core.Entities.User", "User")
                         .WithMany()

@@ -4,7 +4,7 @@ namespace RentNearBy.Core.DTOs.Requests;
 
 public class PlanTripRequest
 {
-    public Guid CityId { get; set; }
+    public long CityKey { get; set; }
     public string Mode { get; set; } = TripPlanModes.Auto;
     public List<PlanSpotInput>? Spots { get; set; }
     public List<PlanDayInput>? Days { get; set; }

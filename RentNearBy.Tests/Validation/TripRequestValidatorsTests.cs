@@ -9,8 +9,7 @@ public class TripRequestValidatorsTests
 {
     private static readonly PlanTripRequestValidator PlanValidator = new();
     private static readonly SaveTripRequestValidator SaveValidator = new();
-    private static readonly Guid CityId = Guid.Parse("11111111-2222-3333-4444-555555555555");
-    private static readonly Guid DistrictId = Guid.Parse("66666666-7777-8888-9999-000000000000");
+    private const long CityKey = 502141;
 
     private static PlanSpotInput Input(int i = 0) => new()
     {
@@ -24,12 +23,12 @@ public class TripRequestValidatorsTests
 
     private static PlanTripRequest Auto(int spots = 2) => new()
     {
-        CityId = CityId, Mode = TripPlanModes.Auto, Spots = Enumerable.Range(0, spots).Select(Input).ToList(),
+        CityKey = CityKey, Mode = TripPlanModes.Auto, Spots = Enumerable.Range(0, spots).Select(Input).ToList(),
     };
 
     private static PlanTripRequest Recalc(params int[] spotsPerDay) => new()
     {
-        CityId = CityId,
+        CityKey = CityKey,
         Mode = TripPlanModes.Recalculate,
         Days = spotsPerDay.Select((count, d) => new PlanDayInput
         {
@@ -43,8 +42,7 @@ public class TripRequestValidatorsTests
         Status = status,
         Plan = new TripPlan
         {
-            CityId = CityId,
-            DistrictId = DistrictId,
+            CityKey = CityKey,
             Days = (spotsPerDay.Length == 0 ? new[] { 1 } : spotsPerDay).Select((count, d) => new TripDay
             {
                 Day = d + 1,
@@ -67,9 +65,9 @@ public class TripRequestValidatorsTests
     public void Plan_EmptyCity_Invalid()
     {
         var request = Auto();
-        request.CityId = Guid.Empty;
+        request.CityKey = 0;
 
-        PlanValidator.TestValidate(request).ShouldHaveValidationErrorFor(x => x.CityId);
+        PlanValidator.TestValidate(request).ShouldHaveValidationErrorFor(x => x.CityKey);
     }
 
     [Fact]
@@ -329,22 +327,21 @@ public class TripRequestValidatorsTests
     public void Save_WrongVersion_Invalid()
     {
         var request = Save();
-        request.Plan.Version = 2;
+        request.Plan.Version = 1;
 
         ValidationAssert.HasMessage(SaveValidator.Validate(request), "Unsupported plan version");
     }
 
     [Fact]
-    public void Save_EmptyCityOrDistrict_Invalid()
+    public void Save_ZeroCityKey_Invalid()
     {
         var request = Save();
-        request.Plan.CityId = Guid.Empty;
-        request.Plan.DistrictId = Guid.Empty;
+        request.Plan.CityKey = 0;
 
         var result = SaveValidator.Validate(request);
 
         ValidationAssert.HasMessage(result, "City is required");
-        ValidationAssert.HasMessage(result, "District is required");
+        Assert.Single(result.Errors);
     }
 
     [Fact]

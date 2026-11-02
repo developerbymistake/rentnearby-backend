@@ -1345,10 +1345,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     OwnerUserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    CityId = table.Column<Guid>(type: "uuid", nullable: false),
-                    DistrictId = table.Column<Guid>(type: "uuid", nullable: false),
-                    CityKey = table.Column<long>(type: "bigint", nullable: true),
+                    CityKey = table.Column<long>(type: "bigint", nullable: false),
                     CityName = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
+                    CityLatitude = table.Column<double>(type: "double precision", nullable: false),
+                    CityLongitude = table.Column<double>(type: "double precision", nullable: false),
+                    DistrictId = table.Column<Guid>(type: "uuid", nullable: true),
                     Title = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: false),
                     Status = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "Draft"),
                     PlanJson = table.Column<string>(type: "jsonb", nullable: false),
@@ -1361,12 +1362,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Trips", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_Trips_Cities_CityId",
-                        column: x => x.CityId,
-                        principalTable: "Cities",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
+                    table.CheckConstraint("ck_trips_citykey_positive", "\"CityKey\" > 0");
                     table.ForeignKey(
                         name: "FK_Trips_Districts_DistrictId",
                         column: x => x.DistrictId,
@@ -2839,11 +2835,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "TaxiVehicleTypes",
                 column: "Name",
                 unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Trips_CityId",
-                table: "Trips",
-                column: "CityId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Trips_DistrictId",

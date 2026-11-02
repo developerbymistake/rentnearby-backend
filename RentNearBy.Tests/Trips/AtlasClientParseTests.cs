@@ -18,6 +18,14 @@ public class AtlasClientParseTests
             "rank":1,"imageUrl":"https://img/x.jpg","imageCredit":"A","imageLicense":"CC BY-SA 4.0"}]}}
         """;
 
+    private const string CityPageBody = """
+        {"status":"200","code":200,"timestamp":1793613600,"error":null,
+         "data":{"items":[{"cityKey":502141,"wikidataId":"Q502141","name":"Rishikesh","districtName":"Dehradun","stateName":"Uttarakhand",
+           "latitude":30.1,"longitude":78.3,"imageUrl":null,"imageCredit":null,"imageLicense":null,
+           "isTripEnabled":true,"status":"Ready","spotCount":37,"updatedAt":"2026-11-03T08:00:00Z"}],
+          "hasMore":false,"catalogUpdatedAt":"2026-11-03T08:00:00Z","catalogCount":42}}
+        """;
+
     private sealed class StubHandler(HttpStatusCode status, string body) : HttpMessageHandler
     {
         public HttpRequestMessage? LastRequest;
@@ -104,5 +112,65 @@ public class AtlasClientParseTests
         Assert.False(client.IsConfigured);
         await Assert.ThrowsAsync<AtlasUnavailableException>(() => client.GetCitySpotsAsync(1L));
         Assert.Null(handler.LastRequest);
+    }
+
+    [Fact]
+    public void ParseData_CityPage()
+    {
+        var page = AtlasClient.ParseData<AtlasCityPage>(CityPageBody);
+
+        var city = Assert.Single(page.Items);
+        Assert.Equal(502141L, city.CityKey);
+        Assert.Equal("Q502141", city.WikidataId);
+        Assert.Equal("Rishikesh", city.Name);
+        Assert.Equal("Dehradun", city.DistrictName);
+        Assert.Equal("Uttarakhand", city.StateName);
+        Assert.Equal(30.1, city.Latitude);
+        Assert.Equal(78.3, city.Longitude);
+        Assert.True(city.IsTripEnabled);
+        Assert.Equal("Ready", city.Status);
+        Assert.Equal(37, city.SpotCount);
+        Assert.False(page.HasMore);
+        Assert.Equal(new DateTime(2026, 11, 3, 8, 0, 0, DateTimeKind.Utc), page.CatalogUpdatedAt.ToUniversalTime());
+        Assert.Equal(42, page.CatalogCount);
+    }
+
+    [Fact]
+    public async Task SearchCities_SendsKeyAndQuery()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, CityPageBody);
+
+        await Client(handler).SearchCitiesAsync("rish", 2, 200);
+
+        Assert.Equal("https://atlas.test/api/v1/cities?page=2&pageSize=200&ready=false&q=rish", handler.LastRequest!.RequestUri!.ToString());
+        Assert.Equal("k123", Assert.Single(handler.LastRequest.Headers.GetValues("X-Atlas-Api-Key")));
+    }
+
+    [Fact]
+    public async Task SearchCities_BlankQ_OmitsQ()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, CityPageBody);
+
+        await Client(handler).SearchCitiesAsync("  ", 1, 50, readyOnly: true);
+
+        Assert.Equal("https://atlas.test/api/v1/cities?page=1&pageSize=50&ready=true", handler.LastRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task SearchCities_NotFound_Throws()
+        => await Assert.ThrowsAsync<AtlasUnavailableException>(() =>
+            Client(new StubHandler(HttpStatusCode.NotFound, "{}")).SearchCitiesAsync(null, 1, 200));
+
+    [Fact]
+    public async Task GetCatalogVersion_Parses()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK,
+            """{"status":"200","code":200,"data":{"updatedAt":"2026-11-03T08:00:00Z","count":42}}""");
+
+        var version = await Client(handler).GetCatalogVersionAsync();
+
+        Assert.Equal("https://atlas.test/api/v1/cities/version", handler.LastRequest!.RequestUri!.ToString());
+        Assert.Equal(new DateTime(2026, 11, 3, 8, 0, 0, DateTimeKind.Utc), version.UpdatedAt.ToUniversalTime());
+        Assert.Equal(42, version.Count);
     }
 }

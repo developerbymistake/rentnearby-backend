@@ -349,10 +349,6 @@ public static class AdminHandlers
         if (await db.RoomListings.AnyAsync(l => l.CityId == id && l.IsActive))
             return BadRequestResponse("Cannot delete city with active listings");
 
-        // Trip.CityId is FK Restrict.
-        if (await db.Trips.AnyAsync(t => t.CityId == id))
-            return BadRequestResponse("Cannot delete city with trips");
-
         await unitOfWork.Cities.DeleteAsync(city);
         await unitOfWork.SaveChangesAsync();
 

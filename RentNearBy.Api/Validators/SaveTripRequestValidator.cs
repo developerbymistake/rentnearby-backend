@@ -25,9 +25,8 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
 
         When(x => x.Plan != null, () =>
         {
-            RuleFor(x => x.Plan.Version).Equal(1).WithMessage("Unsupported plan version");
-            RuleFor(x => x.Plan.CityId).NotEmpty().WithMessage("City is required");
-            RuleFor(x => x.Plan.DistrictId).NotEmpty().WithMessage("District is required");
+            RuleFor(x => x.Plan.Version).Equal(TripPlan.CurrentVersion).WithMessage("Unsupported plan version");
+            RuleFor(x => x.Plan.CityKey).GreaterThan(0).WithMessage("City is required");
 
             RuleFor(x => x.Plan.Settings).NotNull().WithMessage("Plan settings are required");
             RuleFor(x => x.Plan.Settings.DayLimitMinutes)

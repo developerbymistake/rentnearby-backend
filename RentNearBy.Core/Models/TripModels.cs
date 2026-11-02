@@ -37,6 +37,7 @@ public static class TripErrorTypes
     public const string TripPlannerDisabled = "TripPlannerDisabled";
     public const string CityNotFound = "CityNotFound";
     public const string TooManySpots = "TooManySpots";
+    public const string CitiesUnavailable = "TripCitiesUnavailable";
 }
 
 // Hard caps; TripPlannerOptions can only lower them.
@@ -53,6 +54,9 @@ public static class TripCacheKeys
     public static string Lock(long key) => $"trip:spots:{key}:lock";
     public static string Matrix(long key) => $"trip:matrix:{key}";
     public static string MatrixLock(long key) => $"trip:matrix:{key}:lock";
+    public const string CityCatalog = "trip:cities:catalog";
+    public const string CityCatalogStale = "trip:cities:catalog:stale";
+    public const string CityCatalogLock = "trip:cities:catalog:lock";
 
     // sha256 of the ordered "lon,lat" list (5 decimals), so the same stops share one geometry.
     public static string Route(IReadOnlyList<(double Lat, double Lon)> points)
@@ -90,13 +94,13 @@ public static class TripJson
 
 public sealed class AtlasUnavailableException(string message) : Exception(message);
 
-// PlanJson v1 (Trip.PlanJson, serialized with TripJson.Options).
+// PlanJson v2 (Trip.PlanJson, serialized with TripJson.Options).
 public sealed class TripPlan
 {
-    public int Version { get; set; } = 1;
-    public Guid CityId { get; set; }
-    public Guid DistrictId { get; set; }
-    public long? CityKey { get; set; }
+    public const int CurrentVersion = 2;
+    public int Version { get; set; } = CurrentVersion;
+    public long CityKey { get; set; }
+    public Guid? DistrictId { get; set; }
     public string CityName { get; set; } = string.Empty;
     public double? CentreLatitude { get; set; }
     public double? CentreLongitude { get; set; }
@@ -170,6 +174,71 @@ public sealed class AtlasCitySpots
     public DateTime? GeneratedAt { get; set; }
     public int SpotCount { get; set; }
     public List<TripSpotDto> Spots { get; set; } = new();
+}
+
+// Atlas CityDto.
+public sealed class AtlasCity
+{
+    public long CityKey { get; set; }
+    public string WikidataId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string DistrictName { get; set; } = string.Empty;
+    public string StateName { get; set; } = string.Empty;
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public string? ImageUrl { get; set; }
+    public string? ImageCredit { get; set; }
+    public string? ImageLicense { get; set; }
+    public bool IsTripEnabled { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public int SpotCount { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+// Atlas TripCityPageDto.
+public sealed class AtlasCityPage
+{
+    public List<AtlasCity> Items { get; set; } = new();
+    public bool HasMore { get; set; }
+    public DateTime CatalogUpdatedAt { get; set; }
+    public int CatalogCount { get; set; }
+}
+
+// Atlas /cities/version.
+public sealed class AtlasCatalogVersion
+{
+    public DateTime UpdatedAt { get; set; }
+    public int Count { get; set; }
+}
+
+// Redis value of TripCacheKeys.CityCatalog / CityCatalogStale, and the in-process copy.
+public sealed class TripCityCatalogSnapshot
+{
+    public string Version { get; set; } = string.Empty;
+    public DateTime UpdatedAt { get; set; }
+    public int Count { get; set; }
+    public DateTime FetchedAt { get; set; }
+    // True only on the served-from-stale path, never stored true.
+    public bool IsStale { get; set; }
+    // Ordered by Name (OrdinalIgnoreCase), then CityKey.
+    public List<TripCityInfo> Cities { get; set; } = new();
+
+    // "<unix ms of UpdatedAt>-<count>"; the app compares it as an opaque string.
+    public static string VersionOf(DateTime updatedAtUtc, int count)
+        => $"{new DateTimeOffset(DateTime.SpecifyKind(updatedAtUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds()}-{count}";
+}
+
+public sealed class TripCityInfo
+{
+    public long CityKey { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string DistrictName { get; set; } = string.Empty;
+    public string StateName { get; set; } = string.Empty;
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public string? ImageUrl { get; set; }
+    public string Status { get; set; } = TripSpotStatuses.NotReady;
+    public int SpotCount { get; set; }
 }
 
 // n x n, indexed like the spot list; null cells become estimates.

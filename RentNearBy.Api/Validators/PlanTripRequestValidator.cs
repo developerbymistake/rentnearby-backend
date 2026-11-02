@@ -20,7 +20,7 @@ public class PlanTripRequestValidator : AbstractValidator<PlanTripRequest>
     {
         var maxSpots = Math.Clamp(options?.Value.MaxSpotsPerTrip ?? TripLimits.MaxSpots, 1, TripLimits.MaxSpots);
 
-        RuleFor(x => x.CityId).NotEmpty().WithMessage("City is required");
+        RuleFor(x => x.CityKey).GreaterThan(0).WithMessage("City is required");
 
         RuleFor(x => x.Mode)
             .Must(m => m != null && TripPlanModes.All.Contains(m)).WithMessage("Invalid plan mode");

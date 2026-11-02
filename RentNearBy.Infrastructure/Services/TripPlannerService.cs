@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
-using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 
@@ -10,7 +9,7 @@ namespace RentNearBy.Infrastructure.Services;
 
 public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOptions<TripPlannerOptions> options, ILogger<TripPlannerService> logger) : ITripPlannerService
 {
-    public async Task<TripPlanResultDto> PlanAsync(City city, PlanTripRequest request, CancellationToken ct = default)
+    public async Task<TripPlanResultDto> PlanAsync(TripCityInfo city, PlanTripRequest request, CancellationToken ct = default)
     {
         var o = options.Value;
         var limit = request.DayLimitMinutes ?? o.DayLimitMinutes;
@@ -28,13 +27,8 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
             .DistinctBy(s => s.Id)
             .ToList();
 
-        double? centreLat = city.Latitude.HasValue && city.Longitude.HasValue ? (double)city.Latitude.Value : null;
-        double? centreLon = city.Latitude.HasValue && city.Longitude.HasValue ? (double)city.Longitude.Value : null;
-        if (centreLat == null && allSpots.Count > 0)
-        {
-            centreLat = allSpots.Average(s => s.Latitude);
-            centreLon = allSpots.Average(s => s.Longitude);
-        }
+        var centreLat = city.Latitude;
+        var centreLon = city.Longitude;
 
         RoadMatrix? raw = null;
         if (allSpots.Count >= 2 && osrm.IsConfigured)
@@ -49,7 +43,7 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
 
         var result = recalculate
             ? DaySplitter.Recalculate(days, limit, request.StartDate, matrix, allSpots)
-            : DaySplitter.Split(new SplitInput(allSpots, centreLat ?? 0, centreLon ?? 0, limit, request.StartDate, maxDays), matrix);
+            : DaySplitter.Split(new SplitInput(allSpots, centreLat, centreLon, limit, request.StartDate, maxDays), matrix);
 
         warnings.AddRange(result.Warnings.Select(w => new TripWarningDto { Code = w.Code, Message = w.Message, SpotId = w.SpotId, Day = w.Day }));
 
@@ -91,16 +85,15 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
         }
 
         dto.Warnings = warnings;
-        logger.LogDebug("trip.plan {Mode} city={CityId} spots={Spots} days={Days} osrm={Osrm}",
-            request.Mode, city.Id, allSpots.Count, dto.Days.Count, osrmAvailable);
+        logger.LogDebug("trip.plan {Mode} city={CityKey} spots={Spots} days={Days} osrm={Osrm}",
+            request.Mode, city.CityKey, allSpots.Count, dto.Days.Count, osrmAvailable);
         return dto;
     }
 
     // null when the city has no cached matrix or a chosen spot is not in it.
-    private async Task<RoadMatrix?> CityMatrixSliceAsync(City city, List<TripSpot> spots, CancellationToken ct)
+    private async Task<RoadMatrix?> CityMatrixSliceAsync(TripCityInfo city, List<TripSpot> spots, CancellationToken ct)
     {
-        if (city.CityKey == null) return null;
-        var matrix = await roadCache.GetCityMatrixAsync(city.CityKey.Value, ct);
+        var matrix = await roadCache.GetCityMatrixAsync(city.CityKey, ct);
         return matrix?.Slice(spots.Select(s => s.Id).ToList());
     }
 

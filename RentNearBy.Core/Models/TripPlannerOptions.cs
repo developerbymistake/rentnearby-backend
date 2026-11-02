@@ -20,6 +20,14 @@ public sealed class TripPlannerOptions
     public int RouteCacheTtlDays { get; set; } = 7;
     // A city with more spots than this skips the cached matrix and uses the direct table.
     public int CityMatrixMaxSpots { get; set; } = 300;
+    public int CityCatalogTtlHours { get; set; } = 6;
+    public int CityCatalogStaleTtlDays { get; set; } = 7;
+    public int CityCatalogRevalidateSeconds { get; set; } = 300;
+    // Atlas clamps to 200.
+    public int CityCatalogPageSize { get; set; } = 200;
+    public int CityCatalogMaxPages { get; set; } = 50;
+    // Default page of GET /trips/cities.
+    public int CitiesPageSize { get; set; } = 100;
 }
 
 // Config section "Atlas"; env ATLAS_BASE_URL / ATLAS_API_KEY fill empty values.

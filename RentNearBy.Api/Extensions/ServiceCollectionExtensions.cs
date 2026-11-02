@@ -66,6 +66,10 @@ public static class ServiceCollectionExtensions
         services.PostConfigure<TripPlannerOptions>(o =>
         {
             if (bool.TryParse(configuration["TRIP_PLANNER_ENABLED"], out var enabled)) o.Enabled = enabled;
+            o.CityCatalogPageSize = Math.Clamp(o.CityCatalogPageSize, 1, 200);
+            o.CityCatalogMaxPages = Math.Clamp(o.CityCatalogMaxPages, 1, 500);
+            o.CityCatalogRevalidateSeconds = Math.Clamp(o.CityCatalogRevalidateSeconds, 30, 3600);
+            o.CitiesPageSize = Math.Clamp(o.CitiesPageSize, 1, 200);
         });
         services.Configure<AtlasOptions>(configuration.GetSection(AtlasOptions.Section));
         services.PostConfigure<AtlasOptions>(o =>
@@ -82,6 +86,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<IAtlasClient, AtlasClient>().RedactLoggedHeaders(new[] { "X-Atlas-Api-Key" });
         services.AddHttpClient<IOsrmClient, OsrmClient>();
         services.AddSingleton<ITripSpotCache, TripSpotCache>();
+        services.AddSingleton<ITripCityCatalog, TripCityCatalog>();
         services.AddSingleton<ITripRoadCache, TripRoadCache>();
         services.AddScoped<ITripPlannerService, TripPlannerService>();
         // Consumes the atlas.city.changed fanout on queue atlas.city.changed.rentnearby.
