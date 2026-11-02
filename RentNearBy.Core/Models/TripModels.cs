@@ -160,28 +160,6 @@ public sealed class CachedCitySpots
 
 public sealed record AtlasCityChangedMessage(long CityKey, DateTime ChangedAt);
 
-public sealed class AtlasExportCity
-{
-    public long CityKey { get; set; }
-    public int SeedIndex { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public Guid? DistrictId { get; set; }
-    public string DistrictName { get; set; } = string.Empty;
-    public string StateName { get; set; } = string.Empty;
-    public double Latitude { get; set; }
-    public double Longitude { get; set; }
-    public string SeedStatus { get; set; } = string.Empty;
-    public string? ImageUrl { get; set; }
-    public bool IsTripEnabled { get; set; }
-}
-
-public sealed class AtlasExportPage
-{
-    public List<AtlasExportCity> Items { get; set; } = new();
-    public bool HasMore { get; set; }
-    public long NextAfter { get; set; }
-}
-
 // Atlas CitySpotsDto.
 public sealed class AtlasCitySpots
 {

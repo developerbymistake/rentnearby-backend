@@ -30,8 +30,6 @@ public sealed class AtlasOptions
     public string? BaseUrl { get; set; }
     public string? ApiKey { get; set; }
     public int TimeoutSeconds { get; set; } = 15;
-    public int SeedRetries { get; set; } = 3;
-    public int SeedPageSize { get; set; } = 5000;
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(BaseUrl) && !string.IsNullOrWhiteSpace(ApiKey);
 }

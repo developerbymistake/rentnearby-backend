@@ -20,9 +20,6 @@ public class TripSpotCacheTests
         public int Calls;
         public bool IsConfigured => configured;
 
-        public Task<AtlasExportPage> ExportCitiesAsync(long after, int limit, CancellationToken ct = default)
-            => throw new NotSupportedException();
-
         public Task<AtlasCitySpots?> GetCitySpotsAsync(long cityKey, CancellationToken ct = default)
         {
             Interlocked.Increment(ref Calls);

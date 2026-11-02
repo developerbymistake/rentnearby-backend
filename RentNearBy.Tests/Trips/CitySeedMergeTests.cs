@@ -26,26 +26,6 @@ public class CitySeedMergeTests
     }
 
     [Fact]
-    public void AtlasRows_KeepOkAndDuplicate_SkipRest()
-    {
-        var items = new[]
-        {
-            new AtlasExportCity { CityKey = 110000001, Name = "Nainital", DistrictName = "Nainital", SeedStatus = "Ok" },
-            new AtlasExportCity { CityKey = 110000003, Name = "Bhowali", DistrictName = "Nainital", SeedStatus = "Duplicate" },
-            new AtlasExportCity { CityKey = 110000005, Name = "Ramgarh", DistrictName = "Nowhere", SeedStatus = "NoDistrict" },
-            new AtlasExportCity { CityKey = 110000007, Name = "Aurangabad", DistrictName = "Aurangabad", SeedStatus = "AmbiguousDistrict" },
-        };
-
-        var rows = DataSeeder.RowsFromAtlas(items).ToList();
-
-        Assert.Equal(new long[] { 110000001, 110000003 }, rows.Select(r => r.CityKey).ToArray());
-    }
-
-    [Fact]
-    public void AtlasRows_NullItems_Empty()
-        => Assert.Empty(DataSeeder.RowsFromAtlas(null));
-
-    [Fact]
     public void MatchKey_IgnoresCaseAndSpaces()
         => Assert.Equal(DataSeeder.MatchKey(" Nainital ", "BHOWALI"), DataSeeder.MatchKey("nainital", "bhowali"));
 

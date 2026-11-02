@@ -141,11 +141,7 @@ using (var scope = app.Services.CreateScope())
             Console.WriteLine("[STARTUP] Migrations applied. Running seeder...");
         }
 
-        await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(
-            db,
-            scope.ServiceProvider.GetRequiredService<RentNearBy.Core.Interfaces.IAtlasClient>(),
-            scope.ServiceProvider.GetRequiredService<ILogger<Program>>(),
-            scope.ServiceProvider.GetRequiredService<IOptions<AtlasOptions>>().Value);
+        await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db, scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
         Console.WriteLine("[STARTUP] Seeder complete.");
     }
     catch (Exception ex)
@@ -196,7 +192,7 @@ using (var scope = app.Services.CreateScope())
     // Trip Planner: non-fatal, surfaced at GET /health as atlas / osrm.
     if (!scope.ServiceProvider.GetRequiredService<IOptions<AtlasOptions>>().Value.IsConfigured)
         playLogger.LogError(
-            "Atlas is not configured (ATLAS_BASE_URL / ATLAS_API_KEY) — trip places come from the embedded seed only and /trips spots answer SpotsUnavailable.");
+            "Atlas is not configured (ATLAS_BASE_URL / ATLAS_API_KEY): /trips spots answer SpotsUnavailable.");
     if (!scope.ServiceProvider.GetRequiredService<IOptions<OsrmOptions>>().Value.IsConfigured)
         playLogger.LogWarning(
             "OSRM is not configured (OSRM_URL) — trip road times are straight-line estimates and maps draw straight lines.");

@@ -8,16 +8,6 @@ namespace RentNearBy.Tests.Trips;
 
 public class AtlasClientParseTests
 {
-    private const string ExportBody = """
-        {"status":"200","code":200,"timestamp":1793613600,"error":null,
-         "data":{"items":[
-           {"cityKey":110000001,"seedIndex":0,"name":"Nainital","districtId":"6f1c2a52-6a3c-4a0e-9b3e-3f1f7d2b9a10","districtName":"Nainital",
-            "stateName":"Uttarakhand","latitude":29.3919,"longitude":79.4542,"seedStatus":"Ok","imageUrl":null,"isTripEnabled":true},
-           {"cityKey":110000003,"seedIndex":1,"name":"Bhowali","districtId":null,"districtName":"Nainital",
-            "stateName":"Uttarakhand","latitude":29.38,"longitude":79.51,"seedStatus":"Duplicate","imageUrl":null,"isTripEnabled":false}],
-          "hasMore":true,"nextAfter":110000003}}
-        """;
-
     private const string SpotsBody = """
         {"status":"200","code":200,"timestamp":1793613600,"error":null,
          "data":{"cityKey":110000001,"cityName":"Nainital","districtName":"Nainital","stateName":"Uttarakhand",
@@ -45,26 +35,6 @@ public class AtlasClientParseTests
     private static AtlasClient Client(HttpMessageHandler handler, string? baseUrl = "https://atlas.test", string? apiKey = "k123")
         => new(new HttpClient(handler), Options.Create(new AtlasOptions { BaseUrl = baseUrl, ApiKey = apiKey }),
             NullLogger<AtlasClient>.Instance);
-
-    [Fact]
-    public void ParseData_ExportPage()
-    {
-        var page = AtlasClient.ParseData<AtlasExportPage>(ExportBody);
-
-        Assert.True(page.HasMore);
-        Assert.Equal(110000003L, page.NextAfter);
-        Assert.Equal(2, page.Items.Count);
-        var first = page.Items[0];
-        Assert.Equal(110000001L, first.CityKey);
-        Assert.Equal(0, first.SeedIndex);
-        Assert.Equal("Nainital", first.Name);
-        Assert.Equal("Nainital", first.DistrictName);
-        Assert.Equal(29.3919, first.Latitude);
-        Assert.Equal("Ok", first.SeedStatus);
-        Assert.True(first.IsTripEnabled);
-        Assert.Null(page.Items[1].DistrictId);
-        Assert.Equal("Duplicate", page.Items[1].SeedStatus);
-    }
 
     [Fact]
     public void ParseData_CitySpots()
@@ -106,13 +76,13 @@ public class AtlasClientParseTests
     }
 
     [Fact]
-    public async Task ExportCities_SendsQuery()
+    public async Task GetCitySpots_BaseUrlWithTrailingSlash_KeepsPath()
     {
-        var handler = new StubHandler(HttpStatusCode.OK, ExportBody);
+        var handler = new StubHandler(HttpStatusCode.OK, SpotsBody);
 
-        await Client(handler).ExportCitiesAsync(110000001L, 5000);
+        await Client(handler, baseUrl: " https://atlas.test/ ").GetCitySpotsAsync(110000001L);
 
-        Assert.Equal("https://atlas.test/api/v1/export/cities?after=110000001&limit=5000", handler.LastRequest!.RequestUri!.ToString());
+        Assert.Equal("https://atlas.test/api/v1/cities/110000001/spots", handler.LastRequest!.RequestUri!.ToString());
     }
 
     [Fact]

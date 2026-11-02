@@ -4,7 +4,6 @@ using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
-using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Utils;
 using System.Text.Json;
@@ -19,15 +18,12 @@ public static class DataSeeder
     internal sealed record CitySeedRow(long CityKey, string Name, string DistrictName, double Latitude, double Longitude, string SeedStatus);
 
     private const string SeedStatusOk = "Ok";
-    private const string SeedStatusDuplicate = "Duplicate";
-    private static readonly TimeSpan[] AtlasRetryDelays = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)];
 
     private static readonly JsonSerializerOptions CaseInsensitiveJson = new() { PropertyNameCaseInsensitive = true };
     private static readonly WKTReader WktReader = new();
 
-    public static async Task SeedAsync(ApplicationDbContext db, IAtlasClient atlas, ILogger logger, AtlasOptions? atlasOptions = null)
+    public static async Task SeedAsync(ApplicationDbContext db, ILogger logger)
     {
-        atlasOptions ??= new AtlasOptions();
         await SeedRoomTypesAsync(db);
         await SeedPlotTypesAsync(db);
         await SeedStayTypesAsync(db);
@@ -38,7 +34,7 @@ public static class DataSeeder
         await SeedQuestionTemplatesAsync(db);
         await SeedPlansAsync(db);
         await SeedDistrictsAsync(db);
-        await SeedCitiesAsync(db, atlas, logger, atlasOptions);
+        await SeedCitiesAsync(db, logger);
         await SeedAppFeatureFlagsAsync(db);
         await SeedAppTabsAsync(db);
         await SeedAppVersionConfigsAsync(db);
@@ -869,11 +865,11 @@ public static class DataSeeder
         Console.WriteLine($"[DataSeeder] District seeding complete. Seeded: {seeded}, Duplicates skipped: {skippedDuplicate}, Bad geometry: {skippedBadGeometry}");
     }
 
-    private static async Task SeedCitiesAsync(ApplicationDbContext db, IAtlasClient atlas, ILogger logger, AtlasOptions atlasOptions)
+    private static async Task SeedCitiesAsync(ApplicationDbContext db, ILogger logger)
     {
         if (await db.Cities.AnyAsync())
         {
-            await BackfillCityKeysAsync(db, atlas, logger, atlasOptions);
+            await BackfillCityKeysAsync(db, logger);
             return;
         }
 
@@ -906,14 +902,14 @@ public static class DataSeeder
             return;
         }
 
-        var (records, source) = await LoadAtlasOrFileAsync(atlas, logger, atlasOptions);
+        var records = await LoadFileRowsAsync();
         if (records.Count == 0)
         {
             Console.WriteLine("[DataSeeder] No city rows available — skipping city seeding.");
             return;
         }
 
-        Console.WriteLine($"[DataSeeder] Seeding {records.Count} cities (source={source})...");
+        Console.WriteLine($"[DataSeeder] Seeding {records.Count} cities (source=file)...");
 
         var batch = new List<City>(500);
         var seenCities = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // key: "{districtId}|{cityName}"
@@ -990,11 +986,11 @@ public static class DataSeeder
             db.ChangeTracker.AutoDetectChangesEnabled = true;
         }
 
-        Console.WriteLine($"[DataSeeder] City seeding complete (source={source}). Seeded: {seeded}, Skipped (no district): {skippedNoDistrict}, Skipped (ambiguous district): {skippedAmbiguous}, Skipped (duplicate): {skippedDuplicate}");
+        Console.WriteLine($"[DataSeeder] City seeding complete (source=file). Seeded: {seeded}, Skipped (no district): {skippedNoDistrict}, Skipped (ambiguous district): {skippedAmbiguous}, Skipped (duplicate): {skippedDuplicate}");
     }
 
     // One-time CityKey fill for a database seeded before the key existed; skips once any city has a key.
-    private static async Task BackfillCityKeysAsync(ApplicationDbContext db, IAtlasClient atlas, ILogger logger, AtlasOptions atlasOptions)
+    private static async Task BackfillCityKeysAsync(ApplicationDbContext db, ILogger logger)
     {
         if (await db.Cities.AnyAsync(c => c.CityKey != null)) return;
 
@@ -1012,7 +1008,7 @@ public static class DataSeeder
             .Select(g => g.Key)
             .ToHashSet();
 
-        var (rows, source) = await LoadAtlasOrFileAsync(atlas, logger, atlasOptions);
+        var rows = await LoadFileRowsAsync();
         var keys = MatchCityKeys(
             cities.Where(c => !ambiguousDistricts.Contains(c.DistrictName.Trim().ToLowerInvariant())).ToList(), rows);
 
@@ -1025,66 +1021,8 @@ public static class DataSeeder
             db.ChangeTracker.Clear();
         }
 
-        logger.LogInformation("seed.citykeys.backfill {Matched} {Unmatched} (source={Source})",
-            keys.Count, cities.Count - keys.Count, source);
-    }
-
-    // Atlas export when configured (each page retried), else the embedded cities.json with the same keys.
-    private static async Task<(List<CitySeedRow> Rows, string Source)> LoadAtlasOrFileAsync(IAtlasClient atlas, ILogger logger, AtlasOptions atlasOptions)
-    {
-        if (atlas.IsConfigured)
-        {
-            var fromAtlas = await LoadAtlasRowsAsync(atlas, logger, atlasOptions);
-            if (fromAtlas != null) return (fromAtlas, "atlas");
-        }
-        return (await LoadFileRowsAsync(), "file");
-    }
-
-    // null = a page kept failing (or the export was empty), so the caller falls back to the file.
-    private static async Task<List<CitySeedRow>?> LoadAtlasRowsAsync(IAtlasClient atlas, ILogger logger, AtlasOptions atlasOptions)
-    {
-        var pageSize = Math.Clamp(atlasOptions.SeedPageSize, 1, 5000);
-        var retries = Math.Max(atlasOptions.SeedRetries, 0);
-        var rows = new List<CitySeedRow>();
-        long after = 0;
-        while (true)
-        {
-            AtlasExportPage? page = null;
-            for (var attempt = 0; ; attempt++)
-            {
-                try
-                {
-                    page = await atlas.ExportCitiesAsync(after, pageSize);
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    if (attempt >= retries)
-                    {
-                        logger.LogWarning("seed.cities.atlas_failed after={After}: {Error}", after, ex.Message);
-                        return null;
-                    }
-                    await Task.Delay(AtlasRetryDelays[Math.Min(attempt, AtlasRetryDelays.Length - 1)]);
-                }
-            }
-
-            rows.AddRange(RowsFromAtlas(page.Items));
-
-            if (!page.HasMore) break;
-            if (page.NextAfter <= after)
-            {
-                logger.LogWarning("seed.cities.atlas_failed after={After}: cursor did not advance", after);
-                return null;
-            }
-            after = page.NextAfter;
-        }
-
-        if (rows.Count == 0)
-        {
-            logger.LogWarning("seed.cities.atlas_failed: export returned no usable rows");
-            return null;
-        }
-        return rows;
+        logger.LogInformation("seed.citykeys.backfill {Matched} {Unmatched} (source=file)",
+            keys.Count, cities.Count - keys.Count);
     }
 
     private static async Task<List<CitySeedRow>> LoadFileRowsAsync()
@@ -1101,7 +1039,7 @@ public static class DataSeeder
         return RowsFromFile(records ?? new List<CitySeedRecord?>());
     }
 
-    // Key = file index counted before any skip, so it equals Atlas's SeedIndex.
+    // Key = file index counted before any skip.
     internal static List<CitySeedRow> RowsFromFile(IReadOnlyList<CitySeedRecord?> records)
     {
         var rows = new List<CitySeedRow>(records.Count);
@@ -1113,11 +1051,6 @@ public static class DataSeeder
         }
         return rows;
     }
-
-    internal static IEnumerable<CitySeedRow> RowsFromAtlas(IEnumerable<AtlasExportCity>? items)
-        => (items ?? Enumerable.Empty<AtlasExportCity>())
-            .Where(c => c.SeedStatus == SeedStatusOk || c.SeedStatus == SeedStatusDuplicate)
-            .Select(c => new CitySeedRow(c.CityKey, c.Name, c.DistrictName, c.Latitude, c.Longitude, c.SeedStatus));
 
     internal static string MatchKey(string districtName, string name)
         => $"{districtName.Trim().ToLowerInvariant()}|{name.Trim().ToLowerInvariant()}";

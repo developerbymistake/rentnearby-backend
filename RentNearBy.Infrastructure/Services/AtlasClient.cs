@@ -37,14 +37,6 @@ public class AtlasClient : IAtlasClient
         IsConfigured = true;
     }
 
-    public async Task<AtlasExportPage> ExportCitiesAsync(long after, int limit, CancellationToken ct = default)
-    {
-        var (status, body) = await GetAsync($"api/v1/export/cities?after={after}&limit={limit}", ct);
-        if (status != HttpStatusCode.OK)
-            throw new AtlasUnavailableException($"Atlas export answered {(int)status}");
-        return ParseData<AtlasExportPage>(body);
-    }
-
     public async Task<AtlasCitySpots?> GetCitySpotsAsync(long cityKey, CancellationToken ct = default)
     {
         var (status, body) = await GetAsync($"api/v1/cities/{cityKey}/spots", ct);
