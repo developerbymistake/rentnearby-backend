@@ -3,6 +3,7 @@ using System.Text.Json;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using RentNearBy.Api.Validators;
@@ -11,7 +12,9 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -26,6 +29,9 @@ public static class TripHandlers
     private static readonly TimeSpan PlanWindow = TimeSpan.FromMinutes(1);
     private const int CitiesMaxPerWindow = 60;
     private static readonly TimeSpan CitiesWindow = TimeSpan.FromMinutes(1);
+    private const int SupplyMaxPerWindow = 60;
+    private static readonly TimeSpan SupplyWindow = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan SupplyTtl = TimeSpan.FromHours(1);
     private const int MaxCitiesPageSize = 200;
     private const int MaxCitySearchLength = 100;
     private const int MaxStateLength = 100;
@@ -148,6 +154,76 @@ public static class TripHandlers
             Total = total,
             GeneratedAt = cached.GeneratedAt,
         });
+    }
+
+    // Stays accepting guests and drivers with a day rate in the city's district; cached per city for an hour.
+    public static async Task<IResult> GetCitySupply(
+        long cityKey, ClaimsPrincipal principal, ITripCityCatalog catalog, IUnitOfWork unitOfWork, ApplicationDbContext db,
+        IRateLimitService rateLimiter, IMemoryCache memory, IServiceProvider sp, HttpContext httpContext)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+
+        var rl = await rateLimiter.CheckAsync($"trip:supply:{userId}", SupplyMaxPerWindow, SupplyWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)(rl.RetryAfter ?? SupplyWindow).TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
+        if (cityKey <= 0) return CityNotFound();
+
+        var key = TripCacheKeys.Supply(cityKey);
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        if (await ReadSupplyAsync(redis, memory, key) is { } cached) return OkResponse(cached);
+
+        var (available, city) = await catalog.FindAsync(cityKey);
+        city ??= await unitOfWork.Trips.FindCitySnapshotAsync(userId, cityKey);
+        if (city == null) return available ? CityNotFound() : CitiesUnavailable();
+
+        var supply = new TripCitySupplyDto
+        {
+            DistrictId = await unitOfWork.Districts.FindActiveContainingAsync(city.Latitude, city.Longitude),
+        };
+        if (supply.DistrictId is { } districtId)
+        {
+            supply.Stays = await db.StayListings.AsNoTracking().CountAsync(s =>
+                s.DistrictId == districtId && s.Status == StayStatuses.Approved && s.AcceptingGuests && !s.IsDeleted);
+            supply.Drivers = await db.TaxiListings.AsNoTracking().CountAsync(t =>
+                t.DistrictId == districtId && t.Status == TaxiStatuses.Approved && t.IsAvailable && !t.IsDeleted && t.LocalDayRate != null);
+        }
+
+        await WriteSupplyAsync(redis, memory, key, supply);
+        return OkResponse(supply);
+    }
+
+    private static async Task<TripCitySupplyDto?> ReadSupplyAsync(IConnectionMultiplexer? redis, IMemoryCache memory, string key)
+    {
+        if (redis == null) return memory.TryGetValue(key, out TripCitySupplyDto? local) ? local : null;
+        try
+        {
+            var value = await redis.GetDatabase().StringGetAsync(key);
+            return value.IsNullOrEmpty ? null : JsonSerializer.Deserialize<TripCitySupplyDto>(value.ToString(), TripJson.Options);
+        }
+        catch (Exception ex) when (ex is RedisException or TimeoutException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task WriteSupplyAsync(IConnectionMultiplexer? redis, IMemoryCache memory, string key, TripCitySupplyDto supply)
+    {
+        if (redis == null)
+        {
+            memory.Set(key, supply, SupplyTtl);
+            return;
+        }
+        try
+        {
+            await redis.GetDatabase().StringSetAsync(key, JsonSerializer.Serialize(supply, TripJson.Options), SupplyTtl);
+        }
+        catch (Exception ex) when (ex is RedisException or TimeoutException)
+        {
+            // Best effort: the next call counts again.
+        }
     }
 
     public static async Task<IResult> Plan(
@@ -291,7 +367,27 @@ public static class TripHandlers
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
         if (trip == null) return TripNotFound();
 
-        return OkResponse(await BuildDtoAsync(unitOfWork, trip, userId, DateTime.UtcNow));
+        await AdoptDistrictAsync(unitOfWork, trip);
+        var dto = await BuildDtoAsync(unitOfWork, trip, userId, DateTime.UtcNow);
+        dto.Plan.DistrictId ??= trip.DistrictId;
+        return OkResponse(dto);
+    }
+
+    // A district that went live after the trip was saved is picked up on read too; a found district is never re-resolved.
+    private static async Task AdoptDistrictAsync(IUnitOfWork unitOfWork, Trip trip)
+    {
+        if (trip.DistrictId != null) return;
+        var districtId = await unitOfWork.Districts.FindActiveContainingAsync(trip.CityLatitude, trip.CityLongitude);
+        if (districtId == null) return;
+        trip.DistrictId = districtId;
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // A parallel save won; that save resolves the district itself.
+        }
     }
 
     // The trip with its enquiries (newest first) and the derived booking state.
@@ -315,8 +411,13 @@ public static class TripHandlers
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
         if (trip == null) return TripNotFound();
 
-        // A Completed trip keeps its status; only the complete endpoint and the timer set it.
-        var status = trip.Status == TripStatuses.Completed ? TripStatuses.Completed : request.Status ?? trip.Status;
+        // An older app would drop fields of a newer plan version.
+        if (StoredPlanVersion(trip) > request.Plan.Version)
+            return ConflictResponse("Update the app to edit this trip.", TripEnquiryErrorTypes.TripNeedsUpdate);
+        if (trip.Status == TripStatuses.Completed)
+            return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
+
+        var status = request.Status ?? trip.Status;
         if (status == TripStatuses.Planned && request.Plan.Days.Sum(d => d.Spots.Count) == 0)
             return BadRequestResponse(PlanTripRequestValidator.NoPlacesMessage);
 
@@ -329,7 +430,7 @@ public static class TripHandlers
         plan.DistrictId = trip.DistrictId;
 
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, trip.CityName);
-        if (request.Status != null && trip.Status != TripStatuses.Completed) trip.Status = request.Status;
+        if (request.Status != null) trip.Status = request.Status;
         ApplyPlan(trip, plan);
         trip.UpdatedAt = DateTime.UtcNow;
 
@@ -407,6 +508,21 @@ public static class TripHandlers
         trip.EndDate = plan.EndDate;
     }
 
+    // Version of the stored plan only, so a document a newer app wrote is still recognised.
+    internal static int StoredPlanVersion(Trip trip)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(trip.PlanJson);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                   && doc.RootElement.TryGetProperty("version", out var v) && v.TryGetInt32(out var n) ? n : 0;
+        }
+        catch (JsonException)
+        {
+            return 0;
+        }
+    }
+
     internal static TripPlan ReadPlan(Trip trip)
     {
         try
@@ -480,6 +596,8 @@ public static class TripHandlers
             StaysTotal = counts.StaysTotal,
             TaxisConfirmed = counts.TaxisConfirmed,
             TaxisTotal = counts.TaxisTotal,
+            StaysOwn = counts.StaysOwn,
+            TaxisOwn = counts.TaxisOwn,
             AgreedTotal = counts.AgreedTotal,
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,

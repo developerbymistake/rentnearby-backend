@@ -69,6 +69,7 @@ public static class TripLifecycleHandlers
         var posts = new List<TripChatPost>();
         var pushes = new List<TripPendingPush>();
         var marked = false;
+        TripEnquiry? kept = null, failed = null;
         var log = new TripProblemLog
         {
             Id = Guid.NewGuid(),
@@ -86,16 +87,20 @@ public static class TripLifecycleHandlers
         try
         {
             db.TripProblemLogs.Add(log);
-            if (e != null && TripEnquiryStatuses.IsBooked(e.Status))
+            var tripStart = trip.StartDate ?? TripHandlers.ReadPlan(trip).Settings?.StartDate;
+            if (e != null && tripStart is { } start && TripEnquiryStatuses.IsBooked(e.Status)
+                && TripProblemSplit.Affects(e, start, request.Day))
             {
-                e.Status = TripEnquiryStatuses.Failed;
-                e.FailReason = TripProblemKinds.FailReasonOf(request.Kind);
-                e.UpdatedAt = now;
+                // Only nights/days from the reported day on fail; the ones already used stay booked.
+                (kept, failed) = TripProblemSplit.Plan(e, start, request.Day, now);
                 marked = true;
+                if (kept != null) db.TripEnquiries.Add(failed);
+                log.TripEnquiryId = failed.Id;
                 if (e.Kind == TripEnquiryKinds.Stay && e.ConversationId != null)
                 {
-                    await TripEnquiryOps.CloseOpenOfferAsync(db, chat, e, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
-                    await TripEnquiryOps.PostSystemAsync(db, chat, e, userId, TripSystemLines.ProblemHostNoRoom, posts);
+                    if (kept == null)
+                        await TripEnquiryOps.CloseOpenOfferAsync(db, chat, e, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
+                    await TripEnquiryOps.PostSystemAsync(db, chat, failed, userId, TripSystemLines.ProblemHostNoRoom, posts);
                 }
             }
             await db.SaveChangesAsync();
@@ -113,14 +118,15 @@ public static class TripLifecycleHandlers
         }
 
         loggers.CreateLogger("TripLifecycle").LogInformation("trip.problem {Kind} {TripId}", request.Kind, tripId);
-        if (marked && e != null)
-            pushes.Add(new TripPendingPush(e, e.OwnerUserId, TripNotifications.TripProblemReported));
+        if (marked && failed != null)
+            pushes.Add(new TripPendingPush(failed, failed.OwnerUserId, TripNotifications.TripProblemReported));
         await TripEnquiryHandlers.AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
 
         return CreatedResponse(new TripProblemResultDto
         {
             ProblemId = log.Id,
-            Enquiry = e == null ? null : await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, userId, now),
+            Enquiry = e == null ? null : await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, failed ?? e, userId, now),
+            KeptEnquiry = kept == null ? null : await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, kept, userId, now),
             Marked = marked,
         }, $"/api/v1/trips/{tripId}");
     }
@@ -140,7 +146,7 @@ public static class TripLifecycleHandlers
         if (trip.Status != TripStatuses.Completed)
         {
             if (!TripReminderRules.CanComplete(trip, TripExecutionRules.TodayIst(now)))
-                return ConflictResponse("You can mark the trip complete from its last day.", TripEnquiryErrorTypes.TripNotEnded);
+                return ConflictResponse("The trip has not started yet.", TripEnquiryErrorTypes.TripNotEnded);
 
             trip.Status = TripStatuses.Completed;
             trip.CompletedAt = now;
@@ -336,9 +342,18 @@ public static class TripSummaryRecordBuilder
             GeneratedAt = nowUtc,
         };
 
+        foreach (var day in plan.Days.OrderBy(d => d.Day))
+            record.Days.Add(new TripSummaryDayDto
+            {
+                Day = day.Day,
+                Date = start?.AddDays(day.Day - 1),
+                Spots = day.Spots.Select(s => s.Name).ToList(),
+                Minutes = day.Spots.Sum(s => s.VisitMinutes),
+            });
+
         var stays = dtos.Where(d => d.Kind == TripEnquiryKinds.Stay && IsListed(d.Status)).ToList();
         var shown = new HashSet<Guid>();
-        foreach (var day in plan.Days.Where(d => d.Day >= 1 && d.Day < plan.Days.Count).OrderBy(d => d.Day))
+        foreach (var day in plan.Days.Where(d => d.Day >= 1 && d.Day <= plan.Days.Count).OrderBy(d => d.Day))
         {
             var date = start?.AddDays(day.Day - 1);
             var match = Pick(stays.Where(d => Covers(d, day.Day, date)).ToList());
@@ -359,6 +374,16 @@ public static class TripSummaryRecordBuilder
                     DisplayStatus = TripOwnDisplay,
                 });
             }
+            else if (day.Stay?.Skipped == true)
+            {
+                record.Nights.Add(new TripSummaryNightDto
+                {
+                    Night = day.Day,
+                    Date = date,
+                    ListingName = NoStayTonight,
+                    DisplayStatus = SkippedDisplay,
+                });
+            }
         }
 
         var taxiDtos = dtos
@@ -374,6 +399,8 @@ public static class TripSummaryRecordBuilder
     }
 
     private const string TripOwnDisplay = "own";
+    private const string SkippedDisplay = "skipped";
+    private const string NoStayTonight = "No stay tonight";
 
     // Booked or cancelled rows only; Closed, Expired, Not available and the like stay out of the record.
     private static bool IsListed(string status)

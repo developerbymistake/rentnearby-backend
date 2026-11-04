@@ -305,7 +305,17 @@ public static class TripNotifications
 public static class TripReminderNotifications
 {
     public static NotificationEvent StartsIn3Days(Guid userId, Guid tripId, string city, string summary) =>
-        Build(userId, NotificationTypes.TripStartsIn3Days, $"{City(city)} in 3 days", summary, tripId);
+        StartsIn(userId, tripId, city, 3, summary);
+
+    // The reminder window is 48 h, so the real days left is 3, 2 or 1 (same type string for all).
+    public static NotificationEvent StartsIn(Guid userId, Guid tripId, string city, int daysLeft, string summary) =>
+        Build(userId, NotificationTypes.TripStartsIn3Days, StartsInTitle(city, daysLeft), summary, tripId);
+
+    public static string StartsInTitle(string? city, int daysLeft) => daysLeft switch
+    {
+        <= 1 => $"{City(city)} tomorrow",
+        _ => $"{City(city)} in {daysLeft} days",
+    };
 
     public static NotificationEvent StartsToday(Guid userId, Guid tripId, string body) =>
         Build(userId, NotificationTypes.TripStartsToday, "Your trip starts today", body, tripId);

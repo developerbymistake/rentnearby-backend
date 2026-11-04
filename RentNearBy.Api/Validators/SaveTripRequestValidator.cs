@@ -13,6 +13,8 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
     private const int MaxNameLength = 120;
     private const int MaxNoteLength = 300;
     private const int MaxPlaceLength = 80;
+    private const int MaxOwnNameLength = 80;
+    private const string OwnNameMessage = "Name must be 1 to 80 characters";
     private const string ShortlistMessage = "Up to 3 shortlisted per day";
     private const string NoteMessage = "Note can be up to 300 characters";
     private const string PhoneMessage = "Enter a 10 digit phone";
@@ -29,6 +31,8 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
     internal static bool IsValidPhone(string? value) => value == null || PhonePattern.IsMatch(value);
 
     internal static bool IsValidNote(string? value) => value == null || value.Length <= MaxNoteLength;
+
+    internal static bool IsValidOwnName(string? value) => value != null && value.Trim().Length is >= 1 and <= MaxOwnNameLength;
 
     internal static bool IsValidCoordinates(double? lat, double? lon)
         => (lat == null && lon == null)
@@ -201,6 +205,9 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
                 .When(s => s.Needs != null);
             RuleFor(s => s.PickupTime).Must(IsValidPickupTime).WithMessage(PickupTimeMessage);
             RuleFor(s => s.PickupPlace).Must(IsValidPickupPlace).WithMessage(PickupPlaceMessage);
+            RuleFor(s => s.MaxDays)
+                .InclusiveBetween(1, TripLimits.MaxDays).WithMessage(PlanTripRequestValidator.MaxDaysMessage)
+                .When(s => s.MaxDays != null);
         }
     }
 
@@ -210,6 +217,7 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
         {
             RuleFor(t => t.TaxiId)
                 .Must((t, id) => t.IsOwn == true || (id != null && id != Guid.Empty)).WithMessage("Taxi is required");
+            RuleFor(t => t.Name).Must(IsValidOwnName).WithMessage(OwnNameMessage).When(t => t.IsOwn == true);
             RuleFor(t => t.OwnPhone).Must(IsValidPhone).WithMessage(PhoneMessage);
             RuleFor(t => t.Note).Must(IsValidNote).WithMessage(NoteMessage);
             RuleFor(t => t.Booking!).SetValidator(new TripTaxiBookingValidator()).When(t => t.Booking != null);
@@ -233,7 +241,11 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
         public TripStayChoiceValidator()
         {
             RuleFor(s => s.StayId)
-                .Must((s, id) => s.IsOwn == true || (id != null && id != Guid.Empty)).WithMessage("Stay is required");
+                .Must((s, id) => s.IsOwn == true || s.Skipped == true || (id != null && id != Guid.Empty)).WithMessage("Stay is required");
+            RuleFor(s => s.Name).Must(IsValidOwnName).WithMessage(OwnNameMessage).When(s => s.IsOwn == true);
+            RuleFor(s => s.IsOwn)
+                .Must(own => own != true).WithMessage("A night is either your own stay or no stay")
+                .When(s => s.Skipped == true);
             RuleFor(s => s)
                 .Must(s => IsValidCoordinates(s.Latitude, s.Longitude))
                 .OverridePropertyName("Coordinates")

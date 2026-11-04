@@ -123,10 +123,19 @@ public class TripSummaryDto
     public int StaysTotal { get; set; }
     public int TaxisConfirmed { get; set; }
     public int TaxisTotal { get; set; }
+    public int StaysOwn { get; set; }
+    public int TaxisOwn { get; set; }
     public int AgreedTotal { get; set; }
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+public class TripCitySupplyDto
+{
+    public Guid? DistrictId { get; set; }
+    public int Stays { get; set; }
+    public int Drivers { get; set; }
 }
 
 public class TripListDto

@@ -13,7 +13,8 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
     {
         var o = options.Value;
         var limit = request.DayLimitMinutes ?? o.DayLimitMinutes;
-        var maxDays = Math.Clamp(o.MaxDays, 1, TripLimits.MaxDays);
+        var cap = Math.Clamp(o.MaxDays, 1, TripLimits.MaxDays);
+        var maxDays = Math.Clamp(request.MaxDays ?? o.MaxDays, 1, cap);
         var recalculate = request.Mode == TripPlanModes.Recalculate;
 
         var days = recalculate

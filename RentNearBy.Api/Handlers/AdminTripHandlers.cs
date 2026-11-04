@@ -23,25 +23,34 @@ public static class AdminTripHandlers
 
     // GET /admin/trips/enquiries
     public static async Task<IResult> GetEnquiries(
-        string? kind, string? status, string? q, bool? notMe, int? page, int? pageSize,
+        string? kind, string? status, string? q, bool? notMe, Guid? districtId, int? page, int? pageSize,
         ApplicationDbContext db, IUnitOfWork unitOfWork)
     {
         if (!string.IsNullOrWhiteSpace(kind) && kind != TripEnquiryKinds.Stay && kind != TripEnquiryKinds.Taxi)
             return BadRequestResponse("Kind must be Stay or Taxi");
         var bucket = string.IsNullOrWhiteSpace(status) ? "open" : status.Trim().ToLowerInvariant();
-        if (bucket is not ("open" or "closed" or "all"))
-            return BadRequestResponse("Status must be open, closed or all");
+        if (bucket is not ("open" or "ended" or "closed" or "all"))
+            return BadRequestResponse("Status must be open, ended, closed or all");
         var term = q?.Trim();
         if (term is { Length: > QueryMax }) return BadRequestResponse("Search is too long");
 
         var pageNo = Math.Max(1, page ?? 1);
         var size = Math.Clamp(pageSize ?? DefaultPageSize, 1, MaxPageSize);
         var now = DateTime.UtcNow;
+        var today = TripExecutionRules.TodayIst(now);
 
         var query = db.TripEnquiries.AsNoTracking().AsQueryable();
         if (!string.IsNullOrWhiteSpace(kind)) query = query.Where(e => e.Kind == kind);
-        if (bucket == "open") query = query.Where(e => TripEnquiryStatuses.Open.Contains(e.Status));
+        // Live open = Open status and not yet checked out; ended = Open status past its check-out; closed = terminal.
+        if (bucket == "open")
+            query = query.Where(e => TripEnquiryStatuses.Open.Contains(e.Status) && (e.CheckOut == null || e.CheckOut >= today));
+        else if (bucket == "ended")
+            query = query.Where(e => TripEnquiryStatuses.Open.Contains(e.Status) && e.CheckOut != null && e.CheckOut < today);
         else if (bucket == "closed") query = query.Where(e => !TripEnquiryStatuses.Open.Contains(e.Status));
+
+        // Journey leads have no trip, so a district filter leaves them out.
+        if (districtId is { } district)
+            query = query.Where(e => e.TripId != null && db.Trips.Any(t => t.Id == e.TripId && t.DistrictId == district));
 
         if (!string.IsNullOrEmpty(term))
         {
@@ -119,6 +128,9 @@ public static class AdminTripHandlers
             return ErrorResponse(409, "This enquiry is closed.", TripEnquiryErrorTypes.TripEnquiryClosed);
 
         var now = DateTime.UtcNow;
+        if (e.CheckOut is { } checkOut && checkOut < TripExecutionRules.TodayIst(now))
+            return ErrorResponse(409, "This booking already ended.", TripEnquiryErrorTypes.EnquiryEnded);
+
         var posts = new List<TripChatPost>();
         await unitOfWork.BeginTransactionAsync();
         try
@@ -159,6 +171,35 @@ public static class AdminTripHandlers
         await TripPushSender.SendAsync(pushes, unitOfWork.TripEnquiries, notifier, logger);
 
         return OkResponse(await BuildDetailAsync(db, unitOfWork, e));
+    }
+
+    // GET /admin/trips/problems?kind&tripId&page&pageSize
+    public static async Task<IResult> GetProblems(
+        string? kind, Guid? tripId, int? page, int? pageSize, ApplicationDbContext db, IUnitOfWork unitOfWork)
+    {
+        if (!string.IsNullOrWhiteSpace(kind) && !TripProblemKinds.All.Contains(kind))
+            return BadRequestResponse("Kind must be DriverNoShow, HostNoRoom, RoadClosed or Other");
+
+        var pageNo = Math.Max(1, page ?? 1);
+        var size = Math.Clamp(pageSize ?? DefaultPageSize, 1, MaxPageSize);
+
+        var query = db.TripProblemLogs.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(kind)) query = query.Where(p => p.Kind == kind);
+        if (tripId is { } id) query = query.Where(p => p.TripId == id);
+
+        var rows = await query
+            .OrderByDescending(p => p.CreatedAt).ThenBy(p => p.Id)
+            .Skip((pageNo - 1) * size)
+            .Take(size + 1)
+            .ToListAsync();
+        var hasMore = rows.Count > size;
+        rows = rows.Take(size).ToList();
+
+        return OkResponse(new AdminTripProblemPageDto
+        {
+            Items = await BuildProblemsAsync(db, unitOfWork, rows),
+            HasMore = hasMore,
+        });
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
@@ -294,7 +335,62 @@ public static class AdminTripHandlers
         detail.TripId = e.TripId;
         detail.ConversationId = e.ConversationId;
         detail.ClosedNote = e.FailReason == TripCloseReasons.AdminClosed ? e.CancelReason : null;
+
+        var logs = await db.TripProblemLogs.AsNoTracking()
+            .Where(p => p.TripEnquiryId == e.Id)
+            .OrderByDescending(p => p.CreatedAt)
+            .ToListAsync();
+        detail.Problems = await BuildProblemsAsync(db, unitOfWork, logs);
         return detail;
+    }
+
+    private static async Task<List<AdminTripProblemDto>> BuildProblemsAsync(
+        ApplicationDbContext db, IUnitOfWork unitOfWork, IReadOnlyList<TripProblemLog> logs)
+    {
+        if (logs.Count == 0) return new List<AdminTripProblemDto>();
+
+        var tripIds = logs.Select(l => l.TripId).Distinct().ToList();
+        var trips = await db.Trips.AsNoTracking().Where(t => tripIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id);
+        var enquiryIds = logs.Where(l => l.TripEnquiryId != null).Select(l => l.TripEnquiryId!.Value).Distinct().ToList();
+        var enquiries = await db.TripEnquiries.AsNoTracking().Where(e => enquiryIds.Contains(e.Id)).ToDictionaryAsync(e => e.Id);
+        var userIds = trips.Values.Select(t => t.OwnerUserId)
+            .Concat(enquiries.Values.Where(e => e.OwnerUserId != null).Select(e => e.OwnerUserId!.Value))
+            .Distinct().ToList();
+        var parties = await unitOfWork.TripEnquiries.LoadPartiesAsync(userIds);
+
+        var list = new List<AdminTripProblemDto>();
+        foreach (var log in logs)
+        {
+            trips.TryGetValue(log.TripId, out var trip);
+            TripEnquiry? e = log.TripEnquiryId is { } eid && enquiries.TryGetValue(eid, out var row) ? row : null;
+            var traveller = trip != null && parties.TryGetValue(trip.OwnerUserId, out var tp) ? tp : null;
+            var owner = e?.OwnerUserId is { } oid && parties.TryGetValue(oid, out var op) ? op : null;
+            var failReason = TripProblemKinds.FailReasonOf(log.Kind);
+
+            list.Add(new AdminTripProblemDto
+            {
+                Id = log.Id,
+                TripId = log.TripId,
+                TripTitle = trip?.Title ?? string.Empty,
+                City = trip?.CityName ?? string.Empty,
+                Day = log.Day,
+                Date = trip?.StartDate?.AddDays(log.Day - 1),
+                Kind = log.Kind,
+                Note = log.Note,
+                Latitude = log.Latitude,
+                Longitude = log.Longitude,
+                EnquiryId = e?.Id,
+                EnquiryKind = e?.Kind,
+                ListingName = e?.ListingName,
+                OwnerName = e == null ? null : e.OwnerUserId == null ? TripEnquiryDtoBuilder.DeletedOwner : FirstNonEmpty(owner?.Name, null, "Owner"),
+                OwnerPhone = owner?.Phone,
+                TravellerName = FirstNonEmpty(traveller?.Name, null, "Guest"),
+                TravellerPhone = traveller?.Phone,
+                Marked = e != null && failReason != null && e.Status == TripEnquiryStatuses.Failed && e.FailReason == failReason,
+                CreatedAt = log.CreatedAt,
+            });
+        }
+        return list;
     }
 
     private static int[]? ReadDays(string? json)

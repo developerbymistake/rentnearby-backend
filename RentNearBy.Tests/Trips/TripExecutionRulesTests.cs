@@ -29,7 +29,20 @@ public class TripExecutionRulesTests
         Assert.Equal(30, TripExecutionRules.NotMeWindowDays);
         Assert.Equal(80, TripExecutionRules.MaxTextLen);
         Assert.Equal(8, TripExecutionRules.MaxSpotsInText);
-        Assert.Equal(2_000_000, TripExecutionRules.MaxAmount);
+        Assert.Equal(9_900_000, TripExecutionRules.MaxAmount);
+        Assert.Equal(StayLimits.MaxPrice, TripExecutionRules.MaxAmount);
+        Assert.Equal(20, TripExecutionRules.EnquiriesPerHour);
+        Assert.Equal(60, TripExecutionRules.EnquiriesPerDay);
+        Assert.Equal("X-Trip-Asks-Left", TripExecutionRules.AsksLeftHeader);
+    }
+
+    [Fact]
+    public void ComputeTotal_saturates_instead_of_overflowing()
+    {
+        var lines = Enumerable.Range(0, 5).Select(_ => Line(10, 9_900_000)).ToList();
+        var total = TripExecutionRules.ComputeTotal(lines, 14);
+        Assert.Equal(int.MaxValue, total);
+        Assert.True(total > TripExecutionRules.MaxAmount);
     }
 
     [Fact]

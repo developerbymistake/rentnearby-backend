@@ -10,6 +10,8 @@ public class PlanTripRequest
     public List<PlanDayInput>? Days { get; set; }
     public int? DayLimitMinutes { get; set; }
     public DateOnly? StartDate { get; set; }
+    // Auto mode only: 1..14, null = the configured default.
+    public int? MaxDays { get; set; }
 }
 
 public class PlanSpotInput

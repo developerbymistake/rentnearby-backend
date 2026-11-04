@@ -21,6 +21,14 @@ public class JourneyLeadTextTests
     }
 
     [Fact]
+    public void Several_vehicles_for_the_group_are_named()
+    {
+        var t = JourneyLeadText.Build("Delhi", "Badrinath", D, 5, 1, 1, null, cars: 2);
+        Assert.Equal("Delhi to Badrinath, 01 Nov, 5 people, 2 cars.", t);
+        Assert.Equal("Delhi to Badrinath, 01 Nov, 5 people.", JourneyLeadText.Build("Delhi", "Badrinath", D, 5, 1, 1, null));
+    }
+
+    [Fact]
     public void Single_car_has_no_prefix()
     {
         var t = JourneyLeadText.Build("Delhi", "Badrinath", D, 2, 1, 1, null);

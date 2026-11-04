@@ -615,8 +615,12 @@ public static class AdminHandlers
 
         var istDayStart = TripExecutionRules.IstMidnightUtc(TripExecutionRules.TodayIst(now));
         var tripEnquiriesToday = await db.TripEnquiries.CountAsync(e => e.CreatedAt >= istDayStart);
-        var tripEnquiriesOpen = await db.TripEnquiries.CountAsync(e => TripEnquiryStatuses.Open.Contains(e.Status));
+        // Live open = Open status and not yet checked out; an ended row waits in its own admin bucket.
+        var todayIst = TripExecutionRules.TodayIst(now);
+        var tripEnquiriesOpen = await db.TripEnquiries.CountAsync(e =>
+            TripEnquiryStatuses.Open.Contains(e.Status) && (e.CheckOut == null || e.CheckOut >= todayIst));
         var weekAgo = now.AddDays(-7);
+        var tripProblems7d = await db.TripProblemLogs.CountAsync(p => p.CreatedAt >= weekAgo);
         var tripConfirmedThisWeek = await db.TripEnquiries.CountAsync(e =>
             e.Status == TripEnquiryStatuses.ConfirmedByBoth && e.ConfirmedByOwnerAt >= weekAgo);
         var leadsReceived = await db.TaxiListings.SumAsync(t => (long?)t.TripLeadsReceived) ?? 0;
@@ -638,6 +642,7 @@ public static class AdminHandlers
             PlanUsers = planUsers,
             TripEnquiriesToday = tripEnquiriesToday,
             TripEnquiriesOpen = tripEnquiriesOpen,
+            TripProblems7d = tripProblems7d,
             TripConfirmedThisWeek = tripConfirmedThisWeek,
             TripLeadsAnsweredPct = tripLeadsAnsweredPct,
         });

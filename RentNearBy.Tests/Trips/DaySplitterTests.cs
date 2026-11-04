@@ -263,4 +263,57 @@ public class DaySplitterTests
     [Fact]
     public void Haversine_OneDegreeLatitude_About111Km()
         => Assert.InRange(GeoMath.HaversineKm(29, 79, 30, 79), 111.0, 111.4);
+
+    // D5: a forced day count never drops a place and never returns more days than asked.
+    [Fact]
+    public void Split_MaxDaysOne_PutsEveryPlaceInDayOneWithOverLimit()
+    {
+        var spots = Enumerable.Range(0, 6).Select(i => Spot($"s{i}", 120)).ToArray();
+
+        var result = Split(spots, Matrix(6, 30), maxDays: 1);
+
+        var day = Assert.Single(result.Days);
+        Assert.Equal(6, day.Spots.Count);
+        Assert.True(day.OverLimit);
+        Assert.Contains(result.Warnings, w => w.Code == TripWarningCodes.OverLimit && w.Day == 1);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void Split_MaxDays_NeverMoreDaysAndNoPlaceDropped(int maxDays)
+    {
+        var spots = Enumerable.Range(0, 10).Select(i => Spot($"s{i}", 150)).ToArray();
+
+        var result = Split(spots, Matrix(10, 40), maxDays: maxDays);
+
+        Assert.InRange(result.Days.Count, 1, maxDays);
+        var placed = result.Days.SelectMany(d => d.Spots).Select(s => s.Id).ToList();
+        Assert.Equal(10, placed.Count);
+        Assert.Equal(10, placed.Distinct().Count());
+        Assert.True(result.Days[^1].OverLimit);
+    }
+
+    [Fact]
+    public void Split_MaxDaysWithClosedPlaces_KeepsEveryPlaceInsideTheLimit()
+    {
+        var monday = new DateOnly(2026, 11, 2);
+        var spots = new[] { Spot("a", 60), Spot("b", 60, closed: [Iso(monday)]), Spot("c", 60, closed: [Iso(monday), Iso(monday.AddDays(1))]) };
+
+        var result = Split(spots, Matrix(3, 20), start: monday, maxDays: 2);
+
+        Assert.InRange(result.Days.Count, 1, 2);
+        Assert.Equal(3, result.Days.SelectMany(d => d.Spots).Count());
+    }
+
+    [Fact]
+    public void Split_MaxDaysAboveNeed_UsesFewerDays()
+    {
+        var spots = new[] { Spot("a", 60), Spot("b", 60) };
+
+        var result = Split(spots, Matrix(2, 20), maxDays: 5);
+
+        Assert.Single(result.Days);
+    }
 }

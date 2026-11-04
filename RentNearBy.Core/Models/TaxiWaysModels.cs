@@ -232,8 +232,14 @@ public sealed class TaxiWaysLegResult
     // All taxis on this stretch, one row per taxi, ranked.
     public List<TaxiWaysCandidate> Drivers { get; init; } = new();
 
+    // People in the group; 0 = unknown (one car).
+    public int People { get; init; }
+
     public TaxiWaysCandidate Top => Drivers[0];
-    public int ListedFare => Top.Link.Fare;
+    public int CarsNeeded => TaxiWaysRanking.CarsNeeded(People, Top.Driver.Seats);
+    // The fare of the whole stretch: one listed fare per car.
+    public int ListedFare => Top.Link.Fare * CarsNeeded;
+    public string? SeatsNote => TaxiWaysRanking.SeatsNote(People, Top.Driver.Seats);
     public bool Partial => Top.Link.Partial;
 }
 
@@ -492,6 +498,16 @@ public static class TaxiWaysGeo
 public static class TaxiWaysRanking
 {
     public static bool SeatsFit(TaxiWaysDriver d, int people) => d.Seats.HasValue && d.Seats.Value >= people;
+
+    // One car per started group of `seats`; unknown seats or people = one car.
+    public static int CarsNeeded(int people, short? seats)
+        => seats is > 0 && people > 0 ? Math.Max(1, (int)Math.Ceiling(people / (double)seats.Value)) : 1;
+
+    public static string? SeatsNote(int people, short? seats)
+    {
+        var cars = CarsNeeded(people, seats);
+        return cars > 1 ? $"Seats {seats} · {cars} cars for {people}" : null;
+    }
 
     // Best fit: seats for the group, (based here), whole route before a stretch, replies in app, plan rank, fare, id.
     public static IComparer<TaxiWaysCandidate> Compare(int people, bool basedHereFirst = false) =>
@@ -980,6 +996,7 @@ public static class TaxiWaysSearchEngine
             var leg = new TaxiWaysLegResult
             {
                 Index = i + 1, LegKey = TaxiWaysKeys.LegKey(a.Key, b.Key), From = StopOf(a), To = StopOf(b), Drivers = drivers,
+                People = people,
             };
             if (i == 0 && !a.Resolved && leg.Top.Link.MeetAtPlace is { } meet && s.Places.TryGetValue(meet, out var meetPlace))
                 leg.MeetingPlace = meetPlace.Name;

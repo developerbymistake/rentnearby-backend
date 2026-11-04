@@ -15,6 +15,7 @@ public class AdminStatsDto
     public List<AdminPlanUsersDto> PlanUsers { get; set; } = new();
     public int TripEnquiriesToday { get; set; }
     public int TripEnquiriesOpen { get; set; }
+    public int TripProblems7d { get; set; }
     public int TripConfirmedThisWeek { get; set; }
     public int TripLeadsAnsweredPct { get; set; }
 }

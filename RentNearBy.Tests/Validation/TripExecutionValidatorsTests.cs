@@ -50,13 +50,14 @@ public class TripExecutionValidatorsTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(14)]
+    [InlineData(15)]
     [InlineData(-1)]
     public void Create_day_out_of_range_fails(int day) => Fails(Create, Req<CreateTripEnquiryRequest>(CreateBody(), ("day", day)), "Day");
 
+    // Every day has a night, so day 14 of a 14-day trip is a valid night.
     [Theory]
     [InlineData(1)]
-    [InlineData(13)]
+    [InlineData(14)]
     public void Create_day_edges_pass(int day) => Passes(Create, Req<CreateTripEnquiryRequest>(CreateBody(), ("day", day)));
 
     [Fact]
@@ -99,7 +100,7 @@ public class TripExecutionValidatorsTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(14)]
+    [InlineData(15)]
     public void Phone_day_out_of_range_fails(int day) => Fails(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("day", day)), "Day");
 
     [Theory]
@@ -142,13 +143,13 @@ public class TripExecutionValidatorsTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(2_000_001)]
+    [InlineData(9_900_001)]
     [InlineData(-5)]
     public void Phone_total_out_of_range_fails(int total) => Fails(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("agreedTotal", total)), "AgreedTotal");
 
     [Theory]
     [InlineData(1)]
-    [InlineData(2_000_000)]
+    [InlineData(9_900_000)]
     public void Phone_total_edges_pass(int total) => Passes(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("agreedTotal", total)));
 
     [Fact]
@@ -253,11 +254,11 @@ public class TripExecutionValidatorsTests
     }
 
     [Fact]
-    public void Offer_13_nights_pass_14_fail()
+    public void Offer_14_nights_pass_15_fail()
     {
-        Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("checkOut", "2026-11-14")));
-        var result = Run(Offer, Req<SendTripOfferRequest>(OfferBody(), ("checkOut", "2026-11-15")));
-        Assert.False(result.IsValid);
+        Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("checkOut", "2026-11-15")));
+        var result = Run(Offer, Req<SendTripOfferRequest>(OfferBody(), ("checkOut", "2026-11-16")));
+        result.ShouldHaveValidationErrorFor("CheckOut").WithErrorMessage("Nights must be at most 14");
     }
 
     [Fact]
@@ -284,13 +285,16 @@ public class TripExecutionValidatorsTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(200_001)]
+    [InlineData(9_900_001)]
     public void Offer_price_out_of_range_fail(int price) =>
         Fails(Offer, Req<SendTripOfferRequest>(OfferBody(), ("lines", new[] { Line(price: price) })), "Lines");
 
-    [Fact]
-    public void Offer_price_edge_passes() =>
-        Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("lines", new[] { Line(price: 200_000) }), ("advanceAmount", null)));
+    // The per-night cap equals the stay listing cap.
+    [Theory]
+    [InlineData(200_001)]
+    [InlineData(9_900_000)]
+    public void Offer_price_edge_passes(int price) =>
+        Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("lines", new[] { Line(price: price) }), ("advanceAmount", null)));
 
     [Fact]
     public void Offer_room_name_41_fails() =>
@@ -371,12 +375,13 @@ public class TripExecutionValidatorsTests
         Fails(Create, Req<CreateTripEnquiryRequest>(TaxiLeadBody(), ("days", Array.Empty<int>())), "Days");
 
     [Fact]
-    public void Taxi_lead_six_days_fails() =>
-        Fails(Create, Req<CreateTripEnquiryRequest>(TaxiLeadBody(), ("days", new[] { 1, 2, 3, 4, 5, 6 })), "Days");
+    public void Taxi_lead_fifteen_days_fails() =>
+        Fails(Create, Req<CreateTripEnquiryRequest>(TaxiLeadBody(), ("days", Enumerable.Range(1, 15).ToArray())), "Days");
 
+    // A whole-trip lead covers every day of a 14-day trip.
     [Fact]
-    public void Taxi_lead_five_days_pass() =>
-        Passes(Create, Req<CreateTripEnquiryRequest>(TaxiLeadBody(), ("days", new[] { 1, 2, 3, 4, 5 })));
+    public void Taxi_lead_fourteen_days_pass() =>
+        Passes(Create, Req<CreateTripEnquiryRequest>(TaxiLeadBody(), ("days", Enumerable.Range(1, 14).ToArray())));
 
     [Fact]
     public void Taxi_lead_duplicate_days_fail() =>
@@ -508,13 +513,13 @@ public class TripExecutionValidatorsTests
     [Theory]
     [InlineData(0)]
     [InlineData(-5)]
-    [InlineData(2_000_001)]
+    [InlineData(9_900_001)]
     public void Ask_amount_out_of_range_fails(int amount) =>
         Fails(Ask, Req<AskAdvanceRequest>(AskBody(), ("amount", amount)), "Amount");
 
     [Theory]
     [InlineData(1)]
-    [InlineData(2_000_000)]
+    [InlineData(9_900_000)]
     public void Ask_amount_edges_pass(int amount) => Passes(Ask, Req<AskAdvanceRequest>(AskBody(), ("amount", amount)));
 
     [Theory]
@@ -664,20 +669,21 @@ public class TripExecutionValidatorsTests
     [Theory]
     [InlineData(100)]
     [InlineData(3600)]
-    [InlineData(200000)]
+    [InlineData(200001)]
+    [InlineData(9900000)]
     public void Counter_price_inside_range_passes(int price) =>
         Passes(Counter, Req<CounterRequest>(new() { ["pricePerNight"] = price }));
 
     [Theory]
     [InlineData(0)]
     [InlineData(99)]
-    [InlineData(200001)]
+    [InlineData(9900001)]
     [InlineData(-5)]
     public void Counter_price_outside_range_fails(int price)
     {
         var result = Run(Counter, Req<CounterRequest>(new() { ["pricePerNight"] = price }));
         Assert.Contains(result.Errors, e => e.PropertyName == "PricePerNight");
-        Assert.Contains(result.Errors, e => e.ErrorMessage == "Price per night must be between Rs 100 and Rs 2,00,000");
+        Assert.Contains(result.Errors, e => e.ErrorMessage == "Price per night must be between Rs 100 and Rs 99,00,000");
     }
 
     [Fact]
@@ -704,11 +710,24 @@ public class TripExecutionValidatorsTests
     }
 
     [Fact]
-    public void Change_nights_limit_is_13()
+    public void Change_nights_limit_is_14()
     {
-        Passes(Change, Req<ChangeRequestRequest>(ChangeBody(), ("checkOut", "2026-11-21")));
-        Fails(Change, Req<ChangeRequestRequest>(ChangeBody(), ("checkOut", "2026-11-22")), "CheckOut");
+        Passes(Change, Req<ChangeRequestRequest>(ChangeBody(), ("checkOut", "2026-11-22")));
+        Fails(Change, Req<ChangeRequestRequest>(ChangeBody(), ("checkOut", "2026-11-23")), "CheckOut");
     }
+
+    [Fact]
+    public void Day_and_nights_messages_say_14()
+    {
+        Run(Create, Req<CreateTripEnquiryRequest>(CreateBody(), ("day", 15)))
+            .ShouldHaveValidationErrorFor("Day").WithErrorMessage("Day must be 1 to 14");
+        Run(Change, Req<ChangeRequestRequest>(ChangeBody(), ("checkOut", "2026-11-23")))
+            .ShouldHaveValidationErrorFor("CheckOut").WithErrorMessage("Nights must be at most 14");
+    }
+
+    [Fact]
+    public void Revised_fourteen_nights_pass() =>
+        Passes(Revised, Req<RevisedOfferRequest>(RevisedBody(), ("checkOut", "2026-11-15")));
 
     [Theory]
     [InlineData("adults", 0, false)]

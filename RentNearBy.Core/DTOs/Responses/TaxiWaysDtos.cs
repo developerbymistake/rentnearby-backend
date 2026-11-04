@@ -79,7 +79,10 @@ public class WayLegDto
     public WayPlaceDto From { get; set; } = new();
     public WayPlaceDto To { get; set; } = new();
     public string? MeetingPlace { get; set; }
+    // The whole stretch: the top driver's listed fare x CarsNeeded.
     public int ListedFare { get; set; }
+    public int CarsNeeded { get; set; } = 1;
+    public string? SeatsNote { get; set; }
     public bool Partial { get; set; }
     public double? DistanceKm { get; set; }
     public List<string> Passes { get; set; } = new();

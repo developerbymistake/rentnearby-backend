@@ -9,8 +9,19 @@ public class TripListCountsDto
 public class TripProblemResultDto
 {
     public Guid ProblemId { get; set; }
+    // The failed row (new when a multi-night booking was split, else the whole row).
     public TripEnquiryDto? Enquiry { get; set; }
+    // The shrunk original that keeps the nights already used; null when the whole row failed.
+    public TripEnquiryDto? KeptEnquiry { get; set; }
     public bool Marked { get; set; }
+}
+
+public class TripSummaryDayDto
+{
+    public int Day { get; set; }
+    public DateOnly? Date { get; set; }
+    public List<string> Spots { get; set; } = new();
+    public int Minutes { get; set; }
 }
 
 public class TripSummaryRoomLineDto
@@ -73,6 +84,7 @@ public class TripSummaryRecordDto
     public string BookingState { get; set; } = string.Empty;
     public int AgreedTotal { get; set; }
     public DateTime GeneratedAt { get; set; }
+    public List<TripSummaryDayDto> Days { get; set; } = new();
     public List<TripSummaryNightDto> Nights { get; set; } = new();
     public List<TripSummaryTaxiDto> Taxis { get; set; } = new();
 }

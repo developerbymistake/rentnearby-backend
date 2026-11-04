@@ -197,5 +197,65 @@ public class TripPlanJsonTests
         Assert.False(settings.TryGetProperty("adults", out _));
         Assert.False(settings.TryGetProperty("needs", out _));
         Assert.False(settings.TryGetProperty("pickupTime", out _));
+        Assert.False(settings.TryGetProperty("maxDays", out _));
+        Assert.False(root.TryGetProperty("checkOutDate", out _));
+    }
+
+    [Fact]
+    public void CheckOutDate_IsTheMorningAfterTheLastDay()
+    {
+        var plan = Sample();
+        plan.Settings.StartDate = new DateOnly(2026, 11, 1);
+        Assert.Equal(new DateOnly(2026, 11, 2), plan.EndDate);
+        Assert.Equal(new DateOnly(2026, 11, 3), plan.CheckOutDate);
+
+        plan.Settings.StartDate = null;
+        Assert.Null(plan.CheckOutDate);
+    }
+
+    [Fact]
+    public void OwnStayAndTaxi_RoundTripWithoutIdKey()
+    {
+        var plan = Sample();
+        plan.Days[0].Stay = new TripStayChoice { IsOwn = true, Name = "Hotel Alka", OwnPhone = "9876543210" };
+        plan.Days[0].Taxi = new TripTaxiChoice { IsOwn = true, Name = "Mohan", Fare = 1800 };
+        plan.Days[1].Stay = new TripStayChoice { Skipped = true, Name = "No stay tonight" };
+        plan.Settings.MaxDays = 2;
+
+        var json = JsonSerializer.Serialize(plan, TripJson.Options);
+        using (var doc = JsonDocument.Parse(json))
+        {
+            var day1 = doc.RootElement.GetProperty("days")[0];
+            Assert.False(day1.GetProperty("stay").TryGetProperty("stayId", out _));
+            Assert.False(day1.GetProperty("taxi").TryGetProperty("taxiId", out _));
+            Assert.True(doc.RootElement.GetProperty("days")[1].GetProperty("stay").GetProperty("skipped").GetBoolean());
+            Assert.Equal(2, doc.RootElement.GetProperty("settings").GetProperty("maxDays").GetInt32());
+        }
+
+        var back = JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options)!;
+        Assert.Null(back.Days[0].Stay!.StayId);
+        Assert.True(back.Days[0].Stay!.IsOwn);
+        Assert.Equal(1800, back.Days[0].Taxi!.Fare);
+        Assert.True(back.Days[1].Stay!.Skipped);
+        Assert.Equal(2, back.Settings.MaxDays);
+    }
+
+    [Theory]
+    [InlineData("\"\"")]
+    [InlineData("\"   \"")]
+    [InlineData("null")]
+    public void EmptyIdText_ReadsAsNull(string idJson)
+    {
+        var choice = JsonSerializer.Deserialize<TripStayChoice>("{\"stayId\":" + idJson + ",\"name\":\"Hotel Alka\",\"isOwn\":true}", TripJson.Options)!;
+        Assert.Null(choice.StayId);
+    }
+
+    [Fact]
+    public void RealId_StillReads()
+    {
+        var id = Guid.NewGuid();
+        var choice = JsonSerializer.Deserialize<TripStayChoice>("{\"stayId\":\"" + id + "\",\"name\":\"Lake View\"}", TripJson.Options)!;
+        Assert.Equal(id, choice.StayId);
+        Assert.Contains($"\"stayId\":\"{id}\"", JsonSerializer.Serialize(choice, TripJson.Options));
     }
 }

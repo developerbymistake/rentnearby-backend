@@ -480,6 +480,17 @@ public class TripNotificationsTests
         Assert.Equal("Mark the trip complete.", e[2].Body);
     }
 
+    [Theory]
+    [InlineData(3, "Nainital in 3 days")]
+    [InlineData(2, "Nainital in 2 days")]
+    [InlineData(1, "Nainital tomorrow")]
+    public void Starts_in_title_uses_the_real_days_left(int daysLeft, string title)
+    {
+        var n = TripReminderNotifications.StartsIn(Traveller, TripId, "Nainital", daysLeft, "x");
+        Assert.Equal(title, n.Title);
+        Assert.Equal(NotificationTypes.TripStartsIn3Days, n.Type);
+    }
+
     [Fact]
     public void Reminder_city_falls_back_when_blank()
     {

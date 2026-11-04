@@ -99,7 +99,8 @@ public static class JourneyHandlers
                 MeetingPlace = string.IsNullOrWhiteSpace(l.MeetingPlace) ? null : TripTextSafety.Clean(l.MeetingPlace),
                 DriverTaxiId = l.DriverTaxiId,
                 DriverRouteId = l.DriverRouteId,
-                ListedFare = l.ListedFare,
+                // The request carries the driver's fare per car; the saved leg holds the whole stretch.
+                ListedFare = l.ListedFare is { } perCar ? perCar * TaxiWaysRanking.CarsNeeded(request.People, driver.Seats) : null,
                 Partial = l.Partial,
                 Backup1TaxiId = backups.Count > 0 ? backups[0] : null,
                 Backup2TaxiId = backups.Count > 1 ? backups[1] : null,
@@ -187,7 +188,7 @@ public static class JourneyHandlers
 
             foreach (var leg in journey.Legs.OrderBy(l => l.LegIndex))
             {
-                await RefreshLegAsync(journeys, journey, leg, taxis, enquiries, fareChanged, now);
+                await RefreshLegAsync(journeys, journey, leg, taxis, enquiries, fareChanged, now, journey.People);
                 leg.UpdatedAt = now;
             }
 
@@ -214,7 +215,7 @@ public static class JourneyHandlers
 
     private static async Task RefreshLegAsync(
         ISavedJourneyRepository journeys, SavedJourney journey, SavedJourneyLeg leg, Dictionary<Guid, JourneyTaxiInfo> taxis,
-        Dictionary<Guid, TripEnquiry> enquiries, HashSet<int> fareChanged, DateTime now)
+        Dictionary<Guid, TripEnquiry> enquiries, HashSet<int> fareChanged, DateTime now, int people)
     {
         var driverLive = taxis.TryGetValue(leg.DriverTaxiId, out var driver) && driver.IsPublic;
         if (driverLive)
@@ -223,10 +224,11 @@ public static class JourneyHandlers
                 leg.DriverTaxiId, (double)leg.FromLatitude, (double)leg.FromLongitude, (double)leg.ToLatitude, (double)leg.ToLongitude);
             if (match != null)
             {
-                if (leg.ListedFare != match.Fare)
+                var fare = match.Fare * TaxiWaysRanking.CarsNeeded(people, driver!.Seats);
+                if (leg.ListedFare != fare)
                 {
                     if (leg.ListedFare != null) fareChanged.Add(leg.LegIndex);
-                    leg.ListedFare = match.Fare;
+                    leg.ListedFare = fare;
                 }
                 leg.DriverRouteId = match.RouteId;
             }
@@ -299,7 +301,7 @@ public static class JourneyHandlers
             var now = DateTime.UtcNow;
             leg.DriverTaxiId = request.TaxiId;
             leg.DriverRouteId = match.RouteId;
-            leg.ListedFare = match.Fare;
+            leg.ListedFare = match.Fare * TaxiWaysRanking.CarsNeeded(journey.People, next.Seats);
             leg.Backup1TaxiId = backups.Count > 0 ? backups[0] : null;
             leg.Backup2TaxiId = backups.Count > 1 ? backups[1] : null;
             leg.LastEnquiryId = null;
@@ -408,6 +410,8 @@ public static class JourneyHandlers
                 .Select(b => Driver(b!.Value, taxis))
                 .ToList(),
             ListedFare = l.ListedFare,
+            CarsNeeded = CarsOf(j.People, l.DriverTaxiId, taxis),
+            SeatsNote = taxis.TryGetValue(l.DriverTaxiId, out var legDriver) ? TaxiWaysRanking.SeatsNote(j.People, legDriver.Seats) : null,
             Partial = l.Partial,
             LastEnquiryId = l.LastEnquiryId,
             LastKnownStatus = l.LastKnownStatus,
@@ -419,6 +423,9 @@ public static class JourneyHandlers
     };
 
     // Phone numbers only for a driver who is still listed.
+    private static int CarsOf(int people, Guid taxiId, Dictionary<Guid, JourneyTaxiInfo> taxis)
+        => TaxiWaysRanking.CarsNeeded(people, taxis.TryGetValue(taxiId, out var t) ? t.Seats : null);
+
     private static JourneyDriverDto Driver(Guid taxiId, Dictionary<Guid, JourneyTaxiInfo> taxis)
     {
         if (!taxis.TryGetValue(taxiId, out var t))

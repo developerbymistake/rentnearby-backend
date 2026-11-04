@@ -40,6 +40,7 @@ public static class AdminEndpoints
 
         group.MapGet("/trips/enquiries", AdminTripHandlers.GetEnquiries).RequireAuthorization("AdminOnly");
         group.MapGet("/trips/enquiries/{id:guid}", AdminTripHandlers.GetEnquiry).RequireAuthorization("AdminOnly");
+        group.MapGet("/trips/problems", AdminTripHandlers.GetProblems).RequireAuthorization("AdminOnly");
         group.MapPost("/trips/enquiries/{id:guid}/close", AdminTripHandlers.Close).RequireAuthorization("AdminOnly");
 
         group.MapGet("/geocode", AdminHandlers.Geocode).RequireAuthorization("AdminOnly");

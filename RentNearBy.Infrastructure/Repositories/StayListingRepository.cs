@@ -193,7 +193,10 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
 
     private record BoxQueryResult(
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
-        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured);
+        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured,
+        int? MaxGuests, string? Meals, TimeOnly? CheckInTime, int RoomCount);
+
+    private static string? CheckInText(TimeOnly? t) => t?.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
     private static (double MinLat, double MaxLat, double MinLng, double MaxLng)
         GetBoundingBox(double lat, double lng, double radiusKm)
@@ -223,7 +226,11 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
                     p."PhotoUrl"   AS "ThumbnailUrl",
                     s."PriorityRank",
-                    s."IsFeatured"
+                    s."IsFeatured",
+                    rm."MaxGuests",
+                    rm."Meals",
+                    s."CheckInTime",
+                    COALESCE(rm."RoomCount", 0) AS "RoomCount"
                 FROM "StayListings" s
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
                 LEFT JOIN "StayTypes" t ON t."Id" = s."StayTypeId"
@@ -234,6 +241,13 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     ORDER BY p."PhotoOrder"
                     LIMIT 1
                 ) p ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT MAX(r."MaxGuests")::int4 AS "MaxGuests",
+                           COUNT(*)::int4 AS "RoomCount",
+                           string_agg(DISTINCT NULLIF(btrim(r."Meals"), ''), ' · ') AS "Meals"
+                    FROM "StayRooms" r
+                    WHERE r."StayListingId" = s."Id"
+                ) rm ON TRUE
                 WHERE s."Status" = 'Approved'
                   AND s."AcceptingGuests" = TRUE
                   AND s."IsDeleted" = FALSE
@@ -268,6 +282,10 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 DistanceKm = x.Dist,
                 PriorityRank = x.Row.PriorityRank,
                 IsFeatured = x.Row.IsFeatured,
+                MaxGuests = x.Row.MaxGuests,
+                Meals = x.Row.Meals,
+                CheckInTime = CheckInText(x.Row.CheckInTime),
+                RoomCount = x.Row.RoomCount,
             })
             .ToList();
     }

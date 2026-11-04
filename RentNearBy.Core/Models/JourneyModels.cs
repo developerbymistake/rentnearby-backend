@@ -86,9 +86,12 @@ public static partial class JourneyLeadText
 
     public static string People(int people) => people == 1 ? "1 person" : $"{people} people";
 
-    public static string Build(string fromName, string toName, DateOnly date, int people, int carIndex, int carOf, string? comesFrom)
+    // cars > 1: the group needs several vehicles of this driver's size ("5 people, 2 cars").
+    public static string Build(
+        string fromName, string toName, DateOnly date, int people, int carIndex, int carOf, string? comesFrom, int cars = 1)
     {
-        var trip = $"{fromName} to {toName}, {date.ToString("dd MMM", Inv)}, {People(people)}.";
+        var group = cars > 1 ? $"{People(people)}, {cars} cars" : People(people);
+        var trip = $"{fromName} to {toName}, {date.ToString("dd MMM", Inv)}, {group}.";
         if (carOf <= 1) return trip;
         var text = $"Car {carIndex} of {carOf}: {trip}";
         if (!string.IsNullOrWhiteSpace(comesFrom)) text += $" Comes from {comesFrom} with another driver.";

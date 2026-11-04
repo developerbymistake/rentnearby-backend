@@ -58,6 +58,7 @@ public class TripLifecycleRulesTests
     public void Constants_are_the_wire_values()
     {
         Assert.Equal("draft", TripBookingStates.Draft);
+        Assert.Equal("planOnly", TripBookingStates.PlanOnly);
         Assert.Equal("confirming", TripBookingStates.Confirming);
         Assert.Equal("ready", TripBookingStates.Ready);
         Assert.Equal("completed", TripBookingStates.Completed);
@@ -70,13 +71,51 @@ public class TripLifecycleRulesTests
     }
 
     [Fact]
-    public void Draft_status_no_start_or_no_spots_is_draft()
+    public void Draft_status_or_no_spots_is_draft()
     {
         Assert.Equal("draft", Compute(PlannedTrip(TripStatuses.Draft), Plan()));
+        Assert.Equal("draft", Compute(PlannedTrip(), Plan(withSpots: false)));
+    }
+
+    [Fact]
+    public void A_saved_trip_with_no_dates_is_plan_only()
+    {
         var noStart = PlannedTrip();
         noStart.StartDate = null;
-        Assert.Equal("draft", Compute(noStart, Plan(withStart: false)));
-        Assert.Equal("draft", Compute(PlannedTrip(), Plan(withSpots: false)));
+        Assert.Equal("planOnly", Compute(noStart, Plan(withStart: false)));
+    }
+
+    [Fact]
+    public void A_dated_trip_with_no_choice_and_no_enquiry_is_plan_only()
+    {
+        Assert.Equal("planOnly", Compute(PlannedTrip(), Plan()));
+        Assert.Equal("planOnly", Compute(PlannedTrip(), Plan(), Stay(TripEnquiryStatuses.Closed, 1, 2)));
+    }
+
+    [Fact]
+    public void Any_live_enquiry_or_choice_leaves_plan_only()
+    {
+        Assert.Equal("confirming", Compute(PlannedTrip(), Plan(), Stay(TripEnquiryStatuses.Asked, 1, 1)));
+        var plan = Plan();
+        plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "A" };
+        Assert.Equal("confirming", Compute(PlannedTrip(), plan));
+    }
+
+    [Fact]
+    public void A_skipped_night_is_settled_and_counts_as_a_choice()
+    {
+        var plan = Plan();
+        plan.Days[0].Stay = new TripStayChoice { Name = "No stay tonight", Skipped = true };
+        Assert.Equal("ready", Compute(PlannedTrip(), plan));
+    }
+
+    [Fact]
+    public void The_last_night_is_a_night()
+    {
+        var plan = Plan();
+        plan.Days[2].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Last" };
+        Assert.Equal("confirming", Compute(PlannedTrip(), plan));
+        Assert.Equal("ready", Compute(PlannedTrip(), plan, Stay(TripEnquiryStatuses.ConfirmedByBoth, 3, 3)));
     }
 
     [Theory]
@@ -213,15 +252,42 @@ public class TripLifecycleRulesTests
         plan.Days[0].Stay = new TripStayChoice { Name = "Own", IsOwn = true };
         var c = TripBookingSummary.Count(plan, [Stay(TripEnquiryStatuses.ConfirmedByTraveller, 2, 2, agreed: 2000)]);
         Assert.Equal(2000, c.AgreedTotal);
+        Assert.Equal(0, c.StaysConfirmed);
+        Assert.Equal(1, c.StaysTotal);
+        Assert.Equal(1, c.StaysOwn);
+    }
+
+    [Fact]
+    public void Count_keeps_own_and_skipped_nights_and_own_taxis_out_of_the_chips()
+    {
+        var plan = Plan();
+        plan.Days[0].Stay = new TripStayChoice { Name = "Own", IsOwn = true };
+        plan.Days[1].Stay = new TripStayChoice { Name = "No stay tonight", Skipped = true };
+        plan.Days[2].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "A" };
+        plan.Days[0].Taxi = new TripTaxiChoice { Name = "Own taxi", IsOwn = true };
+        var c = TripBookingSummary.Count(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 3, 3, agreed: 1000)]);
         Assert.Equal(1, c.StaysConfirmed);
-        Assert.Equal(2, c.StaysTotal);
+        Assert.Equal(1, c.StaysTotal);
+        Assert.Equal(1, c.StaysOwn);
+        Assert.Equal(0, c.TaxisTotal);
+        Assert.Equal(1, c.TaxisOwn);
     }
 
     [Fact]
     public void Count_of_an_empty_trip_is_zero()
     {
         var c = TripBookingSummary.Count(Plan(), []);
-        Assert.Equal(new TripBookingCounts(0, 0, 0, 0, 0), c);
+        Assert.Equal(new TripBookingCounts(0, 0, 0, 0, 0, 0, 0), c);
+    }
+
+    [Fact]
+    public void A_taxi_row_covers_dates_so_a_moved_start_date_does_not_re_map_it()
+    {
+        var plan = Plan();
+        plan.Settings.StartDate = Start.AddDays(1);
+        var c = TripBookingSummary.Count(plan, [Taxi(TripEnquiryStatuses.BookedByTraveller)]);
+        Assert.Equal(2, c.TaxisTotal);
+        Assert.Equal(2, c.TaxisConfirmed);
     }
 
     // ---- reminder instants
@@ -307,10 +373,15 @@ public class TripLifecycleRulesTests
     {
         var plan = Plan();
         Assert.True(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Taxi(TripEnquiryStatuses.BookedByTraveller)]));
-        Assert.False(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 1)]));
+        Assert.True(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 1)]));
         Assert.False(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Stay(TripEnquiryStatuses.Asked, 1, 1)]));
         Assert.False(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Taxi(TripEnquiryStatuses.FareSent)]));
-        Assert.False(TripReminderRules.AllSettled(plan, []));
+        Assert.True(TripReminderRules.AllSettled(plan, []));
+
+        var lastNight = Plan();
+        lastNight.Days[2].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Last" };
+        Assert.False(TripReminderRules.AllSettled(lastNight, []));
+        Assert.True(TripReminderRules.AllSettled(lastNight, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 3, 3)]));
 
         var own = Plan();
         own.Days[0].Stay = new TripStayChoice { Name = "Own", IsOwn = true };
@@ -329,21 +400,45 @@ public class TripLifecycleRulesTests
         => Assert.Equal(expected, TripReminderRules.IsRunning(PlannedTrip(), new DateOnly(y, m, d)));
 
     [Theory]
-    [InlineData(2026, 11, 2, false)]
+    [InlineData(2026, 10, 31, false)]
+    [InlineData(2026, 11, 1, true)]
     [InlineData(2026, 11, 3, true)]
     [InlineData(2026, 11, 20, true)]
-    public void CanComplete_from_the_last_day(int y, int m, int d, bool expected)
+    public void CanComplete_from_the_first_day(int y, int m, int d, bool expected)
         => Assert.Equal(expected, TripReminderRules.CanComplete(PlannedTrip(), new DateOnly(y, m, d)));
 
     [Fact]
-    public void CanComplete_needs_dates()
+    public void CanComplete_a_trip_with_no_dates_any_day()
     {
         var t = PlannedTrip();
         t.StartDate = null;
-        Assert.False(TripReminderRules.CanComplete(t, new DateOnly(2026, 12, 1)));
-        t.StartDate = Start;
         t.EndDate = null;
-        Assert.False(TripReminderRules.CanComplete(t, new DateOnly(2026, 12, 1)));
+        Assert.True(TripReminderRules.CanComplete(t, new DateOnly(2020, 1, 1)));
+        t.StartDate = Start;
+        Assert.True(TripReminderRules.CanComplete(t, new DateOnly(2026, 12, 1)));
+    }
+
+    [Theory]
+    [InlineData(2026, 10, 29, 3)]
+    [InlineData(2026, 10, 31, 1)]
+    [InlineData(2026, 11, 1, 0)]
+    [InlineData(2026, 11, 3, -2)]
+    public void DaysLeft_is_the_real_gap(int y, int m, int d, int expected)
+        => Assert.Equal(expected, TripReminderRules.DaysLeft(Start, new DateOnly(y, m, d)));
+
+    [Fact]
+    public void Starts_in_reminder_rules()
+    {
+        var today = Start.AddDays(-3);
+        var trip = PlannedTrip();
+        trip.DistrictId = null;
+        Assert.False(TripReminderRules.ShouldRemindStartsIn(trip, Plan(), [], today));
+        trip.DistrictId = Guid.NewGuid();
+        Assert.True(TripReminderRules.ShouldRemindStartsIn(trip, Plan(), [], today));
+        Assert.True(TripReminderRules.ShouldRemindStartsIn(trip, Plan(), [Stay(TripEnquiryStatuses.Asked, 1, 1)], today));
+        Assert.False(TripReminderRules.ShouldRemindStartsIn(trip, Plan(), [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2)], today));
+        Assert.False(TripReminderRules.ShouldRemindStartsIn(trip, Plan(), [Stay(TripEnquiryStatuses.Asked, 1, 1)], Start));
+        Assert.False(TripReminderRules.ShouldRemindStartsIn(PlannedTrip(TripStatuses.Completed), Plan(), [], today));
     }
 
     [Theory]

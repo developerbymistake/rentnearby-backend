@@ -31,10 +31,35 @@ public class TripLeadRulesTests
     public void Constants_match_the_contract()
     {
         Assert.Equal(3, TripLeadRules.MaxFareEdits);
-        Assert.Equal(5, TripLeadRules.LeadsPerTripPerDay);
+        Assert.Equal(10, TripLeadRules.LeadsPerTripPerDay);
         Assert.Equal(3, TripLeadRules.MaxOpenLeadsPerDay);
         Assert.Equal(7, TripLeadRules.PhoneVisibleAfterCloseDays);
         Assert.Equal(24, TripLeadRules.AnsweredWithinHours);
+        Assert.Equal(14, TripLeadRules.MaxLeadDays);
+        Assert.Equal("AlreadyBooked", TripSkipReasons.AlreadyBooked);
+    }
+
+    [Theory]
+    [InlineData("Asked", true)]
+    [InlineData("FareSent", true)]
+    [InlineData("BookedByTraveller", false)]
+    [InlineData("ConfirmedByBoth", false)]
+    [InlineData("Closed", false)]
+    public void Only_unbooked_leads_take_more_days(string status, bool ok)
+        => Assert.Equal(ok, TripLeadRules.CanMergeDays(status));
+
+    [Fact]
+    public void Merge_days_is_the_sorted_union()
+    {
+        Assert.Equal(new[] { 1, 2, 3, 4 }, TripLeadRules.MergeDays(new[] { 1, 2 }, new[] { 4, 3 }));
+        Assert.Equal(new[] { 2, 5 }, TripLeadRules.MergeDays(null, new[] { 5, 2 }));
+    }
+
+    [Fact]
+    public void Merge_days_is_null_when_every_day_is_already_asked()
+    {
+        Assert.Null(TripLeadRules.MergeDays(new[] { 1, 2, 3 }, new[] { 2 }));
+        Assert.Null(TripLeadRules.MergeDays(new[] { 1, 2, 3 }, new[] { 1, 3 }));
     }
 
     [Theory]

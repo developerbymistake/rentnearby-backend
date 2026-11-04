@@ -309,6 +309,8 @@ internal static class TaxiWaysMapper
             To = Place(leg.To),
             MeetingPlace = leg.MeetingPlace,
             ListedFare = leg.ListedFare,
+            CarsNeeded = leg.CarsNeeded,
+            SeatsNote = leg.SeatsNote,
             Partial = leg.Partial,
             DistanceKm = topDto.DistanceKm,
             Passes = via.Select(k => snapshot.Places.GetValueOrDefault(k)?.Name).OfType<string>().ToList(),

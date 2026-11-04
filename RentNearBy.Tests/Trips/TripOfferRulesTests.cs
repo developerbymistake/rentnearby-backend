@@ -13,8 +13,18 @@ public class TripOfferRulesTests
         Assert.Equal(3, TripOfferRules.MaxCounters);
         Assert.Equal(5, TripOfferRules.MaxRevised);
         Assert.Equal(100, TripOfferRules.CounterMinPerNight);
-        Assert.Equal(200_000, TripOfferRules.CounterMaxPerNight);
+        Assert.Equal(9_900_000, TripOfferRules.CounterMaxPerNight);
+        Assert.Equal(9_900_000, TripOfferRules.OfferMaxPerNight);
+        Assert.Equal(StayLimits.MaxPrice, TripOfferRules.OfferMaxPerNight);
         Assert.Equal(300, TripOfferRules.ReasonMax);
+    }
+
+    [Fact]
+    public void CounterTotal_saturates_instead_of_overflowing()
+    {
+        var total = TripOfferRules.CounterTotal(9_900_000, 15, 15);
+        Assert.Equal(int.MaxValue, total);
+        Assert.True(total > TripExecutionRules.MaxAmount);
     }
 
     [Theory]

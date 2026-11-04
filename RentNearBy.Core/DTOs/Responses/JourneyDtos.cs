@@ -27,7 +27,10 @@ public class JourneyLegDto
     public string? MeetingPlace { get; set; }
     public JourneyDriverDto Driver { get; set; } = new();
     public List<JourneyDriverDto> Backups { get; set; } = new();
+    // The whole stretch: listed fare x CarsNeeded.
     public int? ListedFare { get; set; }
+    public int CarsNeeded { get; set; } = 1;
+    public string? SeatsNote { get; set; }
     public bool Partial { get; set; }
     public Guid? LastEnquiryId { get; set; }
     public string LastKnownStatus { get; set; } = "Unknown";

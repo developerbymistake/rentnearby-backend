@@ -760,6 +760,105 @@ public static class DataSeeder
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
             },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000022"),
+                Key = "stay_price_negotiable",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Is the price negotiable?",
+                AnswerOptionsJson = "[{\"key\":\"yes_stay_negotiable\",\"text\":\"Yes, a little\",\"sentiment\":\"positive\"},{\"key\":\"no_stay_negotiable\",\"text\":\"Price is fixed\",\"sentiment\":\"negative\"},{\"key\":\"call_to_talk_price\",\"text\":\"Call me to talk\",\"sentiment\":\"neutral\"}]",
+                SortOrder = 9,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000023"),
+                Key = "stay_final_total",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "What is the final total?",
+                AnswerOptionsJson = "[{\"key\":\"total_in_chat\",\"text\":\"I will send the total here\",\"sentiment\":\"positive\"},{\"key\":\"total_on_call\",\"text\":\"Call me for the total\",\"sentiment\":\"neutral\"}]",
+                SortOrder = 10,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000024"),
+                Key = "stay_advance_needed",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Is an advance needed?",
+                AnswerOptionsJson = "[{\"key\":\"advance_needed\",\"text\":\"Yes, a small advance\",\"sentiment\":\"neutral\"},{\"key\":\"no_advance_needed\",\"text\":\"No advance, pay at check-in\",\"sentiment\":\"positive\"},{\"key\":\"call_for_advance\",\"text\":\"Call me to talk\",\"sentiment\":\"neutral\"}]",
+                SortOrder = 11,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000025"),
+                Key = "stay_cancellation",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "What is the cancellation and refund rule?",
+                AnswerOptionsJson = "[{\"key\":\"cancel_free\",\"text\":\"Free cancellation before check-in\",\"sentiment\":\"positive\"},{\"key\":\"cancel_partial\",\"text\":\"Partial refund\",\"sentiment\":\"neutral\"},{\"key\":\"cancel_none\",\"text\":\"No refund\",\"sentiment\":\"negative\"},{\"key\":\"cancel_call\",\"text\":\"Call me to talk\",\"sentiment\":\"neutral\"}]",
+                SortOrder = 12,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000026"),
+                Key = "stay_group_rate",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Is there a group or extra room rate?",
+                AnswerOptionsJson = "[{\"key\":\"group_rate_yes\",\"text\":\"Yes, a group rate is possible\",\"sentiment\":\"positive\"},{\"key\":\"group_rate_no\",\"text\":\"No, standard rate\",\"sentiment\":\"negative\"},{\"key\":\"group_rate_call\",\"text\":\"Call me to talk\",\"sentiment\":\"neutral\"}]",
+                SortOrder = 13,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000027"),
+                Key = "stay_gst_invoice",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Can I get a GST invoice?",
+                AnswerOptionsJson = "[{\"key\":\"gst_yes\",\"text\":\"Yes, GST invoice available\",\"sentiment\":\"positive\"},{\"key\":\"gst_no\",\"text\":\"No GST invoice\",\"sentiment\":\"negative\"}]",
+                SortOrder = 14,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000028"),
+                Key = "stay_pay_on_arrival",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Can I pay on arrival?",
+                AnswerOptionsJson = "[{\"key\":\"pay_arrival_yes\",\"text\":\"Yes, pay at check-in\",\"sentiment\":\"positive\"},{\"key\":\"pay_arrival_advance\",\"text\":\"Advance first, rest on arrival\",\"sentiment\":\"neutral\"},{\"key\":\"pay_arrival_no\",\"text\":\"No, full payment before\",\"sentiment\":\"negative\"}]",
+                SortOrder = 15,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000029"),
+                Key = "stay_ground_floor",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Is there a ground floor room or a lift?",
+                AnswerOptionsJson = "[{\"key\":\"ground_floor_yes\",\"text\":\"Yes, ground floor room\",\"sentiment\":\"positive\"},{\"key\":\"lift_yes\",\"text\":\"Yes, there is a lift\",\"sentiment\":\"positive\"},{\"key\":\"no_ground_floor\",\"text\":\"No ground floor or lift\",\"sentiment\":\"negative\"}]",
+                SortOrder = 16,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
+            new()
+            {
+                Id = Guid.Parse("d1000000-0000-0000-0000-000000000030"),
+                Key = "stay_women_safe",
+                ListingType = ListingKinds.Stay,
+                QuestionText = "Is it women-only or safe for solo travellers?",
+                AnswerOptionsJson = "[{\"key\":\"women_only\",\"text\":\"Women-only stay\",\"sentiment\":\"positive\"},{\"key\":\"solo_safe\",\"text\":\"Yes, safe for solo travellers\",\"sentiment\":\"positive\"},{\"key\":\"not_solo_focused\",\"text\":\"Family stay, not solo-focused\",\"sentiment\":\"neutral\"}]",
+                SortOrder = 17,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            },
         };
 
         var toAdd = templates.Where(t => !existingKeys.Contains(t.Key)).ToList();

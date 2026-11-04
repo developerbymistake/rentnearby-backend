@@ -6,7 +6,8 @@ namespace RentNearBy.Api.Validators;
 
 public static class TripExecutionValidation
 {
-    public const int MaxDay = TripLimits.MaxDays - 1;
+    public const int MaxDay = TripLimits.MaxDays;
+    public const int MaxNights = TripLimits.MaxDays;
     public const string PhonePattern = @"^[6-9]\d{9}$";
     public const string PhoneMessage = "Enter a 10 digit phone";
 }
@@ -72,7 +73,7 @@ public abstract class PhoneBookingFieldsValidator<T> : AbstractValidator<T> wher
 
         RuleFor(x => x.AgreedTotal)
             .InclusiveBetween(TripExecutionRules.MinAmount, TripExecutionRules.MaxAmount)
-            .WithMessage("Agreed price must be 1 to 2000000");
+            .WithMessage($"Agreed price must be 1 to {TripExecutionRules.MaxAmount}");
 
         RuleFor(x => x.AdvanceAmount)
             .Must((x, amount) => amount == null || (amount >= 0 && amount <= x.AgreedTotal))
@@ -134,8 +135,8 @@ public abstract class TripOfferFieldsValidator<T> : AbstractValidator<T> where T
         RuleFor(x => x)
             .Must(x => x.CheckIn < x.CheckOut)
             .WithMessage("Check-out must be after check-in")
-            .Must(x => x.CheckOut.DayNumber - x.CheckIn.DayNumber <= TripExecutionValidation.MaxDay)
-            .WithMessage($"Nights must be at most {TripExecutionValidation.MaxDay}")
+            .Must(x => x.CheckOut.DayNumber - x.CheckIn.DayNumber <= TripExecutionValidation.MaxNights)
+            .WithMessage($"Nights must be at most {TripExecutionValidation.MaxNights}")
             .OverridePropertyName("CheckOut");
 
         RuleFor(x => x.Lines)
@@ -150,7 +151,8 @@ public abstract class TripOfferFieldsValidator<T> : AbstractValidator<T> where T
                 .WithMessage($"Room must be 1 to {TripExecutionRules.RoomNameMax} characters");
             line.RuleFor(l => l.Units).InclusiveBetween(1, 10).WithMessage("Units must be 1 to 10");
             line.RuleFor(l => l.Guests).InclusiveBetween(1, 40).WithMessage("Guests must be 1 to 40");
-            line.RuleFor(l => l.PricePerNight).InclusiveBetween(1, 200_000).WithMessage("Price per night must be 1 to 200000");
+            line.RuleFor(l => l.PricePerNight).InclusiveBetween(1, TripOfferRules.OfferMaxPerNight)
+                .WithMessage($"Price per night must be 1 to {TripOfferRules.OfferMaxPerNight}");
         });
 
         RuleFor(x => x.AdvanceAmount)
@@ -200,7 +202,7 @@ public class CounterRequestValidator : AbstractValidator<CounterRequest>
     {
         RuleFor(x => x.PricePerNight)
             .InclusiveBetween(TripOfferRules.CounterMinPerNight, TripOfferRules.CounterMaxPerNight)
-            .WithMessage("Price per night must be between Rs 100 and Rs 2,00,000");
+            .WithMessage("Price per night must be between Rs 100 and Rs 99,00,000");
         RuleFor(x => x.Note)
             .Must(v => v == null || v.Length <= TripExecutionRules.NoteMax)
             .WithMessage($"Note must be at most {TripExecutionRules.NoteMax} characters");
@@ -214,8 +216,8 @@ public class ChangeRequestRequestValidator : AbstractValidator<ChangeRequestRequ
         RuleFor(x => x)
             .Must(x => x.CheckIn < x.CheckOut)
             .WithMessage("Check-out must be after check-in")
-            .Must(x => x.CheckOut.DayNumber - x.CheckIn.DayNumber <= TripExecutionValidation.MaxDay)
-            .WithMessage($"Nights must be at most {TripExecutionValidation.MaxDay}")
+            .Must(x => x.CheckOut.DayNumber - x.CheckIn.DayNumber <= TripExecutionValidation.MaxNights)
+            .WithMessage($"Nights must be at most {TripExecutionValidation.MaxNights}")
             .OverridePropertyName("CheckOut");
         RuleFor(x => x.Adults).InclusiveBetween(1, 30).WithMessage("Adults must be 1 to 30");
         RuleFor(x => x.Kids).InclusiveBetween(0, 20).WithMessage("Kids must be 0 to 20");
@@ -282,7 +284,7 @@ public class AskAdvanceRequestValidator : AbstractValidator<AskAdvanceRequest>
     {
         RuleFor(x => x.Amount)
             .InclusiveBetween(TripExecutionRules.MinAmount, TripExecutionRules.MaxAmount)
-            .WithMessage("Advance must be 1 to 2000000");
+            .WithMessage($"Advance must be 1 to {TripExecutionRules.MaxAmount}");
 
         RuleFor(x => x.HoldUntil)
             .Must(d => d.Kind != DateTimeKind.Unspecified)

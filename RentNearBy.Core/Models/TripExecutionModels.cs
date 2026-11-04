@@ -127,6 +127,8 @@ public static class TripSkipReasons
     public const string NotAvailable = "NotAvailable";
     public const string Blocked = "Blocked";
     public const string LimitReached = "LimitReached";
+    // A booked lead with this driver already exists for other days.
+    public const string AlreadyBooked = "AlreadyBooked";
 }
 
 public static class TripDisplayStatuses
@@ -217,12 +219,34 @@ public static class TripAdvanceRules
 
 public static class TripLeadRules
 {
-    public const int MaxFareEdits = 3, LeadsPerTripPerDay = 5, MaxOpenLeadsPerDay = 3, PhoneVisibleAfterCloseDays = 7, AnsweredWithinHours = 24;
-    public const int MaxLeadDays = 5, PickupPlaceMax = 80;
+    public const int MaxFareEdits = 3, LeadsPerTripPerDay = 10, MaxOpenLeadsPerDay = 3, PhoneVisibleAfterCloseDays = 7, AnsweredWithinHours = 24;
+    public const int MaxLeadDays = TripLimits.MaxDays, PickupPlaceMax = 80;
     public const string PickupTimePattern = @"^([01]\d|2[0-3]):[0-5]\d$";
 
     public static int ListedTotal(int? listedRate, int days) => (listedRate ?? 0) * Math.Max(1, days);
     public static int EditsLeft(short editCount) => Math.Max(0, MaxFareEdits - editCount);
+
+    // Asked / FareSent rows take more days in place; a booked row is never widened.
+    public static bool CanMergeDays(string status) => status is TripEnquiryStatuses.Asked or TripEnquiryStatuses.FareSent;
+
+    // Sorted union; null when every requested day is already on the row.
+    public static List<int>? MergeDays(IReadOnlyCollection<int>? existing, IReadOnlyCollection<int> requested)
+    {
+        var have = existing ?? Array.Empty<int>();
+        if (requested.All(d => have.Contains(d))) return null;
+        return have.Concat(requested).Distinct().OrderBy(d => d).ToList();
+    }
+}
+
+// Every day of a trip has a night: check-out is the morning after the last day (end = last DAY).
+public static class TripDateRules
+{
+    public static DateOnly CheckOutLimit(DateOnly end) => end.AddDays(1);
+
+    public static bool InsideTrip(DateOnly start, DateOnly end, DateOnly checkIn, DateOnly checkOut)
+        => checkIn >= start && checkOut <= CheckOutLimit(end);
+
+    public const string OutsideTripMessage = "Offer dates must be inside the trip (check-out the morning after the last day).";
 }
 
 // Owner list chips: new = Asked/Countered, offered = Offered, confirmed = both confirmed states, closed = the rest.
@@ -245,6 +269,17 @@ public static class TripOwnerBuckets
         TripEnquiryStatuses.ConfirmedByTraveller or TripEnquiryStatuses.ConfirmedByBoth => Confirmed,
         _ => Closed,
     };
+
+    // A confirmed booking whose check-out has passed has ended: it lists under closed.
+    public static bool HasEnded(DateOnly? checkOut, DateOnly todayIst) => checkOut is { } c && c < todayIst;
+
+    public static string Of(string status, bool ended)
+    {
+        var bucket = Of(status);
+        return bucket == Confirmed && ended ? Closed : bucket;
+    }
+
+    public static string Of(string status, DateOnly? checkOut, DateOnly todayIst) => Of(status, HasEnded(checkOut, todayIst));
 }
 
 public static class TripEnquiryErrorTypes
@@ -285,15 +320,21 @@ public static class TripEnquiryErrorTypes
     public const string TripNotEnded = "TripNotEnded";
     public const string ProblemOutsideTrip = "ProblemOutsideTrip";
     public const string AskAgainNothing = "AskAgainNothing";
+    public const string TripNeedsUpdate = "TripNeedsUpdate";
+    public const string TripCompleted = "TripCompleted";
+    public const string EnquiryEnded = "EnquiryEnded";
     public const string ConcurrentUpdate = "CONCURRENT_UPDATE";
     public const string CONCURRENT_UPDATE = ConcurrentUpdate;
 }
 
 public static class TripOfferRules
 {
-    public const int MaxCounters = 3, MaxRevised = 5, CounterMinPerNight = 100, CounterMaxPerNight = 200_000, ReasonMax = 300;
+    public const int MaxCounters = 3, MaxRevised = 5, CounterMinPerNight = 100, ReasonMax = 300;
+    // One cap with the stay listing's per-night price.
+    public const int OfferMaxPerNight = StayLimits.MaxPrice, CounterMaxPerNight = StayLimits.MaxPrice;
 
-    public static int CounterTotal(int pricePerNight, int units, int nights) => Math.Max(1, nights) * Math.Max(1, units) * pricePerNight;
+    public static int CounterTotal(int pricePerNight, int units, int nights)
+        => TripExecutionRules.Saturate((long)Math.Max(1, nights) * Math.Max(1, units) * pricePerNight);
 
     // Price lock: a change request keeps every accepted line's PricePerNight; units follow the requested rooms
     // (extra rooms go to the first line, fewer rooms are taken from the last lines); guests are spread by units.
@@ -360,9 +401,11 @@ public static class TripExecutionRules
     public const int OfferHours = 24, OfferUrgentHours = 2, OfferFloorHours = 1, UrgentHours = 72;
     public const int HostLinkDays = 7, HostLinkMaxDays = 14, HostLinkResendHours = 24, HostLinkMaxCount = 2, HostLinkOverrideDays = 7;
     public const int NotMeWindowDays = 30, NotMePauseCount = 3, NotMePauseDays = 30;
-    public const int PhoneBookingsPerDay = 10, EnquiriesPerHour = 10, EnquiriesPerDay = 30, OwnerActionsPerHour = 60, ConfirmPagePerMinute = 20;
+    public const int PhoneBookingsPerDay = 10, EnquiriesPerHour = 20, EnquiriesPerDay = 60, OwnerActionsPerHour = 60, ConfirmPagePerMinute = 20;
     public const int MaxTextLen = 80, MaxSpotsInText = 8, NoteMax = 300, CancellationMax = 300, BalanceNoteMax = 120, HostNameMax = 60, RoomNameMax = 40;
-    public const int MinAmount = 1, MaxAmount = 2_000_000;
+    public const int MinAmount = 1, MaxAmount = StayLimits.MaxPrice;
+    public const string AsksLeftHeader = "X-Trip-Asks-Left";
+    public const string TotalRangeMessage = "Total must be between Rs 1 and Rs 99,00,000";
     public const int PushLogRetentionDays = 90, OrphanRetentionDays = 180;
 
     public static readonly TimeSpan IstOffset = TimeSpan.FromMinutes(330);
@@ -403,8 +446,11 @@ public static class TripExecutionRules
 
     public static bool NightsOverlap(DateOnly aIn, DateOnly aOut, DateOnly bIn, DateOnly bOut) => aIn < bOut && bIn < aOut;
 
+    // Saturates at int.MaxValue so the MaxAmount check rejects an overflowing total.
     public static int ComputeTotal(IReadOnlyList<TripOfferLine> lines, int nights)
-        => nights * lines.Sum(l => l.Units * l.PricePerNight);
+        => Saturate((long)nights * lines.Sum(l => (long)l.Units * l.PricePerNight));
+
+    public static int Saturate(long value) => (int)Math.Clamp(value, int.MinValue, int.MaxValue);
 
     public static int Nights(DateOnly? checkIn, DateOnly? checkOut)
         => checkIn is { } a && checkOut is { } b ? Math.Max(0, b.DayNumber - a.DayNumber) : 0;

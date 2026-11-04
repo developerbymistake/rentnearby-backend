@@ -54,6 +54,7 @@ builder.Services.Configure<GzipCompressionProviderOptions>(o =>
 // Flutter map layer expects.
 builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(o =>
     o.SerializerOptions.Converters.Add(new NetTopologySuite.IO.Converters.GeoJsonConverterFactory()));
+builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(o => o.SerializerOptions.Converters.Add(new RentNearBy.Core.Models.EmptyStringNullableGuidConverter()));
 
 builder.Services.AddValidatorsFromAssemblyContaining<SendOtpRequestValidator>();
 

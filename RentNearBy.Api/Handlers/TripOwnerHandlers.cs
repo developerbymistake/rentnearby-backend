@@ -23,7 +23,7 @@ public static class TripOwnerHandlers
 
     // GET /trips/enquiries/owner (policy CanListStays on the route)
     public static async Task<IResult> GetMine(
-        string? status, int? page, int? pageSize, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+        string? status, int? page, int? pageSize, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
@@ -31,9 +31,10 @@ public static class TripOwnerHandlers
         if (!TripOwnerBuckets.All.Contains(bucket)) return BadRequestResponse("Status must be new, offered, confirmed or closed");
         var pageNo = Math.Max(1, page ?? 1);
         var size = Math.Clamp(pageSize ?? DefaultPageSize, 1, MaxPageSize);
+        var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
 
-        var (items, hasMore) = await unitOfWork.TripEnquiries.GetOwnerPagedAsync(callerId, bucket, pageNo, size);
-        var counts = await unitOfWork.TripEnquiries.GetOwnerCountsAsync(callerId);
+        var (items, hasMore) = await OwnerPageAsync(db, callerId, bucket, today, pageNo, size);
+        var counts = await OwnerCountsAsync(db, callerId, today);
         var built = await TripEnquiryViews.BuildAsync(unitOfWork, items, callerId);
 
         return OkResponse(new TripOwnerEnquiryPageDto
@@ -42,6 +43,47 @@ public static class TripOwnerHandlers
             HasMore = hasMore,
             Counts = new TripOwnerCountsDto { New = counts.New, Offered = counts.Offered, Confirmed = counts.Confirmed, Closed = counts.Closed },
         });
+    }
+
+    // confirmed = confirmed and not ended (check-out today or later); an ended confirmed booking lists under closed.
+    private static async Task<(IReadOnlyList<TripEnquiry> Items, bool HasMore)> OwnerPageAsync(
+        ApplicationDbContext db, Guid ownerId, string bucket, DateOnly today, int page, int pageSize)
+    {
+        var newStatuses = TripOwnerBuckets.NewStatuses;
+        var offeredStatuses = TripOwnerBuckets.OfferedStatuses;
+        var confirmedStatuses = TripOwnerBuckets.ConfirmedStatuses;
+        var query = db.TripEnquiries.AsNoTracking().Where(e => e.OwnerUserId == ownerId);
+        query = bucket switch
+        {
+            TripOwnerBuckets.New => query.Where(e => newStatuses.Contains(e.Status)),
+            TripOwnerBuckets.Offered => query.Where(e => offeredStatuses.Contains(e.Status)),
+            TripOwnerBuckets.Confirmed => query.Where(e => confirmedStatuses.Contains(e.Status) && (e.CheckOut == null || e.CheckOut >= today)),
+            _ => query.Where(e =>
+                (!newStatuses.Contains(e.Status) && !offeredStatuses.Contains(e.Status) && !confirmedStatuses.Contains(e.Status))
+                || (confirmedStatuses.Contains(e.Status) && e.CheckOut != null && e.CheckOut < today)),
+        };
+
+        var rows = await query
+            .OrderByDescending(e => e.CreatedAt)
+            .ThenByDescending(e => e.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize + 1)
+            .ToListAsync();
+        var hasMore = rows.Count > pageSize;
+        if (hasMore) rows.RemoveAt(pageSize);
+        return (rows, hasMore);
+    }
+
+    private static async Task<TripOwnerCounts> OwnerCountsAsync(ApplicationDbContext db, Guid ownerId, DateOnly today)
+    {
+        var groups = await db.TripEnquiries.AsNoTracking()
+            .Where(e => e.OwnerUserId == ownerId)
+            .GroupBy(e => new { e.Status, Ended = e.CheckOut != null && e.CheckOut < today })
+            .Select(g => new { g.Key.Status, g.Key.Ended, Count = g.Count() })
+            .ToListAsync();
+        int Sum(string bucket) => groups.Where(g => TripOwnerBuckets.Of(g.Status, g.Ended) == bucket).Sum(g => g.Count);
+        return new TripOwnerCounts(
+            Sum(TripOwnerBuckets.New), Sum(TripOwnerBuckets.Offered), Sum(TripOwnerBuckets.Confirmed), Sum(TripOwnerBuckets.Closed));
     }
 
     // POST /trips/enquiries/{id}/offers
@@ -65,8 +107,8 @@ public static class TripOwnerHandlers
             .Select(t => new { t.StartDate, t.EndDate }).FirstOrDefaultAsync();
         if (trip?.StartDate is not { } start || trip.EndDate is not { } end) return Closed();
 
-        if (request.CheckIn < start || request.CheckOut > end)
-            return ErrorResponse(422, "Offer dates must be inside the trip.", TripEnquiryErrorTypes.OfferOutsideTrip);
+        if (!TripDateRules.InsideTrip(start, end, request.CheckIn, request.CheckOut))
+            return ErrorResponse(422, TripDateRules.OutsideTripMessage, TripEnquiryErrorTypes.OfferOutsideTrip);
         if (request.CheckIn < TripExecutionRules.TodayIst(now))
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
 
@@ -92,7 +134,7 @@ public static class TripOwnerHandlers
         var nights = request.CheckOut.DayNumber - request.CheckIn.DayNumber;
         var total = TripExecutionRules.ComputeTotal(lines, nights);
         if (total < TripExecutionRules.MinAmount || total > TripExecutionRules.MaxAmount)
-            return BadRequestResponse("Total must be between Rs 1 and Rs 2,000,000");
+            return BadRequestResponse(TripExecutionRules.TotalRangeMessage);
         if (request.AdvanceAmount is { } adv && (adv < 0 || adv > total))
             return BadRequestResponse("Advance must not be more than the total");
 
@@ -330,8 +372,8 @@ public static class TripOwnerHandlers
         var trip = await db.Trips.AsNoTracking().Where(t => t.Id == tripId)
             .Select(t => new { t.StartDate, t.EndDate }).FirstOrDefaultAsync();
         if (trip?.StartDate is not { } start || trip.EndDate is not { } end) return RevisedNotAllowed();
-        if (request.CheckIn < start || request.CheckOut > end)
-            return ErrorResponse(422, "Offer dates must be inside the trip.", TripEnquiryErrorTypes.OfferOutsideTrip);
+        if (!TripDateRules.InsideTrip(start, end, request.CheckIn, request.CheckOut))
+            return ErrorResponse(422, TripDateRules.OutsideTripMessage, TripEnquiryErrorTypes.OfferOutsideTrip);
         if (request.CheckIn < today)
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
 
@@ -351,7 +393,7 @@ public static class TripOwnerHandlers
         var nights = request.CheckOut.DayNumber - request.CheckIn.DayNumber;
         var total = TripExecutionRules.ComputeTotal(lines, nights);
         if (total < TripExecutionRules.MinAmount || total > TripExecutionRules.MaxAmount)
-            return BadRequestResponse("Total must be between Rs 1 and Rs 2,000,000");
+            return BadRequestResponse(TripExecutionRules.TotalRangeMessage);
         if (request.AdvanceAmount is { } adv && (adv < 0 || adv > total))
             return BadRequestResponse("Advance must not be more than the total");
 
@@ -485,8 +527,8 @@ public static class TripOwnerHandlers
 
         var trip = await db.Trips.AsNoTracking().Where(t => t.Id == tripId)
             .Select(t => new { t.StartDate, t.EndDate }).FirstOrDefaultAsync();
-        if (trip?.StartDate is not { } start || trip.EndDate is not { } end || checkIn < start || checkOut > end)
-            return ErrorResponse(422, "The new dates are no longer inside the trip.", TripEnquiryErrorTypes.OfferOutsideTrip);
+        if (trip?.StartDate is not { } start || trip.EndDate is not { } end || !TripDateRules.InsideTrip(start, end, checkIn, checkOut))
+            return ErrorResponse(422, TripDateRules.OutsideTripMessage, TripEnquiryErrorTypes.OfferOutsideTrip);
         if (checkIn < TripExecutionRules.TodayIst(now))
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
 

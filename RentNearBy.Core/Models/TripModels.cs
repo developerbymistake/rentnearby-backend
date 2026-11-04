@@ -57,6 +57,7 @@ public static class TripCacheKeys
     public static string Lock(long key) => $"trip:spots:{key}:lock";
     public static string Matrix(long key) => $"trip:matrix:{key}";
     public static string MatrixLock(long key) => $"trip:matrix:{key}:lock";
+    public static string Supply(long key) => $"trip:supply:{key}";
     public const string CityCatalog = "trip:cities:catalog";
     public const string CityCatalogStale = "trip:cities:catalog:stale";
     public const string CityCatalogLock = "trip:cities:catalog:lock";
@@ -92,7 +93,30 @@ public static class TripJson
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         PropertyNameCaseInsensitive = true,
+        Converters = { new EmptyStringNullableGuidConverter() },
     };
+}
+
+// Reads "" or whitespace as null (an own stay or taxi may carry an empty id); any other text must be a Guid.
+public sealed class EmptyStringNullableGuidConverter : JsonConverter<Guid?>
+{
+    public override bool HandleNull => true;
+
+    public override Guid? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType != JsonTokenType.String) throw new JsonException("Invalid id");
+        var text = reader.GetString();
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        if (Guid.TryParseExact(text.Trim(), "D", out var id)) return id;
+        throw new JsonException("Invalid id");
+    }
+
+    public override void Write(Utf8JsonWriter writer, Guid? value, JsonSerializerOptions options)
+    {
+        if (value is { } id) writer.WriteStringValue(id);
+        else writer.WriteNullValue();
+    }
 }
 
 public sealed class AtlasUnavailableException(string message) : Exception(message);
@@ -126,8 +150,13 @@ public sealed class TripPlan
     public List<TripDay> Days { get; set; } = new();
     public TripSettings Settings { get; set; } = new();
 
+    // Last DAY of the trip (drives Trips.EndDate, reminders and the list).
     [JsonIgnore]
     public DateOnly? EndDate => Settings?.StartDate?.AddDays(Math.Max(0, (Days?.Count ?? 0) - 1));
+
+    // Every day has a night: check-out is the morning after the last day.
+    [JsonIgnore]
+    public DateOnly? CheckOutDate => EndDate?.AddDays(1);
 }
 
 public sealed class TripDay
@@ -155,10 +184,10 @@ public sealed class TripSpot
 
 public sealed class TripTaxiChoice
 {
-    // Null only for an own booking (IsOwn, Phase 1).
+    // Null only for an own booking (IsOwn).
     public Guid? TaxiId { get; set; }
     public string Name { get; set; } = "";
-    // Per-day share when booked: round(Booking.AgreedFare / Booking.Days.Length).
+    // Per-day rupees: the day rate when selected, the booked share round(Booking.AgreedFare / Booking.Days.Length), or the own taxi fare.
     public int? Fare { get; set; }
     public string? VehicleTypeName { get; set; }
     public bool? IsOwn { get; set; }
@@ -183,7 +212,7 @@ public sealed class TripTaxiBooking
 
 public sealed class TripStayChoice
 {
-    // Null only for an own booking (IsOwn, Phase 1).
+    // Null only for an own booking (IsOwn) or a skipped night (Skipped).
     public Guid? StayId { get; set; }
     public string Name { get; set; } = "";
     public int? PricePerNight { get; set; }
@@ -194,6 +223,8 @@ public sealed class TripStayChoice
     public bool? IsOwn { get; set; }
     public string? OwnPhone { get; set; }
     public string? Note { get; set; }
+    // No stay tonight (travelling).
+    public bool? Skipped { get; set; }
 }
 
 public sealed class TripStayShortlistItem
@@ -228,6 +259,8 @@ public sealed class TripSettings
     // "HH:mm", 24 h.
     public string? PickupTime { get; set; }
     public string? PickupPlace { get; set; }
+    // 1..TripLimits.MaxDays; null = auto split.
+    public int? MaxDays { get; set; }
 }
 
 // Redis value of TripCacheKeys.Spots / Stale.

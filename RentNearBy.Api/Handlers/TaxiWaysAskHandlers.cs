@@ -19,10 +19,11 @@ public static class TaxiWaysAskHandlers
 {
     private static readonly TimeSpan Hour = TimeSpan.FromHours(1);
     private static readonly TimeSpan Day24 = TimeSpan.FromHours(24);
+    private const string AsksLeftHeader = "X-Trip-Asks-Left";
 
     private sealed record TaxiRow(
         Guid Id, Guid UserId, string? DriverName, string? VehicleTypeName, string Status, bool IsAvailable, bool IsDeleted,
-        double? Latitude, double? Longitude);
+        double? Latitude, double? Longitude, short? Seats);
 
     public static async Task<IResult> AskDrivers(
         AskDriversRequest request, IValidator<AskDriversRequest> validator, ClaimsPrincipal principal,
@@ -39,8 +40,9 @@ public static class TaxiWaysAskHandlers
         if (journey.Status == JourneyStatuses.Completed) return BadRequestResponse("This journey is completed");
         if (request.Legs.Any(l => journey.Legs.All(x => x.LegIndex != l.LegIndex))) return BadRequestResponse("Unknown leg");
 
-        if (await RateLimitedAsync(rateLimiter, http, $"trip:enquiry:h:{callerId}", TripExecutionRules.EnquiriesPerHour, Hour) is { } hourly)
-            return hourly;
+        var hourlyCheck = await rateLimiter.CheckAsync($"trip:enquiry:h:{callerId}", TripExecutionRules.EnquiriesPerHour, Hour);
+        http.Response.Headers[AsksLeftHeader] = Math.Max(0, hourlyCheck.RemainingAttempts).ToString();
+        if (!hourlyCheck.IsAllowed) return Limited(http, hourlyCheck, Hour);
         if (await RateLimitedAsync(rateLimiter, http, $"trip:enquiry:d:{callerId}", TripExecutionRules.EnquiriesPerDay, Day24) is { } daily)
             return daily;
 
@@ -73,7 +75,8 @@ public static class TaxiWaysAskHandlers
                 }
 
                 var mine = await unitOfWork.TripEnquiries.GetOpenByTravellerListingAsync(callerId, TripEnquiryKinds.Taxi, taxiId);
-                var same = mine.FirstOrDefault(x => x.CheckIn is { } a && x.CheckOut is { } b
+                // A trip's local-taxi lead (TripId set) is never this journey's lead: the same driver can be both.
+                var same = mine.FirstOrDefault(x => x.TripId == null && x.CheckIn is { } a && x.CheckOut is { } b
                     && TripExecutionRules.NightsOverlap(a, b, date, checkOut));
                 if (same != null)
                 {
@@ -109,7 +112,8 @@ public static class TaxiWaysAskHandlers
                     PickupPlace = pickup,
                     Text = JourneyLeadText.Build(
                         fromName, legTo, date, request.People, leg.LegIndex, leg.CarOf,
-                        string.IsNullOrWhiteSpace(leg.ComesFrom) ? null : TripTextSafety.Clean(leg.ComesFrom)),
+                        string.IsNullOrWhiteSpace(leg.ComesFrom) ? null : TripTextSafety.Clean(leg.ComesFrom),
+                        TaxiWaysRanking.CarsNeeded(request.People, taxi.Seats)),
                 };
 
                 var e = new TripEnquiry
@@ -201,7 +205,7 @@ public static class TaxiWaysAskHandlers
             .Where(t => t.Id == taxiId)
             .Select(t => new TaxiRow(
                 t.Id, t.UserId, t.User.Name, t.VehicleType != null ? t.VehicleType.Name : null, t.Status, t.IsAvailable, t.IsDeleted,
-                t.Latitude == null ? null : (double?)t.Latitude, t.Longitude == null ? null : (double?)t.Longitude))
+                t.Latitude == null ? null : (double?)t.Latitude, t.Longitude == null ? null : (double?)t.Longitude, t.Seats))
             .FirstOrDefaultAsync();
 
     // "Driver · Vehicle", at most 120 characters.
@@ -217,7 +221,11 @@ public static class TaxiWaysAskHandlers
     private static async Task<IResult?> RateLimitedAsync(IRateLimitService rateLimiter, HttpContext http, string key, int max, TimeSpan window)
     {
         var rl = await rateLimiter.CheckAsync(key, max, window);
-        if (rl.IsAllowed) return null;
+        return rl.IsAllowed ? null : Limited(http, rl, window);
+    }
+
+    private static IResult Limited(HttpContext http, RateLimitResult rl, TimeSpan window)
+    {
         http.Response.Headers["Retry-After"] = ((int)(rl.RetryAfter ?? window).TotalSeconds).ToString();
         return TooManyRequestsResponse();
     }

@@ -833,4 +833,128 @@ public class TripRequestValidatorsTests
 
         ValidationAssert.HasMessage(SaveValidator.Validate(request), "Same stay must point to an earlier day");
     }
+
+    // ---- own stay / own taxi / no stay tonight / day count (D5, D6, D17) ----
+
+    private static SaveTripRequest FromJson(string dayJson)
+    {
+        var json = "{\"status\":\"Planned\",\"plan\":{\"version\":3,\"cityKey\":502141,\"settings\":{\"dayLimitMinutes\":450},"
+                   + "\"days\":[{\"day\":1,\"spots\":[{\"id\":\"osm:N1\",\"name\":\"Mall Road\",\"latitude\":29.39,\"longitude\":79.45,"
+                   + "\"category\":\"attraction\",\"visitMinutes\":60}]," + dayJson + "}]}}";
+        return System.Text.Json.JsonSerializer.Deserialize<SaveTripRequest>(json, TripJson.Options)!;
+    }
+
+    [Fact]
+    public void Save_OwnStayWithEmptyStringId_ReadsAsNull_Valid()
+    {
+        var request = FromJson("\"stay\":{\"stayId\":\"\",\"name\":\"Hotel Alka\",\"isOwn\":true}");
+
+        Assert.Null(request.Plan.Days[0].Stay!.StayId);
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_OwnStayAndTaxiWithoutIdKey_Valid()
+    {
+        var request = FromJson("\"stay\":{\"name\":\"Hotel Alka\",\"isOwn\":true,\"ownPhone\":\"9876543210\"},"
+                               + "\"taxi\":{\"taxiId\":\" \",\"name\":\"Mohan\",\"isOwn\":true,\"fare\":1800}");
+
+        Assert.Null(request.Plan.Days[0].Taxi!.TaxiId);
+        Assert.Equal(1800, request.Plan.Days[0].Taxi!.Fare);
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_NonOwnStayWithEmptyStringId_Invalid()
+    {
+        var request = FromJson("\"stay\":{\"stayId\":\"\",\"name\":\"Lake View\"}");
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Stay is required");
+    }
+
+    [Fact]
+    public void Save_NonOwnTaxiWithoutId_Invalid()
+    {
+        var request = FromJson("\"taxi\":{\"name\":\"Ramesh\"}");
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
+    }
+
+    [Fact]
+    public void Save_NotAGuidId_FailsToRead()
+        => Assert.Throws<System.Text.Json.JsonException>(() => FromJson("\"stay\":{\"stayId\":\"abc\",\"name\":\"Lake View\"}"));
+
+    [Fact]
+    public void Save_OwnStayNameMissing_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Stay = new TripStayChoice { IsOwn = true, Name = "  " };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Name must be 1 to 80 characters");
+    }
+
+    [Fact]
+    public void Save_OwnTaxiName81_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Taxi = new TripTaxiChoice { IsOwn = true, Name = new string('a', 81) };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Name must be 1 to 80 characters");
+    }
+
+    [Fact]
+    public void Save_SkippedNightWithoutId_Valid()
+    {
+        var request = FromJson("\"stay\":{\"name\":\"No stay tonight\",\"skipped\":true}");
+
+        Assert.True(request.Plan.Days[0].Stay!.Skipped);
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_SkippedAndOwn_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Stay = new TripStayChoice { IsOwn = true, Skipped = true, Name = "My stay" };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "A night is either your own stay or no stay");
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(14)]
+    public void Save_MaxDaysInRange_Valid(int days)
+    {
+        var request = Save();
+        request.Plan.Settings.MaxDays = days;
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(15)]
+    public void Save_MaxDaysOutOfRange_Invalid(int days)
+    {
+        var request = Save();
+        request.Plan.Settings.MaxDays = days;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), PlanTripRequestValidator.MaxDaysMessage);
+    }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData(1, true)]
+    [InlineData(14, true)]
+    [InlineData(0, false)]
+    [InlineData(15, false)]
+    public void Plan_MaxDays_Range(int? days, bool ok)
+    {
+        var request = Auto();
+        request.MaxDays = days;
+
+        var result = PlanValidator.Validate(request);
+        if (ok) Assert.True(result.IsValid);
+        else ValidationAssert.HasMessage(result, PlanTripRequestValidator.MaxDaysMessage);
+    }
 }

@@ -184,6 +184,8 @@ public class TripEnquiryBatchDto
 {
     public List<TripEnquiryDto> Items { get; set; } = new();
     public List<TripSkippedDto> Skipped { get; set; } = new();
+    // Open leads whose days were merged with this request; they are in Items too.
+    public List<Guid> Updated { get; set; } = new();
     public bool VeryShortNotice { get; set; }
 }
 

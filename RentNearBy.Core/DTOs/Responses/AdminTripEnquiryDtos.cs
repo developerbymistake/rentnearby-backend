@@ -96,4 +96,34 @@ public class AdminTripEnquiryDetailDto : AdminTripEnquiryDto
     public Guid? TripId { get; set; }
     public Guid? ConversationId { get; set; }
     public string? ClosedNote { get; set; }
+    public List<AdminTripProblemDto> Problems { get; set; } = new();
+}
+
+public class AdminTripProblemDto
+{
+    public Guid Id { get; set; }
+    public Guid TripId { get; set; }
+    public string TripTitle { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
+    public int Day { get; set; }
+    public DateOnly? Date { get; set; }
+    public string Kind { get; set; } = string.Empty;
+    public string? Note { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public Guid? EnquiryId { get; set; }
+    public string? EnquiryKind { get; set; }
+    public string? ListingName { get; set; }
+    public string? OwnerName { get; set; }
+    public string? OwnerPhone { get; set; }
+    public string TravellerName { get; set; } = string.Empty;
+    public string? TravellerPhone { get; set; }
+    public bool Marked { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class AdminTripProblemPageDto
+{
+    public List<AdminTripProblemDto> Items { get; set; } = new();
+    public bool HasMore { get; set; }
 }
