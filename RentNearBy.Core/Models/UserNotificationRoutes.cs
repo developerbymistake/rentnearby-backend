@@ -14,6 +14,7 @@ public static class UserNotificationRoutes
     public const string ChatConversation = "/chat-conversation";
     public const string TripLeads = "/trip-leads";
     public const string MyTrips = "/my-trips";
+    public const string TripTaxiReplies = "/trip-taxi-replies";
 
     public static string ForListingKind(string listingKind) => listingKind switch
     {

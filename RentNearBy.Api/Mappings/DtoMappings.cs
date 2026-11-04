@@ -1,5 +1,4 @@
 ﻿using System.Globalization;
-using System.Text.Json;
 using Mapster;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -172,9 +171,8 @@ public static class DtoMappings
         // (NotificationListItem.IsRead), never a column on NotificationEvent itself. Handlers set it
         // explicitly after calling Adapt().
         TypeAdapterConfig<NotificationEvent, NotificationDto>.NewConfig()
-            .Map(dest => dest.ActionArguments, src => src.ActionArgumentsJson == null
-                ? null
-                : JsonSerializer.Deserialize<Dictionary<string, string>>(src.ActionArgumentsJson, (JsonSerializerOptions?)null));
+            .Ignore(dest => dest.ActionArguments)
+            .AfterMapping((src, dest) => dest.ActionArguments = NotificationDto.ParseArguments(src.ActionArgumentsJson));
     }
 
     private static List<StayRoomDto> ToStayRoomDtos(StayListing s) =>

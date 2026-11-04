@@ -96,10 +96,18 @@ public static class TripLifecycleHandlers
                 marked = true;
                 if (kept != null) db.TripEnquiries.Add(failed);
                 log.TripEnquiryId = failed.Id;
-                if (e.Kind == TripEnquiryKinds.Stay && e.ConversationId != null)
+                if (e.Kind == TripEnquiryKinds.Stay)
                 {
-                    if (kept == null)
-                        await TripEnquiryOps.CloseOpenOfferAsync(db, chat, e, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
+                    // Pending revised offers and change requests were written for the old range: none survives the split.
+                    await TripEnquiryOps.CloseOpenOfferAsync(db, chat, e, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
+                    if (kept != null && kept.AcceptedOfferId is { } acceptedId
+                        && await db.TripOffers.FirstOrDefaultAsync(o => o.Id == acceptedId) is { } accepted)
+                    {
+                        var shrunk = TripProblemSplit.ShrinkAcceptedOffer(accepted, kept, now);
+                        accepted.Status = TripOfferStatuses.Superseded;
+                        db.TripOffers.Add(shrunk);
+                        kept.AcceptedOfferId = shrunk.Id;
+                    }
                     await TripEnquiryOps.PostSystemAsync(db, chat, failed, userId, TripSystemLines.ProblemHostNoRoom, posts);
                 }
             }
@@ -352,6 +360,7 @@ public static class TripSummaryRecordBuilder
             });
 
         var stays = dtos.Where(d => d.Kind == TripEnquiryKinds.Stay && IsListed(d.Status)).ToList();
+        var failedStays = dtos.Where(d => d.Kind == TripEnquiryKinds.Stay && IsProblemFailed(d)).ToList();
         var shown = new HashSet<Guid>();
         foreach (var day in plan.Days.Where(d => d.Day >= 1 && d.Day <= plan.Days.Count).OrderBy(d => d.Day))
         {
@@ -384,10 +393,22 @@ public static class TripSummaryRecordBuilder
                     DisplayStatus = SkippedDisplay,
                 });
             }
+            else if (failedStays.Where(d => Covers(d, day.Day, date)).OrderByDescending(d => d.UpdatedAt).FirstOrDefault() is { } failed)
+            {
+                // A Problem night stays on the record so Summary and My Trips tell the same story.
+                record.Nights.Add(new TripSummaryNightDto
+                {
+                    Night = day.Day,
+                    Date = date,
+                    ListingName = failed.ListingName,
+                    EnquiryId = failed.Id,
+                    DisplayStatus = failed.DisplayStatus,
+                });
+            }
         }
 
         var taxiDtos = dtos
-            .Where(d => d.Kind == TripEnquiryKinds.Taxi && IsListed(d.Status))
+            .Where(d => d.Kind == TripEnquiryKinds.Taxi && (IsListed(d.Status) || IsProblemFailed(d)))
             .GroupBy(d => d.Id).Select(g => g.First());
         foreach (var d in taxiDtos)
         {
@@ -406,6 +427,11 @@ public static class TripSummaryRecordBuilder
     private static bool IsListed(string status)
         => TripEnquiryStatuses.IsBooked(status)
             || status is TripEnquiryStatuses.CancelledByTraveller or TripEnquiryStatuses.CancelledByOwner;
+
+    // Failed by a Problem report (host had no room, driver did not come): a booking that broke during the trip.
+    private static bool IsProblemFailed(TripEnquiryDto d)
+        => d.Status == TripEnquiryStatuses.Failed
+            && d.FailReason is TripFailReasons.ProblemHostNoRoom or TripFailReasons.ProblemDriverNoShow;
 
     // A booked row beats a cancelled one; among equals the newest (list order) wins.
     private static TripEnquiryDto? Pick(IReadOnlyList<TripEnquiryDto> rows)

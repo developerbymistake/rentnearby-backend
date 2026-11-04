@@ -61,7 +61,9 @@ public static class TaxiWaysAskHandlers
         {
             foreach (var taxiId in leg.TaxiIds)
             {
-                if (candidates.Any(c => c.Taxi.Id == taxiId) || items.Any(i => i.Enquiry.ListingId == taxiId)) continue;
+                // One lead per leg and driver: the same driver on two legs gets a lead for each, with that leg's route.
+                if (candidates.Any(c => c.Leg.LegIndex == leg.LegIndex && c.Taxi.Id == taxiId)
+                    || items.Any(i => i.LegIndex == leg.LegIndex && i.Enquiry.ListingId == taxiId)) continue;
                 var taxi = await LoadTaxiAsync(db, taxiId);
                 if (taxi == null || taxi.IsDeleted || taxi.Status != TaxiStatuses.Approved || !taxi.IsAvailable || taxi.UserId == callerId)
                 {
@@ -76,8 +78,10 @@ public static class TaxiWaysAskHandlers
 
                 var mine = await unitOfWork.TripEnquiries.GetOpenByTravellerListingAsync(callerId, TripEnquiryKinds.Taxi, taxiId);
                 // A trip's local-taxi lead (TripId set) is never this journey's lead: the same driver can be both.
+                // Another journey's or another leg's lead is a different route, so only this journey and leg are reused.
                 var same = mine.FirstOrDefault(x => x.TripId == null && x.CheckIn is { } a && x.CheckOut is { } b
-                    && TripExecutionRules.NightsOverlap(a, b, date, checkOut));
+                    && TripExecutionRules.NightsOverlap(a, b, date, checkOut)
+                    && IsLeadOf(x, journey.Id, leg.LegIndex));
                 if (same != null)
                 {
                     items.Add((leg.LegIndex, same));
@@ -114,6 +118,8 @@ public static class TaxiWaysAskHandlers
                         fromName, legTo, date, request.People, leg.LegIndex, leg.CarOf,
                         string.IsNullOrWhiteSpace(leg.ComesFrom) ? null : TripTextSafety.Clean(leg.ComesFrom),
                         TaxiWaysRanking.CarsNeeded(request.People, taxi.Seats)),
+                    JourneyId = journey.Id,
+                    LegIndex = leg.LegIndex,
                 };
 
                 var e = new TripEnquiry
@@ -195,6 +201,12 @@ public static class TaxiWaysAskHandlers
             Skipped = skipped,
             VeryShortNotice = veryShortNotice,
         }, $"/api/v1/taxis/journeys/{journey.Id}");
+    }
+
+    private static bool IsLeadOf(TripEnquiry e, Guid journeyId, int legIndex)
+    {
+        var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
+        return context.JourneyId == journeyId && context.LegIndex == legIndex;
     }
 
     private static AskSkippedDto Skip(int legIndex, Guid taxiId, string reason)

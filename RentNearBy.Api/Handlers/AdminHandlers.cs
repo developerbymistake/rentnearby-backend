@@ -1724,6 +1724,7 @@ public static class AdminHandlers
                 title = notification.Title,
                 body = notification.Body,
                 actionRoute = notification.ActionRoute,
+                actionArguments = NotificationDto.ParseArguments(notification.ActionArgumentsJson),
             });
         }
         catch { }

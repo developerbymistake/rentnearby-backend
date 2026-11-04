@@ -220,7 +220,29 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
             ownerName = TripTextSafety.CleanOrNull(await _context.Users.AsNoTracking()
                 .Where(u => u.Id == ownerId).Select(u => u.Name).FirstOrDefaultAsync(), TripExecutionRules.HostNameMax);
 
-        return new TripPushContext(recipientUserId, travellerName, e.ListingName, chatArgs, total, confirmed, ownerName);
+        Guid? journeyId = null;
+        if (e.TripId == null && e.Kind == TripEnquiryKinds.Taxi && e.TravellerUserId == recipientUserId)
+            journeyId = await FindJourneyIdAsync(e, recipientUserId);
+
+        return new TripPushContext(recipientUserId, travellerName, e.ListingName, chatArgs, total, confirmed, ownerName, journeyId);
+    }
+
+    // The chosen driver's lead is a leg's LastEnquiryId; a backup's lead is matched by driver and travel date.
+    private async Task<Guid?> FindJourneyIdAsync(TripEnquiry e, Guid travellerId)
+    {
+        var byLeg = await _context.Set<SavedJourneyLeg>().AsNoTracking()
+            .Where(l => l.LastEnquiryId == e.Id && l.Journey.UserId == travellerId && !l.Journey.IsDeleted)
+            .Select(l => (Guid?)l.JourneyId)
+            .FirstOrDefaultAsync();
+        if (byLeg != null || e.CheckIn is not { } date) return byLeg;
+
+        var taxiId = e.ListingId;
+        return await _context.Set<SavedJourney>().AsNoTracking()
+            .Where(j => j.UserId == travellerId && !j.IsDeleted && j.TravelDate == date
+                && j.Legs.Any(l => l.DriverTaxiId == taxiId || l.Backup1TaxiId == taxiId || l.Backup2TaxiId == taxiId))
+            .OrderByDescending(j => j.UpdatedAt)
+            .Select(j => (Guid?)j.Id)
+            .FirstOrDefaultAsync();
     }
 
     public async Task<(IReadOnlyList<TripEnquiry> Items, bool HasMore)> GetDriverPagedAsync(Guid driverId, string bucket, int page, int pageSize)

@@ -58,6 +58,11 @@ public class DeviceTokenRepository(ApplicationDbContext context) : IDeviceTokenR
             .Where(d => d.UserId == userId)
             .ExecuteDeleteAsync();
 
+    public async Task DeleteForUserAsync(Guid userId, string token)
+        => await context.DeviceTokens
+            .Where(d => d.UserId == userId && d.Token == token)
+            .ExecuteDeleteAsync();
+
     public async Task<int> GetValidTokenUserCountAsync()
         => await context.DeviceTokens
             .Where(d => d.IsValid)

@@ -76,6 +76,8 @@ public static class TripCloseReasons
 {
     public const string Withdrawn = "Withdrawn";
     public const string BookedElsewhere = "BookedElsewhere";
+    // The traveller moved the trip dates and this unconfirmed row fell outside the new window.
+    public const string TripDatesChanged = "TripDatesChanged";
     public const string TripDeleted = "TripDeleted";
     public const string AccountDeleted = "AccountDeleted";
     public const string AdminClosed = "AdminClosed";
@@ -221,6 +223,8 @@ public static class TripLeadRules
 {
     public const int MaxFareEdits = 3, LeadsPerTripPerDay = 10, MaxOpenLeadsPerDay = 3, PhoneVisibleAfterCloseDays = 7, AnsweredWithinHours = 24;
     public const int MaxLeadDays = TripLimits.MaxDays, PickupPlaceMax = 80;
+    // "I booked" saves and edits: own hourly key, never the ask quota.
+    public const int BookingsPerHour = 20, MaxReplaceIds = TripLimits.MaxDays;
     public const string PickupTimePattern = @"^([01]\d|2[0-3]):[0-5]\d$";
 
     public static int ListedTotal(int? listedRate, int days) => (listedRate ?? 0) * Math.Max(1, days);
@@ -236,6 +240,31 @@ public static class TripLeadRules
         if (requested.All(d => have.Contains(d))) return null;
         return have.Concat(requested).Distinct().OrderBy(d => d).ToList();
     }
+
+    // A fare was given for the old day set; once days are added the driver quotes again.
+    public static void ResetForMerge(TripEnquiry row)
+    {
+        row.Status = TripEnquiryStatuses.Asked;
+        row.DriverFare = null;
+        row.DriverNote = null;
+        row.DriverRepliedAt = null;
+        row.DriverFareEditCount = 0;
+    }
+
+    // Booked past days of the stored row, as day numbers of the current trip start; an edit keeps them.
+    public static List<int> KeptPastDays(IReadOnlyList<int>? storedDays, DateOnly? rowCheckIn, DateOnly start, int dayCount, DateOnly todayIst)
+    {
+        if (storedDays is not { Count: > 0 } || rowCheckIn is not { } first) return [];
+        var firstStored = storedDays.Min();
+        return storedDays
+            .Select(d => first.AddDays(d - firstStored))
+            .Where(date => date < todayIst)
+            .Select(date => date.DayNumber - start.DayNumber + 1)
+            .Where(d => d >= 1 && d <= dayCount)
+            .Distinct()
+            .OrderBy(d => d)
+            .ToList();
+    }
 }
 
 // Every day of a trip has a night: check-out is the morning after the last day (end = last DAY).
@@ -245,6 +274,14 @@ public static class TripDateRules
 
     public static bool InsideTrip(DateOnly start, DateOnly end, DateOnly checkIn, DateOnly checkOut)
         => checkIn >= start && checkOut <= CheckOutLimit(end);
+
+    // A row with any night or day outside [start, end + 1), or any row once the trip has no dates.
+    public static bool OutsideWindow(DateOnly? start, DateOnly? end, DateOnly? checkIn, DateOnly? checkOut)
+    {
+        if (start is not { } s || end is not { } e) return true;
+        if (checkIn is not { } a || checkOut is not { } b) return false;
+        return !InsideTrip(s, e, a, b);
+    }
 
     public const string OutsideTripMessage = "Offer dates must be inside the trip (check-out the morning after the last day).";
 }
@@ -323,6 +360,7 @@ public static class TripEnquiryErrorTypes
     public const string TripNeedsUpdate = "TripNeedsUpdate";
     public const string TripCompleted = "TripCompleted";
     public const string EnquiryEnded = "EnquiryEnded";
+    public const string NightFailed = "NightFailed";
     public const string ConcurrentUpdate = "CONCURRENT_UPDATE";
     public const string CONCURRENT_UPDATE = ConcurrentUpdate;
 }
@@ -417,6 +455,9 @@ public static class TripExecutionRules
 
     public static DateOnly NightDate(DateOnly startDate, int day) => startDate.AddDays(day - 1);
 
+    // Inverse of NightDate: the trip day whose night starts on date (TripEnquiry.Day follows CheckIn).
+    public static short DayOf(DateOnly startDate, DateOnly date) => (short)(date.DayNumber - startDate.DayNumber + 1);
+
     public static bool IsUrgent(DateOnly startDate, DateTime nowUtc)
         => IstMidnightUtc(startDate) - nowUtc < TimeSpan.FromHours(UrgentHours);
 
@@ -491,6 +532,9 @@ public sealed class TripEnquiryContext
     public string? PickupTime { get; set; }
     public string? PickupPlace { get; set; }
     public string Text { get; set; } = string.Empty;
+    // Journey leads only: the saved journey and leg the lead belongs to.
+    public Guid? JourneyId { get; set; }
+    public int? LegIndex { get; set; }
 }
 
 public sealed class TripEnquiryContextDay
@@ -533,7 +577,7 @@ public sealed record TripOwnerCounts(int New, int Offered, int Confirmed, int Cl
 // Input of every TripNotifications builder. ChatArgsJson = the full chat-conversation map for the recipient, null without a conversation.
 public sealed record TripPushContext(
     Guid RecipientUserId, string TravellerName, string ListingName, string? ChatArgsJson,
-    int? Total = null, bool? Confirmed = null, string? OwnerName = null);
+    int? Total = null, bool? Confirmed = null, string? OwnerName = null, Guid? JourneyId = null);
 
 public static class TripTextSafety
 {
@@ -728,9 +772,11 @@ public static class TripSystemLines
     public const string CounterReplaced = "counterReplaced";
     public const string ProblemHostNoRoom = "problemHostNoRoom";
     public const string TripCompleted = "tripCompleted";
+    public const string TripDatesChanged = "tripDatesChanged";
 
     public static string Text(string kind) => kind switch
     {
+        TripDatesChanged => "The guest changed the trip dates. This enquiry is closed.",
         RevisedAccepted => "The guest accepted the new price.",
         RevisedKept => "The guest kept the earlier price.",
         ChangeAccepted => "The host accepted the change.",

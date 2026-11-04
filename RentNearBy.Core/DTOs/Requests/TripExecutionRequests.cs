@@ -28,6 +28,8 @@ public class CreateTaxiBookingRequest
     public string? Note { get; set; }
     public bool CloseOthers { get; set; } = true;
     public Guid? ReplaceEnquiryId { get; set; }
+    // Every booked driver the traveller agreed to replace on these days (ReplaceEnquiryId counts too).
+    public List<Guid>? ReplaceEnquiryIds { get; set; }
 }
 
 public class AskAdvanceRequest

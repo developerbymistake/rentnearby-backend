@@ -110,7 +110,8 @@ public static class TripNotifications
 
     public static NotificationEvent TripDriverFare(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripDriverFare, $"{Listing(e, ctx)} replied Rs {Money(e.DriverFare)}",
-            $"Listed Rs {Money(TripLeadRules.ListedTotal(e.ListedRateSnapshot, DayCount(e)))}. Call to settle, then tap I booked.", Plan(e, ctx));
+            $"Listed Rs {Money(TripLeadRules.ListedTotal(e.ListedRateSnapshot, DayCount(e)))}. "
+            + (e.TripId == null ? "Call to settle." : "Call to settle, then tap I booked."), Plan(e, ctx));
 
     public static NotificationEvent TripTaxiBookedByTraveller(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripTaxiBookedByTraveller, $"{Name(ctx.TravellerName, "A traveller")} booked you",
@@ -143,7 +144,7 @@ public static class TripNotifications
 
     public static NotificationEvent TripCounterReceived(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripCounterReceived, $"{Name(ctx.TravellerName, "A guest")} proposed a price",
-            $"Rs {Money(ctx.Total)} a night for {Dates(e)}.", ChatOrEnquiries(e, ctx));
+            $"Rs {Money(ctx.Total)} per room per night for {Dates(e)}.", ChatOrEnquiries(e, ctx));
 
     public static NotificationEvent TripRevisedOffer(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripRevisedOffer, $"{Listing(e, ctx)} revised the price",
@@ -186,12 +187,42 @@ public static class TripNotifications
 
     // ── formatting ───────────────────────────────────────────────────────────
 
-    // "01-02 Nov", or "01 Nov - 02 Dec" across months. Taxi rows store CheckOut = last day + 1, so they show the last day.
+    // "01-02 Nov", or "01 Nov - 02 Dec" across months. Taxi rows store CheckOut = last day + 1, so they show the last day;
+    // non-consecutive taxi days (DaysJson) read "05, 07 Nov".
     public static string Dates(TripEnquiry e)
     {
         if (!IsTaxi(e) || e.CheckIn is not { } a || e.CheckOut is not { } b) return DateRange(e.CheckIn, e.CheckOut);
+        if (TaxiDates(e, a) is { } dates) return DayList(dates);
         var last = b.AddDays(-1);
         return last <= a ? a.ToString("dd MMM", Inv) : DateRange(a, last);
+    }
+
+    // DaysJson holds trip day numbers; CheckIn is the date of the first one.
+    private static List<DateOnly>? TaxiDates(TripEnquiry e, DateOnly checkIn)
+    {
+        var days = ReadDays(e.DaysJson);
+        if (days is not { Length: > 1 }) return null;
+        var first = days.Min();
+        return days.Distinct().Order().Select(d => checkIn.AddDays(d - first)).ToList();
+    }
+
+    private static string DayList(List<DateOnly> dates)
+    {
+        var runs = new List<(DateOnly From, DateOnly To)>();
+        foreach (var d in dates)
+        {
+            if (runs.Count > 0 && runs[^1].To.AddDays(1) == d) runs[^1] = (runs[^1].From, d);
+            else runs.Add((d, d));
+        }
+        if (runs.Count == 1)
+            return runs[0].From == runs[0].To ? runs[0].From.ToString("dd MMM", Inv) : DateRange(runs[0].From, runs[0].To);
+
+        var oneMonth = dates.All(d => d.Month == dates[0].Month && d.Year == dates[0].Year);
+        if (oneMonth)
+            return string.Join(", ", runs.Select(r => r.From == r.To
+                ? r.From.ToString("dd", Inv)
+                : $"{r.From.ToString("dd", Inv)}-{r.To.ToString("dd", Inv)}")) + " " + dates[0].ToString("MMM", Inv);
+        return string.Join(", ", runs.Select(r => r.From == r.To ? r.From.ToString("dd MMM", Inv) : DateRange(r.From, r.To)));
     }
 
     public static string DateRange(DateOnly? checkIn, DateOnly? checkOut)
@@ -250,11 +281,13 @@ public static class TripNotifications
             ? $"pickup {t.ToString("h:mm tt", Inv).ToLowerInvariant()}"
             : string.Empty;
 
-    private static int DayCount(TripEnquiry e)
+    private static int DayCount(TripEnquiry e) => Math.Max(1, ReadDays(e.DaysJson)?.Length ?? 1);
+
+    private static int[]? ReadDays(string? daysJson)
     {
-        if (string.IsNullOrWhiteSpace(e.DaysJson)) return 1;
-        try { return Math.Max(1, JsonSerializer.Deserialize<int[]>(e.DaysJson)?.Length ?? 1); }
-        catch (JsonException) { return 1; }
+        if (string.IsNullOrWhiteSpace(daysJson)) return null;
+        try { return JsonSerializer.Deserialize<int[]>(daysJson); }
+        catch (JsonException) { return null; }
     }
     private static string Join(string sep, params string[] parts) => string.Join(sep, parts.Where(p => !string.IsNullOrEmpty(p)));
 
@@ -278,9 +311,19 @@ public static class TripNotifications
 
     private static Target ChatOrEnquiries(TripEnquiry e, TripPushContext ctx) => ctx.ChatArgsJson != null ? Chat(e, ctx) : Enquiries(e, ctx);
 
-    private static Target Plan(TripEnquiry e, TripPushContext ctx) => e.TripId is { } t
-        ? new(UserNotificationRoutes.TripPlan, JsonSerializer.Serialize(new { tripId = t }))
-        : new(UserNotificationRoutes.MyTrips, null);
+    // Traveller side: a trip taxi opens its day's replies, a journey lead (no trip) its saved journey, a stay the plan.
+    private static Target Plan(TripEnquiry e, TripPushContext ctx)
+    {
+        if (e.TripId is { } t)
+            return IsTaxi(e)
+                ? new(UserNotificationRoutes.TripTaxiReplies, JsonSerializer.Serialize(new { tripId = t, day = FirstDay(e), enquiryId = e.Id }))
+                : new(UserNotificationRoutes.TripPlan, JsonSerializer.Serialize(new { tripId = t }));
+        if (IsTaxi(e))
+            return new(JourneyNotifications.Route, ctx.JourneyId is { } j ? JsonSerializer.Serialize(new { journeyId = j }) : null);
+        return new(UserNotificationRoutes.MyTrips, null);
+    }
+
+    private static int FirstDay(TripEnquiry e) => ReadDays(e.DaysJson) is { Length: > 0 } days ? days.Min() : e.Day ?? 1;
 
     private static NotificationEvent Host(TripEnquiry e, TripPushContext ctx, string type, string title, string body, Target t) =>
         Event(ctx.RecipientUserId, type, e.IsUrgent, title, body, t);

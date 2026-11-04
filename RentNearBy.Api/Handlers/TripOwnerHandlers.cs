@@ -8,7 +8,9 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using Microsoft.Extensions.Logging.Abstractions;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -232,11 +234,9 @@ public static class TripOwnerHandlers
         }
 
         await chat.AfterCommitAsync(posts);
-        if (e.TravellerUserId is { } traveller)
-        {
-            var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(e, traveller, total);
-            await notifier.SendAsync(TripNotifications.TripOfferReceived(e, ctx));
-        }
+        await TripPushSender.SendAsync(
+            [new TripPendingPush(e, e.TravellerUserId, TripNotifications.TripOfferReceived, Total: total)],
+            unitOfWork.TripEnquiries, notifier, httpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TripOwner"));
 
         var dto = await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId);
         return CreatedResponse(
@@ -294,11 +294,9 @@ public static class TripOwnerHandlers
         }
 
         await chat.AfterCommitAsync(posts);
-        if (e.TravellerUserId is { } traveller)
-        {
-            var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(e, traveller);
-            await notifier.SendAsync(TripNotifications.TripNotAvailable(e, ctx));
-        }
+        await TripPushSender.SendAsync(
+            [new TripPendingPush(e, e.TravellerUserId, TripNotifications.TripNotAvailable)],
+            unitOfWork.TripEnquiries, notifier, httpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TripOwner"));
 
         return OkResponse(await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId));
     }
@@ -341,7 +339,8 @@ public static class TripOwnerHandlers
                 return Closed();
             case HostAnswerOutcome.Applied:
                 await chat.AfterCommitAsync(posts);
-                await TripHostAnswers.SendPushesAsync(unitOfWork, notifier, e, request.Confirm, TripHostConfirmVia.App);
+                await TripHostAnswers.SendPushesAsync(unitOfWork, notifier, e, request.Confirm, TripHostConfirmVia.App,
+                    httpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TripOwner"));
                 break;
         }
 
@@ -376,6 +375,8 @@ public static class TripOwnerHandlers
             return ErrorResponse(422, TripDateRules.OutsideTripMessage, TripEnquiryErrorTypes.OfferOutsideTrip);
         if (request.CheckIn < today)
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
+        if (await TripEnquiryHandlers.FailedNightsBlockAsync(db, e, request.CheckIn, request.CheckOut) is { } failedNights)
+            return failedNights;
 
         var offers = await unitOfWork.TripOffers.GetByEnquiryAsync(e.Id);
         if (offers.Count(o => o.Kind == TripOfferKinds.Revised) >= TripOfferRules.MaxRevised)
@@ -489,11 +490,9 @@ public static class TripOwnerHandlers
         }
 
         await chat.AfterCommitAsync(posts);
-        if (e.TravellerUserId is { } traveller)
-        {
-            var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(e, traveller, total);
-            await notifier.SendAsync(TripNotifications.TripRevisedOffer(e, ctx));
-        }
+        await TripPushSender.SendAsync(
+            [new TripPendingPush(e, e.TravellerUserId, TripNotifications.TripRevisedOffer, Total: total)],
+            unitOfWork.TripEnquiries, notifier, httpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TripOwner"));
 
         var dto = await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId);
         return CreatedResponse(
@@ -531,8 +530,10 @@ public static class TripOwnerHandlers
             return ErrorResponse(422, TripDateRules.OutsideTripMessage, TripEnquiryErrorTypes.OfferOutsideTrip);
         if (checkIn < TripExecutionRules.TodayIst(now))
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
+        if (await TripEnquiryHandlers.FailedNightsBlockAsync(db, e, checkIn, checkOut) is { } failedNights)
+            return failedNights;
 
-        var blocking = (await unitOfWork.TripEnquiries.GetOpenByTripAsync(tripId, TripEnquiryKinds.Stay))
+        var blocking =(await unitOfWork.TripEnquiries.GetOpenByTripAsync(tripId, TripEnquiryKinds.Stay))
             .FirstOrDefault(o => o.Id != e.Id && TripEnquiryStatuses.IsBooked(o.Status)
                 && o.CheckIn is { } a && o.CheckOut is { } b && TripExecutionRules.NightsOverlap(a, b, checkIn, checkOut));
         if (blocking != null)
@@ -564,6 +565,7 @@ public static class TripOwnerHandlers
             e.AgreedTotal = change.Total;
             e.CheckIn = checkIn;
             e.CheckOut = checkOut;
+            e.Day = TripExecutionRules.DayOf(start, checkIn);
             var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
             context.Adults = change.Adults ?? context.Adults;
             context.Kids = change.Kids ?? context.Kids;
@@ -591,11 +593,9 @@ public static class TripOwnerHandlers
         }
 
         await chat.AfterCommitAsync(posts);
-        if (e.TravellerUserId is { } traveller)
-        {
-            var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(e, traveller, change.Total);
-            await notifier.SendAsync(TripNotifications.TripChangeAccepted(e, ctx));
-        }
+        await TripPushSender.SendAsync(
+            [new TripPendingPush(e, e.TravellerUserId, TripNotifications.TripChangeAccepted, Total: change.Total)],
+            unitOfWork.TripEnquiries, notifier, httpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TripOwner"));
 
         return OkResponse(await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId));
     }
@@ -739,19 +739,16 @@ internal static class TripHostAnswers
     }
 
     // Traveller push, plus the host push when the answer came from the link.
-    public static async Task SendPushesAsync(IUnitOfWork unitOfWork, ITripNotifier notifier, TripEnquiry e, bool confirm, string via)
+    public static async Task SendPushesAsync(
+        IUnitOfWork unitOfWork, ITripNotifier notifier, TripEnquiry e, bool confirm, string via, ILogger? logger = null)
     {
-        if (e.TravellerUserId is { } traveller)
+        var pushes = new List<TripPendingPush>
         {
-            var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(e, traveller);
-            await notifier.SendAsync(confirm ? TripNotifications.TripHostConfirmed(e, ctx) : TripNotifications.TripHostDenied(e, ctx));
-        }
-
-        if (via == TripHostConfirmVia.Link && e.OwnerUserId is { } host)
-        {
-            var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(e, host, confirmed: confirm);
-            await notifier.SendAsync(TripNotifications.TripHostLinkAnswered(e, ctx));
-        }
+            new(e, e.TravellerUserId, confirm ? TripNotifications.TripHostConfirmed : TripNotifications.TripHostDenied),
+        };
+        if (via == TripHostConfirmVia.Link)
+            pushes.Add(new(e, e.OwnerUserId, TripNotifications.TripHostLinkAnswered, Confirmed: confirm));
+        await TripPushSender.SendAsync(pushes, unitOfWork.TripEnquiries, notifier, logger ?? NullLogger.Instance);
     }
 
     // Another confirmed stay of the same trip already holds these nights.

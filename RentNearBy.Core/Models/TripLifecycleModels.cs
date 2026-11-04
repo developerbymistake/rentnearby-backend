@@ -295,7 +295,49 @@ public static class TripProblemSplit
         e.CheckOut = date;
         e.AgreedTotal = keptTotal;
         e.UpdatedAt = nowUtc;
+        ShrinkPhoneBooking(e, kept);
         return (e, failed);
+    }
+
+    // The accepted terms as they stand after the split: same rooms and terms, the kept nights and total.
+    public static TripOffer ShrinkAcceptedOffer(TripOffer accepted, TripEnquiry kept, DateTime nowUtc) => new()
+    {
+        Id = Guid.NewGuid(),
+        TripEnquiryId = kept.Id,
+        Kind = accepted.Kind,
+        SenderUserId = accepted.SenderUserId,
+        CheckIn = kept.CheckIn,
+        CheckOut = kept.CheckOut,
+        LinesJson = accepted.LinesJson,
+        Nights = (short)TripExecutionRules.Nights(kept.CheckIn, kept.CheckOut),
+        Total = kept.AgreedTotal ?? accepted.Total,
+        Inclusions = accepted.Inclusions,
+        NeedsEchoedJson = accepted.NeedsEchoedJson,
+        AdvanceAmount = accepted.AdvanceAmount,
+        BalanceNote = accepted.BalanceNote,
+        CancellationText = accepted.CancellationText,
+        GstInvoice = accepted.GstInvoice,
+        Note = accepted.Note,
+        Adults = accepted.Adults,
+        Kids = accepted.Kids,
+        ValidUntil = accepted.ValidUntil,
+        Status = TripOfferStatuses.Accepted,
+        RespondedAt = nowUtc,
+        CreatedAt = nowUtc,
+    };
+
+    private static void ShrinkPhoneBooking(TripEnquiry e, int keptNights)
+    {
+        if (string.IsNullOrWhiteSpace(e.PhoneBookingJson)) return;
+        try
+        {
+            var booking = JsonSerializer.Deserialize<TripPhoneBooking>(e.PhoneBookingJson, TripJson.Options);
+            if (booking == null) return;
+            booking.Nights = keptNights;
+            if (e.AgreedTotal is { } total) booking.AgreedTotal = total;
+            e.PhoneBookingJson = JsonSerializer.Serialize(booking, TripJson.Options);
+        }
+        catch (JsonException) { }
     }
 
     // Day numbers in DaysJson are the plan's at send time; the row covers CheckIn + (d - first), so the plan day is found by date.

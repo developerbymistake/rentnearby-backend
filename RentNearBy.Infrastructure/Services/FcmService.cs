@@ -10,6 +10,9 @@ namespace RentNearBy.Infrastructure.Services;
 
 public class FcmService : IFcmService
 {
+    // Created by the user app at start (notification_service.dart); an unknown id falls back to the default channel.
+    private const string GeneralChannelId = "general_notifications";
+
     private readonly ILogger<FcmService> _logger;
 
     public FcmService(IConfiguration configuration, ILogger<FcmService> logger)
@@ -53,7 +56,8 @@ public class FcmService : IFcmService
                 Notification = new AndroidNotification
                 {
                     Sound = "default",
-                    ClickAction = "FLUTTER_NOTIFICATION_CLICK"
+                    ClickAction = "FLUTTER_NOTIFICATION_CLICK",
+                    ChannelId = GeneralChannelId
                 }
             }
         };
@@ -96,7 +100,8 @@ public class FcmService : IFcmService
                 Notification = new AndroidNotification
                 {
                     Sound = "default",
-                    ClickAction = "FLUTTER_NOTIFICATION_CLICK"
+                    ClickAction = "FLUTTER_NOTIFICATION_CLICK",
+                    ChannelId = GeneralChannelId
                 }
             }
         };

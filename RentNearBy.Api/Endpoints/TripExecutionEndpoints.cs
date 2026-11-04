@@ -48,11 +48,12 @@ public static class TripExecutionEndpoints
 
         // Taxi: "I booked" by the traveller; the driver's Trip leads list and actions.
         group.MapPost("/{tripId:guid}/taxi-bookings", TripEnquiryHandlers.CreateTaxiBooking).Gated();
-        group.MapGet("/leads/driver", TripLeadHandlers.GetMine).Gated("CanListTaxis");
-        group.MapPost("/leads/{id:guid}/fare", TripLeadHandlers.Fare).Gated();
-        group.MapPost("/leads/{id:guid}/not-available", TripLeadHandlers.NotAvailable).Gated();
-        group.MapPost("/leads/{id:guid}/confirm", TripLeadHandlers.Confirm).Gated();
-        group.MapPost("/leads/{id:guid}/deny", TripLeadHandlers.Deny).Gated();
+        // Journey leads come from /taxis/ways/ask, which has no planner gate: the driver side answers whatever the planner flag says.
+        group.MapGet("/leads/driver", TripLeadHandlers.GetMine).Gated("CanListTaxis").WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/leads/{id:guid}/fare", TripLeadHandlers.Fare).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/leads/{id:guid}/not-available", TripLeadHandlers.NotAvailable).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/leads/{id:guid}/confirm", TripLeadHandlers.Confirm).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/leads/{id:guid}/deny", TripLeadHandlers.Deny).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
 
         return group;
     }

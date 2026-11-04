@@ -55,6 +55,8 @@ public class TripNotificationsTests
         UserNotificationRoutes.ChatConversation,
         UserNotificationRoutes.TripLeads,
         UserNotificationRoutes.MyTrips,
+        UserNotificationRoutes.TripTaxiReplies,
+        JourneyNotifications.Route,
     ];
 
     [Fact]
@@ -79,6 +81,8 @@ public class TripNotificationsTests
         Assert.Equal("/chat-conversation", UserNotificationRoutes.ChatConversation);
         Assert.Equal("/trip-leads", UserNotificationRoutes.TripLeads);
         Assert.Equal("/my-trips", UserNotificationRoutes.MyTrips);
+        Assert.Equal("/trip-taxi-replies", UserNotificationRoutes.TripTaxiReplies);
+        Assert.Equal("/my-journeys", JourneyNotifications.Route);
     }
 
     [Fact]
@@ -222,12 +226,12 @@ public class TripNotificationsTests
         new(recipient, "Rahul", "Bisht Cabs", chat, null, null, ownerName);
 
     [Fact]
-    public void Taxi_not_available_says_driver_and_routes_to_the_plan()
+    public void Taxi_not_available_says_driver_and_routes_to_the_taxi_replies()
     {
         var n = TripNotifications.TripNotAvailable(TaxiRow(), Ctx(Traveller));
         Assert.Contains("driver", n.Body);
         Assert.DoesNotContain("stay", n.Body);
-        Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
+        Assert.Equal(UserNotificationRoutes.TripTaxiReplies, n.ActionRoute);
     }
 
     [Fact]
@@ -288,21 +292,82 @@ public class TripNotificationsTests
     }
 
     [Fact]
-    public void Taxi_traveller_pushes_route_to_the_plan_with_the_trip_id()
+    public void Taxi_traveller_pushes_route_to_the_taxi_replies_with_trip_day_and_enquiry()
     {
         var e = TaxiRow();
+        e.DaysJson = "[3,2]";
         foreach (var n in new[]
         {
             TripNotifications.TripDriverFare(e, Ctx(Traveller)),
             TripNotifications.TripDriverConfirmed(e, Ctx(Traveller)),
             TripNotifications.TripDriverDenied(e, Ctx(Traveller)),
+            TripNotifications.TripNotAvailable(e, Ctx(Traveller)),
+            TripNotifications.TripEnquiryExpired(e, Ctx(Traveller)),
+            TripNotifications.TripNoReply(e, Ctx(Traveller)),
             TripNotifications.TripEnquiryClosedByAdmin(e, Ctx(Traveller)),
         })
         {
-            Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
+            Assert.Equal(UserNotificationRoutes.TripTaxiReplies, n.ActionRoute);
             using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
             Assert.Equal(TripId.ToString(), doc.RootElement.GetProperty("tripId").GetString());
+            Assert.Equal(2, doc.RootElement.GetProperty("day").GetInt32());
+            Assert.Equal(e.Id.ToString(), doc.RootElement.GetProperty("enquiryId").GetString());
         }
+    }
+
+    [Fact]
+    public void Stay_traveller_pushes_still_open_the_plan()
+    {
+        var n = TripNotifications.TripHostConfirmed(StayRow(), Ctx(Traveller));
+        Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
+    }
+
+    [Fact]
+    public void Journey_lead_pushes_open_the_saved_journey()
+    {
+        var e = TaxiRow();
+        e.TripId = null;
+        e.DaysJson = "[1]";
+        var journeyId = Guid.NewGuid();
+        var ctx = new TripPushContext(Traveller, "Rahul", "Bisht Cabs", null, null, null, "Mohan Bisht", journeyId);
+        foreach (var n in new[]
+        {
+            TripNotifications.TripDriverFare(e, ctx),
+            TripNotifications.TripNotAvailable(e, ctx),
+            TripNotifications.TripEnquiryExpired(e, ctx),
+            TripNotifications.TripDriverConfirmed(e, ctx),
+            TripNotifications.TripDriverDenied(e, ctx),
+        })
+        {
+            Assert.Equal(JourneyNotifications.Route, n.ActionRoute);
+            using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+            Assert.Equal(journeyId.ToString(), doc.RootElement.GetProperty("journeyId").GetString());
+        }
+        Assert.DoesNotContain("I booked", TripNotifications.TripDriverFare(e, ctx).Body);
+    }
+
+    [Fact]
+    public void Journey_lead_without_a_known_journey_opens_my_journeys()
+    {
+        var e = TaxiRow();
+        e.TripId = null;
+        var n = TripNotifications.TripDriverFare(e, Ctx(Traveller));
+        Assert.Equal(JourneyNotifications.Route, n.ActionRoute);
+        Assert.Null(n.ActionArgumentsJson);
+    }
+
+    [Theory]
+    [InlineData("[1,3]", 11, 1, 11, 4, "01, 03 Nov")]
+    [InlineData("[1,2,4]", 11, 1, 11, 5, "01-02, 04 Nov")]
+    [InlineData("[1,2]", 11, 1, 11, 3, "01-02 Nov")]
+    [InlineData("[1,3]", 11, 30, 12, 3, "30 Nov, 02 Dec")]
+    public void Taxi_dates_list_non_consecutive_days(string days, int m1, int d1, int m2, int d2, string expected)
+    {
+        var e = TaxiRow();
+        e.DaysJson = days;
+        e.CheckIn = new DateOnly(2026, m1, d1);
+        e.CheckOut = new DateOnly(2026, m2, d2);
+        Assert.Equal(expected, TripNotifications.Dates(e));
     }
 
     [Fact]
@@ -507,7 +572,7 @@ public class TripNotificationsTests
         var counter = TripNotifications.TripCounterReceived(e, ctx);
         Assert.Equal(Owner, counter.TargetUserId);
         Assert.Equal("Rahul proposed a price", counter.Title);
-        Assert.Contains("Rs 3,600 a night", counter.Body);
+        Assert.Contains("Rs 3,600 per room per night", counter.Body);
         var revised = TripNotifications.TripRevisedOffer(e, tctx);
         Assert.Equal(Traveller, revised.TargetUserId);
         Assert.Equal("Deodar Homestay revised the price", revised.Title);

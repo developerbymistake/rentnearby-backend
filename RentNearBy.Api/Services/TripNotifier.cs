@@ -31,12 +31,13 @@ public sealed class TripNotifier(
         await AdminHandlers.SendGoLiveNotificationAsync(hub, publisher, n);
     }
 
+    // The dedupe row and the inbox row commit together, so a failed inbox save leaves the key free for the next pass.
     public async Task<bool> SendOnceAsync(NotificationEvent n, string dedupeKey, Guid? tripId, Guid? enquiryId)
     {
-        bool inserted;
+        var tx = db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync() : null;
         try
         {
-            inserted = await unitOfWork.TripPushLogs.TryInsertAsync(new TripPushLog
+            var inserted = await unitOfWork.TripPushLogs.TryInsertAsync(new TripPushLog
             {
                 Id = Guid.NewGuid(),
                 TripId = tripId,
@@ -45,15 +46,35 @@ public sealed class TripNotifier(
                 Kind = n.Type,
                 SentAt = DateTime.UtcNow,
             });
+            if (!inserted)
+            {
+                if (tx != null) await tx.RollbackAsync();
+                return false;
+            }
+
+            if (n.TargetUserId != null)
+            {
+                await unitOfWork.Notifications.AddAsync(n);
+                await unitOfWork.SaveChangesAsync();
+            }
+            if (tx != null) await tx.CommitAsync();
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "trip.notify.log_failed {Key}", dedupeKey);
+            logger.LogWarning(ex, "trip.notify.once_failed {Key} {Type}", dedupeKey, n.Type);
+            if (tx != null)
+            {
+                try { await tx.RollbackAsync(); } catch { }
+            }
+            db.Entry(n).State = EntityState.Detached;
             return false;
         }
+        finally
+        {
+            if (tx != null) await tx.DisposeAsync();
+        }
 
-        if (!inserted) return false;
-        await SendAsync(n);
+        if (n.TargetUserId != null) await AdminHandlers.SendGoLiveNotificationAsync(hub, publisher, n);
         return true;
     }
 }

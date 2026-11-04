@@ -401,7 +401,8 @@ public static class TripHandlers
     }
 
     public static async Task<IResult> Update(
-        Guid id, SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+        Guid id, SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
+        ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier, ILoggerFactory loggers)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -431,18 +432,51 @@ public static class TripHandlers
 
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, trip.CityName);
         if (request.Status != null) trip.Status = request.Status;
+        var (oldStart, oldEnd) = (trip.StartDate, trip.EndDate);
         ApplyPlan(trip, plan);
-        trip.UpdatedAt = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        trip.UpdatedAt = now;
 
+        // New dates: unconfirmed asks that no longer fit can never get an offer, so they close and the owner is told.
+        // Confirmed bookings keep their dates (D7).
+        var datesMoved = oldStart != null && (oldStart != trip.StartDate || oldEnd != trip.EndDate);
+        var closing = datesMoved
+            ? (await db.TripEnquiries
+                    .Where(x => x.TripId == trip.Id && TripEnquiryStatuses.Withdrawable.Contains(x.Status))
+                    .ToListAsync())
+                .Where(x => TripDateRules.OutsideWindow(trip.StartDate, trip.EndDate, x.CheckIn, x.CheckOut))
+                .ToList()
+            : new List<TripEnquiry>();
+        var posts = new List<TripChatPost>();
+        var pushes = new List<TripPendingPush>();
+
+        await unitOfWork.BeginTransactionAsync();
         try
         {
+            foreach (var x in closing)
+            {
+                x.Status = TripEnquiryStatuses.Closed;
+                x.FailReason = TripCloseReasons.TripDatesChanged;
+                x.UpdatedAt = now;
+                await TripEnquiryOps.CloseOpenOfferAsync(db, chat, x, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
+                await TripEnquiryOps.PostSystemAsync(db, chat, x, userId, TripSystemLines.TripDatesChanged, posts);
+                pushes.Add(new TripPendingPush(x, x.OwnerUserId, TripEnquiryHandlers.EnquiryClosedByDateChange));
+            }
             await unitOfWork.SaveChangesAsync();
+            await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
         {
+            await unitOfWork.RollbackTransactionAsync();
             return ConflictResponse("This trip was just modified. Please retry.", "CONCURRENT_UPDATE");
         }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
 
+        await TripEnquiryHandlers.AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
         return OkResponse(ToDto(trip, plan, await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id)));
     }
 
