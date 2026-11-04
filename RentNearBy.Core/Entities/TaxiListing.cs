@@ -34,10 +34,16 @@ public class TaxiListing
 
     // Cheapest route fare, rewritten on every route/fare write.
     public int? MinFare { get; set; }
+    // Local sightseeing rate per day; null = not offered on trips. KmPerDay is only set with a rate.
+    public int? LocalDayRate { get; set; }
+    public int? LocalDayKm { get; set; }
     public string? Slug { get; set; }
     // Copied from the owner's plan; public ordering reads these, never UserPlans.
     public short PriorityRank { get; set; }
     public bool IsFeatured { get; set; }
+
+    public int TripLeadsReceived { get; set; }
+    public int TripLeadsAnsweredInApp { get; set; }
 
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

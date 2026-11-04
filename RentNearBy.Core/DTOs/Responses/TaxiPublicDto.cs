@@ -19,6 +19,9 @@ public class TaxiPublicDto
     public string? CityName { get; set; }
     public List<TaxiRouteDto> Routes { get; set; } = new();
     public int? MinFare { get; set; }
+    public int? LocalDayRate { get; set; }
+    public int? LocalDayKm { get; set; }
+    public string TripReplyLabel { get; set; } = RentNearBy.Core.Models.TaxiTripReplyLabels.New;
     public bool IsAvailable { get; set; }
     public string? ContactPhone { get; set; }
     public string? WhatsAppNumber { get; set; }

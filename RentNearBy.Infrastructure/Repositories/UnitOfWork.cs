@@ -48,6 +48,9 @@ public class UnitOfWork : IUnitOfWork
     private IRoleRepository? _roles;
     private IRoleChangeRequestRepository? _roleChangeRequests;
     private ITripRepository? _trips;
+    private ITripEnquiryRepository? _tripEnquiries;
+    private ITripOfferRepository? _tripOffers;
+    private ITripPushLogRepository? _tripPushLogs;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -94,6 +97,9 @@ public class UnitOfWork : IUnitOfWork
     public IRoleRepository Roles => _roles ??= new RoleRepository(_context);
     public IRoleChangeRequestRepository RoleChangeRequests => _roleChangeRequests ??= new RoleChangeRequestRepository(_context);
     public ITripRepository Trips => _trips ??= new TripRepository(_context);
+    public ITripEnquiryRepository TripEnquiries => _tripEnquiries ??= new TripEnquiryRepository(_context);
+    public ITripOfferRepository TripOffers => _tripOffers ??= new TripOfferRepository(_context);
+    public ITripPushLogRepository TripPushLogs => _tripPushLogs ??= new TripPushLogRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();

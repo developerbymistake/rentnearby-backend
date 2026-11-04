@@ -10,12 +10,14 @@ public static class TaxiEndpoints
         group.MapGet("/browse", TaxiHandlers.GetBrowse);
         group.MapGet("/search", TaxiHandlers.GetSearch);
         group.MapGet("/by-slug/{slug}", TaxiHandlers.GetBySlug);
+        group.MapTaxiWaysEndpoints();
 
         group.MapGet("/me", TaxiHandlers.GetMine).RequireAuthorization("CanListTaxis");
         group.MapPut("/me/basic", TaxiHandlers.UpsertBasic).RequireAuthorization("CanListTaxis");
         group.MapPost("/me/plate-photo", TaxiHandlers.UploadPlatePhoto).RequireAuthorization("CanListTaxis").DisableAntiforgery();
         group.MapPut("/me/routes", TaxiHandlers.UpsertRoutes).RequireAuthorization("CanListTaxis");
         group.MapPut("/me/routes/{routeId:guid}/fare", TaxiHandlers.UpdateFare).RequireAuthorization("CanListTaxis");
+        group.MapPut("/me/local-rate", TaxiHandlers.UpdateLocalRate).RequireAuthorization("CanListTaxis");
         group.MapPost("/me/submit", TaxiHandlers.Submit).RequireAuthorization("CanListTaxis");
         group.MapPut("/me/availability", TaxiHandlers.UpdateAvailability).RequireAuthorization("CanListTaxis");
         group.MapDelete("/me", TaxiHandlers.DeleteMine).RequireAuthorization("CanListTaxis");

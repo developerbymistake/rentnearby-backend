@@ -25,4 +25,5 @@ public class ConversationDto
     public DateTime LastMessageAt { get; set; }
     public string? LastMessagePreview { get; set; }
     public int UnreadCount { get; set; } // resolved to the caller's side
+    public TripEnquiryDto? TripEnquiry { get; set; } // latest trip enquiry of a Stay conversation
 }

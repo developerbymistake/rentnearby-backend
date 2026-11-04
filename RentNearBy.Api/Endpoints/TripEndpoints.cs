@@ -17,6 +17,8 @@ public static class TripEndpoints
         group.MapPut("/{id:guid}", TripHandlers.Update).RequireAuthorization();
         group.MapDelete("/{id:guid}", TripHandlers.Delete).RequireAuthorization();
 
+        group.MapTripExecutionEndpoints();
+
         return group;
     }
 }

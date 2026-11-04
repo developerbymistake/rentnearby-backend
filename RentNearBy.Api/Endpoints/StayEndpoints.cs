@@ -22,6 +22,7 @@ public static class StayEndpoints
         group.MapPut("/me/rules", StayHandlers.UpsertRules).RequireAuthorization("CanListStays");
         group.MapPost("/me/submit", StayHandlers.Submit).RequireAuthorization("CanListStays");
         group.MapPut("/me/accepting", StayHandlers.UpdateAccepting).RequireAuthorization("CanListStays");
+        group.MapPut("/me/advance-details", StayHandlers.UpdateAdvanceDetails).RequireAuthorization("CanListStays");
         group.MapDelete("/me", StayHandlers.DeleteMine).RequireAuthorization("CanListStays");
 
         group.MapGet("/{id:guid}", StayHandlers.GetById);

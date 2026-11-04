@@ -281,6 +281,7 @@ public static class StayHandlers
         var owner = await unitOfWork.Users.GetByIdAsync(stay.UserId);
 
         var isFirstPending = !await unitOfWork.ListingReports.HasPendingReportForListingAsync(id, ListingKinds.Stay);
+        var tripEnquiryId = await TripLifecycleHandlers.OwnTripEnquiryIdAsync(unitOfWork, request.TripEnquiryId, id, userId);
 
         var report = new ListingReport
         {
@@ -297,6 +298,7 @@ public static class StayHandlers
             Details = request.Details,
             Status = "Pending",
             CreatedAt = DateTime.UtcNow,
+            TripEnquiryId = tripEnquiryId,
         };
 
         await unitOfWork.ListingReports.AddAsync(report);
@@ -713,6 +715,35 @@ public static class StayHandlers
         return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
     }
 
+    // PUT /stays/me/advance-details: null keeps a value, "" clears it. Never touches the status or the public caches.
+    public static async Task<IResult> UpdateAdvanceDetails(
+        UpdateStayAdvanceDetailsRequest request,
+        ClaimsPrincipal principal,
+        IValidator<UpdateStayAdvanceDetailsRequest> validator,
+        IUnitOfWork unitOfWork)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var stay = await unitOfWork.Stays.GetLiveByUserAsync(userId);
+        if (stay == null) return NotFoundResponse(StayNotFound);
+
+        if (request.UpiId != null)
+            stay.UpiId = request.UpiId.Trim().Length == 0 ? null : request.UpiId.Trim();
+        if (request.WhatsAppNumber != null)
+            stay.WhatsAppNumber = request.WhatsAppNumber.Trim().Length == 0 ? null : request.WhatsAppNumber.Trim();
+        stay.UpdatedAt = DateTime.UtcNow;
+
+        try { await unitOfWork.SaveChangesAsync(); }
+        catch (DbUpdateConcurrencyException) { return Concurrent(); }
+
+        return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
+    }
+
     public static async Task<IResult> UpdateRoomPrice(
         Guid roomId,
         UpdateStayRoomPriceRequest request,
@@ -750,7 +781,8 @@ public static class StayHandlers
     }
 
     public static async Task<IResult> DeleteMine(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp,
+        ITripEnquiryClosure tripClosure)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -764,8 +796,26 @@ public static class StayHandlers
         stay.DeletedAt = DateTime.UtcNow;
         stay.UpdatedAt = DateTime.UtcNow;
 
-        try { await unitOfWork.SaveChangesAsync(); }
-        catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        // Soft delete and trip-enquiry closure commit together; guests are told after commit.
+        IReadOnlyList<TripClosurePush> tripPushes;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+            tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, [stay.Id]);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        await tripClosure.AfterCommitAsync(tripPushes);
 
         await unitOfWork.StayJobs.CloseActiveForStayAsync(stay.Id);
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(stay.Id, ListingKinds.Stay);

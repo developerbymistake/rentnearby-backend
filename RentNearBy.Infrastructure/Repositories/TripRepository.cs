@@ -29,6 +29,64 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
         return (rows, hasMore);
     }
 
+    public async Task<(IReadOnlyList<Trip> Items, bool HasMore)> GetByOwnerPagedAsync(Guid ownerUserId, int page, int pageSize, bool completed)
+    {
+        var size = Math.Max(1, pageSize);
+        var skip = (Math.Max(1, page) - 1) * size;
+
+        var query = _dbSet.AsNoTracking().Where(t => t.OwnerUserId == ownerUserId);
+        query = completed
+            ? query.Where(t => t.Status == TripStatuses.Completed)
+            : query.Where(t => t.Status != TripStatuses.Completed);
+
+        var rows = await query
+            .OrderByDescending(t => t.UpdatedAt)
+            .ThenByDescending(t => t.Id)
+            .Skip(skip)
+            .Take(size + 1)
+            .ToListAsync();
+
+        var hasMore = rows.Count > size;
+        if (hasMore) rows.RemoveAt(size);
+        return (rows, hasMore);
+    }
+
+    public async Task<(int Upcoming, int Completed)> GetStateCountsAsync(Guid ownerUserId)
+    {
+        var rows = await _dbSet.AsNoTracking()
+            .Where(t => t.OwnerUserId == ownerUserId)
+            .GroupBy(t => t.Status == TripStatuses.Completed)
+            .Select(g => new { Completed = g.Key, Count = g.Count() })
+            .ToListAsync();
+        return (rows.Where(r => !r.Completed).Sum(r => r.Count), rows.Where(r => r.Completed).Sum(r => r.Count));
+    }
+
+    public async Task<IReadOnlyList<Trip>> GetReminderCandidatesAsync(DateOnly startFrom, DateOnly startTo, DateOnly endFrom, DateOnly endTo, int take)
+        => await _dbSet.AsNoTracking()
+            .Where(t => t.Status == TripStatuses.Planned && t.MutedAt == null
+                && ((t.StartDate != null && t.StartDate >= startFrom && t.StartDate <= startTo)
+                    || (t.EndDate != null && t.EndDate >= endFrom && t.EndDate <= endTo)))
+            .OrderBy(t => t.StartDate)
+            .ThenBy(t => t.Id)
+            .Take(take)
+            .ToListAsync();
+
+    public async Task<IReadOnlyList<Trip>> GetAutoCompleteCandidatesAsync(DateOnly endBefore, int take)
+        => await _dbSet.AsNoTracking()
+            .Where(t => t.Status == TripStatuses.Planned && t.EndDate != null && t.EndDate <= endBefore)
+            .OrderBy(t => t.EndDate)
+            .ThenBy(t => t.Id)
+            .Take(take)
+            .ToListAsync();
+
+    public async Task<int> TryCompleteAsync(Guid id, DateTime nowUtc)
+        => await _dbSet
+            .Where(t => t.Id == id && t.Status == TripStatuses.Planned)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(t => t.Status, TripStatuses.Completed)
+                .SetProperty(t => t.CompletedAt, nowUtc)
+                .SetProperty(t => t.UpdatedAt, nowUtc));
+
     public async Task<TripCityInfo?> FindCitySnapshotAsync(Guid ownerUserId, long cityKey)
         => await _dbSet.AsNoTracking()
             .Where(t => t.OwnerUserId == ownerUserId && t.CityKey == cityKey)
@@ -41,4 +99,7 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
                 Longitude = t.CityLongitude,
             })
             .FirstOrDefaultAsync();
+
+    public async Task<Trip?> FindByClientIdAsync(Guid ownerUserId, Guid clientTripId)
+        => await _dbSet.FirstOrDefaultAsync(t => t.OwnerUserId == ownerUserId && t.ClientTripId == clientTripId);
 }

@@ -26,7 +26,8 @@ public class TripCityCatalogTests
 
         public Task<AtlasCitySpots?> GetCitySpotsAsync(long cityKey, CancellationToken ct = default) => throw new NotSupportedException();
 
-        public Task<AtlasCityPage> SearchCitiesAsync(string? q, int page, int pageSize, bool readyOnly = false, CancellationToken ct = default)
+        public Task<AtlasCityPage> SearchCitiesAsync(string? q, int page, int pageSize, bool readyOnly = false,
+            bool popularOnly = false, Guid? stateId = null, CancellationToken ct = default)
         {
             var call = Interlocked.Increment(ref SearchCalls);
             return Pages(page, call);
@@ -43,10 +44,11 @@ public class TripCityCatalogTests
         => new(Options.Create(new TripPlannerOptions { CityCatalogRevalidateSeconds = revalidateSeconds }),
             new AtlasOnly(atlas), NullLogger<TripCityCatalog>.Instance);
 
-    private static AtlasCity City(long key, string name, string district = "Dehradun") => new()
+    private static AtlasCity City(long key, string name, string district = "Dehradun", bool popular = false) => new()
     {
-        CityKey = key, WikidataId = $"Q{key}", Name = name, DistrictName = district, StateName = "Uttarakhand",
-        Latitude = 30.1, Longitude = 78.3, Status = "Ready", SpotCount = 5, IsTripEnabled = true, UpdatedAt = V1,
+        CityKey = key, Name = name, DistrictId = Guid.NewGuid(), DistrictName = district, StateName = "Uttarakhand",
+        Latitude = 30.1, Longitude = 78.3, Status = "Ready", SpotCount = 5, IsTripEnabled = true,
+        IsPopularDestination = popular, UpdatedAt = V1,
     };
 
     private static AtlasCityPage Page(DateTime updatedAt, int count, bool hasMore, params AtlasCity[] items) => new()
@@ -295,6 +297,40 @@ public class TripCityCatalogTests
         Assert.Empty(snapshot.Cities);
         Assert.Equal(0, snapshot.Count);
         Assert.Equal("0-0", snapshot.Version);
+    }
+
+    [Fact]
+    public void Build_StampsFormatAndPopular()
+    {
+        var snapshot = TripCityCatalog.Build(Page(V1, 2, false), [City(1, "Almora"), City(2, "Nainital", popular: true)]);
+
+        Assert.Equal(TripCityCatalogSnapshot.CurrentFormat, snapshot.Format);
+        Assert.Equal(2, snapshot.Format);
+        Assert.False(snapshot.Cities.Single(c => c.CityKey == 1).IsPopularDestination);
+        Assert.True(snapshot.Cities.Single(c => c.CityKey == 2).IsPopularDestination);
+        Assert.Equal(TripCityCatalogSnapshot.VersionOf(V1, 2), snapshot.Version);
+    }
+
+    [Fact]
+    public void StoredCopyWithoutFormatKey_ReadsAsFormatZero()
+    {
+        var json = """{"version":"1-1","updatedAt":"2026-11-02T10:00:00Z","count":1,"cities":[]}""";
+
+        var old = System.Text.Json.JsonSerializer.Deserialize<TripCityCatalogSnapshot>(json, TripJson.Options)!;
+
+        Assert.NotEqual(TripCityCatalogSnapshot.CurrentFormat, old.Format);
+    }
+
+    [Fact]
+    public void StoredCopyRoundTrip_KeepsFormatAndPopular()
+    {
+        var built = TripCityCatalog.Build(Page(V1, 1, false), [City(1, "Almora", popular: true)]);
+        var json = System.Text.Json.JsonSerializer.Serialize(built, TripJson.Options);
+
+        var back = System.Text.Json.JsonSerializer.Deserialize<TripCityCatalogSnapshot>(json, TripJson.Options)!;
+
+        Assert.Equal(TripCityCatalogSnapshot.CurrentFormat, back.Format);
+        Assert.True(Assert.Single(back.Cities).IsPopularDestination);
     }
 
     [Fact]

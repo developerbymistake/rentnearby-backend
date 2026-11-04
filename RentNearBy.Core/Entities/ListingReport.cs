@@ -25,4 +25,6 @@ public class ListingReport
     public DateTime? ResolvedAt { get; set; }
     public Guid? ResolvedByAdminId { get; set; }
     public Admin? ResolvedByAdmin { get; set; }
+
+    public Guid? TripEnquiryId { get; set; }
 }

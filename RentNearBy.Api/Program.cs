@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using RentNearBy.Api.Endpoints;
 using RentNearBy.Api.Filters;
+using RentNearBy.Api.Handlers;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Mappings;
@@ -275,6 +276,10 @@ app.MapGet("/go/{type:regex(^(r|p|s|t)$)}/{slug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}
     var html = RenderStoreRedirectHtml(playStoreUrlWithReferrer, appStoreUrl, $"https://developerbymistake.tech/go/{type}/{slug}");
     return Results.Content(html, "text/html");
 });
+
+// Host check page for a phone booking: the 43-char token is the only key, unknown/used/expired answer the same page.
+app.MapGet("/go/confirm/{token:regex(^[A-Za-z0-9_-]{{43}}$)}", TripPublicHandlers.Get).AllowAnonymous();
+app.MapPost("/go/confirm/{token:regex(^[A-Za-z0-9_-]{{43}}$)}", TripPublicHandlers.Post).AllowAnonymous().DisableAntiforgery();
 
 app.MapGet("/delete-account", () => Results.Content("""
 <!DOCTYPE html>

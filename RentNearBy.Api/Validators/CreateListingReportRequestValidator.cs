@@ -13,5 +13,9 @@ public class CreateListingReportRequestValidator : AbstractValidator<CreateListi
         RuleFor(x => x.Details)
             .NotEmpty().WithMessage("Please describe the issue")
             .MaximumLength(500).WithMessage("Details must not exceed 500 characters");
+
+        RuleFor(x => x.TripEnquiryId)
+            .NotEqual(Guid.Empty).WithMessage("Enquiry id must not be empty")
+            .When(x => x.TripEnquiryId != null);
     }
 }

@@ -15,6 +15,10 @@ public class TaxiBrowseDto
     public string? DistrictName { get; set; }
     public int? MinFare { get; set; }
     public int RouteCount { get; set; }
+    // Null on route-search rows (that projection is untouched).
+    public int? LocalDayRate { get; set; }
+    public int? LocalDayKm { get; set; }
+    public string TripReplyLabel { get; set; } = RentNearBy.Core.Models.TaxiTripReplyLabels.New;
     public int? MatchedFare { get; set; }
     public string? MatchedFromName { get; set; }
     public string? MatchedToName { get; set; }

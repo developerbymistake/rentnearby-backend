@@ -14,6 +14,7 @@ public class TripSpotDto
     public double Longitude { get; set; }
     public string Category { get; set; } = string.Empty;
     public string? Area { get; set; }
+    public string[] AltNames { get; set; } = [];
     public int VisitMinutes { get; set; }
     public bool IsFeatured { get; set; }
     public int Rank { get; set; }
@@ -88,7 +89,14 @@ public class TripDto
     public Guid? DistrictId { get; set; }
     public int DayCount { get; set; }
     public int SpotCount { get; set; }
+    public DateOnly? StartDate { get; set; }
+    public DateOnly? EndDate { get; set; }
     public TripPlan Plan { get; set; } = new();
+    // Newest first; filled by GET /trips/{id} only.
+    public List<TripEnquiryDto> Enquiries { get; set; } = new();
+    public string BookingState { get; set; } = TripBookingStates.Draft;
+    public DateTime? MutedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
@@ -104,8 +112,20 @@ public class TripSummaryDto
     public int TaxiDays { get; set; }
     public int StayDays { get; set; }
     public string? StayName { get; set; }
+    public DateOnly? StartDate { get; set; }
+    public DateOnly? EndDate { get; set; }
+    public int? Adults { get; set; }
+    public int? Kids { get; set; }
     // Category of the first spot, for the card icon.
     public string Category { get; set; } = "attraction";
+    public string BookingState { get; set; } = TripBookingStates.Draft;
+    public int StaysConfirmed { get; set; }
+    public int StaysTotal { get; set; }
+    public int TaxisConfirmed { get; set; }
+    public int TaxisTotal { get; set; }
+    public int AgreedTotal { get; set; }
+    public DateTime? MutedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
 
@@ -113,6 +133,7 @@ public class TripListDto
 {
     public List<TripSummaryDto> Items { get; set; } = new();
     public bool HasMore { get; set; }
+    public TripListCountsDto Counts { get; set; } = new();
 }
 
 public class TripCityDto
@@ -124,6 +145,7 @@ public class TripCityDto
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public string? ImageUrl { get; set; }
+    public bool IsPopularDestination { get; set; }
     public string Status { get; set; } = TripSpotStatuses.NotReady;
     public int SpotCount { get; set; }
 }

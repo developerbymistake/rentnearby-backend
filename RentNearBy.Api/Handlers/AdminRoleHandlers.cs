@@ -194,6 +194,8 @@ public static class AdminRoleHandlers
         var purgeKind = leftKind != null && leftKind != targetKind ? leftKind : null;
         IReadOnlyList<Guid> purgedListingIds = [];
         IReadOnlyList<Guid> purgedDistrictIds = [];
+        IReadOnlyList<TripClosurePush> tripPushes = [];
+        var tripClosure = sp.GetRequiredService<ITripEnquiryClosure>();
 
         await unitOfWork.BeginTransactionAsync();
         try
@@ -237,6 +239,8 @@ public static class AdminRoleHandlers
                     _ => await db.StayListings.Where(s => s.UserId == user.Id && !s.IsDeleted && s.DistrictId != null).Select(s => s.DistrictId!.Value).Distinct().ToListAsync(),
                 };
                 purgedListingIds = await listingPurge.DeleteUserListingRowsAsync(user.Id, purgeKind);
+                if (purgeKind is ListingKinds.Stay or ListingKinds.Taxi)
+                    tripPushes = await tripClosure.OnListingsRemovedAsync(purgeKind, purgedListingIds);
                 await unitOfWork.ListingReports.AutoResolvePendingForListingsAsync(purgedListingIds, purgeKind);
                 await unitOfWork.Notifications.DeleteByActionRouteForUserAsync(user.Id, UserNotificationRoutes.ForListingKind(purgeKind));
             }
@@ -254,6 +258,7 @@ public static class AdminRoleHandlers
             if (purgeKind != null)
                 await InvalidateListingCachesAsync(sp.GetService<IConnectionMultiplexer>(), purgeKind, purgedDistrictIds);
 
+            await tripClosure.AfterCommitAsync(tripPushes);
             await listingPurge.DeleteListingPhotosBestEffortAsync(user.Id, purgedListingIds);
 
             await AdminHandlers.SendGoLiveNotificationAsync(hubContext, publisher, notification);

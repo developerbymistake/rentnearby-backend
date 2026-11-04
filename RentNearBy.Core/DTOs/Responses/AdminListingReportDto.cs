@@ -53,6 +53,12 @@ public class AdminListingReportDto
     public string? TaxiPlateDisplay { get; set; }
     public short? TaxiSeats { get; set; }
 
+    // Trip enquiry context: set on stay/taxi reports filed from a trip enquiry and on every TripEnquiry (reported traveller) report.
+    public Guid? TripEnquiryId { get; set; }
+    public string? TripEnquiryKind { get; set; }
+    public string? TripEnquiryDates { get; set; }
+    public string? TripEnquiryStatus { get; set; }
+
     // Populated only on GetReportById (single-item detail), left empty on the paginated list —
     // same convention as GoLiveRequestDto.Photos.
     public List<string> Photos { get; set; } = new();

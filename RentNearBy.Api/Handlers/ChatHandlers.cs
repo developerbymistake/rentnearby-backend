@@ -23,16 +23,12 @@ public static class ChatHandlers
 {
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
 
-    private const int NewConversationMaxPerDay = 10;
-    private static readonly TimeSpan NewConversationWindow = TimeSpan.FromHours(24);
     private const int SendMessageMaxPerMinute = 20;
     private static readonly TimeSpan SendMessageWindow = TimeSpan.FromMinutes(1);
     // Separate, more generous bucket than SendMessage's — MarkRead is legitimately called on
     // every conversation-open and every incoming message while a thread is open, so sharing
     // SendMessage's tighter budget would risk throttling normal use in a busy conversation.
     private const int MarkReadMaxPerMinute = 60;
-    // TEMPORARY for local dev/testing — revert to TimeSpan.FromHours(1) before shipping.
-    private static readonly TimeSpan NewAccountCooldown = TimeSpan.FromMinutes(5);
 
     private const int DefaultPageSize = 30;
 
@@ -68,122 +64,44 @@ public static class ChatHandlers
         foreach (var c in conversations)
             dtos.Add(await BuildConversationDtoAsync(c, callerId, db, otherPartyNames, listingInfo));
 
+        await AttachTripEnquiriesAsync(dtos, callerId, unitOfWork);
+
         return OkResponse(new { items = dtos });
     }
 
     public static async Task<IResult> CreateConversation(
         CreateConversationRequest request, IValidator<CreateConversationRequest> validator,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IRateLimitService rateLimiter,
-        ApplicationDbContext db, HttpContext httpContext, IMemoryCache cache)
+        ClaimsPrincipal principal, IConversationFactory factory, IUnitOfWork unitOfWork,
+        ApplicationDbContext db, HttpContext httpContext)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        // Existing conversations stay readable; only starting one from an off tab's listing is refused.
-        if (!TabState.IsKindActive(await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache), request.ListingType))
-            return ForbiddenResponse("This feature is currently unavailable.", TabGateFilter.ErrorType);
-
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
-        var caller = await unitOfWork.Users.GetByIdAsync(callerId);
-        if (caller == null) return NotFoundResponse("User not found");
-
-        var accountAge = DateTime.UtcNow - caller.CreatedAt;
-        if (accountAge < NewAccountCooldown)
+        var result = await factory.GetOrCreateAsync(callerId, request.ListingType, request.ListingId, requireActive: false);
+        if (result.Conversation == null)
         {
-            var remainingMinutes = Math.Max(1, (int)Math.Ceiling((NewAccountCooldown - accountAge).TotalMinutes));
-            return ForbiddenResponse($"You have a new account, so you can't chat yet. Try again in {remainingMinutes} min.");
+            var message = result.Message ?? "Request failed";
+            switch (result.Status)
+            {
+                case 400: return BadRequestResponse(message);
+                case 403: return ForbiddenResponse(message, result.ErrorType ?? "Forbidden");
+                case 404: return NotFoundResponse(message);
+                case 409: return ConflictResponse(message, result.ErrorType ?? "Conflict");
+                case 429:
+                    if (result.RetryAfterSeconds is { } retry) httpContext.Response.Headers["Retry-After"] = retry.ToString();
+                    return TooManyRequestsResponse();
+                default: return ErrorResponse(result.Status, message, result.ErrorType ?? "Error");
+            }
         }
 
-        // IsActive fetched alongside the owner lookup — a fresh conversation about a
-        // deactivated (but not deleted) listing must be created with its TRUE initial status,
-        // not a hardcoded "Active" that only gets corrected on the first SendMessage attempt.
-        Guid? ownerId;
-        bool? listingIsActive;
-        if (request.ListingType == "Room")
-        {
-            var l = await db.RoomListings.Where(x => x.Id == request.ListingId && !x.IsDeleted)
-                .Select(x => new { x.UserId, x.IsActive }).FirstOrDefaultAsync();
-            ownerId = l?.UserId; listingIsActive = l?.IsActive;
-        }
-        else if (request.ListingType == ListingKinds.Stay)
-        {
-            var l = await db.StayListings.Where(x => x.Id == request.ListingId && !x.IsDeleted)
-                .Select(x => new { x.UserId, IsActive = x.Status == StayStatuses.Approved && x.AcceptingGuests }).FirstOrDefaultAsync();
-            ownerId = l?.UserId; listingIsActive = l?.IsActive;
-        }
-        else
-        {
-            var l = await db.PlotListings.Where(x => x.Id == request.ListingId && !x.IsDeleted)
-                .Select(x => new { x.UserId, x.IsActive }).FirstOrDefaultAsync();
-            ownerId = l?.UserId; listingIsActive = l?.IsActive;
-        }
+        var dto = await BuildConversationDtoAsync(result.Conversation, callerId, db);
+        await AttachTripEnquiriesAsync([dto], callerId, unitOfWork);
 
-        if (ownerId == null) return NotFoundResponse("Listing not found");
-        if (ownerId == callerId) return BadRequestResponse("You can't start a chat about your own listing");
-
-        if (await unitOfWork.UserBlocks.ExistsAsync(ownerId.Value, callerId) ||
-            await unitOfWork.UserBlocks.ExistsAsync(callerId, ownerId.Value))
-            return ForbiddenResponse("You can't message this user");
-
-        var existing = await unitOfWork.Conversations.FindExistingAsync(callerId, ownerId.Value, request.ListingType, request.ListingId);
-        if (existing != null)
-        {
-            // Same staleness bug GetConversations had — reopening an existing conversation
-            // whose listing has since been removed/deactivated should reflect that immediately,
-            // not wait for a failed send. Single tracked row, cheap.
-            await RefreshListingLifecycleStatusAsync(existing, db, unitOfWork);
-            await unitOfWork.SaveChangesAsync();
-            return OkResponse(await BuildConversationDtoAsync(existing, callerId, db));
-        }
-
-        var rl = await rateLimiter.CheckAsync($"chat:newconv:{callerId}", NewConversationMaxPerDay, NewConversationWindow);
-        if (!rl.IsAllowed)
-        {
-            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
-            return TooManyRequestsResponse();
-        }
-
-        var conversation = new Conversation
-        {
-            Id = Guid.NewGuid(),
-            RenterId = callerId,
-            OwnerId = ownerId.Value,
-            ListingType = request.ListingType,
-            ListingId = request.ListingId,
-            // Not deleted (filtered above), so isDeleted: false — genuinely reflects the
-            // listing's current active/inactive state instead of always lying "Active".
-            Status = ComputeLifecycleStatus(isDeleted: false, isActive: listingIsActive),
-            CreatedAt = DateTime.UtcNow,
-            LastMessageAt = DateTime.UtcNow,
-        };
-
-        await unitOfWork.Conversations.AddAsync(conversation);
-        try
-        {
-            await unitOfWork.SaveChangesAsync();
-        }
-        catch (DbUpdateException)
-        {
-            // Lost a race against a concurrent create for the same renter+owner+listing
-            // (double-tap, retry-on-timeout) — the unique index caught what the
-            // check-then-act FindExistingAsync above couldn't. Same catch-and-retry
-            // shape as ListingsHandlers' duplicate-report guard. Return the winning row.
-            //
-            // Deliberately NOT calling RefreshListingLifecycleStatusAsync + SaveChangesAsync
-            // here (unlike the `existing != null` early-return above): the failed `conversation`
-            // insert is still tracked as Added on this same DbContext after the DbUpdateException
-            // above (EF Core doesn't roll back the change tracker on a failed save) — a second
-            // SaveChangesAsync here would re-flush that same failed insert alongside winner's
-            // update and hit the identical unique-index violation again, uncaught this time.
-            // winner.Status is read verbatim (slightly stale in this rare race window) rather
-            // than risk that.
-            var winner = await unitOfWork.Conversations.FindExistingAsync(callerId, ownerId.Value, request.ListingType, request.ListingId);
-            if (winner != null) return OkResponse(await BuildConversationDtoAsync(winner, callerId, db));
-            throw;
-        }
-
-        return CreatedResponse(await BuildConversationDtoAsync(conversation, callerId, db), $"/api/v1/chat/conversations/{conversation.Id}");
+        return result.Created
+            ? CreatedResponse(dto, $"/api/v1/chat/conversations/{result.Conversation.Id}")
+            : OkResponse(dto);
     }
 
     // ── Messages ─────────────────────────────────────────────────────────────
@@ -658,7 +576,8 @@ public static class ChatHandlers
     // ── Block ────────────────────────────────────────────────────────────────
 
     public static async Task<IResult> BlockUser(
-        Guid userId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext)
+        Guid userId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext,
+        ITripEnquiryClosure tripClosure, ILogger<ChatHub> logger)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
         if (callerId == userId) return BadRequestResponse("You can't block yourself");
@@ -697,6 +616,17 @@ public static class ChatHandlers
             // this file (e.g. CreateConversation's unique-index race). Skip the push below too:
             // the winning request already pushed for the same end state.
             return NoContentResponse();
+        }
+
+        try
+        {
+            await tripClosure.OnBlockAsync(callerId, userId);
+            await unitOfWork.SaveChangesAsync();
+            await tripClosure.AfterCommitAsync([]);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "trip.block.closure_failed");
         }
 
         // Live-push to both sides — the OTHER party's open conversation screen (if any) and
@@ -872,14 +802,14 @@ public static class ChatHandlers
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    private readonly record struct ListingInfoLite(string Title, string? Photo, Guid? RoomTypeId, Guid? PlotTypeId, Guid? StayTypeId, bool? IsDeleted, bool? IsActive, string? Area);
+    internal readonly record struct ListingInfoLite(string Title, string? Photo, Guid? RoomTypeId, Guid? PlotTypeId, Guid? StayTypeId, bool? IsDeleted, bool? IsActive, string? Area);
 
     // otherPartyNames/listingInfo are optional page-level lookups built once by GetConversations
     // (see BuildListingInfoLookupAsync below) to avoid 2 queries per row on a paginated list.
     // When omitted (CreateConversation's single-conversation call sites), falls back to the
     // original per-row queries — those call sites already reconcile lifecycle status themselves
     // before calling this, so c.Status is read verbatim and is correct either way.
-    private static async Task<ConversationDto> BuildConversationDtoAsync(
+    internal static async Task<ConversationDto> BuildConversationDtoAsync(
         Conversation c, Guid callerId, ApplicationDbContext db,
         IReadOnlyDictionary<Guid, string>? otherPartyNames = null,
         IReadOnlyDictionary<(string ListingType, Guid ListingId), ListingInfoLite>? listingInfo = null)
@@ -1101,7 +1031,7 @@ public static class ChatHandlers
     // fallback, since "malformed original payload" means something different to each caller
     // (RespondSchedule wants a fresh replacement object; SendMessage's enrichment wants to
     // leave the client's own payload completely untouched rather than risk losing it).
-    private static string? TrySetJsonField(string payloadJson, string key, JsonNode? value)
+    internal static string? TrySetJsonField(string payloadJson, string key, JsonNode? value)
     {
         try
         {
@@ -1251,12 +1181,69 @@ public static class ChatHandlers
                     using (var doc = JsonDocument.Parse(message.PayloadJson))
                         return doc.RootElement.TryGetProperty("status", out var s) && s.GetString() == "accepted"
                             ? "Visit confirmed" : "Visit declined";
+                case "trip_enquiry":
+                    using (var doc = JsonDocument.Parse(message.PayloadJson))
+                        return Shorten(doc.RootElement.TryGetProperty("text", out var t) ? t.GetString() : null, "Trip enquiry");
+                case "trip_offer":
+                    using (var doc = JsonDocument.Parse(message.PayloadJson))
+                        return doc.RootElement.TryGetProperty("total", out var tot) && tot.TryGetInt32(out var rupees)
+                            ? $"Offer · Rs {rupees}" : "Offer";
+                case "trip_offer_response":
+                    using (var doc = JsonDocument.Parse(message.PayloadJson))
+                        return doc.RootElement.TryGetProperty("answer", out var ans) && ans.GetString() == "accepted"
+                            ? "Offer accepted" : "Offer declined";
+                case "trip_phone_booking": return "Booking recorded by phone";
+                case "trip_advance_request":
+                    using (var doc = JsonDocument.Parse(message.PayloadJson))
+                        return doc.RootElement.TryGetProperty("amount", out var adv) && adv.TryGetInt32(out var advRupees)
+                            ? $"Advance · Rs {advRupees}" : "Advance";
+                case "trip_advance_proof_sent":
+                    using (var doc = JsonDocument.Parse(message.PayloadJson))
+                        return doc.RootElement.TryGetProperty("amount", out var proof) && proof.TryGetInt32(out var proofRupees)
+                            ? $"Proof sent for Rs {proofRupees}" : "Proof sent";
+                case "trip_counter":
+                    using (var doc = JsonDocument.Parse(message.PayloadJson))
+                        return doc.RootElement.TryGetProperty("pricePerNight", out var ppn) && ppn.TryGetInt32(out var ppnRupees)
+                            ? $"Proposed Rs {ppnRupees} a night" : "Proposed a price";
+                case "trip_revised_offer":
+                    using (var doc = JsonDocument.Parse(message.PayloadJson))
+                        return doc.RootElement.TryGetProperty("total", out var rev) && rev.TryGetInt32(out var revRupees)
+                            ? $"Revised offer · Rs {revRupees}" : "Revised offer";
+                case "trip_change_request": return "Change request";
+                case "system":
+                    using (var doc = JsonDocument.Parse(message.PayloadJson))
+                        return Shorten(doc.RootElement.TryGetProperty("text", out var st) ? st.GetString() : null, "New message");
                 default: return "New message";
             }
         }
         catch (JsonException)
         {
             return "New message";
+        }
+    }
+
+    private static string Shorten(string? text, string fallback) =>
+        string.IsNullOrWhiteSpace(text) ? fallback : text.Length > 140 ? text[..140] : text;
+
+    // Latest trip enquiry per Stay conversation: 3 batched queries for the whole page, none when no Stay row is present.
+    private static async Task AttachTripEnquiriesAsync(IReadOnlyList<ConversationDto> dtos, Guid callerId, IUnitOfWork unitOfWork)
+    {
+        var stayIds = dtos.Where(d => d.ListingType == ListingKinds.Stay).Select(d => d.Id).ToList();
+        if (stayIds.Count == 0) return;
+
+        try
+        {
+            var latest = await unitOfWork.TripEnquiries.GetLatestByConversationsAsync(stayIds);
+            if (latest.Count == 0) return;
+
+            var built = await TripEnquiryViews.BuildAsync(unitOfWork, latest.Values.ToList(), callerId);
+            foreach (var dto in dtos)
+                if (latest.TryGetValue(dto.Id, out var e) && built.TryGetValue(e.Id, out var view))
+                    dto.TripEnquiry = view;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The conversation list must load even when the trip card data cannot.
         }
     }
 
@@ -1270,7 +1257,7 @@ public static class ChatHandlers
     // caller must pass the fresh count ApplyToConversationAsync/ApplyIncomingMessageAsync
     // returned, since the in-memory `conversation` object's own counter fields are stale the
     // instant that atomic ExecuteUpdateAsync runs (it bypasses the change tracker entirely).
-    private static async Task BroadcastMessageAsync(IHubContext<ChatHub> hubContext, Conversation conversation, Message message, bool isNewMessage, int recipientUnreadCount = 0)
+    internal static async Task BroadcastMessageAsync(IHubContext<ChatHub> hubContext, Conversation conversation, Message message, bool isNewMessage, int recipientUnreadCount = 0)
     {
         // recipient's client compares SenderId against its own userId itself
         var dto = message.ToDto(isMine: false);
@@ -1314,7 +1301,7 @@ public static class ChatHandlers
     // current lifecycle state — cheaper than hooking every existing delete/deactivate
     // handler in RoomListingsHandlers/PlotHandlers, and keeps this feature's file
     // footprint isolated from those unrelated handlers.
-    private static async Task RefreshListingLifecycleStatusAsync(Conversation conversation, ApplicationDbContext db, IUnitOfWork unitOfWork)
+    internal static async Task RefreshListingLifecycleStatusAsync(Conversation conversation, ApplicationDbContext db, IUnitOfWork unitOfWork)
     {
         if (conversation.Status is "Blocked") return; // block always wins, never auto-reconciled away
 
@@ -1351,6 +1338,6 @@ public static class ChatHandlers
     // ReconcileLifecycleStatusBatchAsync (page-batch, persisting via bulk update) — pure rule,
     // no I/O. Caller is responsible for excluding "Blocked" conversations before calling this
     // (block always wins, never auto-reconciled away), so it isn't a parameter here.
-    private static string ComputeLifecycleStatus(bool? isDeleted, bool? isActive) =>
+    internal static string ComputeLifecycleStatus(bool? isDeleted, bool? isActive) =>
         isDeleted is null or true ? "ListingRemoved" : isActive == false ? "ListingInactive" : "Active";
 }

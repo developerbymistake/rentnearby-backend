@@ -34,4 +34,6 @@ public class SaveTripRequest
     public string? Title { get; set; }
     public string? Status { get; set; }
     public TripPlan Plan { get; set; } = null!;
+    // Create only; ignored by update.
+    public Guid? ClientTripId { get; set; }
 }

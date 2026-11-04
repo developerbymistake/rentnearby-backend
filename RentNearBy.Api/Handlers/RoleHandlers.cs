@@ -96,7 +96,8 @@ public static class RoleHandlers
         IListingPurgeService listingPurge,
         IPlanPurchaseService purchases,
         IJwtService jwtService,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        ITripEnquiryClosure tripClosure)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -144,6 +145,7 @@ public static class RoleHandlers
             return ConflictResponse(RoleCorrectionNotAllowedMessage, RoleCorrectionNotAllowedType);
 
         IReadOnlyList<Guid> purgedIds;
+        IReadOnlyList<TripClosurePush> tripPushes;
         Guid newSessionId;
         await unitOfWork.BeginTransactionAsync();
         try
@@ -183,6 +185,7 @@ public static class RoleHandlers
 
             await purchases.CancelActivePlansAsync(userId, leftKind, "Role corrected");
             purgedIds = await listingPurge.DeleteUserListingRowsAsync(userId, leftKind);
+            tripPushes = await tripClosure.OnListingsRemovedAsync(leftKind, purgedIds);
 
             // Every token with the old role claim, the caller's included, dies here; the caller gets a new session.
             var rotated = await RotateSessionAsync(unitOfWork, userId, sessionId);
@@ -201,6 +204,7 @@ public static class RoleHandlers
             throw;
         }
 
+        await tripClosure.AfterCommitAsync(tripPushes);
         await listingPurge.DeleteListingPhotosBestEffortAsync(userId, purgedIds);
 
         var fresh = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);

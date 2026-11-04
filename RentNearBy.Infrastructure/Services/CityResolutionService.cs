@@ -4,6 +4,7 @@ using NetTopologySuite.Geometries;
 using StackExchange.Redis;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
@@ -33,7 +34,7 @@ public class CityResolutionService : ICityResolutionService
 
         var name = reverse.PlaceName.Length > 100 ? reverse.PlaceName[..100] : reverse.PlaceName;
 
-        var match = existingCities.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+        var match = MatchByFoldedName(existingCities, name);
         if (match is not null) return (reverse.DisplayName, match);
 
         var (verifiedLat, verifiedLng) = await ResolveVerifiedCoordinatesAsync(district, name, lat, lng);
@@ -68,6 +69,13 @@ public class CityResolutionService : ICityResolutionService
 
         await BustCachesAsync(district.Id);
         return (reverse.DisplayName, city);
+    }
+
+    public static City? MatchByFoldedName(IEnumerable<City> cities, string name)
+    {
+        var folded = SearchKeys.Fold(name);
+        if (folded.Length == 0) return null;
+        return cities.FirstOrDefault(c => SearchKeys.Fold(c.Name) == folded);
     }
 
     private async Task BustCachesAsync(Guid districtId)

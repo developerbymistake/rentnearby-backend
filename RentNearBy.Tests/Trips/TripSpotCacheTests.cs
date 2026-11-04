@@ -26,7 +26,8 @@ public class TripSpotCacheTests
             return spots(cityKey);
         }
 
-        public Task<AtlasCityPage> SearchCitiesAsync(string? q, int page, int pageSize, bool readyOnly = false, CancellationToken ct = default)
+        public Task<AtlasCityPage> SearchCitiesAsync(string? q, int page, int pageSize, bool readyOnly = false,
+            bool popularOnly = false, Guid? stateId = null, CancellationToken ct = default)
             => throw new NotSupportedException();
 
         public Task<AtlasCatalogVersion> GetCatalogVersionAsync(CancellationToken ct = default)

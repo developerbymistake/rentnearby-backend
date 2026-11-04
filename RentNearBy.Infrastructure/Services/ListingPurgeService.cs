@@ -11,7 +11,7 @@ public class ListingPurgeService(
     ApplicationDbContext context, IPhotoService photoService, ILogger<ListingPurgeService> logger)
     : IListingPurgeService
 {
-    public async Task PurgeUserListingsAsync(Guid userId)
+    public async Task<(IReadOnlyList<Guid> StayIds, IReadOnlyList<Guid> TaxiIds)> PurgeUserListingsAsync(Guid userId)
     {
         await photoService.DeleteAllUserPhotosAsync(userId);
 
@@ -31,8 +31,9 @@ public class ListingPurgeService(
             .Where(p => p.UserId == userId)
             .ExecuteDeleteAsync();
 
-        await DeleteStayRowsAsync(userId);
-        await DeleteTaxiRowsAsync(userId);
+        var stayIds = await DeleteStayRowsAsync(userId);
+        var taxiIds = await DeleteTaxiRowsAsync(userId);
+        return (stayIds, taxiIds);
     }
 
     public Task<IReadOnlyList<Guid>> DeleteUserListingRowsAsync(Guid userId, string listingKind) => listingKind switch

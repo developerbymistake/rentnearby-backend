@@ -11,7 +11,8 @@ public class AccountDeletionService(
     ApplicationDbContext context,
     IListingPurgeService listingPurgeService,
     IPlaySubscriptionRepository playSubscriptions,
-    IOptions<PlayBillingOptions> playOptions)
+    IOptions<PlayBillingOptions> playOptions,
+    ITripEnquiryClosure tripClosure)
     : IAccountDeletionService
 {
     public async Task DeleteAccountAsync(Guid userId)
@@ -110,12 +111,19 @@ public class AccountDeletionService(
         // the reconciler (PlayBilling:RoleChangeAction) so nobody keeps paying for a deleted account.
         await playSubscriptions.AnonymiseForUserAsync(userId, now, playOptions.Value.RoleChangeAction);
 
-        await listingPurgeService.PurgeUserListingsAsync(userId);
+        // Trip enquiries: the user's own trips close (owners are told), then enquiries to the user's stay/taxi close.
+        var tripPushes = new List<TripClosurePush>(await tripClosure.OnTravellerDeletedAsync(userId));
+
+        var (stayIds, taxiIds) = await listingPurgeService.PurgeUserListingsAsync(userId);
+        tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, stayIds));
+        tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, taxiIds));
 
         await context.Users
             .Where(u => u.Id == userId)
             .ExecuteDeleteAsync();
 
         await tx.CommitAsync();
+
+        await tripClosure.AfterCommitAsync(tripPushes);
     }
 }

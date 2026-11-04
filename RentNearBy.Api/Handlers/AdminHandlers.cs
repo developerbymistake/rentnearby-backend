@@ -613,6 +613,16 @@ public static class AdminHandlers
                 GrantedUsers = r.Granted,
             }));
 
+        var istDayStart = TripExecutionRules.IstMidnightUtc(TripExecutionRules.TodayIst(now));
+        var tripEnquiriesToday = await db.TripEnquiries.CountAsync(e => e.CreatedAt >= istDayStart);
+        var tripEnquiriesOpen = await db.TripEnquiries.CountAsync(e => TripEnquiryStatuses.Open.Contains(e.Status));
+        var weekAgo = now.AddDays(-7);
+        var tripConfirmedThisWeek = await db.TripEnquiries.CountAsync(e =>
+            e.Status == TripEnquiryStatuses.ConfirmedByBoth && e.ConfirmedByOwnerAt >= weekAgo);
+        var leadsReceived = await db.TaxiListings.SumAsync(t => (long?)t.TripLeadsReceived) ?? 0;
+        var leadsAnswered = await db.TaxiListings.SumAsync(t => (long?)t.TripLeadsAnsweredInApp) ?? 0;
+        var tripLeadsAnsweredPct = leadsReceived == 0 ? 0 : (int)Math.Min(100, leadsAnswered * 100 / leadsReceived);
+
         return OkResponse(new AdminStatsDto
         {
             TotalUsers = totalUsers,
@@ -626,6 +636,10 @@ public static class AdminHandlers
             CurrentMonthEarnings = currentMonthEarnings,
             ActivePaidUsers = planRows.Sum(r => r.Paid),
             PlanUsers = planUsers,
+            TripEnquiriesToday = tripEnquiriesToday,
+            TripEnquiriesOpen = tripEnquiriesOpen,
+            TripConfirmedThisWeek = tripConfirmedThisWeek,
+            TripLeadsAnsweredPct = tripLeadsAnsweredPct,
         });
     }
 
@@ -1324,7 +1338,15 @@ public static class AdminHandlers
         ResolutionAction = r.ResolutionAction,
         CreatedAt = r.CreatedAt,
         ResolvedAt = r.ResolvedAt,
+        TripEnquiryId = r.TripEnquiryId,
     };
+
+    private static void ApplyTripEnquiryReportDetails(AdminListingReportDto dto, TripEnquiry e)
+    {
+        dto.TripEnquiryKind = e.Kind;
+        dto.TripEnquiryDates = TripNotifications.Dates(e);
+        dto.TripEnquiryStatus = e.Status;
+    }
 
     private static void ApplyRoomReportDetails(AdminListingReportDto dto, RoomListing l)
     {
@@ -1381,9 +1403,15 @@ public static class AdminHandlers
             .AsNoTracking().Include(t => t.VehicleType).Include(t => t.District).Include(t => t.City)
             .Where(t => taxiIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id);
 
+        var tripEnquiryIds = paged.Items.Where(r => r.TripEnquiryId != null).Select(r => r.TripEnquiryId!.Value).Distinct().ToList();
+        var tripEnquiriesById = tripEnquiryIds.Count == 0 ? new Dictionary<Guid, TripEnquiry>() : await db.TripEnquiries
+            .AsNoTracking().Where(e => tripEnquiryIds.Contains(e.Id)).ToDictionaryAsync(e => e.Id);
+
         var items = paged.Items.Select(r =>
         {
             var dto = ToAdminListingReportDto(r);
+            if (r.TripEnquiryId is { } tripEnquiryId && tripEnquiriesById.TryGetValue(tripEnquiryId, out var tripEnquiry))
+                ApplyTripEnquiryReportDetails(dto, tripEnquiry);
             if (r.ListingType == ListingKinds.Room && roomsById.TryGetValue(r.ListingId, out var room)) ApplyRoomReportDetails(dto, room);
             else if (r.ListingType == ListingKinds.Plot && plotsById.TryGetValue(r.ListingId, out var plot)) ApplyPlotReportDetails(dto, plot);
             else if (r.ListingType == ListingKinds.Stay && staysById.TryGetValue(r.ListingId, out var stay)) AdminStayHandlers.ApplyStayReportDetails(dto, stay);
@@ -1394,11 +1422,15 @@ public static class AdminHandlers
         return OkResponse(new { items, hasMore = paged.HasMore });
     }
 
-    public static async Task<IResult> GetReportById(Guid id, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetReportById(Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db)
     {
         var report = await unitOfWork.ListingReports.GetByIdAsync(id);
         if (report == null) return NotFoundResponse("Report not found");
         var dto = ToAdminListingReportDto(report);
+
+        if (report.TripEnquiryId is { } tripEnquiryId
+            && await db.TripEnquiries.AsNoTracking().FirstOrDefaultAsync(e => e.Id == tripEnquiryId) is { } tripEnquiry)
+            ApplyTripEnquiryReportDetails(dto, tripEnquiry);
 
         // GetByIdWithPhotosForAdminAsync deliberately survives the listing being deleted, so the
         // report review still shows what was reported even after the owner deletes the post.
@@ -1505,6 +1537,7 @@ public static class AdminHandlers
             ListingKinds.Plot => await PlotListingHandlers.RejectReportedPlotAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher, slots),
             ListingKinds.Stay => await AdminStayHandlers.RejectReportedStayAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
             ListingKinds.Taxi => await AdminTaxiHandlers.RejectReportedTaxiAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
+            ListingReportTypes.TripEnquiry => BadRequestResponse("A traveller report has no listing to take down"),
             _ => BadRequestResponse($"Unknown listing type '{report.ListingType}' on this report"),
         };
     }

@@ -33,6 +33,10 @@ public static class AdminStayHandlers
         dto.OwnerPhone = stay.User?.PhoneNumber;
         dto.RegistrationNumber = stay.RegistrationNumber;
         dto.Gstin = stay.Gstin;
+        dto.HasUpiId = !string.IsNullOrEmpty(stay.UpiId);
+        dto.HasAdvanceWhatsApp = !string.IsNullOrEmpty(stay.WhatsAppNumber);
+        dto.UpiId = null;
+        dto.WhatsAppNumber = null;
         if (!includePhotos) dto.Photos = new();
         return dto;
     }

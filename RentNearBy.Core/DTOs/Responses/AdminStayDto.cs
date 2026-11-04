@@ -8,4 +8,7 @@ public class AdminStayDto : StayOwnerDto
     // Admin-only.
     public string? RegistrationNumber { get; set; }
     public string? Gstin { get; set; }
+    // Flags only; the UPI ID and the advance WhatsApp number never reach the admin.
+    public bool HasUpiId { get; set; }
+    public bool HasAdvanceWhatsApp { get; set; }
 }

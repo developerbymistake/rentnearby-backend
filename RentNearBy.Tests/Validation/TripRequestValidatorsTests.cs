@@ -464,4 +464,373 @@ public class TripRequestValidatorsTests
 
         Assert.Equal(valid, SaveValidator.Validate(request).IsValid);
     }
+
+    // ---- SaveTripRequestValidator, plan v3 ----
+
+    private static TripTaxiBooking Booking(params int[] days) => new()
+    {
+        AgreedFare = 3800, TollExtra = true, PickupTime = "08:30", PickupPlace = "Mallital", Days = days,
+    };
+
+    private static SaveTripRequest Booked(int dayCount, int[] bookingDays, params int[] onDays)
+    {
+        var request = Save(null, Enumerable.Repeat(1, dayCount).ToArray());
+        var taxiId = Guid.NewGuid();
+        foreach (var d in onDays)
+            request.Plan.Days[d - 1].Taxi = new TripTaxiChoice { TaxiId = taxiId, Name = "Ramesh", Fare = 1900, Booking = Booking(bookingDays) };
+        return request;
+    }
+
+    [Fact]
+    public void Save_Version2_Valid()
+    {
+        var request = Save();
+        request.Plan.Version = 2;
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_Version3_Valid()
+    {
+        var request = Save();
+        request.Plan.Version = 3;
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_Version4_Invalid()
+    {
+        var request = Save();
+        request.Plan.Version = 4;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Unsupported plan version");
+    }
+
+    [Fact]
+    public void Save_FullSettings_Valid()
+    {
+        var request = Save();
+        var s = request.Plan.Settings;
+        s.DayLimitMinutes = TripPace.Relaxed;
+        s.StartDate = new DateOnly(2026, 11, 1);
+        s.Adults = 2;
+        s.Kids = 0;
+        s.Rooms = 1;
+        s.Needs = [TripNeeds.NoStairs, TripNeeds.KidsSafe, TripNeeds.VegFood];
+        s.PickupTime = "23:59";
+        s.PickupPlace = "Mallital";
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_Adults0_Invalid()
+    {
+        var request = Save();
+        request.Plan.Settings.Adults = 0;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Adults must be 1 to 30");
+    }
+
+    [Fact]
+    public void Save_Adults30_Valid()
+    {
+        var request = Save();
+        request.Plan.Settings.Adults = 30;
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_Adults31_Invalid()
+    {
+        var request = Save();
+        request.Plan.Settings.Adults = 31;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Adults must be 1 to 30");
+    }
+
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, true)]
+    [InlineData(20, true)]
+    [InlineData(21, false)]
+    public void Save_Kids(int kids, bool valid)
+    {
+        var request = Save();
+        request.Plan.Settings.Kids = kids;
+
+        var result = SaveValidator.Validate(request);
+        Assert.Equal(valid, result.IsValid);
+        if (!valid) ValidationAssert.HasMessage(result, "Kids must be 0 to 20");
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(15, true)]
+    [InlineData(16, false)]
+    public void Save_Rooms(int rooms, bool valid)
+    {
+        var request = Save();
+        request.Plan.Settings.Rooms = rooms;
+
+        var result = SaveValidator.Validate(request);
+        Assert.Equal(valid, result.IsValid);
+        if (!valid) ValidationAssert.HasMessage(result, "Rooms must be 1 to 15");
+    }
+
+    [Fact]
+    public void Save_NeedsUnknownKey_Invalid()
+    {
+        var request = Save();
+        request.Plan.Settings.Needs = ["pets"];
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid needs");
+    }
+
+    [Fact]
+    public void Save_NeedsDuplicate_Invalid()
+    {
+        var request = Save();
+        request.Plan.Settings.Needs = [TripNeeds.VegFood, TripNeeds.VegFood];
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid needs");
+    }
+
+    [Fact]
+    public void Save_NeedsEmpty_Valid()
+    {
+        var request = Save();
+        request.Plan.Settings.Needs = [];
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Theory]
+    [InlineData("25:00")]
+    [InlineData("12:61")]
+    [InlineData("8:30")]
+    [InlineData("08:30 am")]
+    [InlineData("")]
+    public void Save_PickupTime_Invalid(string time)
+    {
+        var request = Save();
+        request.Plan.Settings.PickupTime = time;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid pickup time");
+    }
+
+    [Fact]
+    public void Save_PickupTime_25_61_Invalid()
+    {
+        var request = Booked(1, [1], 1);
+        request.Plan.Days[0].Taxi!.Booking!.PickupTime = "25:61";
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid pickup time");
+    }
+
+    [Theory]
+    [InlineData("   ")]
+    [InlineData("")]
+    public void Save_PickupPlaceBlank_Invalid(string place)
+    {
+        var request = Save();
+        request.Plan.Settings.PickupPlace = place;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Pickup place can be up to 80 characters");
+    }
+
+    [Fact]
+    public void Save_PickupPlaceTooLong_Invalid()
+    {
+        var request = Booked(1, [1], 1);
+        request.Plan.Days[0].Taxi!.Booking!.PickupPlace = new string('p', 81);
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Pickup place can be up to 80 characters");
+    }
+
+    [Fact]
+    public void Save_BookingTwoDays_Valid()
+        => SaveValidator.TestValidate(Booked(3, [1, 2], 1, 2)).ShouldNotHaveAnyValidationErrors();
+
+    [Fact]
+    public void Save_BookingDaysOutsidePlan_Invalid()
+        => ValidationAssert.HasMessage(SaveValidator.Validate(Booked(2, [1, 3], 1)), "Invalid booking days");
+
+    [Fact]
+    public void Save_BookingDaysMissingOwnDay_Invalid()
+        => ValidationAssert.HasMessage(SaveValidator.Validate(Booked(2, [1], 2)), "Invalid booking days");
+
+    [Fact]
+    public void Save_BookingDaysEmpty_Invalid()
+        => ValidationAssert.HasMessage(SaveValidator.Validate(Booked(1, [], 1)), "Invalid booking days");
+
+    [Fact]
+    public void Save_BookingDaysDuplicate_Invalid()
+        => ValidationAssert.HasMessage(SaveValidator.Validate(Booked(2, [1, 1], 1)), "Invalid booking days");
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(9_900_000, true)]
+    [InlineData(9_900_001, false)]
+    public void Save_BookingAgreedFare(int fare, bool valid)
+    {
+        var request = Booked(1, [1], 1);
+        request.Plan.Days[0].Taxi!.Booking!.AgreedFare = fare;
+
+        var result = SaveValidator.Validate(request);
+        Assert.Equal(valid, result.IsValid);
+        if (!valid) ValidationAssert.HasMessage(result, "Invalid fare");
+    }
+
+    [Fact]
+    public void Save_BookingNoteTooLong_Invalid()
+    {
+        var request = Booked(1, [1], 1);
+        request.Plan.Days[0].Taxi!.Booking!.Note = new string('n', 301);
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Note can be up to 300 characters");
+    }
+
+    [Fact]
+    public void Save_TaxiWithoutId_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Taxi = new TripTaxiChoice { TaxiId = null, Name = "Ramesh" };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
+    }
+
+    [Fact]
+    public void Save_TaxiEmptyId_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Taxi = new TripTaxiChoice { TaxiId = Guid.Empty, Name = "Ramesh" };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
+    }
+
+    [Fact]
+    public void Save_OwnTaxiWithoutId_Valid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Taxi = new TripTaxiChoice { IsOwn = true, Name = "My driver", OwnPhone = "9876543210", Note = "Booked by phone" };
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Theory]
+    [InlineData("5876543210")]
+    [InlineData("987654321")]
+    [InlineData("+919876543210")]
+    public void Save_OwnPhone_Invalid(string phone)
+    {
+        var request = Save();
+        request.Plan.Days[0].Stay = new TripStayChoice { IsOwn = true, Name = "My stay", OwnPhone = phone };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Enter a 10 digit phone");
+    }
+
+    [Fact]
+    public void Save_StayWithoutId_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Stay = new TripStayChoice { StayId = null, Name = "Lake View" };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Stay is required");
+    }
+
+    [Fact]
+    public void Save_StayCoordinates_Valid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", Latitude = 29.38, Longitude = 79.46 };
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_StayLatWithoutLon_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", Latitude = 29.38 };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), PlanTripRequestValidator.InvalidCoordinatesMessage);
+    }
+
+    [Fact]
+    public void Save_StayLatOutOfRange_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", Latitude = 95, Longitude = 79.46 };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), PlanTripRequestValidator.InvalidCoordinatesMessage);
+    }
+
+    [Fact]
+    public void Save_StayNoteTooLong_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", Note = new string('n', 301) };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Note can be up to 300 characters");
+    }
+
+    [Fact]
+    public void Save_ThreeShortlisted_Valid()
+    {
+        var request = Save();
+        request.Plan.Days[0].StayShortlist = Enumerable.Range(0, 3)
+            .Select(i => new TripStayShortlistItem { StayId = Guid.NewGuid(), Name = $"Stay {i}", PricePerNight = 2000, Latitude = 29.38, Longitude = 79.46, DistanceKm = 1.4 })
+            .ToList();
+        request.Plan.Days[0].TaxiShortlist = Enumerable.Range(0, 3)
+            .Select(i => new TripTaxiShortlistItem { TaxiId = Guid.NewGuid(), Name = $"Driver {i}", Seats = 6, LocalDayRate = 2400, WholeTrip = true })
+            .ToList();
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_FourShortlisted_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].StayShortlist = Enumerable.Range(0, 4)
+            .Select(i => new TripStayShortlistItem { StayId = Guid.NewGuid(), Name = $"Stay {i}" })
+            .ToList();
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Up to 3 shortlisted per day");
+    }
+
+    [Fact]
+    public void Save_FourTaxisShortlisted_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].TaxiShortlist = Enumerable.Range(0, 4)
+            .Select(i => new TripTaxiShortlistItem { TaxiId = Guid.NewGuid(), Name = $"Driver {i}" })
+            .ToList();
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Up to 3 shortlisted per day");
+    }
+
+    [Fact]
+    public void Save_ShortlistSeatsUnknown_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].TaxiShortlist = [new TripTaxiShortlistItem { TaxiId = Guid.NewGuid(), Name = "Driver", Seats = 5 }];
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid seats");
+    }
+
+    [Fact]
+    public void Save_ShortlistSameAsDayForward_Invalid()
+    {
+        var request = Save(null, 1, 1);
+        request.Plan.Days[0].StayShortlist = [new TripStayShortlistItem { StayId = Guid.NewGuid(), Name = "Stay", SameAsDay = 1 }];
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Same stay must point to an earlier day");
+    }
 }

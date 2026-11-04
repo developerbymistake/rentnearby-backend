@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Utils;
 using StackExchange.Redis;
 
 namespace RentNearBy.Infrastructure.Services;
@@ -63,19 +64,35 @@ public class TripCityCatalog(
         }
     }
 
-    // Blank q = all; else Name prefix matches first, then Name or DistrictName contains, each in catalog order.
     public static IReadOnlyList<TripCityInfo> FilterCities(IReadOnlyList<TripCityInfo> cities, string? q)
+        => FilterCities(cities, q, popularOnly: false, stateName: null);
+
+    // Folded q (accents and case ignored). Blank q = popular first, then the rest, in catalog order;
+    // else Name prefix matches first, then Name or DistrictName contains, each in catalog order.
+    public static IReadOnlyList<TripCityInfo> FilterCities(
+        IReadOnlyList<TripCityInfo> cities, string? q, bool popularOnly, string? stateName)
     {
-        var text = q?.Trim();
-        if (string.IsNullOrEmpty(text)) return cities;
+        var state = stateName?.Trim();
+        IEnumerable<TripCityInfo> scope = cities;
+        if (popularOnly) scope = scope.Where(c => c.IsPopularDestination);
+        if (!string.IsNullOrEmpty(state))
+            scope = scope.Where(c => string.Equals(c.StateName, state, StringComparison.OrdinalIgnoreCase));
+
+        var folded = SearchKeys.Fold(q);
+        if (folded.Length == 0)
+        {
+            var all = scope.ToList();
+            return all.Where(c => c.IsPopularDestination).Concat(all.Where(c => !c.IsPopularDestination)).ToList();
+        }
 
         var prefix = new List<TripCityInfo>();
         var contains = new List<TripCityInfo>();
-        foreach (var c in cities)
+        foreach (var c in scope)
         {
-            if (c.Name.StartsWith(text, StringComparison.OrdinalIgnoreCase)) prefix.Add(c);
-            else if (c.Name.Contains(text, StringComparison.OrdinalIgnoreCase)
-                     || c.DistrictName.Contains(text, StringComparison.OrdinalIgnoreCase)) contains.Add(c);
+            var name = SearchKeys.Fold(c.Name);
+            if (name.StartsWith(folded, StringComparison.Ordinal)) prefix.Add(c);
+            else if (name.Contains(folded, StringComparison.Ordinal)
+                     || SearchKeys.Fold(c.DistrictName).Contains(folded, StringComparison.Ordinal)) contains.Add(c);
         }
         prefix.AddRange(contains);
         return prefix;
@@ -290,6 +307,7 @@ public class TripCityCatalog(
 
     internal static TripCityCatalogSnapshot Build(AtlasCityPage first, IEnumerable<AtlasCity> items) => new()
     {
+        Format = TripCityCatalogSnapshot.CurrentFormat,
         Version = TripCityCatalogSnapshot.VersionOf(first.CatalogUpdatedAt, first.CatalogCount),
         UpdatedAt = first.CatalogUpdatedAt,
         Count = first.CatalogCount,
@@ -306,6 +324,7 @@ public class TripCityCatalog(
                 Latitude = c.Latitude,
                 Longitude = c.Longitude,
                 ImageUrl = c.ImageUrl,
+                IsPopularDestination = c.IsPopularDestination,
                 Status = c.Status,
                 SpotCount = c.SpotCount,
             })
@@ -329,6 +348,7 @@ public class TripCityCatalog(
 
     private static TripCityCatalogSnapshot StaleClone(TripCityCatalogSnapshot s) => new()
     {
+        Format = s.Format,
         Version = s.Version,
         UpdatedAt = s.UpdatedAt,
         Count = s.Count,
@@ -355,7 +375,9 @@ public class TripCityCatalog(
         {
             var value = await redis.GetDatabase().StringGetAsync(key);
             if (value.IsNullOrEmpty) return null;
-            return JsonSerializer.Deserialize<TripCityCatalogSnapshot>(value.ToString(), TripJson.Options);
+            var snapshot = JsonSerializer.Deserialize<TripCityCatalogSnapshot>(value.ToString(), TripJson.Options);
+            // A copy from before the popular flag has no format key (0): treat as a miss.
+            return snapshot is { Format: TripCityCatalogSnapshot.CurrentFormat } ? snapshot : null;
         }
         catch (Exception ex)
         {

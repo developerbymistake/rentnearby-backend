@@ -77,10 +77,10 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
     private sealed record LocalRow(
         Guid Id, string? DriverName, string? VehicleTypeName, string? VehicleCategory, short? Seats,
         string? NumberPlate, Guid? CityId, string? CityName, string? DistrictName, int? MinFare, int RouteCount, DateTime CreatedAt,
-        short PriorityRank, bool IsFeatured);
+        short PriorityRank, bool IsFeatured, int? LocalDayRate, int? LocalDayKm, int TripLeadsReceived, int TripLeadsAnsweredInApp);
 
     public async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
-        Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly = false)
+        Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly = false, bool localRateOnly = false)
     {
         var query = _dbSet
             .AsNoTracking()
@@ -89,11 +89,13 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             query = query.Where(t => t.VehicleType != null && t.VehicleType.Category == category);
         if (cityOnly && cityId.HasValue)
             query = query.Where(t => t.CityId == cityId);
+        if (localRateOnly)
+            query = query.Where(t => t.LocalDayRate != null);
 
-        var rows = await query
+        var ordered = query
             .OrderByDescending(t => t.PriorityRank)
-            .ThenBy(t => cityId != null && t.CityId == cityId ? 0 : 1)
-            .ThenBy(t => t.MinFare)
+            .ThenBy(t => cityId != null && t.CityId == cityId ? 0 : 1);
+        var rows = await (localRateOnly ? ordered.ThenBy(t => t.LocalDayRate) : ordered.ThenBy(t => t.MinFare))
             .ThenBy(t => t.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize + 1)
@@ -111,7 +113,11 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                 t.Routes.Count,
                 t.CreatedAt,
                 t.PriorityRank,
-                t.IsFeatured))
+                t.IsFeatured,
+                t.LocalDayRate,
+                t.LocalDayKm,
+                t.TripLeadsReceived,
+                t.TripLeadsAnsweredInApp))
             .ToListAsync();
 
         var hasMore = rows.Count > pageSize;
@@ -127,6 +133,9 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             CityName = r.CityName,
             DistrictName = r.DistrictName,
             MinFare = r.MinFare,
+            LocalDayRate = r.LocalDayRate,
+            LocalDayKm = r.LocalDayKm,
+            TripReplyLabel = TaxiTripReplyLabels.Of(r.TripLeadsReceived, r.TripLeadsAnsweredInApp),
             RouteCount = r.RouteCount,
             PriorityRank = r.PriorityRank,
             IsFeatured = r.IsFeatured,

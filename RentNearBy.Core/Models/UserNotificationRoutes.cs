@@ -9,6 +9,11 @@ public static class UserNotificationRoutes
     public const string Notifications = "/notifications";
     public const string JobDetail = "/job-detail";
     public const string Plans = "/plans";
+    public const string TripPlan = "/trip-plan";
+    public const string StayEnquiries = "/stay-enquiries";
+    public const string ChatConversation = "/chat-conversation";
+    public const string TripLeads = "/trip-leads";
+    public const string MyTrips = "/my-trips";
 
     public static string ForListingKind(string listingKind) => listingKind switch
     {

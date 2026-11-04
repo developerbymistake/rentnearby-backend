@@ -25,14 +25,15 @@ public static class TaxiCache
     public static readonly TimeSpan LocalTtl = TimeSpan.FromSeconds(30);
     public static readonly TimeSpan SearchTtl = TimeSpan.FromSeconds(60);
 
-    public static string LocalKey(Guid districtId, Guid? cityId, string? category, int pageSize, bool cityOnly = false)
-        => $"taxis:local:{districtId:N}:{cityId:N}:{category}:{pageSize}{(cityOnly ? ":city" : "")}";
+    public static string LocalKey(Guid districtId, Guid? cityId, string? category, int pageSize, bool cityOnly = false, bool localRate = false)
+        => $"taxis:local:{districtId:N}:{cityId:N}:{category}:{pageSize}{(cityOnly ? ":city" : "")}{(localRate ? ":rate" : "")}";
 
     public static string SearchKey(string? category, double fromLat, double fromLng, double toLat, double toLng, int pageSize)
         => $"taxis:search:{category}:{fromLat:F3}:{fromLng:F3}:{toLat:F3}:{toLng:F3}:{pageSize}";
 
     public static async Task InvalidateAsync(IConnectionMultiplexer? redis, Guid? districtId)
     {
+        await TaxiWaysVersion.BumpAsync(redis);
         if (redis == null) return;
         try
         {
@@ -153,19 +154,19 @@ public static class TaxiHandlers
     // Local view: approved, available taxis whose base is in the district, city rows first, cheapest first.
     public static async Task<IResult> GetBrowse(
         Guid districtId, Guid? cityId, string? category,
-        IUnitOfWork unitOfWork, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize, bool cityOnly = false)
+        IUnitOfWork unitOfWork, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize, bool cityOnly = false, bool localRate = false)
     {
         if (districtId == Guid.Empty) return BadRequestResponse("District is required");
         var (pageNo, size) = ClampPaging(page, pageSize);
         var categoryFilter = NormalizeCategory(category);
         var cityOnlyFilter = cityOnly && cityId.HasValue;
         var redis = pageNo == 1 ? sp.GetService<IConnectionMultiplexer>() : null;
-        var cacheKey = TaxiCache.LocalKey(districtId, cityId, categoryFilter, size, cityOnlyFilter);
+        var cacheKey = TaxiCache.LocalKey(districtId, cityId, categoryFilter, size, cityOnlyFilter, localRate);
 
         var result = await ReadPageCacheAsync(redis, cacheKey);
         if (result == null)
         {
-            var (items, hasMore) = await unitOfWork.Taxis.BrowseLocalPagedAsync(districtId, cityId, categoryFilter, pageNo, size, cityOnlyFilter);
+            var (items, hasMore) = await unitOfWork.Taxis.BrowseLocalPagedAsync(districtId, cityId, categoryFilter, pageNo, size, cityOnlyFilter, localRate);
             result = new TaxiPage(items.ToList(), hasMore);
             await WritePageCacheAsync(redis, cacheKey, result, TaxiCache.LocalTtl);
         }
@@ -261,6 +262,7 @@ public static class TaxiHandlers
         var reporter = await unitOfWork.Users.GetByIdAsync(userId);
 
         var isFirstPending = !await unitOfWork.ListingReports.HasPendingReportForListingAsync(id, ListingKinds.Taxi);
+        var tripEnquiryId = await TripLifecycleHandlers.OwnTripEnquiryIdAsync(unitOfWork, request.TripEnquiryId, id, userId);
 
         var report = new ListingReport
         {
@@ -277,6 +279,7 @@ public static class TaxiHandlers
             Details = request.Details,
             Status = "Pending",
             CreatedAt = DateTime.UtcNow,
+            TripEnquiryId = tripEnquiryId,
         };
 
         await unitOfWork.ListingReports.AddAsync(report);
@@ -663,6 +666,58 @@ public static class TaxiHandlers
         return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
     }
 
+    // A rate change never sends an Approved taxi back to review.
+    public static async Task<IResult> UpdateLocalRate(
+        UpdateTaxiLocalRateRequest request,
+        ClaimsPrincipal principal,
+        IValidator<UpdateTaxiLocalRateRequest> validator,
+        IUnitOfWork unitOfWork,
+        IServiceProvider sp,
+        ITripEnquiryClosure tripClosure)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid)
+            return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var taxi = await unitOfWork.Taxis.GetLiveByUserAsync(userId);
+        if (taxi == null) return NotFoundResponse(TaxiNotFound);
+        if (taxi.Status == TaxiStatuses.PendingReview) return LockedResponse();
+        if (!TaxiSetupRules.Step1Done(taxi)) return StepLocked(1);
+
+        var rateCleared = taxi.LocalDayRate != null && request.DayRate == null;
+        taxi.LocalDayRate = request.DayRate;
+        taxi.LocalDayKm = request.DayRate == null ? null : request.KmPerDay;
+        taxi.UpdatedAt = DateTime.UtcNow;
+
+        // A cleared rate ends the open trip leads (booked ones stay); pushes go out after commit.
+        IReadOnlyList<TripClosurePush> tripPushes = [];
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+            if (rateCleared) tripPushes = await tripClosure.OnTaxiRateClearedAsync(taxi.Id);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        if (rateCleared) await tripClosure.AfterCommitAsync(tripPushes);
+
+        if (taxi.Status == TaxiStatuses.Approved)
+            await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
+        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
+    }
+
     public static async Task<IResult> Submit(
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IRabbitMqPublisher publisher)
     {
@@ -728,7 +783,8 @@ public static class TaxiHandlers
     }
 
     public static async Task<IResult> DeleteMine(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp,
+        ITripEnquiryClosure tripClosure)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -743,8 +799,25 @@ public static class TaxiHandlers
         taxi.DeletedAt = now;
         taxi.UpdatedAt = now;
 
-        try { await unitOfWork.SaveChangesAsync(); }
-        catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        IReadOnlyList<TripClosurePush> tripPushes;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+            tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, [taxi.Id]);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        await tripClosure.AfterCommitAsync(tripPushes);
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(taxi.Id, ListingKinds.Taxi);
         await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);

@@ -4,6 +4,7 @@ using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using RentNearBy.Api.Validators;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -27,7 +28,11 @@ public static class TripHandlers
     private static readonly TimeSpan CitiesWindow = TimeSpan.FromMinutes(1);
     private const int MaxCitiesPageSize = 200;
     private const int MaxCitySearchLength = 100;
+    private const int MaxStateLength = 100;
     private const double MaxSpotDistanceKm = 200;
+    private const string ClientIdIndex = "ix_trips_owner_client";
+    private const string StateUpcoming = "upcoming";
+    private const string StateCompleted = "completed";
 
     private static IResult TripNotFound() => ErrorResponse(404, "Trip not found", TripErrorTypes.TripNotFound);
 
@@ -45,7 +50,7 @@ public static class TripHandlers
 
     public static async Task<IResult> GetCities(
         ClaimsPrincipal principal, ITripCityCatalog catalog, IRateLimitService rateLimiter, IOptions<TripPlannerOptions> options,
-        HttpContext httpContext, string? q = null, int page = 1, int pageSize = 0)
+        HttpContext httpContext, string? q = null, int page = 1, int pageSize = 0, bool popular = false, string? state = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         if (await CitiesRateLimitedAsync(userId, rateLimiter, httpContext) is { } limited) return limited;
@@ -54,16 +59,19 @@ public static class TripHandlers
         var size = Math.Clamp(pageSize <= 0 ? options.Value.CitiesPageSize : pageSize, 1, MaxCitiesPageSize);
         var text = q?.Trim();
         if (text != null && text.Length > MaxCitySearchLength) return BadRequestResponse("Search text is too long", "BadRequest");
+        var stateText = state?.Trim();
+        if (stateText != null && stateText.Length > MaxStateLength) return BadRequestResponse("State is too long", "BadRequest");
 
         var snapshot = await catalog.GetAsync();
         if (snapshot == null) return CitiesUnavailable();
 
         var etag = $"W/\"{snapshot.Version}:{pageNo}:{size}\"";
-        if (string.IsNullOrEmpty(text)) httpContext.Response.Headers.ETag = etag;
-        if (string.IsNullOrEmpty(text) && httpContext.Request.Headers.IfNoneMatch.ToString() == etag)
+        var unfiltered = string.IsNullOrEmpty(text) && !popular && string.IsNullOrEmpty(stateText);
+        if (unfiltered) httpContext.Response.Headers.ETag = etag;
+        if (unfiltered && httpContext.Request.Headers.IfNoneMatch.ToString() == etag)
             return Results.StatusCode(StatusCodes.Status304NotModified);
 
-        var matches = TripCityCatalog.FilterCities(snapshot.Cities, text);
+        var matches = TripCityCatalog.FilterCities(snapshot.Cities, text, popular, stateText);
         var skip = (pageNo - 1) * size;
         return OkResponse(new TripCityPageDto
         {
@@ -189,18 +197,28 @@ public static class TripHandlers
         return spots.All(s => GeoMath.HaversineKm(lat, lon, s.Latitude, s.Longitude) <= MaxSpotDistanceKm);
     }
 
-    public static async Task<IResult> GetMine(ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = DefaultPageSize)
+    public static async Task<IResult> GetMine(
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = DefaultPageSize, string? state = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
+        var stateText = string.IsNullOrWhiteSpace(state) ? StateUpcoming : state.Trim().ToLowerInvariant();
+        if (stateText is not (StateUpcoming or StateCompleted))
+            return BadRequestResponse("State must be upcoming or completed");
+
         var pageNo = Math.Clamp(page, 1, MaxPage);
         var size = Math.Clamp(pageSize <= 0 ? DefaultPageSize : pageSize, 1, MaxPageSize);
-        var (items, hasMore) = await unitOfWork.Trips.GetByOwnerPagedAsync(userId, pageNo, size);
+        var (items, hasMore) = await unitOfWork.Trips.GetByOwnerPagedAsync(userId, pageNo, size, stateText == StateCompleted);
+        var (upcoming, completed) = await unitOfWork.Trips.GetStateCountsAsync(userId);
+
+        var enquiries = await unitOfWork.TripEnquiries.GetByTripsAsync(items.Select(t => t.Id).ToList());
+        var byTrip = enquiries.Where(e => e.TripId != null).GroupBy(e => e.TripId!.Value).ToDictionary(g => g.Key, g => (IReadOnlyList<TripEnquiry>)g.ToList());
 
         return OkResponse(new TripListDto
         {
-            Items = items.Select(ToSummary).ToList(),
+            Items = items.Select(t => ToSummary(t, byTrip.TryGetValue(t.Id, out var list) ? list : Array.Empty<TripEnquiry>())).ToList(),
             HasMore = hasMore,
+            Counts = new TripListCountsDto { Upcoming = upcoming, Completed = completed },
         });
     }
 
@@ -212,6 +230,11 @@ public static class TripHandlers
 
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return Invalid(validation);
+
+        // A replayed create answers with the row it already made, even when the city has gone off since.
+        if (request.ClientTripId is { } clientId
+            && await unitOfWork.Trips.FindByClientIdAsync(userId, clientId) is { } existing)
+            return OkResponse(ToDto(existing, ReadPlan(existing)));
 
         // A new trip needs a live city; the server snapshot wins over the client copy.
         var (available, city) = await catalog.FindAsync(request.Plan.CityKey);
@@ -237,13 +260,26 @@ public static class TripHandlers
             DistrictId = districtId,
             Title = TitleOrDefault(request.Title, city.Name),
             Status = request.Status ?? TripStatuses.Draft,
+            ClientTripId = request.ClientTripId,
             CreatedAt = now,
             UpdatedAt = now,
         };
         ApplyPlan(trip, plan);
 
         await unitOfWork.Trips.AddAsync(trip);
-        await unitOfWork.SaveChangesAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (request.ClientTripId != null
+            && ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: ClientIdIndex })
+        {
+            // Lost the race to a parallel create with the same client id: answer with the winner.
+            await unitOfWork.Trips.DeleteAsync(trip);
+            var winner = await unitOfWork.Trips.FindByClientIdAsync(userId, request.ClientTripId.Value);
+            if (winner == null) throw;
+            return OkResponse(ToDto(winner, ReadPlan(winner)));
+        }
 
         return CreatedResponse(ToDto(trip, plan), $"/api/v1/trips/{trip.Id}");
     }
@@ -255,7 +291,17 @@ public static class TripHandlers
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
         if (trip == null) return TripNotFound();
 
-        return OkResponse(ToDto(trip, ReadPlan(trip)));
+        return OkResponse(await BuildDtoAsync(unitOfWork, trip, userId, DateTime.UtcNow));
+    }
+
+    // The trip with its enquiries (newest first) and the derived booking state.
+    internal static async Task<TripDto> BuildDtoAsync(IUnitOfWork unitOfWork, Trip trip, Guid viewerId, DateTime nowUtc)
+    {
+        var plan = ReadPlan(trip);
+        var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
+        var dto = ToDto(trip, plan, enquiries);
+        dto.Enquiries = await TripEnquiryDtoBuilder.BuildManyAsync(unitOfWork, enquiries, viewerId, nowUtc);
+        return dto;
     }
 
     public static async Task<IResult> Update(
@@ -269,7 +315,8 @@ public static class TripHandlers
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
         if (trip == null) return TripNotFound();
 
-        var status = request.Status ?? trip.Status;
+        // A Completed trip keeps its status; only the complete endpoint and the timer set it.
+        var status = trip.Status == TripStatuses.Completed ? TripStatuses.Completed : request.Status ?? trip.Status;
         if (status == TripStatuses.Planned && request.Plan.Days.Sum(d => d.Spots.Count) == 0)
             return BadRequestResponse(PlanTripRequestValidator.NoPlacesMessage);
 
@@ -282,7 +329,7 @@ public static class TripHandlers
         plan.DistrictId = trip.DistrictId;
 
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, trip.CityName);
-        if (request.Status != null) trip.Status = request.Status;
+        if (request.Status != null && trip.Status != TripStatuses.Completed) trip.Status = request.Status;
         ApplyPlan(trip, plan);
         trip.UpdatedAt = DateTime.UtcNow;
 
@@ -295,27 +342,40 @@ public static class TripHandlers
             return ConflictResponse("This trip was just modified. Please retry.", "CONCURRENT_UPDATE");
         }
 
-        return OkResponse(ToDto(trip, plan));
+        return OkResponse(ToDto(trip, plan, await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id)));
     }
 
-    public static async Task<IResult> Delete(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    // Open enquiries close first (confirmed ones count as a guest cancel); each owner told once after commit.
+    public static async Task<IResult> Delete(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ITripEnquiryClosure closure)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
         if (trip == null) return TripNotFound();
 
-        await unitOfWork.Trips.DeleteAsync(trip);
+        IReadOnlyList<TripClosurePush> pushes;
+        await unitOfWork.BeginTransactionAsync();
         try
         {
+            pushes = await closure.OnTripDeletedAsync(trip.Id);
+            await unitOfWork.Trips.DeleteAsync(trip);
             await unitOfWork.SaveChangesAsync();
+            await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
         {
+            await unitOfWork.RollbackTransactionAsync();
             return ConflictResponse("This trip was just modified. Please retry.", "CONCURRENT_UPDATE");
         }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
 
-        return OkResponse(new { message = "Trip deleted" });
+        await closure.AfterCommitAsync(pushes);
+        var ownersTold = pushes.Select(p => p.Notification.TargetUserId).Where(t => t != null).Distinct().Count();
+        return OkResponse(new { message = "Trip deleted", ownersTold });
     }
 
     private static TripSpotsPageDto EmptySpotsPage(string cityName, long cityKey) => new()
@@ -339,12 +399,15 @@ public static class TripHandlers
 
     private static void ApplyPlan(Trip trip, TripPlan plan)
     {
+        plan.Version = TripPlan.CurrentVersion;
         trip.PlanJson = JsonSerializer.Serialize(plan, TripJson.Options);
         trip.DayCount = plan.Days.Count;
         trip.SpotCount = plan.Days.Sum(d => d.Spots.Count);
+        trip.StartDate = plan.Settings.StartDate;
+        trip.EndDate = plan.EndDate;
     }
 
-    private static TripPlan ReadPlan(Trip trip)
+    internal static TripPlan ReadPlan(Trip trip)
     {
         try
         {
@@ -356,7 +419,7 @@ public static class TripHandlers
         }
     }
 
-    private static TripDto ToDto(Trip trip, TripPlan plan) => new()
+    private static TripDto ToDto(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry>? enquiries = null) => new()
     {
         Id = trip.Id,
         Title = trip.Title,
@@ -368,7 +431,12 @@ public static class TripHandlers
         DistrictId = trip.DistrictId,
         DayCount = trip.DayCount,
         SpotCount = trip.SpotCount,
+        StartDate = trip.StartDate,
+        EndDate = trip.EndDate,
         Plan = plan,
+        BookingState = TripBookingStates.Compute(trip, plan, enquiries ?? Array.Empty<TripEnquiry>()),
+        MutedAt = trip.MutedAt,
+        CompletedAt = trip.CompletedAt,
         CreatedAt = trip.CreatedAt,
         UpdatedAt = trip.UpdatedAt,
     };
@@ -382,13 +450,15 @@ public static class TripHandlers
         Latitude = c.Latitude,
         Longitude = c.Longitude,
         ImageUrl = c.ImageUrl,
+        IsPopularDestination = c.IsPopularDestination,
         Status = c.Status,
         SpotCount = c.SpotCount,
     };
 
-    private static TripSummaryDto ToSummary(Trip trip)
+    private static TripSummaryDto ToSummary(Trip trip, IReadOnlyList<TripEnquiry> enquiries)
     {
         var plan = ReadPlan(trip);
+        var counts = TripBookingSummary.Count(plan, enquiries);
         return new TripSummaryDto
         {
             Id = trip.Id,
@@ -400,7 +470,19 @@ public static class TripHandlers
             TaxiDays = plan.Days.Count(d => d.Taxi != null),
             StayDays = plan.Days.Count(d => d.Stay != null),
             StayName = plan.Days.Select(d => d.Stay?.Name).FirstOrDefault(n => !string.IsNullOrEmpty(n)),
+            StartDate = trip.StartDate,
+            EndDate = trip.EndDate,
+            Adults = plan.Settings?.Adults,
+            Kids = plan.Settings?.Kids,
             Category = plan.Days.SelectMany(d => d.Spots).Select(s => s.Category).FirstOrDefault() ?? "attraction",
+            BookingState = TripBookingStates.Compute(trip, plan, enquiries),
+            StaysConfirmed = counts.StaysConfirmed,
+            StaysTotal = counts.StaysTotal,
+            TaxisConfirmed = counts.TaxisConfirmed,
+            TaxisTotal = counts.TaxisTotal,
+            AgreedTotal = counts.AgreedTotal,
+            MutedAt = trip.MutedAt,
+            CompletedAt = trip.CompletedAt,
             UpdatedAt = trip.UpdatedAt,
         };
     }

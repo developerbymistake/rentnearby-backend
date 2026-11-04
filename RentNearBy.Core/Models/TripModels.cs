@@ -11,8 +11,11 @@ public static class TripStatuses
 {
     public const string Draft = "Draft";
     public const string Planned = "Planned";
+    public const string Completed = "Completed";
 
-    public static readonly string[] All = [Draft, Planned];
+    public static readonly string[] All = [Draft, Planned, Completed];
+    // Completed is set only by the complete endpoint and the timer.
+    public static readonly string[] Savable = [Draft, Planned];
 }
 
 public static class TripPlanModes
@@ -94,10 +97,26 @@ public static class TripJson
 
 public sealed class AtlasUnavailableException(string message) : Exception(message);
 
-// PlanJson v2 (Trip.PlanJson, serialized with TripJson.Options).
+public static class TripNeeds
+{
+    public const string NoStairs = "no_stairs";
+    public const string KidsSafe = "kids_safe";
+    public const string VegFood = "veg_food";
+
+    public static readonly string[] All = [NoStairs, KidsSafe, VegFood];
+}
+
+public static class TripPace
+{
+    public const int Relaxed = 300;
+    public const int Normal = 450;
+}
+
+// PlanJson v3 (Trip.PlanJson, serialized with TripJson.Options); v2 documents read as v3 with the new fields null.
 public sealed class TripPlan
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
+    public static readonly int[] SupportedVersions = [2, 3];
     public int Version { get; set; } = CurrentVersion;
     public long CityKey { get; set; }
     public Guid? DistrictId { get; set; }
@@ -106,6 +125,9 @@ public sealed class TripPlan
     public double? CentreLongitude { get; set; }
     public List<TripDay> Days { get; set; } = new();
     public TripSettings Settings { get; set; } = new();
+
+    [JsonIgnore]
+    public DateOnly? EndDate => Settings?.StartDate?.AddDays(Math.Max(0, (Days?.Count ?? 0) - 1));
 }
 
 public sealed class TripDay
@@ -114,6 +136,8 @@ public sealed class TripDay
     public List<TripSpot> Spots { get; set; } = new();
     public TripTaxiChoice? Taxi { get; set; }
     public TripStayChoice? Stay { get; set; }
+    public List<TripStayShortlistItem>? StayShortlist { get; set; }
+    public List<TripTaxiShortlistItem>? TaxiShortlist { get; set; }
 }
 
 public sealed class TripSpot
@@ -131,24 +155,79 @@ public sealed class TripSpot
 
 public sealed class TripTaxiChoice
 {
-    public Guid TaxiId { get; set; }
+    // Null only for an own booking (IsOwn, Phase 1).
+    public Guid? TaxiId { get; set; }
     public string Name { get; set; } = "";
+    // Per-day share when booked: round(Booking.AgreedFare / Booking.Days.Length).
     public int? Fare { get; set; }
     public string? VehicleTypeName { get; set; }
+    public bool? IsOwn { get; set; }
+    public string? OwnPhone { get; set; }
+    public string? Note { get; set; }
+    public bool? WholeTrip { get; set; }
+    public TripTaxiBooking? Booking { get; set; }
+}
+
+// "I booked": the same copy sits on every day listed in Days.
+public sealed class TripTaxiBooking
+{
+    // Total for all booked days, rupees.
+    public int AgreedFare { get; set; }
+    public bool TollExtra { get; set; }
+    public string? PickupTime { get; set; }
+    public string? PickupPlace { get; set; }
+    public int[] Days { get; set; } = [];
+    public string? Note { get; set; }
+    public DateTime? BookedAt { get; set; }
 }
 
 public sealed class TripStayChoice
 {
-    public Guid StayId { get; set; }
+    // Null only for an own booking (IsOwn, Phase 1).
+    public Guid? StayId { get; set; }
     public string Name { get; set; } = "";
     public int? PricePerNight { get; set; }
     public int? SameAsDay { get; set; }
+    // Both or neither.
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public bool? IsOwn { get; set; }
+    public string? OwnPhone { get; set; }
+    public string? Note { get; set; }
+}
+
+public sealed class TripStayShortlistItem
+{
+    public Guid StayId { get; set; }
+    public string Name { get; set; } = "";
+    public int? PricePerNight { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public double? DistanceKm { get; set; }
+    public int? SameAsDay { get; set; }
+}
+
+public sealed class TripTaxiShortlistItem
+{
+    public Guid TaxiId { get; set; }
+    public string Name { get; set; } = "";
+    public string? VehicleTypeName { get; set; }
+    public short? Seats { get; set; }
+    public int? LocalDayRate { get; set; }
+    public bool? WholeTrip { get; set; }
 }
 
 public sealed class TripSettings
 {
-    public int DayLimitMinutes { get; set; } = 450;
+    public int DayLimitMinutes { get; set; } = TripPace.Normal;
     public DateOnly? StartDate { get; set; }
+    public int? Adults { get; set; }
+    public int? Kids { get; set; }
+    public int? Rooms { get; set; }
+    public string[]? Needs { get; set; }
+    // "HH:mm", 24 h.
+    public string? PickupTime { get; set; }
+    public string? PickupPlace { get; set; }
 }
 
 // Redis value of TripCacheKeys.Spots / Stale.
@@ -169,7 +248,12 @@ public sealed class AtlasCitySpots
 {
     public long CityKey { get; set; }
     public string CityName { get; set; } = string.Empty;
+    public string? DistrictName { get; set; }
+    public string? StateName { get; set; }
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
     public bool TripEnabled { get; set; }
+    public bool IsPopularDestination { get; set; }
     public string Status { get; set; } = string.Empty;
     public DateTime? GeneratedAt { get; set; }
     public int SpotCount { get; set; }
@@ -180,8 +264,8 @@ public sealed class AtlasCitySpots
 public sealed class AtlasCity
 {
     public long CityKey { get; set; }
-    public string WikidataId { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    public Guid DistrictId { get; set; }
     public string DistrictName { get; set; } = string.Empty;
     public string StateName { get; set; } = string.Empty;
     public double Latitude { get; set; }
@@ -190,6 +274,7 @@ public sealed class AtlasCity
     public string? ImageCredit { get; set; }
     public string? ImageLicense { get; set; }
     public bool IsTripEnabled { get; set; }
+    public bool IsPopularDestination { get; set; }
     public string Status { get; set; } = string.Empty;
     public int SpotCount { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -214,6 +299,10 @@ public sealed class AtlasCatalogVersion
 // Redis value of TripCacheKeys.CityCatalog / CityCatalogStale, and the in-process copy.
 public sealed class TripCityCatalogSnapshot
 {
+    // Stored copies with another format (0 = no key, 1 = before the popular flag) are ignored.
+    // The default stays 0 so an old Redis value deserializes as 0; Build stamps CurrentFormat.
+    public const int CurrentFormat = 2;
+    public int Format { get; set; }
     public string Version { get; set; } = string.Empty;
     public DateTime UpdatedAt { get; set; }
     public int Count { get; set; }
@@ -237,6 +326,7 @@ public sealed class TripCityInfo
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public string? ImageUrl { get; set; }
+    public bool IsPopularDestination { get; set; }
     public string Status { get; set; } = TripSpotStatuses.NotReady;
     public int SpotCount { get; set; }
 }

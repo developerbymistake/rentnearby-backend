@@ -58,6 +58,17 @@ public static class TaxiLimits
     public const int PlaceLabelMax = 160;
     public const int VehicleTypeNameMax = 60;
     public const int PhoneLength = 10;
+    public const int LocalDayKmMax = 1000;
+}
+
+public static class TaxiTripReplyLabels
+{
+    public const string New = "new";
+    public const string App = "app";
+    public const string Phone = "phone";
+
+    public static string Of(int received, int answered) =>
+        received < 3 ? New : answered * 2 >= received ? App : Phone;
 }
 
 // Step flags and the setup percentage, always computed from the row (Routes must be loaded).

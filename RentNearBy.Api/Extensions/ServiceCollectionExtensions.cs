@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Api.Services;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
@@ -91,6 +92,21 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITripPlannerService, TripPlannerService>();
         // Consumes the atlas.city.changed fanout on queue atlas.city.changed.rentnearby.
         services.AddHostedService<AtlasCityChangedWorkerService>();
+
+        // Trip bookings (enquiries, offers, phone bookings). TRIP_EXECUTION_ENABLED=false pauses the routes and the timer.
+        services.Configure<TripExecutionOptions>(configuration.GetSection(TripExecutionOptions.Section));
+        services.PostConfigure<TripExecutionOptions>(o =>
+        {
+            if (bool.TryParse(configuration["TRIP_EXECUTION_ENABLED"], out var enabled)) o.Enabled = enabled;
+            if (string.IsNullOrWhiteSpace(o.PublicBaseUrl)) o.PublicBaseUrl = "https://developerbymistake.tech";
+        });
+        services.AddScoped<IConversationFactory, ConversationFactory>();
+        services.AddScoped<ITripChatService, TripChatService>();
+        services.AddScoped<ITripNotifier, TripNotifier>();
+        services.AddScoped<ITripEnquiryClosure, TripEnquiryClosure>();
+        // Every 5 min: offer and enquiry expiry, urgency refresh, purges.
+        services.AddHostedService<TripTimerService>();
+        services.AddTaxiWays(configuration);
 
         // Hourly: plan expiry claims, 7-day reminders, daily rank reconcile.
         services.AddHostedService<PlanLifecycleService>();

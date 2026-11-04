@@ -46,9 +46,12 @@ public class AtlasClient : IAtlasClient
         return ParseData<AtlasCitySpots>(body);
     }
 
-    public async Task<AtlasCityPage> SearchCitiesAsync(string? q, int page, int pageSize, bool readyOnly = false, CancellationToken ct = default)
+    public async Task<AtlasCityPage> SearchCitiesAsync(string? q, int page, int pageSize, bool readyOnly = false,
+        bool popularOnly = false, Guid? stateId = null, CancellationToken ct = default)
     {
         var path = $"api/v1/cities?page={page}&pageSize={pageSize}&ready={(readyOnly ? "true" : "false")}";
+        if (popularOnly) path += "&popular=true";
+        if (stateId.HasValue) path += "&stateId=" + stateId.Value.ToString("D");
         if (!string.IsNullOrWhiteSpace(q)) path += "&q=" + Uri.EscapeDataString(q);
         var (status, body) = await GetAsync(path, ct);
         if (status != HttpStatusCode.OK)

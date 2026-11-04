@@ -18,6 +18,13 @@ public class Trip
     public string PlanJson { get; set; } = "{}";
     public int DayCount { get; set; }
     public int SpotCount { get; set; }
+    // App-generated id of the first create; a replay of the same create returns this row.
+    public Guid? ClientTripId { get; set; }
+    // Copied from the plan on every save; EndDate = StartDate + DayCount - 1.
+    public DateOnly? StartDate { get; set; }
+    public DateOnly? EndDate { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public DateTime? MutedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

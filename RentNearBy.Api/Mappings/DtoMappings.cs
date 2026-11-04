@@ -155,6 +155,7 @@ public static class DtoMappings
             .Map(dest => dest.DistrictName, src => src.District != null ? src.District.Name : null)
             .Map(dest => dest.CityName, src => src.City != null ? src.City.Name : null)
             .Map(dest => dest.Routes, src => ToTaxiRouteDtos(src))
+            .Map(dest => dest.TripReplyLabel, src => TaxiTripReplyLabels.Of(src.TripLeadsReceived, src.TripLeadsAnsweredInApp))
             .Ignore(dest => dest.HasReported);
 
         TypeAdapterConfig<TaxiListing, TaxiPublicSlugDto>.NewConfig()

@@ -32,6 +32,8 @@ public class TaxiOwnerDto
     public bool IsAvailable { get; set; }
     public string? RejectedReason { get; set; }
     public int? MinFare { get; set; }
+    public int? LocalDayRate { get; set; }
+    public int? LocalDayKm { get; set; }
     public string? Slug { get; set; }
     public DateTime? SubmittedAt { get; set; }
     public DateTime CreatedAt { get; set; }

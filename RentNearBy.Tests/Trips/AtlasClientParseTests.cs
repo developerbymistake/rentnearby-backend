@@ -10,19 +10,22 @@ public class AtlasClientParseTests
 {
     private const string SpotsBody = """
         {"status":"200","code":200,"timestamp":1793613600,"error":null,
-         "data":{"cityKey":110000001,"cityName":"Nainital","districtName":"Nainital","stateName":"Uttarakhand",
-          "latitude":29.3919,"longitude":79.4542,"imageUrl":null,"tripEnabled":true,"status":"Ready",
+         "data":{"cityKey":210000001,"cityName":"Nainital","districtName":"Nainital","stateName":"Uttarakhand",
+          "latitude":29.3919,"longitude":79.4542,"imageUrl":null,"imageCredit":null,"imageLicense":null,
+          "tripEnabled":true,"isPopularDestination":true,"status":"Ready",
           "generatedAt":"2026-11-02T10:00:00Z","spotCount":1,
-          "spots":[{"id":"wiki:123","source":"merged","name":"Naini Lake","displayName":"Naini Lake","description":"Lake",
+          "spots":[{"id":"osm:N123","source":"seed","name":"Naini Lake","displayName":"Naini Lake",
+            "altNames":["Naini Tal","Nainī Tāl"],"description":"Lake",
             "latitude":29.39,"longitude":79.45,"category":"lake","area":"Mall Road","visitMinutes":60,"isFeatured":true,
             "rank":1,"imageUrl":"https://img/x.jpg","imageCredit":"A","imageLicense":"CC BY-SA 4.0"}]}}
         """;
 
     private const string CityPageBody = """
         {"status":"200","code":200,"timestamp":1793613600,"error":null,
-         "data":{"items":[{"cityKey":502141,"wikidataId":"Q502141","name":"Rishikesh","districtName":"Dehradun","stateName":"Uttarakhand",
+         "data":{"items":[{"cityKey":210000002,"name":"Rishikesh","districtId":"5c1f0e3a-1b2c-4d5e-8f60-123456789abc",
+           "districtName":"Dehradun","stateName":"Uttarakhand",
            "latitude":30.1,"longitude":78.3,"imageUrl":null,"imageCredit":null,"imageLicense":null,
-           "isTripEnabled":true,"status":"Ready","spotCount":37,"updatedAt":"2026-11-03T08:00:00Z"}],
+           "isTripEnabled":true,"isPopularDestination":true,"status":"Ready","spotCount":37,"updatedAt":"2026-11-03T08:00:00Z"}],
           "hasMore":false,"catalogUpdatedAt":"2026-11-03T08:00:00Z","catalogCount":42}}
         """;
 
@@ -49,14 +52,20 @@ public class AtlasClientParseTests
     {
         var spots = AtlasClient.ParseData<AtlasCitySpots>(SpotsBody);
 
-        Assert.Equal(110000001L, spots.CityKey);
+        Assert.Equal(210000001L, spots.CityKey);
         Assert.Equal("Nainital", spots.CityName);
+        Assert.Equal("Nainital", spots.DistrictName);
+        Assert.Equal("Uttarakhand", spots.StateName);
+        Assert.Equal(29.3919, spots.Latitude);
+        Assert.Equal(79.4542, spots.Longitude);
+        Assert.True(spots.IsPopularDestination);
         Assert.Equal("Ready", spots.Status);
         Assert.True(spots.TripEnabled);
         Assert.Equal(new DateTime(2026, 11, 2, 10, 0, 0, DateTimeKind.Utc), spots.GeneratedAt?.ToUniversalTime());
         var spot = Assert.Single(spots.Spots);
-        Assert.Equal("wiki:123", spot.Id);
-        Assert.Equal("merged", spot.Source);
+        Assert.Equal("osm:N123", spot.Id);
+        Assert.Equal("seed", spot.Source);
+        Assert.Equal(new[] { "Naini Tal", "Nainī Tāl" }, spot.AltNames);
         Assert.Equal("Mall Road", spot.Area);
         Assert.Equal(60, spot.VisitMinutes);
         Assert.True(spot.IsFeatured);
@@ -120,8 +129,9 @@ public class AtlasClientParseTests
         var page = AtlasClient.ParseData<AtlasCityPage>(CityPageBody);
 
         var city = Assert.Single(page.Items);
-        Assert.Equal(502141L, city.CityKey);
-        Assert.Equal("Q502141", city.WikidataId);
+        Assert.Equal(210000002L, city.CityKey);
+        Assert.Equal(Guid.Parse("5c1f0e3a-1b2c-4d5e-8f60-123456789abc"), city.DistrictId);
+        Assert.True(city.IsPopularDestination);
         Assert.Equal("Rishikesh", city.Name);
         Assert.Equal("Dehradun", city.DistrictName);
         Assert.Equal("Uttarakhand", city.StateName);
@@ -154,6 +164,29 @@ public class AtlasClientParseTests
         await Client(handler).SearchCitiesAsync("  ", 1, 50, readyOnly: true);
 
         Assert.Equal("https://atlas.test/api/v1/cities?page=1&pageSize=50&ready=true", handler.LastRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task SearchCities_PopularAndState_AppendsParams()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, CityPageBody);
+        var stateId = Guid.Parse("5c1f0e3a-1b2c-4d5e-8f60-123456789abc");
+
+        await Client(handler).SearchCitiesAsync(null, 1, 200, popularOnly: true, stateId: stateId);
+
+        Assert.Equal(
+            "https://atlas.test/api/v1/cities?page=1&pageSize=200&ready=false&popular=true&stateId=5c1f0e3a-1b2c-4d5e-8f60-123456789abc",
+            handler.LastRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task SearchCities_Defaults_OmitPopularAndState()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, CityPageBody);
+
+        await Client(handler).SearchCitiesAsync(null, 1, 200);
+
+        Assert.Equal("https://atlas.test/api/v1/cities?page=1&pageSize=200&ready=false", handler.LastRequest!.RequestUri!.ToString());
     }
 
     [Fact]

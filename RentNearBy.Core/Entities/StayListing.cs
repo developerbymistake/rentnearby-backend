@@ -53,6 +53,12 @@ public class StayListing
     public short PriorityRank { get; set; }
     public bool IsFeatured { get; set; }
 
+    // Trip execution. UpiId is never mapped into any DTO in Phase 1a.
+    public string? UpiId { get; set; }
+    public string? WhatsAppNumber { get; set; }
+    public int TripEnquiriesReceived { get; set; }
+    public int TripEnquiriesAnsweredIn24h { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsDeleted { get; set; } = false;

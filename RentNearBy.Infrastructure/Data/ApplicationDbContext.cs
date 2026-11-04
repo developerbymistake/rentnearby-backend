@@ -61,6 +61,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Role> Roles { get; set; }
     public DbSet<RoleChangeRequest> RoleChangeRequests { get; set; }
     public DbSet<Trip> Trips { get; set; }
+    public DbSet<TripEnquiry> TripEnquiries { get; set; }
+    public DbSet<TripOffer> TripOffers { get; set; }
+    public DbSet<TripPushLog> TripPushLogs { get; set; }
+    public DbSet<TripProblemLog> TripProblemLogs { get; set; }
 
     // A live row never carries a pause reason; a reason is one of PauseReasons.*.
     private const string PauseReasonCheck =
@@ -303,6 +307,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .IsUnique()
              .HasDatabaseName("ix_listingreports_reporter_listing_pending")
              .HasFilter("\"Status\" = 'Pending'");
+
+            e.HasOne<TripEnquiry>()
+             .WithMany()
+             .HasForeignKey(r => r.TripEnquiryId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<Conversation>(e =>
@@ -1088,6 +1098,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(s => s.RejectedReason).HasMaxLength(300);
             e.Property(s => s.PriorityRank).HasDefaultValue((short)0);
             e.Property(s => s.IsFeatured).HasDefaultValue(false);
+            e.Property(s => s.UpiId).HasMaxLength(60);
+            e.Property(s => s.WhatsAppNumber).HasMaxLength(10);
+            e.Property(s => s.TripEnquiriesReceived).HasDefaultValue(0);
+            e.Property(s => s.TripEnquiriesAnsweredIn24h).HasDefaultValue(0);
 
             e.HasOne(s => s.User)
              .WithMany()
@@ -1311,6 +1325,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(t => t.RejectedReason).HasMaxLength(300);
             e.Property(t => t.PriorityRank).HasDefaultValue((short)0);
             e.Property(t => t.IsFeatured).HasDefaultValue(false);
+            e.Property(t => t.TripLeadsReceived).HasDefaultValue(0);
+            e.Property(t => t.TripLeadsAnsweredInApp).HasDefaultValue(0);
 
             e.HasOne(t => t.User)
              .WithMany()
@@ -1376,9 +1392,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
             e.HasIndex(t => t.Id, "ix_taxilistings_public_id")
              .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false");
+            // Trip Taxi page: rate-set drivers of a district, paid rank first then cheapest day rate.
+            e.HasIndex(t => new { t.DistrictId, t.PriorityRank, t.LocalDayRate }, "ix_taxilistings_trip_browse")
+             .IsDescending(false, true, false)
+             .HasFilter("\"Status\" = 'Approved' AND \"IsAvailable\" = true AND \"IsDeleted\" = false AND \"LocalDayRate\" IS NOT NULL");
 
             e.ToTable(t =>
             {
+                t.HasCheckConstraint("ck_taxilistings_local_day_rate_range", "\"LocalDayRate\" IS NULL OR (\"LocalDayRate\" >= 100 AND \"LocalDayRate\" <= 9900000)");
+                t.HasCheckConstraint("ck_taxilistings_local_day_km_range", "\"LocalDayKm\" IS NULL OR (\"LocalDayKm\" >= 0 AND \"LocalDayKm\" <= 1000)");
                 t.HasCheckConstraint("ck_taxilistings_status", "\"Status\" IN ('Draft', 'PendingReview', 'Approved', 'Rejected')");
                 t.HasCheckConstraint("ck_taxilistings_seats", "\"Seats\" IS NULL OR \"Seats\" IN (4, 6, 7, 12)");
                 t.HasCheckConstraint("ck_taxilistings_plate",
@@ -1504,6 +1526,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(t => t.Status).HasMaxLength(16).HasDefaultValue(TripStatuses.Draft);
             e.Property(t => t.PlanJson).HasColumnType("jsonb");
             e.HasIndex(t => new { t.OwnerUserId, t.UpdatedAt }).HasDatabaseName("ix_trips_owner_updated");
+            e.Property(t => t.StartDate).HasColumnType("date");
+            e.Property(t => t.EndDate).HasColumnType("date");
+            // Idempotent create: a retry with the same client id finds this row instead of inserting a second one.
+            e.HasIndex(t => new { t.OwnerUserId, t.ClientTripId }, "ix_trips_owner_client")
+             .IsUnique()
+             .HasFilter("\"ClientTripId\" IS NOT NULL");
+            e.HasIndex(t => t.StartDate, "ix_trips_startdate").HasFilter("\"StartDate\" IS NOT NULL");
+            e.HasIndex(t => t.EndDate, "ix_trips_enddate").HasFilter("\"EndDate\" IS NOT NULL");
             e.HasOne(t => t.User)
              .WithMany()
              .HasForeignKey(t => t.OwnerUserId)
@@ -1512,6 +1542,166 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(t => t.DistrictId)
              .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<TripEnquiry>(e =>
+        {
+            const string open = "\"Status\" IN " + TripEnquiryStatuses.OpenSqlList;
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.Property(x => x.Kind).HasMaxLength(8).IsRequired();
+            e.Property(x => x.ListingName).HasMaxLength(120).IsRequired();
+            e.Property(x => x.DaysJson).HasColumnType("jsonb");
+            e.Property(x => x.CheckIn).HasColumnType("date");
+            e.Property(x => x.CheckOut).HasColumnType("date");
+            e.Property(x => x.ContextJson).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
+            e.Property(x => x.Status).HasMaxLength(24).IsRequired();
+            e.Property(x => x.FailReason).HasMaxLength(24);
+            e.Property(x => x.IsUrgent).HasDefaultValue(false);
+            e.Property(x => x.PhoneBookingJson).HasColumnType("jsonb");
+            e.Property(x => x.HostConfirmTokenHash).HasMaxLength(64);
+            e.Property(x => x.HostConfirmLinkCount).HasDefaultValue((short)0);
+            e.Property(x => x.HostConfirmAnswer).HasMaxLength(8);
+            e.Property(x => x.HostConfirmAnsweredVia).HasMaxLength(8);
+            e.Property(x => x.DriverFareEditCount).HasDefaultValue((short)0);
+            e.Property(x => x.AdvanceStatus).HasMaxLength(16).HasDefaultValue(TripAdvanceStatuses.None);
+            e.Property(x => x.HostReminderCount).HasDefaultValue((short)0);
+            e.Property(x => x.DriverNote).HasMaxLength(300);
+            e.Property(x => x.TollExtra).HasDefaultValue(false);
+            e.Property(x => x.PickupTime).HasMaxLength(5);
+            e.Property(x => x.PickupPlace).HasMaxLength(80);
+            e.Property(x => x.CancelReason).HasMaxLength(300);
+
+            e.HasOne<Trip>()
+             .WithMany()
+             .HasForeignKey(x => x.TripId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<User>()
+             .WithMany()
+             .HasForeignKey(x => x.TravellerUserId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<User>()
+             .WithMany()
+             .HasForeignKey(x => x.OwnerUserId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<Conversation>()
+             .WithMany()
+             .HasForeignKey(x => x.ConversationId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
+
+            // One open row per (trip, kind, listing, night): stays carry Day, taxi rows do not.
+            e.HasIndex(x => new { x.TripId, x.Kind, x.ListingId, x.Day }, "ix_tripenquiries_open_unique")
+             .IsUnique()
+             .HasFilter(open + " AND \"Day\" IS NOT NULL");
+            e.HasIndex(x => new { x.TripId, x.Kind, x.ListingId }, "ix_tripenquiries_open_taxi_unique")
+             .IsUnique()
+             .HasFilter(open + " AND \"Day\" IS NULL");
+            e.HasIndex(x => x.HostConfirmTokenHash, "ix_tripenquiries_host_token")
+             .IsUnique()
+             .HasFilter("\"HostConfirmTokenHash\" IS NOT NULL");
+            e.HasIndex(x => new { x.OwnerUserId, x.Status, x.CreatedAt }, "ix_tripenquiries_owner_status")
+             .IsDescending(false, false, true);
+            e.HasIndex(x => new { x.TravellerUserId, x.CreatedAt }, "ix_tripenquiries_traveller")
+             .IsDescending(false, true);
+            e.HasIndex(x => x.TripId, "ix_tripenquiries_trip");
+            e.HasIndex(x => x.ExpiresAt, "ix_tripenquiries_expires").HasFilter(open);
+            e.HasIndex(x => x.HoldUntil, "ix_tripenquiries_hold")
+             .HasFilter("\"AdvanceStatus\" IN ('Pending','ProofSent')");
+            e.HasIndex(x => x.ProofSentAt, "ix_tripenquiries_proof")
+             .HasFilter("\"AdvanceStatus\" = 'ProofSent'");
+            e.HasIndex(x => x.ConversationId, "ix_tripenquiries_conversation")
+             .HasFilter("\"ConversationId\" IS NOT NULL");
+            e.HasIndex(x => new { x.TravellerUserId, x.Kind, x.ListingId }, "ix_tripenquiries_traveller_listing")
+             .HasFilter(open);
+            e.HasIndex(x => new { x.TravellerUserId, x.HostConfirmAnswer, x.HostConfirmAnsweredAt }, "ix_tripenquiries_notme");
+            e.HasIndex(x => x.UpdatedAt, "ix_tripenquiries_orphan").HasFilter("\"TripId\" IS NULL");
+
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_tripenquiries_kind", "\"Kind\" IN ('Stay','Taxi')");
+                t.HasCheckConstraint("ck_tripenquiries_status", "\"Status\" IN " + TripEnquiryStatuses.AllSqlList);
+                t.HasCheckConstraint("ck_tripenquiries_advance_status",
+                    "\"AdvanceStatus\" IN ('None','Pending','ProofSent','Received','HoldExpired')");
+                t.HasCheckConstraint("ck_tripenquiries_amounts",
+                    "(\"AgreedTotal\" IS NULL OR \"AgreedTotal\" >= 0) AND (\"AdvanceAmount\" IS NULL OR \"AdvanceAmount\" >= 0)"
+                    + " AND (\"DriverFare\" IS NULL OR \"DriverFare\" >= 0) AND (\"AgreedFare\" IS NULL OR \"AgreedFare\" >= 0)"
+                    + " AND (\"ListedRateSnapshot\" IS NULL OR \"ListedRateSnapshot\" >= 0)");
+            });
+        });
+
+        modelBuilder.Entity<TripOffer>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.Kind).HasMaxLength(16).IsRequired();
+            e.Property(x => x.CheckIn).HasColumnType("date");
+            e.Property(x => x.CheckOut).HasColumnType("date");
+            e.Property(x => x.LinesJson).HasColumnType("jsonb").IsRequired();
+            e.Property(x => x.Inclusions).HasMaxLength(200);
+            e.Property(x => x.NeedsEchoedJson).HasColumnType("jsonb");
+            e.Property(x => x.BalanceNote).HasMaxLength(120);
+            e.Property(x => x.CancellationText).HasMaxLength(300);
+            e.Property(x => x.Note).HasMaxLength(300);
+            e.Property(x => x.Status).HasMaxLength(16).IsRequired();
+            e.Property(x => x.Adults);
+            e.Property(x => x.Kids);
+
+            e.HasOne(x => x.Enquiry)
+             .WithMany()
+             .HasForeignKey(x => x.TripEnquiryId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasIndex(x => new { x.TripEnquiryId, x.CreatedAt }, "ix_tripoffers_enquiry")
+             .IsDescending(false, true);
+            e.HasIndex(x => x.ValidUntil, "ix_tripoffers_valid").HasFilter("\"Status\" = 'Pending'");
+        });
+
+        // Configured after both entities exist: an enquiry points at its accepted offer.
+        modelBuilder.Entity<TripEnquiry>()
+            .HasOne<TripOffer>()
+            .WithMany()
+            .HasForeignKey(x => x.AcceptedOfferId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<TripPushLog>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(x => x.SentAt).HasDefaultValueSql("now()");
+            e.Property(x => x.DedupeKey).HasMaxLength(80).IsRequired();
+            e.Property(x => x.Kind).HasMaxLength(40).IsRequired();
+            e.HasIndex(x => x.DedupeKey, "ix_trippushlogs_key").IsUnique();
+            e.HasIndex(x => x.SentAt, "ix_trippushlogs_sent");
+            e.HasOne<Trip>()
+             .WithMany()
+             .HasForeignKey(x => x.TripId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TripProblemLog>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.Kind).HasMaxLength(24).IsRequired();
+            e.Property(x => x.Note).HasMaxLength(300);
+            e.HasIndex(x => x.TripId, "ix_tripproblemlogs_trip");
+            e.HasOne<Trip>()
+             .WithMany()
+             .HasForeignKey(x => x.TripId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<BannerDismissal>(e =>
@@ -1576,6 +1766,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(r => r.StayRegistrationNumber).HasMaxLength(StayRegistrationRules.RegistrationMax);
             e.Property(r => r.StayGstin).HasMaxLength(StayRegistrationRules.GstinLength);
         });
+
+        TaxiWaysModel.Configure(modelBuilder);
 
     }
 

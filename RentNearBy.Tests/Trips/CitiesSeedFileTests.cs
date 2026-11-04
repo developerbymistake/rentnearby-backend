@@ -21,7 +21,7 @@ public class CitiesSeedFileTests
     {
         var names = Names();
 
-        Assert.Equal(182_730, names.Count);
+        Assert.Equal(182_731, names.Count);
         Assert.DoesNotContain(names, HasHan);
     }
 }
