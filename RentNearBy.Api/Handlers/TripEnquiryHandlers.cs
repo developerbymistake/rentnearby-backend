@@ -1342,8 +1342,8 @@ public static class TripEnquiryHandlers
 
         var isTaxi = request.Kind == TripEnquiryKinds.Taxi;
         var day = request.Day;
-        if (isTaxi ? day > trip.DayCount : day > trip.DayCount - 1)
-            return BadRequestResponse(isTaxi ? $"This trip has no day {day}" : "This day has no night to book");
+        if (day > trip.DayCount)
+            return BadRequestResponse($"This trip has no day {day}");
         var date = TripExecutionRules.NightDate(start, day);
         if (date < TripExecutionRules.TodayIst(DateTime.UtcNow))
             return ErrorResponse(422, "This day has already passed.", TripEnquiryErrorTypes.DayInPast);
@@ -1602,20 +1602,18 @@ public static class TripEnquiryHandlers
     {
         if (trip.StartDate is not { } start)
             return ErrorResponse(422, "Add your trip dates first.", TripEnquiryErrorTypes.TripDatesRequired);
-        if (trip.DayCount <= 1) return BadRequestResponse("This trip has no night to book");
-        if (day < 1 || day > trip.DayCount - 1) return BadRequestResponse("This day has no night to book");
+        if (day < 1 || day > trip.DayCount) return BadRequestResponse("This day has no night to book");
         if (TripExecutionRules.NightDate(start, day) < TripExecutionRules.TodayIst(now))
             return ErrorResponse(422, "This day has already passed.", TripEnquiryErrorTypes.DayInPast);
         return null;
     }
 
-    // All nights = from this night to the last day of the trip.
+    // Every day of the trip has a night. All nights = from this night through the last day's night (check-out the morning after the last day).
     private static (DateOnly CheckIn, DateOnly CheckOut) Nights(Trip trip, int day, bool allNights)
     {
         var checkIn = TripExecutionRules.NightDate(trip.StartDate!.Value, day);
         var lastDay = trip.StartDate!.Value.AddDays(Math.Max(0, trip.DayCount - 1));
-        var checkOut = allNights ? lastDay : checkIn.AddDays(1);
-        if (checkOut <= checkIn) checkOut = checkIn.AddDays(1);
+        var checkOut = allNights ? lastDay.AddDays(1) : checkIn.AddDays(1);
         return (checkIn, checkOut);
     }
 
