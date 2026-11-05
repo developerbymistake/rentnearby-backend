@@ -306,7 +306,7 @@ app.MapGet("/delete-account", () => Results.Content("""
 <div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> to submit your request</span></div>
 </div>
 <div class="warn">
-<strong>Please note:</strong> This action cannot be undone. When you delete your account, we take reasonable steps to delete or anonymise your personal information. Some information may be kept where required by law or for legitimate purposes such as preventing fraud, resolving disputes and keeping records. Messages, enquiries and reports shared with other users may remain available to them.
+<strong>Please note:</strong> Account deletion may not be reversible. We process deletion requests in line with our Privacy Policy and applicable law. We may delete, anonymise or retain certain information, for example where required by law or to prevent fraud, resolve disputes and keep records. Messages, enquiries and reports shared with other users may remain available to them.
 </div>
 <div class="warn">
 <strong>Subscriptions:</strong> Subscriptions are managed in Google Play (Play Store &gt; Payments and subscriptions &gt; Subscriptions). Deleting your account does not entitle you to a refund of any payment already made.
