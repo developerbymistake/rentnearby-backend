@@ -219,10 +219,18 @@ public class TripLegRulesTests
     }
 
     [Fact]
-    public void HomeLegIndex_unknown_city_and_no_coordinates_is_null()
+    public void HomeLegIndex_no_city_and_no_coordinates_is_null()
+        => Assert.Null(TripLegRules.HomeLegIndex(StayRow(1, 1, city: null), TwoCity()));
+
+    [Fact]
+    public void HomeLegIndex_named_city_that_is_no_leg_is_removed_never_the_nearest()
     {
-        Assert.Null(TripLegRules.HomeLegIndex(StayRow(1, 1, city: null), TwoCity()));
-        Assert.Null(TripLegRules.HomeLegIndex(StayRow(1, 1, "Delhi"), TwoCity()));
+        var row = StayRow(1, 1, "Rishikesh");
+        Assert.Equal(TripLegRules.RemovedCityLeg, TripLegRules.HomeLegIndex(row, TwoCity()));
+
+        row.ListingLatitude = HaridwarLat;
+        row.ListingLongitude = HaridwarLon;
+        Assert.Equal(TripLegRules.RemovedCityLeg, TripLegRules.HomeLegIndex(row, TwoCity()));
     }
 
     // ---- wrong city
@@ -281,8 +289,22 @@ public class TripLegRulesTests
         => Assert.Equal(TripWrongCity.None, TripLegRules.WrongCity(StayRow(3, 3), TwoCity(), null));
 
     [Fact]
-    public void Unknown_home_is_never_wrong()
-        => Assert.Equal(TripWrongCity.None, TripLegRules.WrongCity(StayRow(3, 3, "Delhi"), TwoCity(), Start));
+    public void Unknown_home_without_city_or_coordinates_is_never_wrong()
+        => Assert.Equal(TripWrongCity.None, TripLegRules.WrongCity(StayRow(3, 3, city: null), TwoCity(), Start));
+
+    [Fact]
+    public void Removed_city_row_is_wrong_on_every_night_inside_the_trip()
+    {
+        var row = StayRow(1, 2, "Rishikesh");
+        row.ListingLatitude = HaridwarLat;
+        row.ListingLongitude = HaridwarLon;
+        var w = TripLegRules.WrongCity(row, TwoCity(), Start);
+        Assert.True(w.Any);
+        Assert.Equal(2, w.Wrong);
+        Assert.Equal(2, w.Total);
+        Assert.Equal(1, w.FirstWrongDay);
+        Assert.Equal("Haridwar", w.DayCity);
+    }
 
     [Fact]
     public void Nights_outside_the_trip_are_not_counted_as_wrong()

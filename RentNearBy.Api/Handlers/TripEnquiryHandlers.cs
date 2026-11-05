@@ -397,7 +397,12 @@ public static class TripEnquiryHandlers
                     skipped.Add(Skip(listingId, TripSkipReasons.AlreadyBooked));
                     continue;
                 }
-                if (CheckDaysInOneLeg(trip, plan, merged) is { } mergeLegError) return mergeLegError;
+                // The driver's open lead is for another city: only this driver is skipped, the rest still get their leads.
+                if (CheckDaysInOneLeg(trip, plan, merged) != null)
+                {
+                    skipped.Add(Skip(listingId, TripEnquiryErrorTypes.DaysAcrossCities));
+                    continue;
+                }
                 var (mergedIn, mergedOut) = TaxiSpan(trip, merged);
                 if (mine.Any(x => x.Id != same.Id && Overlaps(x, mergedIn, mergedOut)))
                 {
@@ -630,8 +635,15 @@ public static class TripEnquiryHandlers
         var newDays = requested.Where(d => !keptPast.Contains(d)).ToList();
         if (newDays.Count == 0) return BadRequestResponse("Pick at least one day from today on");
         if (CheckTaxiDays(trip, newDays, now) is { } dayError) return dayError;
-        var days = keptPast.Concat(newDays).Distinct().OrderBy(d => d).ToList();
         var plan = ReadPlan(trip);
+        if (CheckDaysInOneLeg(trip, plan, newDays) is { } newLegError) return newLegError;
+        // One open local row per driver and trip (ix_tripenquiries_open_taxi_unique): a row of another city is never overwritten.
+        if (existing != null && OtherLegDay(trip, plan, existing, tripStart, newDays) is { } otherDay)
+            return ErrorResponse(409,
+                $"This driver is already on your trip in {plan.LegOf(otherDay)?.CityName ?? trip.CityName}. Cancel that first.",
+                TripLegRules.DriverInOtherCity,
+                new TripNightConflictDto { EnquiryId = existing.Id, ListingName = existing.ListingName });
+        var days = keptPast.Concat(newDays).Distinct().OrderBy(d => d).ToList();
         if (CheckDaysInOneLeg(trip, plan, days) is { } legError) return legError;
         var (checkIn, checkOut) = TaxiSpan(trip, days);
 
@@ -1194,10 +1206,18 @@ public static class TripEnquiryHandlers
         var current = Math.Max(1, currentOut.DayNumber - checkIn.DayNumber);
         var plan = ReadPlan(trip);
         var day = checkIn.DayNumber - start.DayNumber + 1;
-        // A new length ends at the leg's end; an edit that keeps the length keeps the row's nights.
-        var checkOut = request.Nights == null && !request.AllNights
-            ? checkIn.AddDays(Math.Clamp(current, 1, left))
-            : Nights(trip, plan, day, request.AllNights, request.Nights).CheckOut;
+        // The stored length is kept unless the request changes it: a shorter one is taken as sent, a longer one ends at the
+        // leg's end, and neither cut ever goes below the stored nights by itself.
+        var keepOut = checkIn.AddDays(Math.Clamp(current, 1, left));
+        var asked = request.Nights ?? (request.AllNights ? (int?)null : current);
+        DateOnly checkOut;
+        if (asked == current) checkOut = keepOut;
+        else if (asked is { } fewer && fewer < current) checkOut = checkIn.AddDays(Math.Clamp(fewer, 1, left));
+        else
+        {
+            var legOut = Nights(trip, plan, day, request.AllNights, request.Nights).CheckOut;
+            checkOut = legOut > keepOut ? legOut : keepOut;
+        }
         if (checkOut != currentOut && CheckNoStayNights(plan, start, day, checkIn, checkOut) is { } roadError) return roadError;
 
         var now = DateTime.UtcNow;
@@ -1278,7 +1298,8 @@ public static class TripEnquiryHandlers
         if (TripEnquiryAuth.RequireTraveller(e, callerId) is { } denied) return denied;
 
         var now = DateTime.UtcNow;
-        if (e!.Status == TripEnquiryStatuses.Closed && e.FailReason == TripCloseReasons.Withdrawn)
+        // Already closed (withdrawn, expired, declined, cancelled): nothing left to withdraw, answered as done with the row.
+        if (TripEnquiryStatuses.IsTerminal(e!.Status))
             return OkResponse(await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, callerId, now));
         if (!TripEnquiryStatuses.IsWithdrawable(e.Status))
             return Closed("This enquiry can no longer be withdrawn.");
@@ -1365,7 +1386,8 @@ public static class TripEnquiryHandlers
 
         var now = DateTime.UtcNow;
         var cancelledStatus = byOwner ? TripEnquiryStatuses.CancelledByOwner : TripEnquiryStatuses.CancelledByTraveller;
-        if (e!.Status == cancelledStatus)
+        // Already closed by either side or by a timer: nothing left to cancel, answered as done with the row.
+        if (TripEnquiryStatuses.IsTerminal(e!.Status))
             return OkResponse(await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, callerId, now));
         if (!TripEnquiryStatuses.IsBooked(e.Status))
             return Closed("Only a confirmed booking can be cancelled.");
@@ -1861,7 +1883,9 @@ public static class TripEnquiryHandlers
         if (date < TripExecutionRules.TodayIst(DateTime.UtcNow))
             return ErrorResponse(422, "This day has already passed.", TripEnquiryErrorTypes.DayInPast);
 
-        var planDay = ReadPlan(trip).Days?.FirstOrDefault(d => d.Day == day);
+        var plan = ReadPlan(trip);
+        var dayLeg = plan.LegIndexOf(day);
+        var planDay = plan.Days?.FirstOrDefault(d => d.Day == day);
         var shortlist = (isTaxi
                 ? planDay?.TaxiShortlist?.Select(x => x.TaxiId)
                 : planDay?.StayShortlist?.Select(x => x.StayId))
@@ -1884,7 +1908,10 @@ public static class TripEnquiryHandlers
                 {
                     var days = latest == null
                         ? new List<int> { day }
-                        : CurrentTaxiDays(latest, trip.StartDate!.Value).Where(d => TripExecutionRules.NightDate(trip.StartDate!.Value, d) >= todayIst).ToList();
+                        : CurrentTaxiDays(latest, trip.StartDate!.Value)
+                            .Where(d => d >= 1 && d <= trip.DayCount && plan.LegIndexOf(d) == dayLeg
+                                && TripExecutionRules.NightDate(trip.StartDate!.Value, d) >= todayIst)
+                            .ToList();
                     askDays.Add(string.Join(",", days.Count == 0 ? new List<int> { day } : days));
                 }
             }
@@ -2345,6 +2372,16 @@ public static class TripEnquiryHandlers
         return TripLegRules.DaysInOneLeg(plan, inTrip)
             ? null
             : BadRequestResponse("Pick days in one city", TripEnquiryErrorTypes.DaysAcrossCities);
+    }
+
+    // The first in-trip day of the row that is in another leg than the new days, if any.
+    private static int? OtherLegDay(Trip trip, TripPlan plan, TripEnquiry row, DateOnly start, IReadOnlyList<int> newDays)
+    {
+        if (newDays.Count == 0) return null;
+        var leg = plan.LegIndexOf(newDays[0]);
+        foreach (var d in CurrentTaxiDays(row, start))
+            if (d >= 1 && d <= trip.DayCount && plan.LegIndexOf(d) != leg) return d;
+        return null;
     }
 
     // Same stay only inside one leg: an Asked row takes new nights only when the joined nights stay in one city.
