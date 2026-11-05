@@ -163,6 +163,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.SetNull);
 
             e.HasIndex(r => new { r.UserId, r.RequestedAt });
+            e.HasIndex(r => new { r.Status, r.RequestedAt, r.Id }).IsDescending(false, true, true);
             e.HasIndex(r => new { r.Status, r.RequestedAt });
             e.HasIndex(r => r.UserId, "ix_rolechangerequests_user_pending")
              .IsUnique()
@@ -217,9 +218,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // index seek instead of a per-row lower() scan.
             e.Property<string>("NameLower")
              .HasComputedColumnSql("lower(\"Name\")", stored: true);
-            e.HasIndex("DistrictId", "NameLower")
+            // Seed rows are identified by CityKey, so same-name villages of one district are all kept;
+            // name uniqueness only guards rows created at runtime (CityKey null).
+            e.HasIndex(new[] { "DistrictId", "NameLower" }, "ix_cities_district_namelower_unique")
              .IsUnique()
-             .HasDatabaseName("ix_cities_district_namelower_unique");
+             .HasFilter("\"CityKey\" IS NULL");
+            e.HasIndex(new[] { "DistrictId", "NameLower" }, "ix_cities_district_namelower");
             e.Property(c => c.CityKey);
             e.HasIndex(c => c.CityKey)
              .IsUnique()
@@ -299,6 +303,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(r => new { r.ListingId, r.ListingType, r.Status });
             // Used by the admin tab filter (?status=Pending|Reviewed|All)
             e.HasIndex(r => r.Status);
+            e.HasIndex(r => new { r.Status, r.CreatedAt, r.Id }).IsDescending(false, true, true);
 
             // Stops the same user filing >1 simultaneous Pending report on the same listing.
             // Partial unique index — race-safe under concurrent submits, unlike an app-level
@@ -325,8 +330,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(c => c.UnreadCountForOwner).HasDefaultValue(0);
 
             // Powers the Chats-list query for both sides of a conversation.
-            e.HasIndex(c => new { c.RenterId, c.LastMessageAt });
-            e.HasIndex(c => new { c.OwnerId, c.LastMessageAt });
+            e.HasIndex(c => new { c.RenterId, c.LastMessageAt, c.Id }).IsDescending(false, true, true);
+            e.HasIndex(c => new { c.OwnerId, c.LastMessageAt, c.Id }).IsDescending(false, true, true);
 
             // Race-safe under concurrent create attempts (double-tap, retry-on-timeout) —
             // the find-or-create check in CreateConversation is check-then-act at the app
@@ -429,6 +434,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // same listing can no longer both silently win.
             e.Property<uint>("xmin").IsRowVersion();
             e.Property(l => l.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(l => l.PublishedAt).HasDefaultValueSql("now()");
             e.Property(l => l.UpdatedAt).HasDefaultValueSql("now()");
             e.Property(l => l.PauseReason).HasMaxLength(16);
             e.Property(l => l.PriorityRank).HasDefaultValue((short)0);
@@ -495,24 +501,26 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Composite: city-based active listings newest first (replaces district composite)
             e.HasIndex(l => new { l.CityId, l.IsActive, l.CreatedAt });
             // Composite: Home "Rooms for you" — district + active, paid rank first, then newest.
-            e.HasIndex(l => new { l.DistrictId, l.IsActive, l.PriorityRank, l.CreatedAt })
+            e.HasIndex(l => new { l.DistrictId, l.IsActive, l.PriorityRank, l.PublishedAt })
              .IsDescending(false, false, true, true)
              .HasDatabaseName("ix_roomlistings_district_active_recent");
             // Partial: Rooms browse (GET /home/rooms/browse) keyset pagination. Filtered like
             // ix_roomlistings_recent_active so only live rows are indexed. Each BrowseCursor phase is one
-            // (DistrictId[, CityId], PriorityRank = r) range scan in CreatedAt DESC order;
-            // (DistrictId, PriorityRank DESC, PriceMonthly) serves the price sorts.
-            e.HasIndex(l => new { l.DistrictId, l.PriorityRank, l.CreatedAt })
-             .IsDescending(false, true, true)
-             .HasDatabaseName("ix_roomlistings_browse_district_created")
+            // (DistrictId[, CityId], PriorityRank = r) range scan in (PublishedAt, Id) DESC order.
+            e.HasIndex(l => new { l.DistrictId, l.PriorityRank, l.PublishedAt, l.Id })
+             .IsDescending(false, true, true, true)
+             .HasDatabaseName("ix_roomlistings_browse_district_published")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(l => new { l.DistrictId, l.CityId, l.PriorityRank, l.CreatedAt })
-             .IsDescending(false, false, true, true)
-             .HasDatabaseName("ix_roomlistings_browse_district_city_created")
+            e.HasIndex(l => new { l.DistrictId, l.CityId, l.PriorityRank, l.PublishedAt, l.Id })
+             .IsDescending(false, false, true, true, true)
+             .HasDatabaseName("ix_roomlistings_browse_district_city_published")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(l => new { l.DistrictId, l.PriorityRank, l.PriceMonthly })
-             .IsDescending(false, true, false)
+            // Price keyset: rank is an equality per phase, so (PriceMonthly, Id) is walked forward or backward.
+            e.HasIndex(l => new { l.DistrictId, l.PriorityRank, l.PriceMonthly, l.Id })
              .HasDatabaseName("ix_roomlistings_browse_district_price")
+             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(l => new { l.DistrictId, l.CityId, l.PriorityRank, l.PriceMonthly, l.Id })
+             .HasDatabaseName("ix_roomlistings_browse_district_city_price")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
             // Composite: search with room type filter
             e.HasIndex(l => new { l.IsActive, l.RoomTypeId });
@@ -523,11 +531,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasDatabaseName("ix_roomlistings_digest_pending")
              .HasFilter("\"DigestNotifiedAt\" IS NULL");
             // Partial: global "recently added" feed (Home) — no district filter at all, so
-            // ordering by CreatedAt must be covered directly rather than via a district/city
+            // ordering by PublishedAt must be covered directly rather than via a district/city
             // composite. Filtered the same way as the digest-pending index above, just on
             // IsActive/IsDeleted instead, to keep it small as inactive/deleted rows accumulate.
-            e.HasIndex(l => new { l.PriorityRank, l.CreatedAt })
-             .IsDescending(true, true)
+            e.HasIndex(l => new { l.PriorityRank, l.PublishedAt, l.Id })
+             .IsDescending(true, true, true)
              .HasDatabaseName("ix_roomlistings_recent_active")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
             // Partial: ListingExpirySweepService's daily WHERE IsActive AND ValidUntil IS NOT NULL
@@ -964,6 +972,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
             e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(p => p.PublishedAt).HasDefaultValueSql("now()");
             e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
             e.Property(p => p.PauseReason).HasMaxLength(16);
             e.Property(p => p.PriorityRank).HasDefaultValue((short)0);
@@ -1019,22 +1028,25 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(p => new { p.CityId, p.IsActive });
             e.HasIndex(p => new { p.CityId, p.IsActive, p.CreatedAt });
             // Composite: Home "Plots for you" — same shape as ix_roomlistings_district_active_recent.
-            e.HasIndex(p => new { p.DistrictId, p.IsActive, p.PriorityRank, p.CreatedAt })
+            e.HasIndex(p => new { p.DistrictId, p.IsActive, p.PriorityRank, p.PublishedAt })
              .IsDescending(false, false, true, true)
              .HasDatabaseName("ix_plotlistings_district_active_recent");
             // Partial: Plots browse (GET /home/plots/browse) — same shape as the roomlistings_browse
             // indexes above, with area (AreaSqft) in place of price.
-            e.HasIndex(p => new { p.DistrictId, p.PriorityRank, p.CreatedAt })
-             .IsDescending(false, true, true)
-             .HasDatabaseName("ix_plotlistings_browse_district_created")
+            e.HasIndex(p => new { p.DistrictId, p.PriorityRank, p.PublishedAt, p.Id })
+             .IsDescending(false, true, true, true)
+             .HasDatabaseName("ix_plotlistings_browse_district_published")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(p => new { p.DistrictId, p.CityId, p.PriorityRank, p.CreatedAt })
-             .IsDescending(false, false, true, true)
-             .HasDatabaseName("ix_plotlistings_browse_district_city_created")
+            e.HasIndex(p => new { p.DistrictId, p.CityId, p.PriorityRank, p.PublishedAt, p.Id })
+             .IsDescending(false, false, true, true, true)
+             .HasDatabaseName("ix_plotlistings_browse_district_city_published")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(p => new { p.DistrictId, p.PriorityRank, p.AreaSqft })
-             .IsDescending(false, true, false)
+            // Area keyset: rank is an equality per phase, so (AreaSqft, Id) is walked forward or backward.
+            e.HasIndex(p => new { p.DistrictId, p.PriorityRank, p.AreaSqft, p.Id })
              .HasDatabaseName("ix_plotlistings_browse_district_area")
+             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
+            e.HasIndex(p => new { p.DistrictId, p.CityId, p.PriorityRank, p.AreaSqft, p.Id })
+             .HasDatabaseName("ix_plotlistings_browse_district_city_area")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
             // Composite: admin count queries — COUNT(UserId = x AND !IsDeleted)
             e.HasIndex(p => new { p.UserId, p.IsDeleted });
@@ -1045,11 +1057,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasDatabaseName("ix_plotlistings_digest_pending")
              .HasFilter("\"DigestNotifiedAt\" IS NULL");
             // Partial: global "recently added" feed (Home) — no district filter at all, so
-            // ordering by CreatedAt must be covered directly rather than via a district/city
+            // ordering by PublishedAt must be covered directly rather than via a district/city
             // composite. Filtered the same way as the digest-pending index above, just on
             // IsActive/IsDeleted instead, to keep it small as inactive/deleted rows accumulate.
-            e.HasIndex(p => new { p.PriorityRank, p.CreatedAt })
-             .IsDescending(true, true)
+            e.HasIndex(p => new { p.PriorityRank, p.PublishedAt, p.Id })
+             .IsDescending(true, true, true)
              .HasDatabaseName("ix_plotlistings_recent_active")
              .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
             // Partial: ListingExpirySweepService's daily WHERE IsActive AND ValidUntil IS NOT NULL
@@ -1623,6 +1635,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasFilter(open);
             e.HasIndex(x => new { x.TravellerUserId, x.HostConfirmAnswer, x.HostConfirmAnsweredAt }, "ix_tripenquiries_notme");
             e.HasIndex(x => x.UpdatedAt, "ix_tripenquiries_orphan").HasFilter("\"TripId\" IS NULL");
+            // Timer predicates (TripTimerService passes 2, 3, 8, 9), each matched exactly by a partial index.
+            e.HasIndex(x => x.CheckIn, "ix_tripenquiries_urgent")
+             .HasFilter("NOT \"IsUrgent\" AND \"CheckIn\" IS NOT NULL AND " + open);
+            e.HasIndex(x => x.CheckIn, "ix_tripenquiries_checkin_unconfirmed")
+             .HasFilter("\"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered')");
+            e.HasIndex(x => x.CreatedAt, "ix_tripenquiries_asked")
+             .HasFilter("\"Status\" = 'Asked'");
+            e.HasIndex(x => x.HostConfirmTokenIssuedAt, "ix_tripenquiries_hostnc")
+             .HasFilter("\"Status\" = 'ConfirmedByTraveller' AND \"HostConfirmAnsweredAt\" IS NULL");
 
             e.ToTable(t =>
             {
@@ -1734,8 +1755,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .IsRequired(false)
              .OnDelete(DeleteBehavior.Cascade);
 
-            e.HasIndex(n => new { n.TargetUserId, n.CreatedAt });
+            e.HasIndex(n => new { n.TargetUserId, n.CreatedAt, n.Id }).IsDescending(false, true, true);
+            // Retention purge (NotificationRetentionService) walks the oldest rows.
+            e.HasIndex(n => n.CreatedAt, "ix_notificationevents_created");
         });
+
+        // Read watermark: "mark all read" moves it; unread counts only rows after it (NotificationInbox).
+        modelBuilder.Entity<User>().Property<DateTime?>(NotificationInbox.ReadUpToProperty);
 
         modelBuilder.Entity<NotificationRead>(e =>
         {

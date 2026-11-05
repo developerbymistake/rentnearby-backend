@@ -5,6 +5,7 @@ namespace RentNearBy.Core.Interfaces;
 public interface IConversationRepository : IRepository<Conversation>
 {
     Task<IReadOnlyList<Conversation>> GetForUserPagedAsync(Guid userId, int offset, int limit);
+    Task<IReadOnlyList<Conversation>> GetForUserAfterCursorAsync(Guid userId, DateTime? afterAt, Guid? afterId, int limit);
     Task<Conversation?> FindExistingAsync(Guid renterId, Guid ownerId, string listingType, Guid listingId);
 
     // Blocking is between two people, not scoped to one listing — this finds every

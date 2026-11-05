@@ -78,7 +78,9 @@ public class PlayEntitlementApplier(
         var existingCharge = orderId == null ? null : await db.PlanPurchases.FirstOrDefaultAsync(p => p.PlayOrderId == orderId);
 
         PlayGrantCommand Command(int paidInr, PlanPurchase? purchase, DateTime? trialEndsAt, int carryFallback = 0) => new(
-            userId, feature, target.Plan.Id, DaysOf(target, isTrialOffer && trialEndsAt != null), paidInr, endsAt, sub.Id, autoRenew,
+            userId, feature, target.Plan.Id,
+            isTrialOffer && trialEndsAt != null ? DaysOf(target, true) : PeriodDaysOf(target, snapshot.StartTime, endsAt),
+            paidInr, endsAt, sub.Id, autoRenew,
             snapshot.State, trialEndsAt, scheduledPlanId, purchase, target.Plan.Name, CarryOverDaysFallback: carryFallback);
 
         // R-RENEW / R-UPDATE / R-GRACE / R-CANCELED: this token already owns the Active row.
@@ -86,7 +88,7 @@ public class PlayEntitlementApplier(
         {
             if (orderId != null && existingCharge == null)
             {
-                var charge = await CreateChargeAsync(sub, item, target, PurchaseIntents.Renew, false, source, null, now);
+                var charge = await CreateChargeAsync(sub, item, target, PurchaseIntents.Renew, false, source, null, now, active.EndsAt);
                 var renewed = await purchases.GrantPlayInTxAsync(Command(charge.PayableInr, charge, null));
                 return Result(PlayApplyKind.Renewed, sub, target, renewed.UserPlan, charge, Persisted(renewed.Notification), needsAck);
             }
@@ -115,7 +117,8 @@ public class PlayEntitlementApplier(
 
             PlanPurchase? switchCharge = null;
             if (orderId != null && existingCharge == null)
-                switchCharge = await CreateChargeAsync(sub, item, target, PurchaseIntents.Switch, isTrialOffer, source, openPurchase, now);
+                switchCharge = await CreateChargeAsync(sub, item, target, PurchaseIntents.Switch, isTrialOffer, source, openPurchase, now,
+                    snapshot.StartTime);
             var switched = await purchases.GrantPlayInTxAsync(Command(switchCharge?.PayableInr ?? 0, switchCharge,
                 switchCharge != null && isTrialOffer ? endsAt : null));
             if (linked && other!.MappingStatus == PlayMappingStatuses.Mapped)
@@ -160,7 +163,8 @@ public class PlayEntitlementApplier(
             var trialCharge = isTrialOffer && kind is PlayApplyKind.Granted or PlayApplyKind.Resubscribed;
             newCharge = await CreateChargeAsync(sub, item, target, intent, trialCharge,
                 kind == PlayApplyKind.Reattached ? PurchaseSources.Restore : source,
-                kind == PlayApplyKind.Recovered ? null : openPurchase, now);
+                kind == PlayApplyKind.Recovered ? null : openPurchase, now,
+                kind == PlayApplyKind.Recovered ? null : snapshot.StartTime);
             grantPurchase = newCharge;
             if (trialCharge) trialEndsAt = endsAt;
         }
@@ -189,7 +193,7 @@ public class PlayEntitlementApplier(
         if (changed)
         {
             if (endsAt != prevEnds || autoRenewStopped) row.ReminderSentAt = null;
-            if (endsAt > prevEnds) row.TotalDays += Math.Max(0, (int)(endsAt - prevEnds).TotalDays);
+            if (endsAt > prevEnds) row.TotalDays += PlanTime.WholeDays(endsAt - prevEnds);
             row.EndsAt = endsAt;
             row.PlanId = target.Plan.Id;
             row.PlayAutoRenewEnabled = autoRenew;
@@ -221,12 +225,13 @@ public class PlayEntitlementApplier(
     // Charge row of the entitled item's order (D-17). The first one reuses the user's open Play order of the same
     // plan+cycle; an open order of another plan/cycle is closed. R-PRICE for PayableInr.
     private async Task<PlanPurchase> CreateChargeAsync(PlaySubscription sub, PlaySubscriptionLineItem item, PlayResolvedTarget target,
-        string intent, bool isTrial, string source, PlanPurchase? openPurchase, DateTime now)
+        string intent, bool isTrial, string source, PlanPurchase? openPurchase, DateTime now, DateTime? periodStart)
     {
         var userId = target.UserId;
         var cycle = target.Price.CycleMonths;
         var list = target.Price.PriceInr;
         var payable = isTrial ? 0 : PayableOf(item, list);
+        var chargedPaise = isTrial ? null : Money.InrPaiseOf(item.RecurringPriceMicros, item.RecurringPriceCurrency);
 
         // Renewal and recovery charges are Google-initiated: they never adopt a user's open order.
         var firstCharge = intent != PurchaseIntents.Renew;
@@ -274,12 +279,13 @@ public class PlayEntitlementApplier(
         charge.PlanId = target.Plan.Id;
         charge.PlanNameSnapshot = target.Plan.Name;
         charge.CycleMonths = cycle;
-        charge.GrantedDays = DaysOf(target, isTrial);
+        charge.GrantedDays = isTrial || item.ExpiryTime == null ? DaysOf(target, isTrial) : PeriodDaysOf(target, periodStart, item.ExpiryTime.Value);
         charge.Intent = intent;
         charge.ListPriceInr = list;
         charge.DiscountInr = isTrial ? list : 0;
         charge.CreditInr = 0;
         charge.PayableInr = payable;
+        charge.CapturedAmountPaise = chargedPaise;
         charge.PaidAt ??= now;
         charge.PlaySubscriptionId = sub.Id;
         charge.PlayOrderId = item.LatestOrderId;
@@ -323,14 +329,18 @@ public class PlayEntitlementApplier(
                 .SetProperty(p => p.Status, PurchaseStatuses.Expired)
                 .SetProperty(p => p.FailureReason, "Replaced by a purchase"));
 
-    // R-PRICE: what Google charges when it is INR, else the admin mirror.
+    // R-PRICE: what Google charges when it is INR, else the admin mirror. Exact paise go to CapturedAmountPaise.
     internal static int PayableOf(PlaySubscriptionLineItem item, int mirror)
         => item.RecurringPriceCurrency == "INR" && item.RecurringPriceMicros is > 0
-            ? (int)Math.Round(item.RecurringPriceMicros.Value / 1_000_000m, MidpointRounding.AwayFromZero)
+            ? Money.RupeesFromMicros(item.RecurringPriceMicros.Value)
             : mirror;
 
     internal static int DaysOf(PlayResolvedTarget target, bool trial)
         => trial ? Math.Max(1, target.Plan.TrialDays) : PlanCycles.DaysOf(target.Price.CycleMonths);
+
+    // A paid Play period is a calendar period (31 Jan + P1M ends 28 Feb), not 30/90/365 days.
+    internal static int PeriodDaysOf(PlayResolvedTarget target, DateTime? periodStart, DateTime periodEnd)
+        => PlanTime.PlayPeriodDays(periodStart, periodEnd, target.Price.CycleMonths);
 
     // GrantPlayInTxAsync does not write a push row for a switch that keeps the plan (deferred downgrade).
     private NotificationEvent? Persisted(NotificationEvent notification)

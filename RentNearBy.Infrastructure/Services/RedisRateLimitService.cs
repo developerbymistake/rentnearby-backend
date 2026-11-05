@@ -9,16 +9,47 @@ public class RedisRateLimitService : IRateLimitService
     private readonly IConnectionMultiplexer _redis;
     private readonly ILogger<RedisRateLimitService> _logger;
 
-    // Atomically increments the counter. Sets expiry only on first increment so
-    // the window doesn't reset on every call. Returns [count, ttl_seconds].
-    private static readonly string _script = """
-        local current = redis.call('INCR', KEYS[1])
-        if current == 1 then
-            redis.call('EXPIRE', KEYS[1], ARGV[1])
+    // SlidingWindowLog in one atomic script: a sorted set of members scored by time (ms). Returns {allowed, remaining, retryMs}.
+    // ARGV: now ms, window ms, max, permits, token.
+    private static readonly string _acquire = """
+        local key = KEYS[1]
+        local now = tonumber(ARGV[1])
+        local window = tonumber(ARGV[2])
+        local max = tonumber(ARGV[3])
+        local permits = tonumber(ARGV[4])
+        local token = ARGV[5]
+        redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window)
+        local used = redis.call('ZCARD', key)
+        if used + permits <= max then
+            for i = 0, permits - 1 do
+                redis.call('ZADD', key, now, token .. ':' .. i)
+            end
+            redis.call('PEXPIRE', key, window)
+            return {1, max - used - permits, 0}
         end
-        local ttl = redis.call('TTL', KEYS[1])
-        return {current, ttl}
+        local need = used + permits - max
+        local retry = window
+        if need <= used then
+            local row = redis.call('ZRANGE', key, need - 1, need - 1, 'WITHSCORES')
+            retry = tonumber(row[2]) + window - now
+        end
+        if retry < 1 then retry = 1 end
+        local remaining = max - used
+        if remaining < 0 then remaining = 0 end
+        return {0, remaining, retry}
         """;
+
+    // ARGV: token, permits.
+    private static readonly string _release = """
+        local n = 0
+        for i = 0, tonumber(ARGV[2]) - 1 do
+            n = n + redis.call('ZREM', KEYS[1], ARGV[1] .. ':' .. i)
+        end
+        return n
+        """;
+
+    // Sorted-set keys live apart from the old fixed-window string keys, so a leftover counter never hits WRONGTYPE.
+    private static RedisKey KeyOf(string key) => new("sw:" + key);
 
     public RedisRateLimitService(IConnectionMultiplexer redis, ILogger<RedisRateLimitService> logger)
     {
@@ -26,31 +57,53 @@ public class RedisRateLimitService : IRateLimitService
         _logger = logger;
     }
 
-    public async Task<RateLimitResult> CheckAsync(string key, int maxAttempts, TimeSpan window)
+    public async Task<RateLimitResult> CheckAsync(string key, int maxAttempts, TimeSpan window, int permits = 1)
     {
+        permits = Math.Max(1, permits);
+        var token = $"{Guid.NewGuid():N}.{permits}";
         try
         {
             var db = _redis.GetDatabase();
             var result = (RedisResult[]?)await db.ScriptEvaluateAsync(
-                _script,
-                keys: [new RedisKey(key)],
-                values: [(RedisValue)(long)window.TotalSeconds]);
+                _acquire,
+                keys: [KeyOf(key)],
+                values:
+                [
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    (long)window.TotalMilliseconds,
+                    maxAttempts,
+                    permits,
+                    token,
+                ]);
 
             if (result is null) return Allow(maxAttempts);
 
-            var count = (long)result[0];
-            var ttl = (long)result[1];
-            var retryAfter = ttl > 0 ? TimeSpan.FromSeconds(ttl) : window;
-
-            if (count > maxAttempts)
-                return new RateLimitResult(false, 0, retryAfter);
-
-            return new RateLimitResult(true, (int)(maxAttempts - count), null);
+            var allowed = (long)result[0] == 1;
+            var remaining = (int)(long)result[1];
+            var retryMs = (long)result[2];
+            return allowed
+                ? new RateLimitResult(true, remaining, null, token)
+                : new RateLimitResult(false, 0, TimeSpan.FromMilliseconds(retryMs));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Redis unavailable for key '{Key}' — failing open", key);
             return Allow(maxAttempts);
+        }
+    }
+
+    public async Task ReleaseAsync(string key, string token)
+    {
+        var dot = token.LastIndexOf('.');
+        if (dot < 0 || !int.TryParse(token.AsSpan(dot + 1), out var permits) || permits < 1) return;
+        try
+        {
+            await _redis.GetDatabase().ScriptEvaluateAsync(
+                _release, keys: [KeyOf(key)], values: [token, permits]);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Redis unavailable releasing key '{Key}'", key);
         }
     }
 

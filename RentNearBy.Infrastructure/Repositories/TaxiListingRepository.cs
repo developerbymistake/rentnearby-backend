@@ -79,8 +79,17 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
         string? NumberPlate, Guid? CityId, string? CityName, string? DistrictName, int? MinFare, int RouteCount, DateTime CreatedAt,
         short PriorityRank, bool IsFeatured, int? LocalDayRate, int? LocalDayKm, int TripLeadsReceived, int TripLeadsAnsweredInApp);
 
-    public async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
+    // Upper bound of drivers ranked in memory for one trip day (the SQL order already puts fitting drivers first).
+    private const int RankPool = 500;
+
+    public Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
         Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly = false, bool localRateOnly = false)
+        => BrowseLocalPagedAsync(districtId, cityId, category, page, pageSize, cityOnly, localRateOnly, null);
+
+    // need: a trip day's group, km and start point; null or empty keeps the plain order (rank, city, rate).
+    public async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
+        Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly, bool localRateOnly,
+        TaxiLocalNeed? need)
     {
         var query = _dbSet
             .AsNoTracking()
@@ -91,6 +100,9 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             query = query.Where(t => t.CityId == cityId);
         if (localRateOnly)
             query = query.Where(t => t.LocalDayRate != null);
+
+        if (need is { IsEmpty: false })
+            return await BrowseLocalForNeedAsync(query, cityId, page, pageSize, localRateOnly, need);
 
         var ordered = query
             .OrderByDescending(t => t.PriorityRank)
@@ -142,6 +154,86 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             CreatedAt = r.CreatedAt,
         }).ToList();
         return (items, hasMore);
+    }
+
+    private async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalForNeedAsync(
+        IQueryable<TaxiListing> query, Guid? cityId, int page, int pageSize, bool localRateOnly, TaxiLocalNeed need)
+    {
+        var people = need.People;
+        var dayKm = need.DayKm;
+        var ordered = query
+            .OrderByDescending(t => people <= 0 || (t.Seats != null && t.Seats >= people))
+            .ThenByDescending(t => dayKm <= 0 || (t.LocalDayKm != null && t.LocalDayKm >= dayKm))
+            .ThenByDescending(t => t.PriorityRank)
+            .ThenBy(t => cityId != null && t.CityId == cityId ? 0 : 1);
+        var pool = await (localRateOnly ? ordered.ThenBy(t => t.LocalDayRate) : ordered.ThenBy(t => t.MinFare))
+            .ThenBy(t => t.Id)
+            .Take(RankPool)
+            .Select(t => new
+            {
+                Row = new LocalRow(
+                    t.Id,
+                    t.User.Name,
+                    t.VehicleType != null ? t.VehicleType.Name : null,
+                    t.VehicleType != null ? t.VehicleType.Category : null,
+                    t.Seats,
+                    t.NumberPlate,
+                    t.CityId,
+                    t.City != null ? t.City.Name : null,
+                    t.District != null ? t.District.Name : null,
+                    t.MinFare,
+                    t.Routes.Count,
+                    t.CreatedAt,
+                    t.PriorityRank,
+                    t.IsFeatured,
+                    t.LocalDayRate,
+                    t.LocalDayKm,
+                    t.TripLeadsReceived,
+                    t.TripLeadsAnsweredInApp),
+                t.Latitude,
+                t.Longitude,
+            })
+            .ToListAsync();
+
+        var rows = pool.ToDictionary(p => p.Row.Id, p => p.Row);
+        var ranked = TaxiLocalRanking.Rank(
+            pool.Select(p => new TaxiLocalCandidate(
+                p.Row.Id, p.Row.Seats, p.Row.LocalDayRate, p.Row.LocalDayKm,
+                p.Row.PriorityRank, cityId != null && p.Row.CityId == cityId,
+                p.Latitude is { } lat ? (double)lat : null, p.Longitude is { } lng ? (double)lng : null)),
+            need);
+
+        var skip = (page - 1) * pageSize;
+        var items = ranked.Skip(skip).Take(pageSize).Select(x =>
+        {
+            var r = rows[x.Taxi.Id];
+            return new TaxiBrowseDto
+            {
+                Id = r.Id,
+                DriverName = r.DriverName,
+                VehicleTypeName = r.VehicleTypeName,
+                VehicleCategory = r.VehicleCategory,
+                Seats = r.Seats,
+                PlateDisplay = TaxiPlate.Format(r.NumberPlate),
+                CityId = r.CityId,
+                CityName = r.CityName,
+                DistrictName = r.DistrictName,
+                MinFare = r.MinFare,
+                LocalDayRate = r.LocalDayRate,
+                LocalDayKm = r.LocalDayKm,
+                TripReplyLabel = TaxiTripReplyLabels.Of(r.TripLeadsReceived, r.TripLeadsAnsweredInApp),
+                RouteCount = r.RouteCount,
+                PriorityRank = r.PriorityRank,
+                IsFeatured = r.IsFeatured,
+                CreatedAt = r.CreatedAt,
+                TripSeatsFit = x.Fit.SeatsFit,
+                TripCars = x.Fit.Cars,
+                TripDayCost = x.Fit.DayCost,
+                TripExtraKm = x.Fit.ExtraKm,
+                TripPickupKm = x.Fit.PickupKm,
+            };
+        }).ToList();
+        return (items, ranked.Count > skip + items.Count);
     }
 
     private sealed record SearchRow(

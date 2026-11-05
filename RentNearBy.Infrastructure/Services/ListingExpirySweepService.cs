@@ -9,7 +9,7 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Hourly (anchored at :15 UTC) sweep of live rooms/plots past their own ValidUntil. Each batch is one
+// Sweep of live rooms/plots past their own ValidUntil, at the next due ValidUntil and at least hourly (:15 UTC). Each batch is one
 // conditional UPDATE ... RETURNING that repeats "ValidUntil" < now(), so a renew or Go Live that moved
 // ValidUntil first is never switched off.
 public class ListingExpirySweepService : BackgroundService
@@ -17,9 +17,7 @@ public class ListingExpirySweepService : BackgroundService
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IRabbitMqPublisher _rabbitMqPublisher;
     private readonly ILogger<ListingExpirySweepService> _logger;
-    private PeriodicTimer? _timer;
     private const int PageSize = 200;
-    private static readonly TimeSpan Interval = TimeSpan.FromHours(1);
     private const int AnchorMinute = 15;
 
     private sealed class ExpiredRow
@@ -39,22 +37,23 @@ public class ListingExpirySweepService : BackgroundService
         _logger = logger;
     }
 
+    // Runs at startup, then at the earliest live ValidUntil (so a lapsed row is hidden within seconds, not up to an hour
+    // later), and at least every hour at :15 UTC for the plan-grace cases.
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("ListingExpirySweepService starting");
         try
         {
-            var nextRunTime = GetNextRunTime();
-            var initialDelay = nextRunTime - DateTime.UtcNow;
-            if (initialDelay < TimeSpan.Zero) initialDelay = TimeSpan.Zero;
-
-            _logger.LogInformation("Next listing expiry sweep scheduled for {NextRunTime}", nextRunTime);
-            await Task.Delay(initialDelay, stoppingToken);
-
-            _timer = new PeriodicTimer(Interval);
-            await RunSweepAsync();
-            while (await _timer.WaitForNextTickAsync(stoppingToken))
+            while (!stoppingToken.IsCancellationRequested)
+            {
                 await RunSweepAsync();
+                var now = DateTime.UtcNow;
+                var wake = SweepSchedule.NextWakeUtc(
+                    now, SweepSchedule.NextHourlyAnchorUtc(now, AnchorMinute), await EarliestDueAsync());
+                _logger.LogInformation("Next listing expiry sweep scheduled for {NextRunTime}", wake);
+                var delay = wake - DateTime.UtcNow;
+                if (delay > TimeSpan.Zero) await Task.Delay(delay, stoppingToken);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -65,18 +64,6 @@ public class ListingExpirySweepService : BackgroundService
             _logger.LogError(ex, "Fatal error in ListingExpirySweepService");
             throw;
         }
-    }
-
-    public override async Task StopAsync(CancellationToken cancellationToken)
-    {
-        _timer?.Dispose();
-        await base.StopAsync(cancellationToken);
-    }
-
-    public override void Dispose()
-    {
-        _timer?.Dispose();
-        base.Dispose();
     }
 
     private async Task RunSweepAsync()
@@ -207,10 +194,27 @@ public class ListingExpirySweepService : BackgroundService
         }
     }
 
-    private static DateTime GetNextRunTime()
+    // The earliest ValidUntil still ahead among live rooms and plots; null when none or on error (the anchor then rules).
+    private async Task<DateTime?> EarliestDueAsync()
     {
-        var now = DateTime.UtcNow;
-        var target = new DateTime(now.Year, now.Month, now.Day, now.Hour, AnchorMinute, 0, DateTimeKind.Utc);
-        return now < target ? target : target.AddHours(1);
+        try
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var rows = await db.Database.SqlQueryRaw<DateTime?>("""
+                SELECT MIN(m) AS "Value" FROM (
+                    SELECT MIN("ValidUntil") AS m FROM "RoomListings"
+                    WHERE "IsActive" = true AND "IsDeleted" = false AND "ValidUntil" >= now()
+                    UNION ALL
+                    SELECT MIN("ValidUntil") AS m FROM "PlotListings"
+                    WHERE "IsActive" = true AND "IsDeleted" = false AND "ValidUntil" >= now()) x
+                """).ToListAsync();
+            return rows.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Listing expiry sweep: next due lookup failed");
+            return null;
+        }
     }
 }

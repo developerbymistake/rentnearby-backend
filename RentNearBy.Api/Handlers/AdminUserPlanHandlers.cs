@@ -158,7 +158,7 @@ public static class AdminUserPlanHandlers
         PendingServerAction = s.PendingServerAction,
         LastSyncedAt = s.LastSyncedAt,
         RecurringPriceInr = s.RecurringPriceMicros is { } micros && s.RecurringPriceCurrency == "INR"
-            ? (int)Math.Round(micros / 1_000_000m, MidpointRounding.AwayFromZero)
+            ? Money.RupeesFromMicros(micros)
             : null,
         PriceChangeState = s.PriceChangeState,
     };

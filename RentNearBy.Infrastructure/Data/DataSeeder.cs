@@ -35,6 +35,7 @@ public static class DataSeeder
         await SeedPlansAsync(db);
         await SeedDistrictsAsync(db);
         await SeedCitiesAsync(db, logger);
+        await RecomputeBighaAreasAsync(db, logger);
         await SeedAppFeatureFlagsAsync(db);
         await SeedAppTabsAsync(db);
         await SeedAppVersionConfigsAsync(db);
@@ -972,34 +973,30 @@ public static class DataSeeder
             return;
         }
 
-        // Load only Id + Name into memory — avoids fetching geometry/boundary columns for 756 rows.
-        // GroupBy in C# instead of EF Core (EF cannot translate g.ToList() to SQL).
+        // Id + Name for every district; the boundary only for names shared by districts of different states.
         var allDistricts = await db.Districts
             .AsNoTracking()
             .Select(d => new { d.Id, d.Name })
             .ToListAsync();
 
-        var districtGroups = allDistricts
-            .GroupBy(d => d.Name.ToLowerInvariant())
-            .ToDictionary(g => g.Key, g => g.ToList());
-
-        var unambiguousLookup = districtGroups
-            .Where(kv => kv.Value.Count == 1)
-            .ToDictionary(kv => kv.Key, kv => kv.Value[0].Id);
-
-        var ambiguousNames = districtGroups
-            .Where(kv => kv.Value.Count > 1)
-            .Select(kv => kv.Key)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        if (ambiguousNames.Count > 0)
-            Console.WriteLine($"[DataSeeder] {ambiguousNames.Count} district name(s) are ambiguous (same name, different states) — cities for these will be skipped.");
-
-        if (unambiguousLookup.Count == 0)
+        if (allDistricts.Count == 0)
         {
             Console.WriteLine("[DataSeeder] No districts found — skipping city seeding.");
             return;
         }
+
+        var ambiguousKeys = DistrictNameResolver.AmbiguousKeys(allDistricts.Select(d => (d.Id, d.Name)));
+        var ambiguousIds = allDistricts.Where(d => ambiguousKeys.Contains(DistrictNameResolver.Key(d.Name))).Select(d => d.Id).ToList();
+        var boundaries = ambiguousIds.Count == 0
+            ? new Dictionary<Guid, Geometry?>()
+            : await db.Districts.AsNoTracking()
+                .Where(d => ambiguousIds.Contains(d.Id))
+                .ToDictionaryAsync(d => d.Id, d => d.Boundary);
+        var resolver = new DistrictNameResolver(allDistricts.Select(d =>
+            new DistrictNameResolver.Candidate(d.Id, d.Name, boundaries.GetValueOrDefault(d.Id))));
+
+        if (ambiguousKeys.Count > 0)
+            Console.WriteLine($"[DataSeeder] {ambiguousKeys.Count} district name(s) are shared across states — their cities are placed by point-in-polygon.");
 
         var records = await LoadFileRowsAsync();
         if (records.Count == 0)
@@ -1011,10 +1008,9 @@ public static class DataSeeder
         Console.WriteLine($"[DataSeeder] Seeding {records.Count} cities (source=file)...");
 
         var batch = new List<City>(500);
-        var seenCities = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // key: "{districtId}|{cityName}"
+        var dedupe = new CitySeedDedupe();
         var seeded = 0;
         var skippedNoDistrict = 0;
-        var skippedAmbiguous = 0;
         var skippedDuplicate = 0;
         var batchCount = 0;
 
@@ -1026,22 +1022,13 @@ public static class DataSeeder
                 if (string.IsNullOrWhiteSpace(record.Name) || string.IsNullOrWhiteSpace(record.DistrictName))
                     continue;
 
-                var districtKey = record.DistrictName.ToLowerInvariant();
-
-                if (ambiguousNames.Contains(districtKey))
-                {
-                    skippedAmbiguous++;
-                    continue;
-                }
-
-                if (!unambiguousLookup.TryGetValue(districtKey, out var districtId))
+                if (resolver.Resolve(record.DistrictName, record.Latitude, record.Longitude) is not Guid districtId)
                 {
                     skippedNoDistrict++;
                     continue;
                 }
 
-                var cityKey = $"{districtId}|{record.Name.Trim()}";
-                if (!seenCities.Add(cityKey))
+                if (!dedupe.TryAdd(districtId, record.Name, record.Latitude, record.Longitude))
                 {
                     skippedDuplicate++;
                     continue;
@@ -1085,7 +1072,41 @@ public static class DataSeeder
             db.ChangeTracker.AutoDetectChangesEnabled = true;
         }
 
-        Console.WriteLine($"[DataSeeder] City seeding complete (source=file). Seeded: {seeded}, Skipped (no district): {skippedNoDistrict}, Skipped (ambiguous district): {skippedAmbiguous}, Skipped (duplicate): {skippedDuplicate}");
+        Console.WriteLine($"[DataSeeder] City seeding complete (source=file). Seeded: {seeded}, Skipped (no district): {skippedNoDistrict}, Skipped (same place): {skippedDuplicate}");
+    }
+
+    // Seed identity: a row is the same place as an earlier row of its district when the compact names match
+    // and the points are within CityNameMatcher.SamePlaceKm; same-name villages farther apart are all kept.
+    internal sealed class CitySeedDedupe
+    {
+        private readonly Dictionary<(Guid DistrictId, string Key), List<(double Lat, double Lng)>> _seen = new();
+
+        public bool TryAdd(Guid districtId, string name, double lat, double lng)
+        {
+            var key = (districtId, CityNameMatcher.IdentityKey(name));
+            if (!_seen.TryGetValue(key, out var points))
+            {
+                _seen[key] = [(lat, lng)];
+                return true;
+            }
+            if (points.Any(p => CityNameMatcher.SamePlace(p.Lat, p.Lng, lat, lng))) return false;
+            points.Add((lat, lng));
+            return true;
+        }
+    }
+
+    // Bigha is a state unit (BighaArea); recomputes AreaSqft of bigha plots whose stored value used another factor.
+    private static async Task RecomputeBighaAreasAsync(ApplicationDbContext db, ILogger logger)
+    {
+        var updated = 0;
+        foreach (var (state, factor) in BighaArea.StateFactors)
+        {
+            updated += await db.PlotListings
+                .Where(p => p.AreaUnit == "bigha" && p.District.StateName == state && p.AreaSqft != p.AreaValue * factor)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.AreaSqft, p => p.AreaValue * factor));
+        }
+        if (updated > 0)
+            logger.LogInformation("seed.plots.bigha_area {Updated}", updated);
     }
 
     // One-time CityKey fill for a database seeded before the key existed; skips once any city has a key.

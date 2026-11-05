@@ -57,9 +57,19 @@ public class ListingCacheInvalidator(ApplicationDbContext db, IServiceProvider s
         try
         {
             var cache = redis.GetDatabase();
-            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
             var ids = districtIds.Distinct().ToList();
 
+            // Rooms/plots: one INCR per district + the recent feed, O(#districts), no keyspace scan.
+            var gens = ListingCacheKeys.Generations(kind, ids);
+            if (gens.Length > 0)
+            {
+                var batch = cache.CreateBatch();
+                var incrs = gens.Select(g => batch.StringIncrementAsync(g)).ToArray();
+                batch.Execute();
+                await Task.WhenAll(incrs);
+            }
+
+            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
             var keys = ids.SelectMany(d => ListingCacheKeys.Keys(kind, d)).Distinct().Select(k => (RedisKey)k).ToArray();
             if (keys.Length > 0) await cache.KeyDeleteAsync(keys);
 

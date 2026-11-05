@@ -664,10 +664,11 @@ public class PlayBillingSyncService(
         var plan = mapping.Plan!;
         var price = mapping.Price!;
         var trial = price.PlayTrialOfferId != null && mapping.Primary.OfferId == price.PlayTrialOfferId;
-        var payable = trial ? 0
-            : mapping.Primary.RecurringPriceMicros is { } micros && mapping.Primary.RecurringPriceCurrency == "INR"
-                ? (int)Math.Round(micros / 1_000_000m, MidpointRounding.AwayFromZero)
-                : price.PriceInr;
+        var payable = trial ? 0 : PlayEntitlementApplier.PayableOf(mapping.Primary, price.PriceInr);
+        var chargedPaise = trial ? null : Money.InrPaiseOf(mapping.Primary.RecurringPriceMicros, mapping.Primary.RecurringPriceCurrency);
+        var grantedDays = trial ? Math.Max(1, plan.TrialDays)
+            : mapping.Primary.ExpiryTime is { } end ? PlanTime.PlayPeriodDays(sub.StartTime, end, price.CycleMonths)
+            : PlanTime.CalendarCycleDays(now, price.CycleMonths);
         return new PlanPurchase
         {
             Id = Guid.NewGuid(),
@@ -676,7 +677,7 @@ public class PlayBillingSyncService(
             PlanId = plan.Id,
             PlanNameSnapshot = plan.Name,
             CycleMonths = price.CycleMonths,
-            GrantedDays = PlanCycles.DaysOf(price.CycleMonths),
+            GrantedDays = grantedDays,
             Intent = PurchaseIntents.New,
             Provider = PaymentProviders.Play,
             Currency = "INR",
@@ -684,6 +685,7 @@ public class PlayBillingSyncService(
             DiscountInr = trial ? price.PriceInr : 0,
             CreditInr = 0,
             PayableInr = payable,
+            CapturedAmountPaise = chargedPaise,
             Status = status,
             CreatedAt = now,
             ExpiresAt = now,

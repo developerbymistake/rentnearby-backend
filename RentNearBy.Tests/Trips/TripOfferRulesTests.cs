@@ -39,7 +39,7 @@ public class TripOfferRulesTests
     [Fact]
     public void ChangeLines_keeps_the_price_and_follows_the_rooms()
     {
-        var lines = TripOfferRules.ChangeLines([Line("Family room", 1, 2, 1900)], rooms: 2, guests: 4);
+        var lines = TripOfferRules.ChangeLines([Line("Family room", 1, 2, 1900)], rooms: 2, guests: 4)!;
         var l = Assert.Single(lines);
         Assert.Equal("Family room", l.RoomName);
         Assert.Equal(1900, l.PricePerNight);
@@ -51,7 +51,7 @@ public class TripOfferRulesTests
     public void ChangeLines_fewer_rooms_are_taken_from_the_last_line()
     {
         var accepted = new List<TripOfferLine> { Line("A", 1, 2, 1900), Line("B", 2, 4, 2500) };
-        var lines = TripOfferRules.ChangeLines(accepted, rooms: 2, guests: 3);
+        var lines = TripOfferRules.ChangeLines(accepted, rooms: 2, guests: 3)!;
         Assert.Equal(2, lines.Count);
         Assert.Equal(1, lines[0].Units);
         Assert.Equal(1, lines[1].Units);
@@ -65,19 +65,26 @@ public class TripOfferRulesTests
     public void ChangeLines_drops_a_line_that_loses_all_its_rooms()
     {
         var accepted = new List<TripOfferLine> { Line("A", 1, 2, 1900), Line("B", 2, 4, 2500) };
-        var lines = TripOfferRules.ChangeLines(accepted, rooms: 1, guests: 3);
-        var l = Assert.Single(lines);
+        var lines = TripOfferRules.ChangeLines(accepted, rooms: 1, guests: 2);
+        var l = Assert.Single(lines!);
         Assert.Equal("A", l.RoomName);
         Assert.Equal(1, l.Units);
-        Assert.Equal(3, l.Guests);
+        Assert.Equal(2, l.Guests);
         Assert.Equal(1900, l.PricePerNight);
+    }
+
+    [Fact]
+    public void ChangeLines_is_null_when_the_rooms_cannot_seat_the_party()
+    {
+        var accepted = new List<TripOfferLine> { Line("A", 1, 2, 1900), Line("B", 2, 4, 2500) };
+        Assert.Null(TripOfferRules.ChangeLines(accepted, rooms: 1, guests: 3));
     }
 
     [Fact]
     public void ChangeLines_extra_rooms_go_to_the_first_line()
     {
         var accepted = new List<TripOfferLine> { Line("A", 1, 2, 1900), Line("B", 1, 2, 2500) };
-        var lines = TripOfferRules.ChangeLines(accepted, rooms: 4, guests: 8);
+        var lines = TripOfferRules.ChangeLines(accepted, rooms: 4, guests: 8)!;
         Assert.Equal(2, lines.Count);
         Assert.Equal(3, lines[0].Units);
         Assert.Equal(1, lines[1].Units);
@@ -91,7 +98,7 @@ public class TripOfferRulesTests
         var accepted = new List<TripOfferLine> { Line("A", 2, 4, 1900), Line("B", 1, 2, 2500) };
         foreach (var rooms in new[] { 1, 2, 3, 5, 9 })
         {
-            var lines = TripOfferRules.ChangeLines(accepted, rooms, guests: rooms * 2);
+            var lines = TripOfferRules.ChangeLines(accepted, rooms, guests: rooms * 2)!;
             Assert.All(lines, x => Assert.Contains(x.PricePerNight, new[] { 1900, 2500 }));
             Assert.Equal(rooms, lines.Sum(x => x.Units));
         }
@@ -100,7 +107,7 @@ public class TripOfferRulesTests
     [Fact]
     public void ChangeLines_clamps_rooms_and_guests_to_one()
     {
-        var lines = TripOfferRules.ChangeLines([Line("A", 1, 2, 1900)], rooms: 0, guests: 0);
+        var lines = TripOfferRules.ChangeLines([Line("A", 1, 2, 1900)], rooms: 0, guests: 0)!;
         var l = Assert.Single(lines);
         Assert.Equal(1, l.Units);
         Assert.Equal(1, l.Guests);
@@ -109,7 +116,7 @@ public class TripOfferRulesTests
     [Fact]
     public void ChangeLines_without_accepted_lines_returns_one_line()
     {
-        var lines = TripOfferRules.ChangeLines([], rooms: 2, guests: 3);
+        var lines = TripOfferRules.ChangeLines([], rooms: 2, guests: 3)!;
         var l = Assert.Single(lines);
         Assert.Equal(2, l.Units);
         Assert.Equal(3, l.Guests);
@@ -118,7 +125,7 @@ public class TripOfferRulesTests
     [Fact]
     public void ChangeLines_total_scales_with_rooms_and_nights()
     {
-        var lines = TripOfferRules.ChangeLines([Line("A", 1, 2, 1900)], rooms: 2, guests: 4);
+        var lines = TripOfferRules.ChangeLines([Line("A", 1, 2, 1900)], rooms: 2, guests: 4)!;
         Assert.Equal(7600, TripExecutionRules.ComputeTotal(lines, 2));
     }
 

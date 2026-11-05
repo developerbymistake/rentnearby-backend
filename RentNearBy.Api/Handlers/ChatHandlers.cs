@@ -35,13 +35,28 @@ public static class ChatHandlers
     // ── Conversations ────────────────────────────────────────────────────────
 
     public static async Task<IResult> GetConversations(
-        ClaimsPrincipal principal, int? offset, int? limit,
+        ClaimsPrincipal principal, int? offset, int? limit, string? cursor,
         IUnitOfWork unitOfWork, ApplicationDbContext db)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
-        var conversations = await unitOfWork.Conversations.GetForUserPagedAsync(
-            callerId, offset ?? 0, Math.Clamp(limit ?? DefaultPageSize, 1, 100));
+        // cursor = keyset (new apps); offset > 0 without a cursor = the old app's offset paging.
+        var pageSize = Math.Clamp(limit ?? DefaultPageSize, 1, 100);
+        DateTime? afterAt = null;
+        Guid? afterId = null;
+        if (!string.IsNullOrEmpty(cursor))
+        {
+            if (!KeysetCursor.TryDecode(cursor, out var at, out var id)) return BadRequestResponse("Invalid cursor");
+            afterAt = at;
+            afterId = id;
+        }
+        var useOffset = afterAt == null && (offset ?? 0) > 0;
+        var fetched = useOffset
+            ? await unitOfWork.Conversations.GetForUserPagedAsync(callerId, offset!.Value, pageSize + 1)
+            : await unitOfWork.Conversations.GetForUserAfterCursorAsync(callerId, afterAt, afterId, pageSize + 1);
+        var hasMore = fetched.Count > pageSize;
+        IReadOnlyList<Conversation> conversations = hasMore ? fetched.Take(pageSize).ToList() : fetched;
+        var nextCursor = KeysetCursor.EncodeLast(conversations, hasMore, c => c.LastMessageAt, c => c.Id);
 
         // One batched lookup per listing type (2 queries total) covering both what
         // ReconcileLifecycleStatusBatchAsync needs (IsDeleted/IsActive) and what
@@ -66,7 +81,7 @@ public static class ChatHandlers
 
         await AttachTripEnquiriesAsync(dtos, callerId, unitOfWork);
 
-        return OkResponse(new { items = dtos });
+        return OkResponse(new { items = dtos, hasMore, nextCursor });
     }
 
     public static async Task<IResult> CreateConversation(
@@ -1288,6 +1303,8 @@ public static class ChatHandlers
                 conversationId = conversation.Id,
                 senderName = sender?.Name ?? "Someone",
                 preview,
+                messageId = message.Id,
+                createdAt = DateTime.SpecifyKind(message.CreatedAt, DateTimeKind.Utc),
             });
             await publisher.PublishAsync("chat.message.push", payload);
         }

@@ -10,7 +10,6 @@ public sealed class TaxiWaysOptions
     public const string Section = "TaxiWays";
 
     public double SamePlaceMeters { get; set; } = 5000;
-    public double ClusterMaxDiameterMeters { get; set; } = 12000;
     public double AlongRoadMeters { get; set; } = 3000;
     public int MaxPassPlaces { get; set; } = 10;
     public double SimplifyMeters { get; set; } = 150;
@@ -150,6 +149,9 @@ public sealed class TaxiWaysRouteLine
     public string ToName { get; init; } = string.Empty;
     public string FromPlace { get; init; } = string.Empty;
     public string ToPlace { get; init; } = string.Empty;
+    // Every place within SamePlaceMeters of the route's own end point, the nearest (FromPlace / ToPlace) first.
+    public IReadOnlyList<string> FromPlaces { get; init; } = [];
+    public IReadOnlyList<string> ToPlaces { get; init; } = [];
     public int Fare { get; init; }
     public string TripType { get; init; } = TaxiTripTypes.OneWay;
     public double? DistanceKm { get; init; }
@@ -177,6 +179,11 @@ public sealed class TaxiWaysLink
     public IReadOnlyList<string> Via { get; init; } = [];
     // Virtual anchors only: the named place where the traveller meets this driver.
     public string? MeetAtPlace { get; init; }
+
+    public double Span => TaxiFare.SpanOf(FromFraction, ToFraction);
+    // The price of the ridden part: the listed fare for a whole route, the road-length share of it for a part.
+    public int EstimatedFare => Partial ? TaxiFare.ForSpan(Fare, Span) : Fare;
+    public bool FareEstimated => Partial && TaxiFare.IsPart(Span);
 
     public string OtherEnd(string key) => FromPlace == key ? ToPlace : FromPlace;
     public bool Touches(string key) => FromPlace == key || ToPlace == key;
@@ -234,13 +241,26 @@ public sealed class TaxiWaysLegResult
 
     // People in the group; 0 = unknown (one car).
     public int People { get; init; }
+    // Ranked drivers the group may be split over (the plan detail shows this many).
+    public int CoverPool { get; init; } = 10;
+    // Road minutes of the top driver's ridden part; null when the route has no minutes.
+    public int? Minutes { get; init; }
+
+    private SeatCoverResult? _cover;
 
     public TaxiWaysCandidate Top => Drivers[0];
-    public int CarsNeeded => TaxiWaysRanking.CarsNeeded(People, Top.Driver.Seats);
-    // The fare of the whole stretch: one listed fare per car.
-    public int ListedFare => Top.Link.Fare * CarsNeeded;
-    public string? SeatsNote => TaxiWaysRanking.SeatsNote(People, Top.Driver.Seats);
+    // The distinct cars that carry the group at the least cost (TaxiSeatCover).
+    public SeatCoverResult Cover => _cover ??= TaxiSeatCover.Solve(
+        Drivers.Take(Math.Max(1, CoverPool)).Select((c, i) => new SeatOption(i, c.Driver.Seats, c.Link.EstimatedFare)).ToList(), People);
+    public IReadOnlyList<TaxiWaysCandidate> CoverDrivers => Cover.Chosen.Select(i => Drivers[i]).ToList();
+    public int CarsNeeded => Cover.Cars;
+    // The fare of the whole stretch for the group: the sum over the chosen cars.
+    public int ListedFare => Cover.Fare;
+    public string? SeatsNote => Cover.Chosen.Count > 1
+        ? TaxiWaysRanking.CoverNote(People, CoverDrivers.Select(c => c.Driver.Seats))
+        : TaxiWaysRanking.SeatsNote(People, Top.Driver.Seats);
     public bool Partial => Top.Link.Partial;
+    public bool FareEstimated => CoverDrivers.Any(c => c.Link.FareEstimated);
 }
 
 public sealed class TaxiWaysPlan
@@ -509,6 +529,13 @@ public static class TaxiWaysRanking
         return cars > 1 ? $"Seats {seats} · {cars} cars for {people}" : null;
     }
 
+    // Several distinct cars for one group: "Seats 7 + 4 · 2 cars for 10".
+    public static string CoverNote(int people, IEnumerable<short?> seats)
+    {
+        var list = seats.ToList();
+        return $"Seats {string.Join(" + ", list.Select(s => s?.ToString(CultureInfo.InvariantCulture) ?? "?"))} · {list.Count} cars for {people}";
+    }
+
     // Best fit: seats for the group, (based here), whole route before a stretch, replies in app, plan rank, fare, id.
     public static IComparer<TaxiWaysCandidate> Compare(int people, bool basedHereFirst = false) =>
         Comparer<TaxiWaysCandidate>.Create((x, y) => BestFit(x, y, people, basedHereFirst));
@@ -516,7 +543,7 @@ public static class TaxiWaysRanking
     public static IComparer<TaxiWaysCandidate> LowestPrice(int people) =>
         Comparer<TaxiWaysCandidate>.Create((x, y) =>
         {
-            var c = x.Link.Fare.CompareTo(y.Link.Fare);
+            var c = x.Link.EstimatedFare.CompareTo(y.Link.EstimatedFare);
             return c != 0 ? c : BestFit(x, y, people, false);
         });
 
@@ -535,7 +562,7 @@ public static class TaxiWaysRanking
         if (c != 0) return c;
         c = y.Driver.PriorityRank.CompareTo(x.Driver.PriorityRank);
         if (c != 0) return c;
-        c = x.Link.Fare.CompareTo(y.Link.Fare);
+        c = x.Link.EstimatedFare.CompareTo(y.Link.EstimatedFare);
         if (c != 0) return c;
         c = x.Driver.TaxiId.CompareTo(y.Driver.TaxiId);
         return c != 0 ? c : x.Link.RouteId.CompareTo(y.Link.RouteId);
@@ -544,18 +571,102 @@ public static class TaxiWaysRanking
 
 public static class TaxiWaysClustering
 {
-    private sealed class Cluster
+    private readonly record struct EndPoint(int Row, bool IsFrom, string Name, double Lat, double Lng);
+
+    // Route ends with no Atlas city near them, grouped without depending on input order or names: the densest end
+    // (most other ends within SamePlaceMeters; ties by lat, lng, route id, side) becomes a centre, every free end within
+    // SamePlaceMeters of it joins, repeat. A centre is a real end point and never moves, so every member is within
+    // SamePlaceMeters of the stored place (the radius journey refresh matches with).
+    private static List<(EndPoint Centre, List<EndPoint> Members)> GroupEnds(
+        IReadOnlyList<EndPoint> ends, Func<EndPoint, Guid> routeOf, double meters)
     {
-        public required string Key;
-        public double SumLat, SumLng;
-        public readonly List<TaxiWaysPoint> Members = new();
-        public readonly Dictionary<string, int> NameCounts = new(StringComparer.Ordinal);
-        public readonly List<string> NameOrder = new();
-        public double Lat => SumLat / Members.Count;
-        public double Lng => SumLng / Members.Count;
+        var grid = new Dictionary<long, List<int>>();
+        for (var i = 0; i < ends.Count; i++)
+        {
+            var cell = TaxiWaysGeo.Cell(TaxiWaysGeo.CellOf(ends[i].Lat), TaxiWaysGeo.CellOf(ends[i].Lng));
+            if (!grid.TryGetValue(cell, out var list)) grid[cell] = list = new();
+            list.Add(i);
+        }
+
+        List<int> Near(int i)
+        {
+            var e = ends[i];
+            var near = new List<int>();
+            foreach (var cell in TaxiWaysGeo.CellsAround(e.Lat, e.Lng, meters))
+                if (grid.TryGetValue(cell, out var list))
+                    foreach (var j in list)
+                        if (TaxiGeo.DistanceMeters(e.Lat, e.Lng, ends[j].Lat, ends[j].Lng) <= meters) near.Add(j);
+            return near;
+        }
+
+        var neighbours = Enumerable.Range(0, ends.Count).Select(Near).ToList();
+        var order = Enumerable.Range(0, ends.Count).ToList();
+        order.Sort((a, b) =>
+        {
+            var c = neighbours[b].Count.CompareTo(neighbours[a].Count);
+            if (c != 0) return c;
+            c = ends[a].Lat.CompareTo(ends[b].Lat);
+            if (c != 0) return c;
+            c = ends[a].Lng.CompareTo(ends[b].Lng);
+            if (c != 0) return c;
+            c = routeOf(ends[a]).CompareTo(routeOf(ends[b]));
+            return c != 0 ? c : ends[b].IsFrom.CompareTo(ends[a].IsFrom);
+        });
+        var rank = new int[ends.Count];
+        for (var i = 0; i < order.Count; i++) rank[order[i]] = i;
+
+        var taken = new bool[ends.Count];
+        var groups = new List<(EndPoint, List<EndPoint>)>();
+        foreach (var i in order)
+        {
+            if (taken[i]) continue;
+            var members = neighbours[i].Where(j => !taken[j]).OrderBy(j => rank[j]).ToList();
+            foreach (var j in members) taken[j] = true;
+            groups.Add((ends[i], members.Select(j => ends[j]).ToList()));
+        }
+        return groups;
     }
 
-    private readonly record struct EndPoint(int Row, bool IsFrom, string Name, double Lat, double Lng);
+    // The most common name among the members; a tie goes to the member nearest the centre in group order.
+    private static string NameOf(EndPoint centre, IReadOnlyList<EndPoint> members)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var first = new List<string>();
+        foreach (var m in members)
+        {
+            var name = (m.Name ?? string.Empty).Trim();
+            if (name.Length == 0) continue;
+            if (!counts.TryGetValue(name, out var n)) first.Add(name);
+            counts[name] = n + 1;
+        }
+        if (first.Count == 0) return (centre.Name ?? string.Empty).Trim();
+        return first.OrderByDescending(n => counts[n]).ThenBy(n => first.IndexOf(n)).First();
+    }
+
+    // Places within `meters` of a point, nearest first (ties by key).
+    private static List<string> PlacesNear(
+        Dictionary<string, TaxiWaysPlace> places, Dictionary<long, List<string>> placeGrid, double lat, double lng, double meters)
+    {
+        var hits = new List<(string Key, double D)>();
+        foreach (var cell in TaxiWaysGeo.CellsAround(lat, lng, meters))
+        {
+            if (!placeGrid.TryGetValue(cell, out var keys)) continue;
+            foreach (var k in keys)
+            {
+                var p = places[k];
+                var d = TaxiGeo.DistanceMeters(lat, lng, p.Lat, p.Lng);
+                if (d <= meters) hits.Add((k, d));
+            }
+        }
+        return hits.OrderBy(h => h.D).ThenBy(h => h.Key, StringComparer.Ordinal).Select(h => h.Key).ToList();
+    }
+
+    private static List<string> EndPlaces(string primary, List<string> near)
+    {
+        var list = new List<string> { primary };
+        list.AddRange(near.Where(k => k != primary));
+        return list;
+    }
 
     public static TaxiWaysNetworkSnapshot Build(
         IReadOnlyList<TaxiWaysSourceRow> rows, IReadOnlyList<TripCityInfo>? atlasCities,
@@ -589,64 +700,16 @@ public static class TaxiWaysClustering
             }
         }
 
-        // Deterministic order so a rebuild over the same routes gives the same cluster keys.
-        unmatched.Sort((a, b) =>
-        {
-            var c = string.CompareOrdinal(SearchKeys.Fold(a.Name), SearchKeys.Fold(b.Name));
-            if (c != 0) return c;
-            c = a.Lat.CompareTo(b.Lat);
-            if (c != 0) return c;
-            c = a.Lng.CompareTo(b.Lng);
-            return c != 0 ? c : rows[a.Row].RouteId.CompareTo(rows[b.Row].RouteId);
-        });
-
-        var clusters = new List<Cluster>();
-        var clusterGrid = new Dictionary<long, List<Cluster>>();
         var usedKeys = new HashSet<string>(places.Keys, StringComparer.Ordinal);
-        var searchMeters = o.SamePlaceMeters + o.ClusterMaxDiameterMeters;
-        foreach (var end in unmatched)
+        foreach (var (centre, members) in GroupEnds(unmatched, e => rows[e.Row].RouteId, o.SamePlaceMeters))
         {
-            var p = new TaxiWaysPoint(end.Lat, end.Lng);
-            Cluster? best = null; var bestD = double.MaxValue;
-            foreach (var cell in TaxiWaysGeo.CellsAround(end.Lat, end.Lng, searchMeters))
-            {
-                if (!clusterGrid.TryGetValue(cell, out var list)) continue;
-                foreach (var c in list)
-                {
-                    var d = TaxiGeo.DistanceMeters(end.Lat, end.Lng, c.Lat, c.Lng);
-                    if (d > o.SamePlaceMeters || d >= bestD) continue;
-                    if (c.Members.Any(m => TaxiWaysGeo.DistanceMeters(m, p) > o.ClusterMaxDiameterMeters)) continue;
-                    best = c; bestD = d;
-                }
-            }
-            if (best == null)
-            {
-                var key = TaxiWaysKeys.PlaceKeyCluster(end.Name, end.Lat, end.Lng);
-                var unique = key; var n = 2;
-                while (!usedKeys.Add(unique)) unique = $"{key}-{n++}";
-                best = new Cluster { Key = unique };
-                clusters.Add(best);
-                var cell = TaxiWaysGeo.Cell(TaxiWaysGeo.CellOf(end.Lat), TaxiWaysGeo.CellOf(end.Lng));
-                if (!clusterGrid.TryGetValue(cell, out var list)) clusterGrid[cell] = list = new();
-                list.Add(best);
-            }
-            best.Members.Add(p);
-            best.SumLat += end.Lat;
-            best.SumLng += end.Lng;
-            var name = (end.Name ?? string.Empty).Trim();
-            if (name.Length > 0)
-            {
-                if (!best.NameCounts.TryGetValue(name, out var count)) best.NameOrder.Add(name);
-                best.NameCounts[name] = count + 1;
-            }
-            if (end.IsFrom) fromPlaceOf[end.Row] = best.Key; else toPlaceOf[end.Row] = best.Key;
-        }
-
-        foreach (var c in clusters)
-        {
-            var name = c.NameOrder.Count == 0 ? c.Key
-                : c.NameOrder.OrderByDescending(n => c.NameCounts[n]).ThenBy(n => c.NameOrder.IndexOf(n)).First();
-            places[c.Key] = new TaxiWaysPlace { Key = c.Key, Name = name, Lat = c.Lat, Lng = c.Lng };
+            var name = NameOf(centre, members);
+            var key = TaxiWaysKeys.PlaceKeyCluster(name, centre.Lat, centre.Lng);
+            var unique = key; var n = 2;
+            while (!usedKeys.Add(unique)) unique = $"{key}-{n++}";
+            places[unique] = new TaxiWaysPlace { Key = unique, Name = name.Length == 0 ? unique : name, Lat = centre.Lat, Lng = centre.Lng };
+            foreach (var m in members)
+                if (m.IsFrom) fromPlaceOf[m.Row] = unique; else toPlaceOf[m.Row] = unique;
         }
 
         var placeGrid = new Dictionary<long, List<string>>();
@@ -678,30 +741,45 @@ public static class TaxiWaysClustering
             var toKey = toPlaceOf[i];
             if (fromKey == toKey || routes.ContainsKey(r.RouteId)) continue;
 
+            // A route end serves every place within SamePlaceMeters of it (the radius /taxis/search matches with), not only
+            // the nearest one, so two pins of one town on either side of a place boundary still reach the same drivers.
+            var fromPlaces = EndPlaces(fromKey, PlacesNear(places, placeGrid, r.FromLat, r.FromLng, o.SamePlaceMeters));
+            var toPlaces = EndPlaces(toKey, PlacesNear(places, placeGrid, r.ToLat, r.ToLng, o.SamePlaceMeters));
+            var endKeys = new HashSet<string>(fromPlaces.Concat(toPlaces), StringComparer.Ordinal);
+
             var line = LineOf(r, o);
             var cumulative = line.Count >= 2 ? TaxiWaysGeo.Cumulative(line) : [];
-            var passes = line.Count >= 2 ? PassesOf(line, cumulative, fromKey, toKey, places, placeGrid, o) : [];
+            var passes = line.Count >= 2 ? PassesOf(line, cumulative, endKeys, places, placeGrid, o) : [];
 
             var route = new TaxiWaysRouteLine
             {
                 RouteId = r.RouteId, TaxiId = r.TaxiId, FromName = r.FromName, ToName = r.ToName,
-                FromPlace = fromKey, ToPlace = toKey, Fare = r.Fare, TripType = r.TripType,
+                FromPlace = fromKey, ToPlace = toKey, FromPlaces = fromPlaces, ToPlaces = toPlaces, Fare = r.Fare, TripType = r.TripType,
                 DistanceKm = r.DistanceKm, Minutes = r.Minutes, Line = line, Cumulative = cumulative, Passes = passes,
             };
             routes[r.RouteId] = route;
 
-            var chain = new List<(string Key, double Fraction)> { (fromKey, 0) };
-            chain.AddRange(passes.Select(p => (p.PlaceKey, p.Fraction)));
-            chain.Add((toKey, 1));
+            var chain = new List<(IReadOnlyList<string> Keys, double Fraction)> { (fromPlaces, 0) };
+            chain.AddRange(passes.Select(p => ((IReadOnlyList<string>)[p.PlaceKey], p.Fraction)));
+            chain.Add((toPlaces, 1));
+            var seenPairs = new HashSet<string>(StringComparer.Ordinal);
             for (var a = 0; a < chain.Count - 1; a++)
                 for (var b = a + 1; b < chain.Count; b++)
-                    links.Add(new TaxiWaysLink
-                    {
-                        RouteId = r.RouteId, TaxiId = r.TaxiId, FromPlace = chain[a].Key, ToPlace = chain[b].Key,
-                        Fare = r.Fare, TripType = r.TripType, Partial = !(a == 0 && b == chain.Count - 1),
-                        FromFraction = chain[a].Fraction, ToFraction = chain[b].Fraction,
-                        Via = chain.Skip(a + 1).Take(b - a - 1).Select(x => x.Key).ToList(),
-                    });
+                {
+                    var via = chain.Skip(a + 1).Take(b - a - 1).Select(x => x.Keys[0]).ToList();
+                    foreach (var fk in chain[a].Keys)
+                        foreach (var tk in chain[b].Keys)
+                        {
+                            if (fk == tk || !seenPairs.Add(TaxiWaysKeys.PairKey(fk, tk))) continue;
+                            links.Add(new TaxiWaysLink
+                            {
+                                RouteId = r.RouteId, TaxiId = r.TaxiId, FromPlace = fk, ToPlace = tk,
+                                Fare = r.Fare, TripType = r.TripType, Partial = !(a == 0 && b == chain.Count - 1),
+                                FromFraction = chain[a].Fraction, ToFraction = chain[b].Fraction,
+                                Via = via,
+                            });
+                        }
+                }
 
             if (line.Count >= 2) IndexRoute(routeGrid, r.RouteId, line, o.AlongRoadMeters);
         }
@@ -760,7 +838,7 @@ public static class TaxiWaysClustering
     }
 
     private static List<TaxiWaysPass> PassesOf(
-        IReadOnlyList<TaxiWaysPoint> line, double[] cumulative, string fromKey, string toKey,
+        IReadOnlyList<TaxiWaysPoint> line, double[] cumulative, IReadOnlySet<string> endKeys,
         Dictionary<string, TaxiWaysPlace> places, Dictionary<long, List<string>> placeGrid, TaxiWaysOptions o)
     {
         var candidates = new HashSet<string>(StringComparer.Ordinal);
@@ -768,7 +846,7 @@ public static class TaxiWaysClustering
             foreach (var cell in SegmentCells(line[i], line[i + 1], o.AlongRoadMeters))
                 if (placeGrid.TryGetValue(cell, out var keys))
                     foreach (var k in keys)
-                        if (k != fromKey && k != toKey) candidates.Add(k);
+                        if (!endKeys.Contains(k)) candidates.Add(k);
 
         var hits = new List<TaxiWaysPass>();
         foreach (var key in candidates)
@@ -991,13 +1069,8 @@ public static class TaxiWaysSearchEngine
         for (var i = 0; i < stops.Count - 1; i++)
         {
             var a = stops[i]; var b = stops[i + 1];
-            var drivers = Candidates(s, a, b, people, o, basedHereFirst: i == 0 && a.MyLocation, excludeRoute: previousRoute);
-            if (drivers.Count == 0) return null;
-            var leg = new TaxiWaysLegResult
-            {
-                Index = i + 1, LegKey = TaxiWaysKeys.LegKey(a.Key, b.Key), From = StopOf(a), To = StopOf(b), Drivers = drivers,
-                People = people,
-            };
+            var leg = BuildLeg(s, a, b, i + 1, people, o, basedHereFirst: i == 0 && a.MyLocation, excludeRoute: previousRoute);
+            if (leg == null) return null;
             if (i == 0 && !a.Resolved && leg.Top.Link.MeetAtPlace is { } meet && s.Places.TryGetValue(meet, out var meetPlace))
                 leg.MeetingPlace = meetPlace.Name;
             if (i > 0)
@@ -1012,9 +1085,28 @@ public static class TaxiWaysSearchEngine
         return new TaxiWaysPlan { PlanKey = TaxiWaysKeys.PlanKey(stops.Select(x => x.Key).ToList()), Legs = legs };
     }
 
+    // One stretch a -> b: every taxi on it ranked, the group's seat cover and the top driver's road minutes; null = nobody.
+    public static TaxiWaysLegResult? BuildLeg(
+        TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysAnchor b, int index, int people, TaxiWaysOptions o,
+        bool basedHereFirst, Guid? excludeRoute)
+    {
+        var drivers = Candidates(s, a, b, people, o, basedHereFirst, excludeRoute);
+        if (drivers.Count == 0) return null;
+        return new TaxiWaysLegResult
+        {
+            Index = index, LegKey = TaxiWaysKeys.LegKey(a.Key, b.Key), From = StopOf(a), To = StopOf(b), Drivers = drivers,
+            People = people, CoverPool = o.DetailDriversPerLeg, Minutes = MinutesOf(s, drivers[0].Link),
+        };
+    }
+
+    public static int? MinutesOf(TaxiWaysNetworkSnapshot s, TaxiWaysLink link) =>
+        s.Routes.TryGetValue(link.RouteId, out var route) && route.Minutes is { } min ? (int)Math.Ceiling(min * link.Span) : null;
+
     // True when the change happens at a place the driver passes, not at one of his route's own ends.
     private static bool IsPassPlace(TaxiWaysNetworkSnapshot s, TaxiWaysLink link, string placeKey) =>
-        s.Routes.TryGetValue(link.RouteId, out var route) && route.FromPlace != placeKey && route.ToPlace != placeKey;
+        s.Routes.TryGetValue(link.RouteId, out var route)
+        && route.FromPlace != placeKey && route.ToPlace != placeKey
+        && !route.FromPlaces.Contains(placeKey) && !route.ToPlaces.Contains(placeKey);
 
     public static TaxiWaysSearchResult Search(TaxiWaysNetworkSnapshot s, TaxiWaysAnchor from, TaxiWaysAnchor to, int people, TaxiWaysOptions o)
     {
@@ -1023,64 +1115,10 @@ public static class TaxiWaysSearchEngine
 
         result.AllTheWay.AddRange(Candidates(s, from, to, people, o, basedHereFirst: from.MyLocation));
 
-        var anchors = new Dictionary<string, TaxiWaysAnchor>(StringComparer.Ordinal);
-        TaxiWaysAnchor? AnchorFor(string key)
-        {
-            if (anchors.TryGetValue(key, out var a)) return a;
-            if (!s.Places.TryGetValue(key, out var p)) return null;
-            return anchors[key] = AnchorOf(p);
-        }
-
-        var toNeighbours = new HashSet<string>(Neighbours(s, to), StringComparer.Ordinal);
-        toNeighbours.Remove(from.Key);
-        var paths = new List<List<TaxiWaysAnchor>>();
-        var expansions = 0;
-
-        foreach (var m in Neighbours(s, from).OrderBy(k => k, StringComparer.Ordinal))
-        {
-            if (++expansions > o.MaxExpansions) { result.Truncated = true; break; }
-            if (m == to.Key || m == from.Key || !toNeighbours.Contains(m)) continue;
-            var mid = AnchorFor(m);
-            if (mid != null) paths.Add([from, mid, to]);
-        }
-
-        var plans = BuildPlans(s, paths, people, o);
-        if (plans.Count == 0 && o.MaxCars >= 3 && !result.Truncated)
-        {
-            paths.Clear();
-            foreach (var m1 in Neighbours(s, from).OrderBy(k => k, StringComparer.Ordinal))
-            {
-                if (result.Truncated) break;
-                if (m1 == to.Key || m1 == from.Key) continue;
-                var a1 = AnchorFor(m1);
-                if (a1 == null) continue;
-                foreach (var m2 in Neighbours(s, a1).OrderBy(k => k, StringComparer.Ordinal))
-                {
-                    if (++expansions > o.MaxExpansions) { result.Truncated = true; break; }
-                    if (m2 == from.Key || m2 == to.Key || m2 == m1 || !toNeighbours.Contains(m2)) continue;
-                    var a2 = AnchorFor(m2);
-                    if (a2 != null) paths.Add([from, a1, a2, to]);
-                }
-            }
-            plans = BuildPlans(s, paths, people, o);
-        }
-
-        result.Plans.AddRange(plans
-            .OrderBy(p => p.Cars).ThenBy(p => p.Total).ThenBy(p => p.PlanKey, StringComparer.Ordinal)
-            .Take(o.MaxPlans));
-        result.Expansions = expansions;
+        var (plans, relaxed) = TaxiWaysChainSearch.Plans(s, from, to, people, o);
+        result.Plans.AddRange(plans);
+        result.Expansions = relaxed;
         return result;
-    }
-
-    private static List<TaxiWaysPlan> BuildPlans(TaxiWaysNetworkSnapshot s, List<List<TaxiWaysAnchor>> paths, int people, TaxiWaysOptions o)
-    {
-        var plans = new List<TaxiWaysPlan>();
-        foreach (var path in paths)
-        {
-            var plan = BuildPlan(s, path, people, o);
-            if (plan != null) plans.Add(plan);
-        }
-        return plans;
     }
 
     // Places from which `to` is reachable in at most maxCars legs (reverse BFS), for "Reach X by train or bus".

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace RentNearBy.Core.DTOs.Responses;
 
 public class NearbyListingDto
@@ -16,4 +18,5 @@ public class NearbyListingDto
     public bool? IsAc { get; set; }
     public short PriorityRank { get; set; }
     public bool IsFeatured { get; set; }
+    [JsonIgnore] public DateTime? ValidUntil { get; set; }
 }

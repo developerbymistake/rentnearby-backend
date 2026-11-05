@@ -1,34 +1,37 @@
 using System.Collections.Concurrent;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
 public class InMemoryRateLimitService : IRateLimitService
 {
-    private record WindowEntry(int Count, DateTimeOffset ExpiresAt);
+    private readonly ConcurrentDictionary<string, SlidingWindowLog> _store = new();
+    private readonly Func<long> _nowMs;
 
-    private readonly ConcurrentDictionary<string, WindowEntry> _store = new();
-
-    public Task<RateLimitResult> CheckAsync(string key, int maxAttempts, TimeSpan window)
+    public InMemoryRateLimitService() : this(() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
     {
-        var now = DateTimeOffset.UtcNow;
+    }
 
-        var entry = _store.AddOrUpdate(
-            key,
-            _ => new WindowEntry(1, now.Add(window)),
-            (_, existing) =>
-            {
-                if (now >= existing.ExpiresAt)
-                    return new WindowEntry(1, now.Add(window));
-                return existing with { Count = existing.Count + 1 };
-            });
+    internal InMemoryRateLimitService(Func<long> nowMs) => _nowMs = nowMs;
 
-        if (entry.Count > maxAttempts)
+    public Task<RateLimitResult> CheckAsync(string key, int maxAttempts, TimeSpan window, int permits = 1)
+    {
+        var log = _store.GetOrAdd(key, _ => new SlidingWindowLog());
+        var token = Guid.NewGuid().ToString("N");
+        lock (log)
         {
-            var retryAfter = entry.ExpiresAt - now;
-            return Task.FromResult(new RateLimitResult(false, 0, retryAfter > TimeSpan.Zero ? retryAfter : window));
+            var (allowed, remaining, retryMs) = log.TryAcquire(_nowMs(), (long)window.TotalMilliseconds, maxAttempts, permits, token);
+            return Task.FromResult(allowed
+                ? new RateLimitResult(true, remaining, null, token)
+                : new RateLimitResult(false, 0, TimeSpan.FromMilliseconds(retryMs)));
         }
+    }
 
-        return Task.FromResult(new RateLimitResult(true, maxAttempts - entry.Count, null));
+    public Task ReleaseAsync(string key, string token)
+    {
+        if (_store.TryGetValue(key, out var log))
+            lock (log) log.Release(token);
+        return Task.CompletedTask;
     }
 }

@@ -247,7 +247,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     SELECT MAX(r."MaxGuests")::int4 AS "MaxGuests",
                            COUNT(*)::int4 AS "RoomCount",
                            string_agg(DISTINCT NULLIF(btrim(r."Meals"), ''), ' · ') AS "Meals",
-                           json_agg(json_build_object('roomName', r."RoomName", 'maxGuests', r."MaxGuests", 'floor', r."Floor")
+                           json_agg(json_build_object('roomName', r."RoomName", 'maxGuests', r."MaxGuests", 'floor', r."Floor", 'pricePerNight', r."PricePerNight")
                                     ORDER BY r."RoomIndex")::text AS "RoomsJson",
                            bool_or(r."Floor" = 0) AS "HasGroundFloorRoom"
                     FROM "StayRooms" r
@@ -335,7 +335,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     LIMIT 1
                 ) p ON TRUE
                 LEFT JOIN LATERAL (
-                    SELECT json_agg(json_build_object('roomName', r."RoomName", 'maxGuests', r."MaxGuests", 'floor', r."Floor")
+                    SELECT json_agg(json_build_object('roomName', r."RoomName", 'maxGuests', r."MaxGuests", 'floor', r."Floor", 'pricePerNight', r."PricePerNight")
                                     ORDER BY r."RoomIndex")::text AS "RoomsJson",
                            bool_or(r."Floor" = 0) AS "HasGroundFloorRoom"
                     FROM "StayRooms" r

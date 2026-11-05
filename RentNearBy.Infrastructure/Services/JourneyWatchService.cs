@@ -9,10 +9,11 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Every 10 min (first pass after 1 min), journeys with TravelDate >= today (IST) and not Completed:
+// Every 10 min (first pass after 1 min), journeys with TravelDate >= today (IST) and not Completed, only those with work
+// (keyset pages to the end, GetWatchedPageAsync):
 //   a chosen driver no longer public -> leg unavailable, journey DriverUnavailable, push once (jrn:p:...)
 //   the same driver public again     -> leg available, status recomputed, push once per day (jrn:b:...)
-//   TravelDate is tomorrow           -> push once (jrn:e:...), not when the trip's travel-eve push covers it (TripEveCovers)
+//   18:00-24:00 IST the day before   -> push once per date (jrn:e:{id}:{date}), not when the trip's travel-eve push covers it (TripEveCovers)
 // A journey in a trip routes the paused/back pushes to the trip plan.
 public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<JourneyWatchService> logger) : BackgroundService
 {
@@ -48,58 +49,26 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
             var repo = sp.GetRequiredService<ISavedJourneyRepository>();
             var notifier = sp.GetRequiredService<ITripNotifier>();
 
+            var db = sp.GetRequiredService<ApplicationDbContext>();
+
             var now = DateTime.UtcNow;
             var today = JourneyRules.TodayIst(now);
-            var journeys = await repo.GetWatchedAsync(today, Batch);
-            if (journeys.Count == 0) return;
-
-            var taxiIds = journeys
-                .SelectMany(j => j.Legs)
-                .SelectMany(l => new[] { l.DriverTaxiId, l.Backup1TaxiId ?? Guid.Empty, l.Backup2TaxiId ?? Guid.Empty })
-                .Where(id => id != Guid.Empty)
-                .ToHashSet();
-            var taxis = await repo.LoadTaxisAsync(taxiIds);
-            var db = sp.GetRequiredService<ApplicationDbContext>();
-            var segmentIds = await SegmentJourneyIdsAsync(db, journeys.Where(j => j.TravelDate == today.AddDays(1)).ToList(), ct);
-            var booked = await BookedLegsAsync(db, journeys, ct);
+            var tomorrow = today.AddDays(1);
+            DateOnly? eveDate = JourneyEveRules.InWindow(tomorrow, now) ? tomorrow : null;
 
             int changed = 0, sent = 0;
-            foreach (var journey in journeys)
+            Guid? after = null;
+            do
             {
                 if (ct.IsCancellationRequested) break;
-                var pushes = new List<Pending>();
-                var bookedLegs = booked.GetValueOrDefault(journey.Id);
-                var dirty = Evaluate(journey, taxis, today, now, pushes, segmentIds, bookedLegs);
-                if (dirty)
-                {
-                    journey.Status = JourneyRules.JourneyStatusOf(journey.Legs, bookedLegs);
-                    journey.UpdatedAt = now;
-                    try
-                    {
-                        await repo.SaveChangesAsync();
-                        changed++;
-                    }
-                    catch (DbUpdateConcurrencyException)
-                    {
-                        // The stale row stays tracked and would fail every later save: end this pass, the next one looks again.
-                        pushes.Clear();
-                        logger.LogInformation("journey.watch concurrent {JourneyId}", journey.Id);
-                        break;
-                    }
-                }
-
-                foreach (var p in pushes)
-                {
-                    try
-                    {
-                        if (await notifier.SendOnceAsync(p.Event, p.Dedupe, null, null)) sent++;
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, "journey.watch.push_failed {JourneyId}", p.JourneyId);
-                    }
-                }
+                var (journeys, next) = await repo.GetWatchedPageAsync(today, eveDate, after, Batch);
+                after = next;
+                var (c, s) = await PageAsync(journeys, repo, notifier, db, today, now, ct);
+                changed += c;
+                sent += s;
+                db.ChangeTracker.Clear();
             }
+            while (after != null);
 
             if (changed + sent > 0) logger.LogInformation("journey.watch changed={Changed} pushes={Pushes}", changed, sent);
         }
@@ -107,6 +76,62 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
         {
             logger.LogError(ex, "journey.watch failed");
         }
+    }
+
+    private async Task<(int Changed, int Sent)> PageAsync(
+        IReadOnlyList<SavedJourney> journeys, ISavedJourneyRepository repo, ITripNotifier notifier, ApplicationDbContext db,
+        DateOnly today, DateTime now, CancellationToken ct)
+    {
+        if (journeys.Count == 0) return (0, 0);
+        var taxiIds = journeys
+            .SelectMany(j => j.Legs)
+            .SelectMany(l => new[] { l.DriverTaxiId, l.Backup1TaxiId ?? Guid.Empty, l.Backup2TaxiId ?? Guid.Empty })
+            .Where(id => id != Guid.Empty)
+            .ToHashSet();
+        var taxis = await repo.LoadTaxisAsync(taxiIds);
+        var segmentIds = await SegmentJourneyIdsAsync(db, journeys.Where(j => j.TravelDate == today.AddDays(1)).ToList(), ct);
+        var booked = await BookedLegsAsync(db, journeys, ct);
+
+        int changed = 0, sent = 0;
+        foreach (var journey in journeys)
+        {
+            if (ct.IsCancellationRequested) break;
+            var pushes = new List<Pending>();
+            var bookedLegs = booked.GetValueOrDefault(journey.Id);
+            var dirty = Evaluate(journey, taxis, today, now, pushes, segmentIds, bookedLegs);
+            if (dirty)
+            {
+                journey.Status = JourneyRules.JourneyStatusOf(journey.Legs, bookedLegs);
+                journey.UpdatedAt = now;
+                try
+                {
+                    await repo.SaveChangesAsync();
+                    changed++;
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    // Only this journey is skipped: its stale entries leave the tracker, the next pass reads it fresh.
+                    pushes.Clear();
+                    foreach (var leg in journey.Legs) db.Entry(leg).State = EntityState.Detached;
+                    db.Entry(journey).State = EntityState.Detached;
+                    logger.LogInformation("journey.watch concurrent {JourneyId}", journey.Id);
+                    continue;
+                }
+            }
+
+            foreach (var p in pushes)
+            {
+                try
+                {
+                    if (await notifier.SendOnceAsync(p.Event, p.Dedupe, null, null)) sent++;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "journey.watch.push_failed {JourneyId}", p.JourneyId);
+                }
+            }
+        }
+        return (changed, sent);
     }
 
     // Journeys of tomorrow whose eve the trip's travel-eve pass sends instead (one trips query per pass).
@@ -192,11 +217,11 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
             }
         }
 
-        if (journey.TravelDate == today.AddDays(1) && segmentIds?.Contains(journey.Id) != true)
+        if (JourneyEveRules.InWindow(journey.TravelDate, now) && segmentIds?.Contains(journey.Id) != true)
         {
             var notAsked = journey.Legs.Count(l => l.LastEnquiryId == null);
             pushes.Add(new Pending(
-                JourneyRules.EveKey(journey.Id),
+                JourneyEveRules.Key(journey.Id, journey.TravelDate),
                 JourneyNotifications.DayBefore(journey.UserId, journey.Id, journey.FromName, journey.ToName, notAsked),
                 journey.Id));
         }

@@ -37,7 +37,30 @@ public class ListingReportRepository(ApplicationDbContext context) : IListingRep
         if (!string.IsNullOrWhiteSpace(status) && !status.Equals("All", StringComparison.OrdinalIgnoreCase))
             query = query.Where(r => r.Status == status);
 
-        return await query.OrderByDescending(r => r.CreatedAt).ToPagedResultAsync(page, pageSize);
+        return await query.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).ToPagedResultAsync(page, pageSize);
+    }
+
+    // Seek page on (CreatedAt DESC, Id DESC): resolving a report never shifts the next page.
+    public async Task<(List<ListingReport> Items, bool HasMore)> GetAfterCursorAsync(
+        int pageSize, string? status, DateTime? afterAt, Guid? afterId)
+    {
+        var query = context.ListingReports
+            .AsNoTracking()
+            .Include(r => r.Reason)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(status) && !status.Equals("All", StringComparison.OrdinalIgnoreCase))
+            query = query.Where(r => r.Status == status);
+        if (afterAt is { } at && afterId is { } id)
+            query = query.Where(r => r.CreatedAt <= at && (r.CreatedAt < at || r.Id.CompareTo(id) < 0));
+
+        var rows = await query
+            .OrderByDescending(r => r.CreatedAt)
+            .ThenByDescending(r => r.Id)
+            .Take(pageSize + 1)
+            .ToListAsync();
+        var hasMore = rows.Count > pageSize;
+        return (hasMore ? rows.Take(pageSize).ToList() : rows, hasMore);
     }
 
     public async Task<int> AutoResolvePendingForListingAsync(Guid listingId, string listingType)

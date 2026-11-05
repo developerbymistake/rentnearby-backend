@@ -22,6 +22,8 @@ public class RoomListing
     // QR redirect; never regenerated on update, and never derived from price/status (see SlugGenerator.cs).
     public string? Slug { get; set; }
     public DateTime CreatedAt { get; set; }
+    // Go-live time used by every "newest" order (ListingPublishRules); CreatedAt stays the draft time.
+    public DateTime PublishedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsDeleted { get; set; } = false;
     public DateTime? DeletedAt { get; set; }

@@ -14,7 +14,11 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
     private record BoxQueryResult(
         Guid Id, double Lat, double Lng,
         double AreaValue, string AreaUnit, string PlotType,
-        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured);
+        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured, DateTime? ValidUntil);
+
+    // Public = live and inside its window; the hourly expiry sweep only does the side effects (ListingVisibility).
+    private IQueryable<PlotListing> PublicRows(DateTime nowUtc)
+        => _dbSet.AsNoTracking().Where(p => p.IsActive && !p.IsDeleted && (p.ValidUntil == null || p.ValidUntil > nowUtc));
 
     private static (double MinLat, double MaxLat, double MinLng, double MaxLng)
         GetBoundingBox(double lat, double lng, double radiusKm)
@@ -44,7 +48,8 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                     CASE WHEN u."IsContactVisible" THEN u."PhoneNumber" END AS "OwnerPhone",
                     ph."PhotoUrl"          AS "ThumbnailUrl",
                     p."PriorityRank",
-                    p."IsFeatured"
+                    p."IsFeatured",
+                    p."ValidUntil"
                 FROM "PlotListings" p
                 INNER JOIN "PlotTypes" pt ON pt."Id" = p."PlotTypeId"
                 LEFT JOIN "Users" u ON u."Id" = p."UserId"
@@ -57,6 +62,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                 ) ph ON TRUE
                 WHERE p."IsActive" = TRUE
                   AND p."IsDeleted" = FALSE
+                  AND (p."ValidUntil" IS NULL OR p."ValidUntil" > now())
                   AND p."DistrictId" = {districtId}
                   AND p."Location" && ST_MakeEnvelope({minLng}::float8, {minLat}::float8,
                                                        {maxLng}::float8, {maxLat}::float8, 4326)::geography
@@ -86,6 +92,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                 DistanceKm = x.Dist,
                 PriorityRank = x.Row.PriorityRank,
                 IsFeatured = x.Row.IsFeatured,
+                ValidUntil = x.Row.ValidUntil,
             })
             .ToList();
     }
@@ -93,7 +100,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
     private record KnnQueryResult(
         Guid Id, double Lat, double Lng,
         double AreaValue, string AreaUnit, string PlotType,
-        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured, double DistanceMeters);
+        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured, DateTime? ValidUntil, double DistanceMeters);
 
     public async Task<IEnumerable<NearbyPlotListingDto>> GetNearestAsync(
         double latitude, double longitude, int count, Guid districtId)
@@ -114,6 +121,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                     ph."PhotoUrl"          AS "ThumbnailUrl",
                     p."PriorityRank",
                     p."IsFeatured",
+                    p."ValidUntil",
                     ST_Distance(p."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters"
                 FROM "PlotListings" p
                 INNER JOIN "PlotTypes" pt ON pt."Id" = p."PlotTypeId"
@@ -127,6 +135,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                 ) ph ON TRUE
                 WHERE p."IsActive" = TRUE
                   AND p."IsDeleted" = FALSE
+                  AND (p."ValidUntil" IS NULL OR p."ValidUntil" > now())
                   AND p."DistrictId" = {districtId}
                 ORDER BY p."Location" <-> ST_MakePoint({longitude}, {latitude})::geography
                 LIMIT {count}
@@ -151,6 +160,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                 DistanceKm = r.DistanceMeters / 1000.0,
                 PriorityRank = r.PriorityRank,
                 IsFeatured = r.IsFeatured,
+                ValidUntil = r.ValidUntil,
             })
             .ToList();
     }
@@ -208,14 +218,13 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
     // page (owner name, exact GPS, address, photos) doesn't stay indefinitely reachable/indexable via
     // a previously-issued slug; matches the Share entry point itself only being offered while Live.
     public async Task<PlotListing?> GetBySlugWithPhotosAsync(string slug)
-        => await _dbSet
-            .AsNoTracking()
+        => await PublicRows(DateTime.UtcNow)
             .Include(p => p.PlotType)
             .Include(p => p.District)
             .Include(p => p.City)
             .Include(p => p.User)
             .Include(p => p.Photos.OrderBy(ph => ph.PhotoOrder))
-            .FirstOrDefaultAsync(p => p.Slug == slug && !p.IsDeleted && p.IsActive);
+            .FirstOrDefaultAsync(p => p.Slug == slug);
 
     // Admin moderation needs to review reported plots even after the owner
     // deletes them — photos are gone for good (deleted from storage on delete),
@@ -284,24 +293,21 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         PriorityRank = p.PriorityRank,
         IsFeatured = p.IsFeatured,
         CreatedAt = p.CreatedAt,
+        PublishedAt = p.PublishedAt,
+        ValidUntil = p.ValidUntil,
+        AreaSqft = p.AreaSqft,
     };
 
-    // Home "for you": paid rank first, then newest live rows of the district (ix_plotlistings_district_active_recent).
-    public async Task<List<HomePlotDto>> GetHomeForYouProjectedAsync(Guid districtId, int limit)
-        => await _dbSet.AsNoTracking()
-            .Where(p => p.IsActive && !p.IsDeleted && p.DistrictId == districtId)
-            .OrderByDescending(p => p.PriorityRank)
-            .ThenByDescending(p => p.CreatedAt)
-            .Take(limit)
-            .Select(BrowseProjection)
-            .ToListAsync();
+    // Home "for you" = the first `limit` rows of the browse walk (newest, city first), so the rail is a prefix of the grid.
+    public async Task<List<HomePlotDto>> GetHomeForYouProjectedAsync(Guid districtId, Guid? cityId, int limit)
+        => (await GetAllPagedByTypeIdAsync(districtId, cityId, null, BrowseSorts.Newest, 1, limit, null)).Items.ToList();
 
-    // District-free by design — the Home "Recently added" feed is identical for every user (ix_plotlistings_recent_active).
+    // District-free by design — identical for every user. Order = ListingFeedOrder (ix_plotlistings_recent_active).
     public async Task<List<HomePlotDto>> GetRecentProjectedAsync(int limit)
-        => await _dbSet.AsNoTracking()
-            .Where(p => p.IsActive && !p.IsDeleted)
+        => await PublicRows(DateTime.UtcNow)
             .OrderByDescending(p => p.PriorityRank)
-            .ThenByDescending(p => p.CreatedAt)
+            .ThenByDescending(p => p.PublishedAt)
+            .ThenByDescending(p => p.Id)
             .Take(limit)
             .Select(BrowseProjection)
             .ToListAsync();
@@ -310,36 +316,25 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         Guid districtId, Guid? cityId, Guid? plotTypeId, string sortBy, int page, int pageSize, string? cursor)
     {
         page = Math.Clamp(page, 1, BrowseCursor.MaxPage);
+        var sort = sortBy is BrowseSorts.AreaAsc or BrowseSorts.AreaDesc ? sortBy : BrowseSorts.Newest;
 
-        var query = _dbSet
-            .AsNoTracking()
-            .Where(p => p.IsActive && !p.IsDeleted && p.DistrictId == districtId);
+        var query = PublicRows(DateTime.UtcNow).Where(p => p.DistrictId == districtId);
         if (plotTypeId.HasValue)
             query = query.Where(p => p.PlotTypeId == plotTypeId.Value);
 
-        if (sortBy is "area_asc" or "area_desc")
+        // Old app builds page by offset; the order is the same total order as the phase walk below.
+        if (string.IsNullOrEmpty(cursor) && page > 1)
         {
             var cityFirst = query
                 .OrderByDescending(p => p.PriorityRank)
                 .ThenBy(p => cityId != null && p.CityId == cityId ? 0 : 1);
-            var byArea = sortBy == "area_asc"
-                ? cityFirst.ThenBy(p => p.AreaSqft).ThenBy(p => p.Id)
-                : cityFirst.ThenByDescending(p => p.AreaSqft).ThenByDescending(p => p.Id);
-            var sized = await byArea.Skip((page - 1) * pageSize).Take(pageSize + 1).Select(BrowseProjection).ToListAsync();
-            return BrowseCursor.OffsetPage(sized, pageSize);
-        }
-
-        if (string.IsNullOrEmpty(cursor) && page > 1)
-        {
-            var legacy = await query
-                .OrderByDescending(p => p.PriorityRank)
-                .ThenBy(p => cityId != null && p.CityId == cityId ? 0 : 1)
-                .ThenByDescending(p => p.CreatedAt)
-                .ThenByDescending(p => p.Id)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize + 1)
-                .Select(BrowseProjection)
-                .ToListAsync();
+            var ordered = sort switch
+            {
+                BrowseSorts.AreaAsc => cityFirst.ThenBy(p => p.AreaSqft).ThenBy(p => p.Id),
+                BrowseSorts.AreaDesc => cityFirst.ThenByDescending(p => p.AreaSqft).ThenByDescending(p => p.Id),
+                _ => cityFirst.ThenByDescending(p => p.PublishedAt).ThenByDescending(p => p.Id),
+            };
+            var legacy = await ordered.Skip((page - 1) * pageSize).Take(pageSize + 1).Select(BrowseProjection).ToListAsync();
             return BrowseCursor.OffsetPage(legacy, pageSize);
         }
 
@@ -347,7 +342,7 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
         var ranks = await PlanCatalogCache.RanksForAsync(context, ListingKinds.Plot);
         var outsideRanks = BrowseCursor.OutsideRanks<PlotListing>(p => p.PriorityRank, ranks);
         var phases = BrowseCursor.Phases(ranks, cityId.HasValue);
-        var (start, afterAt, afterId) = BrowseCursor.Resume(cursor, phases);
+        var (start, afterKey, afterId) = BrowseCursor.Resume(cursor, sort, phases);
 
         var items = new List<HomePlotDto>(pageSize + 1);
         var itemPhases = new List<BrowsePhase>(pageSize + 1);
@@ -366,26 +361,44 @@ public class PlotListingRepository(ApplicationDbContext context) : Repository<Pl
                     ? phaseQuery.Where(p => p.CityId == cid)
                     : phaseQuery.Where(p => p.CityId == null || p.CityId != cid);
             }
-            if (afterAt.HasValue)
-            {
-                var at = afterAt.Value;
-                var aid = afterId;
-                phaseQuery = phaseQuery.Where(p => p.CreatedAt <= at && (p.CreatedAt < at || p.Id.CompareTo(aid) < 0));
-            }
 
-            var rows = await phaseQuery
-                .OrderByDescending(p => p.CreatedAt)
-                .ThenByDescending(p => p.Id)
+            var rows = await Keyset(phaseQuery, sort, afterKey, afterId)
                 .Take(need)
                 .Select(BrowseProjection)
                 .ToListAsync();
             items.AddRange(rows);
             itemPhases.AddRange(Enumerable.Repeat(phase, rows.Count));
-            afterAt = null;
+            afterKey = null;
             if (rows.Count == need) break;
         }
 
-        return BrowseCursor.KeysetPage(items, itemPhases, pageSize, x => x.CreatedAt, x => x.Id);
+        return BrowseCursor.KeysetPage(items, itemPhases, pageSize, sort, x => SortKey(x, sort), x => x.Id);
+    }
+
+    private static decimal SortKey(HomePlotDto row, string sort)
+        => sort == BrowseSorts.Newest ? BrowseCursor.NewestKey(row.PublishedAt) : row.AreaSqft;
+
+    // Rows strictly after (key, id) in the sort's direction, ordered by (key, id).
+    private static IQueryable<PlotListing> Keyset(IQueryable<PlotListing> q, string sort, decimal? afterKey, Guid afterId)
+    {
+        switch (sort)
+        {
+            case BrowseSorts.AreaAsc:
+                if (afterKey is decimal aa)
+                    q = q.Where(p => p.AreaSqft >= aa && (p.AreaSqft > aa || p.Id.CompareTo(afterId) > 0));
+                return q.OrderBy(p => p.AreaSqft).ThenBy(p => p.Id);
+            case BrowseSorts.AreaDesc:
+                if (afterKey is decimal ad)
+                    q = q.Where(p => p.AreaSqft <= ad && (p.AreaSqft < ad || p.Id.CompareTo(afterId) < 0));
+                return q.OrderByDescending(p => p.AreaSqft).ThenByDescending(p => p.Id);
+            default:
+                if (afterKey is decimal k)
+                {
+                    var at = BrowseCursor.NewestAt(k);
+                    q = q.Where(p => p.PublishedAt <= at && (p.PublishedAt < at || p.Id.CompareTo(afterId) < 0));
+                }
+                return q.OrderByDescending(p => p.PublishedAt).ThenByDescending(p => p.Id);
+        }
     }
 
     public async Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId)

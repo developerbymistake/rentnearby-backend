@@ -10,7 +10,7 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
     Task<IEnumerable<PlotListing>> GetByUserIdAsync(Guid userId);
     Task<bool> HasEverApprovedAsync(Guid userId);
     // Home rails, projected (no Include, no full entities). Recent is district-free.
-    Task<List<HomePlotDto>> GetHomeForYouProjectedAsync(Guid districtId, int limit);
+    Task<List<HomePlotDto>> GetHomeForYouProjectedAsync(Guid districtId, Guid? cityId, int limit);
     Task<List<HomePlotDto>> GetRecentProjectedAsync(int limit);
 
     // Plan slot counts live in ILiveSlotService (CountForCreationAsync / CountLiveAsync).
@@ -28,7 +28,7 @@ public interface IPlotListingRoomListingRepository : IRepository<PlotListing>
         Guid? districtId = null,
         Guid? cityId = null,
         string? search = null);
-    // Newest sort pages by opaque keyset cursor (first page: null); area sorts page by offset.
+    // Every sort pages by opaque keyset cursor (first page: null); page > 1 without a cursor = legacy offset.
     Task<BrowsePage<HomePlotDto>> GetAllPagedByTypeIdAsync(
         Guid districtId, Guid? cityId, Guid? plotTypeId, string sortBy, int page, int pageSize, string? cursor);
     Task<IEnumerable<PlotListing>> GetActiveByUserIdAsync(Guid userId);

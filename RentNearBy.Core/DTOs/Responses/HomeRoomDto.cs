@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace RentNearBy.Core.DTOs.Responses;
 
 public class HomeRoomDto
@@ -14,4 +16,6 @@ public class HomeRoomDto
     public short PriorityRank { get; set; }
     public bool IsFeatured { get; set; }
     public DateTime CreatedAt { get; set; }
+    public DateTime PublishedAt { get; set; }
+    [JsonIgnore] public DateTime? ValidUntil { get; set; }
 }

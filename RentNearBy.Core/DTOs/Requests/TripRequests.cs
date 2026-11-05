@@ -16,6 +16,9 @@ public class PlanTripRequest
     public int? FirstDayUsedMinutes { get; set; }
     // City leg 1..4, log only.
     public int? LegIndex { get; set; }
+    // Day base (the stay), both or neither: every day starts and ends there and those legs count. Absent = no base legs.
+    public double? AnchorLatitude { get; set; }
+    public double? AnchorLongitude { get; set; }
 }
 
 public class PlanSpotInput

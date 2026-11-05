@@ -8,9 +8,11 @@ public class AdminStatsDto
     public int TotalPlotListings { get; set; }
     public int ActivePlotListings { get; set; }
     public int ActiveDistricts { get; set; }
-    public Dictionary<string, int> RoomListingsByDistrict { get; set; } = new();
+    public List<AdminDistrictCountDto> RoomListingsByDistrict { get; set; } = new();
     public int TotalEarnings { get; set; }
     public int CurrentMonthEarnings { get; set; }
+    public long TotalEarningsPaise { get; set; }
+    public long CurrentMonthEarningsPaise { get; set; }
     public int ActivePaidUsers { get; set; }
     public List<AdminPlanUsersDto> PlanUsers { get; set; } = new();
     public int TripEnquiriesToday { get; set; }
@@ -18,6 +20,14 @@ public class AdminStatsDto
     public int TripProblems7d { get; set; }
     public int TripConfirmedThisWeek { get; set; }
     public int TripLeadsAnsweredPct { get; set; }
+}
+
+public class AdminDistrictCountDto
+{
+    public Guid DistrictId { get; set; }
+    public string DistrictName { get; set; } = string.Empty;
+    public string StateName { get; set; } = string.Empty;
+    public int Count { get; set; }
 }
 
 public class AdminPlanUsersDto

@@ -23,6 +23,8 @@ public class PlotListing
     public bool IsDeleted { get; set; } = false;
     public DateTime? DeletedAt { get; set; }
     public DateTime CreatedAt { get; set; }
+    // Go-live time used by every "newest" order (ListingPublishRules); CreatedAt stays the draft time.
+    public DateTime PublishedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public DateTime? DigestNotifiedAt { get; set; }
 

@@ -13,10 +13,26 @@ public class ConversationRepository : Repository<Conversation>, IConversationRep
         => await _context.Conversations
             .Where(c => c.RenterId == userId || c.OwnerId == userId)
             .OrderByDescending(c => c.LastMessageAt)
+            .ThenByDescending(c => c.Id)
             .Skip(offset)
             .Take(limit)
             .AsNoTracking()
             .ToListAsync();
+
+    // Seek page on (LastMessageAt DESC, Id DESC): rows strictly after the cursor, so a chat that moves to the
+    // top between pages is never repeated or skipped on an older page.
+    public async Task<IReadOnlyList<Conversation>> GetForUserAfterCursorAsync(Guid userId, DateTime? afterAt, Guid? afterId, int limit)
+    {
+        var query = _context.Conversations.Where(c => c.RenterId == userId || c.OwnerId == userId);
+        if (afterAt is { } at && afterId is { } id)
+            query = query.Where(c => c.LastMessageAt <= at && (c.LastMessageAt < at || c.Id.CompareTo(id) < 0));
+        return await query
+            .OrderByDescending(c => c.LastMessageAt)
+            .ThenByDescending(c => c.Id)
+            .Take(limit)
+            .AsNoTracking()
+            .ToListAsync();
+    }
 
     public async Task<Conversation?> FindExistingAsync(Guid renterId, Guid ownerId, string listingType, Guid listingId)
         => await _context.Conversations
@@ -51,20 +67,22 @@ public class ConversationRepository : Repository<Conversation>, IConversationRep
             .FirstAsync();
     }
 
+    // LastMessageAt/preview only move forward: every SET reads the row's old values, so an older message that
+    // commits last keeps the newer preview (the unread bump is unconditional).
     public async Task<int> ApplyIncomingMessageAsync(Guid conversationId, DateTime lastMessageAt, string lastMessagePreview, bool recipientIsRenter)
     {
         if (recipientIsRenter)
         {
             await _context.Conversations.Where(c => c.Id == conversationId).ExecuteUpdateAsync(s => s
-                .SetProperty(c => c.LastMessageAt, lastMessageAt)
-                .SetProperty(c => c.LastMessagePreview, lastMessagePreview)
+                .SetProperty(c => c.LastMessageAt, c => c.LastMessageAt > lastMessageAt ? c.LastMessageAt : lastMessageAt)
+                .SetProperty(c => c.LastMessagePreview, c => c.LastMessageAt > lastMessageAt ? c.LastMessagePreview : lastMessagePreview)
                 .SetProperty(c => c.UnreadCountForRenter, c => c.UnreadCountForRenter + 1));
         }
         else
         {
             await _context.Conversations.Where(c => c.Id == conversationId).ExecuteUpdateAsync(s => s
-                .SetProperty(c => c.LastMessageAt, lastMessageAt)
-                .SetProperty(c => c.LastMessagePreview, lastMessagePreview)
+                .SetProperty(c => c.LastMessageAt, c => c.LastMessageAt > lastMessageAt ? c.LastMessageAt : lastMessageAt)
+                .SetProperty(c => c.LastMessagePreview, c => c.LastMessageAt > lastMessageAt ? c.LastMessagePreview : lastMessagePreview)
                 .SetProperty(c => c.UnreadCountForOwner, c => c.UnreadCountForOwner + 1));
         }
 

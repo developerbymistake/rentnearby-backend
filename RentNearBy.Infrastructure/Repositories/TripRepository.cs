@@ -61,15 +61,39 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
         return (rows.Where(r => !r.Completed).Sum(r => r.Count), rows.Where(r => r.Completed).Sum(r => r.Count));
     }
 
-    public async Task<IReadOnlyList<Trip>> GetReminderCandidatesAsync(DateOnly startFrom, DateOnly startTo, DateOnly endFrom, DateOnly endTo, int take)
-        => await _dbSet.AsNoTracking()
-            .Where(t => t.Status == TripStatuses.Planned && t.MutedAt == null
-                && ((t.StartDate != null && t.StartDate >= startFrom && t.StartDate <= startTo)
-                    || (t.EndDate != null && t.EndDate >= endFrom && t.EndDate <= endTo)))
-            .OrderBy(t => t.StartDate)
-            .ThenBy(t => t.Id)
-            .Take(take)
+    // Only trips with a date reminder whose window is open (the date sets come from TripReminderRules.*OpenDates) and
+    // whose key is not logged yet; keyset by Id. Keys mirror StartsInKey / TodayKey / MarkCompleteKey.
+    public async Task<(IReadOnlyList<Trip> Items, Guid? Next)> GetDateReminderCandidatesAsync(
+        DateOnly[] startsIn, DateOnly[] startsToday, DateOnly[] markComplete, Guid? after, int take)
+    {
+        var size = Math.Max(1, take);
+        if (startsIn.Length + startsToday.Length + markComplete.Length == 0) return (Array.Empty<Trip>(), null);
+        var status = TripStatuses.Planned;
+        var ids = await _context.Database
+            .SqlQuery<Guid>($"""
+                SELECT t."Id" AS "Value" FROM "Trips" t
+                WHERE t."Status" = {status} AND t."MutedAt" IS NULL
+                  AND ({after}::uuid IS NULL OR t."Id" > {after}::uuid)
+                  AND ((t."StartDate" = ANY({startsIn}) AND NOT EXISTS (SELECT 1 FROM "TripPushLogs" p
+                          WHERE p."DedupeKey" = 'd3:' || t."Id"::text || ':' || to_char(t."StartDate", 'YYYYMMDD')))
+                    OR (t."StartDate" = ANY({startsToday}) AND NOT EXISTS (SELECT 1 FROM "TripPushLogs" p
+                          WHERE p."DedupeKey" = 'd0:' || t."Id"::text || ':' || to_char(t."StartDate", 'YYYYMMDD')))
+                    OR (t."EndDate" = ANY({markComplete}) AND NOT EXISTS (SELECT 1 FROM "TripPushLogs" p
+                          WHERE p."DedupeKey" = 'done:' || t."Id"::text || ':' || to_char(t."EndDate", 'YYYYMMDD'))))
+                ORDER BY t."Id"
+                LIMIT {size}
+                """)
             .ToListAsync();
+        return await LoadPageAsync(ids, size);
+    }
+
+    private async Task<(IReadOnlyList<Trip> Items, Guid? Next)> LoadPageAsync(List<Guid> ids, int size)
+    {
+        if (ids.Count == 0) return (Array.Empty<Trip>(), null);
+        var trips = await _dbSet.AsNoTracking().Where(t => ids.Contains(t.Id)).ToListAsync();
+        var order = ids.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        return (trips.OrderBy(t => order[t.Id]).ToList(), ids.Count == size ? ids[^1] : (Guid?)null);
+    }
 
     // One-city trips never reach the page, nor trips whose trv key for this date is already logged.
     public async Task<(IReadOnlyList<Trip> Items, Guid? Next)> GetTravelEveCandidatesAsync(DateOnly travelDate, Guid? after, int take)
@@ -100,13 +124,29 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
         return (trips.OrderBy(t => order[t.Id]).ToList(), ids.Count == size ? ids[^1] : (Guid?)null);
     }
 
-    public async Task<IReadOnlyList<Trip>> GetAutoCompleteCandidatesAsync(DateOnly endBefore, int take)
-        => await _dbSet.AsNoTracking()
-            .Where(t => t.Status == TripStatuses.Planned && t.EndDate != null && t.EndDate <= endBefore)
-            .OrderBy(t => t.EndDate)
-            .ThenBy(t => t.Id)
-            .Take(take)
+    // Trips with an open row (TripBookingStates.IsOpenForCompletion) never reach the page, so they cannot pin it.
+    public async Task<(IReadOnlyList<Trip> Items, Guid? Next)> GetAutoCompleteCandidatesAsync(DateOnly endBefore, Guid? after, int take)
+    {
+        var size = Math.Max(1, take);
+        var planned = TripStatuses.Planned;
+        var both = TripEnquiryStatuses.ConfirmedByBoth;
+        var pending = TripAdvanceStatuses.Pending;
+        var proofSent = TripAdvanceStatuses.ProofSent;
+        var ids = await _context.Database
+            .SqlQuery<Guid>($"""
+                SELECT t."Id" AS "Value" FROM "Trips" t
+                WHERE t."Status" = {planned} AND t."EndDate" IS NOT NULL AND t."EndDate" <= {endBefore}
+                  AND ({after}::uuid IS NULL OR t."Id" > {after}::uuid)
+                  AND NOT EXISTS (SELECT 1 FROM "TripEnquiries" e
+                                  WHERE e."TripId" = t."Id"
+                                    AND (e."Status" IN ('Asked', 'Offered', 'Countered', 'FareSent')
+                                         OR (e."Status" = {both} AND e."AdvanceStatus" IN ({pending}, {proofSent}))))
+                ORDER BY t."Id"
+                LIMIT {size}
+                """)
             .ToListAsync();
+        return await LoadPageAsync(ids, size);
+    }
 
     public async Task<int> TryCompleteAsync(Guid id, DateTime nowUtc)
         => await _dbSet
@@ -156,6 +196,25 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
 
     public async Task<Trip?> FindByClientIdAsync(Guid ownerUserId, Guid clientTripId)
         => await _dbSet.FirstOrDefaultAsync(t => t.OwnerUserId == ownerUserId && t.ClientTripId == clientTripId);
+
+    public async Task<Dictionary<Guid, TripEnquiryTripView>> GetDatesAndOwnPlansAsync(IReadOnlyCollection<Guid> ids, Guid viewerUserId)
+    {
+        if (ids.Count == 0) return new Dictionary<Guid, TripEnquiryTripView>();
+        var list = ids.Distinct().ToList();
+        var rows = await _dbSet.AsNoTracking()
+            .Where(t => list.Contains(t.Id))
+            .Select(t => new
+            {
+                t.Id, t.StartDate, t.EndDate,
+                PlanJson = t.OwnerUserId == viewerUserId ? t.PlanJson : null,
+                t.CityKey, t.CityName, t.CityLatitude, t.CityLongitude, t.DistrictId,
+            })
+            .ToListAsync();
+        return rows.ToDictionary(
+            r => r.Id,
+            r => new TripEnquiryTripView(r.Id, r.StartDate, r.EndDate, r.PlanJson, r.CityKey, r.CityName,
+                (double)r.CityLatitude, (double)r.CityLongitude, r.DistrictId));
+    }
 
     public async Task<List<Trip>> GetByIdsForOwnerAsync(IReadOnlyCollection<Guid> ids, Guid ownerUserId)
     {

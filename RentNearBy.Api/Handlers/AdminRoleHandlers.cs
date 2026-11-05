@@ -26,7 +26,7 @@ public static class AdminRoleHandlers
 
     public static async Task<IResult> GetRoleRequests(
         ApplicationDbContext db, IRoleChangeGuardService guard, IUnitOfWork unitOfWork, IMemoryCache cache,
-        int page = 1, int pageSize = 20, string? status = RoleChangeRequestStatuses.Pending)
+        int page = 1, int pageSize = 20, string? status = RoleChangeRequestStatuses.Pending, string? cursor = null)
     {
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
@@ -38,8 +38,20 @@ public static class AdminRoleHandlers
             query = query.Where(r => r.Status == normalizedStatus);
         }
 
-        var result = await query
+        // cursor = keyset on (RequestedAt DESC, Id DESC), safe while approve/reject shrinks the queue;
+        // page > 1 without a cursor = the old admin app's offset paging.
+        var useOffset = string.IsNullOrEmpty(cursor) && page > 1;
+        if (!string.IsNullOrEmpty(cursor))
+        {
+            if (!KeysetCursor.TryDecode(cursor, out var at, out var afterId)) return BadRequestResponse("Invalid cursor");
+            query = query.Where(r => r.RequestedAt <= at && (r.RequestedAt < at || r.Id.CompareTo(afterId) < 0));
+        }
+
+        var rows = await query
             .OrderByDescending(r => r.RequestedAt)
+            .ThenByDescending(r => r.Id)
+            .Skip(useOffset ? (page - 1) * pageSize : 0)
+            .Take(pageSize + 1)
             .Select(r => new AdminRoleChangeRequestDto
             {
                 Id = r.Id,
@@ -59,15 +71,18 @@ public static class AdminRoleHandlers
                 StayListingCount = db.StayListings.Count(s => s.UserId == r.UserId && !s.IsDeleted),
                 TaxiListingCount = db.TaxiListings.Count(t => t.UserId == r.UserId && !t.IsDeleted),
             })
-            .ToPagedResultAsync(page, pageSize);
+            .ToListAsync();
+        var hasMore = rows.Count > pageSize;
+        var items = hasMore ? rows.Take(pageSize).ToList() : rows;
+        var nextCursor = KeysetCursor.EncodeLast(items, hasMore, r => r.RequestedAt, r => r.Id);
 
-        var blocking = await guard.GetBlockingCountsAsync(result.Items.Select(r => r.UserId).Distinct().ToList());
+        var blocking = await guard.GetBlockingCountsAsync(items.Select(r => r.UserId).Distinct().ToList());
         var tabs = await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache);
         var availableRoleKeys = (await ConfigHandlers.GetAvailableRolesAsync(unitOfWork, cache)).Select(r => r.Key).ToHashSet();
         // Live counts of an off-tab room or plot never block (same rule as the guard), so they are reported as 0.
         var roomsOn = TabState.IsActive(tabs, AppTabKeys.Rooms);
         var plotsOn = TabState.IsActive(tabs, AppTabKeys.Plots);
-        foreach (var item in result.Items)
+        foreach (var item in items)
         {
             var counts = blocking[item.UserId];
             item.LiveRoomListingCount = roomsOn ? counts.Rooms : 0;
@@ -77,7 +92,7 @@ public static class AdminRoleHandlers
             item.ToRoleAvailable = availableRoleKeys.Contains(item.ToRole);
         }
 
-        return OkResponse(new { items = result.Items, hasMore = result.HasMore });
+        return OkResponse(new { items, hasMore, nextCursor });
     }
 
     public static async Task<IResult> ApproveRoleRequest(

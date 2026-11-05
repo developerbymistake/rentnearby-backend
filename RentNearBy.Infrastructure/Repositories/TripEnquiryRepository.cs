@@ -33,31 +33,65 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
             .ToListAsync();
     }
 
-    public async Task<IReadOnlyList<TripEnquiry>> GetNoReplyDueAsync(DateTime nowUtc, int take)
+    // Due work queues: only rows whose reminder key is not logged yet (the set shrinks as pushes go out), keyset by Id
+    // so a caller paging to the end reaches every due row. Key expressions mirror TripReminderRules.NoReplyKey /
+    // NoReplySegmentKey / HostNotConfirmedKey (Guid "D" = uuid::text, Guid "N" = hyphens removed).
+    public async Task<(IReadOnlyList<TripEnquiry> Items, Guid? Next)> GetNoReplyDueAsync(DateTime nowUtc, Guid? after, int take)
     {
+        var size = Math.Max(1, take);
         var due = nowUtc.AddHours(-TripReminderRules.NoReplyHours);
         var oldest = nowUtc.AddHours(-(TripReminderRules.NoReplyHours + TripReminderRules.WindowHours));
-        return await (
-            from e in _dbSet.AsNoTracking()
-            join t in _context.Trips on e.TripId equals t.Id
-            where e.Status == TripEnquiryStatuses.Asked && e.CreatedAt <= due && e.CreatedAt > oldest
-                && e.ExpiresAt > nowUtc && t.MutedAt == null && t.Status != TripStatuses.Completed
-            orderby e.CreatedAt
-            select e).Take(take).ToListAsync();
+        var asked = TripEnquiryStatuses.Asked;
+        var completed = TripStatuses.Completed;
+        var taxi = TripEnquiryKinds.Taxi;
+        var ids = await _context.Database
+            .SqlQuery<Guid>($"""
+                SELECT e."Id" AS "Value" FROM "TripEnquiries" e
+                JOIN "Trips" t ON t."Id" = e."TripId"
+                WHERE e."Status" = {asked} AND e."CreatedAt" <= {due} AND e."CreatedAt" > {oldest} AND e."ExpiresAt" > {nowUtc}
+                  AND t."MutedAt" IS NULL AND t."Status" <> {completed}
+                  AND ({after}::uuid IS NULL OR e."Id" > {after}::uuid)
+                  AND NOT EXISTS (SELECT 1 FROM "TripPushLogs" p WHERE p."DedupeKey" =
+                      CASE WHEN e."Kind" = {taxi} AND e."Day" IS NOT NULL AND e."CheckIn" IS NOT NULL
+                                AND (e."ContextJson" ->> 'journeyId') IS NOT NULL
+                           THEN 'noreply:seg:' || replace(e."TripId"::text, '-', '') || ':' || to_char(e."CheckIn", 'YYYYMMDD')
+                           ELSE 'noreply:' || e."Id"::text END)
+                ORDER BY e."Id"
+                LIMIT {size}
+                """)
+            .ToListAsync();
+        return await LoadPageAsync(ids, size);
     }
 
-    public async Task<IReadOnlyList<TripEnquiry>> GetHostNotConfirmedDueAsync(DateTime nowUtc, int take)
+    private async Task<(IReadOnlyList<TripEnquiry> Items, Guid? Next)> LoadPageAsync(List<Guid> ids, int size)
     {
+        if (ids.Count == 0) return (Array.Empty<TripEnquiry>(), null);
+        var rows = await _dbSet.AsNoTracking().Where(e => ids.Contains(e.Id)).ToListAsync();
+        var order = ids.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        return (rows.OrderBy(e => order[e.Id]).ToList(), ids.Count == size ? ids[^1] : (Guid?)null);
+    }
+
+    public async Task<(IReadOnlyList<TripEnquiry> Items, Guid? Next)> GetHostNotConfirmedDueAsync(DateTime nowUtc, Guid? after, int take)
+    {
+        var size = Math.Max(1, take);
         var due = nowUtc.AddHours(-TripReminderRules.HostNotConfirmedHours);
         var oldest = nowUtc.AddHours(-(TripReminderRules.HostNotConfirmedHours + TripReminderRules.WindowHours));
-        return await (
-            from e in _dbSet.AsNoTracking()
-            join t in _context.Trips on e.TripId equals t.Id
-            where e.Status == TripEnquiryStatuses.ConfirmedByTraveller && e.HostConfirmAnsweredAt == null
-                && e.HostConfirmTokenIssuedAt != null && e.HostConfirmTokenIssuedAt <= due && e.HostConfirmTokenIssuedAt > oldest
-                && t.MutedAt == null && t.Status != TripStatuses.Completed
-            orderby e.HostConfirmTokenIssuedAt
-            select e).Take(take).ToListAsync();
+        var confirmed = TripEnquiryStatuses.ConfirmedByTraveller;
+        var completed = TripStatuses.Completed;
+        var ids = await _context.Database
+            .SqlQuery<Guid>($"""
+                SELECT e."Id" AS "Value" FROM "TripEnquiries" e
+                JOIN "Trips" t ON t."Id" = e."TripId"
+                WHERE e."Status" = {confirmed} AND e."HostConfirmAnsweredAt" IS NULL
+                  AND e."HostConfirmTokenIssuedAt" <= {due} AND e."HostConfirmTokenIssuedAt" > {oldest}
+                  AND t."MutedAt" IS NULL AND t."Status" <> {completed}
+                  AND ({after}::uuid IS NULL OR e."Id" > {after}::uuid)
+                  AND NOT EXISTS (SELECT 1 FROM "TripPushLogs" p WHERE p."DedupeKey" = 'hostnc:' || e."Id"::text)
+                ORDER BY e."Id"
+                LIMIT {size}
+                """)
+            .ToListAsync();
+        return await LoadPageAsync(ids, size);
     }
 
     public async Task<IReadOnlyList<TripEnquiry>> GetOpenByTripAsync(Guid tripId, string kind)
@@ -149,13 +183,19 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
                 .SetProperty(e => e.FailReason, failReason)
                 .SetProperty(e => e.UpdatedAt, nowUtc));
 
+    // Two index range scans (ix_tripenquiries_expires, ix_tripenquiries_checkin_unconfirmed) joined by UNION instead of
+    // one OR that no single index serves; the set shrinks as rows expire.
     public async Task<IReadOnlyList<TripEnquiry>> GetExpiredUnconfirmedAsync(DateTime nowUtc, DateOnly todayIst, int take)
-        => await _dbSet.AsNoTracking()
-            .Where(e => TripEnquiryStatuses.Unconfirmed.Contains(e.Status)
-                && (e.ExpiresAt <= nowUtc || (e.CheckIn != null && e.CheckIn < todayIst)))
+    {
+        var byExpiry = _dbSet.AsNoTracking()
+            .Where(e => TripEnquiryStatuses.Unconfirmed.Contains(e.Status) && e.ExpiresAt <= nowUtc);
+        var byCheckIn = _dbSet.AsNoTracking()
+            .Where(e => TripEnquiryStatuses.Unconfirmed.Contains(e.Status) && e.CheckIn != null && e.CheckIn < todayIst);
+        return await byExpiry.Union(byCheckIn)
             .OrderBy(e => e.ExpiresAt)
             .Take(take)
             .ToListAsync();
+    }
 
     public async Task<Dictionary<Guid, TripPartyInfo>> LoadPartiesAsync(IReadOnlyCollection<Guid> userIds)
     {
@@ -314,10 +354,10 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
                 .SetProperty(e => e.AdvanceStatus, TripAdvanceStatuses.HoldExpired)
                 .SetProperty(e => e.UpdatedAt, nowUtc));
 
-    public async Task<int> TryBumpReminderAsync(Guid id, int expectedCount, DateTime nowUtc)
+    public async Task<int> TryBumpReminderAsync(Guid id, int expectedCount, int nextCount, DateTime nowUtc)
     {
         var expected = (short)expectedCount;
-        var next = (short)(expectedCount + 1);
+        var next = (short)nextCount;
         return await _dbSet
             .Where(e => e.Id == id && e.HostReminderCount == expected)
             .ExecuteUpdateAsync(s => s
@@ -334,18 +374,28 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
             .Take(take)
             .ToListAsync();
 
-    public async Task<IReadOnlyList<TripEnquiry>> GetDueReminderAsync(DateTime nowUtc, int take)
+    // Necessary condition of HostReminderSchedule: slot n (1-based) is never before ProofSentAt + n x interval, and
+    // n = HostReminderCount; the exact slot (quiet hours, merge, cap) is decided by the caller.
+    public async Task<(IReadOnlyList<TripEnquiry> Items, Guid? Next)> GetDueReminderAsync(DateTime nowUtc, Guid? after, int take)
     {
-        var due = nowUtc.AddMinutes(-TripAdvanceRules.ReminderMinutes);
-        return await _dbSet.AsNoTracking()
-            .Where(e => e.AdvanceStatus == TripAdvanceStatuses.ProofSent
-                && e.Status == TripEnquiryStatuses.ConfirmedByBoth
-                && e.HoldUntil != null && e.HoldUntil > nowUtc
-                && e.ProofSentAt != null
-                && e.LastHostReminderAt != null && e.LastHostReminderAt <= due)
-            .OrderBy(e => e.ProofSentAt)
-            .Take(take)
+        var size = Math.Max(1, take);
+        var proofSent = TripAdvanceStatuses.ProofSent;
+        var both = TripEnquiryStatuses.ConfirmedByBoth;
+        var minutes = HostReminderSchedule.IntervalMinutes;
+        var maxCount = HostReminderSchedule.MaxReminders;
+        var ids = await _context.Database
+            .SqlQuery<Guid>($"""
+                SELECT e."Id" AS "Value" FROM "TripEnquiries" e
+                WHERE e."AdvanceStatus" = {proofSent} AND e."Status" = {both}
+                  AND e."HoldUntil" > {nowUtc} AND e."ProofSentAt" IS NOT NULL
+                  AND e."HostReminderCount" <= {maxCount}
+                  AND e."ProofSentAt" + GREATEST(e."HostReminderCount", 1) * make_interval(mins => {minutes}) <= {nowUtc}
+                  AND ({after}::uuid IS NULL OR e."Id" > {after}::uuid)
+                ORDER BY e."Id"
+                LIMIT {size}
+                """)
             .ToListAsync();
+        return await LoadPageAsync(ids, size);
     }
 
     public async Task<IReadOnlyList<TripEnquiry>> GetExpiredFareSentAsync(DateTime nowUtc, int take)

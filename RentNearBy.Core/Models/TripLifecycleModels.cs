@@ -343,13 +343,25 @@ public static class TripReminderRules
     public static DateTime TravelEveDueUtc(DateOnly travelDate) => TripExecutionRules.IstMidnightUtc(travelDate.AddDays(-1)).AddHours(TravelEveHourIst);
 
     // The eve only (18:00 to 24:00 IST): a "Tomorrow" push never goes out on the travel day itself.
-    public static bool TravelEveInWindow(DateOnly travelDate, DateTime nowUtc)
-        => nowUtc >= TravelEveDueUtc(travelDate) && nowUtc < TripExecutionRules.IstMidnightUtc(travelDate);
+    public static bool TravelEveInWindow(DateOnly travelDate, DateTime nowUtc) => IstTime.InEveWindow(travelDate, nowUtc, TravelEveHourIst);
     public static DateTime TodayDueUtc(DateOnly start) => TripExecutionRules.IstMidnightUtc(start).AddHours(TodayHourIst);
     public static DateTime MarkCompleteDueUtc(DateOnly end) => TripExecutionRules.IstMidnightUtc(end.AddDays(1)).AddHours(MarkCompleteHourIst);
 
     // A reminder is attempted only inside [due, due + 48 h).
     public static bool InWindow(DateTime dueUtc, DateTime nowUtc) => nowUtc >= dueUtc && nowUtc < dueUtc.AddHours(WindowHours);
+
+    // d3 keeps the 48 h catch-up (its body recomputes the days left); d0 and done speak of one IST day and close with it.
+    public static bool StartsInOpen(DateOnly start, DateTime nowUtc) => InWindow(StartsInDueUtc(start), nowUtc);
+    public static bool TodayOpen(DateOnly start, DateTime nowUtc)
+        => IstTime.InWindow(TodayDueUtc(start), IstTime.IstMidnightUtc(start.AddDays(1)), nowUtc);
+    public static bool MarkCompleteOpen(DateOnly end, DateTime nowUtc)
+        => IstTime.InWindow(MarkCompleteDueUtc(end), IstTime.IstMidnightUtc(end.AddDays(2)), nowUtc);
+
+    // The dates whose reminder window is open now (a few days around today covers every window above).
+    private const int DateScanDays = DaysBeforeStart + 3;
+    public static DateOnly[] StartsInOpenDates(DateTime nowUtc) => IstTime.DatesWhere(nowUtc, DateScanDays, DateScanDays, StartsInOpen);
+    public static DateOnly[] TodayOpenDates(DateTime nowUtc) => IstTime.DatesWhere(nowUtc, DateScanDays, DateScanDays, TodayOpen);
+    public static DateOnly[] MarkCompleteOpenDates(DateTime nowUtc) => IstTime.DatesWhere(nowUtc, DateScanDays, DateScanDays, MarkCompleteOpen);
 
     public static bool AutoCompleteDue(DateOnly end, DateOnly todayIst) => end.AddDays(AutoCompleteDays) <= todayIst;
     public static bool IsRunning(Trip t, DateOnly todayIst) => t.StartDate is { } s && t.EndDate is { } e && s <= todayIst && todayIst <= e;
@@ -559,6 +571,7 @@ public static class TripProblemSplit
         failed.AgreedTotal = e.AgreedTotal is { } all && keptTotal is { } k ? all - k : null;
         failed.Status = TripEnquiryStatuses.Failed;
         failed.FailReason = failReason;
+        SplitAdvance(e, failed, keptTotal);
 
         e.CheckOut = date;
         e.AgreedTotal = keptTotal;
@@ -567,6 +580,27 @@ public static class TripProblemSplit
         RebuildContext(e, d => d >= checkIn && d < date, (ctx, a, b) => TripEnquiryText.Build(ctx, a, b, b.DayNumber - a.DayNumber > 1));
         RebuildContext(failed, d => d >= date && d < checkOut, (ctx, a, b) => TripEnquiryText.Build(ctx, a, b, b.DayNumber - a.DayNumber > 1));
         return (e, failed);
+    }
+
+    // Paid money covers the kept nights first; the rest stays on the failed row as paid (refund due). An asked amount
+    // follows the kept total and the failed row asks nothing. Runs before e.AgreedTotal moves.
+    private static void SplitAdvance(TripEnquiry e, TripEnquiry failed, int? keptTotal)
+    {
+        if (e.AdvanceAmount is not { } advance || keptTotal is not { } kept) return;
+        if (!TripAdvanceSplit.MoneyMoved(e.AdvanceStatus))
+        {
+            e.AdvanceAmount = TripAdvanceSplit.Scaled(advance, e.AgreedTotal ?? kept, kept);
+            return;
+        }
+
+        var (parts, refund) = TripAdvanceSplit.Sequential(advance, [kept]);
+        e.AdvanceAmount = parts[0];
+        if (refund <= 0) return;
+        failed.AdvanceStatus = e.AdvanceStatus;
+        failed.AdvanceAmount = refund;
+        failed.AdvanceAskedAt = e.AdvanceAskedAt;
+        failed.ProofSentAt = e.ProofSentAt;
+        failed.AdvanceReceivedAt = e.AdvanceReceivedAt;
     }
 
     // The row's context keeps only the days it still covers, and its text follows its own dates.
@@ -598,7 +632,8 @@ public static class TripProblemSplit
         Total = kept.AgreedTotal ?? accepted.Total,
         Inclusions = accepted.Inclusions,
         NeedsEchoedJson = accepted.NeedsEchoedJson,
-        AdvanceAmount = accepted.AdvanceAmount,
+        AdvanceAmount = TripAdvanceSplit.ForTerms(
+            accepted.AdvanceAmount, accepted.Total, kept.AgreedTotal ?? accepted.Total, kept.AdvanceStatus, kept.AdvanceAmount),
         BalanceNote = accepted.BalanceNote,
         CancellationText = accepted.CancellationText,
         GstInvoice = accepted.GstInvoice,
@@ -679,7 +714,7 @@ public static class TripProblemSplit
             .ToList();
     }
 
-    private static int Share(int amount, int part, int whole) => (int)Math.Round((double)amount * part / whole, MidpointRounding.AwayFromZero);
+    private static int Share(int amount, int part, int whole) => MoneySplit.ProRata(amount, part, whole);
 
     private static TripEnquiry FailWhole(TripEnquiry e, string? failReason, DateTime nowUtc)
     {

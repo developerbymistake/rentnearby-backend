@@ -145,19 +145,56 @@ public class SavedJourneyRepository(ApplicationDbContext context) : ISavedJourne
             if (line.Count < 2) continue;
             if (TaxiRouteGeometryRules.DistanceToLineMetres(fromLat, fromLng, line) <= NearRoadMetres
                 && TaxiRouteGeometryRules.DistanceToLineMetres(toLat, toLng, line) <= NearRoadMetres)
-                return new JourneyLegMatch(taxiId, row.RouteId, row.Fare);
+                return new JourneyLegMatch(taxiId, row.RouteId, PartFare(row.Fare, line, fromLat, fromLng, toLat, toLng));
         }
         return null;
     }
 
-    public async Task<List<SavedJourney>> GetWatchedAsync(DateOnly fromDate, int take)
-        => await context.Set<SavedJourney>()
-            .Include(j => j.Legs)
-            .Where(j => !j.IsDeleted && j.Status != JourneyStatuses.Completed && j.TravelDate >= fromDate)
-            .OrderBy(j => j.TravelDate)
-            .ThenBy(j => j.Id)
-            .Take(take)
+    // A stretch along the road is priced by its share of the road length (TaxiFare), not at the whole route's fare.
+    internal static int PartFare(int routeFare, IReadOnlyList<(double Lat, double Lon)> line, double fromLat, double fromLng, double toLat, double toLng)
+    {
+        var points = line.Select(p => new TaxiWaysPoint(p.Lat, p.Lon)).ToList();
+        var cumulative = TaxiWaysGeo.Cumulative(points);
+        var (_, a) = TaxiWaysGeo.PointToPolyline(new TaxiWaysPoint(fromLat, fromLng), points, cumulative);
+        var (_, b) = TaxiWaysGeo.PointToPolyline(new TaxiWaysPoint(toLat, toLng), points, cumulative);
+        return TaxiFare.ForSpan(routeFare, TaxiFare.SpanOf(a, b));
+    }
+
+    // Same public rule as LoadTaxisAsync; a missing taxi row counts as not public. The work set shrinks as legs are
+    // flipped and eve keys logged, and the Id keyset reaches every row, so nothing starves behind a fixed first page.
+    public async Task<(List<SavedJourney> Items, Guid? Next)> GetWatchedPageAsync(DateOnly fromDate, DateOnly? eveDate, Guid? after, int take)
+    {
+        var size = Math.Max(1, take);
+        var completed = JourneyStatuses.Completed;
+        var approved = TaxiStatuses.Approved;
+        var eveOn = eveDate != null;
+        var eve = eveDate ?? fromDate;
+        var eveSuffix = $":{eve:yyyyMMdd}";
+        var ids = await context.Database
+            .SqlQuery<Guid>($"""
+                SELECT j."Id" AS "Value" FROM "SavedJourneys" j
+                WHERE j."IsDeleted" = FALSE AND j."Status" <> {completed} AND j."TravelDate" >= {fromDate}
+                  AND ({after}::uuid IS NULL OR j."Id" > {after}::uuid)
+                  AND (EXISTS (SELECT 1 FROM "SavedJourneyLegs" l
+                               LEFT JOIN "TaxiListings" t ON t."Id" = l."DriverTaxiId"
+                               WHERE l."JourneyId" = j."Id"
+                                 AND l."DriverAvailable" <> COALESCE(t."IsDeleted" = FALSE AND t."Status" = {approved} AND t."IsAvailable" = TRUE, FALSE))
+                       OR ({eveOn} AND j."TravelDate" = {eve}
+                           AND NOT EXISTS (SELECT 1 FROM "TripPushLogs" p
+                                           WHERE p."DedupeKey" = {JourneyEveRules.KeyPrefix} || replace(j."Id"::text, '-', '') || {eveSuffix})))
+                ORDER BY j."Id"
+                LIMIT {size}
+                """)
             .ToListAsync();
+        if (ids.Count == 0) return (new List<SavedJourney>(), null);
+
+        var rows = await context.Set<SavedJourney>()
+            .Include(j => j.Legs)
+            .Where(j => ids.Contains(j.Id))
+            .ToListAsync();
+        var order = ids.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        return (rows.OrderBy(j => order[j.Id]).ToList(), ids.Count == size ? ids[^1] : (Guid?)null);
+    }
 
     public async Task<List<SavedJourney>> GetOwnedByIdsAsync(IReadOnlyCollection<Guid> ids, Guid userId)
     {

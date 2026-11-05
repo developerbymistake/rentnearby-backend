@@ -7,5 +7,5 @@ namespace RentNearBy.Core.Interfaces;
 // of a new overload bolted onto the existing one.
 public interface IChatFcmService
 {
-    Task<bool> SendAsync(string token, string title, string body, Guid conversationId);
+    Task<bool> SendAsync(string token, string title, string body, Guid conversationId, Guid? messageId = null, DateTime? createdAtUtc = null);
 }

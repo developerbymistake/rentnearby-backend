@@ -18,6 +18,12 @@ public class TaxiBrowseDto
     // Null on route-search rows (that projection is untouched).
     public int? LocalDayRate { get; set; }
     public int? LocalDayKm { get; set; }
+    // Trip local taxi page only (people, day km and pickup given): seat fit, cars needed, day cost, extra km, pickup distance.
+    public bool? TripSeatsFit { get; set; }
+    public int? TripCars { get; set; }
+    public int? TripDayCost { get; set; }
+    public int? TripExtraKm { get; set; }
+    public double? TripPickupKm { get; set; }
     public string TripReplyLabel { get; set; } = RentNearBy.Core.Models.TaxiTripReplyLabels.New;
     public int? MatchedFare { get; set; }
     public string? MatchedFromName { get; set; }

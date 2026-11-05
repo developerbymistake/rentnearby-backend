@@ -160,14 +160,14 @@ public static class TripEnquiryHandlers
 
             if (unconfirmed != null)
             {
-                if (joinable && FitsNightCap(tripOpen, listingId, candidates.Count + stayMerges.Count, checkIn, checkOut))
+                if (joinable && TripExecutionRules.FitsNightCap(tripOpen, listingId, candidates.Count + stayMerges.Count, checkIn, checkOut))
                     stayMerges.Add(unconfirmed);
                 else
                     skipped.Add(Skip(listingId, TripSkipReasons.AlreadyOpen));
                 continue;
             }
 
-            if (!FitsNightCap(tripOpen, listingId, candidates.Count + stayMerges.Count, checkIn, checkOut))
+            if (!TripExecutionRules.FitsNightCap(tripOpen, listingId, candidates.Count + stayMerges.Count, checkIn, checkOut))
             {
                 skipped.Add(Skip(listingId, TripSkipReasons.LimitReached));
                 continue;
@@ -193,8 +193,20 @@ public static class TripEnquiryHandlers
             await unitOfWork.BeginTransactionAsync();
             try
             {
+                // Parallel sends on one trip are serialised here; the overlap and night-cap rules are re-checked on fresh rows.
+                await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Trips\" WHERE \"Id\" = {trip.Id} FOR UPDATE");
+                var fresh = await db.TripEnquiries.AsNoTracking()
+                    .Where(x => x.TripId == trip.Id && x.Kind == TripEnquiryKinds.Stay && TripEnquiryStatuses.Open.Contains(x.Status))
+                    .ToListAsync();
+                var (mergesNow, candidatesNow) = RecheckUnderLock(fresh, stayMerges, candidates, checkIn, checkOut, items, skipped);
+                if (mergesNow == null)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return Concurrent();
+                }
+
                 // Next to an Asked row of the same stay: the row takes the joined nights and the host is told again.
-                foreach (var row in stayMerges)
+                foreach (var row in mergesNow)
                 {
                     var start = trip.StartDate!.Value;
                     var mergedIn = row.CheckIn!.Value < checkIn ? row.CheckIn.Value : checkIn;
@@ -221,7 +233,7 @@ public static class TripEnquiryHandlers
                     pushes.Add(new TripPendingPush(row, row.OwnerUserId, EnquiryNightsUpdated));
                 }
 
-                foreach (var stay in candidates)
+                foreach (var stay in candidatesNow)
                 {
                     var conv = await conversations.GetOrCreateAsync(callerId, ListingKinds.Stay, stay.Id, skipRateLimit: true);
                     if (conv.Conversation == null || conv.Status is not (200 or 201))
@@ -308,6 +320,54 @@ public static class TripEnquiryHandlers
             Updated = updated,
             VeryShortNotice = veryShortNotice,
         }, $"/api/v1/trips/{trip.Id}");
+    }
+
+    // Under the trip row lock: a joined row must still be the same Asked range (else null = concurrent change); a new
+    // stay is answered with a fresh row that already holds the nights, skipped when the stay has another open row on the
+    // trip, and every row must still fit the night cap.
+    private static (List<TripEnquiry>? Merges, List<StaySnapshot> Candidates) RecheckUnderLock(
+        List<TripEnquiry> fresh, List<TripEnquiry> stayMerges, List<StaySnapshot> candidates, DateOnly checkIn, DateOnly checkOut,
+        List<TripEnquiry> items, List<TripSkippedDto> skipped)
+    {
+        var merges = new List<TripEnquiry>();
+        var news = new List<StaySnapshot>();
+        var added = 0;
+        foreach (var row in stayMerges)
+        {
+            var now = fresh.FirstOrDefault(x => x.Id == row.Id);
+            if (now == null || now.Status != TripEnquiryStatuses.Asked || now.CheckIn != row.CheckIn || now.CheckOut != row.CheckOut)
+                return (null, news);
+            if (!TripExecutionRules.FitsNightCap(fresh, row.ListingId, added, checkIn, checkOut))
+            {
+                skipped.Add(Skip(row.ListingId, TripSkipReasons.LimitReached));
+                continue;
+            }
+            merges.Add(row);
+            added++;
+        }
+
+        foreach (var stay in candidates)
+        {
+            var mine = fresh.Where(x => x.ListingId == stay.Id).ToList();
+            if (mine.FirstOrDefault(x => x.CheckIn <= checkIn && checkOut <= x.CheckOut) is { } holder)
+            {
+                items.Add(holder);
+                continue;
+            }
+            if (mine.Any(x => TripEnquiryStatuses.IsUnconfirmed(x.Status) || Overlaps(x, checkIn, checkOut)))
+            {
+                skipped.Add(Skip(stay.Id, TripSkipReasons.AlreadyOpen));
+                continue;
+            }
+            if (!TripExecutionRules.FitsNightCap(fresh, stay.Id, added, checkIn, checkOut))
+            {
+                skipped.Add(Skip(stay.Id, TripSkipReasons.LimitReached));
+                continue;
+            }
+            news.Add(stay);
+            added++;
+        }
+        return (merges, news);
     }
 
     private static object EnquiryCardPayload(TripEnquiry e, TripEnquiryContext context) => new
@@ -1768,11 +1828,22 @@ public static class TripEnquiryHandlers
             && request.Adults == context.Adults && request.Kids == oldKids && request.Rooms == oldRooms)
             return ErrorResponse(422, "Change the dates, people or rooms first.", TripEnquiryErrorTypes.NothingChanged);
 
-        var lines = TripOfferRules.ChangeLines(acceptedLines, request.Rooms, request.Adults + request.Kids);
+        var roomCaps = (await db.StayRooms.AsNoTracking()
+                .Where(r => r.StayListingId == e.ListingId)
+                .Select(r => new { r.RoomName, r.MaxGuests })
+                .ToListAsync())
+            .GroupBy(r => r.RoomName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => (int)g.Max(r => r.MaxGuests), StringComparer.OrdinalIgnoreCase);
+        var lines = TripOfferRules.ChangeLines(acceptedLines, request.Rooms, request.Adults + request.Kids, roomCaps);
+        if (lines == null)
+            return ErrorResponse(422, "These rooms cannot seat everyone. Add a room.", TripEnquiryErrorTypes.PartyDoesNotFit);
         var nights = request.CheckOut.DayNumber - request.CheckIn.DayNumber;
         var total = TripExecutionRules.ComputeTotal(lines, nights);
         if (total < TripExecutionRules.MinAmount || total > TripExecutionRules.MaxAmount)
             return BadRequestResponse(TripExecutionRules.TotalRangeMessage);
+        var moneyMoved = TripAdvanceSplit.MoneyMoved(e.AdvanceStatus);
+        var changeAdvance = TripAdvanceSplit.ForTerms(accepted.AdvanceAmount, accepted.Total, total, e.AdvanceStatus, e.AdvanceAmount);
+        int? refundDue = moneyMoved && e.AdvanceAmount is { } paid && paid > total ? paid - total : null;
 
         var note = TripTextSafety.CleanOrNull(request.Note, TripExecutionRules.NoteMax);
         var change = new TripOffer
@@ -1791,7 +1862,7 @@ public static class TripEnquiryHandlers
             Note = note,
             Inclusions = accepted.Inclusions,
             NeedsEchoedJson = accepted.NeedsEchoedJson,
-            AdvanceAmount = accepted.AdvanceAmount,
+            AdvanceAmount = changeAdvance,
             BalanceNote = accepted.BalanceNote,
             CancellationText = accepted.CancellationText,
             GstInvoice = accepted.GstInvoice,
@@ -1831,6 +1902,9 @@ public static class TripEnquiryHandlers
                     oldTotal = e.AgreedTotal,
                     total,
                     nights,
+                    lines,
+                    advanceAmount = changeAdvance,
+                    refundDue,
                     note,
                     status = TripCardStatuses.Pending,
                 }, "Change request");
@@ -2440,18 +2514,6 @@ public static class TripEnquiryHandlers
 
     private static bool Overlaps(TripEnquiry x, DateOnly checkIn, DateOnly checkOut)
         => x.CheckIn is { } a && x.CheckOut is { } b && TripExecutionRules.NightsOverlap(a, b, checkIn, checkOut);
-
-    // At most MaxOpenPerNight open stay enquiries on every covered night, this listing's own rows not counted.
-    private static bool FitsNightCap(List<TripEnquiry> tripOpen, Guid listingId, int alreadyAdded, DateOnly checkIn, DateOnly checkOut)
-    {
-        for (var night = checkIn; night < checkOut; night = night.AddDays(1))
-        {
-            var next = night.AddDays(1);
-            var count = tripOpen.Count(x => x.ListingId != listingId && Overlaps(x, night, next)) + alreadyAdded;
-            if (count >= TripExecutionRules.MaxOpenPerNight) return false;
-        }
-        return true;
-    }
 
     // Taxi days: dates set, every day inside the trip and not in the past.
     private static IResult? CheckTaxiDays(Trip trip, IReadOnlyList<int> days, DateTime now)

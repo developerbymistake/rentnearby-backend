@@ -14,6 +14,9 @@ public interface INotificationRepository : IRepository<NotificationEvent>
     Task<(IReadOnlyList<NotificationListItem> Items, bool HasMore)> GetPagedForUserAsync(
         Guid userId, int page, int pageSize);
 
+    Task<(IReadOnlyList<NotificationListItem> Items, bool HasMore)> GetForUserAfterCursorAsync(
+        Guid userId, DateTime? afterAt, Guid? afterId, int pageSize);
+
     Task<int> GetUnreadCountAsync(Guid userId);
 
     // Idempotent upsert (ON CONFLICT DO NOTHING) — ownership is enforced in the same statement's
@@ -21,8 +24,14 @@ public interface INotificationRepository : IRepository<NotificationEvent>
     // targeted at this user, or was already read — all three are indistinguishable by design).
     Task<int> MarkReadAsync(Guid notificationId, Guid userId);
 
-    // Single bulk INSERT ... SELECT ... ON CONFLICT DO NOTHING — not a per-row loop.
+    // One UPDATE of the user's read watermark (NotificationInbox), whatever the inbox size.
     Task<int> MarkAllReadAsync(Guid userId);
+
+    // Deletes the user's other rows of this type whose ActionArgumentsJson carries enquiryId (one inbox row per alert).
+    Task<int> DeleteSupersededAsync(Guid userId, string type, Guid enquiryId, Guid keepId);
+
+    // Deletes at most `batch` rows created before cutoffUtc, oldest first. Returns rows deleted.
+    Task<int> PurgeOlderThanAsync(DateTime cutoffUtc, int batch);
 
     Task<int> DeleteByActionRouteForUserAsync(Guid userId, string actionRoute);
 }

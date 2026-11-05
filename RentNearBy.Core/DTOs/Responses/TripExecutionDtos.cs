@@ -113,6 +113,8 @@ public class TripAdvanceDto
     public DateTime? LastHostReminderAt { get; set; }
     public DateTime? NextHostReminderAt { get; set; }
     public int ReminderCount { get; set; }
+    // Paid advance the host owes back (paid beyond the agreed total, or a night the host failed); null when nothing.
+    public int? RefundDue { get; set; }
 }
 
 public class TripTaxiDto

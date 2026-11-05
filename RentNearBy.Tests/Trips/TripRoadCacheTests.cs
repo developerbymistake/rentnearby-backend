@@ -241,22 +241,27 @@ public class TripRoadCacheTests
         Assert.All(result.Days, d => Assert.False(d.IsEstimate));
     }
 
+    // Finding 6: plans never wait for the city matrix; the build runs once in the background.
     [Fact]
-    public async Task ConcurrentPlans_BuildOnce()
+    public async Task ConcurrentPlans_DoNotWaitForBuild_AndBuildOnce()
     {
         var spots = MakeSpots(20);
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var osrm = new FakeOsrm { Gate = gate.Task };
-        var cache = Cache(new FakeRedis(), osrm, new FakeSpots(spots));
+        var redis = new FakeRedis();
+        var cache = Cache(redis, osrm, new FakeSpots(spots));
         var planner = Planner(osrm, cache, new TripPlannerOptions { RouteGeometryMaxDays = 0 });
 
-        var a = planner.PlanAsync(City(), Request(spots.Take(5)));
-        var b = planner.PlanAsync(City(), Request(spots.Skip(5).Take(5)));
-        gate.SetResult();
-        await Task.WhenAll(a, b);
+        var a = await planner.PlanAsync(City(), Request(spots.Take(5)));
+        var b = await planner.PlanAsync(City(), Request(spots.Skip(5).Take(5)));
 
+        Assert.True(a.OsrmAvailable);
+        Assert.True(b.OsrmAvailable);
+        Assert.Equal(2, osrm.DirectCalls);
+        gate.SetResult();
+        Assert.NotNull(await cache.GetCityMatrixAsync(Key));
         Assert.Equal(1, osrm.BlockCalls);
-        Assert.Equal(0, osrm.DirectCalls);
+        Assert.True(redis.Has(TripCacheKeys.Matrix(Key)));
     }
 
     [Fact]
@@ -292,20 +297,61 @@ public class TripRoadCacheTests
     }
 
     [Fact]
-    public async Task OsrmBlockFailure_CachesNothing_AndFallsBack()
+    public async Task OsrmBlockFailure_CachesNoMatrix_RetryFetchesOnlyMissingBlocks()
     {
         var spots = MakeSpots(130);
         var redis = new FakeRedis();
         var osrm = new FakeOsrm { FailBlock = call => call == 4 };
         var cache = Cache(redis, osrm, new FakeSpots(spots));
 
-        var result = await Planner(osrm, cache).PlanAsync(City(), Request(spots.Take(4)));
-
+        Assert.Null(await cache.GetCityMatrixAsync(Key));
         Assert.Equal(4, osrm.BlockCalls);
         Assert.False(redis.Has(TripCacheKeys.Matrix(Key)));
         Assert.False(redis.Has(TripCacheKeys.MatrixLock(Key)));
-        Assert.Equal(1, osrm.DirectCalls);
+
+        var matrix = await cache.GetCityMatrixAsync(Key);
+
+        Assert.NotNull(matrix);
+        Assert.Equal(10, osrm.BlockCalls);
+        AssertSame(FakeOsrm.Reference(spots.Select(Point).ToList()), matrix.Slice(spots.Select(s => s.Id).ToList())!);
+        Assert.DoesNotContain(redis.Store.Keys, k => k.Contains(":blk:"));
+    }
+
+    [Fact]
+    public async Task ColdCity_PlanUsesDirectTable_AndWarmsInBackground()
+    {
+        var spots = MakeSpots(20);
+        var redis = new FakeRedis();
+        var osrm = new FakeOsrm();
+        var cache = Cache(redis, osrm, new FakeSpots(spots));
+
+        var result = await Planner(osrm, cache, new TripPlannerOptions { RouteGeometryMaxDays = 0 }).PlanAsync(City(), Request(spots.Take(4)));
+
         Assert.True(result.OsrmAvailable);
+        Assert.Equal(1, osrm.DirectCalls);
+        Assert.NotNull(await cache.GetCityMatrixAsync(Key));
+        Assert.True(redis.Has(TripCacheKeys.Matrix(Key)));
+    }
+
+    // Finding 2: the anchor is one extra matrix row; its legs count in the day and the route starts and ends there.
+    [Fact]
+    public async Task Anchor_AddsBaseLegs_AndOneDirectTable()
+    {
+        var spots = MakeSpots(10);
+        var osrm = new FakeOsrm();
+        var cache = Cache(new FakeRedis(), osrm, new FakeSpots(spots));
+        var request = Request(spots.Take(3));
+        request.AnchorLatitude = 29.36;
+        request.AnchorLongitude = 79.42;
+
+        var result = await Planner(osrm, cache).PlanAsync(City(), request);
+
+        Assert.Equal(1, osrm.DirectCalls);
+        var day = Assert.Single(result.Days);
+        Assert.Equal(TripAnchor.Id, day.Legs[0].FromId);
+        Assert.Equal(TripAnchor.Id, day.Legs[^1].ToId);
+        Assert.Equal(day.Legs.Sum(l => l.Minutes), day.DriveMinutes);
+        Assert.NotNull(day.RouteGeoJson);
     }
 
     [Fact]

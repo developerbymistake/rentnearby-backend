@@ -30,22 +30,25 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
 
         var centreLat = city.Latitude;
         var centreLon = city.Longitude;
+        var anchor = TripAnchor.Spot(request.AnchorLatitude, request.AnchorLongitude);
+        var matrixSpots = anchor == null ? allSpots : allSpots.Append(anchor).ToList();
 
         RoadMatrix? raw = null;
-        if (allSpots.Count >= 2 && osrm.IsConfigured)
-            raw = await CityMatrixSliceAsync(city, allSpots, ct)
-                ?? await osrm.TableAsync(allSpots.Select(s => (s.Latitude, s.Longitude)).ToList(), ct);
-        var matrix = DaySplitter.FillEstimates(allSpots, raw, o.FallbackSpeedKmh, o.EstimateFactor);
+        if (matrixSpots.Count >= 2 && osrm.IsConfigured)
+            raw = anchor == null
+                ? await CityMatrixSliceAsync(city, allSpots, ct) ?? await osrm.TableAsync(Points(allSpots), ct)
+                : await osrm.TableAsync(Points(matrixSpots), ct) ?? TripAnchor.Embed(await CityMatrixSliceAsync(city, allSpots, ct), matrixSpots.Count);
+        var matrix = DaySplitter.FillEstimates(matrixSpots, raw, o.FallbackSpeedKmh, o.EstimateFactor);
         var osrmAvailable = raw != null;
 
         var warnings = new List<TripWarningDto>();
-        if (!osrmAvailable && allSpots.Count >= 2)
+        if (!osrmAvailable && matrixSpots.Count >= 2)
             warnings.Add(new TripWarningDto { Code = TripWarningCodes.OsrmUnavailable, Message = "Road times are estimates" });
 
         var firstDayUsed = Math.Clamp(request.FirstDayUsedMinutes ?? 0, 0, 900);
         var result = recalculate
-            ? DaySplitter.Recalculate(days, limit, request.StartDate, matrix, allSpots, firstDayUsed)
-            : DaySplitter.Split(new SplitInput(allSpots, centreLat, centreLon, limit, request.StartDate, maxDays, firstDayUsed), matrix);
+            ? DaySplitter.Recalculate(days, limit, request.StartDate, matrix, allSpots, firstDayUsed, anchor)
+            : DaySplitter.Split(new SplitInput(allSpots, centreLat, centreLon, limit, request.StartDate, maxDays, firstDayUsed), matrix, anchor);
 
         warnings.AddRange(result.Warnings.Select(w => new TripWarningDto { Code = w.Code, Message = w.Message, SpotId = w.SpotId, Day = w.Day }));
 
@@ -57,7 +60,7 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
             DayLimitMinutes = limit,
         };
 
-        var routed = 0;
+        var routes = new List<(TripPlanDayDto Day, List<(double Lat, double Lon)> Points)>();
         foreach (var day in result.Days)
         {
             var dayDto = new TripPlanDayDto
@@ -73,30 +76,45 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
                 Legs = day.Legs.Select(l => new TripLegDto { FromId = l.FromId, ToId = l.ToId, Minutes = l.Minutes, Km = l.Km, IsEstimate = l.IsEstimate }).ToList(),
             };
 
-            if (osrmAvailable && day.Spots.Count >= 2 && routed < o.RouteGeometryMaxDays)
-            {
-                routed++;
-                var geometry = await roadCache.GetRouteGeometryAsync(day.Spots.Select(s => (s.Latitude, s.Longitude)).ToList(), ct);
-                if (geometry != null)
-                    dayDto.RouteGeoJson = geometry;
-                else
-                    warnings.Add(new TripWarningDto { Code = TripWarningCodes.RouteMissing, Message = "Route not available", Day = day.Day });
-            }
+            var points = RoutePoints(day.Spots, anchor);
+            if (osrmAvailable && points.Count >= 2 && routes.Count < o.RouteGeometryMaxDays)
+                routes.Add((dayDto, points));
 
             dto.Days.Add(dayDto);
         }
 
+        var geometries = await roadCache.GetRouteGeometriesAsync(routes.Select(r => (IReadOnlyList<(double Lat, double Lon)>)r.Points).ToList(), ct);
+        for (var k = 0; k < routes.Count; k++)
+        {
+            if (geometries[k] != null)
+                routes[k].Day.RouteGeoJson = geometries[k];
+            else
+                warnings.Add(new TripWarningDto { Code = TripWarningCodes.RouteMissing, Message = "Route not available", Day = routes[k].Day.Day });
+        }
+
         dto.Warnings = warnings;
-        logger.LogDebug("trip.plan {Mode} city={CityKey} leg={LegIndex} firstDayUsed={FirstDayUsed} spots={Spots} days={Days} osrm={Osrm}",
-            request.Mode, city.CityKey, request.LegIndex, firstDayUsed, allSpots.Count, dto.Days.Count, osrmAvailable);
+        logger.LogDebug("trip.plan {Mode} city={CityKey} leg={LegIndex} firstDayUsed={FirstDayUsed} spots={Spots} days={Days} osrm={Osrm} anchor={Anchor}",
+            request.Mode, city.CityKey, request.LegIndex, firstDayUsed, allSpots.Count, dto.Days.Count, osrmAvailable, anchor != null);
         return dto;
     }
 
-    // null when the city has no cached matrix or a chosen spot is not in it.
+    // null when the city matrix is not ready (its build then runs in the background) or a chosen spot is not in it.
     private async Task<RoadMatrix?> CityMatrixSliceAsync(TripCityInfo city, List<TripSpot> spots, CancellationToken ct)
     {
-        var matrix = await roadCache.GetCityMatrixAsync(city.CityKey, ct);
+        var matrix = await roadCache.PeekCityMatrixAsync(city.CityKey, ct);
         return matrix?.Slice(spots.Select(s => s.Id).ToList());
+    }
+
+    private static List<(double Lat, double Lon)> Points(IEnumerable<TripSpot> spots) => spots.Select(s => (s.Latitude, s.Longitude)).ToList();
+
+    // With an anchor the day route starts and ends at it.
+    private static List<(double Lat, double Lon)> RoutePoints(List<TripSpot> spots, TripSpot? anchor)
+    {
+        var points = Points(spots);
+        if (anchor == null || points.Count == 0) return points;
+        points.Insert(0, (anchor.Latitude, anchor.Longitude));
+        points.Add((anchor.Latitude, anchor.Longitude));
+        return points;
     }
 
     private static TripSpot ToSpot(PlanSpotInput s) => new()

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Services;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -27,35 +28,38 @@ public static class HomeHandlers
     private static readonly HashSet<string> RoomSortValues = new() { "newest", "price_asc", "price_desc" };
     private static readonly HashSet<string> PlotSortValues = new() { "newest", "area_asc", "area_desc" };
 
-    // No districtId in the key — this feed is intentionally district-free, identical for
-    // every caller, which is exactly what makes it a good caching candidate in the first place.
-    private const string RecentRoomsCacheKey = "home:recentRooms";
-    private const string RecentPlotsCacheKey = "home:recentPlots";
-    private static string ForYouRoomsCacheKey(Guid districtId) => $"home:forYouRooms:{districtId}";
-    private static string ForYouPlotsCacheKey(Guid districtId) => $"home:forYouPlots:{districtId}";
-
-    // First browse page only (no cursor, page <= 1): identical for every caller with the same
-    // district/city/type/sort/pageSize. Pages after the first are never cached.
-    private static string BrowseRoomsCacheKey(Guid districtId, Guid? cityId, Guid? typeId, string sort, int pageSize)
-        => $"home:browseRooms:{districtId:N}:{cityId:N}:{typeId:N}:{sort}:{pageSize}";
-    private static string BrowsePlotsCacheKey(Guid districtId, Guid? cityId, Guid? typeId, string sort, int pageSize)
-        => $"home:browsePlots:{districtId:N}:{cityId:N}:{typeId:N}:{sort}:{pageSize}";
-
-    private static async Task<T?> ReadBrowseCacheAsync<T>(IConnectionMultiplexer? redis, string key) where T : class
+    // Room/plot keys are versioned by ListingCacheKeys generations (a bust is one INCR, see ListingCacheInvalidator).
+    // The first browse page only (no cursor, page <= 1) is cached; pages after it never are.
+    private static async Task<(IDatabase? Cache, string? Key)> VersionedKeyAsync(
+        IConnectionMultiplexer? redis, string genKey, Func<long, string> keyOf)
     {
-        if (redis == null) return null;
+        if (redis == null) return (null, null);
         try
         {
-            var cached = await redis.GetDatabase().StringGetAsync(key);
-            return cached.HasValue ? JsonSerializer.Deserialize<T>(cached!) : null;
+            var db = redis.GetDatabase();
+            return (db, keyOf(await ListingCacheGeneration.ReadAsync(db, genKey)));
         }
-        catch { return null; }
+        catch { return (null, null); }
     }
 
-    private static async Task WriteBrowseCacheAsync<T>(IConnectionMultiplexer? redis, string key, T value)
+    // Read-through: a hit skips the DB; a miss loads and writes back, living no longer than its first row's ValidUntil.
+    private static async Task<T> ReadThroughAsync<T>(
+        IDatabase? cache, string? key, TimeSpan ttl, Func<Task<T>> load, Func<T, IEnumerable<DateTime?>> validUntils) where T : class
     {
-        if (redis == null) return;
-        try { await redis.GetDatabase().StringSetAsync(key, JsonSerializer.Serialize(value), BrowseCacheTtl); } catch { }
+        if (cache != null && key != null)
+        {
+            RedisValue cached = default;
+            try { cached = await cache.StringGetAsync(key); } catch { }
+            var hit = Deserialize<T>(cached);
+            if (hit != null) return hit;
+        }
+
+        var fresh = await load();
+        if (cache != null && key != null && ListingVisibility.CacheTtl(ttl, DateTime.UtcNow, validUntils(fresh)) is TimeSpan life)
+        {
+            try { await cache.StringSetAsync(key, JsonSerializer.Serialize(fresh), life); } catch { }
+        }
+        return fresh;
     }
 
     private static int ClampLimit(int limit) => Math.Clamp(limit <= 0 ? DefaultLimit : limit, 1, MaxLimit);
@@ -78,39 +82,23 @@ public static class HomeHandlers
         catch (JsonException) { return null; }
     }
 
-    // Read-through for one cached list: a hit skips the DB, a miss loads and writes back best-effort.
-    private static async Task<List<T>> ReadThroughListAsync<T>(
-        IConnectionMultiplexer? redis, string key, TimeSpan ttl, Func<Task<List<T>>> load)
-    {
-        if (redis != null)
-        {
-            RedisValue cached = default;
-            try { cached = await redis.GetDatabase().StringGetAsync(key); } catch { }
-            var hit = Deserialize<List<T>>(cached);
-            if (hit != null) return hit;
-        }
-
-        var fresh = await load();
-        if (redis != null)
-        {
-            try { await redis.GetDatabase().StringSetAsync(key, JsonSerializer.Serialize(fresh), ttl); } catch { }
-        }
-        return fresh;
-    }
-
-    public static async Task<IResult> GetRooms(Guid districtId, int limit, IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp)
+    public static async Task<IResult> GetRooms(Guid districtId, int limit, IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp, Guid? cityId = null)
     {
         if (await IsTabInactiveAsync(AppTabKeys.Rooms, unitOfWork, cache)) return OkResponse(new { items = Array.Empty<HomeRoomDto>() });
-        var items = await ReadThroughListAsync(sp.GetService<IConnectionMultiplexer>(), ForYouRoomsCacheKey(districtId), ForYouCacheTtl,
-            () => unitOfWork.RoomListings.GetHomeForYouProjectedAsync(districtId, MaxLimit));
+        var (redisDb, key) = await VersionedKeyAsync(sp.GetService<IConnectionMultiplexer>(),
+            ListingCacheKeys.DistrictGen(ListingKinds.Room, districtId), gen => ListingCacheKeys.ForYou(ListingKinds.Room, districtId, gen, cityId));
+        var items = await ReadThroughAsync(redisDb, key, ForYouCacheTtl,
+            () => unitOfWork.RoomListings.GetHomeForYouProjectedAsync(districtId, cityId, MaxLimit), l => l.Select(x => x.ValidUntil));
         return OkResponse(new { items = items.Take(ClampLimit(limit)) });
     }
 
-    public static async Task<IResult> GetPlots(Guid districtId, int limit, IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp)
+    public static async Task<IResult> GetPlots(Guid districtId, int limit, IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp, Guid? cityId = null)
     {
         if (await IsTabInactiveAsync(AppTabKeys.Plots, unitOfWork, cache)) return OkResponse(new { items = Array.Empty<HomePlotDto>() });
-        var items = await ReadThroughListAsync(sp.GetService<IConnectionMultiplexer>(), ForYouPlotsCacheKey(districtId), ForYouCacheTtl,
-            () => unitOfWork.PlotListings.GetHomeForYouProjectedAsync(districtId, MaxLimit));
+        var (redisDb, key) = await VersionedKeyAsync(sp.GetService<IConnectionMultiplexer>(),
+            ListingCacheKeys.DistrictGen(ListingKinds.Plot, districtId), gen => ListingCacheKeys.ForYou(ListingKinds.Plot, districtId, gen, cityId));
+        var items = await ReadThroughAsync(redisDb, key, ForYouCacheTtl,
+            () => unitOfWork.PlotListings.GetHomeForYouProjectedAsync(districtId, cityId, MaxLimit), l => l.Select(x => x.ValidUntil));
         return OkResponse(new { items = items.Take(ClampLimit(limit)) });
     }
 
@@ -125,15 +113,13 @@ public static class HomeHandlers
         var size = ClampPageSize(pageSize);
         var pageNo = ClampPage(page);
         var firstPage = string.IsNullOrEmpty(cursor) && pageNo <= 1;
-        var redis = firstPage ? sp.GetService<IConnectionMultiplexer>() : null;
-        var cacheKey = BrowseRoomsCacheKey(districtId, cityId, roomTypeId, sort, size);
+        var (redisDb, key) = await VersionedKeyAsync(firstPage ? sp.GetService<IConnectionMultiplexer>() : null,
+            ListingCacheKeys.DistrictGen(ListingKinds.Room, districtId),
+            gen => ListingCacheKeys.Browse(ListingKinds.Room, districtId, gen, cityId, roomTypeId, sort, size));
 
-        var result = await ReadBrowseCacheAsync<BrowsePage<HomeRoomDto>>(redis, cacheKey);
-        if (result == null)
-        {
-            result = await unitOfWork.RoomListings.SearchPagedAsync(districtId, cityId, roomTypeId, sort, pageNo, size, cursor);
-            await WriteBrowseCacheAsync(redis, cacheKey, result);
-        }
+        var result = await ReadThroughAsync(redisDb, key, BrowseCacheTtl,
+            () => unitOfWork.RoomListings.SearchPagedAsync(districtId, cityId, roomTypeId, sort, pageNo, size, cursor),
+            p => p.Items.Select(x => x.ValidUntil));
 
         return OkResponse(new { items = result.Items, hasMore = result.HasMore, nextCursor = result.NextCursor });
     }
@@ -149,15 +135,13 @@ public static class HomeHandlers
         var size = ClampPageSize(pageSize);
         var pageNo = ClampPage(page);
         var firstPage = string.IsNullOrEmpty(cursor) && pageNo <= 1;
-        var redis = firstPage ? sp.GetService<IConnectionMultiplexer>() : null;
-        var cacheKey = BrowsePlotsCacheKey(districtId, cityId, plotTypeId, sort, size);
+        var (redisDb, key) = await VersionedKeyAsync(firstPage ? sp.GetService<IConnectionMultiplexer>() : null,
+            ListingCacheKeys.DistrictGen(ListingKinds.Plot, districtId),
+            gen => ListingCacheKeys.Browse(ListingKinds.Plot, districtId, gen, cityId, plotTypeId, sort, size));
 
-        var result = await ReadBrowseCacheAsync<BrowsePage<HomePlotDto>>(redis, cacheKey);
-        if (result == null)
-        {
-            result = await unitOfWork.PlotListings.GetAllPagedByTypeIdAsync(districtId, cityId, plotTypeId, sort, pageNo, size, cursor);
-            await WriteBrowseCacheAsync(redis, cacheKey, result);
-        }
+        var result = await ReadThroughAsync(redisDb, key, BrowseCacheTtl,
+            () => unitOfWork.PlotListings.GetAllPagedByTypeIdAsync(districtId, cityId, plotTypeId, sort, pageNo, size, cursor),
+            p => p.Items.Select(x => x.ValidUntil));
 
         return OkResponse(new { items = result.Items, hasMore = result.HasMore, nextCursor = result.NextCursor });
     }
@@ -167,16 +151,20 @@ public static class HomeHandlers
     public static async Task<IResult> GetRecentRooms(int limit, IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp)
     {
         if (await IsTabInactiveAsync(AppTabKeys.Rooms, unitOfWork, cache)) return OkResponse(new { items = Array.Empty<HomeRoomDto>() });
-        var items = await ReadThroughListAsync(sp.GetService<IConnectionMultiplexer>(), RecentRoomsCacheKey, RecentCacheTtl,
-            () => unitOfWork.RoomListings.GetRecentProjectedAsync(MaxLimit));
+        var (redisDb, key) = await VersionedKeyAsync(sp.GetService<IConnectionMultiplexer>(),
+            ListingCacheKeys.RecentGen(ListingKinds.Room), gen => ListingCacheKeys.Recent(ListingKinds.Room, gen));
+        var items = await ReadThroughAsync(redisDb, key, RecentCacheTtl,
+            () => unitOfWork.RoomListings.GetRecentProjectedAsync(MaxLimit), l => l.Select(x => x.ValidUntil));
         return OkResponse(new { items = items.Take(ClampLimit(limit)) });
     }
 
     public static async Task<IResult> GetRecentPlots(int limit, IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp)
     {
         if (await IsTabInactiveAsync(AppTabKeys.Plots, unitOfWork, cache)) return OkResponse(new { items = Array.Empty<HomePlotDto>() });
-        var items = await ReadThroughListAsync(sp.GetService<IConnectionMultiplexer>(), RecentPlotsCacheKey, RecentCacheTtl,
-            () => unitOfWork.PlotListings.GetRecentProjectedAsync(MaxLimit));
+        var (redisDb, key) = await VersionedKeyAsync(sp.GetService<IConnectionMultiplexer>(),
+            ListingCacheKeys.RecentGen(ListingKinds.Plot), gen => ListingCacheKeys.Recent(ListingKinds.Plot, gen));
+        var items = await ReadThroughAsync(redisDb, key, RecentCacheTtl,
+            () => unitOfWork.PlotListings.GetRecentProjectedAsync(MaxLimit), l => l.Select(x => x.ValidUntil));
         return OkResponse(new { items = items.Take(ClampLimit(limit)) });
     }
 
@@ -199,9 +187,10 @@ public static class HomeHandlers
 
     private sealed record FeedSlot(string Section, string Key, TimeSpan Ttl);
 
-    // One call for every Home rail. Off tabs are skipped before any Redis/DB work and come back null; all cached
-    // sections are read with ONE Redis MGET; only misses hit the DB, sequentially on the request's DbContext, and
-    // each miss is written back to the key (and TTL) its own endpoint uses, so existing invalidation covers it.
+    // One call for every Home rail. Off tabs are skipped before any Redis/DB work and come back null; room/plot
+    // generations are read with ONE MGET, then all cached sections with ONE MGET; only misses hit the DB,
+    // sequentially on the request's DbContext, and each miss is written back to the key (and TTL) its own endpoint uses.
+    // Rooms/plots "for you" are the first rows of the city-first browse walk, so cityId is part of their key.
     public static async Task<IResult> GetFeed(
         Guid? districtId, Guid? cityId, int? limit, int? recentLimit, string? sections,
         IUnitOfWork unitOfWork, IMemoryCache cache, IServiceProvider sp)
@@ -231,25 +220,41 @@ public static class HomeHandlers
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
         bool Want(string section, bool tabOn) => tabOn && (requested == null || requested.Contains(section));
 
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var genKeys = new[]
+        {
+            ListingCacheKeys.DistrictGen(ListingKinds.Room, district),
+            ListingCacheKeys.DistrictGen(ListingKinds.Plot, district),
+            ListingCacheKeys.RecentGen(ListingKinds.Room),
+            ListingCacheKeys.RecentGen(ListingKinds.Plot),
+        };
+        var gens = new long[genKeys.Length];
+        var anyVersioned = Want(FeedSections.Rooms, feed.Tabs.Rooms) || Want(FeedSections.Plots, feed.Tabs.Plots)
+            || Want(FeedSections.RecentRooms, feed.Tabs.Rooms) || Want(FeedSections.RecentPlots, feed.Tabs.Plots);
+        if (redis != null && anyVersioned)
+        {
+            try { gens = await ListingCacheGeneration.ReadManyAsync(redis.GetDatabase(), genKeys); }
+            catch { gens = new long[genKeys.Length]; }
+        }
+
         var slots = new List<FeedSlot>(7);
         if (Want(FeedSections.Rooms, feed.Tabs.Rooms))
-            slots.Add(new FeedSlot(FeedSections.Rooms, ForYouRoomsCacheKey(district), ForYouCacheTtl));
+            slots.Add(new FeedSlot(FeedSections.Rooms, ListingCacheKeys.ForYou(ListingKinds.Room, district, gens[0], cityId), ForYouCacheTtl));
         if (Want(FeedSections.Plots, feed.Tabs.Plots))
-            slots.Add(new FeedSlot(FeedSections.Plots, ForYouPlotsCacheKey(district), ForYouCacheTtl));
+            slots.Add(new FeedSlot(FeedSections.Plots, ListingCacheKeys.ForYou(ListingKinds.Plot, district, gens[1], cityId), ForYouCacheTtl));
         if (Want(FeedSections.Stays, feed.Tabs.Stays))
             slots.Add(new FeedSlot(FeedSections.Stays, StayCache.BrowseKey(district, cityId, null, null, "newest", take), StayCache.BrowseTtl));
         if (Want(FeedSections.Taxis, feed.Tabs.Taxi))
             slots.Add(new FeedSlot(FeedSections.Taxis, TaxiCache.LocalKey(district, cityId, null, take), TaxiCache.LocalTtl));
         if (Want(FeedSections.RecentRooms, feed.Tabs.Rooms))
-            slots.Add(new FeedSlot(FeedSections.RecentRooms, RecentRoomsCacheKey, RecentCacheTtl));
+            slots.Add(new FeedSlot(FeedSections.RecentRooms, ListingCacheKeys.Recent(ListingKinds.Room, gens[2]), RecentCacheTtl));
         if (Want(FeedSections.RecentPlots, feed.Tabs.Plots))
-            slots.Add(new FeedSlot(FeedSections.RecentPlots, RecentPlotsCacheKey, RecentCacheTtl));
+            slots.Add(new FeedSlot(FeedSections.RecentPlots, ListingCacheKeys.Recent(ListingKinds.Plot, gens[3]), RecentCacheTtl));
         if (Want(FeedSections.RecentStays, feed.Tabs.Stays))
             slots.Add(new FeedSlot(FeedSections.RecentStays, StayCache.RecentKey, StayCache.RecentTtl));
 
         if (slots.Count == 0) return OkResponse(feed);
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
         var cached = new RedisValue[slots.Count];
         if (redis != null)
         {
@@ -258,13 +263,17 @@ public static class HomeHandlers
         }
 
         var writes = new List<(string Key, string Json, TimeSpan Ttl)>();
+        var now = DateTime.UtcNow;
 
-        async Task<T> ResolveAsync<T>(int index, Func<Task<T>> load) where T : class
+        async Task<T> ResolveAsync<T>(int index, Func<Task<T>> load, Func<T, IEnumerable<DateTime?>>? validUntils = null) where T : class
         {
             var hit = Deserialize<T>(cached[index]);
             if (hit != null) return hit;
             var fresh = await load();
-            if (redis != null) writes.Add((slots[index].Key, JsonSerializer.Serialize(fresh), slots[index].Ttl));
+            var ttl = validUntils == null
+                ? slots[index].Ttl
+                : ListingVisibility.CacheTtl(slots[index].Ttl, now, validUntils(fresh));
+            if (redis != null && ttl is TimeSpan life) writes.Add((slots[index].Key, JsonSerializer.Serialize(fresh), life));
             return fresh;
         }
 
@@ -273,11 +282,13 @@ public static class HomeHandlers
             switch (slots[i].Section)
             {
                 case FeedSections.Rooms:
-                    feed.Rooms = (await ResolveAsync(i, () => unitOfWork.RoomListings.GetHomeForYouProjectedAsync(district, MaxLimit)))
+                    feed.Rooms = (await ResolveAsync(i, () => unitOfWork.RoomListings.GetHomeForYouProjectedAsync(district, cityId, MaxLimit),
+                            l => l.Select(x => x.ValidUntil)))
                         .Take(take).ToList();
                     break;
                 case FeedSections.Plots:
-                    feed.Plots = (await ResolveAsync(i, () => unitOfWork.PlotListings.GetHomeForYouProjectedAsync(district, MaxLimit)))
+                    feed.Plots = (await ResolveAsync(i, () => unitOfWork.PlotListings.GetHomeForYouProjectedAsync(district, cityId, MaxLimit),
+                            l => l.Select(x => x.ValidUntil)))
                         .Take(take).ToList();
                     break;
                 case FeedSections.Stays:
@@ -292,11 +303,13 @@ public static class HomeHandlers
                     })).Items;
                     break;
                 case FeedSections.RecentRooms:
-                    feed.RecentRooms = (await ResolveAsync(i, () => unitOfWork.RoomListings.GetRecentProjectedAsync(MaxLimit)))
+                    feed.RecentRooms = (await ResolveAsync(i, () => unitOfWork.RoomListings.GetRecentProjectedAsync(MaxLimit),
+                            l => l.Select(x => x.ValidUntil)))
                         .Take(recentTake).ToList();
                     break;
                 case FeedSections.RecentPlots:
-                    feed.RecentPlots = (await ResolveAsync(i, () => unitOfWork.PlotListings.GetRecentProjectedAsync(MaxLimit)))
+                    feed.RecentPlots = (await ResolveAsync(i, () => unitOfWork.PlotListings.GetRecentProjectedAsync(MaxLimit),
+                            l => l.Select(x => x.ValidUntil)))
                         .Take(recentTake).ToList();
                     break;
                 case FeedSections.RecentStays:

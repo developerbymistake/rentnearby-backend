@@ -26,6 +26,11 @@ public class StayNearbyDto
     public string? BestRoomName { get; set; }
     public int? BestRoomGuests { get; set; }
     public List<StayNearbyRoomDto> Rooms { get; set; } = new();
+    // Party quote for ?guests (&rooms, &nights), set per request; null without guests. QuoteTotal = QuotePerNight x nights.
+    public bool? Fits { get; set; }
+    public int? QuotePerNight { get; set; }
+    public int? QuoteTotal { get; set; }
+    public List<StayQuoteLineDto>? QuoteLines { get; set; }
 }
 
 public class StayNearbyRoomDto
@@ -33,4 +38,13 @@ public class StayNearbyRoomDto
     public string RoomName { get; set; } = string.Empty;
     public short MaxGuests { get; set; }
     public short? Floor { get; set; }
+    public int? PricePerNight { get; set; }
+}
+
+public class StayQuoteLineDto
+{
+    public string RoomName { get; set; } = string.Empty;
+    public int Units { get; set; }
+    public int Guests { get; set; }
+    public int? PricePerNight { get; set; }
 }

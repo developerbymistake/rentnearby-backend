@@ -150,4 +150,40 @@ public class PlanPurchaseServiceTests
 
         Assert.Equal(expected, PlanPurchaseService.ReplacementModeOf(OtherPlan, Price(oldCycle, oldInr), plan, Price(newCycle, newInr)));
     }
+
+    [Fact]
+    public void ReplacementModeOf_GooglePricesSeen_WinOverStaleMirror()
+    {
+        var plan = CatalogPlanBuilder.Plus().Build();
+
+        Assert.Equal(PlayReplacementModes.Deferred,
+            PlanPurchaseService.ReplacementModeOf(OtherPlan, Price(1, 149), plan, Price(1, 199), 149_000_000L, 129_000_000L));
+    }
+
+    [Fact]
+    public void ReplacementModeOf_OnlyOneGooglePrice_UsesMirrorForBoth()
+    {
+        var plan = CatalogPlanBuilder.Plus().Build();
+
+        Assert.Equal(PlayReplacementModes.ChargeFullPrice,
+            PlanPurchaseService.ReplacementModeOf(OtherPlan, Price(1, 149), plan, Price(1, 199), 149_000_000L, null));
+    }
+
+    [Fact]
+    public void CarriedValueOf_SwitchWithBonusDays_AddsTheirValue()
+    {
+        var purchase = new PlanPurchaseBuilder().WithIntent(PurchaseIntents.Switch).WithCycle(1, 330).Build();
+        purchase.ListPriceInr = 149;
+
+        Assert.Equal(149 + 1490, PlanPurchaseService.CarriedValueOf(purchase, 149, 330));
+    }
+
+    [Fact]
+    public void CarriedValueOf_NotASwitch_IsTheCredit()
+    {
+        var purchase = new PlanPurchaseBuilder().WithIntent(PurchaseIntents.AdminGrant).WithCycle(null, 400).Build();
+
+        Assert.Equal(0, PlanPurchaseService.CarriedValueOf(purchase, 0, 400));
+        Assert.Equal(25, PlanPurchaseService.CarriedValueOf(null, 25, 30));
+    }
 }

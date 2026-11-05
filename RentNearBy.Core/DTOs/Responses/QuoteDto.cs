@@ -12,6 +12,8 @@ public class QuoteDto
     public int CreditInr { get; set; }
     public int PayableInr { get; set; }
     public int GrantedDays { get; set; }
+    // Extra days from switch credit above the new price; already inside GrantedDays.
+    public int BonusDays { get; set; }
     public bool RequiresPayment { get; set; }
     public QuoteCouponDto? Coupon { get; set; }
     public bool AutoCoupon { get; set; }

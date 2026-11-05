@@ -160,18 +160,17 @@ public class DaySplitterTests
         Assert.Equal("b is closed on that day", warning.Message);
     }
 
+    // Finding 3: the closed place moves ahead (Or-opt) instead of leaving a free day.
     [Fact]
-    public void Split_ClosedOnNextDay_MovesToFirstOpenDay()
+    public void Split_ClosedOnNextDay_MovesAheadInsteadOfAFreeDay()
     {
         var spots = new[] { Spot("a", 400, 29.39, 79.45), Spot("b", 300, 29.40, 79.46, [Iso(Start.AddDays(1))]) };
 
         var result = Split(spots, Matrix(2, 20), start: Start);
 
-        Assert.Equal(3, result.Days.Count);
-        Assert.Equal(new[] { "a" }, Ids(result.Days[0]));
-        Assert.Empty(result.Days[1].Spots);
-        Assert.Equal(new[] { "b" }, Ids(result.Days[2]));
-        Assert.Equal(3, result.Days[2].Day);
+        Assert.Equal(2, result.Days.Count);
+        Assert.Equal(new[] { "b" }, Ids(result.Days[0]));
+        Assert.Equal(new[] { "a" }, Ids(result.Days[1]));
         Assert.All(result.Days, d => Assert.False(d.OverLimit));
         Assert.DoesNotContain(result.Warnings, w => w.Code == TripWarningCodes.ClosedDay);
     }
@@ -200,8 +199,9 @@ public class DaySplitterTests
         Assert.DoesNotContain(result.Warnings, w => w.Code == TripWarningCodes.ClosedDay);
     }
 
+    // Finding 4: with too few days the overflow is the least possible (a+b = 360 over, not b+c = 400 over).
     [Fact]
-    public void Split_MoreDaysThanMax_RestGoesToLastDay()
+    public void Split_MoreDaysThanMax_LeastOverflow()
     {
         var spots = new[] { Spot("a", 400, 29.39, 79.45), Spot("b", 400, 29.40, 79.46), Spot("c", 400, 29.41, 79.47) };
         var matrix = Matrix(3, 50, (0, 1, 10));
@@ -209,10 +209,11 @@ public class DaySplitterTests
         var result = Split(spots, matrix, maxDays: 2);
 
         Assert.Equal(2, result.Days.Count);
-        Assert.Equal(new[] { "a" }, Ids(result.Days[0]));
-        Assert.Equal(new[] { "b", "c" }, Ids(result.Days[1]));
-        Assert.True(result.Days[1].OverLimit);
-        Assert.Contains(result.Warnings, w => w.Code == TripWarningCodes.TooManyDays && w.Day == 2);
+        Assert.Equal(new[] { "a", "b" }, Ids(result.Days[0]));
+        Assert.Equal(new[] { "c" }, Ids(result.Days[1]));
+        Assert.True(result.Days[0].OverLimit);
+        Assert.False(result.Days[1].OverLimit);
+        Assert.Contains(result.Warnings, w => w.Code == TripWarningCodes.TooManyDays && w.Day == 1);
     }
 
     [Fact]
@@ -345,7 +346,7 @@ public class DaySplitterTests
         var plain = Split(spots, matrix);
         var result = SplitReserved(spots, matrix, 300);
 
-        Assert.Equal(6, plain.Days[0].Spots.Count);
+        Assert.Equal(4, plain.Days[0].Spots.Count);
         Assert.Equal(2, result.Days[0].Spots.Count);
         Assert.False(result.Days[0].OverLimit);
         Assert.Equal(120, result.Days[0].VisitMinutes);

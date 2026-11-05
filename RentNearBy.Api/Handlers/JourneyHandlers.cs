@@ -117,6 +117,14 @@ public static class JourneyHandlers
                 .Distinct()
                 .ToList();
 
+            // A part of a driver's route is priced by its road share on the server (TaxiFare), never at the whole route's fare.
+            var perCar = l.ListedFare;
+            if (l.Partial)
+            {
+                var part = await journeys.FindOnLegAsync(l.DriverTaxiId, l.FromLat, l.FromLng, l.ToLat, l.ToLng);
+                if (part != null) perCar = part.Fare;
+            }
+
             journey.Legs.Add(new SavedJourneyLeg
             {
                 Id = Guid.NewGuid(),
@@ -132,8 +140,8 @@ public static class JourneyHandlers
                 MeetingPlace = string.IsNullOrWhiteSpace(l.MeetingPlace) ? null : TripTextSafety.Clean(l.MeetingPlace),
                 DriverTaxiId = l.DriverTaxiId,
                 DriverRouteId = l.DriverRouteId,
-                // The request carries the driver's fare per car; the saved leg holds the whole stretch.
-                ListedFare = l.ListedFare is { } perCar ? perCar * TaxiWaysRanking.CarsNeeded(request.People, driver.Seats) : null,
+                // Per car fare of this one driver; the saved leg holds the whole stretch.
+                ListedFare = perCar is { } fare ? fare * TaxiWaysRanking.CarsNeeded(request.People, driver.Seats) : null,
                 Partial = l.Partial,
                 Backup1TaxiId = backups.Count > 0 ? backups[0] : null,
                 Backup2TaxiId = backups.Count > 1 ? backups[1] : null,

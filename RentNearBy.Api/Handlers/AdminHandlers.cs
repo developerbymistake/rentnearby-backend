@@ -546,23 +546,31 @@ public static class AdminHandlers
     public static async Task<IResult> GetStats(ApplicationDbContext db, IPlanCatalogCache catalog)
     {
         var totalUsers = await db.Users.CountAsync();
-        var totalListings = await db.RoomListings.CountAsync();
-        var activeListings = await db.RoomListings.CountAsync(l => l.IsActive);
-        var totalPlotListings = await db.PlotListings.CountAsync(l => !l.IsDeleted);
-        var activePlotListings = await db.PlotListings.CountAsync(l => l.IsActive && !l.IsDeleted);
+        var totalListings = await db.RoomListings.CountAsync(ListingCountRules.RoomExisting);
+        var activeListings = await db.RoomListings.CountAsync(ListingCountRules.RoomLive);
+        var totalPlotListings = await db.PlotListings.CountAsync(ListingCountRules.PlotExisting);
+        var activePlotListings = await db.PlotListings.CountAsync(ListingCountRules.PlotLive);
         var activeDistricts = await db.Districts.CountAsync(d => d.IsActive);
-        var listingsByDistrict = await db.RoomListings
-            .Where(l => l.IsActive)
-            .GroupBy(l => new { l.DistrictId, DistrictName = l.District.Name })
-            .Select(g => new { District = g.Key.DistrictName, Count = g.Count() })
+        var liveByDistrict = await db.RoomListings
+            .Where(ListingCountRules.RoomLive)
+            .GroupBy(l => l.DistrictId)
+            .Select(g => new { DistrictId = g.Key, Count = g.Count() })
             .ToListAsync();
+        var districtIds = liveByDistrict.Select(x => x.DistrictId).ToList();
+        var districtNames = await db.Districts.AsNoTracking()
+            .Where(d => districtIds.Contains(d.Id))
+            .Select(d => new { d.Id, d.Name, d.StateName })
+            .ToDictionaryAsync(d => d.Id, d => (d.Name, d.StateName));
+        var listingsByDistrict = AdminDistrictCounts.Build(
+            liveByDistrict.Select(x => (x.DistrictId, x.Count)), districtNames);
 
-        // Revenue = granted paid plan purchases, Razorpay and Play (refunded ones drop out).
+        // Revenue = granted paid plan purchases, Razorpay and Play (refunded ones drop out), summed in paise.
         var now = DateTime.UtcNow;
-        var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var monthStart = PlanTime.IstMonthStartUtc(now);
         var revenue = db.PlanPurchases.Where(p => p.Status == PurchaseStatuses.Granted && p.Provider != PaymentProviders.None);
-        var totalEarnings = await revenue.SumAsync(p => (int?)p.PayableInr) ?? 0;
-        var currentMonthEarnings = await revenue.Where(p => p.GrantedAt >= monthStart).SumAsync(p => (int?)p.PayableInr) ?? 0;
+        var totalEarningsPaise = await revenue.SumAsync(p => (long?)(p.CapturedAmountPaise ?? (long)p.PayableInr * 100)) ?? 0;
+        var currentMonthEarningsPaise = await revenue.Where(p => p.GrantedAt >= monthStart)
+            .SumAsync(p => (long?)(p.CapturedAmountPaise ?? (long)p.PayableInr * 100)) ?? 0;
 
         var planRows = await db.UserPlans.AsNoTracking()
             .Where(u => u.Status == UserPlanStatuses.Active && u.EndsAt > now && !u.Plan.IsDefault)
@@ -635,9 +643,11 @@ public static class AdminHandlers
             TotalPlotListings = totalPlotListings,
             ActivePlotListings = activePlotListings,
             ActiveDistricts = activeDistricts,
-            RoomListingsByDistrict = listingsByDistrict.ToDictionary(x => x.District, x => x.Count),
-            TotalEarnings = totalEarnings,
-            CurrentMonthEarnings = currentMonthEarnings,
+            RoomListingsByDistrict = listingsByDistrict,
+            TotalEarnings = Money.RupeesFromPaise(totalEarningsPaise),
+            CurrentMonthEarnings = Money.RupeesFromPaise(currentMonthEarningsPaise),
+            TotalEarningsPaise = totalEarningsPaise,
+            CurrentMonthEarningsPaise = currentMonthEarningsPaise,
             ActivePaidUsers = planRows.Sum(r => r.Paid),
             PlanUsers = planUsers,
             TripEnquiriesToday = tripEnquiriesToday,
@@ -918,10 +928,24 @@ public static class AdminHandlers
         }
 
         if (districtId.HasValue)
-            query = query.Where(u => db.RoomListings.Any(l => l.UserId == u.Id && l.DistrictId == districtId.Value && !l.IsDeleted));
+        {
+            var d = districtId.Value;
+            query = query.Where(u =>
+                db.RoomListings.Any(l => l.UserId == u.Id && l.DistrictId == d && !l.IsDeleted)
+                || db.PlotListings.Any(l => l.UserId == u.Id && l.DistrictId == d && !l.IsDeleted)
+                || db.StayListings.Any(s => s.UserId == u.Id && s.DistrictId == d && !s.IsDeleted)
+                || db.TaxiListings.Any(t => t.UserId == u.Id && t.DistrictId == d && !t.IsDeleted));
+        }
 
         if (cityId.HasValue)
-            query = query.Where(u => db.RoomListings.Any(l => l.UserId == u.Id && l.CityId == cityId.Value && !l.IsDeleted));
+        {
+            var c = cityId.Value;
+            query = query.Where(u =>
+                db.RoomListings.Any(l => l.UserId == u.Id && l.CityId == c && !l.IsDeleted)
+                || db.PlotListings.Any(l => l.UserId == u.Id && l.CityId == c && !l.IsDeleted)
+                || db.StayListings.Any(s => s.UserId == u.Id && s.CityId == c && !s.IsDeleted)
+                || db.TaxiListings.Any(t => t.UserId == u.Id && t.CityId == c && !t.IsDeleted));
+        }
 
         var now = DateTime.UtcNow;
         var projected = query.Select(u => new
@@ -1030,10 +1054,10 @@ public static class AdminHandlers
             Name = u.Name,
             IsActive = u.IsActive,
             CreatedAt = u.CreatedAt,
-            TotalListings = await db.RoomListings.CountAsync(l => l.UserId == id && !l.IsDeleted),
-            ActiveListings = await db.RoomListings.CountAsync(l => l.UserId == id && !l.IsDeleted && l.IsActive),
-            TotalPlotListings = await db.PlotListings.CountAsync(l => l.UserId == id && !l.IsDeleted),
-            ActivePlotListings = await db.PlotListings.CountAsync(l => l.UserId == id && !l.IsDeleted && l.IsActive),
+            TotalListings = await db.RoomListings.Where(l => l.UserId == id).CountAsync(ListingCountRules.RoomExisting),
+            ActiveListings = await db.RoomListings.Where(l => l.UserId == id).CountAsync(ListingCountRules.RoomLive),
+            TotalPlotListings = await db.PlotListings.Where(l => l.UserId == id).CountAsync(ListingCountRules.PlotExisting),
+            ActivePlotListings = await db.PlotListings.Where(l => l.UserId == id).CountAsync(ListingCountRules.PlotLive),
             LiveRoomListings = blocking.Rooms,
             LivePlotListings = blocking.Plots,
             TotalStays = await db.StayListings.CountAsync(s => s.UserId == id && !s.IsDeleted),
@@ -1380,12 +1404,25 @@ public static class AdminHandlers
     }
 
     public static async Task<IResult> GetReports(
-        IUnitOfWork unitOfWork, ApplicationDbContext db, int page = 1, int pageSize = 20, string? status = "Pending")
+        IUnitOfWork unitOfWork, ApplicationDbContext db, int page = 1, int pageSize = 20, string? status = "Pending",
+        string? cursor = null)
     {
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
 
-        var paged = await unitOfWork.ListingReports.GetPagedAsync(page, pageSize, status);
+        // cursor = keyset (resolve shrinks a Pending queue); page > 1 without a cursor = the old app's offset paging.
+        DateTime? afterAt = null;
+        Guid? afterId = null;
+        if (!string.IsNullOrEmpty(cursor))
+        {
+            if (!KeysetCursor.TryDecode(cursor, out var at, out var id)) return BadRequestResponse("Invalid cursor");
+            afterAt = at;
+            afterId = id;
+        }
+        var paged = afterAt == null && page > 1
+            ? await unitOfWork.ListingReports.GetPagedAsync(page, pageSize, status)
+            : await KeysetReportsAsync(unitOfWork, pageSize, status, afterAt, afterId);
+        var nextCursor = KeysetCursor.EncodeLast(paged.Items, paged.HasMore, r => r.CreatedAt, r => r.Id);
 
         // Batched lookup instead of N+1 — ListingReport has no FK/nav to RoomListing/PlotListing
         // (just a ListingId + ListingType string discriminator), so the underlying listing content
@@ -1424,7 +1461,14 @@ public static class AdminHandlers
             return dto;
         }).ToList();
 
-        return OkResponse(new { items, hasMore = paged.HasMore });
+        return OkResponse(new { items, hasMore = paged.HasMore, nextCursor });
+    }
+
+    private static async Task<PagedResult<ListingReport>> KeysetReportsAsync(
+        IUnitOfWork unitOfWork, int pageSize, string? status, DateTime? afterAt, Guid? afterId)
+    {
+        var (rows, hasMore) = await unitOfWork.ListingReports.GetAfterCursorAsync(pageSize, status, afterAt, afterId);
+        return new PagedResult<ListingReport> { Items = rows, Page = 1, PageSize = pageSize, HasMore = hasMore };
     }
 
     public static async Task<IResult> GetReportById(Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db)
@@ -1643,7 +1687,8 @@ public static class AdminHandlers
     };
 
     public static async Task<IResult> GetRoomGoLiveRequests(
-        ApplicationDbContext db, IPlanEntitlementService entitlements, int page = 1, int pageSize = 20, string? status = "Pending")
+        ApplicationDbContext db, IPlanEntitlementService entitlements, int page = 1, int pageSize = 20, string? status = "Pending",
+        string? cursor = null)
     {
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
@@ -1657,17 +1702,33 @@ public static class AdminHandlers
             .Include(l => l.RoomType)
             .Include(l => l.District)
             .Include(l => l.City)
-            .Where(l => !l.IsDeleted && l.LiveRequestStatus == status)
-            .OrderByDescending(l => l.UpdatedAt);
+            .Where(l => !l.IsDeleted && l.LiveRequestStatus == status);
 
-        var result = await query.ToPagedResultAsync(page, pageSize, l => ToGoLiveRequestDto(l, includePhotos: false));
-        if (result.Items.Count > 0)
+        // cursor = keyset on (UpdatedAt DESC, Id DESC); page > 1 without a cursor = the old app's offset paging.
+        var useOffset = string.IsNullOrEmpty(cursor) && page > 1;
+        if (!string.IsNullOrEmpty(cursor))
         {
-            var limits = await entitlements.GetLimitsBatchAsync(result.Items.Select(i => i.UserId).Distinct().ToList(), ListingKinds.Room);
-            foreach (var i in result.Items)
+            if (!KeysetCursor.TryDecode(cursor, out var at, out var afterId)) return BadRequestResponse("Invalid cursor");
+            query = query.Where(l => l.UpdatedAt <= at && (l.UpdatedAt < at || l.Id.CompareTo(afterId) < 0));
+        }
+        var rows = await query
+            .OrderByDescending(l => l.UpdatedAt)
+            .ThenByDescending(l => l.Id)
+            .Skip(useOffset ? (page - 1) * pageSize : 0)
+            .Take(pageSize + 1)
+            .ToListAsync();
+        var hasMore = rows.Count > pageSize;
+        if (hasMore) rows = rows.Take(pageSize).ToList();
+        var nextCursor = KeysetCursor.EncodeLast(rows, hasMore, l => l.UpdatedAt, l => l.Id);
+
+        var items = rows.Select(l => ToGoLiveRequestDto(l, includePhotos: false)).ToList();
+        if (items.Count > 0)
+        {
+            var limits = await entitlements.GetLimitsBatchAsync(items.Select(i => i.UserId).Distinct().ToList(), ListingKinds.Room);
+            foreach (var i in items)
                 i.OwnerPlanName = limits.TryGetValue(i.UserId, out var l) ? l.PlanName : null;
         }
-        return OkResponse(new { items = result.Items, hasMore = result.HasMore });
+        return OkResponse(new { items, hasMore, nextCursor });
     }
 
     public static async Task<IResult> GetRoomGoLiveRequestById(Guid id, ApplicationDbContext db, IPlanEntitlementService entitlements)

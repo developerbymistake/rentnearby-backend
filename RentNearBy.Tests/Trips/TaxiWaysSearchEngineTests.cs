@@ -125,7 +125,7 @@ public class TaxiWaysSearchEngineTests
     }
 
     [Fact]
-    public void Three_car_plans_are_dropped_when_a_two_car_plan_exists()
+    public void A_three_car_plan_cheaper_than_every_two_car_plan_is_kept()
     {
         var s = TaxiWaysFixture.Build(
             TaxiWaysFixture.Row("Delhi", Delhi, "Haridwar", Haridwar, 4200),
@@ -136,7 +136,25 @@ public class TaxiWaysSearchEngineTests
 
         var r = TaxiWaysFixture.Search(s, Delhi, Badrinath);
 
-        Assert.All(r.Plans, p => Assert.Equal(2, p.Cars));
+        Assert.Equal(2, r.Plans.Count);
+        Assert.Equal((2, 14000), (r.Plans[0].Cars, r.Plans[0].Total));
+        Assert.Equal((3, 9000), (r.Plans[1].Cars, r.Plans[1].Total));
+    }
+
+    [Fact]
+    public void A_three_car_plan_dearer_than_a_two_car_plan_is_dropped()
+    {
+        var s = TaxiWaysFixture.Build(
+            TaxiWaysFixture.Row("Delhi", Delhi, "Haridwar", Haridwar, 4200),
+            TaxiWaysFixture.Row("Haridwar", Haridwar, "Badrinath", Badrinath, 9800),
+            TaxiWaysFixture.Row("Delhi", Delhi, "Rishikesh", Rishikesh, 5000),
+            TaxiWaysFixture.Row("Rishikesh", Rishikesh, "Kathgodam", Kathgodam, 5000),
+            TaxiWaysFixture.Row("Kathgodam", Kathgodam, "Badrinath", Badrinath, 5000));
+
+        var r = TaxiWaysFixture.Search(s, Delhi, Badrinath);
+
+        var plan = Assert.Single(r.Plans);
+        Assert.Equal((2, 14000), (plan.Cars, plan.Total));
     }
 
     [Fact]

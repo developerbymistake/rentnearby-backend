@@ -133,6 +133,7 @@ public static class TripEnquiryDtoBuilder
                 LastHostReminderAt = e.LastHostReminderAt,
                 NextHostReminderAt = TripAdvanceRules.NextHostReminder(e, nowUtc),
                 ReminderCount = e.HostReminderCount,
+                RefundDue = TripAdvanceSplit.RefundDue(e),
             },
             Taxi = isTaxi ? BuildTaxi(e, context, days) : null,
             Traveller = new TripPartyDto
@@ -178,15 +179,19 @@ public static class TripEnquiryDtoBuilder
             ? await unitOfWork.TripEnquiries.LoadTaxiContactsAsync(taxiIds)
             : new Dictionary<Guid, (string? Phone, string? WhatsApp)>();
 
+        // One trips query for the whole list: dates for every row, PlanJson only for the viewer's own trips.
+        var tripIds = enquiries.Where(e => e.TripId != null).Select(e => e.TripId!.Value).Distinct().ToList();
+        var views = tripIds.Count > 0
+            ? await unitOfWork.Trips.GetDatesAndOwnPlansAsync(tripIds, viewerId)
+            : new Dictionary<Guid, TripEnquiryTripView>();
         var tripDates = new Dictionary<Guid, (DateOnly? Start, DateOnly? End)>();
         var tripPlans = new Dictionary<Guid, TripPlan>();
-        foreach (var tripId in enquiries.Where(e => e.TripId != null).Select(e => e.TripId!.Value).Distinct())
-            if (await unitOfWork.Trips.GetByIdAsync(tripId) is { } trip)
-            {
-                tripDates[tripId] = (trip.StartDate, trip.EndDate);
-                if (enquiries.Any(e => e.TripId == tripId && e.TravellerUserId == viewerId))
-                    tripPlans[tripId] = TripPlanReader.Read(trip);
-            }
+        foreach (var (tripId, view) in views)
+        {
+            tripDates[tripId] = (view.StartDate, view.EndDate);
+            if (enquiries.Any(e => e.TripId == tripId && e.TravellerUserId == viewerId) && view.Plan() is { } plan)
+                tripPlans[tripId] = plan;
+        }
 
         return enquiries.Select(e =>
         {
@@ -240,7 +245,7 @@ public static class TripEnquiryDtoBuilder
         return ToOfferDto(o, e, lines);
     }
 
-    // CounterLines keeps sum(units x price) = guest price x units up to per-line rounding, so the unit average is the guest's price.
+    // CounterLines keeps sum(units x price) = guest price x units exactly, so the unit average is the guest's price.
     public static int? ProposedPerNight(TripOffer o, IReadOnlyList<TripOfferLine> lines)
     {
         if (o.Kind != TripOfferKinds.Counter) return null;

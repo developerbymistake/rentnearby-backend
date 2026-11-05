@@ -33,6 +33,7 @@ public static class TaxiCache
 
     public static async Task InvalidateAsync(IConnectionMultiplexer? redis, Guid? districtId)
     {
+        await RentNearBy.Infrastructure.Services.TripSupplyCache.BumpAsync(redis, districtId);
         await TaxiWaysVersion.BumpAsync(redis);
         if (redis == null) return;
         try

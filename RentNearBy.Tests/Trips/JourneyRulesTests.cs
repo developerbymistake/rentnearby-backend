@@ -112,22 +112,23 @@ public class JourneyRulesTests
     public void Watch_skips_the_eve_push_only_for_a_segment_journey()
     {
         var today = new DateOnly(2026, 11, 5);
+        var eve = new DateTime(2026, 11, 5, 13, 0, 0, DateTimeKind.Utc);
         var driver = Guid.NewGuid();
         var taxis = new Dictionary<Guid, JourneyTaxiInfo> { [driver] = Taxi(driver, true) };
 
         var free = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
         RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
-            WatchedJourney(today.AddDays(1), null, driver), taxis, today, DateTime.UtcNow, free);
+            WatchedJourney(today.AddDays(1), null, driver), taxis, today, eve, free);
         var step = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
         RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
-            WatchedJourney(today.AddDays(1), Guid.NewGuid(), driver), taxis, today, DateTime.UtcNow, step, new HashSet<Guid>());
+            WatchedJourney(today.AddDays(1), Guid.NewGuid(), driver), taxis, today, eve, step, new HashSet<Guid>());
         var segmentJourney = WatchedJourney(today.AddDays(1), Guid.NewGuid(), driver);
         var segment = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
         RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
-            segmentJourney, taxis, today, DateTime.UtcNow, segment, new HashSet<Guid> { segmentJourney.Id });
+            segmentJourney, taxis, today, eve, segment, new HashSet<Guid> { segmentJourney.Id });
 
         Assert.Single(free);
-        Assert.Equal(JourneyRules.EveKey(Assert.Single(step).JourneyId), step[0].Dedupe);
+        Assert.Equal(JourneyEveRules.Key(Assert.Single(step).JourneyId, today.AddDays(1)), step[0].Dedupe);
         Assert.Empty(segment);
     }
 
@@ -189,9 +190,10 @@ public class JourneyRulesTests
             : new HashSet<Guid>();
         var pushes = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
 
-        RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(journey, taxis, today, DateTime.UtcNow, pushes, covered);
+        var eve = new DateTime(2026, 11, 1, 13, 0, 0, DateTimeKind.Utc);
+        RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(journey, taxis, today, eve, pushes, covered);
 
-        Assert.Equal(JourneyRules.EveKey(journey.Id), Assert.Single(pushes).Dedupe);
+        Assert.Equal(JourneyEveRules.Key(journey.Id, today.AddDays(1)), Assert.Single(pushes).Dedupe);
     }
 
     [Fact]
@@ -204,7 +206,7 @@ public class JourneyRulesTests
         var pushes = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
 
         var dirty = RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
-            WatchedJourney(today.AddDays(5), trip, driver), taxis, today, DateTime.UtcNow, pushes);
+            WatchedJourney(today.AddDays(5), trip, driver), taxis, today, new DateTime(2026, 11, 5, 6, 0, 0, DateTimeKind.Utc), pushes);
 
         Assert.True(dirty);
         var push = Assert.Single(pushes);
@@ -223,7 +225,7 @@ public class JourneyRulesTests
         var booked = new HashSet<int> { 1 };
 
         var dirty = RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
-            journey, taxis, today, DateTime.UtcNow, pushes, null, booked);
+            journey, taxis, today, new DateTime(2026, 11, 5, 6, 0, 0, DateTimeKind.Utc), pushes, null, booked);
 
         Assert.True(dirty);
         Assert.False(journey.Legs.First().DriverAvailable);

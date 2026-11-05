@@ -6,4 +6,6 @@ public class ChatMessagePushPayload
     public Guid ConversationId { get; set; }
     public string SenderName { get; set; } = string.Empty;
     public string Preview { get; set; } = string.Empty;
+    public Guid? MessageId { get; set; }
+    public DateTime? CreatedAt { get; set; }
 }

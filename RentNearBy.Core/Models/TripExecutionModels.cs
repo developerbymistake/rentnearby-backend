@@ -386,6 +386,7 @@ public static class TripEnquiryErrorTypes
     public const string ChangeNotAllowed = "ChangeNotAllowed";
     public const string ChangeNotPending = "ChangeNotPending";
     public const string NothingChanged = "NothingChanged";
+    public const string PartyDoesNotFit = "PartyDoesNotFit";
     public const string TripNotRunning = "TripNotRunning";
     public const string TripNotEnded = "TripNotEnded";
     public const string ProblemOutsideTrip = "ProblemOutsideTrip";
@@ -410,8 +411,8 @@ public static class TripOfferRules
     public static int CounterTotal(int pricePerNight, int units, int nights)
         => TripExecutionRules.Saturate((long)Math.Max(1, nights) * Math.Max(1, units) * pricePerNight);
 
-    // The host's lines (rooms, units, guests) at the guest's per-room price; lines of different prices keep their ratio.
-    // Without an offer: one line of `units` rooms.
+    // The host's lines (rooms, units, guests) at the guest's per-room price X: sum(units x price) = X x total units exactly,
+    // lines of different prices keep their ratio (MoneySplit.UnitPrices). Without an offer: one line of `units` rooms.
     public static List<TripOfferLine> CounterLines(IReadOnlyList<TripOfferLine>? offerLines, int perRoomPrice, int units, int guests)
     {
         var lines = (offerLines ?? []).Where(l => l.Units > 0 && l.PricePerNight > 0).ToList();
@@ -419,53 +420,46 @@ public static class TripOfferRules
             return [new TripOfferLine { Units = Math.Max(1, units), Guests = Math.Max(1, guests), PricePerNight = perRoomPrice }];
 
         long totalUnits = lines.Sum(l => (long)l.Units);
-        long offered = lines.Sum(l => (long)l.Units * l.PricePerNight);
-        return lines.Select(l => new TripOfferLine
+        var prices = MoneySplit.UnitPrices((long)perRoomPrice * totalUnits, lines.Select(l => l.Units).ToList(), lines.Select(l => l.PricePerNight).ToList());
+        return lines.Select((l, i) => new TripOfferLine
         {
             RoomName = l.RoomName,
             Units = l.Units,
             Guests = l.Guests,
-            PricePerNight = (int)Math.Max(1, Math.Round((double)l.PricePerNight * perRoomPrice * totalUnits / offered, MidpointRounding.AwayFromZero)),
+            PricePerNight = prices?[i] ?? perRoomPrice,
         }).ToList();
     }
 
-    // Price lock: a change request keeps every accepted line's PricePerNight; units follow the requested rooms
-    // (extra rooms go to the first line, fewer rooms are taken from the last lines); guests are spread by units.
-    public static List<TripOfferLine> ChangeLines(IReadOnlyList<TripOfferLine> accepted, int rooms, int guests)
+    // Per-room capacity of an accepted line: the stay room's MaxGuests when known (by name), never below the line's own
+    // guests per unit, so the accepted party always fits its own lines.
+    public static int LineCapacity(TripOfferLine line, IReadOnlyDictionary<string, int>? roomCaps)
+    {
+        var own = line.Units > 0 ? (line.Guests + line.Units - 1) / line.Units : line.Guests;
+        var room = line.RoomName != null && roomCaps != null && roomCaps.TryGetValue(line.RoomName.Trim(), out var c) ? c : 0;
+        return Math.Max(1, Math.Max(own, room));
+    }
+
+    // Price lock: every accepted line keeps its PricePerNight. Units: the counts closest to the accepted ones that seat the
+    // party, cheapest first, then more units on earlier lines (StayPartyFit.Choose); guests by capacity (MoneySplit.SpreadGuests).
+    // Null when no unit counts of these room types seat the party in that many rooms.
+    public static List<TripOfferLine>? ChangeLines(
+        IReadOnlyList<TripOfferLine> accepted, int rooms, int guests, IReadOnlyDictionary<string, int>? roomCaps = null)
     {
         rooms = Math.Max(1, rooms);
         guests = Math.Max(1, guests);
         if (accepted.Count == 0) return [new TripOfferLine { Units = rooms, Guests = guests, PricePerNight = 0 }];
 
-        var units = accepted.Select(l => Math.Max(1, l.Units)).ToList();
-        var diff = rooms - units.Sum();
-        if (diff > 0) units[0] += diff;
-        for (var i = units.Count - 1; diff < 0 && i >= 0; i--)
-        {
-            var take = Math.Min(units[i], -diff);
-            units[i] -= take;
-            diff += take;
-        }
+        var caps = accepted.Select(l => LineCapacity(l, roomCaps)).ToList();
+        var prices = accepted.Select(l => (long)Math.Max(0, l.PricePerNight)).ToList();
+        var baseline = accepted.Select(l => Math.Max(1, l.Units)).ToList();
+        var units = StayPartyFit.Choose(caps, prices, rooms, guests, baseline);
+        if (units == null) return null;
 
-        var kept = accepted.Select((l, i) => (Line: l, Units: units[i])).Where(x => x.Units > 0).ToList();
-        var total = kept.Sum(x => x.Units);
-        var shares = kept.Select(x => Math.Max(1, guests * x.Units / total)).ToList();
-        var rest = guests - shares.Sum();
-        if (rest > 0) shares[0] += rest;
-        for (var i = shares.Count - 1; rest < 0 && i >= 0; i--)
-        {
-            var take = Math.Min(shares[i] - 1, -rest);
-            shares[i] -= take;
-            rest += take;
-        }
-
-        return kept.Select((x, i) => new TripOfferLine
-        {
-            RoomName = x.Line.RoomName,
-            Units = x.Units,
-            Guests = shares[i],
-            PricePerNight = x.Line.PricePerNight,
-        }).ToList();
+        var shares = MoneySplit.SpreadGuests(guests, units, caps);
+        return accepted
+            .Select((l, i) => new TripOfferLine { RoomName = l.RoomName, Units = units[i], Guests = shares[i], PricePerNight = l.PricePerNight })
+            .Where(l => l.Units > 0)
+            .ToList();
     }
 
     // Only Accept (traveller, Revised) and AcceptChange (host, ChangeRequest) may move the snapshot.
@@ -541,6 +535,20 @@ public static class TripExecutionRules
     }
 
     public static bool NightsOverlap(DateOnly aIn, DateOnly aOut, DateOnly bIn, DateOnly bOut) => aIn < bOut && bIn < aOut;
+
+    // At most MaxOpenPerNight open stay enquiries on every night of [checkIn, checkOut): rows of listingId are not counted,
+    // alreadyAdded = rows this request already sends for the same nights. O(nights x rows).
+    public static bool FitsNightCap(IEnumerable<TripEnquiry> open, Guid listingId, int alreadyAdded, DateOnly checkIn, DateOnly checkOut)
+    {
+        var others = open.Where(x => x.ListingId != listingId && x.CheckIn != null && x.CheckOut != null).ToList();
+        for (var night = checkIn; night < checkOut; night = night.AddDays(1))
+        {
+            var next = night.AddDays(1);
+            var count = others.Count(x => NightsOverlap(x.CheckIn!.Value, x.CheckOut!.Value, night, next)) + alreadyAdded;
+            if (count >= MaxOpenPerNight) return false;
+        }
+        return true;
+    }
 
     // Saturates at int.MaxValue so the MaxAmount check rejects an overflowing total.
     public static int ComputeTotal(IReadOnlyList<TripOfferLine> lines, int nights)

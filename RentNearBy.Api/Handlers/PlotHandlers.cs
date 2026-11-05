@@ -25,127 +25,65 @@ public static class PlotListingHandlers
     private static readonly TimeSpan ReportSubmitWindow = TimeSpan.FromHours(1);
     private const int ReportSubmitMax = 5;
 
-    private static decimal ToSqft(decimal value, string unit) => unit switch
-    {
-        "sqft"  => value,
-        "bigha" => value * 27000m,
-        "acre"  => value * 43560m,
-        "nali"  => value * 2152.78m,
-        _       => value
-    };
-
-    private static readonly TimeSpan ContextCacheTtl = TimeSpan.FromMinutes(10);
-    private static string ContextCacheKey(double lat, double lng) => $"plot_context:{lat:F2}:{lng:F2}";
-
     private static readonly TimeSpan NearbyCacheTtl = TimeSpan.FromSeconds(60);
-    private static string NearbyCacheKey(Guid districtId, double radius, double lat, double lng)
-        => $"nearby_plot:{districtId}:{radius:F1}:{lat:F3}:{lng:F3}";
-    private static string NearbyDistrictPattern(Guid districtId) => $"nearby_plot:{districtId}:*";
-
     private static readonly TimeSpan NearestCacheTtl = TimeSpan.FromSeconds(60);
-    private static string NearestCacheKey(Guid districtId, int count, double lat, double lng)
-        => $"nearest_plot:{districtId}:{count}:{lat:F3}:{lng:F3}";
-    private static string NearestDistrictPattern(Guid districtId) => $"nearest_plot:{districtId}:*";
 
-    private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
-    {
-        if (redis == null) return;
-        try
-        {
-            var db = redis.GetDatabase();
-            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
-            if (server == null) return;
-            foreach (var pattern in new[] { NearbyDistrictPattern(districtId), NearestDistrictPattern(districtId) })
-                await foreach (var key in server.KeysAsync(pattern: pattern))
-                    await db.KeyDeleteAsync(key);
-        }
-        catch { }
-    }
-
-    // Home's "Recently added" feed (HomeHandlers.GetRecentPlots) is district-free and cached under
-    // this one fixed key — unlike nearby-cache above, a plot leaving the active/non-deleted set must
-    // bust it immediately rather than riding out the cache TTL, since a stale entry here is a
-    // tappable card whose detail page 404s, not just a cosmetically-stale count.
-    private static async Task InvalidateRecentPlotsCacheAsync(IConnectionMultiplexer? redis)
-    {
-        if (redis == null) return;
-        try { await redis.GetDatabase().KeyDeleteAsync("home:recentPlots"); } catch { }
-    }
-
-    // Home's "Plots for you" feed (HomeHandlers.GetPlots) is cached per-district — same
-    // immediate-bust reasoning as InvalidateRecentPlotsCacheAsync above, just keyed by district.
-    private static async Task InvalidateForYouPlotsCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
-    {
-        if (redis == null) return;
-        try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouPlots:{districtId}"); } catch { }
-    }
-
-    private static double Haversine(double lat1, double lng1, double lat2, double lng2)
-    {
-        const double R = 6371.0;
-        var dlat = (lat2 - lat1) * Math.PI / 180;
-        var dlng = (lng2 - lng1) * Math.PI / 180;
-        var a = Math.Sin(dlat / 2) * Math.Sin(dlat / 2) +
-                Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) *
-                Math.Sin(dlng / 2) * Math.Sin(dlng / 2);
-        return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-    }
+    private static Task BustAsync(IServiceProvider sp, params Guid[] districtIds)
+        => sp.GetRequiredService<IListingCacheInvalidator>().BustDistrictsAsync(ListingKinds.Plot, districtIds);
 
     public static async Task<IResult> GetContext(double lat, double lng, IServiceProvider sp)
     {
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
             return BadRequestResponse("Invalid coordinates");
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        var cacheKey = ContextCacheKey(lat, lng);
-
-        if (redis != null)
-        {
-            RedisValue cached = default;
-            try { cached = await redis.GetDatabase().StringGetAsync(cacheKey); } catch { }
-            if (cached.HasValue)
-            {
-                try
-                {
-                    var element = JsonSerializer.Deserialize<JsonElement>(cached!);
-                    return OkResponse(element);
-                }
-                catch (JsonException) { }
-            }
-        }
-
         var db = sp.GetRequiredService<ApplicationDbContext>();
-        var point = new NetTopologySuite.Geometries.Point(lng, lat) { SRID = 4326 };
-
-        var match = await db.Districts
-            .AsNoTracking()
-            .Include(d => d.Cities.OrderBy(c => c.Name))
-            .FirstOrDefaultAsync(d => d.IsActive && d.Boundary != null && d.Boundary.Contains(point));
-
-        if (match == null)
+        var districtId = await LocationContext.FindDistrictIdAsync(db, lat, lng);
+        var payload = districtId is Guid id
+            ? await LocationContext.GetPayloadAsync(db, sp.GetService<IConnectionMultiplexer>(), id)
+            : null;
+        if (payload == null)
             return NotFoundResponse("No district found for given coordinates");
 
-        var cities = match.Cities.ToList();
-        var nearestCity = cities
-            .Where(c => c.Latitude.HasValue && c.Longitude.HasValue)
-            .Select(c => new { City = c, Dist = Haversine(lat, lng, (double)c.Latitude!, (double)c.Longitude!) })
-            .MinBy(x => x.Dist)?.City ?? cities.FirstOrDefault();
+        return OkResponse(LocationContext.Response(payload, LocationContext.NearestCityId(payload, lat, lng)));
+    }
 
-        var result = new
-        {
-            district = new { id = match.Id, name = match.Name, stateName = match.StateName, businessOnboardingEnabled = match.BusinessOnboardingEnabled },
-            nearestCityId = nearestCity?.Id,
-            cities = cities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
-        };
-
+    // Read-through of a cell's candidate set under the district generation; the caller refines it per request.
+    private static async Task<List<NearbyPlotListingDto>> CellCandidatesAsync(
+        IConnectionMultiplexer? redis, Guid districtId, Func<long, string> keyOf, TimeSpan ttl, Func<Task<List<NearbyPlotListingDto>>> load)
+    {
+        IDatabase? cache = null;
+        string? key = null;
         if (redis != null)
         {
-            var json = JsonSerializer.Serialize(result);
-            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, ContextCacheTtl, When.NotExists); } catch { }
+            try
+            {
+                cache = redis.GetDatabase();
+                var gen = await ListingCacheGeneration.ReadAsync(cache, ListingCacheKeys.DistrictGen(ListingKinds.Plot, districtId));
+                key = keyOf(gen);
+                var cached = await cache.StringGetAsync(key);
+                if (cached.HasValue && JsonSerializer.Deserialize<List<NearbyPlotListingDto>>(cached!) is { } hit) return hit;
+            }
+            catch { cache = null; }
         }
 
-        return OkResponse(result);
+        var fresh = await load();
+        if (cache != null && key != null && ListingVisibility.CacheTtl(ttl, DateTime.UtcNow, fresh.Select(r => r.ValidUntil)) is TimeSpan life)
+        {
+            try { await cache.StringSetAsync(key, JsonSerializer.Serialize(fresh), life, When.NotExists); } catch { }
+        }
+        return fresh;
     }
+
+    private static List<NearbyPlotListingDto> Pick(List<NearbyPlotListingDto> candidates, List<GeoHit> hits)
+        => hits.Select(h =>
+        {
+            var row = candidates[h.Index];
+            row.DistanceKm = h.DistanceKm;
+            return row;
+        }).ToList();
+
+    private static List<RentNearBy.Core.Models.GeoPoint> Points(List<NearbyPlotListingDto> rows)
+        => rows.Select(r => new RentNearBy.Core.Models.GeoPoint((double)r.Latitude, (double)r.Longitude, r.PriorityRank)).ToList();
 
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid districtId,
@@ -158,39 +96,19 @@ public static class PlotListingHandlers
         if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
             return BadRequestResponse("Invalid coordinates");
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
-        var cacheKey = NearbyCacheKey(districtId, radius, latitude, longitude);
+        var cell = GeoCacheKey.Cell(latitude, longitude);
+        var radiusKey = GeoCacheKey.RadiusKey(radius);
 
-        if (redis != null)
-        {
-            RedisValue cached = default;
-            try { cached = await redis.GetDatabase().StringGetAsync(cacheKey); } catch { }
-            if (cached.HasValue)
-            {
-                try
-                {
-                    var items = JsonSerializer.Deserialize<List<NearbyPlotListingDto>>(cached!);
-                    if (items != null)
-                    {
-                        if (!isAuth) items.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
-                        return OkResponse(new { items });
-                    }
-                }
-                catch (JsonException) { }
-            }
-        }
+        var candidates = await CellCandidatesAsync(
+            sp.GetService<IConnectionMultiplexer>(), districtId,
+            gen => ListingCacheKeys.Nearby(ListingKinds.Plot, districtId, gen, radiusKey, cell), NearbyCacheTtl,
+            async () => (await unitOfWork.PlotListings.GetNearbyAsync(
+                cell.CenterLat, cell.CenterLng, GeoCacheKey.CandidateRadiusKm(cell, radius), districtId)).ToList());
 
-        var fetched = (await unitOfWork.PlotListings.GetNearbyAsync(latitude, longitude, radius, districtId)).ToList();
-
-        if (redis != null)
-        {
-            var json = JsonSerializer.Serialize(fetched);
-            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearbyCacheTtl, When.NotExists); } catch { }
-        }
-
-        if (!isAuth) fetched.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
-        return OkResponse(new { items = fetched });
+        var items = Pick(candidates, GeoCacheKey.WithinRadius(Points(candidates), latitude, longitude, radius));
+        if (!isAuth) items.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
+        return OkResponse(new { items });
     }
 
     private static readonly TimeSpan NearestRateLimitWindow = TimeSpan.FromMinutes(10);
@@ -221,39 +139,25 @@ public static class PlotListingHandlers
             return TooManyRequestsResponse();
         }
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
-        var cacheKey = NearestCacheKey(districtId, count, latitude, longitude);
+        var cell = GeoCacheKey.Cell(latitude, longitude);
 
-        if (redis != null)
-        {
-            RedisValue cached = default;
-            try { cached = await redis.GetDatabase().StringGetAsync(cacheKey); } catch { }
-            if (cached.HasValue)
+        // Same exact-k candidate rule as RoomListingsHandlers.GetNearest.
+        var candidates = await CellCandidatesAsync(
+            sp.GetService<IConnectionMultiplexer>(), districtId,
+            gen => ListingCacheKeys.Nearest(ListingKinds.Plot, districtId, gen, count, cell), NearestCacheTtl,
+            async () =>
             {
-                try
-                {
-                    var items = JsonSerializer.Deserialize<List<NearbyPlotListingDto>>(cached!);
-                    if (items != null)
-                    {
-                        if (!isAuth) items.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
-                        return OkResponse(new { items });
-                    }
-                }
-                catch (JsonException) { }
-            }
-        }
+                var knn = (await unitOfWork.PlotListings.GetNearestAsync(cell.CenterLat, cell.CenterLng, count, districtId)).ToList();
+                if (knn.Count < count) return knn;
+                var kth = GeoCacheKey.MaxDistanceKm(knn.Select(r => ((double)r.Latitude, (double)r.Longitude)), cell.CenterLat, cell.CenterLng);
+                return (await unitOfWork.PlotListings.GetNearbyAsync(
+                    cell.CenterLat, cell.CenterLng, GeoCacheKey.NearestCandidateRadiusKm(cell, kth), districtId)).ToList();
+            });
 
-        var fetched = (await unitOfWork.PlotListings.GetNearestAsync(latitude, longitude, count, districtId)).ToList();
-
-        if (redis != null)
-        {
-            var json = JsonSerializer.Serialize(fetched);
-            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearestCacheTtl, When.NotExists); } catch { }
-        }
-
-        if (!isAuth) fetched.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
-        return OkResponse(new { items = fetched });
+        var items = Pick(candidates, GeoCacheKey.Nearest(Points(candidates), latitude, longitude, count));
+        if (!isAuth) items.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
+        return OkResponse(new { items });
     }
 
     public static async Task<IResult> GetById(Guid id, IUnitOfWork unitOfWork, ClaimsPrincipal principal)
@@ -368,7 +272,7 @@ public static class PlotListingHandlers
             UserId = userId,
             AreaValue = request.AreaValue,
             AreaUnit = request.AreaUnit,
-            AreaSqft = ToSqft(request.AreaValue, request.AreaUnit),
+            AreaSqft = BighaArea.ToSqft(request.AreaValue, request.AreaUnit, district.StateName),
             PlotTypeId = request.PlotTypeId,
             Description = request.Description,
             Latitude = request.Latitude,
@@ -378,6 +282,7 @@ public static class PlotListingHandlers
             CityId = request.CityId,
             IsActive = false, // always — POST /{id}/go-live is now the only path to activation
             CreatedAt = DateTime.UtcNow,
+            PublishedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
 
@@ -400,8 +305,7 @@ public static class PlotListingHandlers
         if (!outcome.Inserted)
             return ConflictResponse("Could not generate a unique link for this plot. Please try again.", "SLUG_GENERATION_FAILED");
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
+        await BustAsync(sp, plot.DistrictId);
 
         return CreatedResponse(new { plotId = plot.Id }, $"/api/v1/plots/{plot.Id}");
     }
@@ -435,8 +339,6 @@ public static class PlotListingHandlers
         }
         if (request.AreaValue.HasValue) plot.AreaValue = request.AreaValue.Value;
         if (request.AreaUnit != null) plot.AreaUnit = request.AreaUnit;
-        if (request.AreaValue.HasValue || request.AreaUnit != null)
-            plot.AreaSqft = ToSqft(plot.AreaValue, plot.AreaUnit);
         if (request.Description != null) plot.Description = request.Description;
         if (request.Latitude.HasValue) plot.Latitude = request.Latitude.Value;
         if (request.Longitude.HasValue) plot.Longitude = request.Longitude.Value;
@@ -447,6 +349,11 @@ public static class PlotListingHandlers
             if (city == null) return BadRequestResponse("Selected city does not exist");
             plot.CityId = request.CityId.Value;
             plot.DistrictId = city.DistrictId;
+        }
+        if (request.AreaValue.HasValue || request.AreaUnit != null || plot.DistrictId != oldDistrictId)
+        {
+            var stateName = await unitOfWork.Districts.GetByIdAsync(plot.DistrictId) is { } d ? d.StateName : null;
+            plot.AreaSqft = BighaArea.ToSqft(plot.AreaValue, plot.AreaUnit, stateName);
         }
         var freesSlot = false;
         if (request.IsActive.HasValue)
@@ -505,16 +412,7 @@ public static class PlotListingHandlers
         if (request.IsActive.HasValue && request.IsActive.Value == false)
             await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
-        await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
-        if (oldDistrictId != plot.DistrictId)
-        {
-            await InvalidateNearbyCacheAsync(redis, oldDistrictId);
-            await InvalidateForYouPlotsCacheAsync(redis, oldDistrictId);
-        }
-        if (request.IsActive.HasValue && request.IsActive.Value == false)
-            await InvalidateRecentPlotsCacheAsync(redis);
+        await BustAsync(sp, plot.DistrictId, oldDistrictId);
         if (resumed > 0)
             await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(userId, ListingKinds.Plot);
 
@@ -575,10 +473,7 @@ public static class PlotListingHandlers
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Plot");
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, districtId);
-        await InvalidateRecentPlotsCacheAsync(redis);
-        await InvalidateForYouPlotsCacheAsync(redis, districtId);
+        await BustAsync(sp, districtId);
         if (resumed > 0)
             await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(userId, ListingKinds.Plot);
 
@@ -631,6 +526,7 @@ public static class PlotListingHandlers
             other.UpdatedAt = now;
             target.IsActive = true;
             target.PauseReason = null;
+            target.PublishedAt = ListingPublishRules.PublishedAtOnActivation(target.PublishedAt, target.ValidUntil, now);
             target.ValidUntil = entitlements.ResolveValidUntil(limits);
             target.PriorityRank = limits.PriorityRank;
             target.IsFeatured = limits.IsFeatured;
@@ -770,9 +666,7 @@ public static class PlotListingHandlers
         await unitOfWork.PlotListings.AddPhotoAsync(plotPhoto);
         await unitOfWork.SaveChangesAsync();
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
-        await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
+        await BustAsync(sp, plot.DistrictId);
 
         return CreatedResponse(new { photoUrl = url, photoId = plotPhoto.Id }, url);
     }
@@ -796,9 +690,7 @@ public static class PlotListingHandlers
         unitOfWork.PlotListings.RemovePhoto(photo);
         await unitOfWork.SaveChangesAsync();
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
-        await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
+        await BustAsync(sp, plot.DistrictId);
 
         return NoContentResponse();
     }
@@ -933,10 +825,7 @@ public static class PlotListingHandlers
             throw;
         }
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, probe.DistrictId);
-        await InvalidateRecentPlotsCacheAsync(redis);
-        await InvalidateForYouPlotsCacheAsync(redis, probe.DistrictId);
+        await BustAsync(sp, probe.DistrictId);
         if (resumed > 0)
             await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(ownerId, ListingKinds.Plot);
 
@@ -991,10 +880,7 @@ public static class PlotListingHandlers
             throw;
         }
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, districtId);
-        await InvalidateRecentPlotsCacheAsync(redis);
-        await InvalidateForYouPlotsCacheAsync(redis, districtId);
+        await BustAsync(sp, districtId);
         if (resumed > 0)
             await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(ownerId, ListingKinds.Plot);
 
@@ -1169,6 +1055,8 @@ public static class PlotListingHandlers
             var goesLive = ownerActive && live < limits.ListingLimit;
 
             plot.LiveRequestStatus = GoLiveRequestStatuses.Approved;
+            if (goesLive)
+                plot.PublishedAt = ListingPublishRules.PublishedAtOnActivation(plot.PublishedAt, plot.ValidUntil, DateTime.UtcNow);
             plot.IsActive = goesLive;
             plot.PauseReason = goesLive ? null : ownerActive ? PauseReasons.Plan : PauseReasons.Suspended;
             plot.ValidUntil = goesLive ? entitlements.ResolveValidUntil(limits) : plot.ValidUntil;
@@ -1197,12 +1085,7 @@ public static class PlotListingHandlers
             await unitOfWork.CommitTransactionAsync();
 
             if (goesLive)
-            {
-                var redis = sp.GetService<IConnectionMultiplexer>();
-                await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
-                await InvalidateRecentPlotsCacheAsync(redis);
-                await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
-            }
+                await BustAsync(sp, plot.DistrictId);
 
             await SendGoLiveNotificationAsync(hubContext, publisher, notification);
 
@@ -1274,10 +1157,7 @@ public static class PlotListingHandlers
 
     // ── Report-driven takedown ("Reject") — Plot side ─────────────────────────
     // Called from AdminHandlers.RejectReport (the single PUT /admin/reports/{id}/reject endpoint,
-    // dispatched on report.ListingType) — kept here, not in AdminHandlers.cs, so it can reuse this
-    // file's own Plot-specific cache-key helpers (InvalidateNearbyCacheAsync/
-    // InvalidateRecentPlotsCacheAsync/InvalidateForYouPlotsCacheAsync use different Redis key
-    // patterns than the Room versions) instead of duplicating those key strings elsewhere.
+    // dispatched on report.ListingType) — kept here, not in AdminHandlers.cs, next to the other Plot paths.
     // Rejected rows never count against the owner's plan limit.
 
     private static NotificationEvent BuildPlotReportRejectedNotification(Guid userId, string reason) => new()
@@ -1336,10 +1216,7 @@ public static class PlotListingHandlers
 
             await unitOfWork.CommitTransactionAsync();
 
-            var redis = sp.GetService<IConnectionMultiplexer>();
-            await InvalidateNearbyCacheAsync(redis, plot.DistrictId);
-            await InvalidateRecentPlotsCacheAsync(redis);
-            await InvalidateForYouPlotsCacheAsync(redis, plot.DistrictId);
+            await BustAsync(sp, plot.DistrictId);
             if (resumed > 0)
                 await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(plot.UserId, ListingKinds.Plot);
 

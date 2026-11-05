@@ -41,6 +41,7 @@ public static class StayCache
 
     public static async Task InvalidateAsync(IConnectionMultiplexer? redis, Guid? districtId)
     {
+        await RentNearBy.Infrastructure.Services.TripSupplyCache.BumpAsync(redis, districtId);
         if (redis == null) return;
         try
         {
@@ -163,12 +164,14 @@ public static class StayHandlers
 
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid districtId, Guid? stayTypeId,
-        IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, int? guests = null, bool? groundFloor = null)
+        IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, int? guests = null, bool? groundFloor = null,
+        int? rooms = null, int? nights = null)
     {
         if (radius < 1 || radius > 50)
             return BadRequestResponse("Radius must be between 1 and 50 km");
         if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
             return BadRequestResponse("Invalid coordinates");
+        if (PartyError(guests, rooms, nights) is { } partyError) return partyError;
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
@@ -181,20 +184,31 @@ public static class StayHandlers
             await WriteNearbyCacheAsync(redis, cacheKey, items, StayCache.NearbyTtl);
         }
 
-        items = StayNearbyRooms.Apply(items, guests, groundFloor == true);
+        items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
         if (!isAuth) RedactForAnonymous(items);
         return OkResponse(new { items });
+    }
+
+    // Party params of the nearby quote, each optional: guests up to 100, rooms 1..20, nights 1..30.
+    private static IResult? PartyError(int? guests, int? rooms, int? nights)
+    {
+        if (guests is > StayPartyFit.MaxGuests) return BadRequestResponse($"Guests must be at most {StayPartyFit.MaxGuests}");
+        if (rooms is < 1 or > StayPartyFit.MaxRoomsWanted) return BadRequestResponse($"Rooms must be 1 to {StayPartyFit.MaxRoomsWanted}");
+        if (nights is < 1 or > 30) return BadRequestResponse("Nights must be 1 to 30");
+        return null;
     }
 
     public static async Task<IResult> GetNearest(
         double latitude, double longitude, Guid districtId, Guid? stayTypeId,
         IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp,
-        IRateLimitService rateLimiter, HttpContext httpContext, int count = 5, int? guests = null, bool? groundFloor = null)
+        IRateLimitService rateLimiter, HttpContext httpContext, int count = 5, int? guests = null, bool? groundFloor = null,
+        int? rooms = null, int? nights = null)
     {
         if (count < 1 || count > 10)
             return BadRequestResponse("Count must be between 1 and 10");
         if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
             return BadRequestResponse("Invalid coordinates");
+        if (PartyError(guests, rooms, nights) is { } partyError) return partyError;
 
         var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var rl = await rateLimiter.CheckAsync($"stays:nearest:ip:{ip}", NearestRateLimitMax, NearestRateLimitWindow);
@@ -215,7 +229,7 @@ public static class StayHandlers
             await WriteNearbyCacheAsync(redis, cacheKey, items, StayCache.NearestTtl);
         }
 
-        items = StayNearbyRooms.Apply(items, guests, groundFloor == true);
+        items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
         if (!isAuth) RedactForAnonymous(items);
         return OkResponse(new { items });
     }

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Mapster;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -12,7 +13,7 @@ namespace RentNearBy.Api.Handlers;
 public static class NotificationInboxHandlers
 {
     public static async Task<IResult> GetMyNotifications(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 20)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = 20, string? cursor = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -20,14 +21,26 @@ public static class NotificationInboxHandlers
         if (pageSize < 1 || pageSize > 50) pageSize = 20;
         if (page < 1) page = 1;
 
-        var (items, hasMore) = await unitOfWork.Notifications.GetPagedForUserAsync(userId, page, pageSize);
+        // cursor = keyset (new apps); page > 1 without a cursor = the old app's page paging.
+        DateTime? afterAt = null;
+        Guid? afterId = null;
+        if (!string.IsNullOrEmpty(cursor))
+        {
+            if (!KeysetCursor.TryDecode(cursor, out var at, out var id)) return BadRequestResponse("Invalid cursor");
+            afterAt = at;
+            afterId = id;
+        }
+        var (items, hasMore) = afterAt == null && page > 1
+            ? await unitOfWork.Notifications.GetPagedForUserAsync(userId, page, pageSize)
+            : await unitOfWork.Notifications.GetForUserAfterCursorAsync(userId, afterAt, afterId, pageSize);
+        var nextCursor = KeysetCursor.EncodeLast(items, hasMore, i => i.Notification.CreatedAt, i => i.Notification.Id);
         var dtos = items.Select(i =>
         {
             var dto = i.Notification.Adapt<NotificationDto>();
             dto.IsRead = i.IsRead;
             return dto;
         });
-        return OkResponse(new { items = dtos, hasMore });
+        return OkResponse(new { items = dtos, hasMore, nextCursor });
     }
 
     public static async Task<IResult> GetUnreadCount(ClaimsPrincipal principal, IUnitOfWork unitOfWork)

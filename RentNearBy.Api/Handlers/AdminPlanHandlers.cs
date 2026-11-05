@@ -193,8 +193,8 @@ public static class AdminPlanHandlers
     private static bool IsPlayIdConflict(DbUpdateException ex)
         => (ex.InnerException as PostgresException)?.ConstraintName is "ix_plans_play_product" or "ix_planprices_play_baseplan";
 
-    // Google's current INR price per (product, base plan), from the most recently synced subscription.
-    private static async Task<Dictionary<(string ProductId, string BasePlanId), int>> PlayPricesAsync(ApplicationDbContext db)
+    // Google's current INR price in paise per (product, base plan), from the most recently synced subscription.
+    private static async Task<Dictionary<(string ProductId, string BasePlanId), long>> PlayPricesAsync(ApplicationDbContext db)
     {
         var rows = await db.Database.SqlQueryRaw<PlayPriceRow>("""
             SELECT DISTINCT ON ("ProductId", "BasePlanId") "ProductId", "BasePlanId", "RecurringPriceMicros"
@@ -204,12 +204,12 @@ public static class AdminPlanHandlers
             """).ToListAsync();
         return rows.ToDictionary(
             r => (r.ProductId, r.BasePlanId),
-            r => (int)Math.Round(r.RecurringPriceMicros / 1_000_000m, MidpointRounding.AwayFromZero));
+            r => Money.PaiseFromMicros(r.RecurringPriceMicros));
     }
 
-    private static int? PlayPriceOf(Plan p, PlanPrice x, IReadOnlyDictionary<(string ProductId, string BasePlanId), int> playPrices)
-        => p.PlayProductId != null && x.PlayBasePlanId != null && playPrices.TryGetValue((p.PlayProductId, x.PlayBasePlanId), out var inr)
-            ? inr
+    private static long? PlayPaiseOf(Plan p, PlanPrice x, IReadOnlyDictionary<(string ProductId, string BasePlanId), long> playPrices)
+        => p.PlayProductId != null && x.PlayBasePlanId != null && playPrices.TryGetValue((p.PlayProductId, x.PlayBasePlanId), out var paise)
+            ? paise
             : null;
 
     private static IEnumerable<PlanFeature> ToFeatures(UpsertPlanRequest request)
@@ -227,7 +227,7 @@ public static class AdminPlanHandlers
             IsEnabled = p.IsEnabled,
         });
 
-    internal static AdminPlanDto ToDto(Plan p, IReadOnlyDictionary<(string ProductId, string BasePlanId), int> playPrices) => new()
+    internal static AdminPlanDto ToDto(Plan p, IReadOnlyDictionary<(string ProductId, string BasePlanId), long> playPrices) => new()
     {
         Id = p.Id,
         FeatureKey = p.FeatureKey,
@@ -251,8 +251,9 @@ public static class AdminPlanHandlers
                 IsEnabled = x.IsEnabled,
                 PlayBasePlanId = x.PlayBasePlanId,
                 PlayTrialOfferId = x.PlayTrialOfferId,
-                PlayRecurringPriceInr = PlayPriceOf(p, x, playPrices),
-                PlayPriceMismatch = PlayPriceOf(p, x, playPrices) is { } play && play != x.PriceInr,
+                PlayRecurringPriceInr = PlayPaiseOf(p, x, playPrices) is { } paise ? Money.RupeesFromPaise(paise) : null,
+                PlayRecurringPricePaise = PlayPaiseOf(p, x, playPrices),
+                PlayPriceMismatch = PlayPaiseOf(p, x, playPrices) is { } play && play != Money.PaiseFromRupees(x.PriceInr),
             }).ToList(),
         LowPriceWarning = p.Prices.Any(x => x.PriceInr < PlanRules.LowPriceWarningInr),
         CreatedAt = p.CreatedAt,

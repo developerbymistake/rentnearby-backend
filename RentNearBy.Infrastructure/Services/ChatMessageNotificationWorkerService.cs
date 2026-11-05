@@ -156,7 +156,7 @@ public class ChatMessageNotificationWorkerService : BackgroundService
             try
             {
                 var isSuccess = await FcmRetryPolicy.ExecuteAsync(() =>
-                    _chatFcmService.SendAsync(deviceToken.Token, msg.SenderName, msg.Preview, msg.ConversationId));
+                    _chatFcmService.SendAsync(deviceToken.Token, msg.SenderName, msg.Preview, msg.ConversationId, msg.MessageId, msg.CreatedAt));
                 return (deviceToken.Token, isSuccess);
             }
             catch (Exception ex)

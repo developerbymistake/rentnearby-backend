@@ -63,6 +63,8 @@ public class WayDriverDto
     public double? DistanceKm { get; set; }
     public int? Minutes { get; set; }
     public bool HasRoadLine { get; set; }
+    // Partial stretch: fare estimated from the road span (null for a whole-route fare).
+    public int? EstimatedFare { get; set; }
 
     // Detail and change-driver endpoints only.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -83,6 +85,9 @@ public class WayLegDto
     public int ListedFare { get; set; }
     public int CarsNeeded { get; set; } = 1;
     public string? SeatsNote { get; set; }
+    // The distinct drivers that together cover the group on this stretch (seat cover).
+    public List<Guid> CoverTaxiIds { get; set; } = new();
+    public bool FareEstimated { get; set; }
     public bool Partial { get; set; }
     public double? DistanceKm { get; set; }
     public List<string> Passes { get; set; } = new();

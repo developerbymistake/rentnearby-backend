@@ -37,5 +37,6 @@ public class AdminPlanPriceDto
     public string? PlayTrialOfferId { get; set; }
     // From the latest synced subscription of this base plan; display only.
     public int? PlayRecurringPriceInr { get; set; }
+    public long? PlayRecurringPricePaise { get; set; }
     public bool PlayPriceMismatch { get; set; }
 }

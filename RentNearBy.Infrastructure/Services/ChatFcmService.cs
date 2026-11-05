@@ -4,6 +4,7 @@ using Google.Apis.Auth.OAuth2;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -34,7 +35,7 @@ public class ChatFcmService : IChatFcmService
         });
     }
 
-    public async Task<bool> SendAsync(string token, string title, string body, Guid conversationId)
+    public async Task<bool> SendAsync(string token, string title, string body, Guid conversationId, Guid? messageId = null, DateTime? createdAtUtc = null)
     {
         // Data-only (no Notification block) so this is delivered to the client's own
         // FirebaseMessagingService.onMessageReceived in every app state, including
@@ -45,12 +46,7 @@ public class ChatFcmService : IChatFcmService
         var message = new Message
         {
             Token = token,
-            Data = new Dictionary<string, string>
-            {
-                { "conversation_id", conversationId.ToString() },
-                { "title", title },
-                { "body", body }
-            },
+            Data = ChatPushData.Build(conversationId, title, body, messageId, createdAtUtc),
             Android = new AndroidConfig
             {
                 Priority = Priority.High

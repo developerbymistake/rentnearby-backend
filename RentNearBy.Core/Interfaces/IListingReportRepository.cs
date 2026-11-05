@@ -10,6 +10,7 @@ public interface IListingReportRepository
     Task<bool> HasPendingReportFromReporterAsync(Guid listingId, string listingType, Guid reporterUserId);
     Task<ListingReport?> GetByIdAsync(Guid id);
     Task<PagedResult<ListingReport>> GetPagedAsync(int page, int pageSize, string? status);
+    Task<(List<ListingReport> Items, bool HasMore)> GetAfterCursorAsync(int pageSize, string? status, DateTime? afterAt, Guid? afterId);
     Task<int> AutoResolvePendingForListingAsync(Guid listingId, string listingType);
     Task<int> AutoResolvePendingForListingsAsync(IEnumerable<Guid> listingIds, string listingType);
     Task ResolveAsync(Guid reportId, Guid? adminId, string resolutionAction);

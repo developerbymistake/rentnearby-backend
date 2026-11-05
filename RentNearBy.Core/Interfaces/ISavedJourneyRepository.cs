@@ -27,8 +27,10 @@ public interface ISavedJourneyRepository
     // Direct match first, else a route whose road line passes near both ends. Null = not on this leg or not public.
     Task<JourneyLegMatch?> FindOnLegAsync(Guid taxiId, double fromLat, double fromLng, double toLat, double toLng);
 
-    // Journeys still to travel (TravelDate >= fromDate, not Completed, not deleted) with legs, tracked.
-    Task<List<SavedJourney>> GetWatchedAsync(DateOnly fromDate, int take);
+    // Journeys still to travel (TravelDate >= fromDate, not Completed, not deleted) that have work: a leg whose driver's
+    // public state differs from DriverAvailable, or (eveDate set) TravelDate = eveDate with its dated eve key not logged.
+    // Keyset page by Id after `after`, legs included, tracked. Next = null on the last page.
+    Task<(List<SavedJourney> Items, Guid? Next)> GetWatchedPageAsync(DateOnly fromDate, DateOnly? eveDate, Guid? after, int take);
 
     // Trip steps: the caller's live journeys only.
     Task<List<SavedJourney>> GetOwnedByIdsAsync(IReadOnlyCollection<Guid> ids, Guid userId);

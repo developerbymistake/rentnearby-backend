@@ -92,32 +92,49 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
 
     // ---------------------------------------------------------------- pass 1: expiry
 
+    // Keyset scan on (EndsAt, Id): every due row is visited once per run, claimed or not, so rows that stay
+    // Active (a stuck Play row) never hide the rows behind them. A Mapped Play row that Google answered in the
+    // last 24 h is not re-synced here (the reconciler keeps syncing it); an ApiError leaves LastSyncError set.
+    private const string DueSelect = """
+        SELECT up."Id", up."UserId", up."FeatureKey", up."PlanId", up."EndsAt", up."PlaySubscriptionId",
+               ps."MappingStatus", ps."PurchaseToken"
+        FROM "UserPlans" up
+        LEFT JOIN "PlaySubscriptions" ps ON ps."Id" = up."PlaySubscriptionId"
+        WHERE up."Status" = 'Active' AND (
+            (up."PlaySubscriptionId" IS NULL AND up."EndsAt" <= now())
+            OR (up."PlaySubscriptionId" IS NOT NULL AND (
+                (up."EndsAt" <= now() - interval '72 hours'
+                    AND NOT (ps."MappingStatus" = 'Mapped' AND ps."LastSyncError" IS NULL
+                             AND ps."LastSyncedAt" >= now() - interval '24 hours'))
+                OR (ps."MappingStatus" <> 'Mapped' AND ps."DetachedReason" IS DISTINCT FROM 'Replaced'))))
+        """;
+
     private async Task<int> ExpirePassAsync(CancellationToken ct)
     {
         var total = 0;
-        var skip = new HashSet<Guid>();
+        DateTime? afterEndsAt = null;
+        var afterId = Guid.Empty;
         while (!ct.IsCancellationRequested)
         {
             List<DuePlan> due;
             using (var scope = scopeFactory.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                due = await db.Database.SqlQueryRaw<DuePlan>("""
-                    SELECT up."Id", up."UserId", up."FeatureKey", up."PlanId", up."EndsAt", up."PlaySubscriptionId",
-                           ps."MappingStatus", ps."PurchaseToken"
-                    FROM "UserPlans" up
-                    LEFT JOIN "PlaySubscriptions" ps ON ps."Id" = up."PlaySubscriptionId"
-                    WHERE up."Status" = 'Active' AND (
-                        (up."PlaySubscriptionId" IS NULL AND up."EndsAt" <= now())
-                        OR (up."PlaySubscriptionId" IS NOT NULL AND (
-                            up."EndsAt" <= now() - interval '72 hours'
-                            OR (ps."MappingStatus" <> 'Mapped' AND ps."DetachedReason" IS DISTINCT FROM 'Replaced'))))
-                    ORDER BY up."EndsAt"
-                    LIMIT {0}
-                    """, Batch).ToListAsync(ct);
+                due = afterEndsAt is { } at
+                    ? await db.Database.SqlQueryRaw<DuePlan>(DueSelect + """
+                         AND (up."EndsAt", up."Id") > ({1}, {2})
+                        ORDER BY up."EndsAt", up."Id"
+                        LIMIT {0}
+                        """, Batch, at, afterId).ToListAsync(ct)
+                    : await db.Database.SqlQueryRaw<DuePlan>(DueSelect + """
+
+                        ORDER BY up."EndsAt", up."Id"
+                        LIMIT {0}
+                        """, Batch).ToListAsync(ct);
             }
-            due = due.Where(d => !skip.Contains(d.Id)).ToList();
             if (due.Count == 0) break;
+            afterEndsAt = due[^1].EndsAt;
+            afterId = due[^1].Id;
 
             var expiredUsers = new Dictionary<string, HashSet<Guid>>();
             try
@@ -132,7 +149,6 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
                             expiredUsers[plan.FeatureKey] = users = [];
                         users.Add(plan.UserId);
                     }
-                    else skip.Add(plan.Id);
                 }
             }
             finally

@@ -7,11 +7,11 @@ public interface IRoomRoomListingRepository : IRepository<RoomListing>
 {
     Task<IEnumerable<NearbyListingDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId);
     Task<IEnumerable<NearbyListingDto>> GetNearestAsync(double latitude, double longitude, int count, Guid districtId);
-    // Home rails, projected (no Include, no full entities).
-    Task<List<HomeRoomDto>> GetHomeForYouProjectedAsync(Guid districtId, int limit);
+    // Home rails, projected (no Include, no full entities). For you = first rows of the browse walk (city first).
+    Task<List<HomeRoomDto>> GetHomeForYouProjectedAsync(Guid districtId, Guid? cityId, int limit);
     // District-free — every user sees the same result.
     Task<List<HomeRoomDto>> GetRecentProjectedAsync(int limit);
-    // Newest sort pages by opaque keyset cursor (first page: null); price sorts page by offset.
+    // Every sort pages by opaque keyset cursor (first page: null); page > 1 without a cursor = legacy offset.
     Task<BrowsePage<HomeRoomDto>> SearchPagedAsync(Guid districtId, Guid? cityId, Guid? roomTypeId, string sortBy, int page, int pageSize, string? cursor);
     Task<IEnumerable<RoomListing>> GetByUserIdAsync(Guid userId);
     Task<bool> HasEverApprovedAsync(Guid userId);

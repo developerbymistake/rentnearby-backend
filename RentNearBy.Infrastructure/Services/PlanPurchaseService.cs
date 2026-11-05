@@ -130,6 +130,7 @@ public class PlanPurchaseService(
         public string? PlayOfferId { get; init; }
         public string? PlayOldPurchaseToken { get; init; }
         public string? PlayReplacementMode { get; init; }
+        public int BonusDays { get; init; }
     }
 
     private sealed record GrantOutcome(UserPlan UserPlan, NotificationEvent Notification, bool WasNewRow = false, int CarryOverDaysTaken = 0);
@@ -203,7 +204,7 @@ public class PlanPurchaseService(
         dto.Status = limits.UserPlanId != null ? UserPlanStatuses.Active : null;
         dto.StartsAt = limits.StartsAt;
         dto.EndsAt = limits.EndsAt;
-        dto.DaysLeft = limits.EndsAt == null ? null : Math.Max(0, (int)Math.Ceiling((limits.EndsAt.Value - DateTime.UtcNow).TotalDays));
+        dto.DaysLeft = limits.EndsAt == null ? null : PlanTime.DaysLeft(limits.EndsAt.Value, DateTime.UtcNow);
         dto.Limits = new MyPlanLimitsDto
         {
             ListingLimit = limits.ListingLimit,
@@ -409,6 +410,7 @@ public class PlanPurchaseService(
         CreditInr = q.CreditInr,
         PayableInr = q.PayableInr,
         GrantedDays = q.GrantedDays,
+        BonusDays = q.BonusDays,
         RequiresPayment = q.RequiresPayment,
         Coupon = q.Coupon == null ? null : new QuoteCouponDto { Code = q.Coupon.Code, Kind = q.Coupon.Kind, Value = q.Coupon.Value },
         AutoCoupon = q.AutoCoupon,
@@ -483,7 +485,7 @@ public class PlanPurchaseService(
             .FirstOrDefaultAsync();
 
         string intent;
-        var credit = 0;
+        var creditValue = 0;
         if (active == null)
         {
             intent = PurchaseIntents.New;
@@ -497,12 +499,7 @@ public class PlanPurchaseService(
         else
         {
             intent = PurchaseIntents.Switch;
-            if (active.TotalPaidInr > 0 && active.TotalDays > 0)
-            {
-                var remaining = Math.Max(0, (active.EndsAt - now).TotalDays);
-                credit = (int)Math.Floor(active.TotalPaidInr * remaining / active.TotalDays);
-                credit = Math.Clamp(credit, 0, Math.Max(0, price.PriceInr - 1));
-            }
+            creditValue = PlanProration.CreditValueInr(active.TotalPaidInr, active.TotalDays, active.EndsAt, now);
         }
 
         var list = price.PriceInr;
@@ -533,12 +530,15 @@ public class PlanPurchaseService(
             }
         }
 
+        // Ledger: list = discount + credit applied + payable; Rs 0 payable is granted inline (no gateway order).
         var discount = coupon == null ? 0 : DiscountOf(coupon, list);
-        var payable = list - discount - credit;
-        var fullyDiscounted = coupon != null && discount >= list;
-        payable = fullyDiscounted ? 0 : Math.Max(1, payable);
+        var split = PlanProration.Switch(list, discount, creditValue, days, PlanRules.MaxRemainingDays);
 
-        return new QuoteCalc(plan, price, plan.FeatureKey, intent, list, discount, credit, payable, days, coupon, auto);
+        return new QuoteCalc(plan, price, plan.FeatureKey, intent, list, discount, split.CreditAppliedInr, split.PayableInr,
+            split.GrantedDays, coupon, auto)
+        {
+            BonusDays = split.BonusDays,
+        };
     }
 
     // Under Play the price is Google's (mirror only), CreditInr is 0 (Google prorates), only FreePlan coupons
@@ -563,7 +563,7 @@ public class PlanPurchaseService(
         {
             var sub = await db.PlaySubscriptions.AsNoTracking()
                 .Where(s => s.Id == subscriptionId)
-                .Select(s => new { s.PurchaseToken, s.BasePlanId })
+                .Select(s => new { s.PurchaseToken, s.BasePlanId, s.RecurringPriceMicros, s.RecurringPriceCurrency })
                 .FirstOrDefaultAsync()
                 ?? throw PlanServiceException.Conflict(PlanErrorTypes.AlreadySubscribed, "Manage your subscription in Google Play.");
             var currentPrice = sub.BasePlanId == null ? null : snapshot.FindPrice(active.PlanId, sub.BasePlanId);
@@ -571,7 +571,12 @@ public class PlanPurchaseService(
                 throw PlanServiceException.Conflict(PlanErrorTypes.AlreadySubscribed, "You already have this plan.");
             intent = PurchaseIntents.Switch;
             oldToken = sub.PurchaseToken;
-            mode = ReplacementModeOf(active.PlanId, currentPrice, plan, price);
+            var currentMicros = sub.RecurringPriceCurrency == "INR" ? sub.RecurringPriceMicros : null;
+            var newMicros = await LatestPlayInrMicrosAsync(plan.PlayProductId, price.PlayBasePlanId);
+            if (active.PlanId != plan.Id && currentPrice != null && (currentMicros is not > 0 || newMicros is not > 0))
+                logger.LogInformation(new EventId(0, "play.price.mirror_used"),
+                    "Replacement mode for user {UserId} used the admin mirror price (no Google price seen)", user.Id);
+            mode = ReplacementModeOf(active.PlanId, currentPrice, plan, price, currentMicros, newMicros);
         }
         else if ((await playSubscriptions.GetMappedByUserFeatureAsync(user.Id, feature))?.State is PlayStates.OnHold or PlayStates.Paused)
         {
@@ -644,16 +649,28 @@ public class PlanPurchaseService(
         };
     }
 
-    // D-07: within one product only chargeFullPrice / withoutProration; across products a cheaper plan
-    // (per-month mirror price) is a deferred downgrade, anything else an immediate charge.
-    internal static string ReplacementModeOf(Guid currentPlanId, CatalogPrice? currentPrice, CatalogPlan plan, CatalogPrice price)
+    // D-07 via PlayReplacementPolicy: both sides on Google's INR prices when both were seen, else both on the
+    // admin mirror (never one source per side).
+    internal static string ReplacementModeOf(Guid currentPlanId, CatalogPrice? currentPrice, CatalogPlan plan, CatalogPrice price,
+        long? currentGoogleMicros = null, long? newGoogleMicros = null)
     {
         if (currentPrice == null) return PlayReplacementModes.ChargeFullPrice;
-        if (currentPlanId == plan.Id)
-            return price.CycleMonths > currentPrice.CycleMonths ? PlayReplacementModes.ChargeFullPrice : PlayReplacementModes.WithoutProration;
-        var newMonthly = (double)price.PriceInr / Math.Max(1, (int)price.CycleMonths);
-        var oldMonthly = (double)currentPrice.PriceInr / Math.Max(1, (int)currentPrice.CycleMonths);
-        return newMonthly >= oldMonthly ? PlayReplacementModes.ChargeFullPrice : PlayReplacementModes.Deferred;
+        var google = currentGoogleMicros is > 0 && newGoogleMicros is > 0;
+        return PlayReplacementPolicy.Decide(currentPlanId == plan.Id, currentPrice.CycleMonths, price.CycleMonths,
+            PlayReplacementPolicy.PriceMicros(google ? currentGoogleMicros : null, currentPrice.PriceInr),
+            PlayReplacementPolicy.PriceMicros(google ? newGoogleMicros : null, price.PriceInr));
+    }
+
+    // Google's latest INR price of one base plan, from the most recently synced subscription on it.
+    private async Task<long?> LatestPlayInrMicrosAsync(string? productId, string? basePlanId)
+    {
+        if (productId == null || basePlanId == null) return null;
+        return await db.PlaySubscriptions.AsNoTracking()
+            .Where(s => s.ProductId == productId && s.BasePlanId == basePlanId
+                && s.RecurringPriceMicros != null && s.RecurringPriceCurrency == "INR" && s.LastSyncedAt != null)
+            .OrderByDescending(s => s.LastSyncedAt)
+            .Select(s => s.RecurringPriceMicros)
+            .FirstOrDefaultAsync();
     }
 
     internal static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
@@ -745,7 +762,12 @@ public class PlanPurchaseService(
         try
         {
             if (q.PayableInr == 0)
+            {
                 await LockOwnerForGrantAsync(userId, q.FeatureKey);
+                if (q.Intent == PurchaseIntents.Switch && (q.CreditInr > 0 || q.BonusDays > 0)
+                    && !await SwitchCreditStillValidAsync(purchase, userId, now))
+                    throw PlanServiceException.Conflict(PlanErrorTypes.InvalidRequest, "Your plan just changed. Please check the price again.");
+            }
             db.PlanPurchases.Add(purchase);
             if (q.Coupon != null)
             {
@@ -1182,7 +1204,8 @@ public class PlanPurchaseService(
     }
 
     // Caller holds the owner lock. Recomputes the quote's switch credit from the plan the owner holds now,
-    // as of the order's creation: valid only inside the order window and if it still covers CreditInr.
+    // as of the order's creation: valid only inside the order window and if it still covers the value the order
+    // moves onto the new plan (credit applied plus bonus days).
     private async Task<bool> SwitchCreditStillValidAsync(PlanPurchase purchase, Guid userId, DateTime now)
     {
         if (now > purchase.ExpiresAt) return false;
@@ -1193,10 +1216,8 @@ public class PlanPurchaseService(
             .FirstOrDefaultAsync();
         if (active == null || active.PlanId == purchase.PlanId || active.TotalPaidInr <= 0 || active.TotalDays <= 0)
             return false;
-        var remaining = Math.Max(0, (active.EndsAt - purchase.CreatedAt).TotalDays);
-        var credit = (int)Math.Floor(active.TotalPaidInr * remaining / active.TotalDays);
-        credit = Math.Clamp(credit, 0, Math.Max(0, purchase.ListPriceInr - 1));
-        return credit >= purchase.CreditInr;
+        var value = PlanProration.CreditValueInr(active.TotalPaidInr, active.TotalDays, active.EndsAt, purchase.CreatedAt);
+        return value >= CarriedValueOf(purchase, purchase.CreditInr, purchase.GrantedDays);
     }
 
     // Owner lock, then the role re-read under it, so a grant and a role change never interleave.
@@ -1260,11 +1281,12 @@ public class PlanPurchaseService(
         }
         else if (active != null)
         {
+            var ends = now.AddDays(days);
             active.PlanId = planId;
             active.Source = source;
             active.StartsAt = now;
-            active.EndsAt = now.AddDays(days);
-            active.TotalPaidInr = paidInr + creditInr;
+            active.EndsAt = ends > cap ? cap : ends;
+            active.TotalPaidInr = paidInr + CarriedValueOf(purchase, creditInr, days);
             active.TotalDays = days;
         }
         else
@@ -1310,6 +1332,12 @@ public class PlanPurchaseService(
         return new GrantOutcome(active, notification);
     }
 
+    // Prepaid value a switch moved onto the new row: the credit applied plus the bonus days bought with the rest.
+    internal static int CarriedValueOf(PlanPurchase? purchase, int creditInr, int grantedDays)
+        => purchase is { Intent: PurchaseIntents.Switch, CycleMonths: { } cycle }
+            ? PlanProration.CarriedValueInr(creditInr, purchase.ListPriceInr, PlanCycles.DaysOf(cycle), grantedDays)
+            : creditInr;
+
     // Same subscription = renew in place (deferred change lands by moving PlanId); another Play subscription =
     // replacement switch (carry-over kept); a non-Play row = carry-over switch (its whole days parked); none = new
     // row. EndsAt is always Google's expiry; no 24-month cap. A switch that keeps the plan writes no push row.
@@ -1325,7 +1353,7 @@ public class PlanPurchaseService(
             var prevEnds = active.EndsAt;
             var prevAutoRenew = active.PlayAutoRenewEnabled;
             active.EndsAt = play.EndsAt;
-            active.TotalDays += Math.Max(0, (int)(play.EndsAt - prevEnds).TotalDays);
+            active.TotalDays += PlanTime.WholeDays(play.EndsAt - prevEnds);
             active.TotalPaidInr += play.PaidInr;
             active.PlanId = play.PlanId;
             active.PlayTrialEndsAt ??= play.TrialEndsAt;
@@ -1338,11 +1366,11 @@ public class PlanPurchaseService(
             if (fromPlay)
             {
                 active.TotalPaidInr += play.PaidInr;
-                active.TotalDays += Math.Max(0, (int)(play.EndsAt - active.EndsAt).TotalDays);
+                active.TotalDays += PlanTime.WholeDays(play.EndsAt - active.EndsAt);
             }
             else
             {
-                carryTaken = Math.Max(0, (int)Math.Floor((active.EndsAt - now).TotalDays));
+                carryTaken = PlanTime.WholeDays(active.EndsAt - now);
                 active.CarryOverDays = Math.Min(PlayRules.MaxCarryOverDays, active.CarryOverDays + carryTaken);
                 active.StartsAt = now;
                 active.TotalPaidInr = play.PaidInr;
@@ -1513,7 +1541,11 @@ public class PlanPurchaseService(
                             && o.Status == PurchaseStatuses.Granted
                             && (o.GrantedAt > purchase.GrantedAt || (o.GrantedAt == purchase.GrantedAt && o.CreatedAt > purchase.CreatedAt)))
                         .OrderBy(o => o.GrantedAt).ThenBy(o => o.CreatedAt)
-                        .Select(o => new { o.PlanId, o.GrantedDays, o.PayableInr, o.CreditInr })
+                        .Select(o => new PlanPurchase
+                        {
+                            PlanId = o.PlanId, GrantedDays = o.GrantedDays, PayableInr = o.PayableInr, CreditInr = o.CreditInr,
+                            Intent = o.Intent, CycleMonths = o.CycleMonths, ListPriceInr = o.ListPriceInr,
+                        })
                         .ToListAsync();
 
                     int takeBackDays, takeBackInr;
@@ -1526,12 +1558,13 @@ public class PlanPurchaseService(
                     {
                         // A later plan change reset the row: this purchase survives only as that switch's credit.
                         var change = later.FirstOrDefault(o => o.PlanId != purchase.PlanId);
+                        var carried = change == null ? 0 : CarriedValueOf(change, change.CreditInr, change.GrantedDays);
                         if (change == null)
                         {
                             takeBackDays = purchase.GrantedDays;
                             takeBackInr = purchase.PayableInr;
                         }
-                        else if (change.CreditInr <= 0)
+                        else if (carried <= 0)
                         {
                             takeBackDays = 0;
                             takeBackInr = 0;
@@ -1539,8 +1572,8 @@ public class PlanPurchaseService(
                         else
                         {
                             takeBackDays = Math.Min(purchase.GrantedDays,
-                                (int)Math.Ceiling((double)change.GrantedDays * change.CreditInr / (change.PayableInr + change.CreditInr)));
-                            takeBackInr = Math.Min(purchase.PayableInr, change.CreditInr);
+                                (int)Math.Ceiling((double)change.GrantedDays * carried / (change.PayableInr + carried)));
+                            takeBackInr = Math.Min(purchase.PayableInr, carried);
                         }
                     }
 

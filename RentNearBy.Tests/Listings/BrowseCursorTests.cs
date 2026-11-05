@@ -15,8 +15,8 @@ public class BrowseCursorTests
         => string.Join(",", BrowseCursor.Phases(ranks, hasCity).Select(p => $"{p.Rank}{(p.CityOnly ? "c" : "")}"));
 
     [Fact]
-    public void Phases_WithCity_CityThenRestPerRankThenCatchAll()
-        => Assert.Equal("2c,2,0c,0,-1", Phases([2, 0], true));
+    public void Phases_WithCity_CityThenRestPerRankThenCatchAllSplit()
+        => Assert.Equal("2c,2,0c,0,-1c,-1", Phases([2, 0], true));
 
     [Fact]
     public void Phases_WithoutCity_OnePhasePerRankThenCatchAll()
@@ -28,7 +28,7 @@ public class BrowseCursorTests
 
     [Fact]
     public void Phases_NoRanks_CatchAllOnly()
-        => Assert.Equal("-1", Phases([], true));
+        => Assert.Equal("-1c,-1", Phases([], true));
 
     [Theory]
     [InlineData(2, true)]

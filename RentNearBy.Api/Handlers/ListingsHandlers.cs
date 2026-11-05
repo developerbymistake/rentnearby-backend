@@ -18,150 +18,99 @@ namespace RentNearBy.Api.Handlers;
 
 public static class RoomListingsHandlers
 {
-    private static readonly TimeSpan ContextCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan ReportSubmitWindow = TimeSpan.FromHours(1);
     private const int ReportSubmitMax = 5;
-
-    private static string ContextCacheKey(double lat, double lng, bool includeAddress)
-        => includeAddress ? $"context:{lat:F2}:{lng:F2}:addr" : $"context:{lat:F2}:{lng:F2}";
 
     public static async Task<IResult> GetContext(double lat, double lng, IServiceProvider sp, bool includeAddress = false)
     {
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
             return BadRequestResponse("Invalid coordinates");
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        var cacheKey = ContextCacheKey(lat, lng, includeAddress);
-
-        if (redis != null && !includeAddress)
-        {
-            RedisValue cached = default;
-            try { cached = await redis.GetDatabase().StringGetAsync(cacheKey); } catch { }
-            if (cached.HasValue)
-            {
-                try
-                {
-                    var element = JsonSerializer.Deserialize<JsonElement>(cached!);
-                    return OkResponse(element);
-                }
-                catch (JsonException) { /* corrupted cache entry — fall through to DB */ }
-            }
-        }
-
         var db = sp.GetRequiredService<ApplicationDbContext>();
-        var point = new NetTopologySuite.Geometries.Point(lng, lat) { SRID = 4326 };
+        var districtId = await LocationContext.FindDistrictIdAsync(db, lat, lng);
+        if (districtId is not Guid id)
+            return NotFoundResponse("No district found for given coordinates");
+
+        if (!includeAddress)
+        {
+            var payload = await LocationContext.GetPayloadAsync(db, sp.GetService<IConnectionMultiplexer>(), id);
+            if (payload == null) return NotFoundResponse("No district found for given coordinates");
+            return OkResponse(LocationContext.Response(payload, LocationContext.NearestCityId(payload, lat, lng)));
+        }
 
         var match = await db.Districts
             .AsNoTracking()
             .Include(d => d.Cities.OrderBy(c => c.Name))
-            .FirstOrDefaultAsync(d => d.IsActive && d.Boundary != null && d.Boundary.Contains(point));
-
+            .FirstOrDefaultAsync(d => d.Id == id);
         if (match == null)
             return NotFoundResponse("No district found for given coordinates");
 
         var cities = match.Cities.ToList();
-        var nearestCity = cities
-            .Where(c => c.Latitude.HasValue && c.Longitude.HasValue)
-            .Select(c => new { City = c, Dist = Haversine(lat, lng, (double)c.Latitude!, (double)c.Longitude!) })
-            .MinBy(x => x.Dist)?.City ?? cities.FirstOrDefault();
+        var nearestIndex = GeoCacheKey.NearestIndex(
+            cities.Select(c => ((double?)c.Latitude, (double?)c.Longitude)).ToList(), lat, lng);
+        var nearestCity = nearestIndex is int n ? cities[n] : cities.FirstOrDefault();
 
-        object result;
+        var cityResolver = sp.GetRequiredService<ICityResolutionService>();
+        var (address, resolvedCity) = await cityResolver.ResolveAddressAndCityAsync(match, cities, nearestCity, lat, lng);
 
-        if (!includeAddress)
+        var responseCities = cities;
+        if (resolvedCity is not null && cities.All(c => c.Id != resolvedCity.Id))
         {
-            result = new
-            {
-                district = new { id = match.Id, name = match.Name, stateName = match.StateName, businessOnboardingEnabled = match.BusinessOnboardingEnabled },
-                nearestCityId = nearestCity?.Id,
-                cities = cities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
-            };
-        }
-        else
-        {
-            var cityResolver = sp.GetRequiredService<ICityResolutionService>();
-            var (address, resolvedCity) = await cityResolver.ResolveAddressAndCityAsync(match, cities, nearestCity, lat, lng);
-
-            var responseCities = cities;
-            if (resolvedCity is not null && cities.All(c => c.Id != resolvedCity.Id))
-            {
-                responseCities = new List<City>(cities) { resolvedCity };
-            }
-
-            result = new
-            {
-                district = new { id = match.Id, name = match.Name, stateName = match.StateName, businessOnboardingEnabled = match.BusinessOnboardingEnabled },
-                nearestCityId = resolvedCity?.Id ?? nearestCity?.Id,
-                cities = responseCities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
-                address,
-            };
+            responseCities = new List<City>(cities) { resolvedCity };
         }
 
-        if (redis != null && !includeAddress)
+        return OkResponse(new
         {
-            var json = JsonSerializer.Serialize(result);
-            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, ContextCacheTtl); } catch { }
-        }
-
-        return OkResponse(result);
-    }
-
-    private static double Haversine(double lat1, double lng1, double lat2, double lng2)
-    {
-        const double R = 6371.0;
-        var dlat = (lat2 - lat1) * Math.PI / 180;
-        var dlng = (lng2 - lng1) * Math.PI / 180;
-        var a = Math.Sin(dlat / 2) * Math.Sin(dlat / 2) +
-                Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) *
-                Math.Sin(dlng / 2) * Math.Sin(dlng / 2);
-        return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+            district = new { id = match.Id, name = match.Name, stateName = match.StateName, businessOnboardingEnabled = match.BusinessOnboardingEnabled },
+            nearestCityId = resolvedCity?.Id ?? nearestCity?.Id,
+            cities = responseCities.Select(c => new { id = c.Id, districtId = c.DistrictId, name = c.Name, latitude = c.Latitude, longitude = c.Longitude }).ToList(),
+            address,
+        });
     }
 
     private static readonly TimeSpan NearbyCacheTtl = TimeSpan.FromSeconds(60);
-
-    private static string NearbyCacheKey(Guid districtId, double radius, double lat, double lng)
-        => $"nearby:{districtId}:{radius:F1}:{lat:F3}:{lng:F3}";
-
-    private static string NearbyDistrictPattern(Guid districtId) => $"nearby:{districtId}:*";
-
     private static readonly TimeSpan NearestCacheTtl = TimeSpan.FromSeconds(60);
 
-    private static string NearestCacheKey(Guid districtId, int count, double lat, double lng)
-        => $"nearest:{districtId}:{count}:{lat:F3}:{lng:F3}";
+    private static Task BustAsync(IServiceProvider sp, params Guid[] districtIds)
+        => sp.GetRequiredService<IListingCacheInvalidator>().BustDistrictsAsync(ListingKinds.Room, districtIds);
 
-    private static string NearestDistrictPattern(Guid districtId) => $"nearest:{districtId}:*";
-
-    private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
+    // Read-through of a cell's candidate set under the district generation; the caller refines it per request.
+    private static async Task<List<NearbyListingDto>> CellCandidatesAsync(
+        IConnectionMultiplexer? redis, Guid districtId, Func<long, string> keyOf, TimeSpan ttl, Func<Task<List<NearbyListingDto>>> load)
     {
-        if (redis == null) return;
-        try
+        IDatabase? cache = null;
+        string? key = null;
+        if (redis != null)
         {
-            var db = redis.GetDatabase();
-            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
-            if (server == null) return;
-            foreach (var pattern in new[] { NearbyDistrictPattern(districtId), NearestDistrictPattern(districtId) })
-                await foreach (var key in server.KeysAsync(pattern: pattern))
-                    await db.KeyDeleteAsync(key);
+            try
+            {
+                cache = redis.GetDatabase();
+                var gen = await ListingCacheGeneration.ReadAsync(cache, ListingCacheKeys.DistrictGen(ListingKinds.Room, districtId));
+                key = keyOf(gen);
+                var cached = await cache.StringGetAsync(key);
+                if (cached.HasValue && JsonSerializer.Deserialize<List<NearbyListingDto>>(cached!) is { } hit) return hit;
+            }
+            catch { cache = null; }
         }
-        catch { /* best-effort: TTL (60s) covers Redis failures */ }
+
+        var fresh = await load();
+        if (cache != null && key != null && ListingVisibility.CacheTtl(ttl, DateTime.UtcNow, fresh.Select(r => r.ValidUntil)) is TimeSpan life)
+        {
+            try { await cache.StringSetAsync(key, JsonSerializer.Serialize(fresh), life, When.NotExists); } catch { }
+        }
+        return fresh;
     }
 
-    // Home's "Recently added" feed (HomeHandlers.GetRecentRooms) is district-free and cached under
-    // this one fixed key — unlike nearby-cache above, a listing leaving the active/non-deleted set
-    // must bust it immediately rather than riding out the cache TTL, since a stale entry here is a
-    // tappable card whose detail page 404s, not just a cosmetically-stale count.
-    private static async Task InvalidateRecentRoomsCacheAsync(IConnectionMultiplexer? redis)
-    {
-        if (redis == null) return;
-        try { await redis.GetDatabase().KeyDeleteAsync("home:recentRooms"); } catch { }
-    }
+    private static List<NearbyListingDto> Pick(List<NearbyListingDto> candidates, List<GeoHit> hits)
+        => hits.Select(h =>
+        {
+            var row = candidates[h.Index];
+            row.DistanceKm = h.DistanceKm;
+            return row;
+        }).ToList();
 
-    // Home's "Rooms for you" feed (HomeHandlers.GetRooms) is cached per-district — same
-    // immediate-bust reasoning as InvalidateRecentRoomsCacheAsync above, just keyed by district.
-    private static async Task InvalidateForYouRoomsCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
-    {
-        if (redis == null) return;
-        try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouRooms:{districtId}"); } catch { }
-    }
+    private static List<RentNearBy.Core.Models.GeoPoint> Points(List<NearbyListingDto> rows)
+        => rows.Select(r => new RentNearBy.Core.Models.GeoPoint((double)r.Latitude, (double)r.Longitude, r.PriorityRank)).ToList();
 
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid districtId,
@@ -174,40 +123,19 @@ public static class RoomListingsHandlers
         if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
             return BadRequestResponse("Invalid coordinates");
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
-        var cacheKey = NearbyCacheKey(districtId, radius, latitude, longitude);
+        var cell = GeoCacheKey.Cell(latitude, longitude);
+        var radiusKey = GeoCacheKey.RadiusKey(radius);
 
-        if (redis != null)
-        {
-            var db = redis.GetDatabase();
-            RedisValue cached = default;
-            try { cached = await db.StringGetAsync(cacheKey); } catch { }
-            if (cached.HasValue)
-            {
-                try
-                {
-                    var items = JsonSerializer.Deserialize<List<NearbyListingDto>>(cached!);
-                    if (items != null)
-                    {
-                        if (!isAuth) items.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
-                        return OkResponse(new { items });
-                    }
-                }
-                catch (JsonException) { /* corrupted cache entry — fall through to DB */ }
-            }
-        }
+        var candidates = await CellCandidatesAsync(
+            sp.GetService<IConnectionMultiplexer>(), districtId,
+            gen => ListingCacheKeys.Nearby(ListingKinds.Room, districtId, gen, radiusKey, cell), NearbyCacheTtl,
+            async () => (await unitOfWork.RoomListings.GetNearbyAsync(
+                cell.CenterLat, cell.CenterLng, GeoCacheKey.CandidateRadiusKm(cell, radius), districtId)).ToList());
 
-        var fetched = (await unitOfWork.RoomListings.GetNearbyAsync(latitude, longitude, radius, districtId)).ToList();
-
-        if (redis != null)
-        {
-            var json = JsonSerializer.Serialize(fetched);
-            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearbyCacheTtl, When.NotExists); } catch { }
-        }
-
-        if (!isAuth) fetched.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
-        return OkResponse(new { items = fetched });
+        var items = Pick(candidates, GeoCacheKey.WithinRadius(Points(candidates), latitude, longitude, radius));
+        if (!isAuth) items.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
+        return OkResponse(new { items });
     }
 
     private static readonly TimeSpan NearestRateLimitWindow = TimeSpan.FromMinutes(10);
@@ -238,40 +166,26 @@ public static class RoomListingsHandlers
             return TooManyRequestsResponse();
         }
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
-        var cacheKey = NearestCacheKey(districtId, count, latitude, longitude);
+        var cell = GeoCacheKey.Cell(latitude, longitude);
 
-        if (redis != null)
-        {
-            var db = redis.GetDatabase();
-            RedisValue cached = default;
-            try { cached = await db.StringGetAsync(cacheKey); } catch { }
-            if (cached.HasValue)
+        // Candidates = every row within (k-th nearest from the centre) + 2 x half diagonal: holds the exact
+        // k nearest of any point of the cell. Fewer than k rows in the district = all of them.
+        var candidates = await CellCandidatesAsync(
+            sp.GetService<IConnectionMultiplexer>(), districtId,
+            gen => ListingCacheKeys.Nearest(ListingKinds.Room, districtId, gen, count, cell), NearestCacheTtl,
+            async () =>
             {
-                try
-                {
-                    var items = JsonSerializer.Deserialize<List<NearbyListingDto>>(cached!);
-                    if (items != null)
-                    {
-                        if (!isAuth) items.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
-                        return OkResponse(new { items });
-                    }
-                }
-                catch (JsonException) { /* corrupted cache entry — fall through to DB */ }
-            }
-        }
+                var knn = (await unitOfWork.RoomListings.GetNearestAsync(cell.CenterLat, cell.CenterLng, count, districtId)).ToList();
+                if (knn.Count < count) return knn;
+                var kth = GeoCacheKey.MaxDistanceKm(knn.Select(r => ((double)r.Latitude, (double)r.Longitude)), cell.CenterLat, cell.CenterLng);
+                return (await unitOfWork.RoomListings.GetNearbyAsync(
+                    cell.CenterLat, cell.CenterLng, GeoCacheKey.NearestCandidateRadiusKm(cell, kth), districtId)).ToList();
+            });
 
-        var fetched = (await unitOfWork.RoomListings.GetNearestAsync(latitude, longitude, count, districtId)).ToList();
-
-        if (redis != null)
-        {
-            var json = JsonSerializer.Serialize(fetched);
-            try { await redis.GetDatabase().StringSetAsync(cacheKey, json, NearestCacheTtl, When.NotExists); } catch { }
-        }
-
-        if (!isAuth) fetched.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
-        return OkResponse(new { items = fetched });
+        var items = Pick(candidates, GeoCacheKey.Nearest(Points(candidates), latitude, longitude, count));
+        if (!isAuth) items.ForEach(d => { d.OwnerName = null; d.OwnerPhone = null; });
+        return OkResponse(new { items });
     }
 
     public static async Task<IResult> GetById(Guid id, IUnitOfWork unitOfWork, ClaimsPrincipal principal)
@@ -399,6 +313,7 @@ public static class RoomListingsHandlers
             Floor = request.Floor,
             IsActive = false, // always — POST /{id}/go-live is now the only path to activation
             CreatedAt = DateTime.UtcNow,
+            PublishedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
 
@@ -421,9 +336,7 @@ public static class RoomListingsHandlers
         if (!outcome.Inserted)
             return ConflictResponse("Could not generate a unique link for this listing. Please try again.", "SLUG_GENERATION_FAILED");
 
-        // Invalidate cache for the listing's district
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
+        await BustAsync(sp, listing.DistrictId);
 
         return CreatedResponse(new { listingId = listing.Id }, $"/api/v1/listings/{listing.Id}");
     }
@@ -517,16 +430,7 @@ public static class RoomListingsHandlers
         if (request.IsActive.HasValue && request.IsActive.Value == false)
             await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
-        await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
-        if (oldDistrictId != listing.DistrictId)
-        {
-            await InvalidateNearbyCacheAsync(redis, oldDistrictId);
-            await InvalidateForYouRoomsCacheAsync(redis, oldDistrictId);
-        }
-        if (request.IsActive.HasValue && request.IsActive.Value == false)
-            await InvalidateRecentRoomsCacheAsync(redis);
+        await BustAsync(sp, listing.DistrictId, oldDistrictId);
         if (resumed > 0)
             await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(userId, ListingKinds.Room);
 
@@ -578,10 +482,7 @@ public static class RoomListingsHandlers
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(id, "Room");
 
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, districtId);
-        await InvalidateRecentRoomsCacheAsync(redis);
-        await InvalidateForYouRoomsCacheAsync(redis, districtId);
+        await BustAsync(sp, districtId);
         if (resumed > 0)
             await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(userId, ListingKinds.Room);
 
@@ -634,6 +535,7 @@ public static class RoomListingsHandlers
             other.UpdatedAt = now;
             target.IsActive = true;
             target.PauseReason = null;
+            target.PublishedAt = ListingPublishRules.PublishedAtOnActivation(target.PublishedAt, target.ValidUntil, now);
             target.ValidUntil = entitlements.ResolveValidUntil(limits);
             target.PriorityRank = limits.PriorityRank;
             target.IsFeatured = limits.IsFeatured;
@@ -768,10 +670,7 @@ public static class RoomListingsHandlers
         await unitOfWork.RoomListings.AddPhotoAsync(listingPhoto);
         await unitOfWork.SaveChangesAsync();
 
-        // Invalidate cache after photo upload so thumbnail appears immediately
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
-        await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
+        await BustAsync(sp, listing.DistrictId);
 
         return CreatedResponse(new { photoUrl = url, photoId = listingPhoto.Id }, url);
     }
@@ -804,10 +703,7 @@ public static class RoomListingsHandlers
         unitOfWork.RoomListings.RemovePhoto(photo);
         await unitOfWork.SaveChangesAsync();
 
-        // Invalidate cache after photo deletion so thumbnail updates
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
-        await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
+        await BustAsync(sp, listing.DistrictId);
 
         return NoContentResponse();
     }
