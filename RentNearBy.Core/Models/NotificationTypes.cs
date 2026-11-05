@@ -65,6 +65,7 @@ public static class NotificationTypes
     public const string TripStartsIn3Days = "TripStartsIn3Days";
     public const string TripStartsToday = "TripStartsToday";
     public const string TripMarkComplete = "TripMarkComplete";
+    public const string TripTravelEve = "TripTravelEve";
 
     // The lowercase-snake value sent as the FCM data payload's "notification_type" key — kept
     // paired here (not derived by naive case-conversion) so the PascalCase DB value and the wire
@@ -128,6 +129,7 @@ public static class NotificationTypes
         [TripStartsIn3Days] = "trip_starts_in_3_days",
         [TripStartsToday] = "trip_starts_today",
         [TripMarkComplete] = "trip_mark_complete",
+        [TripTravelEve] = "trip_travel_eve",
     };
 
     public static string ToWireValue(string type) => WireValues.TryGetValue(type, out var wire) ? wire : type;

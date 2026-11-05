@@ -92,4 +92,62 @@ public class TripSummaryRecordDto
     public RentNearBy.Core.Models.TripSteps? Steps { get; set; }
     public TripJourneyDto? GettingThere { get; set; }
     public TripJourneyDto? ComingBack { get; set; }
+    // One entry per city (one on a one-city trip); journey cars live only under Legs[].Travel.Cars.
+    public List<TripSummaryLegDto> Legs { get; set; } = new();
+}
+
+public class TripSummaryLegDto
+{
+    public int Index { get; set; }
+    public string CityName { get; set; } = string.Empty;
+    public int StartDay { get; set; }
+    public int EndDay { get; set; }
+    public DateOnly? StartDate { get; set; }
+    public DateOnly? EndDate { get; set; }
+    public List<TripSummaryNightDto> Nights { get; set; } = new();
+    public List<TripSummaryTaxiDto> Taxis { get; set; } = new();
+    // Travel into this city; null on leg 1 and when no travel is chosen.
+    public TripSummaryTravelDto? Travel { get; set; }
+}
+
+public class TripSummaryTravelDto
+{
+    // "journey" | "own"
+    public string Mode { get; set; } = string.Empty;
+    public string FromName { get; set; } = string.Empty;
+    public string ToName { get; set; } = string.Empty;
+    public int Day { get; set; }
+    public DateOnly? Date { get; set; }
+    // TripTravelStates value
+    public string State { get; set; } = string.Empty;
+    public int CarCount { get; set; }
+    public int? ListedTotal { get; set; }
+    public List<TripSummaryTravelCarDto> Cars { get; set; } = new();
+    public string? How { get; set; }
+    public string? OwnName { get; set; }
+    public string? OwnPhone { get; set; }
+    public string? LeavesAt { get; set; }
+    public string? HubName { get; set; }
+    public int? RoadMinutes { get; set; }
+    public Guid? JourneyId { get; set; }
+}
+
+public class TripSummaryTravelCarDto
+{
+    public int Car { get; set; }
+    public string DriverName { get; set; } = string.Empty;
+    public string? VehicleTypeName { get; set; }
+    public string FromName { get; set; } = string.Empty;
+    public string ToName { get; set; } = string.Empty;
+    public int? AgreedFare { get; set; }
+    public int? ListedFare { get; set; }
+    public int? LastQuotedFare { get; set; }
+    // TripDisplayStatuses value, or "none" when the car was never asked
+    public string DisplayStatus { get; set; } = string.Empty;
+    public string? ConfirmedBy { get; set; }
+    public Guid? EnquiryId { get; set; }
+    public string? PickupTime { get; set; }
+    public bool TollExtra { get; set; }
+    public string? CancelledBy { get; set; }
+    public Guid TaxiId { get; set; }
 }

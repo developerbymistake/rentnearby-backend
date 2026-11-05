@@ -424,6 +424,9 @@ public static class TripReminderNotifications
     public static NotificationEvent MarkComplete(Guid userId, Guid tripId, string city) =>
         Build(userId, NotificationTypes.TripMarkComplete, $"How was {City(city)}?", "Mark the trip complete.", tripId);
 
+    public static NotificationEvent TravelEve(Guid userId, Guid tripId, string title, string body) =>
+        Build(userId, NotificationTypes.TripTravelEve, title, body, tripId);
+
     private static string City(string? city) => string.IsNullOrWhiteSpace(city) ? "Your trip" : city.Trim();
 
     private static NotificationEvent Build(Guid userId, string type, string title, string body, Guid tripId) => new()

@@ -447,8 +447,9 @@ public static class TripSummaryRecordBuilder
             }
         }
 
+        // Journey cars between cities are travel, not local taxis: they live only under Legs[].Travel.Cars.
         var taxiDtos = dtos
-            .Where(d => d.Kind == TripEnquiryKinds.Taxi && (IsListed(d.Status) || IsProblemFailed(d)))
+            .Where(d => d.Kind == TripEnquiryKinds.Taxi && !d.IsSegment && (IsListed(d.Status) || IsProblemFailed(d)))
             .GroupBy(d => d.Id).Select(g => g.First());
         foreach (var d in taxiDtos)
         {
@@ -460,7 +461,154 @@ public static class TripSummaryRecordBuilder
         record.Steps = plan.Steps;
         record.GettingThere = StepJourney(plan, TripStepRoles.GettingThere, journeys, taxis);
         record.ComingBack = StepJourney(plan, TripStepRoles.ComingBack, journeys, taxis);
+        record.Legs = BuildLegs(trip, plan, start, record, dtos, raw, rawById, journeys, taxis);
         return record;
+    }
+
+    private static List<TripSummaryLegDto> BuildLegs(
+        Trip trip, TripPlan plan, DateOnly? start, TripSummaryRecordDto record, IReadOnlyList<TripEnquiryDto> dtos,
+        IReadOnlyList<TripEnquiry> raw, Dictionary<Guid, TripEnquiry> rawById, IReadOnlyList<SavedJourney> journeys,
+        Dictionary<Guid, JourneyTaxiInfo> taxis)
+    {
+        var cityLegs = plan.Legs is { Count: > 0 } planLegs
+            ? planLegs
+            : new List<TripCityLeg> { new() { Index = 1, CityName = trip.CityName } };
+        var result = new List<TripSummaryLegDto>();
+        for (var k = 1; k <= cityLegs.Count; k++)
+        {
+            var startDay = plan.LegStart(k);
+            var endDay = plan.LegEnd(k);
+            result.Add(new TripSummaryLegDto
+            {
+                Index = k,
+                CityName = cityLegs[k - 1].CityName,
+                StartDay = startDay,
+                EndDay = endDay,
+                StartDate = start is { } s && startDay >= 1 ? TripExecutionRules.NightDate(s, startDay) : null,
+                EndDate = start is { } e && endDay >= 1 ? TripExecutionRules.NightDate(e, endDay) : null,
+                Nights = record.Nights.Where(n => TripSummaryLegs.LegOfNight(plan, n.Night) == k).ToList(),
+                Taxis = record.Taxis.Where(t => TripSummaryLegs.LegOfTaxi(plan, start, t.Days, t.CheckIn).Contains(k)).ToList(),
+                Travel = k >= 2 ? Travel(plan, k, start, cityLegs, dtos, raw, rawById, journeys, taxis) : null,
+            });
+        }
+        return result;
+    }
+
+    private const string NotAskedDisplay = "none";
+
+    private static TripSummaryTravelDto? Travel(
+        TripPlan plan, int k, DateOnly? start, List<TripCityLeg> cityLegs, IReadOnlyList<TripEnquiryDto> dtos,
+        IReadOnlyList<TripEnquiry> raw, Dictionary<Guid, TripEnquiry> rawById, IReadOnlyList<SavedJourney> journeys,
+        Dictionary<Guid, JourneyTaxiInfo> taxis)
+    {
+        var arrival = cityLegs[k - 1].Arrival;
+        if (arrival == null) return null;
+
+        var from = cityLegs[k - 2].CityName;
+        if (string.IsNullOrWhiteSpace(from)) from = arrival.FromName;
+        var day = plan.LegStart(k);
+        var date = start is { } s && day >= 1 ? TripExecutionRules.NightDate(s, day) : (DateOnly?)null;
+        var isJourney = arrival.Mode == TripTravelModes.Journey;
+        var journey = isJourney && arrival.JourneyId is { } id
+            ? journeys.FirstOrDefault(j => j.Id == id && !j.IsDeleted)
+            : null;
+
+        var travel = new TripSummaryTravelDto
+        {
+            Mode = isJourney ? TripTravelModes.Journey : TripTravelModes.Own,
+            FromName = from,
+            ToName = cityLegs[k - 1].CityName,
+            Day = day,
+            Date = date,
+            State = TripTravelState.Of(arrival, journey,
+                journey == null ? new List<TripEnquiry>() : TripSegmentRows.OfJourney(raw, journey.Id), date),
+            CarCount = isJourney ? arrival.Cars ?? journey?.Legs.Count ?? 0 : 0,
+            ListedTotal = isJourney ? arrival.ListedTotal ?? journey?.ListedTotal : null,
+            How = arrival.How,
+            OwnName = arrival.OwnName,
+            OwnPhone = arrival.OwnPhone,
+            LeavesAt = arrival.LeavesAt,
+            HubName = arrival.HubName,
+            RoadMinutes = arrival.RoadMinutes,
+            JourneyId = isJourney ? arrival.JourneyId : null,
+        };
+        if (!isJourney || arrival.JourneyId is not { } journeyId) return travel;
+
+        var rows = dtos
+            .Where(d => d.IsSegment && d.Context.JourneyId == journeyId && (IsListed(d.Status) || IsProblemFailed(d)))
+            .GroupBy(d => d.Id).Select(g => g.First())
+            .ToList();
+
+        if (journey == null)
+        {
+            foreach (var group in rows.Where(d => d.Context.JourneyLegIndex != null)
+                         .GroupBy(d => d.Context.JourneyLegIndex!.Value).OrderBy(g => g.Key))
+            {
+                var row = PickCar(group);
+                travel.Cars.Add(CarFrom(group.Key, row!, rawById, row!.Owner.Name, null, string.Empty, string.Empty, null, null, row.ListingId));
+            }
+            return travel;
+        }
+
+        foreach (var leg in journey.Legs.OrderBy(l => l.LegIndex))
+        {
+            taxis.TryGetValue(leg.DriverTaxiId, out var info);
+            var infoName = string.IsNullOrWhiteSpace(info?.DriverName) ? "Driver" : info!.DriverName;
+            var row = PickCar(rows.Where(d => d.Context.JourneyLegIndex == leg.LegIndex));
+            if (row == null)
+            {
+                travel.Cars.Add(new TripSummaryTravelCarDto
+                {
+                    Car = leg.LegIndex,
+                    DriverName = infoName,
+                    VehicleTypeName = info?.VehicleTypeName,
+                    FromName = leg.FromName,
+                    ToName = leg.ToName,
+                    ListedFare = leg.ListedFare,
+                    LastQuotedFare = leg.LastQuotedFare,
+                    DisplayStatus = leg.LastEnquiryId != null ? TripDisplayStatuses.Asked : NotAskedDisplay,
+                    TaxiId = leg.DriverTaxiId,
+                });
+                continue;
+            }
+            var name = string.IsNullOrWhiteSpace(row.Owner.Name) ? infoName : row.Owner.Name;
+            travel.Cars.Add(CarFrom(leg.LegIndex, row, rawById, name, info?.VehicleTypeName, leg.FromName, leg.ToName,
+                leg.ListedFare, leg.LastQuotedFare, leg.DriverTaxiId));
+        }
+        return travel;
+    }
+
+    // Booked beats cancelled beats failed; newest first.
+    private static TripEnquiryDto? PickCar(IEnumerable<TripEnquiryDto> rows)
+        => rows
+            .OrderBy(r => TripEnquiryStatuses.IsBooked(r.Status) ? 0 : IsProblemFailed(r) ? 2 : 1)
+            .ThenByDescending(r => r.UpdatedAt)
+            .FirstOrDefault();
+
+    private static TripSummaryTravelCarDto CarFrom(
+        int car, TripEnquiryDto d, Dictionary<Guid, TripEnquiry> rawById, string driverName, string? vehicle,
+        string fromName, string toName, int? listedFare, int? lastQuotedFare, Guid taxiId)
+    {
+        rawById.TryGetValue(d.Id, out var row);
+        var (by, _) = ConfirmedOf(row);
+        return new TripSummaryTravelCarDto
+        {
+            Car = car,
+            DriverName = string.IsNullOrWhiteSpace(driverName) ? d.ListingName : driverName,
+            VehicleTypeName = vehicle,
+            FromName = fromName,
+            ToName = toName,
+            AgreedFare = d.Taxi?.AgreedFare,
+            ListedFare = listedFare,
+            LastQuotedFare = lastQuotedFare ?? d.Taxi?.DriverFare,
+            DisplayStatus = d.DisplayStatus,
+            ConfirmedBy = by,
+            EnquiryId = d.Id,
+            PickupTime = d.Taxi?.PickupTime,
+            TollExtra = d.Taxi?.TollExtra ?? false,
+            CancelledBy = d.CancelledBy,
+            TaxiId = taxiId,
+        };
     }
 
     // Only a chosen or booked step shows its journey.

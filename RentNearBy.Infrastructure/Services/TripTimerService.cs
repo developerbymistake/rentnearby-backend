@@ -23,7 +23,8 @@ namespace RentNearBy.Infrastructure.Services;
 //   9. Host link unanswered for 24 h -> one traveller reminder (hostnc:{id}); muted trips skipped.
 //  10. Trip date reminders: 3 days before (d3), start day (d0), day after the last day (done); keyed by date, muted trips skipped.
 //  11. Planned trips 7 days past the last day with nothing open -> Completed (no push, runs even when muted).
-// Order: 1, 2, 7, 5, 6, 8, 9, 10, 11, 3, 4. Skipped while TripExecution:Enabled is false.
+//  12. Travel-eve: 18:00 IST the evening before a travel day between two cities, once (trv:{tripId}:{date}); muted trips skipped.
+// Order: 1, 2, 7, 5, 6, 8, 9, 10, 12, 11, 3, 4. Skipped while TripExecution:Enabled is false.
 public class TripTimerService(
     IServiceScopeFactory scopeFactory, IOptionsMonitor<TripExecutionOptions> options, ILogger<TripTimerService> logger)
     : BackgroundService
@@ -70,13 +71,14 @@ public class TripTimerService(
             var noReply = await NoReplyPassAsync(sp, ct);
             var hostNc = await HostNotConfirmedPassAsync(sp, ct);
             var dates = await DateReminderPassAsync(sp, ct);
+            var travelEve = await TravelEvePassAsync(sp, ct);
             var completed = await AutoCompletePassAsync(sp, ct);
             var urgent = await UrgentPassAsync(sp);
             var purged = await PurgePassAsync(sp);
-            if (offers + enquiries + leads + hold + reminders + noReply + hostNc + dates + completed + urgent + purged > 0)
+            if (offers + enquiries + leads + hold + reminders + noReply + hostNc + dates + travelEve + completed + urgent + purged > 0)
                 logger.LogInformation(
-                    "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} noreply={NoReply} hostnc={HostNc} dates={Dates} completed={Completed}",
-                    offers, enquiries, urgent, purged, hold, reminders, leads, noReply, hostNc, dates, completed);
+                    "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} noreply={NoReply} hostnc={HostNc} dates={Dates} traveleve={TravelEve} completed={Completed}",
+                    offers, enquiries, urgent, purged, hold, reminders, leads, noReply, hostNc, dates, travelEve, completed);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -455,7 +457,9 @@ public class TripTimerService(
                         && await TripRemindableAsync(db, trip.Id, ct)
                         && await notifier.SendOnceAsync(
                             TripReminderNotifications.StartsIn(
-                                trip.OwnerUserId, trip.Id, trip.CityName, TripReminderRules.DaysLeft(start, today),
+                                trip.OwnerUserId, trip.Id,
+                                plan.Legs is { Count: > 1 } ? TripReminderRules.RouteTitle(plan.LegCities) : trip.CityName,
+                                TripReminderRules.DaysLeft(start, today),
                                 TripReminderRules.StartsInBody(trip, plan, enquiries, today)),
                             TripReminderRules.StartsInKey(trip.Id, start), trip.Id, null))
                         done++;
@@ -479,6 +483,62 @@ public class TripTimerService(
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogError(ex, "Trip timer: date reminder failed for {TripId}", trip.Id);
+            }
+            finally
+            {
+                db.ChangeTracker.Clear();
+            }
+        }
+        return done;
+    }
+
+    // At most one travel day per date per trip (4 legs max), so at most one push per trip per tick.
+    private async Task<int> TravelEvePassAsync(IServiceProvider sp, CancellationToken ct)
+    {
+        var db = sp.GetRequiredService<ApplicationDbContext>();
+        var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
+        var journeyRepo = sp.GetRequiredService<ISavedJourneyRepository>();
+        var notifier = sp.GetRequiredService<ITripNotifier>();
+        var now = DateTime.UtcNow;
+        var tomorrow = TripExecutionRules.TodayIst(now).AddDays(1);
+        if (!TripReminderRules.TravelEveInWindow(tomorrow, now)) return 0;
+        var trips = await unitOfWork.Trips.GetRunningOnAsync(tomorrow, Batch);
+        var done = 0;
+
+        foreach (var trip in trips)
+        {
+            if (ct.IsCancellationRequested) break;
+            try
+            {
+                if (trip.StartDate is not { } start) continue;
+                var plan = ReadPlan(trip);
+                if (plan.Legs is not { Count: > 1 } legs) continue;
+                var day = tomorrow.DayNumber - start.DayNumber + 1;
+                if (!plan.IsTravelDay(day)) continue;
+                var k = plan.LegIndexOf(day);
+                if (!await TripRemindableAsync(db, trip.Id, ct)) continue;
+
+                var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
+                var arrival = legs[k - 1]?.Arrival;
+                SavedJourney? journey = null;
+                IReadOnlyDictionary<Guid, JourneyTaxiInfo> taxis = new Dictionary<Guid, JourneyTaxiInfo>();
+                if (arrival?.Mode == TripTravelModes.Journey && arrival.JourneyId is { } journeyId)
+                {
+                    var linked = await journeyRepo.GetByTripAsync(trip.Id, trip.OwnerUserId);
+                    journey = linked.FirstOrDefault(j => j.Id == journeyId);
+                    if (journey != null)
+                        taxis = await journeyRepo.LoadTaxisAsync(journey.Legs.Select(l => l.DriverTaxiId).ToList());
+                }
+
+                var (title, body) = TripTravelEveReminder.Build(plan, k, tomorrow, enquiries, journey, taxis);
+                if (await notifier.SendOnceAsync(
+                        TripReminderNotifications.TravelEve(trip.OwnerUserId, trip.Id, title, body),
+                        TripReminderRules.TravelEveKey(trip.Id, tomorrow), trip.Id, null))
+                    done++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Trip timer: travel-eve reminder failed for {TripId}", trip.Id);
             }
             finally
             {

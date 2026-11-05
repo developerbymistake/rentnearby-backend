@@ -187,12 +187,25 @@ public class TripSummaryDto
     public int StaysOwn { get; set; }
     public int TaxisOwn { get; set; }
     public int AgreedTotal { get; set; }
+    // City changes (legs - 1) and how many of them have own travel or every journey car settled.
+    public int TravelSegments { get; set; }
+    public int TravelSettled { get; set; }
+    public List<TripSummaryLegStateDto> Legs { get; set; } = new();
     // Derived step display (TripStepDisplays); null when the plan has no steps.
     public string? GettingThere { get; set; }
     public string? ComingBack { get; set; }
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+public class TripSummaryLegStateDto
+{
+    public int Index { get; set; }
+    public string CityName { get; set; } = string.Empty;
+    public int StartDay { get; set; }
+    public int EndDay { get; set; }
+    public string State { get; set; } = TripBookingStates.Draft;
 }
 
 public class TripCitySupplyDto

@@ -819,6 +819,12 @@ public static class TripHandlers
     {
         var plan = ReadPlan(trip);
         var counts = TripBookingSummary.Count(plan, enquiries);
+        var bookingState = TripBookingStates.Compute(trip, plan, enquiries);
+        var travel = TripSummaryLegs.Counters(plan, enquiries);
+        var cityLegs = plan.Legs is { Count: > 0 } planLegs
+            ? planLegs
+            : new List<TripCityLeg> { new() { Index = 1, CityName = trip.CityName } };
+        var perLeg = cityLegs.Count > 1 && bookingState is not (TripBookingStates.Draft or TripBookingStates.Completed);
         return new TripSummaryDto
         {
             Id = trip.Id,
@@ -837,7 +843,7 @@ public static class TripHandlers
             Adults = plan.Settings?.Adults,
             Kids = plan.Settings?.Kids,
             Category = plan.Days.SelectMany(d => d.Spots).Select(s => s.Category).FirstOrDefault() ?? "attraction",
-            BookingState = TripBookingStates.Compute(trip, plan, enquiries),
+            BookingState = bookingState,
             StaysConfirmed = counts.StaysConfirmed,
             StaysTotal = counts.StaysTotal,
             TaxisConfirmed = counts.TaxisConfirmed,
@@ -845,6 +851,16 @@ public static class TripHandlers
             StaysOwn = counts.StaysOwn,
             TaxisOwn = counts.TaxisOwn,
             AgreedTotal = counts.AgreedTotal,
+            TravelSegments = travel.Segments,
+            TravelSettled = travel.Settled,
+            Legs = cityLegs.Select((leg, i) => new TripSummaryLegStateDto
+            {
+                Index = i + 1,
+                CityName = leg.CityName,
+                StartDay = plan.LegStart(i + 1),
+                EndDay = plan.LegEnd(i + 1),
+                State = perLeg ? TripSummaryLegs.StateOf(plan, enquiries, i + 1) : bookingState,
+            }).ToList(),
             GettingThere = TripJourneyDtoBuilder.DisplayOf(plan, TripStepRoles.GettingThere, journeys),
             ComingBack = TripJourneyDtoBuilder.DisplayOf(plan, TripStepRoles.ComingBack, journeys),
             MutedAt = trip.MutedAt,

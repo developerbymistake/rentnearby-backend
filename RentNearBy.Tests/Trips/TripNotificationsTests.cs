@@ -46,6 +46,7 @@ public class TripNotificationsTests
         (NotificationTypes.TripStartsIn3Days, "trip_starts_in_3_days"),
         (NotificationTypes.TripStartsToday, "trip_starts_today"),
         (NotificationTypes.TripMarkComplete, "trip_mark_complete"),
+        (NotificationTypes.TripTravelEve, "trip_travel_eve"),
     ];
 
     private static readonly HashSet<string> AllowedRoutes =
@@ -557,6 +558,7 @@ public class TripNotificationsTests
         TripReminderNotifications.StartsIn3Days(Traveller, TripId, "Nainital", "Stay confirmed. Taxi is booked by you."),
         TripReminderNotifications.StartsToday(Traveller, TripId, "Pickup 8:30 am. Tap for the driver's number."),
         TripReminderNotifications.MarkComplete(Traveller, TripId, "Nainital"),
+        TripReminderNotifications.TravelEve(Traveller, TripId, "Tomorrow: Haridwar → Badrinath", "No driver booked yet. Open the trip."),
     ];
 
     [Fact]
@@ -585,6 +587,21 @@ public class TripNotificationsTests
         Assert.Equal(NotificationTypes.TripMarkComplete, e[2].Type);
         Assert.Equal("How was Nainital?", e[2].Title);
         Assert.Equal("Mark the trip complete.", e[2].Body);
+        Assert.Equal(NotificationTypes.TripTravelEve, e[3].Type);
+        Assert.Equal("Tomorrow: Haridwar → Badrinath", e[3].Title);
+        Assert.Equal("No driver booked yet. Open the trip.", e[3].Body);
+        Assert.Equal("/trip-plan", e[3].ActionRoute);
+        Assert.Equal("trip_travel_eve", NotificationTypes.ToWireValue(e[3].Type));
+    }
+
+    [Fact]
+    public void Starts_in_title_takes_a_route_of_cities()
+    {
+        var n = TripReminderNotifications.StartsIn(
+            Traveller, TripId, TripReminderRules.RouteTitle(["Haridwar", "Badrinath"]), 3, "x");
+        Assert.Equal("Haridwar → Badrinath in 3 days", n.Title);
+        Assert.Equal("Haridwar → Badrinath tomorrow",
+            TripReminderNotifications.StartsIn(Traveller, TripId, TripReminderRules.RouteTitle(["Haridwar", "Badrinath"]), 1, "x").Title);
     }
 
     [Theory]

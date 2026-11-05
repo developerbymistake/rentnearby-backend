@@ -1,5 +1,6 @@
 using System.Text.Json;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Interfaces;
 
 namespace RentNearBy.Core.Models;
 
@@ -305,8 +306,14 @@ public static class TripReminderRules
 {
     public const int NoReplyHours = 24, HostNotConfirmedHours = 24, WindowHours = 48;
     public const int DaysBeforeStart = 3, StartsInHourIst = 9, TodayHourIst = 7, MarkCompleteHourIst = 10, AutoCompleteDays = 7;
+    public const int TravelEveHourIst = 18;
 
     public static DateTime StartsInDueUtc(DateOnly start) => TripExecutionRules.IstMidnightUtc(start.AddDays(-DaysBeforeStart)).AddHours(StartsInHourIst);
+    public static DateTime TravelEveDueUtc(DateOnly travelDate) => TripExecutionRules.IstMidnightUtc(travelDate.AddDays(-1)).AddHours(TravelEveHourIst);
+
+    // The eve only (18:00 to 24:00 IST): a "Tomorrow" push never goes out on the travel day itself.
+    public static bool TravelEveInWindow(DateOnly travelDate, DateTime nowUtc)
+        => nowUtc >= TravelEveDueUtc(travelDate) && nowUtc < TripExecutionRules.IstMidnightUtc(travelDate);
     public static DateTime TodayDueUtc(DateOnly start) => TripExecutionRules.IstMidnightUtc(start).AddHours(TodayHourIst);
     public static DateTime MarkCompleteDueUtc(DateOnly end) => TripExecutionRules.IstMidnightUtc(end.AddDays(1)).AddHours(MarkCompleteHourIst);
 
@@ -349,13 +356,24 @@ public static class TripReminderRules
     public static string StartsInKey(Guid tripId, DateOnly start) => $"d3:{tripId}:{start:yyyyMMdd}";
     public static string TodayKey(Guid tripId, DateOnly start) => $"d0:{tripId}:{start:yyyyMMdd}";
     public static string MarkCompleteKey(Guid tripId, DateOnly end) => $"done:{tripId}:{end:yyyyMMdd}";
+    public static string TravelEveKey(Guid tripId, DateOnly travelDate) => $"trv:{tripId}:{travelDate:yyyyMMdd}";
+
+    // "Haridwar" | "Haridwar → Badrinath", cut to max with "…".
+    public static string RouteTitle(IReadOnlyList<string> cities, int max = 40)
+    {
+        if (cities.Count == 1) return cities[0];
+        var text = string.Join(" → ", cities);
+        return text.Length <= max ? text : text[..(max - 1)].TrimEnd() + "…";
+    }
 
     public const string GettingThereNudge = "Getting there not sorted.";
 
-    // "Stay confirmed. Taxi is booked by you." | "1 stay enquiry waiting. No taxi yet." (+ " Getting there not sorted.")
+    // "Stay confirmed. Taxi is booked by you." | "1 stay enquiry waiting. No taxi yet." (+ " Travel booked.") (+ " Getting there not sorted.")
     public static string StartsInSummary(TripPlan plan, IReadOnlyList<TripEnquiry> enquiries)
     {
         var text = BookingSummary(plan, enquiries);
+        var travel = TripSummaryLegs.TravelSentence(plan, enquiries);
+        text = travel == null ? text : $"{text} {travel}";
         return TripStepRules.NeedsNudge(plan.Steps) ? $"{text} {GettingThereNudge}" : text;
     }
 
@@ -397,6 +415,80 @@ public static class TripReminderRules
         if (map.HasOpen || map.HasUnreplacedRed) return false;
         return map.StayAny.IsSubsetOf(map.StaySettled) && map.TaxiAny.IsSubsetOf(map.TaxiSettled)
             && map.SegmentAny.IsSubsetOf(map.SegmentSettled);
+    }
+}
+
+// The 18:00 IST push the evening before a travel day between two cities (legIndex >= 2).
+public static class TripTravelEveReminder
+{
+    public const int TitleMax = 60;
+
+    public static (string Title, string Body) Build(
+        TripPlan plan, int legIndex, DateOnly travelDate, IReadOnlyList<TripEnquiry> enquiries,
+        SavedJourney? journey, IReadOnlyDictionary<Guid, JourneyTaxiInfo> taxis)
+    {
+        var legs = plan.Legs ?? new List<TripCityLeg>();
+        var leg = legIndex >= 1 && legIndex <= legs.Count ? legs[legIndex - 1] : null;
+        var previous = legIndex >= 2 && legIndex - 1 <= legs.Count ? legs[legIndex - 2] : null;
+        var arrival = leg?.Arrival;
+
+        var from = TripTextSafety.Clean(previous?.CityName);
+        if (from.Length == 0) from = TripTextSafety.Clean(arrival?.FromName);
+        var to = TripTextSafety.Clean(leg?.CityName);
+        var title = $"Tomorrow: {from} → {to}";
+        if (title.Length > TitleMax) title = title[..(TitleMax - 1)].TrimEnd() + "…";
+
+        return (title, Body(arrival, travelDate, enquiries, journey, taxis));
+    }
+
+    private static string Body(
+        TripTravel? arrival, DateOnly travelDate, IReadOnlyList<TripEnquiry> enquiries,
+        SavedJourney? journey, IReadOnlyDictionary<Guid, JourneyTaxiInfo> taxis)
+    {
+        if (arrival == null) return "No travel planned yet. Open the trip.";
+
+        if (arrival.Mode != TripTravelModes.Journey)
+        {
+            var how = HowText(arrival.How);
+            var leaves = TripEnquiryText.TimeText(arrival.LeavesAt);
+            return $"Your own travel{(how == null ? "" : " · " + how)}{(leaves == null ? "" : " · " + leaves)}. Open the trip.";
+        }
+
+        if (journey == null || journey.IsDeleted || arrival.JourneyId != journey.Id || journey.TravelDate != travelDate)
+            return "Travel date changed. Check your drivers.";
+
+        var booked = TripSegmentRows.OfJourney(enquiries, journey.Id)
+            .Where(r => r.Status is TripEnquiryStatuses.BookedByTraveller or TripEnquiryStatuses.ConfirmedByBoth)
+            .ToList();
+        var cars = journey.Legs.OrderBy(l => l.LegIndex).ToList();
+        var bookedCars = cars
+            .Select(car => (Car: car, Row: booked
+                .Where(r => TripSegmentRows.CarOf(r) == car.LegIndex)
+                .OrderByDescending(r => r.UpdatedAt)
+                .FirstOrDefault()))
+            .Where(x => x.Row != null)
+            .ToList();
+        if (bookedCars.Count == 0) return "No driver booked yet. Open the trip.";
+
+        var (first, row) = bookedCars[0];
+        var name = taxis.TryGetValue(first.DriverTaxiId, out var taxi) ? TripTextSafety.Clean(taxi.DriverName) : string.Empty;
+        if (name.Length == 0) name = "Your driver";
+        var time = TripEnquiryText.TimeText(row!.PickupTime);
+        var lead = time == null ? name : $"{name} {time}";
+
+        var total = Math.Max(cars.Count, 1);
+        var missing = total - bookedCars.Count;
+        return missing <= 0
+            ? $"{lead}. Tap for the drivers' numbers."
+            : $"{lead}. {missing} {(missing == 1 ? "car" : "cars")} not booked yet.";
+    }
+
+    // "bus" -> "Bus"; "other" and unknown blanks are omitted.
+    private static string? HowText(string? how)
+    {
+        var text = how?.Trim();
+        if (string.IsNullOrEmpty(text) || string.Equals(text, TripTravelHows.Other, StringComparison.OrdinalIgnoreCase)) return null;
+        return char.ToUpperInvariant(text[0]) + text[1..].ToLowerInvariant();
     }
 }
 

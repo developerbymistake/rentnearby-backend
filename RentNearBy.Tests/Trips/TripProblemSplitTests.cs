@@ -178,6 +178,25 @@ public class TripProblemSplitTests
     }
 
     [Fact]
+    public void Journey_car_on_its_travel_day_fails_whole()
+    {
+        var e = Taxi("[2]", fare: 4200);
+        e.Day = 2;
+        e.CheckIn = Start.AddDays(1);
+        e.CheckOut = Start.AddDays(2);
+        e.ContextJson = $$"""{"city":"Badrinath","journeyId":"{{Guid.NewGuid()}}","legIndex":1}""";
+        Assert.True(TripSegmentRows.IsSegment(e));
+        Assert.True(TripProblemSplit.Affects(e, Start, 2));
+
+        var (kept, failed) = TripProblemSplit.Plan(e, Start, 2, Now);
+        Assert.Null(kept);
+        Assert.Same(e, failed);
+        Assert.Equal(TripEnquiryStatuses.Failed, e.Status);
+        Assert.Equal(TripFailReasons.ProblemDriverNoShow, e.FailReason);
+        Assert.Equal(4200, e.AgreedFare);
+    }
+
+    [Fact]
     public void Taxi_problem_after_the_last_day_affects_nothing()
     {
         var e = Taxi("[1,2]");

@@ -839,4 +839,75 @@ public class TripLifecycleRulesTests
         Assert.Equal(3, c.StaysConfirmed);
         Assert.Equal(0, c.StaysOwn);
     }
+
+    // ---- travel-eve reminder and route titles (CONTRACT_MCD D3, D4)
+
+    [Fact]
+    public void TravelEveDueUtc_is_18_ist_of_the_eve()
+    {
+        Assert.Equal(18, TripReminderRules.TravelEveHourIst);
+        Assert.Equal(Utc(2026, 11, 2, 12, 30), TripReminderRules.TravelEveDueUtc(new DateOnly(2026, 11, 3)));
+    }
+
+    [Fact]
+    public void TravelEveInWindow_is_the_eve_only()
+    {
+        var travel = new DateOnly(2026, 11, 3);
+        Assert.True(TripReminderRules.TravelEveInWindow(travel, Utc(2026, 11, 2, 12, 30)));
+        Assert.False(TripReminderRules.TravelEveInWindow(travel, Utc(2026, 11, 2, 12, 29)));
+        Assert.True(TripReminderRules.TravelEveInWindow(travel, Utc(2026, 11, 2, 18, 29)));
+        Assert.False(TripReminderRules.TravelEveInWindow(travel, Utc(2026, 11, 2, 18, 30)));
+        Assert.False(TripReminderRules.TravelEveInWindow(travel, Utc(2026, 11, 4, 12, 30)));
+    }
+
+    [Fact]
+    public void TravelEveKey_format_and_length()
+    {
+        var id = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        var key = TripReminderRules.TravelEveKey(id, new DateOnly(2026, 11, 3));
+        Assert.Equal($"trv:{id}:20261103", key);
+        Assert.True(key.Length <= 80);
+        Assert.NotEqual(key, TripReminderRules.TravelEveKey(id, new DateOnly(2026, 11, 4)));
+        Assert.NotEqual(TripReminderRules.StartsInKey(id, new DateOnly(2026, 11, 3)), key);
+    }
+
+    [Fact]
+    public void RouteTitle_one_city_two_cities_and_cut()
+    {
+        Assert.Equal("Haridwar", TripReminderRules.RouteTitle(["Haridwar"]));
+        Assert.Equal("Haridwar → Badrinath", TripReminderRules.RouteTitle(["Haridwar", "Badrinath"]));
+        var cut = TripReminderRules.RouteTitle(["Haridwar", "Rishikesh", "Joshimath", "Badrinath"]);
+        Assert.True(cut.Length <= 40);
+        Assert.EndsWith("…", cut);
+        Assert.StartsWith("Haridwar → Rishikesh", cut);
+    }
+
+    [Fact]
+    public void StartsInSummary_two_cities_with_own_travel_says_travel_booked()
+    {
+        var plan = TwoCityPlan(new TripTravel { Mode = TripTravelModes.Own, FromName = "Haridwar", How = "bus" });
+        Assert.Equal("No stay yet. No taxi yet. Travel booked.", TripReminderRules.StartsInSummary(plan, []));
+    }
+
+    [Fact]
+    public void StartsInSummary_two_cities_with_an_unbooked_journey()
+    {
+        var plan = TwoCityPlan(JourneyArrival(JourneyA));
+        Assert.Equal("No stay yet. No taxi yet. 1 travel not booked.", TripReminderRules.StartsInSummary(plan, []));
+        Assert.Equal("No stay yet. No taxi yet. Travel booked.", TripReminderRules.StartsInSummary(plan,
+            [Segment(TripEnquiryStatuses.BookedByTraveller, 1), Segment(TripEnquiryStatuses.ConfirmedByBoth, 2)]));
+    }
+
+    [Fact]
+    public void StartsInSummary_order_is_stay_taxi_travel_getting_there()
+    {
+        var plan = TwoCityPlan(JourneyArrival(JourneyA));
+        plan.Steps = new TripSteps { StartFrom = new TripStartFrom { Name = "Delhi", Lat = 28.61, Lon = 77.21 } };
+        Assert.Equal("No stay yet. No taxi yet. 1 travel not booked. Getting there not sorted.",
+            TripReminderRules.StartsInSummary(plan, []));
+    }
+
+    [Fact]
+    public void StartsInSummary_two_cities_without_travel_adds_nothing()
+        => Assert.Equal("No stay yet. No taxi yet.", TripReminderRules.StartsInSummary(TwoCityPlan(null), []));
 }

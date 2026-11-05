@@ -71,6 +71,15 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
             .Take(take)
             .ToListAsync();
 
+    public async Task<IReadOnlyList<Trip>> GetRunningOnAsync(DateOnly date, int take)
+        => await _dbSet.AsNoTracking()
+            .Where(t => t.Status == TripStatuses.Planned && t.MutedAt == null
+                && t.StartDate != null && t.EndDate != null && t.StartDate <= date && date <= t.EndDate)
+            .OrderBy(t => t.StartDate)
+            .ThenBy(t => t.Id)
+            .Take(take)
+            .ToListAsync();
+
     public async Task<IReadOnlyList<Trip>> GetAutoCompleteCandidatesAsync(DateOnly endBefore, int take)
         => await _dbSet.AsNoTracking()
             .Where(t => t.Status == TripStatuses.Planned && t.EndDate != null && t.EndDate <= endBefore)
