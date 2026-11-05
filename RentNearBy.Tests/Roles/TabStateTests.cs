@@ -9,19 +9,19 @@ public class TabStateTests
 
     [Fact]
     public void IsActive_NoRows_FailOpen()
-        => Assert.True(TabState.IsActive(Tabs(), AppTabKeys.Rooms));
+        => Assert.True(TabState.IsActive(Tabs(), AppTabKeys.Stays));
 
     [Fact]
     public void IsActive_InactiveRow_False()
-        => Assert.False(TabState.IsActive(Tabs((AppTabKeys.Rooms, false)), AppTabKeys.Rooms));
+        => Assert.False(TabState.IsActive(Tabs((AppTabKeys.Stays, false)), AppTabKeys.Stays));
 
     [Fact]
     public void IsActive_ActiveRow_True()
-        => Assert.True(TabState.IsActive(Tabs((AppTabKeys.Rooms, true), (AppTabKeys.Plots, false)), AppTabKeys.Rooms));
+        => Assert.True(TabState.IsActive(Tabs((AppTabKeys.Stays, true), (AppTabKeys.Taxi, false)), AppTabKeys.Stays));
 
     [Fact]
     public void IsActive_NullKey_True()
-        => Assert.True(TabState.IsActive(Tabs((AppTabKeys.Rooms, false)), null));
+        => Assert.True(TabState.IsActive(Tabs((AppTabKeys.Stays, false)), null));
 
     [Fact]
     public void AllActive_OneOff_False()
@@ -42,17 +42,17 @@ public class TabStateTests
     [Fact]
     public void IsRoleAvailable_InactiveRole_False()
     {
-        var role = new Role { Id = UserRoles.RentOwnerId, Key = UserRoles.RentOwner, IsActive = false };
+        var role = new Role { Id = UserRoles.StayOwnerId, Key = UserRoles.StayOwner, IsActive = false };
 
-        Assert.False(TabState.IsRoleAvailable(Tabs((AppTabKeys.Rooms, true)), role));
+        Assert.False(TabState.IsRoleAvailable(Tabs((AppTabKeys.Stays, true)), role));
     }
 
     [Fact]
     public void IsRoleAvailable_ActiveRoleTabOff_False()
     {
-        var role = new Role { Id = UserRoles.RentOwnerId, Key = UserRoles.RentOwner, IsActive = true };
+        var role = new Role { Id = UserRoles.StayOwnerId, Key = UserRoles.StayOwner, IsActive = true };
 
-        Assert.False(TabState.IsRoleAvailable(Tabs((AppTabKeys.Rooms, false)), role));
+        Assert.False(TabState.IsRoleAvailable(Tabs((AppTabKeys.Stays, false)), role));
     }
 
     [Fact]
@@ -60,6 +60,6 @@ public class TabStateTests
     {
         var role = new Role { Id = UserRoles.SeekerId, Key = UserRoles.Seeker, IsActive = true };
 
-        Assert.True(TabState.IsRoleAvailable(Tabs((AppTabKeys.Rooms, false), (AppTabKeys.Plots, false)), role));
+        Assert.True(TabState.IsRoleAvailable(Tabs((AppTabKeys.Stays, false), (AppTabKeys.Taxi, false)), role));
     }
 }

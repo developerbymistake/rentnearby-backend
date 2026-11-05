@@ -25,11 +25,4 @@ public interface IPlanEntitlementService
 
     // One query for many users (admin lists).
     Task<IReadOnlyDictionary<Guid, PlanLimits>> GetLimitsBatchAsync(IReadOnlyCollection<Guid> userIds, string featureKey);
-
-    // ValidUntil for every activation path: active plan's EndsAt, else now + FreeDays.
-    Task<DateTime> ResolveValidUntilAsync(Guid userId, string featureKey);
-    DateTime ResolveValidUntil(PlanLimits limits);
-
-    // GET /config/listing-limits: default plan limit (or the free-mode limit while payment is off).
-    Task<(int Room, int Plot)> GetPublicListingLimitsAsync();
 }

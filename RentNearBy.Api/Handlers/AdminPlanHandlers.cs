@@ -1,6 +1,5 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -27,7 +26,7 @@ public static class AdminPlanHandlers
 
     public static async Task<IResult> CreatePlan(
         UpsertPlanRequest request, IValidator<UpsertPlanRequest> validator,
-        IUnitOfWork unitOfWork, IPlanCatalogCache catalog, IMemoryCache cache, ApplicationDbContext db)
+        IUnitOfWork unitOfWork, IPlanCatalogCache catalog, ApplicationDbContext db)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -73,17 +72,15 @@ public static class AdminPlanHandlers
                 : ConflictResponse("A plan with this code already exists for this feature.", "PlanCodeExists");
         }
         await catalog.RefreshAsync();
-        ConfigHandlers.BustPlanDerivedConfig(cache);
 
         return CreatedResponse(ToDto(plan, await PlayPricesAsync(db)), $"/api/v1/admin/plans/{plan.Id}");
     }
 
     // The default (free) plan keeps IsDefault, stays enabled and has no prices. Holders of an edited plan
-    // get their listing ranks re-applied in one set-based pass, and room/plot listing limits re-applied
-    // (over-limit rows plan-paused, newest kept).
+    // get their listing ranks re-applied in one set-based pass.
     public static async Task<IResult> UpdatePlan(
         Guid id, UpsertPlanRequest request, IValidator<UpsertPlanRequest> validator,
-        IUnitOfWork unitOfWork, IPlanCatalogCache catalog, IMemoryCache cache,
+        IUnitOfWork unitOfWork, IPlanCatalogCache catalog,
         ILiveSlotService slots, IListingCacheInvalidator invalidator, ILoggerFactory loggerFactory, ApplicationDbContext db)
     {
         var logger = loggerFactory.CreateLogger(nameof(AdminPlanHandlers));
@@ -147,7 +144,6 @@ public static class AdminPlanHandlers
             throw;
         }
         await catalog.RefreshAsync();
-        ConfigHandlers.BustPlanDerivedConfig(cache);
 
         try
         {
@@ -157,21 +153,10 @@ public static class AdminPlanHandlers
                 logger.LogInformation("Plan {PlanId} edit re-ranked {Rows} {Kind} listings", plan.Id, fixedRanks.Rows, plan.FeatureKey);
                 await invalidator.BustDistrictsAsync(plan.FeatureKey, fixedRanks.DistrictIds);
             }
-
-            if (PlanFeatures.HasListingSlots(plan.FeatureKey))
-            {
-                var enforced = await slots.EnforceLimitsAsync(plan.FeatureKey);
-                if (enforced.Paused > 0)
-                {
-                    logger.LogInformation("Plan {PlanId} edit plan-paused {Rows} {Kind} listings of {Owners} owners",
-                        plan.Id, enforced.Paused, plan.FeatureKey, enforced.Owners.Count);
-                    await invalidator.BustForUsersAsync(enforced.Owners, plan.FeatureKey);
-                }
-            }
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Rank/limit re-apply after plan {PlanId} edit failed; the daily reconcile will repair it", plan.Id);
+            logger.LogWarning(ex, "Rank re-apply after plan {PlanId} edit failed; the daily reconcile will repair it", plan.Id);
         }
 
         return OkResponse(ToDto(plan, await PlayPricesAsync(db)));

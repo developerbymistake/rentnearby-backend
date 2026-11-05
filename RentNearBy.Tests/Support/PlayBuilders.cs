@@ -1,9 +1,9 @@
 namespace RentNearBy.Tests.Support;
 
-// Default: room_plus, cycle-1m, auto-renewing, expiry Dates.Far, order GPA.1, INR 299.
+// Default: stay_plus, cycle-1m, auto-renewing, expiry Dates.Far, order GPA.1, INR 299.
 public sealed class PlayLineItemBuilder
 {
-    private string _productId = "room_plus";
+    private string _productId = "stay_plus";
     private DateTime? _expiryTime = Dates.Far;
     private string? _basePlanId = "cycle-1m";
     private string? _offerId;
@@ -68,7 +68,7 @@ public sealed class PlaySnapshotBuilder
         _pausedAutoResumeTime, _lineItems.ToList(), _rawJson);
 }
 
-// Default: User1 buys Room Plus monthly (room_plus).
+// Default: User1 buys Stay Plus monthly (stay_plus).
 public sealed class PlayResolvedTargetBuilder
 {
     private Guid _userId = TestIds.User1;

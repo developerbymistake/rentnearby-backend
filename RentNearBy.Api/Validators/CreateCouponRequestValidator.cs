@@ -33,7 +33,7 @@ public class CouponRuleValidator : AbstractValidator<CouponRuleInput>
         RuleFor(x => x.MaxDiscountInr).GreaterThan(0).When(x => x.MaxDiscountInr.HasValue);
         RuleFor(x => x.MinPlanPriceInr).GreaterThan(0).When(x => x.MinPlanPriceInr.HasValue);
         RuleFor(x => x.FeatureKey).Must(PlanFeatures.IsValid).When(x => x.FeatureKey != null)
-            .WithMessage("FeatureKey must be Room, Plot, Stay or Taxi");
+            .WithMessage("FeatureKey must be Stay or Taxi");
         // One live redemption per user per coupon is enforced by a unique index.
         RuleFor(x => x.PerUserLimit).Equal(1).WithMessage("PerUserLimit must be 1");
         RuleFor(x => x.MaxTotalRedemptions).GreaterThan(0).When(x => x.MaxTotalRedemptions.HasValue);

@@ -8,12 +8,6 @@ public class AdminUserDto
     public string? Name { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
-    public int TotalListings { get; set; }
-    public int ActiveListings { get; set; }
-    public int TotalPlotListings { get; set; }
-    public int ActivePlotListings { get; set; }
-    public int LiveRoomListings { get; set; }
-    public int LivePlotListings { get; set; }
     public int TotalStays { get; set; }
     public int LiveStayListings { get; set; }   // stays under review: the only stay state that blocks a role change
     public string? StayStatus { get; set; }

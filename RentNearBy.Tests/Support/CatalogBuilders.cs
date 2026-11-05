@@ -30,11 +30,11 @@ public sealed class CatalogPriceBuilder
     public CatalogPrice Build() => new(_id, _cycleMonths, _priceInr, _razorpayPlanId, _isEnabled, _playBasePlanId, _playTrialOfferId);
 }
 
-// Defaults: Room "Plus" (ListingLimit 3, Priority 2, Featured, JobsPosts 2), prices 1m 299 / 3m 799 / 12m 2999.
+// Defaults: Stay "Plus" (ListingLimit 3, Priority 2, Featured, JobsPosts 2), prices 1m 299 / 3m 799 / 12m 2999.
 public sealed class CatalogPlanBuilder
 {
-    private Guid _id = TestIds.RoomPlus;
-    private string _featureKey = ListingKinds.Room;
+    private Guid _id = TestIds.StayPlus;
+    private string _featureKey = ListingKinds.Stay;
     private string _code = "PLUS";
     private string _name = "Plus";
     private string? _tagline;
@@ -42,7 +42,7 @@ public sealed class CatalogPlanBuilder
     private bool _isEnabled = true;
     private int _trialDays = 7;
     private int _sortOrder = 1;
-    private string? _playProductId = "room_plus";
+    private string? _playProductId = "stay_plus";
     private readonly Dictionary<string, int> _features = new()
     {
         [PlanFeatureKeys.ListingLimit] = 3,
@@ -64,7 +64,7 @@ public sealed class CatalogPlanBuilder
 
     public CatalogPlanBuilder AsDefault()
     {
-        _id = _featureKey == ListingKinds.Plot ? TestIds.PlotFree : TestIds.RoomFree;
+        _id = _featureKey == ListingKinds.Taxi ? TestIds.TaxiFree : TestIds.StayFree;
         _code = "FREE";
         _name = "Free";
         _isDefault = true;
@@ -102,18 +102,18 @@ public sealed class CatalogPlanBuilder
     }
 }
 
-// Default: Room Free + Room Plus + Plot Free + Plot Plus.
+// Default: Stay Free + Stay Plus (Taxi is the feature without plans; use TaxiFree/TaxiPlus explicitly).
 public sealed class PlanCatalogSnapshotBuilder
 {
     private readonly List<CatalogPlan> _plans = [];
     private bool _defaults = true;
 
-    public static CatalogPlan RoomFree => CatalogPlanBuilder.Free().Build();
-    public static CatalogPlan RoomPlus => CatalogPlanBuilder.Plus().Build();
-    public static CatalogPlan PlotFree => new CatalogPlanBuilder().ForFeature(ListingKinds.Plot).AsDefault().Build();
+    public static CatalogPlan StayFree => CatalogPlanBuilder.Free().Build();
+    public static CatalogPlan StayPlus => CatalogPlanBuilder.Plus().Build();
+    public static CatalogPlan TaxiFree => new CatalogPlanBuilder().ForFeature(ListingKinds.Taxi).AsDefault().Build();
 
-    public static CatalogPlan PlotPlus => CatalogPlanBuilder.Plus().ForFeature(ListingKinds.Plot).WithId(TestIds.PlotPlus)
-        .WithPlayProduct("plot_plus").Build();
+    public static CatalogPlan TaxiPlus => CatalogPlanBuilder.Plus().ForFeature(ListingKinds.Taxi).WithId(TestIds.TaxiPlus)
+        .WithPlayProduct("taxi_plus").Build();
 
     public PlanCatalogSnapshotBuilder Empty() { _defaults = false; return this; }
 
@@ -125,7 +125,7 @@ public sealed class PlanCatalogSnapshotBuilder
     }
 
     public PlanCatalogSnapshot Build()
-        => new(_defaults ? new List<CatalogPlan> { RoomFree, RoomPlus, PlotFree, PlotPlus } : _plans);
+        => new(_defaults ? new List<CatalogPlan> { StayFree, StayPlus } : _plans);
 }
 
 public static class PaymentFeatureStates

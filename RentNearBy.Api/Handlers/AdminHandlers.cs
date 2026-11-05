@@ -39,7 +39,7 @@ public static class AdminHandlers
 
     // Simplification tolerance in degrees for the boundary the client renders as a map overlay — the
     // full-fidelity District.Boundary column stays untouched and remains the authoritative ST_Contains gate
-    // at /listings/context and /plots/context.
+    // at /locations/context.
     private const double BoundarySimplifyToleranceDegrees = 0.0005;
 
     public static async Task<IResult> GetDistrictBoundary(Guid id, ApplicationDbContext db, IMemoryCache cache)
@@ -249,9 +249,6 @@ public static class AdminHandlers
         var district = await unitOfWork.Districts.GetByIdAsync(id);
         if (district == null) return NotFoundResponse("District not found");
 
-        if (await db.RoomListings.AnyAsync(l => l.DistrictId == id && l.IsActive && !l.IsDeleted))
-            return BadRequestResponse("Cannot delete district with active listings");
-
         // StayListing.DistrictId is FK Restrict, so any stay row (deleted ones too) blocks the delete.
         if (await db.StayListings.AnyAsync(s => s.DistrictId == id))
             return BadRequestResponse("Cannot delete district with stays");
@@ -341,141 +338,16 @@ public static class AdminHandlers
         return OkResponse(new { latitude = point.Latitude, longitude = point.Longitude, displayName = point.DisplayName });
     }
 
-    public static async Task<IResult> DeleteCity(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
+    public static async Task<IResult> DeleteCity(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         var city = await unitOfWork.Cities.GetByIdAsync(id);
         if (city == null) return NotFoundResponse("City not found");
-
-        if (await db.RoomListings.AnyAsync(l => l.CityId == id && l.IsActive))
-            return BadRequestResponse("Cannot delete city with active listings");
 
         await unitOfWork.Cities.DeleteAsync(city);
         await unitOfWork.SaveChangesAsync();
 
         cache.Remove($"cities_{city.DistrictId}");
         cache.Remove("cities_all");
-
-        return NoContentResponse();
-    }
-
-    public static async Task<IResult> GetRoomTypes(IUnitOfWork unitOfWork, IMemoryCache cache)
-    {
-        if (!cache.TryGetValue("room_types", out List<RoomTypeDto>? cached) || cached == null)
-        {
-            var types = await unitOfWork.RoomTypes.GetAllAsync();
-            cached = types.OrderBy(r => r.SortOrder).Select(r => r.Adapt<RoomTypeDto>()).ToList();
-            cache.Set("room_types", cached, CacheTtl);
-        }
-        return OkResponse(cached);
-    }
-
-    public static async Task<IResult> CreateRoomType(CreateRoomTypeRequest request, IValidator<CreateRoomTypeRequest> validator, IUnitOfWork unitOfWork, IMemoryCache cache)
-    {
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
-
-        var roomType = new RoomType { Id = Guid.NewGuid(), Name = request.Name.Trim(), Description = request.Description, SortOrder = request.SortOrder, CreatedAt = DateTime.UtcNow };
-        await unitOfWork.RoomTypes.AddAsync(roomType);
-        await unitOfWork.SaveChangesAsync();
-
-        cache.Remove("room_types");
-
-        return CreatedResponse(roomType.Adapt<RoomTypeDto>(), $"/api/v1/admin/room-types/{roomType.Id}");
-    }
-
-    public static async Task<IResult> UpdateRoomType(Guid id, UpdateRoomTypeRequest request, IValidator<UpdateRoomTypeRequest> validator, IUnitOfWork unitOfWork, IMemoryCache cache)
-    {
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
-
-        var roomType = await unitOfWork.RoomTypes.GetByIdAsync(id);
-        if (roomType == null) return NotFoundResponse("Room type not found");
-
-        if (request.Name != null) roomType.Name = request.Name.Trim();
-        if (request.Description != null) roomType.Description = request.Description;
-
-        await unitOfWork.RoomTypes.UpdateAsync(roomType);
-        await unitOfWork.SaveChangesAsync();
-
-        cache.Remove("room_types");
-
-        return OkResponse(roomType.Adapt<RoomTypeDto>());
-    }
-
-    public static async Task<IResult> DeleteRoomType(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
-    {
-        var roomType = await unitOfWork.RoomTypes.GetByIdAsync(id);
-        if (roomType == null) return NotFoundResponse("Room type not found");
-
-        if (await db.RoomListings.AnyAsync(l => l.RoomTypeId == id && l.IsActive))
-            return BadRequestResponse("Cannot delete room type with active listings");
-
-        await unitOfWork.RoomTypes.DeleteAsync(roomType);
-        await unitOfWork.SaveChangesAsync();
-
-        cache.Remove("room_types");
-
-        return NoContentResponse();
-    }
-
-    // ── PlotListing Type CRUD ────────────────────────────────────────────────────────
-
-    public static async Task<IResult> GetPlotTypes(IUnitOfWork unitOfWork, IMemoryCache cache)
-    {
-        if (!cache.TryGetValue("plot_types", out List<PlotTypeDto>? cached) || cached == null)
-        {
-            var types = await unitOfWork.PlotTypes.GetAllAsync();
-            cached = types.OrderBy(p => p.SortOrder).Select(p => p.Adapt<PlotTypeDto>()).ToList();
-            cache.Set("plot_types", cached, CacheTtl);
-        }
-        return OkResponse(cached);
-    }
-
-    public static async Task<IResult> CreatePlotType(CreatePlotTypeRequest request, IValidator<CreatePlotTypeRequest> validator, IUnitOfWork unitOfWork, IMemoryCache cache)
-    {
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
-
-        var plotType = new PlotType { Id = Guid.NewGuid(), Name = request.Name.Trim(), Description = request.Description, SortOrder = request.SortOrder, CreatedAt = DateTime.UtcNow };
-        await unitOfWork.PlotTypes.AddAsync(plotType);
-        await unitOfWork.SaveChangesAsync();
-
-        cache.Remove("plot_types");
-
-        return CreatedResponse(plotType.Adapt<PlotTypeDto>(), $"/api/v1/admin/plot-types/{plotType.Id}");
-    }
-
-    public static async Task<IResult> UpdatePlotType(Guid id, UpdatePlotTypeRequest request, IValidator<UpdatePlotTypeRequest> validator, IUnitOfWork unitOfWork, IMemoryCache cache)
-    {
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
-
-        var plotType = await unitOfWork.PlotTypes.GetByIdAsync(id);
-        if (plotType == null) return NotFoundResponse("PlotListing type not found");
-
-        if (request.Name != null) plotType.Name = request.Name.Trim();
-        if (request.Description != null) plotType.Description = request.Description;
-
-        await unitOfWork.PlotTypes.UpdateAsync(plotType);
-        await unitOfWork.SaveChangesAsync();
-
-        cache.Remove("plot_types");
-
-        return OkResponse(plotType.Adapt<PlotTypeDto>());
-    }
-
-    public static async Task<IResult> DeletePlotType(Guid id, IUnitOfWork unitOfWork, IMemoryCache cache, ApplicationDbContext db)
-    {
-        var plotType = await unitOfWork.PlotTypes.GetByIdAsync(id);
-        if (plotType == null) return NotFoundResponse("PlotListing type not found");
-
-        if (await db.PlotListings.AnyAsync(p => p.PlotTypeId == id && p.IsActive && !p.IsDeleted))
-            return BadRequestResponse("Cannot delete plot type with active plots");
-
-        await unitOfWork.PlotTypes.DeleteAsync(plotType);
-        await unitOfWork.SaveChangesAsync();
-
-        cache.Remove("plot_types");
 
         return NoContentResponse();
     }
@@ -546,23 +418,7 @@ public static class AdminHandlers
     public static async Task<IResult> GetStats(ApplicationDbContext db, IPlanCatalogCache catalog)
     {
         var totalUsers = await db.Users.CountAsync();
-        var totalListings = await db.RoomListings.CountAsync(ListingCountRules.RoomExisting);
-        var activeListings = await db.RoomListings.CountAsync(ListingCountRules.RoomLive);
-        var totalPlotListings = await db.PlotListings.CountAsync(ListingCountRules.PlotExisting);
-        var activePlotListings = await db.PlotListings.CountAsync(ListingCountRules.PlotLive);
         var activeDistricts = await db.Districts.CountAsync(d => d.IsActive);
-        var liveByDistrict = await db.RoomListings
-            .Where(ListingCountRules.RoomLive)
-            .GroupBy(l => l.DistrictId)
-            .Select(g => new { DistrictId = g.Key, Count = g.Count() })
-            .ToListAsync();
-        var districtIds = liveByDistrict.Select(x => x.DistrictId).ToList();
-        var districtNames = await db.Districts.AsNoTracking()
-            .Where(d => districtIds.Contains(d.Id))
-            .Select(d => new { d.Id, d.Name, d.StateName })
-            .ToDictionaryAsync(d => d.Id, d => (d.Name, d.StateName));
-        var listingsByDistrict = AdminDistrictCounts.Build(
-            liveByDistrict.Select(x => (x.DistrictId, x.Count)), districtNames);
 
         // Revenue = granted paid plan purchases, Razorpay and Play (refunded ones drop out), summed in paise.
         var now = DateTime.UtcNow;
@@ -638,12 +494,7 @@ public static class AdminHandlers
         return OkResponse(new AdminStatsDto
         {
             TotalUsers = totalUsers,
-            TotalListings = totalListings,
-            ActiveListings = activeListings,
-            TotalPlotListings = totalPlotListings,
-            ActivePlotListings = activePlotListings,
             ActiveDistricts = activeDistricts,
-            RoomListingsByDistrict = listingsByDistrict,
             TotalEarnings = Money.RupeesFromPaise(totalEarningsPaise),
             CurrentMonthEarnings = Money.RupeesFromPaise(currentMonthEarningsPaise),
             TotalEarningsPaise = totalEarningsPaise,
@@ -681,20 +532,15 @@ public static class AdminHandlers
         reason = flag.Reason,
     };
 
-    // Flipping the flag or the free-mode limit re-applies listing limits (over-limit rooms/plots are plan-paused, newest kept).
     public static async Task<IResult> UpdatePaymentFeature(
         UpdatePaymentFeatureRequest request, IValidator<UpdatePaymentFeatureRequest> validator,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IMemoryCache cache, IPaymentFeatureReader paymentReader,
-        ILiveSlotService slots, IListingCacheInvalidator invalidator, ILoggerFactory loggerFactory)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPaymentFeatureReader paymentReader)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
         var flag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.PaymentEnabled);
         if (flag == null) return NotFoundResponse("Payment feature flag not found");
-
-        var wasEnabled = flag.IsEnabled;
-        var wasLimit = flag.FreeModeListingLimit;
 
         if (request.IsEnabled.HasValue) flag.IsEnabled = request.IsEnabled.Value;
         if (request.FreeDurationDays.HasValue) flag.FreeDurationDays = request.FreeDurationDays.Value;
@@ -711,29 +557,6 @@ public static class AdminHandlers
         await unitOfWork.SaveChangesAsync();
 
         paymentReader.Invalidate();
-        ConfigHandlers.BustPlanDerivedConfig(cache);
-
-        if (flag.IsEnabled != wasEnabled || flag.FreeModeListingLimit != wasLimit)
-        {
-            var logger = loggerFactory.CreateLogger(nameof(AdminHandlers));
-            foreach (var kind in new[] { ListingKinds.Room, ListingKinds.Plot })
-            {
-                try
-                {
-                    var r = await slots.EnforceLimitsAsync(kind);
-                    if (r.Paused > 0)
-                    {
-                        logger.LogInformation("Payment flag change plan-paused {Rows} {Kind} listings of {Owners} owners",
-                            r.Paused, kind, r.Owners.Count);
-                        await invalidator.BustForUsersAsync(r.Owners, kind);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Limit re-apply after payment flag change failed ({Kind}); the daily reconcile will repair it", kind);
-                }
-            }
-        }
 
         return OkResponse(ToPaymentFeatureDto(flag));
     }
@@ -931,9 +754,7 @@ public static class AdminHandlers
         {
             var d = districtId.Value;
             query = query.Where(u =>
-                db.RoomListings.Any(l => l.UserId == u.Id && l.DistrictId == d && !l.IsDeleted)
-                || db.PlotListings.Any(l => l.UserId == u.Id && l.DistrictId == d && !l.IsDeleted)
-                || db.StayListings.Any(s => s.UserId == u.Id && s.DistrictId == d && !s.IsDeleted)
+                db.StayListings.Any(s => s.UserId == u.Id && s.DistrictId == d && !s.IsDeleted)
                 || db.TaxiListings.Any(t => t.UserId == u.Id && t.DistrictId == d && !t.IsDeleted));
         }
 
@@ -941,9 +762,7 @@ public static class AdminHandlers
         {
             var c = cityId.Value;
             query = query.Where(u =>
-                db.RoomListings.Any(l => l.UserId == u.Id && l.CityId == c && !l.IsDeleted)
-                || db.PlotListings.Any(l => l.UserId == u.Id && l.CityId == c && !l.IsDeleted)
-                || db.StayListings.Any(s => s.UserId == u.Id && s.CityId == c && !s.IsDeleted)
+                db.StayListings.Any(s => s.UserId == u.Id && s.CityId == c && !s.IsDeleted)
                 || db.TaxiListings.Any(t => t.UserId == u.Id && t.CityId == c && !t.IsDeleted));
         }
 
@@ -953,10 +772,6 @@ public static class AdminHandlers
             User = u,
             RoleKey = u.Role.Key,
             RoleName = u.Role.Name,
-            TotalListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted),
-            ActiveListings = db.RoomListings.Count(l => l.UserId == u.Id && !l.IsDeleted && l.IsActive),
-            TotalPlotListings = db.PlotListings.Count(l => l.UserId == u.Id && !l.IsDeleted),
-            ActivePlotListings = db.PlotListings.Count(l => l.UserId == u.Id && !l.IsDeleted && l.IsActive),
             TotalStays = db.StayListings.Count(s => s.UserId == u.Id && !s.IsDeleted),
             StayStatus = db.StayListings.Where(s => s.UserId == u.Id && !s.IsDeleted).Select(s => s.Status).FirstOrDefault(),
             TotalTaxis = db.TaxiListings.Count(t => t.UserId == u.Id && !t.IsDeleted),
@@ -981,10 +796,6 @@ public static class AdminHandlers
                     Name = u.Name,
                     IsActive = u.IsActive,
                     CreatedAt = u.CreatedAt,
-                    TotalListings = x.TotalListings,
-                    ActiveListings = x.ActiveListings,
-                    TotalPlotListings = x.TotalPlotListings,
-                    ActivePlotListings = x.ActivePlotListings,
                     TotalStays = x.TotalStays,
                     StayStatus = x.StayStatus,
                     TotalTaxis = x.TotalTaxis,
@@ -998,8 +809,6 @@ public static class AdminHandlers
         var blocking = await guard.GetBlockingCountsAsync(result.Items.Select(u => u.Id).ToList());
         foreach (var item in result.Items)
         {
-            item.LiveRoomListings = blocking[item.Id].Rooms;
-            item.LivePlotListings = blocking[item.Id].Plots;
             item.LiveStayListings = blocking[item.Id].Stays;
             item.LiveTaxiListings = blocking[item.Id].Taxis;
         }
@@ -1054,12 +863,6 @@ public static class AdminHandlers
             Name = u.Name,
             IsActive = u.IsActive,
             CreatedAt = u.CreatedAt,
-            TotalListings = await db.RoomListings.Where(l => l.UserId == id).CountAsync(ListingCountRules.RoomExisting),
-            ActiveListings = await db.RoomListings.Where(l => l.UserId == id).CountAsync(ListingCountRules.RoomLive),
-            TotalPlotListings = await db.PlotListings.Where(l => l.UserId == id).CountAsync(ListingCountRules.PlotExisting),
-            ActivePlotListings = await db.PlotListings.Where(l => l.UserId == id).CountAsync(ListingCountRules.PlotLive),
-            LiveRoomListings = blocking.Rooms,
-            LivePlotListings = blocking.Plots,
             TotalStays = await db.StayListings.CountAsync(s => s.UserId == id && !s.IsDeleted),
             LiveStayListings = blocking.Stays,
             StayStatus = await db.StayListings.Where(s => s.UserId == id && !s.IsDeleted).Select(s => s.Status).FirstOrDefaultAsync(),
@@ -1078,15 +881,11 @@ public static class AdminHandlers
         return OkResponse(dto);
     }
 
-    // Suspend: live rooms/plots become PauseReason=Suspended. Unsuspend revives Suspended rows, newest first,
-    // up to the owner's free slots (under the owner lock); the rest become plan-paused, and a slot still free
-    // resumes plan-paused rows.
     public static async Task<IResult> UpdateUserStatus(
         Guid id,
         UpdateUserStatusRequest request,
         ApplicationDbContext db,
         ILiveSlotService slots,
-        IListingCacheInvalidator cacheInvalidator,
         IPlaySubscriptionRepository playSubscriptions,
         IServiceProvider sp)
     {
@@ -1101,9 +900,6 @@ public static class AdminHandlers
             user.IsActive = request.IsActive;
             user.UpdatedAt = now;
             await db.SaveChangesAsync();
-
-            if (request.IsActive) await slots.UnsuspendAsync(id);
-            else await slots.SuspendAsync(id);
 
             // Stays and taxis have no paid window; an approved one simply follows the owner.
             var stayQuery = db.StayListings.Where(s => s.UserId == id && !s.IsDeleted && s.Status == StayStatuses.Approved);
@@ -1135,8 +931,6 @@ public static class AdminHandlers
             await tx.CommitAsync();
         }
 
-        await cacheInvalidator.BustForUserAsync(id, ListingKinds.Room);
-        await cacheInvalidator.BustForUserAsync(id, ListingKinds.Plot);
         var redis = sp.GetService<IConnectionMultiplexer>();
         foreach (var districtId in stayDistrictIds)
             await StayCache.InvalidateAsync(redis, districtId);
@@ -1144,210 +938,6 @@ public static class AdminHandlers
             await TaxiCache.InvalidateAsync(redis, districtId);
 
         return OkResponse(new { id = user.Id, isActive = user.IsActive });
-    }
-
-    // ── Admin RoomListing endpoints ───────────────────────────────────────────────
-
-    public record AdminToggleListingRequest(bool IsActive);
-
-    public static async Task<IResult> GetAdminListings(
-        ApplicationDbContext db,
-        int page = 1,
-        int pageSize = 20,
-        Guid? districtId = null,
-        Guid? cityId = null,
-        Guid? roomTypeId = null,
-        bool? isActive = null,
-        string? search = null)
-    {
-        pageSize = Math.Clamp(pageSize, 1, 100);
-        page = Math.Max(1, page);
-
-        var query = db.RoomListings
-            .AsNoTracking()
-            .Include(l => l.District)
-            .Include(l => l.City)
-            .Include(l => l.RoomType)
-            .Include(l => l.User)
-            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder).Take(1))
-            .Where(l => !l.IsDeleted);
-
-        if (districtId.HasValue) query = query.Where(l => l.DistrictId == districtId.Value);
-        if (cityId.HasValue) query = query.Where(l => l.CityId == cityId.Value);
-        if (roomTypeId.HasValue) query = query.Where(l => l.RoomTypeId == roomTypeId.Value);
-        if (isActive.HasValue) query = query.Where(l => l.IsActive == isActive.Value);
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var s = search.Trim().ToLower();
-            query = query.Where(l =>
-                l.User.PhoneNumber.Contains(s) ||
-                (l.User.Name != null && l.User.Name.ToLower().Contains(s)));
-        }
-
-        var result = await query
-            .OrderByDescending(l => l.CreatedAt)
-            .ToPagedResultAsync(page, pageSize, l => new AdminListingDto
-            {
-                Id = l.Id,
-                UserId = l.UserId,
-                OwnerName = l.User?.Name,
-                OwnerPhone = l.User?.PhoneNumber,
-                DistrictName = l.District?.Name,
-                CityName = l.City?.Name,
-                RoomTypeName = l.RoomType?.Name,
-                PriceMonthly = l.PriceMonthly,
-                IsActive = l.IsActive,
-                ValidUntil = l.ValidUntil,
-                IsAc = l.IsAc,
-                PauseReason = l.PauseReason,
-                PriorityRank = l.PriorityRank,
-                IsFeatured = l.IsFeatured,
-                Address = l.Address,
-                ThumbnailUrl = l.Photos.FirstOrDefault()?.PhotoUrl,
-                PhotoCount = l.Photos.Count,
-                CreatedAt = l.CreatedAt,
-            });
-
-        return OkResponse(result);
-    }
-
-    public static async Task<IResult> GetAdminListingById(Guid id, IUnitOfWork unitOfWork)
-    {
-        var listing = await unitOfWork.RoomListings.GetByIdWithPhotosForAdminAsync(id);
-        if (listing == null) return NotFoundResponse("RoomListing not found");
-        return OkResponse(listing.Adapt<RoomListingDto>());
-    }
-
-    // Deactivate = admin pause (owner cannot self-resume). Reactivate needs a valid ValidUntil and a free
-    // slot in the owner's plan, checked under the owner lock.
-    public static async Task<IResult> ToggleAdminListingStatus(
-        Guid id, AdminToggleListingRequest request, ApplicationDbContext db,
-        ILiveSlotService slots, IPlanEntitlementService entitlements, IListingCacheInvalidator cacheInvalidator)
-    {
-        var listing = await db.RoomListings.FindAsync(id);
-        if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
-
-        var resumed = 0;
-        await using (var tx = await db.Database.BeginTransactionAsync())
-        {
-            await slots.LockOwnerAsync(listing.UserId);
-            var freesSlot = !request.IsActive && listing.IsActive && listing.LiveRequestStatus != GoLiveRequestStatuses.Pending;
-            if (request.IsActive)
-            {
-                if (!listing.IsActive)
-                {
-                    if (!(listing.ValidUntil > DateTime.UtcNow))
-                        return BadRequestResponse("This listing has no valid live period. Ask the owner to Go Live.");
-                    var limits = await entitlements.GetLimitsAsync(listing.UserId, ListingKinds.Room);
-                    var live = await slots.CountLiveAsync(listing.UserId, ListingKinds.Room, listing.Id);
-                    if (live >= limits.ListingLimit)
-                        return GoLiveHandlers.PlanLimitReached(limits.ListingLimit, live);
-                    listing.IsActive = true;
-                    listing.PauseReason = null;
-                    listing.PriorityRank = limits.PriorityRank;
-                    listing.IsFeatured = limits.IsFeatured;
-                }
-            }
-            else if (listing.IsActive || listing.PauseReason != PauseReasons.Admin)
-            {
-                listing.IsActive = false;
-                listing.PauseReason = PauseReasons.Admin;
-            }
-            listing.UpdatedAt = DateTime.UtcNow;
-            try
-            {
-                await db.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
-            }
-            if (freesSlot)
-                resumed = await slots.ResumeAfterSlotFreedAsync(listing.UserId, ListingKinds.Room);
-            await tx.CommitAsync();
-        }
-
-        await cacheInvalidator.BustDistrictsAsync(ListingKinds.Room, [listing.DistrictId]);
-        if (resumed > 0)
-            await cacheInvalidator.BustForUserAsync(listing.UserId, ListingKinds.Room);
-
-        return OkResponse(new { success = true, isActive = listing.IsActive, pauseReason = listing.PauseReason });
-    }
-
-    private static async Task InvalidateRecentRoomsCacheAsync(IConnectionMultiplexer? redis)
-    {
-        if (redis == null) return;
-        try { await redis.GetDatabase().KeyDeleteAsync("home:recentRooms"); } catch { }
-    }
-
-    private static async Task InvalidateForYouRoomsCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
-    {
-        if (redis == null) return;
-        try { await redis.GetDatabase().KeyDeleteAsync($"home:forYouRooms:{districtId}"); } catch { }
-    }
-
-    // Missing here before this feature — its Plot sibling (PlotListingHandlers.AdminDeletePlotListing)
-    // already busts this cache on delete; Room's admin delete didn't.
-    private static async Task InvalidateNearbyCacheAsync(IConnectionMultiplexer? redis, Guid districtId)
-    {
-        if (redis == null) return;
-        try
-        {
-            var db = redis.GetDatabase();
-            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
-            if (server == null) return;
-            await foreach (var key in server.KeysAsync(pattern: $"nearby:{districtId}:*"))
-                await db.KeyDeleteAsync(key);
-        }
-        catch { }
-    }
-
-    public static async Task<IResult> DeleteAdminListing(
-        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService, ILiveSlotService slots, IServiceProvider sp)
-    {
-        // Tracked fetch: the shadow xmin concurrency token only round-trips through a tracked entity.
-        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
-        if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
-
-        await photoService.DeleteRoomPhotosAsync(listing.UserId, id);
-
-        var resumed = 0;
-        await unitOfWork.BeginTransactionAsync();
-        try
-        {
-            await slots.LockOwnerAsync(listing.UserId);
-            var wasLive = listing.IsActive || listing.LiveRequestStatus == GoLiveRequestStatuses.Pending;
-            listing.IsDeleted = true;
-            listing.DeletedAt = DateTime.UtcNow;
-            await unitOfWork.RoomListings.UpdateAsync(listing);
-            try
-            {
-                await unitOfWork.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                await unitOfWork.RollbackTransactionAsync();
-                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
-            }
-            if (wasLive)
-                resumed = await slots.ResumeAfterSlotFreedAsync(listing.UserId, ListingKinds.Room);
-            await unitOfWork.CommitTransactionAsync();
-        }
-        catch
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            throw;
-        }
-
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
-        await InvalidateRecentRoomsCacheAsync(redis);
-        await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
-        if (resumed > 0)
-            await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(listing.UserId, ListingKinds.Room);
-
-        return NoContentResponse();
     }
 
     private static AdminListingReportDto ToAdminListingReportDto(ListingReport r) => new()
@@ -1377,32 +967,6 @@ public static class AdminHandlers
         dto.TripEnquiryStatus = e.Status;
     }
 
-    private static void ApplyRoomReportDetails(AdminListingReportDto dto, RoomListing l)
-    {
-        dto.Address = l.Address;
-        dto.Description = l.Description;
-        dto.DistrictName = l.District?.Name;
-        dto.CityName = l.City?.Name;
-        dto.RoomTypeName = l.RoomType?.Name;
-        dto.FurnishedStatus = l.FurnishedStatus;
-        dto.IsAc = l.IsAc;
-        dto.SecurityDeposit = l.SecurityDeposit;
-        dto.Floor = l.Floor;
-        dto.PriceMonthly = l.PriceMonthly;
-    }
-
-    private static void ApplyPlotReportDetails(AdminListingReportDto dto, PlotListing p)
-    {
-        dto.Address = p.Address;
-        dto.Description = p.Description;
-        dto.DistrictName = p.District?.Name;
-        dto.CityName = p.City?.Name;
-        dto.PlotType = p.PlotType?.Name;
-        dto.AreaValue = p.AreaValue;
-        dto.AreaUnit = p.AreaUnit;
-        dto.AreaSqft = p.AreaSqft;
-    }
-
     public static async Task<IResult> GetReports(
         IUnitOfWork unitOfWork, ApplicationDbContext db, int page = 1, int pageSize = 20, string? status = "Pending",
         string? cursor = null)
@@ -1424,20 +988,12 @@ public static class AdminHandlers
             : await KeysetReportsAsync(unitOfWork, pageSize, status, afterAt, afterId);
         var nextCursor = KeysetCursor.EncodeLast(paged.Items, paged.HasMore, r => r.CreatedAt, r => r.Id);
 
-        // Batched lookup instead of N+1 — ListingReport has no FK/nav to RoomListing/PlotListing
+        // Batched lookup instead of N+1 — ListingReport has no FK/nav to StayListing/TaxiListing
         // (just a ListingId + ListingType string discriminator), so the underlying listing content
         // has to be joined in manually here.
-        var roomIds = paged.Items.Where(r => r.ListingType == ListingKinds.Room).Select(r => r.ListingId).Distinct().ToList();
-        var plotIds = paged.Items.Where(r => r.ListingType == ListingKinds.Plot).Select(r => r.ListingId).Distinct().ToList();
         var stayIds = paged.Items.Where(r => r.ListingType == ListingKinds.Stay).Select(r => r.ListingId).Distinct().ToList();
         var taxiIds = paged.Items.Where(r => r.ListingType == ListingKinds.Taxi).Select(r => r.ListingId).Distinct().ToList();
 
-        var roomsById = roomIds.Count == 0 ? new Dictionary<Guid, RoomListing>() : await db.RoomListings
-            .AsNoTracking().Include(l => l.RoomType).Include(l => l.District).Include(l => l.City)
-            .Where(l => roomIds.Contains(l.Id)).ToDictionaryAsync(l => l.Id);
-        var plotsById = plotIds.Count == 0 ? new Dictionary<Guid, PlotListing>() : await db.PlotListings
-            .AsNoTracking().Include(p => p.PlotType).Include(p => p.District).Include(p => p.City)
-            .Where(p => plotIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
         var staysById = stayIds.Count == 0 ? new Dictionary<Guid, StayListing>() : await db.StayListings
             .AsNoTracking().Include(s => s.StayType).Include(s => s.District).Include(s => s.City)
             .Where(s => stayIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id);
@@ -1454,9 +1010,7 @@ public static class AdminHandlers
             var dto = ToAdminListingReportDto(r);
             if (r.TripEnquiryId is { } tripEnquiryId && tripEnquiriesById.TryGetValue(tripEnquiryId, out var tripEnquiry))
                 ApplyTripEnquiryReportDetails(dto, tripEnquiry);
-            if (r.ListingType == ListingKinds.Room && roomsById.TryGetValue(r.ListingId, out var room)) ApplyRoomReportDetails(dto, room);
-            else if (r.ListingType == ListingKinds.Plot && plotsById.TryGetValue(r.ListingId, out var plot)) ApplyPlotReportDetails(dto, plot);
-            else if (r.ListingType == ListingKinds.Stay && staysById.TryGetValue(r.ListingId, out var stay)) AdminStayHandlers.ApplyStayReportDetails(dto, stay);
+            if (r.ListingType == ListingKinds.Stay && staysById.TryGetValue(r.ListingId, out var stay)) AdminStayHandlers.ApplyStayReportDetails(dto, stay);
             else if (r.ListingType == ListingKinds.Taxi && taxisById.TryGetValue(r.ListingId, out var taxi)) AdminTaxiHandlers.ApplyTaxiReportDetails(dto, taxi);
             return dto;
         }).ToList();
@@ -1481,27 +1035,7 @@ public static class AdminHandlers
             && await db.TripEnquiries.AsNoTracking().FirstOrDefaultAsync(e => e.Id == tripEnquiryId) is { } tripEnquiry)
             ApplyTripEnquiryReportDetails(dto, tripEnquiry);
 
-        // GetByIdWithPhotosForAdminAsync deliberately survives the listing being deleted, so the
-        // report review still shows what was reported even after the owner deletes the post.
-        if (report.ListingType == ListingKinds.Room)
-        {
-            var listing = await unitOfWork.RoomListings.GetByIdWithPhotosForAdminAsync(report.ListingId);
-            if (listing != null)
-            {
-                ApplyRoomReportDetails(dto, listing);
-                dto.Photos = listing.Photos.Select(p => p.PhotoUrl).ToList();
-            }
-        }
-        else if (report.ListingType == ListingKinds.Plot)
-        {
-            var plot = await unitOfWork.PlotListings.GetByIdWithPhotosForAdminAsync(report.ListingId);
-            if (plot != null)
-            {
-                ApplyPlotReportDetails(dto, plot);
-                dto.Photos = plot.Photos.Select(p => p.PhotoUrl).ToList();
-            }
-        }
-        else if (report.ListingType == ListingKinds.Stay)
+        if (report.ListingType == ListingKinds.Stay)
         {
             var stay = await unitOfWork.Stays.GetByIdForAdminAsync(report.ListingId);
             if (stay != null)
@@ -1543,32 +1077,12 @@ public static class AdminHandlers
     }
 
     // ── Report-driven takedown ("Reject") ──────────────────────────────────────
-    // Replaces the old two-call "Deactivate Post" (PUT status + PUT resolve, non-transactional) with
-    // one atomic endpoint that reuses the Go-Live moderation Rejected mechanism from a second entry
-    // point: a report resolution. It targets a listing that was already live and mirrors
-    // RejectRoomGoLiveRequest/RejectPlotGoLiveRequest (transaction shape,
-    // DbUpdateConcurrencyException -> CONCURRENT_UPDATE, GoLiveRequestStatuses.Rejected/RejectedReason).
-    // One HTTP route (report.ListingType is already a plain string spanning both kinds), but the
-    // Room/Plot code paths stay separately duplicated per this codebase's convention: Room lives
-    // here (RejectReportedRoomAsync, mirroring where RejectRoomGoLiveRequest lives), Plot lives in
-    // PlotListingHandlers.RejectReportedPlotAsync (mirroring RejectPlotGoLiveRequest) so it can reuse
-    // that file's own Plot-specific cache-key helpers instead of duplicating those key strings here.
-
-    private static NotificationEvent BuildRoomReportRejectedNotification(Guid userId, string reason) => new()
-    {
-        Id = Guid.NewGuid(),
-        TargetUserId = userId,
-        Type = NotificationTypes.GoLiveRejected,
-        Title = "Your listing was taken down",
-        Body = $"Your Room listing was taken down: {reason}",
-        ActionRoute = "/my-listings",
-        CreatedAt = DateTime.UtcNow,
-    };
+    // One atomic endpoint (take down + resolve). One HTTP route; report.ListingType picks the Stay or Taxi path.
 
     public static async Task<IResult> RejectReport(
         Guid id, RejectGoLiveRequest request, IValidator<RejectGoLiveRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, ILiveSlotService slots)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -1582,192 +1096,12 @@ public static class AdminHandlers
 
         return report.ListingType switch
         {
-            ListingKinds.Room => await RejectReportedRoomAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher, slots),
-            ListingKinds.Plot => await PlotListingHandlers.RejectReportedPlotAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher, slots),
             ListingKinds.Stay => await AdminStayHandlers.RejectReportedStayAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
             ListingKinds.Taxi => await AdminTaxiHandlers.RejectReportedTaxiAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
             ListingReportTypes.TripEnquiry => BadRequestResponse("A traveller report has no listing to take down"),
             _ => BadRequestResponse($"Unknown listing type '{report.ListingType}' on this report"),
         };
     }
-
-    private static async Task<IResult> RejectReportedRoomAsync(
-        ListingReport report, string reason, Guid? adminId,
-        IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, ILiveSlotService slots)
-    {
-        var listing = await unitOfWork.RoomListings.GetByIdAsync(report.ListingId);
-        if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
-
-        // Rejected rows never count against the owner's plan limit; a freed slot resumes a plan-paused row.
-        var resumed = 0;
-        await unitOfWork.BeginTransactionAsync();
-        try
-        {
-            await slots.LockOwnerAsync(listing.UserId);
-            var wasLive = listing.IsActive || listing.LiveRequestStatus == GoLiveRequestStatuses.Pending;
-            listing.IsActive = false;
-            listing.PauseReason = null;
-            listing.LiveRequestStatus = GoLiveRequestStatuses.Rejected;
-            listing.RejectedReason = reason;
-            // This listing was genuinely live, so ValidUntil is still some future paid-through date —
-            // left alone, GoLiveHandlers' free-reactivation branch (which only ever checks
-            // IsActive/ValidUntil, not LiveRequestStatus) would let the owner silently reactivate it
-            // for free before that date passes, undoing this rejection entirely. Expiring it here
-            // fixes the data at its source instead of special-casing Rejected inside that shared,
-            // heavily-used branch.
-            listing.ValidUntil = DateTime.UtcNow.AddDays(-1);
-            listing.UpdatedAt = DateTime.UtcNow;
-            await unitOfWork.RoomListings.UpdateAsync(listing);
-
-            var notification = BuildRoomReportRejectedNotification(listing.UserId, reason);
-            db.NotificationEvents.Add(notification);
-
-            try
-            {
-                await unitOfWork.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                await unitOfWork.RollbackTransactionAsync();
-                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
-            }
-
-            await unitOfWork.ListingReports.ResolveAsync(report.Id, adminId, "PostRejected");
-
-            if (wasLive)
-                resumed = await slots.ResumeAfterSlotFreedAsync(listing.UserId, ListingKinds.Room);
-
-            await unitOfWork.CommitTransactionAsync();
-
-            var redis = sp.GetService<IConnectionMultiplexer>();
-            await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
-            await InvalidateRecentRoomsCacheAsync(redis);
-            await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
-            if (resumed > 0)
-                await sp.GetRequiredService<IListingCacheInvalidator>().BustForUserAsync(listing.UserId, ListingKinds.Room);
-
-            await SendGoLiveNotificationAsync(hubContext, publisher, notification);
-
-            return OkResponse(new { success = true });
-        }
-        catch
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            throw;
-        }
-    }
-
-    // ── Room Go-Live moderation ──────────────────────────────────────────────
-    // Mirrors GetReports/GetReportById/ResolveReport's shape exactly. Separate from Plot's own pair
-    // in PlotListingHandlers — these fields live directly on RoomListing/PlotListing, so a unified
-    // feed would need a cross-entity UNION with correct SQL-level pagination for no real benefit,
-    // and breaks from this codebase's dominant Room/Plot-duplication convention.
-
-    private static GoLiveRequestDto ToGoLiveRequestDto(RoomListing l, bool includePhotos) => new()
-    {
-        Id = l.Id,
-        UserId = l.UserId,
-        OwnerName = l.User?.Name,
-        OwnerMobile = l.User?.PhoneNumber,
-        Status = l.LiveRequestStatus ?? string.Empty,
-        RequestedPlanDays = l.RequestedPlanDays,
-        SubmittedAt = l.UpdatedAt,
-        Photos = includePhotos ? l.Photos.Select(p => p.PhotoUrl).ToList() : new List<string>(),
-        Address = l.Address,
-        Description = l.Description,
-        DistrictName = l.District?.Name,
-        CityName = l.City?.Name,
-        RoomTypeName = l.RoomType?.Name,
-        FurnishedStatus = l.FurnishedStatus,
-        IsAc = l.IsAc,
-        SecurityDeposit = l.SecurityDeposit,
-        Floor = l.Floor,
-        PriceMonthly = l.PriceMonthly,
-    };
-
-    public static async Task<IResult> GetRoomGoLiveRequests(
-        ApplicationDbContext db, IPlanEntitlementService entitlements, int page = 1, int pageSize = 20, string? status = "Pending",
-        string? cursor = null)
-    {
-        pageSize = Math.Clamp(pageSize, 1, 100);
-        page = Math.Max(1, page);
-
-        // Deleted listings never leave LiveRequestStatus behind — excluded here the same way
-        // GetAdminListings excludes them, so a deleted-while-Pending listing can't linger in this
-        // queue forever.
-        var query = db.RoomListings
-            .AsNoTracking()
-            .Include(l => l.User)
-            .Include(l => l.RoomType)
-            .Include(l => l.District)
-            .Include(l => l.City)
-            .Where(l => !l.IsDeleted && l.LiveRequestStatus == status);
-
-        // cursor = keyset on (UpdatedAt DESC, Id DESC); page > 1 without a cursor = the old app's offset paging.
-        var useOffset = string.IsNullOrEmpty(cursor) && page > 1;
-        if (!string.IsNullOrEmpty(cursor))
-        {
-            if (!KeysetCursor.TryDecode(cursor, out var at, out var afterId)) return BadRequestResponse("Invalid cursor");
-            query = query.Where(l => l.UpdatedAt <= at && (l.UpdatedAt < at || l.Id.CompareTo(afterId) < 0));
-        }
-        var rows = await query
-            .OrderByDescending(l => l.UpdatedAt)
-            .ThenByDescending(l => l.Id)
-            .Skip(useOffset ? (page - 1) * pageSize : 0)
-            .Take(pageSize + 1)
-            .ToListAsync();
-        var hasMore = rows.Count > pageSize;
-        if (hasMore) rows = rows.Take(pageSize).ToList();
-        var nextCursor = KeysetCursor.EncodeLast(rows, hasMore, l => l.UpdatedAt, l => l.Id);
-
-        var items = rows.Select(l => ToGoLiveRequestDto(l, includePhotos: false)).ToList();
-        if (items.Count > 0)
-        {
-            var limits = await entitlements.GetLimitsBatchAsync(items.Select(i => i.UserId).Distinct().ToList(), ListingKinds.Room);
-            foreach (var i in items)
-                i.OwnerPlanName = limits.TryGetValue(i.UserId, out var l) ? l.PlanName : null;
-        }
-        return OkResponse(new { items, hasMore, nextCursor });
-    }
-
-    public static async Task<IResult> GetRoomGoLiveRequestById(Guid id, ApplicationDbContext db, IPlanEntitlementService entitlements)
-    {
-        var listing = await db.RoomListings
-            .AsNoTracking()
-            .Include(l => l.User)
-            .Include(l => l.RoomType)
-            .Include(l => l.District)
-            .Include(l => l.City)
-            .Include(l => l.Photos.OrderBy(p => p.PhotoOrder))
-            .FirstOrDefaultAsync(l => l.Id == id && !l.IsDeleted);
-        if (listing == null) return NotFoundResponse("Go-Live request not found");
-        var dto = ToGoLiveRequestDto(listing, includePhotos: true);
-        dto.OwnerPlanName = (await entitlements.GetLimitsAsync(listing.UserId, ListingKinds.Room)).PlanName;
-        return OkResponse(dto);
-    }
-
-    private static NotificationEvent BuildRoomGoLiveApprovedNotification(Guid userId) => new()
-    {
-        Id = Guid.NewGuid(),
-        TargetUserId = userId,
-        Type = NotificationTypes.GoLiveApproved,
-        Title = "Your listing is now live",
-        Body = "Your Room listing has been approved and is now live.",
-        ActionRoute = "/my-listings",
-        CreatedAt = DateTime.UtcNow,
-    };
-
-    private static NotificationEvent BuildRoomGoLiveRejectedNotification(Guid userId, string reason) => new()
-    {
-        Id = Guid.NewGuid(),
-        TargetUserId = userId,
-        Type = NotificationTypes.GoLiveRejected,
-        Title = "Your listing was not approved",
-        Body = $"Your Room listing was rejected. Reason: {reason}",
-        ActionRoute = "/my-listings",
-        CreatedAt = DateTime.UtcNow,
-    };
 
     // Single-notification push shape — SignalR
     // user_{id} push via NotificationHub (the same hub every other generic NotificationEvent producer
@@ -1803,153 +1137,5 @@ public static class AdminHandlers
         {
             logger?.LogWarning(ex, "notify.publish_failed {NotificationId} {Type}", notification.Id, notification.Type);
         }
-    }
-
-    private static NotificationEvent BuildRoomApprovedPausedNotification(Guid userId) => new()
-    {
-        Id = Guid.NewGuid(),
-        TargetUserId = userId,
-        Type = NotificationTypes.GoLiveApproved,
-        Title = "Your listing is approved",
-        Body = "Your Room listing is approved. Your plan limit is full, so it is paused. Swap or upgrade to make it live.",
-        ActionRoute = "/my-listings",
-        CreatedAt = DateTime.UtcNow,
-    };
-
-    private static NotificationEvent BuildRoomApprovedSuspendedNotification(Guid userId) => new()
-    {
-        Id = Guid.NewGuid(),
-        TargetUserId = userId,
-        Type = NotificationTypes.GoLiveApproved,
-        Title = "Your listing is approved",
-        Body = "Your Room listing is approved. It goes live when your account is active again.",
-        ActionRoute = "/my-listings",
-        CreatedAt = DateTime.UtcNow,
-    };
-
-    // Within the owner's plan limit -> live till the resolved ValidUntil; over it -> Approved but plan-paused.
-    public static async Task<IResult> ApproveRoomGoLiveRequest(
-        Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IServiceProvider sp,
-        ILiveSlotService slots, IPlanEntitlementService entitlements,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
-    {
-        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
-        if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
-        if (listing.LiveRequestStatus != GoLiveRequestStatuses.Pending)
-            return BadRequestResponse("This request has already been resolved");
-
-        await unitOfWork.BeginTransactionAsync();
-        try
-        {
-            await slots.LockOwnerAsync(listing.UserId);
-            var limits = await entitlements.GetLimitsAsync(listing.UserId, ListingKinds.Room);
-            var live = await slots.CountLiveAsync(listing.UserId, ListingKinds.Room, listing.Id);
-            // A suspended owner's row is approved but held as Suspended, so UnsuspendAsync revives it within the slots.
-            var ownerActive = await db.Users.AsNoTracking()
-                .Where(u => u.Id == listing.UserId).Select(u => u.IsActive).FirstOrDefaultAsync();
-            var goesLive = ownerActive && live < limits.ListingLimit;
-
-            listing.LiveRequestStatus = GoLiveRequestStatuses.Approved;
-            listing.IsActive = goesLive;
-            listing.PauseReason = goesLive ? null : ownerActive ? PauseReasons.Plan : PauseReasons.Suspended;
-            listing.ValidUntil = goesLive ? entitlements.ResolveValidUntil(limits) : listing.ValidUntil;
-            listing.PriorityRank = limits.PriorityRank;
-            listing.IsFeatured = limits.IsFeatured;
-            listing.UpdatedAt = DateTime.UtcNow;
-            await unitOfWork.RoomListings.UpdateAsync(listing);
-
-            var notification = goesLive
-                ? BuildRoomGoLiveApprovedNotification(listing.UserId)
-                : ownerActive
-                    ? BuildRoomApprovedPausedNotification(listing.UserId)
-                    : BuildRoomApprovedSuspendedNotification(listing.UserId);
-            db.NotificationEvents.Add(notification);
-
-            try
-            {
-                await unitOfWork.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                await unitOfWork.RollbackTransactionAsync();
-                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
-            }
-
-            await unitOfWork.CommitTransactionAsync();
-
-            if (goesLive)
-            {
-                var redis = sp.GetService<IConnectionMultiplexer>();
-                await InvalidateNearbyCacheAsync(redis, listing.DistrictId);
-                await InvalidateRecentRoomsCacheAsync(redis);
-                await InvalidateForYouRoomsCacheAsync(redis, listing.DistrictId);
-            }
-
-            await SendGoLiveNotificationAsync(hubContext, publisher, notification);
-
-            return OkResponse(new { success = true, isActive = listing.IsActive, validUntil = listing.ValidUntil, pauseReason = listing.PauseReason });
-        }
-        catch
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            throw;
-        }
-    }
-
-    public static async Task<IResult> RejectRoomGoLiveRequest(
-        Guid id, RejectGoLiveRequest request, IValidator<RejectGoLiveRequest> validator,
-        IUnitOfWork unitOfWork, ApplicationDbContext db,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher,
-        ILiveSlotService slots, IListingCacheInvalidator cacheInvalidator)
-    {
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
-
-        var listing = await unitOfWork.RoomListings.GetByIdAsync(id);
-        if (listing == null || listing.IsDeleted) return NotFoundResponse("RoomListing not found");
-        if (listing.LiveRequestStatus != GoLiveRequestStatuses.Pending)
-            return BadRequestResponse("This request has already been resolved");
-
-        // The Pending row held a slot; the newest plan-paused row takes it in the same transaction.
-        var resumed = 0;
-        NotificationEvent notification;
-        await unitOfWork.BeginTransactionAsync();
-        try
-        {
-            await slots.LockOwnerAsync(listing.UserId);
-            listing.LiveRequestStatus = GoLiveRequestStatuses.Rejected;
-            listing.RejectedReason = request.Reason;
-            listing.PauseReason = null;
-            listing.UpdatedAt = DateTime.UtcNow;
-            await unitOfWork.RoomListings.UpdateAsync(listing);
-
-            notification = BuildRoomGoLiveRejectedNotification(listing.UserId, request.Reason);
-            db.NotificationEvents.Add(notification);
-
-            try
-            {
-                await unitOfWork.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                await unitOfWork.RollbackTransactionAsync();
-                return ConflictResponse("This listing was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
-            }
-
-            resumed = await slots.ResumeAfterSlotFreedAsync(listing.UserId, ListingKinds.Room);
-            await unitOfWork.CommitTransactionAsync();
-        }
-        catch
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            throw;
-        }
-
-        if (resumed > 0)
-            await cacheInvalidator.BustForUserAsync(listing.UserId, ListingKinds.Room);
-
-        await SendGoLiveNotificationAsync(hubContext, publisher, notification);
-
-        return OkResponse(new { success = true });
     }
 }

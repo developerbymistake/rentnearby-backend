@@ -43,29 +43,6 @@ public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache c
         return ids.ToDictionary(id => id, id => Compute(snapshot, flag, featureKey, byUser.GetValueOrDefault(id)));
     }
 
-    public async Task<DateTime> ResolveValidUntilAsync(Guid userId, string featureKey)
-        => ResolveValidUntil(await GetLimitsAsync(userId, featureKey));
-
-    public DateTime ResolveValidUntil(PlanLimits limits)
-    {
-        var free = DateTime.UtcNow.AddDays(Math.Max(1, limits.FreeDays));
-        if (limits.EndsAt == null) return free;
-        // Free mode never shortens a listing below the free window.
-        return limits.PaymentEnabled ? limits.EndsAt.Value : (limits.EndsAt.Value > free ? limits.EndsAt.Value : free);
-    }
-
-    public async Task<(int Room, int Plot)> GetPublicListingLimitsAsync()
-    {
-        var snapshot = await catalog.GetAsync();
-        var flag = await payment.GetAsync();
-        int For(string kind)
-        {
-            var limit = snapshot.DefaultValues(kind).ListingLimit;
-            return flag.Enabled ? limit : Math.Max(limit, flag.FreeModeListingLimit ?? 0);
-        }
-        return (For(ListingKinds.Room), For(ListingKinds.Plot));
-    }
-
     internal static PlanLimits Compute(PlanCatalogSnapshot snapshot, PaymentFeatureState flag, string featureKey, ActiveRow? row)
     {
         var defaultPlan = snapshot.DefaultPlan(featureKey);

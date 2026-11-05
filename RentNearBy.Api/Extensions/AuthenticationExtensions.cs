@@ -77,10 +77,6 @@ public static class AuthenticationExtensions
             options.AddPolicy("AdminOnly", policy =>
                 policy.RequireClaim("actor_type", "admin"));
             // JwtBearer's inbound claim map turns the token's "role" claim into ClaimTypes.Role.
-            options.AddPolicy("CanListRooms", policy =>
-                policy.RequireClaim(ClaimTypes.Role, UserRoles.RentOwner));
-            options.AddPolicy("CanListPlots", policy =>
-                policy.RequireClaim(ClaimTypes.Role, UserRoles.PropertyOwner));
             options.AddPolicy("CanListStays", policy =>
                 policy.RequireClaim(ClaimTypes.Role, UserRoles.StayOwner));
             options.AddPolicy("CanListTaxis", policy =>

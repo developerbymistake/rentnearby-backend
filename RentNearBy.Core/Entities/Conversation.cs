@@ -5,7 +5,7 @@ public class Conversation
     public Guid Id { get; set; }
     public Guid RenterId { get; set; }
     public Guid OwnerId { get; set; }
-    public string ListingType { get; set; } = string.Empty; // "Room" | "Plot"
+    public string ListingType { get; set; } = string.Empty; // "Stay"
     public Guid ListingId { get; set; }
     public string Status { get; set; } = "Active"; // "Active" | "Blocked" | "ListingRemoved" | "ListingInactive"
     public DateTime CreatedAt { get; set; }

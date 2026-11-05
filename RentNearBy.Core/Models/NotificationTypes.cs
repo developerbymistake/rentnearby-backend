@@ -7,8 +7,6 @@ namespace RentNearBy.Core.Models;
 // nothing else about the schema changes.
 public static class NotificationTypes
 {
-    public const string GoLiveApproved = "GoLiveApproved";
-    public const string GoLiveRejected = "GoLiveRejected";
     public const string RoleRequestApproved = "RoleRequestApproved";
     public const string RoleRequestRejected = "RoleRequestRejected";
     public const string StayApproved = "StayApproved";
@@ -73,8 +71,6 @@ public static class NotificationTypes
     // switches on this exact string for its legacy per-type fallback.
     private static readonly Dictionary<string, string> WireValues = new()
     {
-        [GoLiveApproved] = "golive_approved",
-        [GoLiveRejected] = "golive_rejected",
         [RoleRequestApproved] = "role_request_approved",
         [RoleRequestRejected] = "role_request_rejected",
         [StayApproved] = "stay_approved",

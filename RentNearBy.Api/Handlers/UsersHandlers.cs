@@ -132,10 +132,6 @@ public static class UsersHandlers
             everApproved = submittedHistory && await unitOfWork.Taxis.HasEverApprovedAsync(user.Id);
             dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Taxi, everApproved, dto.TaxiStatus);
         }
-        if (user.RoleId == UserRoles.RentOwnerId)
-            dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Room, await unitOfWork.RoomListings.HasEverApprovedAsync(user.Id));
-        if (user.RoleId == UserRoles.PropertyOwnerId)
-            dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Plot, await unitOfWork.PlotListings.HasEverApprovedAsync(user.Id));
         dto.CanCorrectRole = user.RoleConfirmedAt != null && !user.RoleCorrectionUsed
             && (user.RoleId == UserRoles.StayOwnerId || user.RoleId == UserRoles.TaxiDriverId)
             && latest?.Status != RoleChangeRequestStatuses.Pending

@@ -10,7 +10,7 @@ public sealed record ConversationFactoryResult(
 
 public interface IConversationFactory
 {
-    // Same gates as ChatHandlers.CreateConversation: tab, caller exists, new-account cooldown, listing lookup (Room/Plot/Stay),
+    // Same gates as ChatHandlers.CreateConversation: tab, caller exists, new-account cooldown, listing lookup (Stay),
     // own listing, blocks both ways, FindExisting (+ lifecycle refresh), rate limit chat:newconv (skipped when skipRateLimit),
     // insert with race re-read. requireActive: a listing that is not live answers 409 ListingNotAvailable instead of creating
     // a ListingInactive conversation.

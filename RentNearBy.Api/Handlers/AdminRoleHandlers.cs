@@ -66,8 +66,6 @@ public static class AdminRoleHandlers
                 RequestedAt = r.RequestedAt,
                 ReviewedAt = r.ReviewedAt,
                 RejectionReason = r.RejectionReason,
-                RoomListingCount = db.RoomListings.Count(l => l.UserId == r.UserId && !l.IsDeleted),
-                PlotListingCount = db.PlotListings.Count(l => l.UserId == r.UserId && !l.IsDeleted),
                 StayListingCount = db.StayListings.Count(s => s.UserId == r.UserId && !s.IsDeleted),
                 TaxiListingCount = db.TaxiListings.Count(t => t.UserId == r.UserId && !t.IsDeleted),
             })
@@ -77,16 +75,10 @@ public static class AdminRoleHandlers
         var nextCursor = KeysetCursor.EncodeLast(items, hasMore, r => r.RequestedAt, r => r.Id);
 
         var blocking = await guard.GetBlockingCountsAsync(items.Select(r => r.UserId).Distinct().ToList());
-        var tabs = await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache);
         var availableRoleKeys = (await ConfigHandlers.GetAvailableRolesAsync(unitOfWork, cache)).Select(r => r.Key).ToHashSet();
-        // Live counts of an off-tab room or plot never block (same rule as the guard), so they are reported as 0.
-        var roomsOn = TabState.IsActive(tabs, AppTabKeys.Rooms);
-        var plotsOn = TabState.IsActive(tabs, AppTabKeys.Plots);
         foreach (var item in items)
         {
             var counts = blocking[item.UserId];
-            item.LiveRoomListingCount = roomsOn ? counts.Rooms : 0;
-            item.LivePlotListingCount = plotsOn ? counts.Plots : 0;
             item.LiveStayListingCount = counts.Stays;
             item.LiveTaxiListingCount = counts.Taxis;
             item.ToRoleAvailable = availableRoleKeys.Contains(item.ToRole);
@@ -248,10 +240,9 @@ public static class AdminRoleHandlers
                 await purchases.CancelActivePlansAsync(user.Id, purgeKind, "Role changed");
                 purgedDistrictIds = purgeKind switch
                 {
-                    ListingKinds.Room => await db.RoomListings.Where(l => l.UserId == user.Id && !l.IsDeleted).Select(l => l.DistrictId).Distinct().ToListAsync(),
-                    ListingKinds.Plot => await db.PlotListings.Where(p => p.UserId == user.Id && !p.IsDeleted).Select(p => p.DistrictId).Distinct().ToListAsync(),
                     ListingKinds.Taxi => await db.TaxiListings.Where(t => t.UserId == user.Id && !t.IsDeleted && t.DistrictId != null).Select(t => t.DistrictId!.Value).Distinct().ToListAsync(),
-                    _ => await db.StayListings.Where(s => s.UserId == user.Id && !s.IsDeleted && s.DistrictId != null).Select(s => s.DistrictId!.Value).Distinct().ToListAsync(),
+                    ListingKinds.Stay => await db.StayListings.Where(s => s.UserId == user.Id && !s.IsDeleted && s.DistrictId != null).Select(s => s.DistrictId!.Value).Distinct().ToListAsync(),
+                    _ => throw new InvalidOperationException($"Unknown listing kind '{purgeKind}'"),
                 };
                 purgedListingIds = await listingPurge.DeleteUserListingRowsAsync(user.Id, purgeKind);
                 if (purgeKind is ListingKinds.Stay or ListingKinds.Taxi)
@@ -301,27 +292,7 @@ public static class AdminRoleHandlers
         {
             foreach (var districtId in districtIds)
                 await TaxiCache.InvalidateAsync(redis, districtId);
-            return;
         }
-        try
-        {
-            var cache = redis.GetDatabase();
-            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
-            var isRoom = listingKind == ListingKinds.Room;
-            await cache.KeyDeleteAsync(isRoom ? "home:recentRooms" : "home:recentPlots");
-            foreach (var districtId in districtIds)
-            {
-                await cache.KeyDeleteAsync(isRoom ? $"home:forYouRooms:{districtId}" : $"home:forYouPlots:{districtId}");
-                if (server == null) continue;
-                var patterns = isRoom
-                    ? new[] { $"nearby:{districtId}:*", $"nearest:{districtId}:*" }
-                    : new[] { $"nearby_plot:{districtId}:*", $"nearest_plot:{districtId}:*" };
-                foreach (var pattern in patterns)
-                    await foreach (var key in server.KeysAsync(pattern: pattern))
-                        await cache.KeyDeleteAsync(key);
-            }
-        }
-        catch { }
     }
 
     private static Guid? GetAdminId(ClaimsPrincipal principal)

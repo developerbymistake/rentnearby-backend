@@ -11,11 +11,9 @@ using RentNearBy.Core.Interfaces;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Independent of NotificationWorkerService — new file, no shared code, mirrors its
-// shape only (own queue/DLQ, own BackgroundService). Uses the generic DeviceTokens
-// repo directly (safe, generic data access) but deliberately does NOT call
-// NotificationLogs — that dedup is membership-expiry-specific ("once per day"),
-// the wrong semantics for a chat message that can legitimately arrive many times a day.
+// Own queue and BackgroundService, no shared code with the other workers.
+// Uses the generic DeviceTokens repo directly but deliberately does NOT call NotificationLogs: that
+// dedup is "once per day", the wrong semantics for a chat message that can arrive many times a day.
 public class ChatMessageNotificationWorkerService : BackgroundService
 {
     private const string QueueName = "chat.message.push";
@@ -72,7 +70,7 @@ public class ChatMessageNotificationWorkerService : BackgroundService
                 // arguments: null — must match what the shared RabbitMqPublisher.PublishAsync
                 // declares with (it has no way to pass custom queue arguments), or RabbitMQ
                 // rejects the mismatched redeclare with a 406 and every publish silently fails.
-                // Same simple shape as ReportFiledWorkerService/DistrictDigestWorkerService/
+                // Same simple shape as ReportFiledWorkerService and
                 // BroadcastWorkerService — no DLQ, nothing ever consumed dlq.chat.message.push
                 // anyway, so a native dead-letter queue here provided no real retry value.
                 await channel.QueueDeclareAsync(

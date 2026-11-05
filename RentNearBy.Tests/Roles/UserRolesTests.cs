@@ -5,8 +5,6 @@ public class UserRolesTests
     public static TheoryData<Guid, string, string?, string?> Roles => new()
     {
         { UserRoles.SeekerId, UserRoles.Seeker, null, null },
-        { UserRoles.RentOwnerId, UserRoles.RentOwner, ListingKinds.Room, AppTabKeys.Rooms },
-        { UserRoles.PropertyOwnerId, UserRoles.PropertyOwner, ListingKinds.Plot, AppTabKeys.Plots },
         { UserRoles.StayOwnerId, UserRoles.StayOwner, ListingKinds.Stay, AppTabKeys.Stays },
         { UserRoles.TaxiDriverId, UserRoles.TaxiDriver, ListingKinds.Taxi, AppTabKeys.Taxi },
     };
@@ -24,7 +22,18 @@ public class UserRolesTests
     public void FixedIds_MatchSeededRows()
     {
         Assert.Equal(Guid.Parse("10000000-0000-0000-0000-000000000001"), UserRoles.SeekerId);
+        Assert.Equal(Guid.Parse("10000000-0000-0000-0000-000000000004"), UserRoles.StayOwnerId);
         Assert.Equal(Guid.Parse("10000000-0000-0000-0000-000000000005"), UserRoles.TaxiDriverId);
+    }
+
+    [Theory]
+    [InlineData("10000000-0000-0000-0000-000000000002")]
+    [InlineData("10000000-0000-0000-0000-000000000003")]
+    public void RetiredRoleIds_AreUnknown(string id)
+    {
+        var roleId = Guid.Parse(id);
+        Assert.Throws<InvalidOperationException>(() => UserRoles.KeyOf(roleId));
+        Assert.Throws<InvalidOperationException>(() => UserRoles.ListingKindOf(roleId));
     }
 
     [Fact]

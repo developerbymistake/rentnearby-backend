@@ -24,8 +24,8 @@ builder.Services.AddSignalR();
 
 // Deployed behind Coolify's Traefik reverse proxy — without this, HttpContext.Connection.RemoteIpAddress
 // is always Traefik's own container IP, not the real client IP, which silently collapses every per-IP
-// rate limit (e.g. the by-slug lookups in ListingsHandlers/PlotHandlers) into one shared bucket for all visitors instead of throttling any one
-// abuser (see their ClientIp() helpers). KnownNetworks/KnownProxies are cleared deliberately —
+// rate limit (e.g. in StayHandlers and TripPublicHandlers) into one shared bucket for all visitors instead of throttling any one
+// abuser. KnownNetworks/KnownProxies are cleared deliberately —
 // Coolify's proxy IP isn't a fixed, known-in-advance address — which means the *immediate* hop's
 // X-Forwarded-For entry is trusted unconditionally. That is only safe as long as this container is never
 // reachable directly from the public internet (only through Traefik) — docker-compose.yml currently
@@ -255,17 +255,17 @@ app.MapGet("/app", (IConfiguration configuration) =>
 
 // Sibling to /app above, kept as its own path (per the user's explicit call to keep future QR
 // use-cases on their own paths under the same already-verified host) rather than a modification of
-// /app — {type}/{slug} identify which listing the QR code was printed for (Room "r" vs Plot "p"),
+// /app — {type}/{slug} identify which listing the QR code was printed for (Stay "s" vs Taxi "t"),
 // but this route deliberately does NOT fetch listing data or set listing-specific OG tags: like /app,
 // it exists only to catch "app not installed"/"verification not yet propagated" and hand off to the
 // Play/App Store, config-driven via the same AppLinks:PlayStoreUrl. The Android App Link + the app's
-// own deep-link resolver (GET /listings|plots/by-slug/{slug}) are what actually resolve {type}/{slug}
+// own deep-link resolver are what actually resolve {type}/{slug}
 // to a listing when the app IS installed — this HTML page is the "not installed" fallback only.
-// Route constraints below match the actual value shapes ("r"/"p"/"s"/"t" for type, SlugGenerator's
+// Route constraints below match the actual value shapes ("s"/"t" for type, SlugGenerator's
 // lowercase-alphanumeric-hyphenated output for slug — see SlugGenerator.cs) so a request carrying
 // anything else (e.g. an HTML/script-breakout payload) 404s before the handler ever runs, rather than
 // being accepted and relying solely on output encoding below.
-app.MapGet("/go/{type:regex(^(r|p|s|t)$)}/{slug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}", (string type, string slug, IConfiguration configuration) =>
+app.MapGet("/go/{type:regex(^(s|t)$)}/{slug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}", (string type, string slug, IConfiguration configuration) =>
 {
     var playStoreUrl = configuration["AppLinks:PlayStoreUrl"] ?? "";
     var appStoreUrl = configuration["AppLinks:AppStoreUrl"] ?? "";
@@ -306,7 +306,7 @@ app.MapGet("/delete-account", () => Results.Content("""
 <div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> — your account is deleted instantly</span></div>
 </div>
 <div class="warn">
-<strong>Warning:</strong> This action is permanent and cannot be undone. All your listings, plots, stays, photos and any active plan will be permanently removed. Payment receipts are kept without your personal details. The name, mobile number and dates of a deleted account may be kept for up to 180 days to prevent fraud and handle legal claims, and are then deleted. Licence, date of birth, registration and GSTIN details given by Taxi Drivers and Stay Owners are kept for the same 180 days and then deleted.
+<strong>Warning:</strong> This action is permanent and cannot be undone. All your stays, taxis, trips, photos and any active plan will be permanently removed. Payment receipts are kept without your personal details. The name, mobile number and dates of a deleted account may be kept for up to 180 days to prevent fraud and handle legal claims, and are then deleted. Licence, date of birth, registration and GSTIN details given by Taxi Drivers and Stay Owners are kept for the same 180 days and then deleted.
 </div>
 <div class="warn">
 <strong>Subscriptions:</strong> Deleting your account stops your Bakhli plan, but it does not refund any payment already made. You can also check your subscriptions in Google Play (Play Store &gt; Payments and subscriptions &gt; Subscriptions).
@@ -382,11 +382,6 @@ app.MapGroup("/api/v1/roles")
     .WithTags("Roles")
     .MapRolesEndpoints();
 
-app.MapGroup("/api/v1/listings")
-    .WithTags("RoomListings")
-    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Rooms))
-    .MapListingsEndpoints();
-
 app.MapGroup("/api/v1/locations")
     .WithTags("Locations")
     .MapLocationsEndpoints();
@@ -394,15 +389,6 @@ app.MapGroup("/api/v1/locations")
 app.MapGroup("/api/v1/admin")
     .WithTags("Admin")
     .MapAdminEndpoints();
-
-app.MapGroup("/api/v1/plots")
-    .WithTags("PlotListings")
-    .AddEndpointFilter(new TabGateFilter(RentNearBy.Core.Models.AppTabKeys.Plots))
-    .MapPlotListingEndpoints();
-
-app.MapGroup("/api/v1/admin/plots")
-    .WithTags("AdminPlotListings")
-    .MapAdminPlotListingEndpoints();
 
 app.MapGroup("/api/v1/stays")
     .WithTags("Stays")
@@ -492,10 +478,10 @@ static string RenderStoreRedirectHtml(string playStoreUrl, string appStoreUrl, s
 <!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bakhli — Rooms & Plots Near You</title>
-<meta name="description" content="Find nearby rooms, PG, flats & plots for rent. Browse on a live map and connect straight with owners.">
-<meta property="og:title" content="Bakhli — Rooms & Plots Near You">
-<meta property="og:description" content="Find nearby rooms, PG, flats & plots for rent. Browse on a live map and connect straight with owners.">
+<title>Bakhli — Plan your trip</title>
+<meta name="description" content="Plan trips. Find stays and taxis.">
+<meta property="og:title" content="Bakhli — Plan your trip">
+<meta property="og:description" content="Plan trips. Find stays and taxis.">
 <meta property="og:url" content="__OG_URL__">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary">
@@ -503,7 +489,7 @@ static string RenderStoreRedirectHtml(string playStoreUrl, string appStoreUrl, s
 </head>
 <body>
 <h1>Bakhli</h1>
-<p class="tagline">Rooms, PG, flats &amp; plots for rent — near you.</p>
+<p class="tagline">Plan trips. Find stays and taxis.</p>
 <div class="card">
 <p>Taking you to the app…</p>
 <a class="btn" href="__PLAY_STORE_URL__">Get it on Google Play</a>

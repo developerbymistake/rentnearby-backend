@@ -15,10 +15,6 @@ public class AdminRoleChangeRequestDto
     public DateTime RequestedAt { get; set; }
     public DateTime? ReviewedAt { get; set; }
     public string? RejectionReason { get; set; }
-    public int RoomListingCount { get; set; }
-    public int PlotListingCount { get; set; }
-    public int LiveRoomListingCount { get; set; }
-    public int LivePlotListingCount { get; set; }
     public int StayListingCount { get; set; }
     public int LiveStayListingCount { get; set; }   // stays under review: the only stay state that blocks a role change
     public int TaxiListingCount { get; set; }

@@ -203,4 +203,40 @@ public class BrowseCursorTests
 
         Assert.True(predicate(Rows(1)[0]));
     }
+
+    // Finding 35: ranks {3, 0}, a city row still at rank 2 (before the reconcile) must fall in exactly one phase.
+    [Fact]
+    public void Phases_DriftedRankCityRow_HasAPhase()
+    {
+        var phases = BrowseCursor.Phases([3, 0], true);
+        Assert.Equal(1, phases.Count(p => Matches(p, [3, 0], rank: 2, inCity: true)));
+    }
+
+    // Phases partition the live set: every (rank, inCity) row matches exactly one phase.
+    [Fact]
+    public void Phases_PartitionEveryRow()
+    {
+        var random = new Random(35);
+        for (var trial = 0; trial < 200; trial++)
+        {
+            var ranks = Enumerable.Range(0, random.Next(0, 5)).Select(_ => (short)random.Next(0, 6)).ToList();
+            var hasCity = random.Next(2) == 0;
+            var phases = BrowseCursor.Phases(ranks, hasCity);
+            for (short rank = -1; rank <= 7; rank++)
+                foreach (var inCity in new[] { true, false })
+                {
+                    var hits = phases.Count(p => Matches(p, ranks, rank, hasCity && inCity, hasCity));
+                    Assert.Equal(1, hits);
+                }
+        }
+    }
+
+    private static bool Matches(BrowsePhase phase, IReadOnlyList<short> ranks, short rank, bool inCity, bool hasCity = true)
+    {
+        var rankOk = phase.Rank == BrowseCursor.OtherRanks
+            ? BrowseCursor.OutsideRanks<short>(r => r, ranks).Compile()(rank)
+            : phase.Rank == rank;
+        var cityOk = !hasCity || (phase.CityOnly ? inCity : !inCity);
+        return rankOk && cityOk;
+    }
 }

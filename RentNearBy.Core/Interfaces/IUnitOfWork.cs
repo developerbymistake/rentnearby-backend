@@ -6,12 +6,8 @@ public interface IUnitOfWork : IDisposable
     ISessionRepository Sessions { get; }
     IAdminRepository Admins { get; }
     IAdminSessionRepository AdminSessions { get; }
-    IRoomRoomListingRepository RoomListings { get; }
     IDistrictRepository Districts { get; }
     ICityRepository Cities { get; }
-    IRoomTypeRepository RoomTypes { get; }
-    IPlotTypeRepository PlotTypes { get; }
-    IPlotListingRoomListingRepository PlotListings { get; }
     IStayListingRepository Stays { get; }
     IStayTypeRepository StayTypes { get; }
     IStayRegistrationTypeRepository StayRegistrationTypes { get; }

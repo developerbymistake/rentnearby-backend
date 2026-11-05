@@ -69,11 +69,3 @@ public class AdminRefundPurchaseRequestValidator : AbstractValidator<AdminRefund
         RuleFor(x => x.Reason).NotEmpty().MaximumLength(500);
     }
 }
-
-public class SwapLiveRequestValidator : AbstractValidator<SwapLiveRequest>
-{
-    public SwapLiveRequestValidator()
-    {
-        RuleFor(x => x.PauseListingId).NotEmpty();
-    }
-}

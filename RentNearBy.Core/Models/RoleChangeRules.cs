@@ -11,25 +11,13 @@ public static class RoleChangeRules
 
     public static string LiveListingBlockedMessage(string listingKind) => listingKind switch
     {
-        ListingKinds.Room => "Live rooms or a pending Go Live request block this role change.",
         ListingKinds.Stay => "A stay that was approved or is under review blocks this role change.",
         ListingKinds.Taxi => "A taxi that was approved or is under review blocks this role change.",
-        _ => "Live plots or a pending Go Live request block this role change.",
-    };
-
-    public const string RoleLockedErrorType = "RoleLocked";
-
-    public static string RoleLockedMessage(string listingKind) => listingKind switch
-    {
-        ListingKinds.Room => "Role is locked after your first approved room.",
-        ListingKinds.Plot => "Role is locked after your first approved plot.",
-        ListingKinds.Stay => "Role is locked after your first approved stay.",
-        _ => "Role is locked after your first approved taxi.",
+        _ => "A listing that was approved or is under review blocks this role change.",
     };
 
     public static bool IsLocked(string? listingKind, bool everApproved, string? setupStatus = null) => listingKind switch
     {
-        ListingKinds.Room or ListingKinds.Plot => everApproved,
         ListingKinds.Stay => everApproved || setupStatus is StayStatuses.PendingReview or StayStatuses.Approved,
         ListingKinds.Taxi => everApproved || setupStatus is TaxiStatuses.PendingReview or TaxiStatuses.Approved,
         _ => false,

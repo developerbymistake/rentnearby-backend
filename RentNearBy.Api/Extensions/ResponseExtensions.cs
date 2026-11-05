@@ -64,7 +64,7 @@ public static class ApiResults
             Error = new ApiError { Message = "Too many attempts. Please try again later.", Type = "TooManyRequests" }
         }, statusCode: 429);
 
-    // Error envelope that also carries data, e.g. {limit, used} for ListingLimitReached.
+    // Error envelope that also carries data (e.g. a PlanServiceException payload).
     public static IResult ErrorResponse(int statusCode, string message, string type, object? data = null) =>
         Results.Json(new ApiResponse<object>
         {

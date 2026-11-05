@@ -7,7 +7,7 @@ public static class LocationsEndpoints
 {
     public static RouteGroupBuilder MapLocationsEndpoints(this RouteGroupBuilder group)
     {
-        group.MapGet("/context", RoomListingsHandlers.GetContext);
+        group.MapGet("/context", LocationsHandlers.GetContext);
         group.MapGet("/districts", AdminHandlers.GetDistricts);
         group.MapGet("/districts/{id:guid}/boundary", AdminHandlers.GetDistrictBoundary);
         group.MapGet("/cities", AdminHandlers.GetCities);

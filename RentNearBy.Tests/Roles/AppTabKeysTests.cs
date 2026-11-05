@@ -3,8 +3,6 @@ namespace RentNearBy.Tests.Roles;
 public class AppTabKeysTests
 {
     [Theory]
-    [InlineData(AppTabKeys.Rooms, UserRoles.RentOwner)]
-    [InlineData(AppTabKeys.Plots, UserRoles.PropertyOwner)]
     [InlineData(AppTabKeys.Stays, UserRoles.StayOwner)]
     [InlineData(AppTabKeys.Taxi, UserRoles.TaxiDriver)]
     [InlineData(AppTabKeys.Jobs, null)]
@@ -14,12 +12,11 @@ public class AppTabKeysTests
         => Assert.Equal(expected, AppTabKeys.LinkedRoleKey(tab));
 
     [Theory]
-    [InlineData(ListingKinds.Room, AppTabKeys.Rooms)]
-    [InlineData(ListingKinds.Plot, AppTabKeys.Plots)]
     [InlineData(ListingKinds.Stay, AppTabKeys.Stays)]
     [InlineData(ListingKinds.Taxi, AppTabKeys.Taxi)]
     [InlineData(null, null)]
     [InlineData("Car", null)]
+    [InlineData("Room", null)]
     public void ForListingKind_Kind_Tab(string? kind, string? expected)
         => Assert.Equal(expected, AppTabKeys.ForListingKind(kind));
 
@@ -28,16 +25,16 @@ public class AppTabKeysTests
         => Assert.True(AppTabKeys.NonDeactivatable.SetEquals([AppTabKeys.Home, AppTabKeys.Profile]));
 
     [Fact]
-    public void ApiGated_FiveBusinessTabs()
+    public void ApiGated_ThreeBusinessTabs()
     {
-        Assert.Equal(5, AppTabKeys.ApiGated.Count);
-        Assert.True(AppTabKeys.ApiGated.SetEquals([AppTabKeys.Rooms, AppTabKeys.Plots, AppTabKeys.Stays, AppTabKeys.Jobs, AppTabKeys.Taxi]));
+        Assert.Equal(3, AppTabKeys.ApiGated.Count);
+        Assert.True(AppTabKeys.ApiGated.SetEquals([AppTabKeys.Stays, AppTabKeys.Jobs, AppTabKeys.Taxi]));
     }
 
     [Fact]
-    public void All_SevenTabsAndContainsEveryGatedTab()
+    public void All_FiveTabsAndContainsEveryGatedTab()
     {
-        Assert.Equal(7, AppTabKeys.All.Length);
+        Assert.Equal(5, AppTabKeys.All.Length);
         Assert.All(AppTabKeys.ApiGated, t => Assert.Contains(t, AppTabKeys.All));
     }
 }

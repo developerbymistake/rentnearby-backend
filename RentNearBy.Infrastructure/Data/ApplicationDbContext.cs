@@ -10,14 +10,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Session> Sessions { get; set; }
     public DbSet<Admin> Admins { get; set; }
     public DbSet<AdminSession> AdminSessions { get; set; }
-    public DbSet<RoomListing> RoomListings { get; set; }
-    public DbSet<RoomPhoto> RoomPhotos { get; set; }
     public DbSet<District> Districts { get; set; }
     public DbSet<City> Cities { get; set; }
-    public DbSet<RoomType> RoomTypes { get; set; }
-    public DbSet<PlotType> PlotTypes { get; set; }
-    public DbSet<PlotListing> PlotListings { get; set; }
-    public DbSet<PlotPhoto> PlotPhotos { get; set; }
     public DbSet<StayType> StayTypes { get; set; }
     public DbSet<StayRegistrationType> StayRegistrationTypes { get; set; }
     public DbSet<StayListing> StayListings { get; set; }
@@ -65,10 +59,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<TripOffer> TripOffers { get; set; }
     public DbSet<TripPushLog> TripPushLogs { get; set; }
     public DbSet<TripProblemLog> TripProblemLogs { get; set; }
-
-    // A live row never carries a pause reason; a reason is one of PauseReasons.*.
-    private const string PauseReasonCheck =
-        "(\"IsActive\" = false OR \"PauseReason\" IS NULL) AND (\"PauseReason\" IS NULL OR \"PauseReason\" IN ('Owner', 'Plan', 'Admin', 'Suspended'))";
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -129,9 +119,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(r => r.Name).IsRequired();
             e.Property(r => r.Description).IsRequired();
             e.HasData(
-                new Role { Id = UserRoles.SeekerId, Key = UserRoles.Seeker, Name = "Seeker", Description = "Find rooms and plots", SortOrder = 1, IsActive = true },
-                new Role { Id = UserRoles.RentOwnerId, Key = UserRoles.RentOwner, Name = "Rent Owner", Description = "List rooms for rent", SortOrder = 2, IsActive = true },
-                new Role { Id = UserRoles.PropertyOwnerId, Key = UserRoles.PropertyOwner, Name = "Property Owner", Description = "List plots for sale", SortOrder = 3, IsActive = true },
+                new Role { Id = UserRoles.SeekerId, Key = UserRoles.Seeker, Name = "Seeker", Description = "Plan trips, find stays and taxis", SortOrder = 1, IsActive = true },
                 new Role { Id = UserRoles.StayOwnerId, Key = UserRoles.StayOwner, Name = "Stay Owner", Description = "List your stay", SortOrder = 4, IsActive = true },
                 new Role { Id = UserRoles.TaxiDriverId, Key = UserRoles.TaxiDriver, Name = "Taxi Driver", Description = "List your taxi", SortOrder = 5, IsActive = true });
         });
@@ -212,7 +200,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
             e.HasIndex(c => c.DistrictId);
             // Stored, indexed lower(Name) — mirrors the Location computed-column pattern used by
-            // RoomListing/PlotListing above. Makes city-name uniqueness genuinely case-insensitive at
+            // StayListing below. Makes city-name uniqueness genuinely case-insensitive at
             // the DB level (a plain unique index on Name lets "Rishikesh" and "rishikesh" both insert
             // as separate rows under concurrent requests) and turns case-insensitive lookups into an
             // index seek instead of a per-row lower() scan.
@@ -233,22 +221,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany(d => d.Cities)
              .HasForeignKey(c => c.DistrictId)
              .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<RoomType>(e =>
-        {
-            e.HasKey(r => r.Id);
-            e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(r => r.Name).IsUnique();
-            e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
-        });
-
-        modelBuilder.Entity<PlotType>(e =>
-        {
-            e.HasKey(p => p.Id);
-            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(p => p.Name).IsUnique();
-            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<StayType>(e =>
@@ -404,165 +376,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
             e.HasIndex(q => q.Key).IsUnique();
 
-            e.HasOne<RoomType>()
-             .WithMany()
-             .HasForeignKey(q => q.RoomTypeId)
-             .OnDelete(DeleteBehavior.Restrict);
-            e.HasOne<PlotType>()
-             .WithMany()
-             .HasForeignKey(q => q.PlotTypeId)
-             .OnDelete(DeleteBehavior.Restrict);
             e.HasOne<StayType>()
              .WithMany()
              .HasForeignKey(q => q.StayTypeId)
              .OnDelete(DeleteBehavior.Restrict);
 
-            e.HasIndex(q => q.RoomTypeId);
-            e.HasIndex(q => q.PlotTypeId);
             e.HasIndex(q => q.StayTypeId);
-        });
-
-        modelBuilder.Entity<RoomListing>(e =>
-        {
-            e.HasKey(l => l.Id);
-            e.Property(l => l.Id).HasDefaultValueSql("gen_random_uuid()");
-            // Postgres system column, no migration needed — a shadow uint property configured as a
-            // row-version is what this Npgsql EF Core version's NpgsqlPostgresModelFinalizingConvention
-            // maps to the xmin system column automatically (the older .UseXminAsConcurrencyToken()
-            // helper doesn't exist in this package version). Makes GoLiveHandlers.GoLiveRoom's
-            // DbUpdateConcurrencyException catch meaningful: two concurrent Go-Live attempts on the
-            // same listing can no longer both silently win.
-            e.Property<uint>("xmin").IsRowVersion();
-            e.Property(l => l.CreatedAt).HasDefaultValueSql("now()");
-            e.Property(l => l.PublishedAt).HasDefaultValueSql("now()");
-            e.Property(l => l.UpdatedAt).HasDefaultValueSql("now()");
-            e.Property(l => l.PauseReason).HasMaxLength(16);
-            e.Property(l => l.PriorityRank).HasDefaultValue((short)0);
-            e.Property(l => l.IsFeatured).HasDefaultValue(false);
-
-            e.HasOne(l => l.User)
-             .WithMany()
-             .HasForeignKey(l => l.UserId)
-             .OnDelete(DeleteBehavior.Cascade);
-
-            e.HasOne(l => l.RoomType)
-             .WithMany()
-             .HasForeignKey(l => l.RoomTypeId)
-             .OnDelete(DeleteBehavior.Restrict);
-
-            e.HasOne(l => l.District)
-             .WithMany()
-             .HasForeignKey(l => l.DistrictId)
-             .OnDelete(DeleteBehavior.Restrict);
-
-            e.HasOne(l => l.City)
-             .WithMany()
-             .HasForeignKey(l => l.CityId)
-             .IsRequired(false)
-             .OnDelete(DeleteBehavior.SetNull);
-
-            // FK indexes (explicit — cascade + join performance)
-            e.HasIndex(l => l.DistrictId);
-            e.HasIndex(l => l.CityId);
-            e.HasIndex(l => l.UserId);
-            // Second, distinct UserId index — named explicitly on purpose: an unnamed HasIndex() on the
-            // same property list resolves to the index above (EF Core reuses the index object for an
-            // identical property list, last writer wins). Backs ILiveSlotService's
-            // COUNT(*) WHERE UserId = @u AND NOT IsDeleted for the plan limit checks.
-            e.HasIndex(l => l.UserId, "ix_roomlistings_owner_count")
-             .HasFilter("\"IsDeleted\" = false");
-            e.HasIndex(l => l.RoomTypeId);
-            // Public share link / QR lookup key (GET /listings/by-slug/{slug}) — generated once at
-            // create time (never price/status-derived, see SlugGenerator.cs) and backfilled for
-            // pre-existing rows by the AddListingSlug migration before this index was added. Nullable
-            // column, but Postgres unique indexes already ignore NULLs, so no partial filter is needed here.
-            e.HasIndex(l => l.Slug).IsUnique();
-            // Filter indexes
-            e.HasIndex(l => l.IsActive);
-            e.HasIndex(l => l.PriceMonthly);
-            e.HasIndex(l => l.CreatedAt);
-            // Composite: DeleteDistrict guard — AnyAsync(l.DistrictId == id && l.IsActive)
-            e.HasIndex(l => new { l.DistrictId, l.IsActive });
-            // Stored geography column — auto-computed from Latitude/Longitude by PostgreSQL
-            e.Property<NetTopologySuite.Geometries.Point?>("Location")
-             .HasColumnType("geography(Point, 4326)")
-             .HasComputedColumnSql(
-                 "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography",
-                 stored: true);
-            e.HasIndex("Location")
-             .HasMethod("gist")
-             .HasDatabaseName("ix_listings_location_gist");
-            // Composite: My RoomListings pagination — filter by user, sort newest first
-            e.HasIndex(l => new { l.UserId, l.CreatedAt });
-            // Composite: admin count queries — COUNT(UserId = x AND !IsDeleted)
-            e.HasIndex(l => new { l.UserId, l.IsDeleted });
-            // Composite: GetNearby secondary filter — city + active (GiST is primary spatial filter)
-            e.HasIndex(l => new { l.CityId, l.IsActive });
-            // Composite: city-based active listings newest first (replaces district composite)
-            e.HasIndex(l => new { l.CityId, l.IsActive, l.CreatedAt });
-            // Composite: Home "Rooms for you" — district + active, paid rank first, then newest.
-            e.HasIndex(l => new { l.DistrictId, l.IsActive, l.PriorityRank, l.PublishedAt })
-             .IsDescending(false, false, true, true)
-             .HasDatabaseName("ix_roomlistings_district_active_recent");
-            // Partial: Rooms browse (GET /home/rooms/browse) keyset pagination. Filtered like
-            // ix_roomlistings_recent_active so only live rows are indexed. Each BrowseCursor phase is one
-            // (DistrictId[, CityId], PriorityRank = r) range scan in (PublishedAt, Id) DESC order.
-            e.HasIndex(l => new { l.DistrictId, l.PriorityRank, l.PublishedAt, l.Id })
-             .IsDescending(false, true, true, true)
-             .HasDatabaseName("ix_roomlistings_browse_district_published")
-             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(l => new { l.DistrictId, l.CityId, l.PriorityRank, l.PublishedAt, l.Id })
-             .IsDescending(false, false, true, true, true)
-             .HasDatabaseName("ix_roomlistings_browse_district_city_published")
-             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            // Price keyset: rank is an equality per phase, so (PriceMonthly, Id) is walked forward or backward.
-            e.HasIndex(l => new { l.DistrictId, l.PriorityRank, l.PriceMonthly, l.Id })
-             .HasDatabaseName("ix_roomlistings_browse_district_price")
-             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(l => new { l.DistrictId, l.CityId, l.PriorityRank, l.PriceMonthly, l.Id })
-             .HasDatabaseName("ix_roomlistings_browse_district_city_price")
-             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            // Composite: search with room type filter
-            e.HasIndex(l => new { l.IsActive, l.RoomTypeId });
-            // Partial: district digest job — find rooms not yet included in a daily digest.
-            // Filtered on DigestNotifiedAt IS NULL so the index stays small regardless of
-            // total historical row count (only ever contains not-yet-digested rows).
-            e.HasIndex(l => new { l.IsActive, l.IsDeleted, l.DigestNotifiedAt, l.DistrictId })
-             .HasDatabaseName("ix_roomlistings_digest_pending")
-             .HasFilter("\"DigestNotifiedAt\" IS NULL");
-            // Partial: global "recently added" feed (Home) — no district filter at all, so
-            // ordering by PublishedAt must be covered directly rather than via a district/city
-            // composite. Filtered the same way as the digest-pending index above, just on
-            // IsActive/IsDeleted instead, to keep it small as inactive/deleted rows accumulate.
-            e.HasIndex(l => new { l.PriorityRank, l.PublishedAt, l.Id })
-             .IsDescending(true, true, true)
-             .HasDatabaseName("ix_roomlistings_recent_active")
-             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            // Partial: ListingExpirySweepService's daily WHERE IsActive AND ValidUntil IS NOT NULL
-            // AND ValidUntil < now — filtered on both conditions so the index only ever holds
-            // still-active, still-expiring rows regardless of total historical row count, same
-            // shape as the digest-pending/recent-active partial indexes above.
-            e.HasIndex(l => l.ValidUntil)
-             .HasDatabaseName("ix_roomlistings_active_validuntil")
-             .HasFilter("\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
-            e.ToTable(t =>
-            {
-                t.HasCheckConstraint("ck_roomlistings_security_deposit_range", "\"SecurityDeposit\" IS NULL OR (\"SecurityDeposit\" >= 0 AND \"SecurityDeposit\" <= 9900000)");
-                t.HasCheckConstraint("ck_roomlistings_floor_range", "\"Floor\" IS NULL OR (\"Floor\" >= 0 AND \"Floor\" <= 3)");
-                t.HasCheckConstraint("ck_roomlistings_pause_reason", PauseReasonCheck);
-            });
-        });
-
-        modelBuilder.Entity<RoomPhoto>(e =>
-        {
-            e.HasKey(p => p.Id);
-            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property(p => p.UploadedAt).HasDefaultValueSql("now()");
-            e.HasOne<RoomListing>()
-             .WithMany(l => l.Photos)
-             .HasForeignKey(p => p.RoomListingId)
-             .OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(p => p.RoomListingId);
         });
 
         modelBuilder.Entity<AppFeatureFlag>(e =>
@@ -676,7 +495,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         {
             e.HasKey(u => u.Id);
             e.Property(u => u.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing
+            // Postgres system column, no migration needed — a shadow uint property configured as a
+            // row-version is what this Npgsql EF Core version's NpgsqlPostgresModelFinalizingConvention
+            // maps to the xmin system column automatically (the older .UseXminAsConcurrencyToken()
+            // helper doesn't exist in this package version). Two concurrent writers of the same row
+            // can no longer both silently win: the loser gets a DbUpdateConcurrencyException.
+            e.Property<uint>("xmin").IsRowVersion();
             e.Property(u => u.FeatureKey).HasMaxLength(16).IsRequired();
             e.Property(u => u.Source).HasMaxLength(16).IsRequired();
             e.Property(u => u.Status).HasMaxLength(16).IsRequired();
@@ -966,130 +790,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(r => r.UserId);
         });
 
-        modelBuilder.Entity<PlotListing>(e =>
-        {
-            e.HasKey(p => p.Id);
-            e.Property(p => p.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
-            e.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
-            e.Property(p => p.PublishedAt).HasDefaultValueSql("now()");
-            e.Property(p => p.UpdatedAt).HasDefaultValueSql("now()");
-            e.Property(p => p.PauseReason).HasMaxLength(16);
-            e.Property(p => p.PriorityRank).HasDefaultValue((short)0);
-            e.Property(p => p.IsFeatured).HasDefaultValue(false);
-
-            e.HasOne(p => p.PlotType)
-             .WithMany(t => t.PlotListings)
-             .HasForeignKey(p => p.PlotTypeId)
-             .OnDelete(DeleteBehavior.Restrict);
-
-            e.HasOne(p => p.User)
-             .WithMany()
-             .HasForeignKey(p => p.UserId)
-             .OnDelete(DeleteBehavior.Cascade);
-
-            e.HasOne(p => p.District)
-             .WithMany()
-             .HasForeignKey(p => p.DistrictId)
-             .OnDelete(DeleteBehavior.Restrict);
-
-            e.HasOne(p => p.City)
-             .WithMany()
-             .HasForeignKey(p => p.CityId)
-             .IsRequired(false)
-             .OnDelete(DeleteBehavior.SetNull);
-
-            e.HasIndex(p => p.PlotTypeId);
-            e.HasIndex(p => p.UserId);
-            // Named for the same reason as ix_roomlistings_owner_count.
-            e.HasIndex(p => p.UserId, "ix_plotlistings_owner_count")
-             .HasFilter("\"IsDeleted\" = false");
-            e.HasIndex(p => p.DistrictId);
-            e.HasIndex(p => p.CityId);
-            e.HasIndex(p => p.IsActive);
-            e.HasIndex(p => p.CreatedAt);
-            e.HasIndex(p => p.AreaSqft);
-            // Public share link / QR lookup key (GET /plots/by-slug/{slug}) — same reasoning as
-            // RoomListing.Slug above.
-            e.HasIndex(p => p.Slug).IsUnique();
-            // Composite: DeleteDistrict guard — AnyAsync(p.DistrictId == id && p.IsActive)
-            e.HasIndex(p => new { p.DistrictId, p.IsActive });
-
-            e.Property<NetTopologySuite.Geometries.Point?>("Location")
-             .HasColumnType("geography(Point, 4326)")
-             .HasComputedColumnSql(
-                 "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography",
-                 stored: true);
-            e.HasIndex("Location")
-             .HasMethod("gist")
-             .HasDatabaseName("ix_plots_location_gist");
-
-            e.HasIndex(p => new { p.UserId, p.CreatedAt });
-            e.HasIndex(p => new { p.CityId, p.IsActive });
-            e.HasIndex(p => new { p.CityId, p.IsActive, p.CreatedAt });
-            // Composite: Home "Plots for you" — same shape as ix_roomlistings_district_active_recent.
-            e.HasIndex(p => new { p.DistrictId, p.IsActive, p.PriorityRank, p.PublishedAt })
-             .IsDescending(false, false, true, true)
-             .HasDatabaseName("ix_plotlistings_district_active_recent");
-            // Partial: Plots browse (GET /home/plots/browse) — same shape as the roomlistings_browse
-            // indexes above, with area (AreaSqft) in place of price.
-            e.HasIndex(p => new { p.DistrictId, p.PriorityRank, p.PublishedAt, p.Id })
-             .IsDescending(false, true, true, true)
-             .HasDatabaseName("ix_plotlistings_browse_district_published")
-             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(p => new { p.DistrictId, p.CityId, p.PriorityRank, p.PublishedAt, p.Id })
-             .IsDescending(false, false, true, true, true)
-             .HasDatabaseName("ix_plotlistings_browse_district_city_published")
-             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            // Area keyset: rank is an equality per phase, so (AreaSqft, Id) is walked forward or backward.
-            e.HasIndex(p => new { p.DistrictId, p.PriorityRank, p.AreaSqft, p.Id })
-             .HasDatabaseName("ix_plotlistings_browse_district_area")
-             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            e.HasIndex(p => new { p.DistrictId, p.CityId, p.PriorityRank, p.AreaSqft, p.Id })
-             .HasDatabaseName("ix_plotlistings_browse_district_city_area")
-             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            // Composite: admin count queries — COUNT(UserId = x AND !IsDeleted)
-            e.HasIndex(p => new { p.UserId, p.IsDeleted });
-            // Partial: district digest job — find plots not yet included in a daily digest.
-            // Filtered on DigestNotifiedAt IS NULL so the index stays small regardless of
-            // total historical row count (only ever contains not-yet-digested rows).
-            e.HasIndex(p => new { p.IsActive, p.IsDeleted, p.DigestNotifiedAt, p.DistrictId })
-             .HasDatabaseName("ix_plotlistings_digest_pending")
-             .HasFilter("\"DigestNotifiedAt\" IS NULL");
-            // Partial: global "recently added" feed (Home) — no district filter at all, so
-            // ordering by PublishedAt must be covered directly rather than via a district/city
-            // composite. Filtered the same way as the digest-pending index above, just on
-            // IsActive/IsDeleted instead, to keep it small as inactive/deleted rows accumulate.
-            e.HasIndex(p => new { p.PriorityRank, p.PublishedAt, p.Id })
-             .IsDescending(true, true, true)
-             .HasDatabaseName("ix_plotlistings_recent_active")
-             .HasFilter("\"IsActive\" = true AND \"IsDeleted\" = false");
-            // Partial: ListingExpirySweepService's daily WHERE IsActive AND ValidUntil IS NOT NULL
-            // AND ValidUntil < now — same shape as ix_roomlistings_active_validuntil.
-            e.HasIndex(p => p.ValidUntil)
-             .HasDatabaseName("ix_plotlistings_active_validuntil")
-             .HasFilter("\"IsActive\" = true AND \"ValidUntil\" IS NOT NULL");
-
-            e.ToTable(t => t.HasCheckConstraint("ck_plotlistings_pause_reason", PauseReasonCheck));
-        });
-
-        modelBuilder.Entity<PlotPhoto>(e =>
-        {
-            e.HasKey(ph => ph.Id);
-            e.Property(ph => ph.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property(ph => ph.UploadedAt).HasDefaultValueSql("now()");
-            e.HasOne<PlotListing>()
-             .WithMany(p => p.Photos)
-             .HasForeignKey(ph => ph.PlotId)
-             .OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(ph => ph.PlotId);
-        });
-
         modelBuilder.Entity<StayListing>(e =>
         {
             e.HasKey(s => s.Id);
             e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on UserPlan above
             e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
             e.Property(s => s.UpdatedAt).HasDefaultValueSql("now()");
 
@@ -1173,7 +878,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasMethod("gist")
              .HasDatabaseName("ix_staylistings_location_gist");
 
-            // Partial: Stays browse — same shape as the roomlistings_browse indexes, live = Approved + accepting.
+            // Partial: Stays browse keyset pagination, live = Approved + accepting.
             e.HasIndex(s => new { s.DistrictId, s.PriorityRank, s.CreatedAt })
              .IsDescending(false, true, true)
              .HasDatabaseName("ix_staylistings_browse_district_created")
@@ -1317,7 +1022,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         {
             e.HasKey(t => t.Id);
             e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on UserPlan above
             e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
             e.Property(t => t.UpdatedAt).HasDefaultValueSql("now()");
 
@@ -1528,7 +1233,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         {
             e.HasKey(t => t.Id);
             e.Property(t => t.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on UserPlan above
             e.Property(t => t.CreatedAt).HasDefaultValueSql("now()");
             e.Property(t => t.UpdatedAt).HasDefaultValueSql("now()");
             e.ToTable(t => t.HasCheckConstraint("ck_trips_citykey_positive", "\"CityKey\" > 0"));
@@ -1561,7 +1266,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             const string open = "\"Status\" IN " + TripEnquiryStatuses.OpenSqlList;
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on UserPlan above
             e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
 
@@ -1662,7 +1367,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on RoomListing above
+            e.Property<uint>("xmin").IsRowVersion(); // see the matching comment on UserPlan above
             e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
             e.Property(x => x.Kind).HasMaxLength(16).IsRequired();
             e.Property(x => x.CheckIn).HasColumnType("date");

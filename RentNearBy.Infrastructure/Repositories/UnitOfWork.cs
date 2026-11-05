@@ -12,12 +12,8 @@ public class UnitOfWork : IUnitOfWork
     private ISessionRepository? _sessions;
     private IAdminRepository? _admins;
     private IAdminSessionRepository? _adminSessions;
-    private IRoomRoomListingRepository? _listings;
     private IDistrictRepository? _districts;
     private ICityRepository? _cities;
-    private IRoomTypeRepository? _roomTypes;
-    private IPlotTypeRepository? _plotTypes;
-    private IPlotListingRoomListingRepository? _plots;
     private IStayListingRepository? _stays;
     private IStayTypeRepository? _stayTypes;
     private IStayRegistrationTypeRepository? _stayRegistrationTypes;
@@ -61,12 +57,8 @@ public class UnitOfWork : IUnitOfWork
     public ISessionRepository Sessions => _sessions ??= new SessionRepository(_context);
     public IAdminRepository Admins => _admins ??= new AdminRepository(_context);
     public IAdminSessionRepository AdminSessions => _adminSessions ??= new AdminSessionRepository(_context);
-    public IRoomRoomListingRepository RoomListings => _listings ??= new RoomListingRepository(_context);
     public IDistrictRepository Districts => _districts ??= new DistrictRepository(_context);
     public ICityRepository Cities => _cities ??= new CityRepository(_context);
-    public IRoomTypeRepository RoomTypes => _roomTypes ??= new RoomTypeRepository(_context);
-    public IPlotTypeRepository PlotTypes => _plotTypes ??= new PlotTypeRepository(_context);
-    public IPlotListingRoomListingRepository PlotListings => _plots ??= new PlotListingRepository(_context);
     public IStayListingRepository Stays => _stays ??= new StayListingRepository(_context);
     public IStayTypeRepository StayTypes => _stayTypes ??= new StayTypeRepository(_context);
     public IStayRegistrationTypeRepository StayRegistrationTypes => _stayRegistrationTypes ??= new StayRegistrationTypeRepository(_context);

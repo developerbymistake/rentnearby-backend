@@ -1,8 +1,8 @@
 namespace RentNearBy.Core.Entities;
 
 // Master table for the consumer app's bottom-nav tabs (RentNearBy.Core.Models.AppTabKeys). Renaming
-// (DisplayName) applies to any row; deactivating (IsActive = false) applies to the five business tabs
-// (Rooms, Plots, Stays, Jobs, Taxi): their API group is gated, Home sections drop and the linked role is
+// (DisplayName) applies to any row; deactivating (IsActive = false) applies to the three business tabs
+// (Stays, Jobs, Taxi): their API group is gated, Home sections drop and the linked role is
 // hidden from new choices. Home/Profile are enforced always-on in AdminHandlers.UpdateAppTab.
 public class AppTab
 {

@@ -7,8 +7,8 @@ public sealed class UserPlanBuilder
     {
         Id = TestIds.UserPlan1,
         UserId = TestIds.User1,
-        FeatureKey = ListingKinds.Room,
-        PlanId = TestIds.RoomPlus,
+        FeatureKey = ListingKinds.Stay,
+        PlanId = TestIds.StayPlus,
         Source = UserPlanSources.Subscription,
         Status = UserPlanStatuses.Active,
         StartsAt = Dates.Past,
@@ -47,8 +47,8 @@ public sealed class PlanPurchaseBuilder
     {
         Id = TestIds.Purchase1,
         UserId = TestIds.User1,
-        FeatureKey = ListingKinds.Room,
-        PlanId = TestIds.RoomPlus,
+        FeatureKey = ListingKinds.Stay,
+        PlanId = TestIds.StayPlus,
         PlanNameSnapshot = "Plus",
         CycleMonths = 1,
         GrantedDays = 30,
@@ -61,7 +61,7 @@ public sealed class PlanPurchaseBuilder
         ExpiresAt = Dates.Past.AddMinutes(30),
         GrantedAt = Dates.Past,
         PlayOrderId = "GPA.1",
-        PlayProductId = "room_plus",
+        PlayProductId = "stay_plus",
         PlayBasePlanId = "cycle-1m",
     };
 
@@ -122,12 +122,12 @@ public sealed class PlaySubscriptionBuilder
     {
         Id = TestIds.Sub1,
         UserId = TestIds.User1,
-        FeatureKey = ListingKinds.Room,
-        PlanId = TestIds.RoomPlus,
+        FeatureKey = ListingKinds.Stay,
+        PlanId = TestIds.StayPlus,
         PlanPriceId = TestIds.Price1m,
         PurchaseToken = "token-0000000000000000000001",
-        ProductId = "room_plus",
-        PurchasedProductId = "room_plus",
+        ProductId = "stay_plus",
+        PurchasedProductId = "stay_plus",
         BasePlanId = "cycle-1m",
         MappingStatus = PlayMappingStatuses.Mapped,
         State = PlayStates.Active,

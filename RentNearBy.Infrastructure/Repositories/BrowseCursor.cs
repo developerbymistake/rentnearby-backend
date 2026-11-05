@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Linq.Expressions;
 using System.Text;
 using RentNearBy.Core.DTOs.Responses;
@@ -10,22 +9,10 @@ namespace RentNearBy.Infrastructure.Repositories;
 // daily reconcile); with a city it is split city/rest too, so the phases partition the live set.
 internal readonly record struct BrowsePhase(short Rank, bool CityOnly);
 
-internal static class BrowseSorts
-{
-    public const string Newest = "newest";
-    public const string PriceAsc = "price_asc";
-    public const string PriceDesc = "price_desc";
-    public const string AreaAsc = "area_asc";
-    public const string AreaDesc = "area_desc";
-
-}
-
 internal static class BrowseCursor
 {
     public const int MaxPage = 10_000;
     public const short OtherRanks = -1;
-    private const int MaxLength = 200;
-    private const string Version = "v3";
 
     // Ranks high to low; within a rank the city rows come first when a city is given.
     public static List<BrowsePhase> Phases(IReadOnlyList<short> ranks, bool hasCity)
@@ -64,57 +51,8 @@ internal static class BrowseCursor
         return Expression.Lambda<Func<T, bool>>(body, param);
     }
 
-    // Newest keys on PublishedAt ticks; price/area on the value. decimal holds all three exactly.
-    public static decimal NewestKey(DateTime publishedAt) => publishedAt.Ticks;
-
-    public static DateTime NewestAt(decimal key) => new((long)key, DateTimeKind.Utc);
-
-    public static string Encode(string sort, BrowsePhase phase, decimal key, Guid id)
-    {
-        var raw = $"{Version}|{sort}|{phase.Rank}|{(phase.CityOnly ? 1 : 0)}|{key.ToString(CultureInfo.InvariantCulture)}|{id:N}";
-        return Convert.ToBase64String(Encoding.UTF8.GetBytes(raw)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-    }
-
-    // An older version, another sort, or a malformed cursor decodes as false: the caller serves the first page.
-    public static bool TryDecode(string? cursor, string sort, out BrowsePhase phase, out decimal key, out Guid id)
-    {
-        phase = default;
-        key = default;
-        id = default;
-        if (string.IsNullOrEmpty(cursor) || cursor.Length > MaxLength) return false;
-
-        try
-        {
-            var b64 = cursor.Replace('-', '+').Replace('_', '/');
-            b64 = b64.PadRight(b64.Length + (4 - b64.Length % 4) % 4, '=');
-            var parts = Encoding.UTF8.GetString(Convert.FromBase64String(b64)).Split('|');
-            if (parts.Length != 6 || parts[0] != Version || parts[1] != sort) return false;
-            if (!short.TryParse(parts[2], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var rank) || rank < OtherRanks) return false;
-            if (parts[3] is not ("0" or "1")) return false;
-            if (!decimal.TryParse(parts[4], NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var k)) return false;
-            if (sort == BrowseSorts.Newest && (k < 0 || k > DateTime.MaxValue.Ticks || k != decimal.Truncate(k))) return false;
-            if ((sort is BrowseSorts.PriceAsc or BrowseSorts.PriceDesc) && (k < int.MinValue || k > int.MaxValue || k != decimal.Truncate(k))) return false;
-            if (!Guid.TryParseExact(parts[5], "N", out var g)) return false;
-            phase = new BrowsePhase(rank, parts[3] == "1");
-            key = k;
-            id = g;
-            return true;
-        }
-        catch (FormatException)
-        {
-            return false;
-        }
-    }
-
-    // Resume point inside `phases`; a cursor whose phase no longer exists (catalog changed) restarts.
-    public static (int Start, decimal? AfterKey, Guid AfterId) Resume(string? cursor, string sort, List<BrowsePhase> phases)
-    {
-        if (!TryDecode(cursor, sort, out var phase, out var key, out var id)) return (0, null, Guid.Empty);
-        var index = phases.IndexOf(phase);
-        return index < 0 ? (0, null, Guid.Empty) : (index, key, id);
-    }
-
-    // v2 cursor (phase|createdAtTicks|id), still used by the stays browse (StayListingRepository).
+    // v2 cursor (phase|createdAtTicks|id), used by the stays browse (StayListingRepository).
+    // A malformed cursor decodes as false; a cursor whose phase no longer exists restarts.
     private const string VersionV2 = "v2";
     private const int MaxLengthV2 = 160;
 
@@ -173,15 +111,5 @@ internal static class BrowseCursor
         var hasMore = rows.Count > pageSize;
         if (hasMore) rows.RemoveRange(pageSize, rows.Count - pageSize);
         return new BrowsePage<T>(rows, hasMore, null);
-    }
-
-    public static BrowsePage<T> KeysetPage<T>(
-        List<T> rows, List<BrowsePhase> rowPhases, int pageSize, string sort, Func<T, decimal> key, Func<T, Guid> id)
-    {
-        if (rows.Count <= pageSize) return new BrowsePage<T>(rows, false, null);
-
-        rows.RemoveRange(pageSize, rows.Count - pageSize);
-        var last = rows[pageSize - 1];
-        return new BrowsePage<T>(rows, true, Encode(sort, rowPhases[pageSize - 1], key(last), id(last)));
     }
 }

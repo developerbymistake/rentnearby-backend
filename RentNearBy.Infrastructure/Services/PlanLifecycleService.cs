@@ -11,10 +11,9 @@ namespace RentNearBy.Infrastructure.Services;
 
 // Hourly (first run at startup), one scope per unit of work:
 //   1. Expiry: each due Active plan is claimed with a conditional UPDATE ... RETURNING inside its own
-//      transaction under the owner lock, then its listing effects run (plan-pause extra rooms/plots, ranks
-//      back to free) and a PlanExpired inbox row is written. A renew that moved EndsAt first wins (0 rows).
+//      transaction under the owner lock, then its listing effects run (ranks back to free) and a PlanExpired inbox row is written. A renew that moved EndsAt first wins (0 rows).
 //   2. Reminder: one claim of ReminderSentAt per plan (7 days ahead, half the term for short plans).
-//   3. Daily: set-based rank reconcile per kind and listing-limit enforcement for rooms/plots (drift repair).
+//   3. Daily: set-based rank reconcile per kind (drift repair).
 // Pushes go to notification.push after commit; caches are busted once per batch and kind.
 // Play-owned rows (PlaySubscriptionId set) are expired by the Play sync, not by this clock. Two safety nets
 // only: 72 h past EndsAt with Google unreachable (one sync first, claim only on ApiError), or a subscription
@@ -343,7 +342,7 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
         return total;
     }
 
-    // ---------------------------------------------------------------- pass 3: rank and limit reconcile
+    // ---------------------------------------------------------------- pass 3: rank reconcile
 
     private async Task ReconcilePassAsync()
     {
@@ -359,16 +358,6 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
                 {
                     logger.LogWarning("Rank reconcile fixed {Rows} {Kind} rows (drift)", result.Rows, kind);
                     await invalidator.BustDistrictsAsync(kind, result.DistrictIds);
-                }
-
-                if (PlanFeatures.HasListingSlots(kind))
-                {
-                    var r = await slots.EnforceLimitsAsync(kind);
-                    if (r.Paused > 0)
-                    {
-                        logger.LogWarning("Limit reconcile plan-paused {Rows} {Kind} rows (drift)", r.Paused, kind);
-                        await invalidator.BustForUsersAsync(r.Owners, kind);
-                    }
                 }
             }
             catch (Exception ex)

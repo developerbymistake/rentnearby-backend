@@ -6,7 +6,7 @@ internal sealed class ActiveRowBuilder
 {
     private Guid _id = TestIds.UserPlan1;
     private Guid _userId = TestIds.User1;
-    private Guid _planId = TestIds.RoomPlus;
+    private Guid _planId = TestIds.StayPlus;
     private string _source = UserPlanSources.Subscription;
     private DateTime _startsAt = Dates.Past;
     private DateTime _endsAt = Dates.Far;

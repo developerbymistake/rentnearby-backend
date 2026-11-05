@@ -6,7 +6,7 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// The one reader of the AppTab table (7 rows), shared by the API (ConfigHandlers, TabGateFilter, Home, roles,
+// The one reader of the AppTab table (5 rows), shared by the API (ConfigHandlers, TabGateFilter, Home, roles,
 // chat) and the background jobs. Process-local IMemoryCache: correct for the single api instance; a scale-out
 // needs a shared version key (e.g. in Redis) so every instance drops its copy on an admin change.
 public static class AppTabCache

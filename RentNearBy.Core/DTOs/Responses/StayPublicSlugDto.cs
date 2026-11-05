@@ -1,6 +1,6 @@
 namespace RentNearBy.Core.DTOs.Responses;
 
-// Anonymous GET /stays/by-slug/{slug}, mirror of PublicRoomListingDto. Deliberately excludes Address,
+// Anonymous GET /stays/by-slug/{slug}. Deliberately excludes Address,
 // OwnerName, OwnerPhone, UserId, HasReported, Status and RejectedReason.
 public class StayPublicSlugDto
 {

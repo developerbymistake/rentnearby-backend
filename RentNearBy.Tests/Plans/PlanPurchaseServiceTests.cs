@@ -27,8 +27,8 @@ public class PlanPurchaseServiceTests
         var purchase = new PlanPurchaseBuilder()
             .WithId(TestIds.Purchase1)
             .ForUser(TestIds.User2)
-            .ForFeature(ListingKinds.Plot)
-            .OnPlan(TestIds.PlotPlus, "Plot Plus")
+            .ForFeature(ListingKinds.Taxi)
+            .OnPlan(TestIds.TaxiPlus, "Taxi Plus")
             .WithCycle(3, 90)
             .WithIntent(PurchaseIntents.Switch)
             .WithProvider(PaymentProviders.Play)
@@ -38,7 +38,7 @@ public class PlanPurchaseServiceTests
             .WithRazorpay("order_1", "pay_1", "rfnd_1")
             .WithFailure(GrantBlockedReasons.AmountMismatch, "mismatch")
             .WithTimes(createdAt, grantedAt, refundedAt)
-            .WithPlay("GPA.7", "plot_plus", "cycle-3m", "intro", subscriptionId)
+            .WithPlay("GPA.7", "taxi_plus", "cycle-3m", "intro", subscriptionId)
             .WithChargebackReviewAt(reviewAt)
             .Build();
 
@@ -47,8 +47,8 @@ public class PlanPurchaseServiceTests
         Assert.Equal(TestIds.Purchase1, dto.Id);
         Assert.Equal(TestIds.User2, dto.UserId);
         Assert.Equal("******3210", dto.UserPhoneMasked);
-        Assert.Equal("Plot Plus", dto.PlanName);
-        Assert.Equal(ListingKinds.Plot, dto.FeatureKey);
+        Assert.Equal("Taxi Plus", dto.PlanName);
+        Assert.Equal(ListingKinds.Taxi, dto.FeatureKey);
         Assert.Equal(PurchaseIntents.Switch, dto.Intent);
         Assert.Equal(3, dto.CycleMonths);
         Assert.Equal(90, dto.GrantedDays);
@@ -68,7 +68,7 @@ public class PlanPurchaseServiceTests
         Assert.Equal(grantedAt, dto.GrantedAt);
         Assert.Equal(refundedAt, dto.RefundedAt);
         Assert.Equal("GPA.7", dto.PlayOrderId);
-        Assert.Equal("plot_plus", dto.PlayProductId);
+        Assert.Equal("taxi_plus", dto.PlayProductId);
         Assert.Equal("cycle-3m", dto.PlayBasePlanId);
         Assert.Equal("intro", dto.PlayOfferId);
         Assert.Equal(subscriptionId, dto.PlaySubscriptionId);

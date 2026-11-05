@@ -28,7 +28,6 @@ public class PlayEntitlementApplier(
     IPlanPurchaseService purchases,
     IPlayBillingClient client,
     IPlaySubscriptionRepository subscriptions,
-    IPlanEntitlementService entitlements,
     ILiveSlotService slots,
     IListingCacheInvalidator cacheInvalidator,
     IRabbitMqPublisher publisher,
@@ -205,11 +204,6 @@ public class PlayEntitlementApplier(
             if (planChanged)
             {
                 await slots.ApplyGrantEffectsAsync(row.UserId, row.FeatureKey);
-            }
-            else if (endsAt > prevEnds && PlanFeatures.HasListingSlots(row.FeatureKey))
-            {
-                var validUntil = await entitlements.ResolveValidUntilAsync(row.UserId, row.FeatureKey);
-                await slots.ExtendValidUntilAsync(row.UserId, row.FeatureKey, validUntil);
             }
         }
 

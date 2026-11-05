@@ -146,7 +146,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
             return BrowseCursor.OffsetPage(offset, pageSize);
         }
 
-        // Keyset: same phase walk as RoomListingRepository.SearchPagedAsync.
+        // Keyset: phase walk over BrowseCursor v2.
         var ranks = await PlanCatalogCache.RanksForAsync(context, ListingKinds.Stay);
         var outsideRanks = BrowseCursor.OutsideRanks<StayListing>(s => s.PriorityRank, ranks);
         var phases = BrowseCursor.Phases(ranks, cityId.HasValue);

@@ -14,12 +14,9 @@ public static class PlanFeatureKeys
 // Plans are scoped by listing kind; a role's feature is UserRoles.ListingKindOf(roleId).
 public static class PlanFeatures
 {
-    public static readonly string[] All = [ListingKinds.Room, ListingKinds.Plot, ListingKinds.Stay, ListingKinds.Taxi];
+    public static readonly string[] All = [ListingKinds.Stay, ListingKinds.Taxi];
 
     public static bool IsValid(string? featureKey) => featureKey != null && All.Contains(featureKey);
-
-    // Rooms/Plots count listings against the plan limit; Stay/Taxi keep one row per account.
-    public static bool HasListingSlots(string? featureKey) => featureKey is ListingKinds.Room or ListingKinds.Plot;
 }
 
 public static class PlanCycles
@@ -140,15 +137,6 @@ public static class CouponRedemptionStatuses
     public const string Released = "Released";
 }
 
-// Why a room/plot row is not live. IsActive = false always carries one; every activation clears it.
-public static class PauseReasons
-{
-    public const string Owner = "Owner";
-    public const string Plan = "Plan";
-    public const string Admin = "Admin";
-    public const string Suspended = "Suspended";
-}
-
 // ApiError.Type values for the plan surface.
 public static class PlanErrorTypes
 {
@@ -158,16 +146,12 @@ public static class PlanErrorTypes
     public const string RoleMismatch = "RoleMismatch";
     public const string TabInactive = "TabInactive";
     public const string PaymentDisabled = "PaymentDisabled";
-    public const string PlanLimitReached = "PlanLimitReached";
-    public const string ListingLimitReached = "ListingLimitReached";
     public const string CouponInvalid = "CouponInvalid";
     public const string CouponLocked = "CouponLocked";
     public const string PurchaseNotFound = "PurchaseNotFound";
     public const string SignatureInvalid = "SignatureInvalid";
     public const string AlreadyProcessed = "AlreadyProcessed";
     public const string TrialNotAvailable = "TrialNotAvailable";
-    public const string SwapInvalid = "SwapInvalid";
-    public const string ListingPausedByAdmin = "ListingPausedByAdmin";
     public const string RefundNotAllowed = "RefundNotAllowed";
     public const string PurchaseInProgress = "PurchaseInProgress";
     public const string GatewayError = "GatewayError";

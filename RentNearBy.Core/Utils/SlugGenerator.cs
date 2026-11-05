@@ -48,7 +48,7 @@ public static class SlugGenerator
     private const string SuffixAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
     private const int SuffixLength = 6;
 
-    // Shared by RoomListing/PlotListing Create handlers: a pre-check-then-insert for slug uniqueness
+    // Shared by listing create handlers: a pre-check-then-insert for slug uniqueness
     // would have the same TOCTOU gap the DB-level unique index exists to close, so both instead retry
     // the insert itself. Every attempt — including the first — appends a random 6-char suffix rather
     // than ever trying the bare base slug: at scale (millions of listings sharing a common

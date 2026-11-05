@@ -27,22 +27,12 @@ public class PlanOptionsTests
         => Assert.All(PlanCycles.All, m => Assert.True(PlanCycles.IsValid(m)));
 
     [Theory]
-    [InlineData("Room", true)]
-    [InlineData("Plot", true)]
     [InlineData("Stay", true)]
     [InlineData("Taxi", true)]
+    [InlineData("Room", false)]
     [InlineData(null, false)]
     [InlineData("", false)]
-    [InlineData("room", false)]
+    [InlineData("stay", false)]
     public void PlanFeaturesIsValid_Key_IsCaseSensitive(string? featureKey, bool expected)
         => Assert.Equal(expected, PlanFeatures.IsValid(featureKey));
-
-    [Theory]
-    [InlineData("Room", true)]
-    [InlineData("Plot", true)]
-    [InlineData("Stay", false)]
-    [InlineData("Taxi", false)]
-    [InlineData(null, false)]
-    public void PlanFeaturesHasListingSlots_Key_OnlyRoomsAndPlots(string? featureKey, bool expected)
-        => Assert.Equal(expected, PlanFeatures.HasListingSlots(featureKey));
 }

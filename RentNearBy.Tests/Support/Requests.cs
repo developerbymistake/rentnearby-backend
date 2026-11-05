@@ -7,7 +7,7 @@ namespace RentNearBy.Tests.Support;
 public static class Requests
 {
     public static UpsertPlanRequest UpsertPlan() => new(
-        FeatureKey: ListingKinds.Room,
+        FeatureKey: ListingKinds.Stay,
         Code: "PLUS",
         Name: "Plus",
         Tagline: "More listings",
@@ -26,7 +26,7 @@ public static class Requests
             new PlanPriceInput(3, 799, null, true, "cycle-3m"),
             new PlanPriceInput(12, 2999, null, true, "cycle-12m"),
         ],
-        PlayProductId: "room_plus");
+        PlayProductId: "stay_plus");
 
     public static CreateCouponRequest CreateCoupon() => new(
         Code: "SAVE10", Kind: CouponKinds.Percent, Value: 10, MaxDiscountInr: null, MinPlanPriceInr: null,

@@ -11,7 +11,7 @@ public class UpsertPlanRequestValidator : AbstractValidator<UpsertPlanRequest>
 
     public UpsertPlanRequestValidator()
     {
-        RuleFor(x => x.FeatureKey).Must(PlanFeatures.IsValid).WithMessage("FeatureKey must be Room, Plot, Stay or Taxi");
+        RuleFor(x => x.FeatureKey).Must(PlanFeatures.IsValid).WithMessage("FeatureKey must be Stay or Taxi");
         RuleFor(x => x.Code).NotEmpty().MaximumLength(40).Matches("^[A-Za-z0-9_]+$")
             .WithMessage("Code may contain only letters, digits and underscores");
         RuleFor(x => x.Name).NotEmpty().MaximumLength(60);

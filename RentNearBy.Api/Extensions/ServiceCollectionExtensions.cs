@@ -114,10 +114,6 @@ public static class ServiceCollectionExtensions
         // Google Play passes (server actions, due/stale syncs, acknowledgements, daily voided purchases).
         services.AddHostedService<PlanPurchaseReconcilerService>();
 
-        // Hourly (anchored at :15) sweep of rooms/plots past their own ValidUntil.
-        services.AddHostedService<ListingExpirySweepService>();
-        // Register background service for district digest aggregation (runs at 4:00 AM IST daily)
-        services.AddHostedService<DistrictDigestJobService>();
         // Purges DeletedAccountRecords past their 180-day retention window (runs at 5:00 AM IST daily)
         services.AddHostedService<DeletedAccountRecordPurgeService>();
 
@@ -177,17 +173,8 @@ public static class ServiceCollectionExtensions
         // RabbitMQ publisher — Singleton: IConnection is long-lived and expensive
         services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 
-        // Notification worker — consumes listing.expired queue and sends FCM
-        services.AddHostedService<NotificationWorkerService>();
-
-        // DLQ worker — consumes dlq.listing.expired (failed/retried notifications)
-        services.AddHostedService<DlqNotificationWorkerService>();
-
         // Broadcast worker — consumes broadcast.notification queue and sends FCM to all users
         services.AddHostedService<BroadcastWorkerService>();
-
-        // District digest worker — consumes district.digest.ready queue and sends FCM topic push
-        services.AddHostedService<DistrictDigestWorkerService>();
 
         // Report-filed worker — consumes report.filed queue and notifies the listing owner
         services.AddHostedService<ReportFiledWorkerService>();

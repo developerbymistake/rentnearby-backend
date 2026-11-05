@@ -4,8 +4,7 @@ public sealed record ExpireEffectsResult(int Paused, int Extended, int Reranked)
 
 public sealed record RankReconcileResult(int Rows, IReadOnlyList<Guid> DistrictIds);
 
-// Count/claim logic for room and plot slots plus the set-based listing effects of plan changes.
-// Every create/activation of a room/plot: transaction -> LockOwnerAsync -> GetLimits -> count -> mutate -> commit.
+// Plan rank effects on Stay and Taxi listings: grant, expiry and the daily reconcile.
 // Bulk methods never load listing rows and repeat the state predicate inside the UPDATE.
 // None of these bust caches; callers bust per district after commit (IListingCacheInvalidator).
 public interface ILiveSlotService
@@ -13,25 +12,8 @@ public interface ILiveSlotService
     // SELECT ... FOR UPDATE on the owner's Users row; requires an open transaction.
     Task LockOwnerAsync(Guid userId);
 
-    // Creation limit: not deleted and not Rejected (paused, pending and drafts count).
-    Task<int> CountForCreationAsync(Guid userId, string kind);
-
-    // Live: not deleted and (IsActive or a Pending Go Live).
-    Task<int> CountLiveAsync(Guid userId, string kind, Guid? excludeId = null);
-
-    Task<int> CountPlanPausedAsync(Guid userId, string kind);
-
-    // Resumes up to `slots` PauseReason=Plan rows, newest first.
-    Task<int> ResumePlanPausedAsync(Guid userId, string kind, int slots, DateTime validUntil);
-
-    // Keeps the newest `keep` rows among (IsActive or Pending) and plan-pauses the other live rows.
-    Task<int> PlanPauseExtraAsync(Guid userId, string kind, int keep);
-
-    // Rooms, plots, stays and taxis.
+    // Stays and taxis.
     Task<int> SetRankAsync(Guid userId, string kind, short rank, bool featured);
-
-    // ValidUntil of every IsActive row of the kind.
-    Task<int> ExtendValidUntilAsync(Guid userId, string kind, DateTime validUntil);
 
     // Bring listings in line with the owner's current limits (after a grant/switch/renew).
     // Requires an open transaction and the owner lock.
@@ -40,27 +22,7 @@ public interface ILiveSlotService
     // After a plan ends (expiry, revoke, refund). Requires an open transaction and the owner lock.
     Task<ExpireEffectsResult> ExpireEffectsAsync(Guid userId, string featureKey);
 
-    // A live or Pending row stopped counting (delete, pause, reject, takedown, admin deactivate): resume the
-    // newest plan-paused rows into the free slots. Requires tx + lock.
-    Task<int> ResumeAfterSlotFreedAsync(Guid userId, string kind);
-
-    // Admin suspend/unsuspend of a user's rooms and plots. Unsuspend requires tx + lock.
-    Task<int> SuspendAsync(Guid userId);
-    Task<int> UnsuspendAsync(Guid userId);
-
     // Daily drift repair: rows whose rank/featured differ from the owner's plan. Returns rows fixed and their
     // distinct districts for busting.
     Task<RankReconcileResult> ReconcileRanksAsync(string kind);
-
-    // Owners of `kind` whose IsActive rows exceed their current ListingLimit (payment flag and catalog applied
-    // like GetLimits). Bounded.
-    Task<List<Guid>> ListOverLimitOwnersAsync(string kind, int limit);
-
-    // Plan-pauses this owner's IsActive rows beyond the current limit, newest kept. Requires tx + owner lock.
-    // Returns rows paused.
-    Task<int> EnforceLimitAsync(Guid userId, string kind);
-
-    // Batches ListOverLimitOwnersAsync, one short transaction per owner (lock, enforce, commit). Returns total
-    // paused and the owners touched (for cache busting). No open transaction on entry.
-    Task<(int Paused, IReadOnlyList<Guid> Owners)> EnforceLimitsAsync(string kind);
 }

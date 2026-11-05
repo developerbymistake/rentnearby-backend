@@ -3,8 +3,6 @@ namespace RentNearBy.Tests.Notifications;
 public class NotificationTypesTests
 {
     [Theory]
-    [InlineData(NotificationTypes.GoLiveApproved, "golive_approved")]
-    [InlineData(NotificationTypes.GoLiveRejected, "golive_rejected")]
     [InlineData(NotificationTypes.RoleRequestApproved, "role_request_approved")]
     [InlineData(NotificationTypes.RoleRequestRejected, "role_request_rejected")]
     [InlineData(NotificationTypes.StayApproved, "stay_approved")]

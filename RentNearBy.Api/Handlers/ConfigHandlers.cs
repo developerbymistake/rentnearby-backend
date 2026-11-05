@@ -13,26 +13,10 @@ namespace RentNearBy.Api.Handlers;
 // read-only reference data, not user-specific.
 public static class ConfigHandlers
 {
-    public const string ListingLimitsCacheKey = "config_listing_limits";
     public const string PaymentFeatureCacheKey = IPaymentFeatureReader.CacheKey;
     public const string AppTabsCacheKey = AppTabCache.Key;
     public const string RolesCacheKey = "config_roles";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
-
-    // Kept for old builds: the default plan's ListingLimit (or the free-mode limit while payment is off).
-    public static async Task<IResult> GetListingLimits(IPlanEntitlementService entitlements, IMemoryCache cache)
-    {
-        if (!cache.TryGetValue(ListingLimitsCacheKey, out (int Room, int Plot) cached))
-        {
-            cached = await entitlements.GetPublicListingLimitsAsync();
-            cache.Set(ListingLimitsCacheKey, cached, CacheTtl);
-        }
-
-        return OkResponse(new { room = cached.Room, plot = cached.Plot, roomLimit = cached.Room, plotLimit = cached.Plot });
-    }
-
-    // Plan catalog, payment flag or free-mode limit changed.
-    public static void BustPlanDerivedConfig(IMemoryCache cache) => cache.Remove(ListingLimitsCacheKey);
 
     public static async Task<(bool Enabled, int FreeDurationDays)> GetPaymentFeatureCachedAsync(IPaymentFeatureReader reader)
     {

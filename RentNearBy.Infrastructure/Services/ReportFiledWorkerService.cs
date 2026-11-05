@@ -46,7 +46,7 @@ public class ReportFiledWorkerService : BackgroundService
 
                 // No DLQ — a missed report notification is best-effort/informational,
                 // the report row is already durably saved regardless of push delivery
-                // (same reasoning DistrictDigestWorkerService uses).
+                // (same as the other informational pushes).
                 await channel.QueueDeclareAsync(
                     queue: QueueName,
                     durable: true,

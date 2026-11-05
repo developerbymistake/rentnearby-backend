@@ -24,8 +24,6 @@ public static class DataSeeder
 
     public static async Task SeedAsync(ApplicationDbContext db, ILogger logger)
     {
-        await SeedRoomTypesAsync(db);
-        await SeedPlotTypesAsync(db);
         await SeedStayTypesAsync(db);
         await SeedStayRegistrationTypesAsync(db);
         await SeedStayJobLookupsAsync(db);
@@ -35,7 +33,6 @@ public static class DataSeeder
         await SeedPlansAsync(db);
         await SeedDistrictsAsync(db);
         await SeedCitiesAsync(db, logger);
-        await RecomputeBighaAreasAsync(db, logger);
         await SeedAppFeatureFlagsAsync(db);
         await SeedAppTabsAsync(db);
         await SeedAppVersionConfigsAsync(db);
@@ -61,26 +58,20 @@ public static class DataSeeder
         await db.SaveChangesAsync();
     }
 
-    // Master table for the consumer app's 7 bottom-nav tabs. Inserts only missing keys, so tabs added
+    // Master table for the consumer app's 5 bottom-nav tabs. Inserts only missing keys, so tabs added
     // later reach old databases. Existing rows only get their SortOrder realigned (not admin-editable);
-    // admin renames/toggles are never touched.
+    // admin renames/toggles are never touched. Every seeded tab starts active.
     // Home/Profile stay active forever (AdminHandlers.UpdateAppTab refuses to deactivate them, see
     // AppTabKeys.NonDeactivatable).
-    // Rooms and Plots are seeded OFF on a fresh database (being phased out); an admin turns them on in the
-    // App Tabs screen. Rows that already exist keep whatever the admin set.
-    private static readonly HashSet<string> TabsSeededOff = [AppTabKeys.Rooms, AppTabKeys.Plots];
-
     private static async Task SeedAppTabsAsync(ApplicationDbContext db)
     {
         var tabs = new (string Key, string DisplayName, int SortOrder)[]
         {
             (AppTabKeys.Home, "Home", 0),
-            (AppTabKeys.Rooms, "Rooms", 1),
-            (AppTabKeys.Plots, "Plots", 2),
-            (AppTabKeys.Stays, "Stays", 3),
-            (AppTabKeys.Jobs, "Jobs", 4),
-            (AppTabKeys.Taxi, "Taxi", 5),
-            (AppTabKeys.Profile, "Profile", 6),
+            (AppTabKeys.Stays, "Stays", 1),
+            (AppTabKeys.Jobs, "Jobs", 2),
+            (AppTabKeys.Taxi, "Taxi", 3),
+            (AppTabKeys.Profile, "Profile", 4),
         };
 
         var existingRows = await db.AppTabs.ToListAsync();
@@ -105,7 +96,7 @@ public static class DataSeeder
                 Id = Guid.NewGuid(),
                 TabKey = key,
                 DisplayName = displayName,
-                IsActive = !TabsSeededOff.Contains(key),
+                IsActive = true,
                 SortOrder = sortOrder,
                 UpdatedAt = DateTime.UtcNow,
             });
@@ -144,7 +135,7 @@ public static class DataSeeder
 
     // Starting plan catalog (prices are guesses; admin-editable). Free is the default plan of each
     // feature (no prices); paid plans carry 1/3/12-month prices with a longer-cycle discount. Stable ids:
-    // plans b1000000-...-0000000FFNN (FF feature 01-04, NN 01 free / 02 paid), prices b2000000-...-0000FFCC.
+    // plans b1000000-...-0000000FFNN (FF feature 03 Stay / 04 Taxi, NN 01 free / 02 paid), prices b2000000-...-0000FFCC.
     private static async Task SeedPlansAsync(ApplicationDbContext db)
     {
         if (await db.Plans.AnyAsync())
@@ -156,8 +147,6 @@ public static class DataSeeder
         var now = DateTime.UtcNow;
         var features = new (int Index, string Kind, string Code)[]
         {
-            (1, ListingKinds.Room, "ROOM"),
-            (2, ListingKinds.Plot, "PLOT"),
             (3, ListingKinds.Stay, "STAY"),
             (4, ListingKinds.Taxi, "TAXI"),
         };
@@ -168,7 +157,6 @@ public static class DataSeeder
         foreach (var (index, kind, code) in features)
         {
             var isStay = kind == ListingKinds.Stay;
-            var isSlots = kind is ListingKinds.Room or ListingKinds.Plot;
 
             var free = new Plan
             {
@@ -195,7 +183,7 @@ public static class DataSeeder
                 FeatureKey = kind,
                 Code = $"{code}_PLUS",
                 Name = "Plus",
-                Tagline = isSlots ? "2 listings, shown first" : "Featured and shown first",
+                Tagline = "Featured and shown first",
                 IsDefault = false,
                 IsEnabled = true,
                 TrialDays = 7,
@@ -204,16 +192,16 @@ public static class DataSeeder
                 CreatedAt = now,
                 UpdatedAt = now,
             };
-            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.ListingLimit, Value = isSlots ? 2 : 1 });
+            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.ListingLimit, Value = 1 });
             plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Priority, Value = 1 });
-            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Featured, Value = isSlots ? 0 : 1 });
+            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Featured, Value = 1 });
             if (isStay) plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.JobsPosts, Value = 4 });
 
             var (m1, m3, m12) = kind switch
             {
                 ListingKinds.Stay => (400, 1100, 3800),
                 ListingKinds.Taxi => (150, 400, 1400),
-                _ => (200, 550, 1900),
+                _ => throw new InvalidOperationException($"No seed prices for plan feature {kind}"),
             };
             plus.Prices.Add(new PlanPrice { Id = PriceId(index, 1), CycleMonths = 1, PriceInr = m1, IsEnabled = true, PlayBasePlanId = "cycle-1m", PlayTrialOfferId = "trial-7d" });
             plus.Prices.Add(new PlanPrice { Id = PriceId(index, 3), CycleMonths = 3, PriceInr = m3, IsEnabled = true, PlayBasePlanId = "cycle-3m" });
@@ -229,8 +217,6 @@ public static class DataSeeder
     {
         var changes = new (int Feature, int Cycle, int Old, int New)[]
         {
-            (1, 1, 199, 200), (1, 3, 537, 550), (1, 12, 1910, 1900),
-            (2, 1, 199, 200), (2, 3, 537, 550), (2, 12, 1910, 1900),
             (3, 1, 399, 400), (3, 3, 1077, 1100), (3, 12, 3830, 3800),
             (4, 1, 149, 150), (4, 3, 402, 400), (4, 12, 1430, 1400),
         };
@@ -247,40 +233,6 @@ public static class DataSeeder
             changed = true;
         }
         if (changed) await db.SaveChangesAsync();
-    }
-
-    private static async Task SeedRoomTypesAsync(ApplicationDbContext db)
-    {
-        if (await db.RoomTypes.AnyAsync()) return;
-
-        var roomTypes = new[]
-        {
-            new RoomType { Id = Guid.NewGuid(), Name = "1BHK",   SortOrder = 1, Description = "1 bedroom, hall and kitchen",          CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "2BHK",   SortOrder = 2, Description = "2 bedroom, hall and kitchen",          CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "3BHK",   SortOrder = 3, Description = "3 bedroom, hall and kitchen",          CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "1RK",    SortOrder = 4, Description = "Single room with kitchen",             CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "PG",     SortOrder = 5, Description = "Paying guest accommodation",           CreatedAt = DateTime.UtcNow },
-            new RoomType { Id = Guid.NewGuid(), Name = "House",  SortOrder = 6, Description = "Independent house",                      CreatedAt = DateTime.UtcNow },
-        };
-
-        db.RoomTypes.AddRange(roomTypes);
-        await db.SaveChangesAsync();
-    }
-
-    private static async Task SeedPlotTypesAsync(ApplicationDbContext db)
-    {
-        if (await db.PlotTypes.AnyAsync()) return;
-
-        var plotTypes = new[]
-        {
-            new PlotType { Id = Guid.Parse("b1000000-0000-0000-0000-000000000001"), Name = "Residential",  SortOrder = 1, Description = "Residential land for housing",     CreatedAt = DateTime.UtcNow },
-            new PlotType { Id = Guid.Parse("b1000000-0000-0000-0000-000000000002"), Name = "Commercial",   SortOrder = 2, Description = "Commercial land for business use",  CreatedAt = DateTime.UtcNow },
-            new PlotType { Id = Guid.Parse("b1000000-0000-0000-0000-000000000003"), Name = "Agricultural", SortOrder = 3, Description = "Agricultural land for farming use", CreatedAt = DateTime.UtcNow },
-            new PlotType { Id = Guid.Parse("b1000000-0000-0000-0000-000000000004"), Name = "Farmhouse",    SortOrder = 4, Description = "Farmhouse land for weekend/leisure homes", CreatedAt = DateTime.UtcNow },
-        };
-
-        db.PlotTypes.AddRange(plotTypes);
-        await db.SaveChangesAsync();
     }
 
     private static async Task SeedStayTypesAsync(ApplicationDbContext db)
@@ -504,7 +456,7 @@ public static class DataSeeder
 
     // Per-key incremental seeding, not a whole-table AnyAsync() guard (unlike the other Seed*
     // methods in this file) — this catalog is expected to grow after initial deploy (this method
-    // itself already went from 4 to 13 rows once), and a whole-table guard would silently skip
+    // itself already grew several times), and a whole-table guard would silently skip
     // every row added here on any environment that already has at least one row, including the
     // fresh-database case if a future migration ever pre-populates a subset. Existing rows'
     // Ids/Keys are untouched, so this doesn't disturb the QuestionTemplateId-independent catalog
@@ -513,166 +465,10 @@ public static class DataSeeder
     {
         var existingKeys = (await db.QuestionTemplates.Select(t => t.Key).ToListAsync()).ToHashSet();
 
-        var pgRoomTypeId = await db.RoomTypes.Where(r => r.Name == "PG").Select(r => (Guid?)r.Id).FirstOrDefaultAsync();
-
         var templates = new List<QuestionTemplate>
         {
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000001"),
-                Key = "is_available",
-                ListingType = "Both",
-                QuestionText = "Is it still available?",
-                AnswerOptionsJson = "[{\"key\":\"yes_available\",\"text\":\"Yes, still available\",\"sentiment\":\"positive\"},{\"key\":\"no_available\",\"text\":\"No, already taken\",\"sentiment\":\"negative\"}]",
-                SortOrder = 1,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000002"),
-                Key = "is_rent_negotiable",
-                ListingType = "Room",
-                QuestionText = "Is rent negotiable?",
-                AnswerOptionsJson = "[{\"key\":\"yes_negotiable\",\"text\":\"Yes, a little\",\"sentiment\":\"positive\"},{\"key\":\"no_negotiable\",\"text\":\"No, price is fixed\",\"sentiment\":\"negative\"}]",
-                SortOrder = 2,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000003"),
-                Key = "is_price_negotiable",
-                ListingType = "Plot",
-                QuestionText = "Is price negotiable?",
-                AnswerOptionsJson = "[{\"key\":\"yes_negotiable\",\"text\":\"Yes, a little\",\"sentiment\":\"positive\"},{\"key\":\"no_negotiable\",\"text\":\"No, price is fixed\",\"sentiment\":\"negative\"}]",
-                SortOrder = 2,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000004"),
-                Key = "is_fenced",
-                ListingType = "Plot",
-                QuestionText = "Is it fenced / boundary marked?",
-                AnswerOptionsJson = "[{\"key\":\"yes_fenced\",\"text\":\"Yes, fully fenced\",\"sentiment\":\"positive\"},{\"key\":\"no_fenced\",\"text\":\"No, not yet\",\"sentiment\":\"negative\"}]",
-                SortOrder = 3,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-
-            // ── Added after launch (2026-07-12) — none of these duplicate a field already
-            // shown on View Details, verified against RoomListing/PlotListing (no deposit,
-            // brokerage, parking, maintenance, electricity, water or road-access column on
-            // either entity). Kept broad (no RoomTypeId/PlotTypeId) except food_included,
-            // which is the one case a single subtype is unambiguous — narrowing the rest to
-            // "some but not all" subtypes would need a separate template row per subtype
-            // (RoomTypeId/PlotTypeId is a single nullable FK, not a set), which isn't worth
-            // the duplication for a first pass.
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000005"),
-                Key = "has_brokerage",
-                ListingType = "Both",
-                QuestionText = "Is there any brokerage/agent fee?",
-                AnswerOptionsJson = "[{\"key\":\"no_brokerage\",\"text\":\"No, direct from owner\",\"sentiment\":\"positive\"},{\"key\":\"yes_brokerage\",\"text\":\"Yes, brokerage applies\",\"sentiment\":\"negative\"}]",
-                SortOrder = 4,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000006"),
-                Key = "requires_deposit",
-                ListingType = "Room",
-                QuestionText = "Is security deposit required?",
-                AnswerOptionsJson = "[{\"key\":\"yes_deposit\",\"text\":\"Yes, deposit required\",\"sentiment\":\"negative\"},{\"key\":\"no_deposit\",\"text\":\"No deposit needed\",\"sentiment\":\"positive\"}]",
-                SortOrder = 5,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000007"),
-                Key = "room_maintenance_included",
-                ListingType = "Room",
-                QuestionText = "Is maintenance fee included in rent?",
-                AnswerOptionsJson = "[{\"key\":\"yes_maintenance_included\",\"text\":\"Yes, included in rent\",\"sentiment\":\"positive\"},{\"key\":\"no_maintenance_extra\",\"text\":\"No, charged separately\",\"sentiment\":\"negative\"}]",
-                SortOrder = 6,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000008"),
-                Key = "food_included",
-                ListingType = "Room",
-                RoomTypeId = pgRoomTypeId,
-                QuestionText = "Is food included?",
-                AnswerOptionsJson = "[{\"key\":\"yes_food\",\"text\":\"Yes, food included\",\"sentiment\":\"positive\"},{\"key\":\"no_food\",\"text\":\"No, self-arranged\",\"sentiment\":\"negative\"}]",
-                SortOrder = 7,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000009"),
-                Key = "has_parking",
-                ListingType = "Plot",
-                QuestionText = "Is parking space available?",
-                AnswerOptionsJson = "[{\"key\":\"yes_parking\",\"text\":\"Yes, parking available\",\"sentiment\":\"positive\"},{\"key\":\"no_parking\",\"text\":\"No parking\",\"sentiment\":\"negative\"}]",
-                SortOrder = 4,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000010"),
-                Key = "plot_maintenance_charge",
-                ListingType = "Plot",
-                QuestionText = "Is there a maintenance/society charge?",
-                AnswerOptionsJson = "[{\"key\":\"yes_plot_maintenance\",\"text\":\"Yes, charge applies\",\"sentiment\":\"negative\"},{\"key\":\"no_plot_maintenance\",\"text\":\"No maintenance charge\",\"sentiment\":\"positive\"}]",
-                SortOrder = 5,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000011"),
-                Key = "has_electricity",
-                ListingType = "Plot",
-                QuestionText = "Is electricity connection available?",
-                AnswerOptionsJson = "[{\"key\":\"yes_electricity\",\"text\":\"Yes, connection available\",\"sentiment\":\"positive\"},{\"key\":\"no_electricity\",\"text\":\"No, needs to be arranged\",\"sentiment\":\"negative\"}]",
-                SortOrder = 6,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000012"),
-                Key = "has_water",
-                ListingType = "Plot",
-                QuestionText = "Is water source available (borewell/municipal)?",
-                AnswerOptionsJson = "[{\"key\":\"yes_water\",\"text\":\"Yes, water source available\",\"sentiment\":\"positive\"},{\"key\":\"no_water\",\"text\":\"No, needs to be arranged\",\"sentiment\":\"negative\"}]",
-                SortOrder = 7,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-            new()
-            {
-                Id = Guid.Parse("d1000000-0000-0000-0000-000000000013"),
-                Key = "has_road_access",
-                ListingType = "Plot",
-                QuestionText = "Is there proper approach road access?",
-                AnswerOptionsJson = "[{\"key\":\"yes_road_access\",\"text\":\"Yes, road access available\",\"sentiment\":\"positive\"},{\"key\":\"no_road_access\",\"text\":\"No proper road yet\",\"sentiment\":\"negative\"}]",
-                SortOrder = 8,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            },
-
             // Stay rows: only things the stay form does not already show (dates, extra guests,
-            // food type, pickup, visitors, discount, early check-in). "Both" stays Room and Plot.
+            // food type, pickup, visitors, discount, early check-in).
             new()
             {
                 Id = Guid.Parse("d1000000-0000-0000-0000-000000000014"),
@@ -1093,20 +889,6 @@ public static class DataSeeder
             points.Add((lat, lng));
             return true;
         }
-    }
-
-    // Bigha is a state unit (BighaArea); recomputes AreaSqft of bigha plots whose stored value used another factor.
-    private static async Task RecomputeBighaAreasAsync(ApplicationDbContext db, ILogger logger)
-    {
-        var updated = 0;
-        foreach (var (state, factor) in BighaArea.StateFactors)
-        {
-            updated += await db.PlotListings
-                .Where(p => p.AreaUnit == "bigha" && p.District.StateName == state && p.AreaSqft != p.AreaValue * factor)
-                .ExecuteUpdateAsync(s => s.SetProperty(p => p.AreaSqft, p => p.AreaValue * factor));
-        }
-        if (updated > 0)
-            logger.LogInformation("seed.plots.bigha_area {Updated}", updated);
     }
 
     // One-time CityKey fill for a database seeded before the key existed; skips once any city has a key.

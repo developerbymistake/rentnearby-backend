@@ -33,9 +33,9 @@ Reserved for later (create the folder with its first test, no empty folders): `P
 
 | File | Gives you |
 |---|---|
-| `TestIds` | Fixed Guids (`RoomFree`, `RoomPlus`, `PlotFree`, `PlotPlus`, `Price1m/3m/12m`, `User1/2`, `Sub1`, `UserPlan1`, `Purchase1`) |
+| `TestIds` | Fixed Guids (`StayFree`, `StayPlus`, `TaxiFree`, `TaxiPlus`, `Price1m/3m/12m`, `User1/2`, `Sub1`, `UserPlan1`, `Purchase1`) |
 | `FakeClock`, `Dates` | `FakeClock` for code that takes "now" as a parameter; `Dates.Far` (2099-01-01Z), `Dates.Past` (2020-01-01Z), `Dates.Utc(...)` |
-| `CatalogBuilders` | `CatalogPlanBuilder` (default Room Plus: limit 3, priority 2, featured, 1m 299 / 3m 799 / 12m 2999, trial `trial-7d`, product `room_plus`; `Free()`/`AsDefault()`), `CatalogPriceBuilder`, `PlanCatalogSnapshotBuilder` (default Room Free + Room Plus + Plot Free + Plot Plus), `PaymentFeatureStates.On()/Off(freeLimit)` |
+| `CatalogBuilders` | `CatalogPlanBuilder` (default Stay Plus: limit 3, priority 2, featured, jobs 2, 1m 299 / 3m 799 / 12m 2999, trial `trial-7d`, product `stay_plus`; `Free()`/`AsDefault()`), `CatalogPriceBuilder`, `PlanCatalogSnapshotBuilder` (default Stay Free + Stay Plus; Taxi has no plans unless `TaxiFree`/`TaxiPlus` are added), `PaymentFeatureStates.On()/Off(freeLimit)` |
 | `ActiveRowBuilder` | `PlanEntitlementService.ActiveRow` (internal) |
 | `EntityBuilders` | `UserPlanBuilder`, `PlanPurchaseBuilder`, `PlaySubscriptionBuilder`, `CouponBuilder` (in-memory entities, also ready for DB tests) |
 | `PlayBuilders` | `PlayLineItemBuilder`, `PlaySnapshotBuilder`, `PlayResolvedTargetBuilder` |
@@ -154,7 +154,7 @@ If one of them is `private` again, the build fails in the matching test class.
 - `PlayBillingSyncService` state table (`DispatchAsync`, hold/pause/ended/carry-over, `ProcessRtdnAsync`, voided) and
   `PlayEntitlementApplier.ApplyEntitledInTxAsync`: same reason (transaction + owner/token locks + `PaymentEvents` inbox).
   `CanReattach` is private and takes a private `Mapping` type; not exposed.
-- `PlanSlotService`, `PlanLifecycleService`, `PlanPurchaseReconcilerService`, `ListingExpirySweepService`: raw SQL,
+- `PlanSlotService`, `PlanLifecycleService`, `PlanPurchaseReconcilerService`: raw SQL,
   `ExecuteUpdate`, `PeriodicTimer`.
 - `PlayBillingClient` HTTP calls and `PlayRtdnAuthenticator` (Google OIDC): external.
 - `RabbitMqPublisher` and every `*WorkerService`, including `PlanPurchaseAdminWorkerService`: need a broker.

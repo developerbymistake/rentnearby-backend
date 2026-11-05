@@ -596,7 +596,6 @@ public class PlayBillingSyncService(
     {
         var days = Math.Min(row.CarryOverDays, PlayRules.MaxCarryOverDays);
         var endsAt = now.AddDays(days);
-        var grew = endsAt > row.EndsAt;
         row.Source = UserPlanSources.AdminGrant;
         row.Note = "Carry-over";
         row.PlaySubscriptionId = null;
@@ -608,7 +607,6 @@ public class PlayBillingSyncService(
         row.ReminderSentAt = null;
         row.UpdatedAt = now;
         await db.SaveChangesAsync();
-        if (grew) await slots.ExtendValidUntilAsync(row.UserId, row.FeatureKey, endsAt);
 
         logger.LogInformation(PlaySyncLogEvents.CarryOverApplied, "Plan {UserPlanId} of user {UserId} moved to {Days} carry-over days",
             row.Id, row.UserId, days);

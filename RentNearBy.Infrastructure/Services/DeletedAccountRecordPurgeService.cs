@@ -7,8 +7,8 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Services;
 
 // Purges DeletedAccountRecords past their 180-day retention window (IT Rules 2021, Rule 3(1)(j)).
-// Its own dedicated daily job — deliberately separate from ListingExpirySweepService/
-// DistrictDigestJobService so future changes here can't affect either existing schedule.
+// Its own dedicated daily job, separate from the other timed jobs so future changes
+// here cannot affect their schedules.
 public class DeletedAccountRecordPurgeService : BackgroundService
 {
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -16,8 +16,7 @@ public class DeletedAccountRecordPurgeService : BackgroundService
     private PeriodicTimer? _timer;
     private const int RetentionDays = 180;
 
-    // 23:30 UTC (previous day) = 05:00 IST (UTC+5:30) — one hour clear of
-    // DistrictDigestJobService's 4:00 AM IST slot.
+    // 23:30 UTC (previous day) = 05:00 IST (UTC+5:30).
     private static readonly TimeSpan RunTimeUtc = new(23, 30, 0);
 
     public DeletedAccountRecordPurgeService(

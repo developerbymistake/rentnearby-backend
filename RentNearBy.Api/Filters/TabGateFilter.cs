@@ -6,7 +6,7 @@ using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Filters;
 
-// Route-group gate for the consumer verticals (/listings, /plots, /stays, /stay-jobs, /taxis): 403 TabInactive
+// Route-group gate for the consumer verticals (/stays, /stay-jobs, /taxis): 403 TabInactive
 // while any of the given tabs is off, so a disabled tab has no reachable API surface. Never applied to the
 // /admin/* groups (admin moderates and re-enables while a tab is off), /home (soft per-section gating) or /chat
 // (checked per kind on CreateConversation). Routes tagged with SkipTabGateAttribute pass through.

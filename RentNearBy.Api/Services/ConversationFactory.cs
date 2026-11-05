@@ -34,26 +34,12 @@ public sealed class ConversationFactory(
             return Fail(403, $"You have a new account, so you can't chat yet. Try again in {remainingMinutes} min.", "Forbidden");
         }
 
-        Guid? ownerId;
-        bool? listingIsActive;
-        if (listingType == "Room")
-        {
-            var l = await db.RoomListings.Where(x => x.Id == listingId && !x.IsDeleted)
-                .Select(x => new { x.UserId, x.IsActive }).FirstOrDefaultAsync();
-            ownerId = l?.UserId; listingIsActive = l?.IsActive;
-        }
-        else if (listingType == ListingKinds.Stay)
-        {
-            var l = await db.StayListings.Where(x => x.Id == listingId && !x.IsDeleted)
-                .Select(x => new { x.UserId, IsActive = x.Status == StayStatuses.Approved && x.AcceptingGuests }).FirstOrDefaultAsync();
-            ownerId = l?.UserId; listingIsActive = l?.IsActive;
-        }
-        else
-        {
-            var l = await db.PlotListings.Where(x => x.Id == listingId && !x.IsDeleted)
-                .Select(x => new { x.UserId, x.IsActive }).FirstOrDefaultAsync();
-            ownerId = l?.UserId; listingIsActive = l?.IsActive;
-        }
+        if (listingType != ListingKinds.Stay) return Fail(404, "Listing not found", "NotFound");
+
+        var l = await db.StayListings.Where(x => x.Id == listingId && !x.IsDeleted)
+            .Select(x => new { x.UserId, IsActive = x.Status == StayStatuses.Approved && x.AcceptingGuests }).FirstOrDefaultAsync();
+        Guid? ownerId = l?.UserId;
+        bool? listingIsActive = l?.IsActive;
 
         if (ownerId == null) return Fail(404, "Listing not found", "NotFound");
         if (ownerId == callerId) return Fail(400, "You can't start a chat about your own listing", "BadRequest");

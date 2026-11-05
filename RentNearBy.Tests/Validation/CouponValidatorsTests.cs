@@ -143,8 +143,9 @@ public class CouponValidatorsTests
     [InlineData("Car", false)]
     [InlineData("room", false)]
     [InlineData(null, true)]
-    [InlineData(ListingKinds.Room, true)]
+    [InlineData(ListingKinds.Stay, true)]
     [InlineData(ListingKinds.Taxi, true)]
+    [InlineData("Room", false)]
     public void Rules_FeatureKey(string? featureKey, bool valid)
     {
         var result = Rules.TestValidate(Requests.CouponRule() with { FeatureKey = featureKey });

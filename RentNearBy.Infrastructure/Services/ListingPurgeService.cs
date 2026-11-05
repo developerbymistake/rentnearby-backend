@@ -15,22 +15,6 @@ public class ListingPurgeService(
     {
         await photoService.DeleteAllUserPhotosAsync(userId);
 
-        await context.RoomPhotos
-            .Where(p => context.RoomListings.Any(l => l.Id == p.RoomListingId && l.UserId == userId))
-            .ExecuteDeleteAsync();
-
-        await context.RoomListings
-            .Where(l => l.UserId == userId)
-            .ExecuteDeleteAsync();
-
-        await context.PlotPhotos
-            .Where(p => context.PlotListings.Any(l => l.Id == p.PlotId && l.UserId == userId))
-            .ExecuteDeleteAsync();
-
-        await context.PlotListings
-            .Where(p => p.UserId == userId)
-            .ExecuteDeleteAsync();
-
         var stayIds = await DeleteStayRowsAsync(userId);
         var taxiIds = await DeleteTaxiRowsAsync(userId);
         return (stayIds, taxiIds);
@@ -38,8 +22,6 @@ public class ListingPurgeService(
 
     public Task<IReadOnlyList<Guid>> DeleteUserListingRowsAsync(Guid userId, string listingKind) => listingKind switch
     {
-        ListingKinds.Room => DeleteRoomRowsAsync(userId),
-        ListingKinds.Plot => DeletePlotRowsAsync(userId),
         ListingKinds.Stay => DeleteStayRowsAsync(userId),
         ListingKinds.Taxi => DeleteTaxiRowsAsync(userId),
         _ => throw new ArgumentOutOfRangeException(nameof(listingKind), listingKind, "Unknown listing kind"),
@@ -51,7 +33,7 @@ public class ListingPurgeService(
         var failedIds = new List<Guid>();
         Exception? lastError = null;
 
-        // Plot photos share the listing-id prefix scheme used by DeleteRoomPhotosAsync.
+        // Stay and taxi photos share the listing_{id} prefix scheme used by DeleteRoomPhotosAsync.
         foreach (var listingId in listingIds)
         {
             try
@@ -69,42 +51,6 @@ public class ListingPurgeService(
             logger.LogError(lastError,
                 "Cloudinary photo cleanup failed for user {UserId}, listings {ListingIds}",
                 userId, string.Join(",", failedIds));
-    }
-
-    private async Task<IReadOnlyList<Guid>> DeleteRoomRowsAsync(Guid userId)
-    {
-        var listingIds = await context.RoomListings
-            .Where(l => l.UserId == userId)
-            .Select(l => l.Id)
-            .ToListAsync();
-
-        await context.RoomPhotos
-            .Where(p => context.RoomListings.Any(l => l.Id == p.RoomListingId && l.UserId == userId))
-            .ExecuteDeleteAsync();
-
-        await context.RoomListings
-            .Where(l => l.UserId == userId)
-            .ExecuteDeleteAsync();
-
-        return listingIds;
-    }
-
-    private async Task<IReadOnlyList<Guid>> DeletePlotRowsAsync(Guid userId)
-    {
-        var plotIds = await context.PlotListings
-            .Where(p => p.UserId == userId)
-            .Select(p => p.Id)
-            .ToListAsync();
-
-        await context.PlotPhotos
-            .Where(p => context.PlotListings.Any(l => l.Id == p.PlotId && l.UserId == userId))
-            .ExecuteDeleteAsync();
-
-        await context.PlotListings
-            .Where(p => p.UserId == userId)
-            .ExecuteDeleteAsync();
-
-        return plotIds;
     }
 
     // Stay photos live under the same listing_{id} Cloudinary prefix, so photo cleanup needs no stay branch.

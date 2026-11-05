@@ -58,10 +58,8 @@ public static class ChatHandlers
         IReadOnlyList<Conversation> conversations = hasMore ? fetched.Take(pageSize).ToList() : fetched;
         var nextCursor = KeysetCursor.EncodeLast(conversations, hasMore, c => c.LastMessageAt, c => c.Id);
 
-        // One batched lookup per listing type (2 queries total) covering both what
-        // ReconcileLifecycleStatusBatchAsync needs (IsDeleted/IsActive) and what
-        // BuildConversationDtoAsync needs (title/photo/subtype) — previously these were two
-        // separate round-trips to the same RoomListings/PlotListings rows for the same ids.
+        // One batched StayListings lookup covering both what ReconcileLifecycleStatusBatchAsync needs
+        // (IsDeleted/IsActive) and what BuildConversationDtoAsync needs (title/photo/subtype).
         var listingInfo = await BuildListingLookupAsync(conversations, db);
 
         // Batch-correct lifecycle status for the whole page (both the DB rows and the
@@ -733,10 +731,6 @@ public static class ChatHandlers
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        if (request.RoomTypeId.HasValue && !await db.RoomTypes.AnyAsync(r => r.Id == request.RoomTypeId.Value))
-            return BadRequestResponse("Room type not found");
-        if (request.PlotTypeId.HasValue && !await db.PlotTypes.AnyAsync(p => p.Id == request.PlotTypeId.Value))
-            return BadRequestResponse("Plot type not found");
         if (request.StayTypeId.HasValue && !await db.StayTypes.AnyAsync(t => t.Id == request.StayTypeId.Value))
             return BadRequestResponse("Stay type not found");
 
@@ -745,8 +739,6 @@ public static class ChatHandlers
             Id = Guid.NewGuid(),
             Key = request.Key.Trim(),
             ListingType = request.ListingType,
-            RoomTypeId = request.RoomTypeId,
-            PlotTypeId = request.PlotTypeId,
             StayTypeId = request.StayTypeId,
             QuestionText = request.QuestionText.Trim(),
             AnswerOptionsJson = request.AnswerOptionsJson,
@@ -817,7 +809,7 @@ public static class ChatHandlers
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    internal readonly record struct ListingInfoLite(string Title, string? Photo, Guid? RoomTypeId, Guid? PlotTypeId, Guid? StayTypeId, bool? IsDeleted, bool? IsActive, string? Area);
+    internal readonly record struct ListingInfoLite(string Title, string? Photo, Guid? StayTypeId, bool? IsDeleted, bool? IsActive, string? Area);
 
     // otherPartyNames/listingInfo are optional page-level lookups built once by GetConversations
     // (see BuildListingInfoLookupAsync below) to avoid 2 queries per row on a paginated list.
@@ -837,36 +829,17 @@ public static class ChatHandlers
 
         string listingTitle;
         string? thumbnailUrl;
-        Guid? roomTypeId = null;
-        Guid? plotTypeId = null;
-        Guid? stayTypeId = null;
+        Guid? stayTypeId;
         string? area;
 
         if (listingInfo != null && listingInfo.TryGetValue((c.ListingType, c.ListingId), out var info))
         {
             listingTitle = info.Title;
             thumbnailUrl = info.Photo;
-            roomTypeId = info.RoomTypeId;
-            plotTypeId = info.PlotTypeId;
             stayTypeId = info.StayTypeId;
             area = info.Area;
         }
-        else if (c.ListingType == "Room")
-        {
-            var l = await db.RoomListings.Where(x => x.Id == c.ListingId)
-                .Select(x => new {
-                    x.RoomType.Name, x.RoomTypeId,
-                    Photo = x.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
-                    CityName = x.City != null ? x.City.Name : null,
-                    DistrictName = x.District.Name,
-                })
-                .FirstOrDefaultAsync();
-            listingTitle = l?.Name ?? "Room";
-            thumbnailUrl = l?.Photo;
-            roomTypeId = l?.RoomTypeId;
-            area = l?.CityName ?? l?.DistrictName;
-        }
-        else if (c.ListingType == ListingKinds.Stay)
+        else
         {
             var l = await db.StayListings.Where(x => x.Id == c.ListingId)
                 .Select(x => new {
@@ -879,21 +852,6 @@ public static class ChatHandlers
             listingTitle = l?.Name ?? "Stay";
             thumbnailUrl = l?.Photo;
             stayTypeId = l?.StayTypeId;
-            area = l?.CityName ?? l?.DistrictName;
-        }
-        else
-        {
-            var l = await db.PlotListings.Where(x => x.Id == c.ListingId)
-                .Select(x => new {
-                    x.PlotType.Name, x.PlotTypeId,
-                    Photo = x.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
-                    CityName = x.City != null ? x.City.Name : null,
-                    DistrictName = x.District.Name,
-                })
-                .FirstOrDefaultAsync();
-            listingTitle = l?.Name ?? "Plot";
-            thumbnailUrl = l?.Photo;
-            plotTypeId = l?.PlotTypeId;
             area = l?.CityName ?? l?.DistrictName;
         }
 
@@ -909,8 +867,6 @@ public static class ChatHandlers
             Id = c.Id,
             ListingType = c.ListingType,
             ListingId = c.ListingId,
-            RoomTypeId = roomTypeId,
-            PlotTypeId = plotTypeId,
             StayTypeId = stayTypeId,
             ListingTitle = listingTitle,
             Area = area,
@@ -928,43 +884,11 @@ public static class ChatHandlers
 
     // Batches BOTH what BuildConversationDtoAsync needs (title/photo/subtype) AND what
     // ReconcileLifecycleStatusBatchAsync needs (IsDeleted/IsActive) for a whole GetConversations
-    // page into 2 queries total (one per listing type), instead of one per conversation and
-    // instead of two separate round-trips to the same rows for two different purposes.
+    // page into one query, instead of one per conversation.
     private static async Task<Dictionary<(string, Guid), ListingInfoLite>> BuildListingLookupAsync(
         IReadOnlyList<Conversation> conversations, ApplicationDbContext db)
     {
         var result = new Dictionary<(string, Guid), ListingInfoLite>();
-
-        var roomIds = conversations.Where(c => c.ListingType == "Room").Select(c => c.ListingId).Distinct().ToList();
-        if (roomIds.Count > 0)
-        {
-            var rows = await db.RoomListings.Where(l => roomIds.Contains(l.Id))
-                .Select(l => new {
-                    l.Id, TypeName = l.RoomType.Name, l.RoomTypeId, l.IsDeleted, l.IsActive,
-                    Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
-                    // Same CityName-then-DistrictName precedence as ListingDto/PlotDto's mapping.
-                    CityName = l.City != null ? l.City.Name : null,
-                    DistrictName = l.District.Name,
-                })
-                .ToListAsync();
-            foreach (var r in rows)
-                result[("Room", r.Id)] = new ListingInfoLite(r.TypeName ?? "Room", r.Photo, r.RoomTypeId, null, null, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
-        }
-
-        var plotIds = conversations.Where(c => c.ListingType == "Plot").Select(c => c.ListingId).Distinct().ToList();
-        if (plotIds.Count > 0)
-        {
-            var rows = await db.PlotListings.Where(l => plotIds.Contains(l.Id))
-                .Select(l => new {
-                    l.Id, TypeName = l.PlotType.Name, l.PlotTypeId, l.IsDeleted, l.IsActive,
-                    Photo = l.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
-                    CityName = l.City != null ? l.City.Name : null,
-                    DistrictName = l.District.Name,
-                })
-                .ToListAsync();
-            foreach (var r in rows)
-                result[("Plot", r.Id)] = new ListingInfoLite(r.TypeName ?? "Plot", r.Photo, null, r.PlotTypeId, null, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
-        }
 
         var stayIds = conversations.Where(c => c.ListingType == ListingKinds.Stay).Select(c => c.ListingId).Distinct().ToList();
         if (stayIds.Count > 0)
@@ -979,7 +903,7 @@ public static class ChatHandlers
                 })
                 .ToListAsync();
             foreach (var r in rows)
-                result[(ListingKinds.Stay, r.Id)] = new ListingInfoLite(r.Name ?? "Stay", r.Photo, null, null, r.StayTypeId, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
+                result[(ListingKinds.Stay, r.Id)] = new ListingInfoLite(r.Name ?? "Stay", r.Photo, r.StayTypeId, r.IsDeleted, r.IsActive, r.CityName ?? r.DistrictName);
         }
 
         return result;
@@ -1316,32 +1240,15 @@ public static class ChatHandlers
 
     // Lazily reconciles a conversation's Status against its underlying listing's
     // current lifecycle state — cheaper than hooking every existing delete/deactivate
-    // handler in RoomListingsHandlers/PlotHandlers, and keeps this feature's file
-    // footprint isolated from those unrelated handlers.
+    // handler in StayHandlers, and keeps this feature's file footprint isolated from them.
     internal static async Task RefreshListingLifecycleStatusAsync(Conversation conversation, ApplicationDbContext db, IUnitOfWork unitOfWork)
     {
         if (conversation.Status is "Blocked") return; // block always wins, never auto-reconciled away
 
-        bool? isDeleted;
-        bool? isActive;
-        if (conversation.ListingType == "Room")
-        {
-            var l = await db.RoomListings.Where(x => x.Id == conversation.ListingId)
-                .Select(x => new { x.IsDeleted, x.IsActive }).FirstOrDefaultAsync();
-            isDeleted = l?.IsDeleted; isActive = l?.IsActive;
-        }
-        else if (conversation.ListingType == ListingKinds.Stay)
-        {
-            var l = await db.StayListings.Where(x => x.Id == conversation.ListingId)
-                .Select(x => new { x.IsDeleted, IsActive = x.Status == StayStatuses.Approved && x.AcceptingGuests }).FirstOrDefaultAsync();
-            isDeleted = l?.IsDeleted; isActive = l?.IsActive;
-        }
-        else
-        {
-            var l = await db.PlotListings.Where(x => x.Id == conversation.ListingId)
-                .Select(x => new { x.IsDeleted, x.IsActive }).FirstOrDefaultAsync();
-            isDeleted = l?.IsDeleted; isActive = l?.IsActive;
-        }
+        var l = await db.StayListings.Where(x => x.Id == conversation.ListingId)
+            .Select(x => new { x.IsDeleted, IsActive = x.Status == StayStatuses.Approved && x.AcceptingGuests }).FirstOrDefaultAsync();
+        bool? isDeleted = l?.IsDeleted;
+        bool? isActive = l?.IsActive;
 
         var desired = ComputeLifecycleStatus(isDeleted, isActive);
         if (conversation.Status != desired)

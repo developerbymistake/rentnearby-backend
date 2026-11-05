@@ -213,14 +213,6 @@ public class PlanPurchaseService(
             JobsPosts = limits.JobsPosts,
         };
 
-        if (PlanFeatures.HasListingSlots(feature))
-        {
-            var counts = await CountSlotsAsync(userId, feature);
-            dto.Limits.Used = counts.Used;
-            dto.Limits.Live = counts.Live;
-            dto.PausedByPlanCount = counts.PlanPaused;
-        }
-
         if (flag.Enabled)
         {
             var snapshot = await catalog.GetAsync();
@@ -304,38 +296,6 @@ public class PlanPurchaseService(
     private async Task<bool> PlayTrialUsedAsync(Guid userId, string feature)
         => await db.PlaySubscriptions.AsNoTracking().AnyAsync(s => s.UserId == userId && s.FeatureKey == feature)
            || await db.UserPlans.AsNoTracking().AnyAsync(u => u.UserId == userId && u.FeatureKey == feature && u.Source == UserPlanSources.Trial);
-
-    private sealed record SlotCounts(int Used, int Live, int PlanPaused);
-
-    // One grouped COUNT over ix_*_owner_count instead of three round trips.
-    private async Task<SlotCounts> CountSlotsAsync(Guid userId, string kind)
-    {
-        if (kind == ListingKinds.Room)
-        {
-            var r = await db.RoomListings.AsNoTracking()
-                .Where(l => l.UserId == userId && !l.IsDeleted)
-                .GroupBy(_ => 1)
-                .Select(g => new
-                {
-                    Used = g.Count(l => l.LiveRequestStatus != GoLiveRequestStatuses.Rejected),
-                    Live = g.Count(l => l.IsActive || l.LiveRequestStatus == GoLiveRequestStatuses.Pending),
-                    Paused = g.Count(l => !l.IsActive && l.PauseReason == PauseReasons.Plan),
-                })
-                .FirstOrDefaultAsync();
-            return r == null ? new SlotCounts(0, 0, 0) : new SlotCounts(r.Used, r.Live, r.Paused);
-        }
-        var p = await db.PlotListings.AsNoTracking()
-            .Where(l => l.UserId == userId && !l.IsDeleted)
-            .GroupBy(_ => 1)
-            .Select(g => new
-            {
-                Used = g.Count(l => l.LiveRequestStatus != GoLiveRequestStatuses.Rejected),
-                Live = g.Count(l => l.IsActive || l.LiveRequestStatus == GoLiveRequestStatuses.Pending),
-                Paused = g.Count(l => !l.IsActive && l.PauseReason == PauseReasons.Plan),
-            })
-            .FirstOrDefaultAsync();
-        return p == null ? new SlotCounts(0, 0, 0) : new SlotCounts(p.Used, p.Live, p.Paused);
-    }
 
     public async Task<PurchaseStatusDto> GetStatusAsync(Guid userId, Guid purchaseId)
     {

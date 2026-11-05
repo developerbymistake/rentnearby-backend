@@ -23,25 +23,11 @@ public class AdminListingReportDto
     public DateTime? ResolvedAt { get; set; }
 
     // Listing details, looked up separately by ListingId+ListingType (ListingReport has no FK/nav
-    // to RoomListing/PlotListing) so admin can verify the reported content, not just report metadata.
+    // to StayListing/TaxiListing) so admin can verify the reported content, not just report metadata.
     public string? Address { get; set; }
     public string? Description { get; set; }
     public string? DistrictName { get; set; }
     public string? CityName { get; set; }
-
-    // Room-only
-    public string? RoomTypeName { get; set; }
-    public string? FurnishedStatus { get; set; }
-    public bool? IsAc { get; set; }
-    public int? SecurityDeposit { get; set; }
-    public short? Floor { get; set; }
-    public int? PriceMonthly { get; set; }
-
-    // Plot-only
-    public string? PlotType { get; set; }
-    public decimal? AreaValue { get; set; }
-    public string? AreaUnit { get; set; }
-    public decimal? AreaSqft { get; set; }
 
     // Stay-only
     public string? StayName { get; set; }
@@ -59,7 +45,6 @@ public class AdminListingReportDto
     public string? TripEnquiryDates { get; set; }
     public string? TripEnquiryStatus { get; set; }
 
-    // Populated only on GetReportById (single-item detail), left empty on the paginated list —
-    // same convention as GoLiveRequestDto.Photos.
+    // Populated only on GetReportById (single-item detail), left empty on the paginated list.
     public List<string> Photos { get; set; } = new();
 }

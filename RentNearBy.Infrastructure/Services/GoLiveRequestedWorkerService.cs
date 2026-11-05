@@ -118,8 +118,8 @@ public class GoLiveRequestedWorkerService : BackgroundService
         // "go review the queue" nudge, not a per-listing routed notification.
         var isStay = msg.ListingType == ListingKinds.Stay;
         var isTaxi = msg.ListingType == ListingKinds.Taxi;
-        var adminTitle = isTaxi ? "New taxi submitted" : isStay ? "New stay submitted" : "New Go-Live request";
-        var adminBody = isTaxi ? "A taxi is waiting for review" : isStay ? "A stay is waiting for review" : "New Go-Live request submitted for review";
+        var adminTitle = isTaxi ? "New taxi submitted" : isStay ? "New stay submitted" : "New listing submitted";
+        var adminBody = isTaxi ? "A taxi is waiting for review" : isStay ? "A stay is waiting for review" : "A listing is waiting for review";
         var destination = isTaxi
             ? new NotificationDestination(AdminNotificationRoutes.Taxis, JsonSerializer.Serialize(new { kind = "Taxi" }))
             : new NotificationDestination(AdminNotificationRoutes.GoLiveRequests,

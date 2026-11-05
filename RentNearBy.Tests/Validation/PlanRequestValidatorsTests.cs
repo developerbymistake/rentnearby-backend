@@ -17,7 +17,7 @@ public class PlanRequestValidatorsTests
     [InlineData(0, false)]
     public void Quote_CycleMonths(int months, bool valid)
     {
-        var result = Quote.TestValidate(new QuoteRequest(TestIds.RoomPlus, months, null));
+        var result = Quote.TestValidate(new QuoteRequest(TestIds.StayPlus, months, null));
 
         if (valid) result.ShouldNotHaveValidationErrorFor(x => x.CycleMonths);
         else result.ShouldHaveValidationErrorFor(x => x.CycleMonths).WithErrorMessage("CycleMonths must be 1, 3 or 12");
@@ -32,7 +32,7 @@ public class PlanRequestValidatorsTests
     [InlineData(33, false)]
     public void Quote_CouponCodeLength(int length, bool valid)
     {
-        var result = Quote.TestValidate(new QuoteRequest(TestIds.RoomPlus, 1, new string('C', length)));
+        var result = Quote.TestValidate(new QuoteRequest(TestIds.StayPlus, 1, new string('C', length)));
 
         if (valid) result.ShouldNotHaveAnyValidationErrors();
         else result.ShouldHaveValidationErrorFor(x => x.CouponCode);
@@ -40,7 +40,7 @@ public class PlanRequestValidatorsTests
 
     [Fact]
     public void Quote_NullCoupon_Valid()
-        => Quote.TestValidate(new QuoteRequest(TestIds.RoomPlus, 12, null, UseTrial: true)).ShouldNotHaveAnyValidationErrors();
+        => Quote.TestValidate(new QuoteRequest(TestIds.StayPlus, 12, null, UseTrial: true)).ShouldNotHaveAnyValidationErrors();
 
     [Theory]
     [InlineData(2, 10, false)]
@@ -48,7 +48,7 @@ public class PlanRequestValidatorsTests
     [InlineData(1, 33, false)]
     public void CreateOrder_CycleAndCoupon(int months, int couponLength, bool valid)
     {
-        var result = CreateOrder.TestValidate(new CreatePlanOrderRequest(TestIds.RoomPlus, months, new string('C', couponLength)));
+        var result = CreateOrder.TestValidate(new CreatePlanOrderRequest(TestIds.StayPlus, months, new string('C', couponLength)));
 
         Assert.Equal(valid, result.IsValid);
     }
@@ -92,10 +92,10 @@ public class PlanRequestValidatorsTests
 
     [Fact]
     public void StartTrial_PlanId_Valid()
-        => new StartTrialRequestValidator().TestValidate(new StartTrialRequest(TestIds.RoomPlus)).ShouldNotHaveAnyValidationErrors();
+        => new StartTrialRequestValidator().TestValidate(new StartTrialRequest(TestIds.StayPlus)).ShouldNotHaveAnyValidationErrors();
 
     private static AdminGrantPlanRequest Grant(int days = 30, string reason = "Goodwill", string key = "key-1")
-        => new(TestIds.RoomPlus, days, reason, key);
+        => new(TestIds.StayPlus, days, reason, key);
 
     [Theory]
     [InlineData(1, true)]
@@ -147,12 +147,4 @@ public class PlanRequestValidatorsTests
     [InlineData(0, false)]
     public void AdminRefund_ReasonLength(int length, bool valid)
         => Assert.Equal(valid, new AdminRefundPurchaseRequestValidator().TestValidate(new AdminRefundPurchaseRequest(new string('r', length))).IsValid);
-
-    [Fact]
-    public void SwapLive_EmptyId_Error()
-        => new SwapLiveRequestValidator().TestValidate(new SwapLiveRequest(Guid.Empty)).ShouldHaveValidationErrorFor(x => x.PauseListingId);
-
-    [Fact]
-    public void SwapLive_Id_Valid()
-        => new SwapLiveRequestValidator().TestValidate(new SwapLiveRequest(Guid.NewGuid())).ShouldNotHaveAnyValidationErrors();
 }

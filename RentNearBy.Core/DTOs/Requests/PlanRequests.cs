@@ -11,8 +11,6 @@ public class VerifyPlanPurchaseRequest : VerifyPaymentRequest
 
 public record StartTrialRequest(Guid PlanId);
 
-public record SwapLiveRequest(Guid PauseListingId);
-
 public record PlanFeatureInput(string Key, int Value);
 
 public record PlanPriceInput(int CycleMonths, int PriceInr, string? RazorpayPlanId, bool IsEnabled = true,

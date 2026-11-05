@@ -52,30 +52,13 @@ public class RoleChangeRulesTests
             RoleChangeRules.CooldownMessage(new DateTime(2026, 10, 31, 20, 30, 0, DateTimeKind.Unspecified)));
 
     [Theory]
-    [InlineData(ListingKinds.Room, "Live rooms or a pending Go Live request block this role change.")]
-    [InlineData(ListingKinds.Plot, "Live plots or a pending Go Live request block this role change.")]
     [InlineData(ListingKinds.Stay, "A stay that was approved or is under review blocks this role change.")]
     [InlineData(ListingKinds.Taxi, "A taxi that was approved or is under review blocks this role change.")]
+    [InlineData("Other", "A listing that was approved or is under review blocks this role change.")]
     public void LiveListingBlockedMessage_PerKind(string kind, string expected)
         => Assert.Equal(expected, RoleChangeRules.LiveListingBlockedMessage(kind));
 
-    [Fact]
-    public void RoleLockedErrorType_Constant_IsRoleLocked()
-        => Assert.Equal("RoleLocked", RoleChangeRules.RoleLockedErrorType);
-
     [Theory]
-    [InlineData(ListingKinds.Room, "Role is locked after your first approved room.")]
-    [InlineData(ListingKinds.Plot, "Role is locked after your first approved plot.")]
-    [InlineData(ListingKinds.Stay, "Role is locked after your first approved stay.")]
-    [InlineData(ListingKinds.Taxi, "Role is locked after your first approved taxi.")]
-    public void RoleLockedMessage_PerKind(string kind, string expected)
-        => Assert.Equal(expected, RoleChangeRules.RoleLockedMessage(kind));
-
-    [Theory]
-    [InlineData(ListingKinds.Room, true, null, true)]
-    [InlineData(ListingKinds.Room, false, null, false)]
-    [InlineData(ListingKinds.Plot, true, null, true)]
-    [InlineData(ListingKinds.Plot, false, "Approved", false)]
     [InlineData(ListingKinds.Stay, false, StayStatuses.PendingReview, true)]
     [InlineData(ListingKinds.Stay, false, StayStatuses.Approved, true)]
     [InlineData(ListingKinds.Stay, true, StayStatuses.Rejected, true)]

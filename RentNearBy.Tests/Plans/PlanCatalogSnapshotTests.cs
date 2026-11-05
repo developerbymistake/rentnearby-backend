@@ -13,9 +13,9 @@ public class PlanCatalogSnapshotTests
             CatalogPlanBuilder.Plus().WithId(A).WithName("Zeta").WithSortOrder(2).WithPlayProduct(null).Build(),
             CatalogPlanBuilder.Plus().WithId(B).WithName("Beta").WithSortOrder(2).WithPlayProduct(null).Build(),
             CatalogPlanBuilder.Plus().WithId(C).WithName("Omega").WithSortOrder(1).WithPlayProduct(null).Build(),
-            PlanCatalogSnapshotBuilder.PlotPlus).Build();
+            PlanCatalogSnapshotBuilder.TaxiPlus).Build();
 
-        Assert.Equal(new[] { C, B, A }, snapshot.PlansOf(ListingKinds.Room).Select(p => p.Id));
+        Assert.Equal(new[] { C, B, A }, snapshot.PlansOf(ListingKinds.Stay).Select(p => p.Id));
     }
 
     [Fact]
@@ -28,7 +28,7 @@ public class PlanCatalogSnapshotTests
 
     [Fact]
     public void GetPlan_KnownId_ReturnsPlan()
-        => Assert.Equal("Plus", new PlanCatalogSnapshotBuilder().Build().GetPlan(TestIds.RoomPlus)?.Name);
+        => Assert.Equal("Plus", new PlanCatalogSnapshotBuilder().Build().GetPlan(TestIds.StayPlus)?.Name);
 
     [Fact]
     public void FindByPlayProduct_SharedProductId_ReturnsFirstInCatalogOrder()
@@ -49,13 +49,13 @@ public class PlanCatalogSnapshotTests
     {
         var snapshot = new PlanCatalogSnapshotBuilder().With(CatalogPlanBuilder.Plus().Disabled().Build()).Build();
 
-        Assert.Equal(TestIds.RoomPlus, snapshot.FindByPlayProduct("room_plus")?.Id);
+        Assert.Equal(TestIds.StayPlus, snapshot.FindByPlayProduct("stay_plus")?.Id);
     }
 
     [Fact]
     public void FindPrice_KnownBasePlan_ReturnsThatPrice()
     {
-        var price = new PlanCatalogSnapshotBuilder().Build().FindPrice(TestIds.RoomPlus, "cycle-3m");
+        var price = new PlanCatalogSnapshotBuilder().Build().FindPrice(TestIds.StayPlus, "cycle-3m");
 
         Assert.NotNull(price);
         Assert.Equal(TestIds.Price3m, price.Id);
@@ -66,7 +66,7 @@ public class PlanCatalogSnapshotTests
     [InlineData("cycle-6m")]
     [InlineData("")]
     public void FindPrice_UnknownBasePlan_ReturnsNull(string basePlanId)
-        => Assert.Null(new PlanCatalogSnapshotBuilder().Build().FindPrice(TestIds.RoomPlus, basePlanId));
+        => Assert.Null(new PlanCatalogSnapshotBuilder().Build().FindPrice(TestIds.StayPlus, basePlanId));
 
     [Fact]
     public void FindPrice_UnknownPlan_ReturnsNull()
@@ -77,17 +77,17 @@ public class PlanCatalogSnapshotTests
     {
         var snapshot = new PlanCatalogSnapshotBuilder().Build();
 
-        Assert.Equal(TestIds.RoomFree, snapshot.DefaultPlan(ListingKinds.Room)?.Id);
-        Assert.Equal(new PlanFeatureValues(1, 0, false, 0), snapshot.DefaultValues(ListingKinds.Room));
+        Assert.Equal(TestIds.StayFree, snapshot.DefaultPlan(ListingKinds.Stay)?.Id);
+        Assert.Equal(new PlanFeatureValues(1, 0, false, 0), snapshot.DefaultValues(ListingKinds.Stay));
     }
 
     [Fact]
     public void DefaultValues_NoDefaultPlan_ReturnsFallback()
     {
-        var snapshot = new PlanCatalogSnapshotBuilder().With(PlanCatalogSnapshotBuilder.RoomPlus).Build();
+        var snapshot = new PlanCatalogSnapshotBuilder().With(PlanCatalogSnapshotBuilder.StayPlus).Build();
 
-        Assert.Null(snapshot.DefaultPlan(ListingKinds.Room));
-        Assert.Equal(PlanFeatureValues.Fallback, snapshot.DefaultValues(ListingKinds.Room));
+        Assert.Null(snapshot.DefaultPlan(ListingKinds.Stay));
+        Assert.Equal(PlanFeatureValues.Fallback, snapshot.DefaultValues(ListingKinds.Stay));
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public class PlanCatalogSnapshotTests
             CatalogPlanBuilder.Plus().WithId(C).WithPriority(5).WithPlayProduct(null).Build(),
             CatalogPlanBuilder.Plus().WithId(Guid.NewGuid()).WithPriority(5).WithPlayProduct(null).Build()).Build();
 
-        Assert.Equal(new short[] { 5, 2, 0 }, snapshot.DistinctPriorityRanks(ListingKinds.Room));
+        Assert.Equal(new short[] { 5, 2, 0 }, snapshot.DistinctPriorityRanks(ListingKinds.Stay));
     }
 
     [Fact]
@@ -120,17 +120,17 @@ public class PlanCatalogSnapshotTests
     {
         var snapshot = new PlanCatalogSnapshotBuilder().With(CatalogPlanBuilder.Plus().WithPriority(-3).Build()).Build();
 
-        Assert.Equal(new short[] { 0 }, snapshot.DistinctPriorityRanks(ListingKinds.Room));
+        Assert.Equal(new short[] { 0 }, snapshot.DistinctPriorityRanks(ListingKinds.Stay));
     }
 
     [Fact]
     public void DistinctPriorityRanks_DisabledPlan_RankIncluded()
     {
         var snapshot = new PlanCatalogSnapshotBuilder().With(
-            PlanCatalogSnapshotBuilder.RoomFree,
+            PlanCatalogSnapshotBuilder.StayFree,
             CatalogPlanBuilder.Plus().WithPriority(4).Disabled().Build()).Build();
 
-        Assert.Equal(new short[] { 4, 0 }, snapshot.DistinctPriorityRanks(ListingKinds.Room));
+        Assert.Equal(new short[] { 4, 0 }, snapshot.DistinctPriorityRanks(ListingKinds.Stay));
     }
 
     [Fact]
@@ -138,8 +138,8 @@ public class PlanCatalogSnapshotTests
     {
         var snapshot = new PlanCatalogSnapshotBuilder().With(
             CatalogPlanBuilder.Plus().WithPriority(7).Build(),
-            CatalogPlanBuilder.Plus().ForFeature(ListingKinds.Plot).WithId(TestIds.PlotPlus).WithPlayProduct("plot_plus").WithPriority(3).Build()).Build();
+            CatalogPlanBuilder.Plus().ForFeature(ListingKinds.Taxi).WithId(TestIds.TaxiPlus).WithPlayProduct("taxi_plus").WithPriority(3).Build()).Build();
 
-        Assert.Equal(new short[] { 3, 0 }, snapshot.DistinctPriorityRanks(ListingKinds.Plot));
+        Assert.Equal(new short[] { 3, 0 }, snapshot.DistinctPriorityRanks(ListingKinds.Taxi));
     }
 }

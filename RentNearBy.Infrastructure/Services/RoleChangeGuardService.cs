@@ -1,32 +1,19 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Blocking = live with paid time left, or a pending Go Live request. Stays and taxis: under review, approved,
-// or ever approved (even if later rejected or deleted), whatever the tab state. The batch overload counts live rows only (display).
-public class RoleChangeGuardService(ApplicationDbContext context, IUnitOfWork unitOfWork, IMemoryCache cache)
+// Blocking = a stay or taxi under review, approved, or ever approved (even if later rejected or deleted),
+// whatever the tab state. The batch overload counts live rows only (display).
+public class RoleChangeGuardService(ApplicationDbContext context)
     : IRoleChangeGuardService
 {
     public async Task<int> GetBlockingCountAsync(Guid userId, string leavingKind)
     {
-        var tabs = await AppTabCache.GetAsync(unitOfWork, cache);
-        if ((leavingKind == ListingKinds.Room || leavingKind == ListingKinds.Plot) && !TabState.IsKindActive(tabs, leavingKind)) return 0;
-
-        var now = DateTime.UtcNow;
         return leavingKind switch
         {
-            ListingKinds.Room => await context.RoomListings.AsNoTracking()
-                .CountAsync(l => l.UserId == userId && !l.IsDeleted
-                    && ((l.IsActive && l.ValidUntil != null && l.ValidUntil > now)
-                        || l.LiveRequestStatus == GoLiveRequestStatuses.Pending)),
-            ListingKinds.Plot => await context.PlotListings.AsNoTracking()
-                .CountAsync(l => l.UserId == userId && !l.IsDeleted
-                    && ((l.IsActive && l.ValidUntil != null && l.ValidUntil > now)
-                        || l.LiveRequestStatus == GoLiveRequestStatuses.Pending)),
             ListingKinds.Stay => await context.StayListings.AsNoTracking()
                 .CountAsync(s => s.UserId == userId
                     && (s.EverApproved
@@ -45,24 +32,6 @@ public class RoleChangeGuardService(ApplicationDbContext context, IUnitOfWork un
         if (userIds.Count == 0)
             return new Dictionary<Guid, BlockingListingCounts>();
 
-        var now = DateTime.UtcNow;
-
-        var rooms = await context.RoomListings.AsNoTracking()
-            .Where(l => userIds.Contains(l.UserId) && !l.IsDeleted
-                && ((l.IsActive && l.ValidUntil != null && l.ValidUntil > now)
-                    || l.LiveRequestStatus == GoLiveRequestStatuses.Pending))
-            .GroupBy(l => l.UserId)
-            .Select(g => new { UserId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.UserId, x => x.Count);
-
-        var plots = await context.PlotListings.AsNoTracking()
-            .Where(l => userIds.Contains(l.UserId) && !l.IsDeleted
-                && ((l.IsActive && l.ValidUntil != null && l.ValidUntil > now)
-                    || l.LiveRequestStatus == GoLiveRequestStatuses.Pending))
-            .GroupBy(l => l.UserId)
-            .Select(g => new { UserId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.UserId, x => x.Count);
-
         var stays = await context.StayListings.AsNoTracking()
             .Where(s => userIds.Contains(s.UserId) && !s.IsDeleted
                 && (s.Status == StayStatuses.PendingReview || s.Status == StayStatuses.Approved))
@@ -79,8 +48,6 @@ public class RoleChangeGuardService(ApplicationDbContext context, IUnitOfWork un
 
         return userIds.Distinct().ToDictionary(
             id => id,
-            id => new BlockingListingCounts(
-                rooms.GetValueOrDefault(id), plots.GetValueOrDefault(id), stays.GetValueOrDefault(id),
-                taxis.GetValueOrDefault(id)));
+            id => new BlockingListingCounts(stays.GetValueOrDefault(id), taxis.GetValueOrDefault(id)));
     }
 }

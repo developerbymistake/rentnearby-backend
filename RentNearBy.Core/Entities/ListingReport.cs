@@ -4,7 +4,7 @@ public class ListingReport
 {
     public Guid Id { get; set; }
     public Guid ListingId { get; set; }
-    public string ListingType { get; set; } = string.Empty; // "Room" | "Plot"
+    public string ListingType { get; set; } = string.Empty; // "Stay" | "Taxi" | "TripEnquiry"
 
     public Guid ReporterUserId { get; set; }
     public string ReporterName { get; set; } = string.Empty;

@@ -516,7 +516,7 @@ public static class StayHandlers
         using var stream = photo.OpenReadStream();
         if (!IsValidImageMagicBytes(stream)) return BadRequestResponse("File must be a valid image (JPEG, PNG or WebP)");
         stream.Position = 0;
-        // Same Cloudinary prefix as rooms/plots (user_{userId}/listing_{id}), so the shared
+        // Shared Cloudinary prefix (user_{userId}/listing_{id}), so the shared
         // purge/account-deletion photo cleanup covers stays without changes.
         var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, stay.Id);
 
