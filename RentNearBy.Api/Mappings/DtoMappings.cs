@@ -185,6 +185,7 @@ public static class DtoMappings
                 MaxGuests = r.MaxGuests,
                 RoomName = r.RoomName,
                 Meals = r.Meals,
+                Floor = r.Floor,
             })
             .ToList();
 

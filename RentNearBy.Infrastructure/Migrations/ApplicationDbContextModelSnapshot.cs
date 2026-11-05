@@ -3229,6 +3229,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<short?>("Floor")
+                        .HasColumnType("smallint");
+
                     b.Property<short>("MaxGuests")
                         .HasColumnType("smallint");
 

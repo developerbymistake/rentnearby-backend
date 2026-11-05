@@ -13,4 +13,6 @@ public class StayRoomInput
     public short MaxGuests { get; set; }
     public string RoomName { get; set; } = string.Empty;
     public string Meals { get; set; } = string.Empty;
+    // 0 = Ground .. 3 = "3+"; null keeps the stored floor (older apps send none).
+    public short? Floor { get; set; }
 }

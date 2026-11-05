@@ -194,7 +194,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
     private record BoxQueryResult(
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
         string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured,
-        int? MaxGuests, string? Meals, TimeOnly? CheckInTime, int RoomCount);
+        int? MaxGuests, string? Meals, TimeOnly? CheckInTime, int RoomCount, string? RoomsJson, bool HasGroundFloorRoom);
 
     private static string? CheckInText(TimeOnly? t) => t?.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
@@ -230,7 +230,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     rm."MaxGuests",
                     rm."Meals",
                     s."CheckInTime",
-                    COALESCE(rm."RoomCount", 0) AS "RoomCount"
+                    COALESCE(rm."RoomCount", 0) AS "RoomCount",
+                    rm."RoomsJson",
+                    COALESCE(rm."HasGroundFloorRoom", FALSE) AS "HasGroundFloorRoom"
                 FROM "StayListings" s
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
                 LEFT JOIN "StayTypes" t ON t."Id" = s."StayTypeId"
@@ -244,7 +246,10 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 LEFT JOIN LATERAL (
                     SELECT MAX(r."MaxGuests")::int4 AS "MaxGuests",
                            COUNT(*)::int4 AS "RoomCount",
-                           string_agg(DISTINCT NULLIF(btrim(r."Meals"), ''), ' · ') AS "Meals"
+                           string_agg(DISTINCT NULLIF(btrim(r."Meals"), ''), ' · ') AS "Meals",
+                           json_agg(json_build_object('roomName', r."RoomName", 'maxGuests', r."MaxGuests", 'floor', r."Floor")
+                                    ORDER BY r."RoomIndex")::text AS "RoomsJson",
+                           bool_or(r."Floor" = 0) AS "HasGroundFloorRoom"
                     FROM "StayRooms" r
                     WHERE r."StayListingId" = s."Id"
                 ) rm ON TRUE
@@ -286,13 +291,16 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 Meals = x.Row.Meals,
                 CheckInTime = CheckInText(x.Row.CheckInTime),
                 RoomCount = x.Row.RoomCount,
+                HasGroundFloorRoom = x.Row.HasGroundFloorRoom,
+                Rooms = StayNearbyRooms.Parse(x.Row.RoomsJson),
             })
             .ToList();
     }
 
     private record KnnQueryResult(
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
-        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured, double DistanceMeters);
+        string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured, double DistanceMeters,
+        string? RoomsJson, bool HasGroundFloorRoom);
 
     public async Task<IEnumerable<StayNearbyDto>> GetNearestAsync(
         double latitude, double longitude, int count, Guid districtId, Guid? stayTypeId)
@@ -313,7 +321,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     p."PhotoUrl"   AS "ThumbnailUrl",
                     s."PriorityRank",
                     s."IsFeatured",
-                    ST_Distance(s."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters"
+                    ST_Distance(s."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters",
+                    rm."RoomsJson",
+                    COALESCE(rm."HasGroundFloorRoom", FALSE) AS "HasGroundFloorRoom"
                 FROM "StayListings" s
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
                 LEFT JOIN "StayTypes" t ON t."Id" = s."StayTypeId"
@@ -324,6 +334,13 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     ORDER BY p."PhotoOrder"
                     LIMIT 1
                 ) p ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT json_agg(json_build_object('roomName', r."RoomName", 'maxGuests', r."MaxGuests", 'floor', r."Floor")
+                                    ORDER BY r."RoomIndex")::text AS "RoomsJson",
+                           bool_or(r."Floor" = 0) AS "HasGroundFloorRoom"
+                    FROM "StayRooms" r
+                    WHERE r."StayListingId" = s."Id"
+                ) rm ON TRUE
                 WHERE s."Status" = 'Approved'
                   AND s."AcceptingGuests" = TRUE
                   AND s."IsDeleted" = FALSE
@@ -354,6 +371,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 DistanceKm = r.DistanceMeters / 1000.0,
                 PriorityRank = r.PriorityRank,
                 IsFeatured = r.IsFeatured,
+                HasGroundFloorRoom = r.HasGroundFloorRoom,
+                Rooms = StayNearbyRooms.Parse(r.RoomsJson),
             })
             .ToList();
     }

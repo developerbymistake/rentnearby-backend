@@ -197,9 +197,11 @@ public static class JourneyHandlers
         var rows = await journeys.GetLiveByUserAsync(userId);
         var taxis = await LoadTaxisAsync(journeys, rows);
         var trips = await LoadTripsAsync(unitOfWork, rows, userId);
+        var tripIds = rows.Where(j => j.TripId != null).Select(j => j.TripId!.Value).Distinct().ToList();
+        var tripRows = tripIds.Count == 0 ? Array.Empty<TripEnquiry>() : await unitOfWork.TripEnquiries.GetByTripsAsync(tripIds);
         return OkResponse(new JourneyListDto
         {
-            Items = rows.Select(j => WithTrip(Map(j, taxis, new HashSet<int>()), j, trips, null)).ToList(),
+            Items = rows.Select(j => WithTrip(Map(j, taxis, new HashSet<int>(), tripRows), j, trips, null)).ToList(),
         });
     }
 
@@ -293,7 +295,7 @@ public static class JourneyHandlers
             }
 
             journey.ListedTotal = Total(journey.Legs);
-            journey.Status = JourneyRules.JourneyStatusOf(journey.Legs);
+            journey.Status = JourneyRules.JourneyStatusOf(journey.Legs, await BookedLegsAsync(journeys, journey.Id));
             journey.LastRefreshedAt = now;
             journey.UpdatedAt = now;
         }
@@ -378,6 +380,10 @@ public static class JourneyHandlers
 
         if (leg.DriverTaxiId != request.TaxiId)
         {
+            var bookedLegs = await BookedLegsAsync(journeys, journey.Id);
+            if (bookedLegs.Contains(legIndex))
+                return ErrorResponse(409, "Cancel this booked car in your trip first", JourneyErrorTypes.JourneyInTrip);
+
             var taxis = await journeys.LoadTaxisAsync([request.TaxiId, leg.DriverTaxiId]);
             if (!taxis.TryGetValue(request.TaxiId, out var next) || !next.IsPublic || next.UserId == userId)
                 return ErrorResponse(409, "This driver is not available.", JourneyErrorTypes.DriverNotOnLeg);
@@ -407,7 +413,7 @@ public static class JourneyHandlers
             leg.UpdatedAt = now;
 
             journey.ListedTotal = Total(journey.Legs);
-            journey.Status = JourneyRules.JourneyStatusOf(journey.Legs);
+            journey.Status = JourneyRules.JourneyStatusOf(journey.Legs, bookedLegs);
             journey.UpdatedAt = now;
             try
             {
@@ -420,6 +426,15 @@ public static class JourneyHandlers
         }
         return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>()));
     }
+
+    // Cars of this journey booked in a trip: their driver is never swapped and a pause never makes the journey DriverUnavailable.
+    private static async Task<HashSet<int>> BookedLegsAsync(ISavedJourneyRepository journeys, Guid journeyId)
+        => (await journeys.GetSegmentRowsAsync(journeyId))
+            .Where(r => TripEnquiryStatuses.IsBooked(r.Status))
+            .Select(r => TripEnquiryContexts.Read(r.ContextJson).LegIndex)
+            .Where(i => i != null)
+            .Select(i => i!.Value)
+            .ToHashSet();
 
     // ---------- PUT /taxis/journeys/{id}/status ----------
 
@@ -471,7 +486,7 @@ public static class JourneyHandlers
         ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, Guid userId, SavedJourney journey, HashSet<int> fareChanged,
         TripLinkTarget? target = null)
     {
-        var dto = Map(journey, await LoadTaxisAsync(journeys, [journey]), fareChanged);
+        var dto = Map(journey, await LoadTaxisAsync(journeys, [journey]), fareChanged, await journeys.GetSegmentRowsAsync(journey.Id));
         var trips = target != null
             ? new Dictionary<Guid, (Trip Trip, TripPlan Plan)> { [target.Trip.Id] = (target.Trip, target.Plan) }
             : await LoadTripsAsync(unitOfWork, [journey], userId);
@@ -504,7 +519,16 @@ public static class JourneyHandlers
         return dto;
     }
 
-    internal static JourneyDto Map(SavedJourney j, Dictionary<Guid, JourneyTaxiInfo> taxis, HashSet<int> fareChanged) => new()
+    // A car booked in a trip carries that row's status and agreed fare (tripRows: rows of the journey's trip or of the journey).
+    private static TripEnquiry? BookedRow(IReadOnlyList<TripEnquiry>? tripRows, Guid journeyId, int legIndex)
+        => tripRows?
+            .Where(r => TripEnquiryStatuses.IsBooked(r.Status) && TripSegmentRows.JourneyIdOf(r) == journeyId
+                        && TripSegmentRows.CarOf(r) == legIndex)
+            .OrderByDescending(r => r.UpdatedAt)
+            .FirstOrDefault();
+
+    internal static JourneyDto Map(
+        SavedJourney j, Dictionary<Guid, JourneyTaxiInfo> taxis, HashSet<int> fareChanged, IReadOnlyList<TripEnquiry>? tripRows = null) => new()
     {
         Id = j.Id,
         TripId = j.TripId,
@@ -549,6 +573,8 @@ public static class JourneyHandlers
             LastKnownAt = l.LastKnownAt,
             DriverAvailable = l.DriverAvailable,
             FareChanged = fareChanged.Contains(l.LegIndex),
+            BookingStatus = BookedRow(tripRows, j.Id, l.LegIndex)?.Status,
+            AgreedFare = BookedRow(tripRows, j.Id, l.LegIndex)?.AgreedFare,
         }).ToList(),
     };
 

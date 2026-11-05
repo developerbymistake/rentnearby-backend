@@ -152,7 +152,8 @@ public static class TripDisplayStatuses
     public const string HoldExpired = "holdExpired";
 }
 
-// Driver Trip leads chips: new = Asked, replied = FareSent, booked = BookedByTraveller/ConfirmedByBoth, closed = the rest.
+// Driver Trip leads chips: new = Asked and "I booked" waiting for the driver (BookedByTraveller), replied = FareSent,
+// booked = ConfirmedByBoth, closed = the rest and every booked row whose last day is before today.
 public static class TripDriverBuckets
 {
     public const string New = "new";
@@ -161,17 +162,26 @@ public static class TripDriverBuckets
     public const string Closed = "closed";
 
     public static readonly string[] All = [New, Replied, Booked, Closed];
-    public static readonly string[] NewStatuses = [TripEnquiryStatuses.Asked];
+    public static readonly string[] NewStatuses = [TripEnquiryStatuses.Asked, TripEnquiryStatuses.BookedByTraveller];
     public static readonly string[] RepliedStatuses = [TripEnquiryStatuses.FareSent];
-    public static readonly string[] BookedStatuses = [TripEnquiryStatuses.BookedByTraveller, TripEnquiryStatuses.ConfirmedByBoth];
+    public static readonly string[] BookedStatuses = [TripEnquiryStatuses.ConfirmedByBoth];
+    public static readonly string[] EndingStatuses = [TripEnquiryStatuses.BookedByTraveller, TripEnquiryStatuses.ConfirmedByBoth];
 
     public static string Of(string status) => status switch
     {
-        TripEnquiryStatuses.Asked => New,
+        TripEnquiryStatuses.Asked or TripEnquiryStatuses.BookedByTraveller => New,
         TripEnquiryStatuses.FareSent => Replied,
-        TripEnquiryStatuses.BookedByTraveller or TripEnquiryStatuses.ConfirmedByBoth => Booked,
+        TripEnquiryStatuses.ConfirmedByBoth => Booked,
         _ => Closed,
     };
+
+    // CheckOut = last day + 1: the row has ended once its last day is before today (the owner cancel rule).
+    public static bool HasEnded(DateOnly? checkOut, DateOnly todayIst) => checkOut is { } c && c <= todayIst;
+
+    public static string Of(string status, bool ended)
+        => ended && EndingStatuses.Contains(status) ? Closed : Of(status);
+
+    public static string Of(string status, DateOnly? checkOut, DateOnly todayIst) => Of(status, HasEnded(checkOut, todayIst));
 }
 
 public sealed record TripDriverCounts(int New, int Replied, int Booked, int Closed);
@@ -308,7 +318,8 @@ public static class TripDateRules
     public const string OutsideTripMessage = "Offer dates must be inside the trip (check-out the morning after the last day).";
 }
 
-// Owner list chips: new = Asked/Countered, offered = Offered, confirmed = both confirmed states, closed = the rest.
+// Owner list chips: new = Asked/Countered and a phone booking waiting for the host (ConfirmedByTraveller),
+// offered = Offered, confirmed = ConfirmedByBoth, closed = the rest.
 public static class TripOwnerBuckets
 {
     public const string New = "new";
@@ -317,26 +328,26 @@ public static class TripOwnerBuckets
     public const string Closed = "closed";
 
     public static readonly string[] All = [New, Offered, Confirmed, Closed];
-    public static readonly string[] NewStatuses = [TripEnquiryStatuses.Asked, TripEnquiryStatuses.Countered];
+    public static readonly string[] NewStatuses =
+        [TripEnquiryStatuses.Asked, TripEnquiryStatuses.Countered, TripEnquiryStatuses.ConfirmedByTraveller];
     public static readonly string[] OfferedStatuses = [TripEnquiryStatuses.Offered];
-    public static readonly string[] ConfirmedStatuses = TripEnquiryStatuses.Confirmed;
+    public static readonly string[] ConfirmedStatuses = [TripEnquiryStatuses.ConfirmedByBoth];
+    // Booked rows that end: they list under closed once the stay is over.
+    public static readonly string[] EndingStatuses = TripEnquiryStatuses.Confirmed;
 
     public static string Of(string status) => status switch
     {
-        TripEnquiryStatuses.Asked or TripEnquiryStatuses.Countered => New,
+        TripEnquiryStatuses.Asked or TripEnquiryStatuses.Countered or TripEnquiryStatuses.ConfirmedByTraveller => New,
         TripEnquiryStatuses.Offered => Offered,
-        TripEnquiryStatuses.ConfirmedByTraveller or TripEnquiryStatuses.ConfirmedByBoth => Confirmed,
+        TripEnquiryStatuses.ConfirmedByBoth => Confirmed,
         _ => Closed,
     };
 
-    // A confirmed booking whose check-out has passed has ended: it lists under closed.
+    // A booking whose check-out has passed has ended: it lists under closed.
     public static bool HasEnded(DateOnly? checkOut, DateOnly todayIst) => checkOut is { } c && c < todayIst;
 
     public static string Of(string status, bool ended)
-    {
-        var bucket = Of(status);
-        return bucket == Confirmed && ended ? Closed : bucket;
-    }
+        => ended && EndingStatuses.Contains(status) ? Closed : Of(status);
 
     public static string Of(string status, DateOnly? checkOut, DateOnly todayIst) => Of(status, HasEnded(checkOut, todayIst));
 }
@@ -858,7 +869,7 @@ public static class TripEnquiryText
 
     private static string? NeedWord(string need) => need switch
     {
-        TripNeeds.NoStairs => "no stairs",
+        TripNeeds.NoStairs => "a ground-floor room",
         TripNeeds.KidsSafe => "a safe room for kids",
         TripNeeds.VegFood => "vegetarian food",
         _ => null,
@@ -901,6 +912,8 @@ public static class TripCardStatuses
     public const string Received = "received";
     public const string Replaced = "replaced";
     public const string HoldExpired = "holdExpired";
+    // An advance card of a booking that was cancelled, failed or removed.
+    public const string Cancelled = "cancelled";
     // A revised offer the guest declined ("Keep Rs x").
     public const string Kept = "kept";
 }

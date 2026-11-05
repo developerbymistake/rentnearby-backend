@@ -21,4 +21,16 @@ public class StayNearbyDto
     public string? Meals { get; set; }
     public string? CheckInTime { get; set; }
     public int RoomCount { get; set; }
+    public bool HasGroundFloorRoom { get; set; }
+    // The first room (by position) that fits ?guests, else the largest room; set per request.
+    public string? BestRoomName { get; set; }
+    public int? BestRoomGuests { get; set; }
+    public List<StayNearbyRoomDto> Rooms { get; set; } = new();
+}
+
+public class StayNearbyRoomDto
+{
+    public string RoomName { get; set; } = string.Empty;
+    public short MaxGuests { get; set; }
+    public short? Floor { get; set; }
 }

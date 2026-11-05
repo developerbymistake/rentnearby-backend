@@ -173,7 +173,8 @@ public static class TripHandlers
 
         var key = TripCacheKeys.Supply(cityKey);
         var redis = sp.GetService<IConnectionMultiplexer>();
-        if (await ReadSupplyAsync(redis, memory, key) is { } cached) return OkResponse(cached);
+        var tabs = await AppTabCache.GetAsync(unitOfWork, memory);
+        if (await ReadSupplyAsync(redis, memory, key) is { } cached) return OkResponse(GatedSupply(cached, tabs));
 
         var (available, city) = await catalog.FindAsync(cityKey);
         city ??= await unitOfWork.Trips.FindLegSnapshotAsync(userId, cityKey);
@@ -192,8 +193,16 @@ public static class TripHandlers
         }
 
         await WriteSupplyAsync(redis, memory, key, supply);
-        return OkResponse(supply);
+        return OkResponse(GatedSupply(supply, tabs));
     }
+
+    // The cache holds raw counts; an off tab reports none, so a tab flip needs no flush.
+    public static TripCitySupplyDto GatedSupply(TripCitySupplyDto supply, IReadOnlyList<AppTabDto> tabs) => new()
+    {
+        DistrictId = supply.DistrictId,
+        Stays = TabState.IsActive(tabs, AppTabKeys.Stays) ? supply.Stays : 0,
+        Drivers = TabState.IsActive(tabs, AppTabKeys.Taxi) ? supply.Drivers : 0,
+    };
 
     private static async Task<TripCitySupplyDto?> ReadSupplyAsync(IConnectionMultiplexer? redis, IMemoryCache memory, string key)
     {
@@ -323,6 +332,7 @@ public static class TripHandlers
         plan.Normalize();
         if (await ResolveLegsAsync(plan, null, catalog, unitOfWork, create: true) is { } legError) return legError;
         KeepSkippedTaxiDays(plan, null);
+        KeepSkippedNights(plan, null);
         var linkIds = await SanitiseLinksAsync(plan, journeys, userId, null);
 
         var now = DateTime.UtcNow;
@@ -461,6 +471,19 @@ public static class TripHandlers
         }
     }
 
+    // Same for a "No stay tonight" night: it stays skipped when the stored night was skipped, otherwise the night has no stay.
+    public static void KeepSkippedNights(TripPlan plan, TripPlan? stored)
+    {
+        if (plan.Steps != null) return;
+        foreach (var day in plan.Days)
+        {
+            if (day.Stay is not { StayId: null } stay || stay.IsOwn == true || stay.Skipped == true) continue;
+            var storedStay = stored?.Days.FirstOrDefault(d => d.Day == day.Day)?.Stay;
+            if (storedStay?.Skipped == true) stay.Skipped = true;
+            else day.Stay = null;
+        }
+    }
+
     public static async Task<IResult> Update(
         Guid id, SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
         ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier, ILoggerFactory loggers,
@@ -484,7 +507,8 @@ public static class TripHandlers
         if (trip.Status == TripStatuses.Completed)
             return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
 
-        var status = request.Status ?? trip.Status;
+        var effectiveStatus = TripStatusRules.OnSave(trip.Status, request.Status, request.Plan!.Days.Sum(d => d.Spots.Count));
+        var status = effectiveStatus ?? trip.Status;
         if (status == TripStatuses.Planned && request.Plan!.Days.Sum(d => d.Spots.Count) == 0)
             return BadRequestResponse(PlanTripRequestValidator.NoPlacesMessage);
 
@@ -496,6 +520,7 @@ public static class TripHandlers
 
         // An app that does not know steps sends none: the stored ones stay; on its date change their own dates go.
         KeepSkippedTaxiDays(plan, stored);
+        KeepSkippedNights(plan, stored);
         var requestedSteps = plan.Steps;
         plan.Steps = TripStepsMerge.Resolve(stored.Steps, requestedSteps);
         if (requestedSteps == null
@@ -507,7 +532,7 @@ public static class TripHandlers
         // A title the traveller typed is never touched; the default follows the cities.
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, plan.LegCities);
         else if (trip.Title == TripTitles.Default(stored.LegCities)) trip.Title = TripTitles.Default(plan.LegCities);
-        if (request.Status != null) trip.Status = request.Status;
+        if (effectiveStatus != null) trip.Status = effectiveStatus;
         CopyFirstLeg(trip, plan);
         var oldStart = trip.StartDate;
         var oldEnd = trip.EndDate;
@@ -715,6 +740,8 @@ public static class TripHandlers
                 leg.Latitude = snapshot.Latitude;
                 leg.Longitude = snapshot.Longitude;
                 leg.NotReady = snapshot.NotReady;
+                if (snapshot.NotReady == true && (await catalog.FindAsync(leg.CityKey)).City is { Status: TripSpotStatuses.Ready })
+                    leg.NotReady = null;
                 leg.DistrictId = snapshot.DistrictId
                     ?? await unitOfWork.Districts.FindActiveContainingAsync(snapshot.Latitude, snapshot.Longitude);
                 continue;

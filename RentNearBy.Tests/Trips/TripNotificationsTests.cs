@@ -419,6 +419,18 @@ public class TripNotificationsTests
     }
 
     [Fact]
+    public void Stay_plan_push_carries_the_night_and_date()
+    {
+        var e = StayRow();
+        e.Day = 5;
+        var n = TripNotifications.TripHostDenied(e, Ctx(Traveller));
+        Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
+        using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+        Assert.Equal(5, doc.RootElement.GetProperty("day").GetInt32());
+        Assert.Equal("2026-11-01", doc.RootElement.GetProperty("date").GetString());
+    }
+
+    [Fact]
     public void Taxi_replies_args_always_carry_the_first_date()
     {
         var e = TaxiRow();

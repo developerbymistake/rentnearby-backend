@@ -101,7 +101,7 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
     {
         var size = Math.Max(1, pageSize);
         var skip = (Math.Max(1, page) - 1) * size;
-        var query = _dbSet.AsNoTracking().Where(e => e.OwnerUserId == ownerId);
+        var query = _dbSet.AsNoTracking().Where(e => e.OwnerUserId == ownerId && e.Kind == TripEnquiryKinds.Stay);
         query = bucket switch
         {
             TripOwnerBuckets.New => query.Where(e => TripOwnerBuckets.NewStatuses.Contains(e.Status)),
@@ -126,7 +126,7 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
     public async Task<TripOwnerCounts> GetOwnerCountsAsync(Guid ownerId)
     {
         var groups = await _dbSet.AsNoTracking()
-            .Where(e => e.OwnerUserId == ownerId)
+            .Where(e => e.OwnerUserId == ownerId && e.Kind == TripEnquiryKinds.Stay)
             .GroupBy(e => e.Status)
             .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToListAsync();
@@ -260,15 +260,22 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
     {
         var size = Math.Max(1, pageSize);
         var skip = (Math.Max(1, page) - 1) * size;
+        var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
+        var newStatuses = TripDriverBuckets.NewStatuses;
+        var repliedStatuses = TripDriverBuckets.RepliedStatuses;
+        var bookedStatuses = TripDriverBuckets.BookedStatuses;
+        var endingStatuses = TripDriverBuckets.EndingStatuses;
         var query = _dbSet.AsNoTracking().Where(e => e.OwnerUserId == driverId && e.Kind == TripEnquiryKinds.Taxi);
+        // Ended = last day before today (CheckOut = last day + 1), see TripDriverBuckets.HasEnded.
+        var live = query.Where(e => !endingStatuses.Contains(e.Status) || e.CheckOut == null || e.CheckOut > today);
         query = bucket switch
         {
-            TripDriverBuckets.New => query.Where(e => TripDriverBuckets.NewStatuses.Contains(e.Status)),
-            TripDriverBuckets.Replied => query.Where(e => TripDriverBuckets.RepliedStatuses.Contains(e.Status)),
-            TripDriverBuckets.Booked => query.Where(e => TripDriverBuckets.BookedStatuses.Contains(e.Status)),
-            _ => query.Where(e => !TripDriverBuckets.NewStatuses.Contains(e.Status)
-                && !TripDriverBuckets.RepliedStatuses.Contains(e.Status)
-                && !TripDriverBuckets.BookedStatuses.Contains(e.Status)),
+            TripDriverBuckets.New => live.Where(e => newStatuses.Contains(e.Status)),
+            TripDriverBuckets.Replied => live.Where(e => repliedStatuses.Contains(e.Status)),
+            TripDriverBuckets.Booked => live.Where(e => bookedStatuses.Contains(e.Status)),
+            _ => query.Where(e =>
+                (!newStatuses.Contains(e.Status) && !repliedStatuses.Contains(e.Status) && !bookedStatuses.Contains(e.Status))
+                || (endingStatuses.Contains(e.Status) && e.CheckOut != null && e.CheckOut <= today)),
         };
 
         var rows = await query
@@ -284,12 +291,13 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
 
     public async Task<TripDriverCounts> GetDriverCountsAsync(Guid driverId)
     {
+        var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
         var groups = await _dbSet.AsNoTracking()
             .Where(e => e.OwnerUserId == driverId && e.Kind == TripEnquiryKinds.Taxi)
-            .GroupBy(e => e.Status)
-            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .GroupBy(e => new { e.Status, Ended = e.CheckOut != null && e.CheckOut <= today })
+            .Select(g => new { g.Key.Status, g.Key.Ended, Count = g.Count() })
             .ToListAsync();
-        int Sum(string bucket) => groups.Where(g => TripDriverBuckets.Of(g.Status) == bucket).Sum(g => g.Count);
+        int Sum(string bucket) => groups.Where(g => TripDriverBuckets.Of(g.Status, g.Ended) == bucket).Sum(g => g.Count);
         return new TripDriverCounts(
             Sum(TripDriverBuckets.New), Sum(TripDriverBuckets.Replied), Sum(TripDriverBuckets.Booked), Sum(TripDriverBuckets.Closed));
     }

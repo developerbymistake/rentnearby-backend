@@ -37,6 +37,10 @@ public class UpsertStayRoomsRequestValidator : AbstractValidator<UpsertStayRooms
             room.RuleFor(r => r.Meals)
                 .Must(v => v != null && StayMeals.All.Contains(v))
                 .WithMessage("Meals must be Room only, Breakfast or All meals");
+
+            room.RuleFor(r => r.Floor)
+                .InclusiveBetween((short)0, (short)3).WithMessage("Floor must be Ground, 1, 2 or 3+")
+                .When(r => r.Floor != null);
         }).When(x => x.Rooms != null);
 
         // Declared after the per-room rules so "Pick a room name" wins; OverridePropertyName keeps it

@@ -366,7 +366,8 @@ public static class TripNotifications
 
     private static Target ChatOrEnquiries(TripEnquiry e, TripPushContext ctx) => ctx.ChatArgsJson != null ? Chat(e, ctx) : Enquiries(e, ctx);
 
-    // Traveller side: a trip taxi opens its day's replies, a journey lead (no trip) its saved journey, a stay the plan.
+    // Traveller side: a trip taxi opens its day's replies, a journey lead (no trip) its saved journey,
+    // a stay or a travel-day car the plan on its night / travel day.
     private static Target Plan(TripEnquiry e, TripPushContext ctx)
     {
         if (e.TripId is { } t)
@@ -375,7 +376,10 @@ public static class TripNotifications
                 {
                     tripId = t, day = FirstDay(e), enquiryId = e.Id, date = e.CheckIn?.ToString("yyyy-MM-dd", Inv),
                 }))
-                : new(UserNotificationRoutes.TripPlan, JsonSerializer.Serialize(new { tripId = t }));
+                : new(UserNotificationRoutes.TripPlan, JsonSerializer.Serialize(new
+                {
+                    tripId = t, day = e.Day, date = e.CheckIn?.ToString("yyyy-MM-dd", Inv),
+                }));
         if (IsTaxi(e))
             return new(JourneyNotifications.Route, ctx.JourneyId is { } j ? JsonSerializer.Serialize(new { journeyId = j }) : null);
         return new(UserNotificationRoutes.MyTrips, null);

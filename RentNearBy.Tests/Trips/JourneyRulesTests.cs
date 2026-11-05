@@ -211,4 +211,24 @@ public class JourneyRulesTests
         Assert.Equal(UserNotificationRoutes.TripPlan, push.Event.ActionRoute);
         Assert.Contains(trip.ToString(), push.Event.ActionArgumentsJson);
     }
+
+    [Fact]
+    public void Watch_marks_a_booked_car_off_without_a_backup_push_or_DriverUnavailable()
+    {
+        var today = new DateOnly(2026, 11, 5);
+        var driver = Guid.NewGuid();
+        var journey = WatchedJourney(today.AddDays(5), Guid.NewGuid(), driver);
+        var taxis = new Dictionary<Guid, JourneyTaxiInfo> { [driver] = Taxi(driver, false) };
+        var pushes = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
+        var booked = new HashSet<int> { 1 };
+
+        var dirty = RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
+            journey, taxis, today, DateTime.UtcNow, pushes, null, booked);
+
+        Assert.True(dirty);
+        Assert.False(journey.Legs.First().DriverAvailable);
+        Assert.Empty(pushes);
+        Assert.NotEqual(JourneyStatuses.DriverUnavailable, JourneyRules.JourneyStatusOf(journey.Legs, booked));
+        Assert.Equal(JourneyStatuses.DriverUnavailable, JourneyRules.JourneyStatusOf(journey.Legs));
+    }
 }

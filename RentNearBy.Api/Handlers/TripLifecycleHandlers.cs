@@ -60,6 +60,9 @@ public static class TripLifecycleHandlers
 
     // ---------- POST /trips/{tripId}/problems ----------
 
+    // Plan day 1 = start date; a day before today's plan day is over.
+    public static bool ProblemDayOver(DateOnly start, int day, DateOnly todayIst) => day < todayIst.DayNumber - start.DayNumber + 1;
+
     public static async Task<IResult> Problem(
         Guid tripId, TripProblemRequest request, IValidator<TripProblemRequest> validator, ClaimsPrincipal principal,
         IUnitOfWork unitOfWork, ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier,
@@ -86,6 +89,10 @@ public static class TripLifecycleHandlers
             e = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(enquiryId);
             if (e == null || e.TripId != tripId || e.TravellerUserId != userId || e.Kind != TripProblemKinds.ExpectedKind(request.Kind))
                 return BadRequestResponse("That booking does not match the problem");
+            // A day already over (e.g. the last night on the check-out morning) never fails a booking that was used.
+            if ((trip.StartDate ?? TripHandlers.ReadPlan(trip).Settings?.StartDate) is { } dayStart
+                && ProblemDayOver(dayStart, request.Day, TripExecutionRules.TodayIst(now)))
+                return ErrorResponse(422, "That day is already over.", TripEnquiryErrorTypes.ProblemOutsideTrip);
         }
 
         var posts = new List<TripChatPost>();

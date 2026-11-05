@@ -58,6 +58,21 @@ public static class TripEnquiryOps
         }
     }
 
+    // A booking that leaves ConfirmedByBoth with an advance still open: its pay and proof cards close, so no UPI ID stays payable.
+    // AdvanceStatus is kept (see TripBookingStates.IsOpenForCompletion).
+    public static async Task CloseOpenAdvanceAsync(ITripChatService chat, TripEnquiry e, List<TripChatPost> posts)
+    {
+        if (e.ConversationId is not { } conversationId
+            || e.AdvanceStatus is not (TripAdvanceStatuses.Pending or TripAdvanceStatuses.ProofSent)) return;
+        if (await chat.FindCardMessageIdAsync(conversationId, TripMessageTypes.AdvanceRequest, e.Id) is { } requestId
+            && await chat.RewriteStatusAsync(requestId, TripCardStatuses.Cancelled) is { } request)
+            posts.Add(request);
+        if (e.AdvanceStatus == TripAdvanceStatuses.ProofSent
+            && await chat.FindCardMessageIdAsync(conversationId, TripMessageTypes.AdvanceProofSent, e.Id) is { } proofId
+            && await chat.RewriteStatusAsync(proofId, TripCardStatuses.Cancelled) is { } proof)
+            posts.Add(proof);
+    }
+
     public static async Task PostSystemAsync(
         ApplicationDbContext db, ITripChatService chat, TripEnquiry e, Guid? actorUserId, string kind, List<TripChatPost> posts)
     {
@@ -94,6 +109,7 @@ public class TripEnquiryClosure(
         {
             if (TripEnquiryStatuses.IsBooked(e.Status))
             {
+                await TripEnquiryOps.CloseOpenAdvanceAsync(chat, e, _posts);
                 e.Status = TripEnquiryStatuses.CancelledByOwner;
                 e.CancelledAt = now;
                 e.CancelledByUserId = e.OwnerUserId;
@@ -209,6 +225,7 @@ public class TripEnquiryClosure(
     {
         if (TripEnquiryStatuses.IsBooked(e.Status))
         {
+            await TripEnquiryOps.CloseOpenAdvanceAsync(chat, e, _posts);
             e.Status = TripEnquiryStatuses.CancelledByTraveller;
             e.CancelledAt = now;
             e.CancelledByUserId = e.TravellerUserId;

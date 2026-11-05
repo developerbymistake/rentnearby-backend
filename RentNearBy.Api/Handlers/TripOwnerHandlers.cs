@@ -47,22 +47,24 @@ public static class TripOwnerHandlers
         });
     }
 
-    // confirmed = confirmed and not ended (check-out today or later); an ended confirmed booking lists under closed.
+    // A booked row (waiting for the host or confirmed) whose check-out has passed lists under closed; stay rows only.
     private static async Task<(IReadOnlyList<TripEnquiry> Items, bool HasMore)> OwnerPageAsync(
         ApplicationDbContext db, Guid ownerId, string bucket, DateOnly today, int page, int pageSize)
     {
         var newStatuses = TripOwnerBuckets.NewStatuses;
         var offeredStatuses = TripOwnerBuckets.OfferedStatuses;
         var confirmedStatuses = TripOwnerBuckets.ConfirmedStatuses;
-        var query = db.TripEnquiries.AsNoTracking().Where(e => e.OwnerUserId == ownerId);
+        var endingStatuses = TripOwnerBuckets.EndingStatuses;
+        var query = db.TripEnquiries.AsNoTracking().Where(e => e.OwnerUserId == ownerId && e.Kind == TripEnquiryKinds.Stay);
+        var live = query.Where(e => !endingStatuses.Contains(e.Status) || e.CheckOut == null || e.CheckOut >= today);
         query = bucket switch
         {
-            TripOwnerBuckets.New => query.Where(e => newStatuses.Contains(e.Status)),
-            TripOwnerBuckets.Offered => query.Where(e => offeredStatuses.Contains(e.Status)),
-            TripOwnerBuckets.Confirmed => query.Where(e => confirmedStatuses.Contains(e.Status) && (e.CheckOut == null || e.CheckOut >= today)),
+            TripOwnerBuckets.New => live.Where(e => newStatuses.Contains(e.Status)),
+            TripOwnerBuckets.Offered => live.Where(e => offeredStatuses.Contains(e.Status)),
+            TripOwnerBuckets.Confirmed => live.Where(e => confirmedStatuses.Contains(e.Status)),
             _ => query.Where(e =>
                 (!newStatuses.Contains(e.Status) && !offeredStatuses.Contains(e.Status) && !confirmedStatuses.Contains(e.Status))
-                || (confirmedStatuses.Contains(e.Status) && e.CheckOut != null && e.CheckOut < today)),
+                || (endingStatuses.Contains(e.Status) && e.CheckOut != null && e.CheckOut < today)),
         };
 
         var rows = await query
@@ -79,7 +81,7 @@ public static class TripOwnerHandlers
     private static async Task<TripOwnerCounts> OwnerCountsAsync(ApplicationDbContext db, Guid ownerId, DateOnly today)
     {
         var groups = await db.TripEnquiries.AsNoTracking()
-            .Where(e => e.OwnerUserId == ownerId)
+            .Where(e => e.OwnerUserId == ownerId && e.Kind == TripEnquiryKinds.Stay)
             .GroupBy(e => new { e.Status, Ended = e.CheckOut != null && e.CheckOut < today })
             .Select(g => new { g.Key.Status, g.Key.Ended, Count = g.Count() })
             .ToListAsync();
@@ -323,6 +325,11 @@ public static class TripOwnerHandlers
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch (DbUpdateException ex) when (TripEnquiryHandlers.IsOpenUniqueViolation(ex))
         {
             await unitOfWork.RollbackTransactionAsync();
             return Concurrent();
@@ -729,6 +736,7 @@ internal static class TripHostAnswers
             var overridden = e.Status == TripEnquiryStatuses.ConfirmedByBoth && overrideOpen;
             if (!fresh && !overridden) return HostAnswerOutcome.NotAllowed;
 
+            await TripEnquiryOps.CloseOpenAdvanceAsync(chat, e, posts);
             e.Status = TripEnquiryStatuses.Failed;
             e.FailReason = TripFailReasons.HostDenied;
             e.ConfirmedByOwnerAt = null;
@@ -771,14 +779,16 @@ internal static class TripHostAnswers
         await TripPushSender.SendAsync(pushes, unitOfWork.TripEnquiries, notifier, logger ?? NullLogger.Instance);
     }
 
-    // Another confirmed stay of the same trip already holds these nights.
+    // Another confirmed stay of the same trip already holds these nights, or the guest has a newer open row with this
+    // stay for them (the open unique index would refuse the restore).
     private static async Task<bool> NightTakenAsync(IUnitOfWork unitOfWork, TripEnquiry e)
     {
         if (e.TripId is not { } tripId || e.CheckIn is not { } checkIn || e.CheckOut is not { } checkOut) return false;
         var open = await unitOfWork.TripEnquiries.GetOpenByTripAsync(tripId, TripEnquiryKinds.Stay);
         return open.Any(o => o.Id != e.Id
-            && TripEnquiryStatuses.IsConfirmed(o.Status)
-            && o.CheckIn is { } a && o.CheckOut is { } b
-            && TripExecutionRules.NightsOverlap(a, b, checkIn, checkOut));
+            && ((o.ListingId == e.ListingId && o.Day == e.Day)
+                || ((TripEnquiryStatuses.IsConfirmed(o.Status) || o.ListingId == e.ListingId)
+                    && o.CheckIn is { } a && o.CheckOut is { } b
+                    && TripExecutionRules.NightsOverlap(a, b, checkIn, checkOut))));
     }
 }

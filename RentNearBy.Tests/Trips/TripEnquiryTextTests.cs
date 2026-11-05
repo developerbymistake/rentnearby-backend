@@ -27,7 +27,7 @@ public class TripEnquiryTextTests
     {
         var text = TripEnquiryText.Build(Full(), In, new DateOnly(2026, 11, 2), false);
         Assert.Equal(
-            "Hi, trip to Nainital, 01 Nov to 02 Nov, 2 adults, 2 kids, 1 room. We need no stairs and vegetarian food. Day 1 spots: Mall Road, Naina Devi, Naini Lake. Is a room free? Please share the best price.",
+            "Hi, trip to Nainital, 01 Nov to 02 Nov, 2 adults, 2 kids, 1 room. We need a ground-floor room and vegetarian food. Day 1 spots: Mall Road, Naina Devi, Naini Lake. Is a room free? Please share the best price.",
             text);
     }
 
@@ -99,7 +99,7 @@ public class TripEnquiryTextTests
         Assert.Contains("We need a safe room for kids.", TripEnquiryText.Build(one, In, new DateOnly(2026, 11, 2), false));
 
         var three = Ctx(new { city = "Nainital", adults = 2, needs = new[] { "no_stairs", "kids_safe", "veg_food" }, days = new[] { Day(1, "2026-11-01") } });
-        Assert.Contains("We need no stairs, a safe room for kids and vegetarian food.", TripEnquiryText.Build(three, In, new DateOnly(2026, 11, 2), false));
+        Assert.Contains("We need a ground-floor room, a safe room for kids and vegetarian food.", TripEnquiryText.Build(three, In, new DateOnly(2026, 11, 2), false));
     }
 
     [Fact]

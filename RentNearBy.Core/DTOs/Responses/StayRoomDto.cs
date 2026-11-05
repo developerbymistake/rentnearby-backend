@@ -8,4 +8,5 @@ public class StayRoomDto
     public short MaxGuests { get; set; }
     public string RoomName { get; set; } = string.Empty;
     public string Meals { get; set; } = string.Empty;
+    public short? Floor { get; set; }
 }

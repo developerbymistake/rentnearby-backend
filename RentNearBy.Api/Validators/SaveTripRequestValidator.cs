@@ -261,7 +261,7 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
         }
     }
 
-    // An app that does not know steps writes a "No taxi this day" day back with an empty id and no skipped flag.
+    // An app that does not know steps writes a "No taxi this day" day or a "No stay tonight" night back with an empty id and no skipped flag.
     internal const string StepsUnawareKey = "trip.stepsUnaware";
 
     // The body carried no legs (v3 or an app that does not know cities); its synthesised leg skips the leg text rules.
@@ -395,7 +395,9 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
         public TripStayChoiceValidator()
         {
             RuleFor(s => s.StayId)
-                .Must((s, id) => s.IsOwn == true || s.Skipped == true || (id != null && id != Guid.Empty)).WithMessage("Stay is required");
+                .Must((s, id, ctx) => s.IsOwn == true || s.Skipped == true || (id != null && id != Guid.Empty)
+                                      || (id == null && ctx.RootContextData.TryGetValue(StepsUnawareKey, out var v) && v is true))
+                .WithMessage("Stay is required");
             RuleFor(s => s.Name).Must(IsValidOwnName).WithMessage(OwnNameMessage).When(s => s.IsOwn == true);
             RuleFor(s => s.IsOwn)
                 .Must(own => own != true).WithMessage("A night is either your own stay or no stay")

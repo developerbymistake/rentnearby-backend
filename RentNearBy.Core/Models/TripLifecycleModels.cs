@@ -51,6 +51,15 @@ public static class TripBookingStates
     public static bool IsSettled(TripEnquiry e) => e.Status is TripEnquiryStatuses.ConfirmedByBoth or TripEnquiryStatuses.BookedByTraveller;
 }
 
+// The first ask or booking makes a Draft trip Planned (TripEnquiryHandlers.PromoteToPlannedAsync); a save never puts Draft back.
+public static class TripStatusRules
+{
+    // The status a PUT /trips/{id} writes: null keeps the stored one; Draft over a stored Planned keeps Planned
+    // while the plan still has spots (a Planned trip needs spots).
+    public static string? OnSave(string stored, string? requested, int spots)
+        => requested == TripStatuses.Draft && stored == TripStatuses.Planned && spots > 0 ? TripStatuses.Planned : requested;
+}
+
 // Confirmed and total exclude own and skipped nights/days; those are counted in StaysOwn / TaxisOwn.
 // Travel* = journey cars between cities (own travel excluded); taxi counts never include them, AgreedTotal does.
 public sealed record TripBookingCounts(

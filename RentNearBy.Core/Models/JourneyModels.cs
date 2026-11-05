@@ -65,10 +65,11 @@ public static class JourneyRules
     public static int? QuotedFareOf(TripEnquiry e) => LegStatusOf(e) == JourneyLegStatuses.Free ? e.AgreedFare ?? e.DriverFare : null;
 
     // Never returns Completed: a completed journey is left alone by every caller.
-    public static string JourneyStatusOf(IEnumerable<SavedJourneyLeg> legs)
+    // bookedLegs: cars booked in a trip; a paused driver there keeps the booking, so it never makes the journey DriverUnavailable.
+    public static string JourneyStatusOf(IEnumerable<SavedJourneyLeg> legs, IReadOnlySet<int>? bookedLegs = null)
     {
         var list = legs as IReadOnlyCollection<SavedJourneyLeg> ?? legs.ToList();
-        if (list.Any(l => !l.DriverAvailable)) return JourneyStatuses.DriverUnavailable;
+        if (list.Any(l => !l.DriverAvailable && bookedLegs?.Contains(l.LegIndex) != true)) return JourneyStatuses.DriverUnavailable;
         if (list.All(l => l.LastEnquiryId == null)) return JourneyStatuses.NotAsked;
         return JourneyStatuses.Ready;
     }

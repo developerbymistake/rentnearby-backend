@@ -163,7 +163,7 @@ public static class StayHandlers
 
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid districtId, Guid? stayTypeId,
-        IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp)
+        IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, int? guests = null, bool? groundFloor = null)
     {
         if (radius < 1 || radius > 50)
             return BadRequestResponse("Radius must be between 1 and 50 km");
@@ -181,6 +181,7 @@ public static class StayHandlers
             await WriteNearbyCacheAsync(redis, cacheKey, items, StayCache.NearbyTtl);
         }
 
+        items = StayNearbyRooms.Apply(items, guests, groundFloor == true);
         if (!isAuth) RedactForAnonymous(items);
         return OkResponse(new { items });
     }
@@ -188,7 +189,7 @@ public static class StayHandlers
     public static async Task<IResult> GetNearest(
         double latitude, double longitude, Guid districtId, Guid? stayTypeId,
         IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp,
-        IRateLimitService rateLimiter, HttpContext httpContext, int count = 5)
+        IRateLimitService rateLimiter, HttpContext httpContext, int count = 5, int? guests = null, bool? groundFloor = null)
     {
         if (count < 1 || count > 10)
             return BadRequestResponse("Count must be between 1 and 10");
@@ -214,6 +215,7 @@ public static class StayHandlers
             await WriteNearbyCacheAsync(redis, cacheKey, items, StayCache.NearestTtl);
         }
 
+        items = StayNearbyRooms.Apply(items, guests, groundFloor == true);
         if (!isAuth) RedactForAnonymous(items);
         return OkResponse(new { items });
     }
@@ -588,6 +590,7 @@ public static class StayHandlers
             room.MaxGuests = input.MaxGuests;
             room.RoomName = input.RoomName;
             room.Meals = input.Meals;
+            if (input.Floor != null) room.Floor = input.Floor;
             room.UpdatedAt = now;
         }
         foreach (var extra in existing.Where(r => r.RoomIndex > request.Rooms.Count))

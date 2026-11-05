@@ -59,18 +59,20 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
                 .Where(id => id != Guid.Empty)
                 .ToHashSet();
             var taxis = await repo.LoadTaxisAsync(taxiIds);
-            var segmentIds = await SegmentJourneyIdsAsync(
-                sp.GetRequiredService<ApplicationDbContext>(), journeys.Where(j => j.TravelDate == today.AddDays(1)).ToList(), ct);
+            var db = sp.GetRequiredService<ApplicationDbContext>();
+            var segmentIds = await SegmentJourneyIdsAsync(db, journeys.Where(j => j.TravelDate == today.AddDays(1)).ToList(), ct);
+            var booked = await BookedLegsAsync(db, journeys, ct);
 
             int changed = 0, sent = 0;
             foreach (var journey in journeys)
             {
                 if (ct.IsCancellationRequested) break;
                 var pushes = new List<Pending>();
-                var dirty = Evaluate(journey, taxis, today, now, pushes, segmentIds);
+                var bookedLegs = booked.GetValueOrDefault(journey.Id);
+                var dirty = Evaluate(journey, taxis, today, now, pushes, segmentIds, bookedLegs);
                 if (dirty)
                 {
-                    journey.Status = JourneyRules.JourneyStatusOf(journey.Legs);
+                    journey.Status = JourneyRules.JourneyStatusOf(journey.Legs, bookedLegs);
                     journey.UpdatedAt = now;
                     try
                     {
@@ -122,6 +124,23 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
             .ToHashSet();
     }
 
+    // Cars of trip journeys with a booked trip row, per journey (one enquiries query per pass).
+    private static async Task<Dictionary<Guid, IReadOnlySet<int>>> BookedLegsAsync(
+        ApplicationDbContext db, IReadOnlyList<SavedJourney> journeys, CancellationToken ct)
+    {
+        var tripIds = journeys.Where(j => j.TripId != null).Select(j => j.TripId!.Value).Distinct().ToList();
+        if (tripIds.Count == 0) return new Dictionary<Guid, IReadOnlySet<int>>();
+        var rows = await db.TripEnquiries.AsNoTracking()
+            .Where(e => e.TripId != null && tripIds.Contains(e.TripId.Value) && e.Kind == TripEnquiryKinds.Taxi && e.Day != null
+                        && TripEnquiryStatuses.Booked.Contains(e.Status))
+            .ToListAsync(ct);
+        return rows
+            .Select(e => TripEnquiryContexts.Read(e.ContextJson))
+            .Where(c => c.JourneyId != null && c.LegIndex != null)
+            .GroupBy(c => c.JourneyId!.Value)
+            .ToDictionary(g => g.Key, g => (IReadOnlySet<int>)g.Select(c => c.LegIndex!.Value).ToHashSet());
+    }
+
     // Mirrors TripTimerService.TravelEvePassAsync: a Planned, unmuted trip whose travel day for this segment journey
     // falls on the journey's own date. Any other journey (Draft trip, muted, date moved) keeps its own eve push.
     internal static bool TripEveCovers(Trip trip, TripPlan plan, SavedJourney journey)
@@ -137,19 +156,22 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
 
     // Applies availability to the legs; returns true when a leg changed.
     // segmentIds: journeys that are travel between two cities; their eve is the trip's (step journeys keep this push).
+    // bookedLegs: cars booked in the trip; their driver going off only marks the leg (soft line in the app), no backup push.
     internal static bool Evaluate(
         SavedJourney journey, Dictionary<Guid, JourneyTaxiInfo> taxis, DateOnly today, DateTime now, List<Pending> pushes,
-        IReadOnlySet<Guid>? segmentIds = null)
+        IReadOnlySet<Guid>? segmentIds = null, IReadOnlySet<int>? bookedLegs = null)
     {
         var dirty = false;
         foreach (var leg in journey.Legs.OrderBy(l => l.LegIndex))
         {
             var isPublic = taxis.TryGetValue(leg.DriverTaxiId, out var driver) && driver.IsPublic;
+            var booked = bookedLegs?.Contains(leg.LegIndex) == true;
             if (!isPublic && leg.DriverAvailable)
             {
                 leg.DriverAvailable = false;
                 leg.UpdatedAt = now;
                 dirty = true;
+                if (booked) continue;
                 var name = driver?.DriverName ?? "Your driver";
                 pushes.Add(new Pending(
                     JourneyRules.PausedKey(journey.Id, leg.DriverTaxiId),
@@ -162,6 +184,7 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
                 leg.DriverAvailable = true;
                 leg.UpdatedAt = now;
                 dirty = true;
+                if (booked) continue;
                 pushes.Add(new Pending(
                     JourneyRules.BackKey(journey.Id, leg.DriverTaxiId, today),
                     JourneyNotifications.DriverBack(journey.UserId, journey.Id, driver!.DriverName, leg.FromName, leg.ToName, journey.TripId),

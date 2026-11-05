@@ -233,7 +233,7 @@ public class TripAdvanceRulesTests
     [Theory]
     [InlineData(TripEnquiryStatuses.Asked, TripDriverBuckets.New)]
     [InlineData(TripEnquiryStatuses.FareSent, TripDriverBuckets.Replied)]
-    [InlineData(TripEnquiryStatuses.BookedByTraveller, TripDriverBuckets.Booked)]
+    [InlineData(TripEnquiryStatuses.BookedByTraveller, TripDriverBuckets.New)]
     [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripDriverBuckets.Booked)]
     [InlineData(TripEnquiryStatuses.NotAvailable, TripDriverBuckets.Closed)]
     [InlineData(TripEnquiryStatuses.Expired, TripDriverBuckets.Closed)]
@@ -250,4 +250,20 @@ public class TripAdvanceRulesTests
         foreach (var s in TripEnquiryStatuses.All)
             Assert.Contains(TripDriverBuckets.Of(s), TripDriverBuckets.All);
     }
+
+    // CheckOut = last day + 1: a booked taxi row ends once its last day is before today.
+    [Theory]
+    [InlineData(TripEnquiryStatuses.ConfirmedByBoth, 5, TripDriverBuckets.Booked)]
+    [InlineData(TripEnquiryStatuses.ConfirmedByBoth, 4, TripDriverBuckets.Closed)]
+    [InlineData(TripEnquiryStatuses.ConfirmedByBoth, 3, TripDriverBuckets.Closed)]
+    [InlineData(TripEnquiryStatuses.BookedByTraveller, 5, TripDriverBuckets.New)]
+    [InlineData(TripEnquiryStatuses.BookedByTraveller, 4, TripDriverBuckets.Closed)]
+    [InlineData(TripEnquiryStatuses.Asked, 4, TripDriverBuckets.New)]
+    [InlineData(TripEnquiryStatuses.FareSent, 4, TripDriverBuckets.Replied)]
+    public void Driver_bucket_moves_ended_booked_rows_to_closed(string status, int checkOutDay, string bucket)
+        => Assert.Equal(bucket, TripDriverBuckets.Of(status, new DateOnly(2026, 11, checkOutDay), new DateOnly(2026, 11, 4)));
+
+    [Fact]
+    public void Driver_bucket_without_check_out_stays_booked()
+        => Assert.Equal(TripDriverBuckets.Booked, TripDriverBuckets.Of(TripEnquiryStatuses.ConfirmedByBoth, null, new DateOnly(2026, 11, 4)));
 }

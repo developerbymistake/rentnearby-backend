@@ -75,6 +75,8 @@ public class TripNightRuleTests
     [InlineData("ConfirmedByBoth", 4, "confirmed")]
     [InlineData("ConfirmedByBoth", 3, "closed")]
     [InlineData("ConfirmedByTraveller", 3, "closed")]
+    [InlineData("ConfirmedByTraveller", 4, "new")]
+    [InlineData("Countered", 3, "new")]
     [InlineData("Asked", 3, "new")]
     [InlineData("Offered", 3, "offered")]
     [InlineData("Expired", 9, "closed")]

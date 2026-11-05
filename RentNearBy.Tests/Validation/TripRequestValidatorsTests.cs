@@ -740,6 +740,7 @@ public class TripRequestValidatorsTests
     public void Save_StayWithoutId_Invalid()
     {
         var request = Save();
+        request.Plan.Steps = new TripSteps();
         request.Plan.Days[0].Stay = new TripStayChoice { StayId = null, Name = "Lake View" };
 
         ValidationAssert.HasMessage(SaveValidator.Validate(request), "Stay is required");
@@ -869,6 +870,7 @@ public class TripRequestValidatorsTests
     public void Save_NonOwnStayWithEmptyStringId_Invalid()
     {
         var request = FromJson("\"stay\":{\"stayId\":\"\",\"name\":\"Lake View\"}");
+        request.Plan.Steps = new TripSteps();
 
         ValidationAssert.HasMessage(SaveValidator.Validate(request), "Stay is required");
     }
@@ -1138,6 +1140,50 @@ public class TripRequestValidatorsTests
         Assert.True(plan.Days[0].Taxi!.IsOwn);
         Assert.Equal(taxiId, plan.Days[1].Taxi!.TaxiId);
         Assert.Null(plan.Days[1].Taxi!.Skipped);
+    }
+
+    [Fact]
+    public void Save_OldAppStayEmptyStringId_WithoutSteps_Valid()
+    {
+        var request = FromJson("\"stay\":{\"stayId\":\"\",\"name\":\"No stay tonight\",\"isOwn\":false}");
+
+        Assert.Null(request.Plan.Steps);
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void KeepSkippedNights_StoredSkippedNight_StaysSkipped()
+    {
+        var stored = Save(null, 1, 1).Plan;
+        stored.Days[1].Stay = new TripStayChoice { Name = "No stay tonight", Skipped = true };
+        var plan = Save(null, 1, 1).Plan;
+        plan.Days[0].Stay = new TripStayChoice { Name = "Old", StayId = null };
+        plan.Days[1].Stay = new TripStayChoice { Name = "No stay tonight", StayId = null };
+
+        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedNights(plan, stored);
+
+        Assert.Null(plan.Days[0].Stay);
+        Assert.True(plan.Days[1].Stay!.Skipped);
+    }
+
+    [Fact]
+    public void KeepSkippedNights_StepsAwareOwnAndPicked_Untouched()
+    {
+        var plan = Save(null, 1, 1).Plan;
+        var stayId = Guid.NewGuid();
+        plan.Days[0].Stay = new TripStayChoice { Name = "Hotel Alka", IsOwn = true };
+        plan.Days[1].Stay = new TripStayChoice { Name = "Lake View", StayId = stayId };
+
+        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedNights(plan, null);
+
+        Assert.True(plan.Days[0].Stay!.IsOwn);
+        Assert.Equal(stayId, plan.Days[1].Stay!.StayId);
+
+        var aware = Save().Plan;
+        aware.Steps = new TripSteps();
+        aware.Days[0].Stay = new TripStayChoice { Name = "Lake View", StayId = null };
+        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedNights(aware, null);
+        Assert.NotNull(aware.Days[0].Stay);
     }
 
     [Fact]
