@@ -25,18 +25,23 @@ public static class NainitalDemoSeeder
         string Driver, string Category, short Seats, string Plate, string City, double Lat, double Lng,
         int? DayRate, int? DayKm, RouteSeed[] Routes);
 
-    private static readonly RouteSeed NtlDelhi = new("Nainital", 29.3919, 79.4542, "Delhi", 28.6139, 77.2090, 6500, "OneWay");
-    private static readonly RouteSeed NtlKath = new("Nainital", 29.3919, 79.4542, "Kathgodam Railway Station", 29.2683, 79.5328, 1200, "OneWay");
-    private static readonly RouteSeed KathNtl = new("Kathgodam Railway Station", 29.2683, 79.5328, "Nainital", 29.3919, 79.4542, 1200, "OneWay");
-    private static readonly RouteSeed NtlPant = new("Nainital", 29.3919, 79.4542, "Pantnagar Airport", 29.0340, 79.4730, 2200, "OneWay");
-    private static readonly RouteSeed NtlCorbett = new("Nainital", 29.3919, 79.4542, "Jim Corbett National Park", 29.5300, 78.9500, 3500, "OneWay");
-    private static readonly RouteSeed NtlRanikhet = new("Nainital", 29.3919, 79.4542, "Ranikhet", 29.6434, 79.4322, 2800, "OneWay");
-    private static readonly RouteSeed NtlAlmora = new("Nainital", 29.3919, 79.4542, "Almora", 29.5971, 79.6591, 3200, "OneWay");
-    private static readonly RouteSeed NtlMukt = new("Nainital", 29.3919, 79.4542, "Mukteshwar", 29.4720, 79.6490, 2600, "RoundTrip");
-    private static readonly RouteSeed NtlBhimtal = new("Nainital", 29.3919, 79.4542, "Bhimtal", 29.3470, 79.5640, 900, "RoundTrip");
-    private static readonly RouteSeed HaldNtl = new("Haldwani", 29.2183, 79.5130, "Nainital", 29.3919, 79.4542, 1500, "OneWay");
-    private static readonly RouteSeed DelhiNtl = new("Delhi", 28.6139, 77.2090, "Nainital", 29.3919, 79.4542, 6800, "OneWay");
-    private static readonly RouteSeed NtlKausani = new("Nainital", 29.3919, 79.4542, "Kausani", 29.8430, 79.6040, 4500, "OneWay");
+    // Places across Uttarakhand so trips of several cities find a car for every leg.
+    private static readonly Dictionary<string, (double Lat, double Lng)> Places = new()
+    {
+        ["Nainital"] = (29.3919, 79.4542), ["Bhimtal"] = (29.3470, 79.5640), ["Mukteshwar"] = (29.4720, 79.6490),
+        ["Kathgodam Railway Station"] = (29.2683, 79.5328), ["Haldwani"] = (29.2183, 79.5130), ["Pantnagar Airport"] = (29.0340, 79.4730),
+        ["Ramnagar"] = (29.3950, 79.1280), ["Jim Corbett National Park"] = (29.5390, 79.1340),
+        ["Almora"] = (29.5971, 79.6591), ["Ranikhet"] = (29.6434, 79.4322), ["Kausani"] = (29.8430, 79.6040), ["Bageshwar"] = (29.8379, 79.7710),
+        ["Delhi"] = (28.6139, 77.2090), ["Haridwar"] = (29.9457, 78.1642), ["Rishikesh"] = (30.0869, 78.2676),
+        ["Dehradun"] = (30.3165, 78.0322), ["Mussoorie"] = (30.4598, 78.0664), ["Badrinath"] = (30.7433, 79.4938),
+    };
+
+    private static RouteSeed R(string from, string to, int fare, string type = "OneWay")
+    {
+        var f = Places[from];
+        var d = Places[to];
+        return new RouteSeed(from, f.Lat, f.Lng, to, d.Lat, d.Lng, fare, type);
+    }
 
     private static readonly StaySeed[] Stays =
     [
@@ -84,16 +89,26 @@ public static class NainitalDemoSeeder
 
     private static readonly TaxiSeed[] Taxis =
     [
-        new("Mohan Bisht", "Sedan", 4, "UK04TA1001", "Nainital", 29.3919, 79.4542, 2800, 80, [NtlDelhi, NtlKath, NtlPant, NtlBhimtal]),
-        new("Girish Rawat", "SUV", 6, "UK04TA1002", "Nainital", 29.3880, 79.4600, 3800, 100, [NtlCorbett, NtlRanikhet, NtlAlmora, KathNtl]),
-        new("Pradeep Joshi", "Hatchback", 4, "UK04TA1003", "Haldwani", 29.2183, 79.5130, 2200, 70, [HaldNtl, NtlKath, KathNtl, NtlPant]),
-        new("Harish Negi", "Sedan", 4, "UK04TA1004", "Bhimtal", 29.3470, 79.5640, 2600, 80, [NtlBhimtal, NtlMukt, NtlKath]),
-        new("Sunil Kumar", "MUV", 7, "UK04TA1005", "Kathgodam", 29.2683, 79.5328, 4200, 120, [KathNtl, NtlDelhi, NtlCorbett, NtlRanikhet]),
-        new("Mahesh Adhikari", "TempoTraveller", 12, "UK04TA1006", "Haldwani", 29.2183, 79.5130, 7500, 150, [DelhiNtl, NtlDelhi, NtlCorbett, NtlKausani]),
-        new("Rajesh Pant", "SUV", 6, "UK04TA1007", "Nainital", 29.3950, 79.4500, 3600, 100, [NtlMukt, NtlAlmora, NtlKausani, NtlKath]),
-        new("Dinesh Mehra", "Sedan", 4, "UK04TA1008", "Bhowali", 29.3870, 79.5100, 2500, 80, [NtlKath, NtlPant, NtlBhimtal, NtlRanikhet]),
-        new("Naveen Tiwari", "Hatchback", 4, "UK04TA1009", "Nainital", 29.3850, 79.4560, 2000, 60, [NtlBhimtal, KathNtl, NtlKath]),
-        new("Yogesh Kandpal", "MUV", 7, "UK04TA1010", "Ramnagar", 29.3950, 79.1280, 4000, 120, [NtlCorbett, NtlDelhi, KathNtl, NtlKausani]),
+        new("Mohan Bisht", "Sedan", 4, "UK04TA1001", "Nainital", 29.3919, 79.4542, 2800, 80,
+            [R("Nainital", "Delhi", 6500), R("Delhi", "Nainital", 6800), R("Nainital", "Haridwar", 5500), R("Haridwar", "Rishikesh", 1500), R("Nainital", "Kathgodam Railway Station", 1200), R("Nainital", "Pantnagar Airport", 2200)]),
+        new("Girish Rawat", "SUV", 6, "UK04TA1002", "Nainital", 29.3880, 79.4600, 3800, 100,
+            [R("Nainital", "Almora", 3200), R("Almora", "Kausani", 2800), R("Kausani", "Ranikhet", 2600), R("Ranikhet", "Nainital", 2800), R("Nainital", "Jim Corbett National Park", 3500), R("Jim Corbett National Park", "Ramnagar", 1500)]),
+        new("Pradeep Joshi", "Hatchback", 4, "UK04TA1003", "Haldwani", 29.2183, 79.5130, 2200, 70,
+            [R("Haldwani", "Nainital", 1500), R("Haldwani", "Delhi", 5500), R("Kathgodam Railway Station", "Almora", 3000), R("Haldwani", "Ramnagar", 1800), R("Haldwani", "Rishikesh", 6500), R("Pantnagar Airport", "Haldwani", 900)]),
+        new("Harish Negi", "Sedan", 4, "UK04TA1004", "Bhimtal", 29.3470, 79.5640, 2600, 80,
+            [R("Bhimtal", "Nainital", 900, "RoundTrip"), R("Nainital", "Mukteshwar", 2600, "RoundTrip"), R("Mukteshwar", "Almora", 2800), R("Bhimtal", "Kathgodam Railway Station", 1300), R("Mukteshwar", "Kathgodam Railway Station", 3000)]),
+        new("Sunil Kumar", "MUV", 7, "UK04TA1005", "Kathgodam", 29.2683, 79.5328, 4200, 120,
+            [R("Kathgodam Railway Station", "Nainital", 1200), R("Kathgodam Railway Station", "Delhi", 6200), R("Delhi", "Kathgodam Railway Station", 6200), R("Kathgodam Railway Station", "Haridwar", 5200), R("Haridwar", "Dehradun", 2200), R("Dehradun", "Mussoorie", 1800)]),
+        new("Mahesh Adhikari", "TempoTraveller", 12, "UK04TA1006", "Haldwani", 29.2183, 79.5130, 7500, 150,
+            [R("Delhi", "Nainital", 9500), R("Nainital", "Delhi", 9500), R("Delhi", "Haridwar", 7000), R("Haridwar", "Rishikesh", 2500), R("Rishikesh", "Badrinath", 16000), R("Haridwar", "Mussoorie", 4800)]),
+        new("Rajesh Pant", "SUV", 6, "UK04TA1007", "Nainital", 29.3950, 79.4500, 3600, 100,
+            [R("Nainital", "Kausani", 4500), R("Kausani", "Bageshwar", 2200), R("Bageshwar", "Almora", 3000), R("Almora", "Nainital", 3200), R("Nainital", "Mukteshwar", 2600), R("Ranikhet", "Almora", 1800)]),
+        new("Dinesh Mehra", "Sedan", 4, "UK04TA1008", "Bhowali", 29.3870, 79.5100, 2500, 80,
+            [R("Nainital", "Ranikhet", 2800), R("Ranikhet", "Kausani", 2800), R("Nainital", "Kathgodam Railway Station", 1300), R("Nainital", "Almora", 2600), R("Nainital", "Bhimtal", 900, "RoundTrip")]),
+        new("Naveen Tiwari", "Hatchback", 4, "UK04TA1009", "Nainital", 29.3850, 79.4560, 2000, 60,
+            [R("Nainital", "Bhimtal", 900, "RoundTrip"), R("Bhimtal", "Kathgodam Railway Station", 1300), R("Kathgodam Railway Station", "Nainital", 1200), R("Nainital", "Ranikhet", 2800), R("Mukteshwar", "Nainital", 2600)]),
+        new("Yogesh Kandpal", "MUV", 7, "UK04TA1010", "Ramnagar", 29.3950, 79.1280, 4000, 120,
+            [R("Ramnagar", "Jim Corbett National Park", 1200), R("Jim Corbett National Park", "Nainital", 3500), R("Nainital", "Ramnagar", 3000), R("Ramnagar", "Delhi", 5200), R("Delhi", "Ramnagar", 5400), R("Ramnagar", "Haridwar", 4500)]),
     ];
 
     public static async Task SeedAsync(ApplicationDbContext db, IIdentityCipher cipher, ILogger logger)
@@ -196,7 +211,13 @@ public static class NainitalDemoSeeder
         {
             var t = Taxis[i];
             var phone = $"{TaxiPhonePrefix}{i + 1:00}";
-            if (await db.Users.AnyAsync(u => u.PhoneNumber == phone)) continue;
+            var existing = await db.Users.Where(u => u.PhoneNumber == phone).Select(u => u.Id).FirstOrDefaultAsync();
+            if (existing != Guid.Empty)
+            {
+                var demoTaxi = await db.TaxiListings.Include(x => x.Routes).FirstOrDefaultAsync(x => x.UserId == existing);
+                if (demoTaxi != null) { await RewriteRoutesAsync(db, demoTaxi, t.Routes, now); }
+                continue;
+            }
 
             var vehicle = vehicleTypes.FirstOrDefault(v => v.Category == t.Category) ?? vehicleTypes[0];
             var user = NewUser(phone, t.Driver, UserRoles.TaxiDriverId, now);
@@ -250,6 +271,29 @@ public static class NainitalDemoSeeder
         if (stayCount + taxiCount == 0) { logger.LogInformation("demo.seed.nainital: already present"); return; }
         await db.SaveChangesAsync();
         logger.LogInformation("demo.seed.nainital: added {Stays} stays and {Taxis} taxis", stayCount, taxiCount);
+    }
+
+    // Re-runs bring an already seeded database to the current route list.
+    private static async Task RewriteRoutesAsync(ApplicationDbContext db, TaxiListing taxi, RouteSeed[] routes, DateTime now)
+    {
+        if (taxi.Routes.Count == routes.Length
+            && taxi.Routes.OrderBy(r => r.RouteIndex).Select(r => r.FromName + ">" + r.ToName + ":" + r.Fare)
+                .SequenceEqual(routes.Select(r => r.From + ">" + r.To + ":" + r.Fare))) return;
+        db.TaxiRoutes.RemoveRange(taxi.Routes);
+        await db.SaveChangesAsync();
+        for (var r = 0; r < routes.Length; r++)
+        {
+            var route = routes[r];
+            db.TaxiRoutes.Add(new TaxiRoute
+            {
+                Id = Guid.NewGuid(), TaxiListingId = taxi.Id, RouteIndex = (short)(r + 1),
+                FromName = route.From, FromLatitude = (decimal)route.FromLat, FromLongitude = (decimal)route.FromLng,
+                ToName = route.To, ToLatitude = (decimal)route.ToLat, ToLongitude = (decimal)route.ToLng,
+                Fare = route.Fare, TripType = route.Type, CreatedAt = now, UpdatedAt = now,
+            });
+        }
+        taxi.MinFare = routes.Min(r => r.Fare);
+        taxi.UpdatedAt = now;
     }
 
     // Valid GSTIN shape and check character (state 05 = Uttarakhand), so admin and owner screens show a real looking value.
