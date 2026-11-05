@@ -43,8 +43,13 @@ public class JourneyLegDto
 public class JourneyDto
 {
     public Guid Id { get; set; }
-    // The trip whose plan step uses this journey.
+    // The trip whose plan uses this journey (a step or the travel between two cities).
     public Guid? TripId { get; set; }
+    public string? TripTitle { get; set; }
+    // gettingThere | comingBack | segment | null
+    public string? TripRole { get; set; }
+    public int? TripLegIndex { get; set; }
+    public int? TripTravelDay { get; set; }
     public string FromName { get; set; } = string.Empty;
     public double FromLat { get; set; }
     public double FromLng { get; set; }

@@ -303,10 +303,26 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
                 .Must(n => n == null || n.Trim().Length <= MaxOwnNameLength).WithMessage("Name or number can be up to 80 characters");
             RuleFor(t => t.OwnPhone).Must(IsValidPhone).WithMessage(PhoneMessage);
             RuleFor(t => t.LeavesAt).Must(IsValidPickupTime).WithMessage(TimeMessage);
+            // A journey carries the real road minutes; the own sheet still offers only TripTravelRoad.All.
             RuleFor(t => t.RoadMinutes)
-                .Must(m => m == null || TripTravelRoad.All.Contains(m.Value)).WithMessage(RoadTimeMessage);
+                .Must(m => m == null || m.Value is >= 0 and <= MaxTravelRoadMinutes).WithMessage(RoadTimeMessage);
             RuleFor(t => t.Note).Must(IsValidNote).WithMessage(NoteMessage);
+
+            RuleFor(t => t)
+                .Must(t => t.JourneyId is { } id && id != Guid.Empty
+                           && t.How == null && t.OwnName == null && t.OwnPhone == null && t.LeavesAt == null)
+                .OverridePropertyName("JourneyId")
+                .WithMessage(TravelMessage)
+                .When(t => t.Mode == TripTravelModes.Journey);
+            RuleFor(t => t.JourneyId).Null().WithMessage(TravelMessage).When(t => t.Mode == TripTravelModes.Own);
+            RuleFor(t => t.PlanKey).Must(k => k == null || TaxiWaysRules.IsKey(k)).WithMessage(TravelMessage);
+            RuleFor(t => t.Cars).Must(c => c == null || c.Value is >= 1 and <= JourneyRules.MaxLegs).WithMessage(TravelMessage);
+            RuleFor(t => t.ListedTotal).Must(v => v == null || v.Value is >= 0 and <= MaxTravelListedTotal).WithMessage(TravelMessage);
+            RuleFor(t => t.HubName).Must(n => n == null || n.Trim().Length <= MaxNameLength).WithMessage(TravelMessage);
         }
+
+        public const int MaxTravelRoadMinutes = 900;
+        public const int MaxTravelListedTotal = 10_000_000;
     }
 
     internal sealed class TripTaxiChoiceValidator : AbstractValidator<TripTaxiChoice>

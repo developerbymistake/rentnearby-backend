@@ -6,11 +6,12 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Services;
 
 // Keeps the saved journey leg whose current lead is e in step with e, inside the caller's transaction.
+// Trip-less journey leads and segment rows (journey car between two cities, Day set) both count; a trip's local lead never does.
 public static class JourneyLegSync
 {
     public static async Task<int> SyncAsync(ApplicationDbContext db, TripEnquiry e, DateTime now)
     {
-        if (e.TripId != null || e.Kind != TripEnquiryKinds.Taxi) return 0;
+        if (e.Kind != TripEnquiryKinds.Taxi || (e.TripId != null && !TripSegmentRows.IsSegment(e))) return 0;
         if (ReadLeg(e.ContextJson) is not { } leg) return 0;
         var (journeyId, legIndex) = leg;
 

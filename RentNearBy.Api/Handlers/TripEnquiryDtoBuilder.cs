@@ -92,7 +92,10 @@ public static class TripEnquiryDtoBuilder
                 Text = context.Text,
                 CityIndex = context.CityIndex,
                 CityCount = context.CityCount,
+                JourneyId = context.JourneyId,
+                JourneyLegIndex = context.LegIndex,
             },
+            IsSegment = TripSegmentRows.IsSegment(e),
             PhoneBooking = phoneBooking == null ? null : new TripPhoneBookingDto
             {
                 HostName = phoneBooking.HostName,
@@ -250,12 +253,7 @@ public static class TripEnquiryDtoBuilder
     private static TripOffer? Pending(IReadOnlyList<TripOffer> newestFirst, string kind)
         => newestFirst.FirstOrDefault(o => o.Status == TripOfferStatuses.Pending && o.Kind == kind);
 
-    public static TripEnquiryContext ReadContext(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return new TripEnquiryContext();
-        try { return JsonSerializer.Deserialize<TripEnquiryContext>(json, TripJson.Options) ?? new TripEnquiryContext(); }
-        catch (JsonException) { return new TripEnquiryContext(); }
-    }
+    public static TripEnquiryContext ReadContext(string? json) => TripEnquiryContexts.Read(json);
 
     public static TripPhoneBooking? ReadPhoneBooking(string? json)
     {

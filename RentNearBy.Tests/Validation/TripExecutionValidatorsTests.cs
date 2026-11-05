@@ -499,6 +499,43 @@ public class TripExecutionValidatorsTests
     public void TaxiBooking_empty_replace_id_fails() =>
         Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("replaceEnquiryId", Guid.Empty)), "ReplaceEnquiryId");
 
+    // Journey car between two cities (CONTRACT_MCB D6)
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void TaxiBooking_journey_car_with_no_days_passes(int car) =>
+        Passes(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(),
+            ("journeyId", Guid.NewGuid()), ("journeyLegIndex", car), ("days", Array.Empty<int>())));
+
+    [Fact]
+    public void TaxiBooking_journey_car_with_the_travel_day_passes() =>
+        Passes(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(),
+            ("journeyId", Guid.NewGuid()), ("journeyLegIndex", 1), ("days", new[] { 3 })));
+
+    [Fact]
+    public void TaxiBooking_journey_car_with_two_days_fails() =>
+        Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(),
+            ("journeyId", Guid.NewGuid()), ("journeyLegIndex", 1), ("days", new[] { 2, 3 })), "Days");
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    public void TaxiBooking_journey_car_out_of_range_fails(int car) =>
+        Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(),
+            ("journeyId", Guid.NewGuid()), ("journeyLegIndex", car), ("days", Array.Empty<int>())), "JourneyLegIndex");
+
+    [Fact]
+    public void TaxiBooking_journey_without_car_fails() =>
+        Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("journeyId", Guid.NewGuid())), "JourneyId");
+
+    [Fact]
+    public void TaxiBooking_car_without_journey_fails() =>
+        Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("journeyLegIndex", 1)), "JourneyLegIndex");
+
+    [Fact]
+    public void TaxiBooking_empty_journey_id_fails() =>
+        Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("journeyId", Guid.Empty), ("journeyLegIndex", 1)), "JourneyId");
+
     // AskAdvanceRequest
     private static readonly AskAdvanceRequestValidator Ask = new();
 

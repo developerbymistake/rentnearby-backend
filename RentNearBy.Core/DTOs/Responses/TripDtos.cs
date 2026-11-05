@@ -128,6 +128,10 @@ public class TripJourneyDto
     public bool AnyAsked { get; set; }
     public DateTime? LastRefreshedAt { get; set; }
     public List<TripJourneyLegDto> Legs { get; set; } = new();
+    // Segments only (Role "segment"): the city leg travelled to, its first day and the derived travel state.
+    public int? LegIndex { get; set; }
+    public int? TravelDay { get; set; }
+    public string? TravelState { get; set; }
 }
 
 public class TripJourneyLegDto

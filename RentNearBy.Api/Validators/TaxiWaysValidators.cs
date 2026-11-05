@@ -59,7 +59,14 @@ public class SaveJourneyRequestValidator : AbstractValidator<SaveJourneyRequest>
             .When(x => x.Legs != null && x.Legs.Count is >= 1 and <= JourneyRules.MaxLegs)
             .WithMessage("Invalid legs");
         RuleForEach(x => x.Legs).SetValidator(new SaveJourneyLegRequestValidator());
+        RuleFor(x => x.TripId).Must(id => id != Guid.Empty).When(x => x.TripId != null).WithMessage("Invalid trip");
+        RuleFor(x => x.LegIndex).Null().When(x => x.TripId == null).WithMessage(PickCityMessage);
+        RuleFor(x => x.LegIndex).NotNull().When(x => x.TripId != null).WithMessage(PickCityMessage);
+        RuleFor(x => x.LegIndex).InclusiveBetween(2, TripLimits.MaxLegs).When(x => x.LegIndex != null).WithMessage(UnknownCityMessage);
     }
+
+    public const string PickCityMessage = "Pick the city you travel to";
+    public const string UnknownCityMessage = "Unknown city";
 }
 
 public class ReplaceJourneyDriverRequestValidator : AbstractValidator<ReplaceJourneyDriverRequest>

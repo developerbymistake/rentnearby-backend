@@ -101,3 +101,69 @@ public static class TripStepRules
         if (steps?.ComingBack != null) steps.ComingBack.Date = null;
     }
 }
+
+// LegIndex (city leg) and TravelDay only for a segment.
+public sealed record TripJourneyLink(string Role, int? LegIndex, int? TravelDay);
+
+// The plan is the only place that says which travel a journey is; SavedJourneys.TripId only says it belongs to the trip.
+public static class TripJourneyLinks
+{
+    public static TripJourneyLink? Resolve(TripPlan plan, Guid journeyId)
+    {
+        if (journeyId == Guid.Empty) return null;
+        if (plan.Steps?.GettingThere?.JourneyId == journeyId) return new TripJourneyLink(TripStepRoles.GettingThere, null, null);
+        if (plan.Steps?.ComingBack?.JourneyId == journeyId) return new TripJourneyLink(TripStepRoles.ComingBack, null, null);
+        var legIndex = SegmentLegOf(plan, journeyId);
+        return legIndex is { } k ? new TripJourneyLink(TripStepRoles.Segment, k, plan.LegStart(k)) : null;
+    }
+
+    // The first leg 2+ whose journey arrival carries the id.
+    public static int? SegmentLegOf(TripPlan plan, Guid journeyId)
+    {
+        if (plan.Legs is not { Count: > 1 }) return null;
+        foreach (var leg in plan.Legs)
+            if (leg != null && leg.Index >= 2 && TripTravelRules.JourneyIdOf(leg.Arrival) == journeyId) return leg.Index;
+        return null;
+    }
+
+    // Step ids, then arrival ids; no duplicates.
+    public static List<Guid> ReferencedIds(TripPlan plan)
+    {
+        var ids = TripStepRules.ReferencedIds(plan.Steps);
+        foreach (var id in TripTravelRules.ArrivalIds(plan))
+            if (!ids.Contains(id)) ids.Add(id);
+        return ids;
+    }
+}
+
+public static class TripTravelRules
+{
+    public static Guid? JourneyIdOf(TripTravel? arrival)
+        => arrival?.Mode == TripTravelModes.Journey && arrival.JourneyId is { } id && id != Guid.Empty ? id : null;
+
+    public static List<Guid> ArrivalIds(TripPlan plan)
+    {
+        var ids = new List<Guid>();
+        if (plan.Legs == null) return ids;
+        foreach (var leg in plan.Legs)
+            if (leg != null && leg.Index >= 2 && JourneyIdOf(leg.Arrival) is { } id && !ids.Contains(id)) ids.Add(id);
+        return ids;
+    }
+
+    // Runs after TripStepRules.Sanitise with its keep list: a journey arrival whose id is missing, not owned or already
+    // used (by a step or an earlier leg) loses its travel. Own arrivals are untouched. Mutates the plan and keep.
+    public static void SanitiseArrivals(TripPlan plan, ISet<Guid> owned, ICollection<Guid> keep)
+    {
+        if (plan.Legs == null) return;
+        foreach (var leg in plan.Legs)
+        {
+            if (leg == null || leg.Index < 2 || leg.Arrival?.Mode != TripTravelModes.Journey) continue;
+            if (leg.Arrival.JourneyId is not { } id || id == Guid.Empty || !owned.Contains(id) || keep.Contains(id))
+            {
+                leg.Arrival = null;
+                continue;
+            }
+            keep.Add(id);
+        }
+    }
+}

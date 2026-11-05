@@ -349,7 +349,9 @@ public static class TripEnquiryHandlers
         var travellerName = TripTextSafety.Clean(
             await db.Users.AsNoTracking().Where(u => u.Id == callerId).Select(u => u.Name).FirstOrDefaultAsync());
 
-        var tripOpen = (await unitOfWork.TripEnquiries.GetOpenByTripAsync(trip.Id, TripEnquiryKinds.Taxi)).ToList();
+        // Journey cars between cities run beside local taxis: they never merge, block or count against the lead cap.
+        var tripOpen = (await unitOfWork.TripEnquiries.GetOpenByTripAsync(trip.Id, TripEnquiryKinds.Taxi))
+            .Where(x => !TripSegmentRows.IsSegment(x)).ToList();
         var items = new List<TripEnquiry>();
         var skipped = new List<TripSkippedDto>(preSkipped);
         var candidates = new List<TaxiSnapshot>();
@@ -372,7 +374,7 @@ public static class TripEnquiryHandlers
 
             // Journey leads (no trip) are a separate kind: the same driver can be the journey car and the local taxi.
             var mine = (await unitOfWork.TripEnquiries.GetOpenByTravellerListingAsync(callerId, TripEnquiryKinds.Taxi, listingId))
-                .Where(x => x.TripId != null).ToList();
+                .Where(x => x.TripId != null && !TripSegmentRows.IsSegment(x)).ToList();
 
             var same = tripOpen.FirstOrDefault(x => x.ListingId == listingId && x.Day == null);
             if (same != null)
@@ -585,7 +587,7 @@ public static class TripEnquiryHandlers
 
     public static async Task<IResult> CreateTaxiBooking(
         Guid tripId, CreateTaxiBookingRequest request, IValidator<CreateTaxiBookingRequest> validator, ClaimsPrincipal principal,
-        IUnitOfWork unitOfWork, ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier,
+        IUnitOfWork unitOfWork, ApplicationDbContext db, ISavedJourneyRepository journeys, ITripChatService chat, ITripNotifier notifier,
         IRateLimitService rateLimiter, ILoggerFactory loggers, HttpContext http)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
@@ -596,10 +598,14 @@ public static class TripEnquiryHandlers
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(tripId, callerId);
         if (trip == null) return TripNotFound();
 
-        var now = DateTime.UtcNow;
-        var requested = request.Days.Distinct().OrderBy(d => d).ToList();
         if (trip.StartDate is not { } tripStart)
             return ErrorResponse(422, "Add your trip dates first.", TripEnquiryErrorTypes.TripDatesRequired);
+        if (request.JourneyId is { } journeyId && request.JourneyLegIndex is { } carIndex)
+            return await CreateSegmentBookingAsync(trip, request, journeyId, carIndex, callerId,
+                unitOfWork, db, journeys, chat, notifier, rateLimiter, loggers, http);
+
+        var now = DateTime.UtcNow;
+        var requested = request.Days.Distinct().OrderBy(d => d).ToList();
 
         // Approval, availability and rate are not required: the deal was made by phone.
         var taxi = await LoadTaxiAsync(db, request.TaxiId);
@@ -641,10 +647,11 @@ public static class TripEnquiryHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
-            var others = await db.TripEnquiries
+            var others = (await db.TripEnquiries
                 .Where(x => x.TripId == trip.Id && x.Kind == TripEnquiryKinds.Taxi && x.ListingId != taxi.Id
                     && TripEnquiryStatuses.Open.Contains(x.Status))
-                .ToListAsync();
+                .ToListAsync())
+                .Where(x => !TripSegmentRows.IsSegment(x)).ToList();
             var newDates = DatesOf(tripStart, newDays);
             var sharing = others.Where(x => SharesDate(x, newDates)).ToList();
             var booked = sharing.Where(x => TripEnquiryStatuses.IsBooked(x.Status)).ToList();
@@ -759,6 +766,195 @@ public static class TripEnquiryHandlers
                 await unitOfWork.RollbackTransactionAsync();
                 return Concurrent();
             }
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+
+        pushes.Add(new TripPendingPush(target, target.OwnerUserId,
+            wasBooked ? TripNotifications.TripBookingChanged : TripNotifications.TripTaxiBookedByTraveller));
+        await AfterCommitAsync(chat, [], pushes, unitOfWork, notifier, loggers);
+
+        var dto = await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, target, callerId, now);
+        return created ? CreatedResponse(dto, $"/api/v1/trips/enquiries/{target.Id}") : OkResponse(dto);
+    }
+
+    // "I booked" for one car of the journey that carries the traveller between two cities (Day = travel day).
+    // Only another booked driver of the same car blocks; local taxis and other cars never do.
+    private static async Task<IResult> CreateSegmentBookingAsync(
+        Trip trip, CreateTaxiBookingRequest request, Guid journeyId, int carIndex, Guid callerId,
+        IUnitOfWork unitOfWork, ApplicationDbContext db, ISavedJourneyRepository journeys, ITripChatService chat, ITripNotifier notifier,
+        IRateLimitService rateLimiter, ILoggerFactory loggers, HttpContext http)
+    {
+        var now = DateTime.UtcNow;
+        var tripStart = trip.StartDate!.Value;
+
+        var journey = await journeys.GetOwnedAsync(journeyId, callerId, tracked: true);
+        if (journey == null) return JourneyHandlers.NotFound();
+        var plan = ReadPlan(trip);
+        var link = journey.TripId == trip.Id ? TripJourneyLinks.Resolve(plan, journey.Id) : null;
+        if (link is not { Role: TripStepRoles.Segment, LegIndex: { } legIndex, TravelDay: { } travelDay }
+            || plan.Legs is not { } legs || legIndex < 2 || legIndex > legs.Count)
+            return ConflictResponse("Your trip is still saving. Try again.", JourneyErrorTypes.JourneyNotInPlan);
+
+        var car = journey.Legs.FirstOrDefault(l => l.LegIndex == carIndex);
+        if (car == null) return BadRequestResponse("Unknown leg");
+        var requested = (request.Days ?? new List<int>()).Distinct().ToList();
+        if (requested.Count > 1 || (requested.Count == 1 && requested[0] != travelDay))
+            return BadRequestResponse("Journey cars travel on the travel day");
+        List<int> days = [travelDay];
+        if (CheckTaxiDays(trip, days, now) is { } dayError) return dayError;
+        var date = TripExecutionRules.NightDate(tripStart, travelDay);
+        if (journey.TravelDate != date)
+            return ConflictResponse("Your trip date changed. Search again.", TripEnquiryErrorTypes.TravelDateChanged);
+
+        var taxi = await LoadTaxiAsync(db, request.TaxiId);
+        if (taxi == null || taxi.IsDeleted) return NotFoundResponse("Taxi not found");
+        if (taxi.UserId == callerId) return BadRequestResponse("This is your own taxi.");
+        if (await IsBlockedAsync(unitOfWork, callerId, taxi.UserId))
+            return ForbiddenResponse("You can't book this driver", TripSkipReasons.Blocked);
+
+        if (await RateLimitedAsync(rateLimiter, http, $"trip:booking:{callerId}", TripLeadRules.BookingsPerHour, Hour) is { } limited)
+            return limited;
+
+        var day = (short)travelDay;
+        var existing = await unitOfWork.TripEnquiries.FindOpenAsync(trip.Id, TripEnquiryKinds.Taxi, taxi.Id, day);
+        if (existing != null && TripEnquiryStatuses.IsBooked(existing.Status)
+            && (!TripSegmentRows.IsSegment(existing) || TripSegmentRows.JourneyIdOf(existing) != journey.Id
+                || TripSegmentRows.CarOf(existing) != carIndex))
+            return ErrorResponse(409, $"{existing.ListingName} is already booked on this day.", TripEnquiryErrorTypes.DayAlreadyBooked,
+                new TripNightConflictDto { EnquiryId = existing.Id, ListingName = existing.ListingName });
+        var created = existing == null;
+        var wasBooked = existing != null && TripEnquiryStatuses.IsBooked(existing.Status);
+
+        var travellerName = TripTextSafety.Clean(
+            await db.Users.AsNoTracking().Where(u => u.Id == callerId).Select(u => u.Name).FirstOrDefaultAsync());
+        var seats = await db.TaxiListings.AsNoTracking().Where(t => t.Id == taxi.Id).Select(t => t.Seats).FirstOrDefaultAsync();
+        var pickupTime = request.PickupTime.Trim();
+        var pickupPlace = TripTextSafety.Clean(request.PickupPlace, TripLeadRules.PickupPlaceMax);
+        var comesFrom = journey.Legs.FirstOrDefault(l => l.LegIndex == carIndex - 1)?.FromName;
+        var context = TripSegmentContext.Build(
+            trip, plan, legs[legIndex - 1], travelDay, date, journey.Id, carIndex, journey.Legs.Count,
+            car.FromName, car.ToName, comesFrom, journey.People, TaxiWaysRanking.CarsNeeded(journey.People, seats),
+            travellerName, pickupTime, pickupPlace);
+        var pushes = new List<TripPendingPush>();
+        var replaceIds = (request.ReplaceEnquiryIds ?? new List<Guid>())
+            .Take(TripLeadRules.MaxReplaceIds)
+            .Append(request.ReplaceEnquiryId ?? Guid.Empty)
+            .Where(x => x != Guid.Empty)
+            .ToHashSet();
+        TripEnquiry target;
+
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            var sameCar = (await db.TripEnquiries
+                .Where(x => x.TripId == trip.Id && x.Kind == TripEnquiryKinds.Taxi && x.ListingId != taxi.Id && x.Day != null
+                    && TripEnquiryStatuses.Open.Contains(x.Status))
+                .ToListAsync())
+                .Where(x => TripSegmentRows.IsSegment(x)
+                    && TripEnquiryContexts.Read(x.ContextJson) is { } c && c.JourneyId == journey.Id && c.LegIndex == carIndex)
+                .ToList();
+            var booked = sameCar.Where(x => TripEnquiryStatuses.IsBooked(x.Status)).ToList();
+
+            var blocking = booked.FirstOrDefault(x => !replaceIds.Contains(x.Id));
+            if (blocking != null)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ErrorResponse(409, $"This car already has {blocking.ListingName}.", TripEnquiryErrorTypes.DayAlreadyBooked,
+                    new TripNightConflictDto { EnquiryId = blocking.Id, ListingName = blocking.ListingName });
+            }
+
+            foreach (var replaced in booked)
+            {
+                replaced.Status = TripEnquiryStatuses.CancelledByTraveller;
+                replaced.CancelledAt = now;
+                replaced.CancelledByUserId = callerId;
+                replaced.UpdatedAt = now;
+                pushes.Add(new TripPendingPush(replaced, replaced.OwnerUserId, TripNotifications.TripTravellerCancelled));
+            }
+
+            if (request.CloseOthers)
+            {
+                foreach (var other in sameCar.Where(x => x.Status is TripEnquiryStatuses.Asked or TripEnquiryStatuses.FareSent))
+                {
+                    other.Status = TripEnquiryStatuses.Closed;
+                    other.FailReason = TripCloseReasons.BookedElsewhere;
+                    other.UpdatedAt = now;
+                }
+            }
+
+            if (existing != null)
+            {
+                target = existing;
+            }
+            else
+            {
+                target = new TripEnquiry
+                {
+                    Id = Guid.NewGuid(),
+                    TripId = trip.Id,
+                    TravellerUserId = callerId,
+                    OwnerUserId = taxi.UserId,
+                    Kind = TripEnquiryKinds.Taxi,
+                    ListingId = taxi.Id,
+                    ListingName = TaxiName(taxi),
+                    ListingLatitude = taxi.Latitude,
+                    ListingLongitude = taxi.Longitude,
+                    Day = day,
+                    ConversationId = null,
+                    AdvanceStatus = TripAdvanceStatuses.None,
+                    CreatedAt = now,
+                };
+            }
+
+            target.Status = TripEnquiryStatuses.BookedByTraveller;
+            target.FailReason = null;
+            target.ConfirmedByOwnerAt = null;
+            target.ConfirmedByTravellerAt ??= now;
+            target.BookedByTravellerAt ??= now;
+            target.DaysJson = JsonSerializer.Serialize(days, TripJson.Options);
+            target.CheckIn = date;
+            target.CheckOut = date.AddDays(1);
+            target.ContextJson = JsonSerializer.Serialize(context, TripJson.Options);
+            target.ListedRateSnapshot = car.ListedFare;
+            target.AgreedFare = request.AgreedFare;
+            target.TollExtra = request.TollExtra;
+            target.PickupTime = pickupTime;
+            target.PickupPlace = pickupPlace;
+            target.ExpiresAt = TripExecutionRules.IstMidnightUtc(date.AddDays(1));
+            target.IsUrgent = TripExecutionRules.IsUrgent(tripStart, now);
+            target.UpdatedAt = now;
+
+            if (created) db.TripEnquiries.Add(target);
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (created && ex.InnerException is PostgresException
+                { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: OpenUniqueIndex })
+            {
+                // A parallel ask or booking won this driver's travel-day row: the app retries onto it.
+                await unitOfWork.RollbackTransactionAsync();
+                return Concurrent();
+            }
+
+            car.LastEnquiryId = target.Id;
+            car.LastKnownStatus = JourneyLegStatuses.Free;
+            car.LastQuotedFare = request.AgreedFare;
+            car.LastKnownAt = now;
+            car.UpdatedAt = now;
+            if (journey.Status != JourneyStatuses.Completed) journey.Status = JourneyRules.JourneyStatusOf(journey.Legs);
+            journey.UpdatedAt = now;
+            await db.SaveChangesAsync();
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
@@ -1647,7 +1843,8 @@ public static class TripEnquiryHandlers
         var todayIst = TripExecutionRules.TodayIst(DateTime.UtcNow);
         foreach (var listingId in shortlist)
         {
-            var latest = history.FirstOrDefault(x => x.Kind == request.Kind && x.ListingId == listingId && CoversDay(x, day, date));
+            var latest = history.FirstOrDefault(x => x.Kind == request.Kind && x.ListingId == listingId
+                && !TripSegmentRows.IsSegment(x) && CoversDay(x, day, date));
             if (latest != null && TripEnquiryStatuses.IsOpen(latest.Status)) preSkipped.Add(Skip(listingId, TripSkipReasons.AlreadyOpen));
             else
             {

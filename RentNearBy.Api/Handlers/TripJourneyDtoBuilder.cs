@@ -5,15 +5,12 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Handlers;
 
-// The compact journey a trip shows for Getting there / Coming back. Phones only for drivers who are still public.
+// The compact journey a trip shows for Getting there / Coming back / travel between cities. Phones only for drivers who are still public.
 public static class TripJourneyDtoBuilder
 {
-    public static string? RoleOf(TripPlan plan, Guid journeyId)
-    {
-        if (plan.Steps?.GettingThere?.JourneyId == journeyId) return TripStepRoles.GettingThere;
-        if (plan.Steps?.ComingBack?.JourneyId == journeyId) return TripStepRoles.ComingBack;
-        return null;
-    }
+    public const int MaxJourneys = 5;
+
+    public static string? RoleOf(TripPlan plan, Guid journeyId) => TripJourneyLinks.Resolve(plan, journeyId)?.Role;
 
     public static SavedJourney? JourneyFor(TripPlan plan, string role, IEnumerable<SavedJourney> journeys)
         => TripStepRules.StepOf(plan.Steps, role)?.JourneyId is { } id ? journeys.FirstOrDefault(j => j.Id == id) : null;
@@ -34,22 +31,49 @@ public static class TripJourneyDtoBuilder
         return ids.Count == 0 ? new Dictionary<Guid, JourneyTaxiInfo>() : await repo.LoadTaxisAsync(ids);
     }
 
-    // Journeys referenced by a step first (Getting there, then Coming back), then any other linked one; at most two.
-    public static List<TripJourneyDto> BuildMany(IReadOnlyList<SavedJourney> journeys, TripPlan plan, Dictionary<Guid, JourneyTaxiInfo> taxis)
+    // Getting there, Coming back, segments by city leg, then any other linked one; 2 steps + up to 3 segments.
+    public static List<TripJourneyDto> BuildMany(
+        IReadOnlyList<SavedJourney> journeys, TripPlan plan, Dictionary<Guid, JourneyTaxiInfo> taxis, IReadOnlyList<TripEnquiry> enquiries)
         => journeys
-            .Select(j => (Journey: j, Role: RoleOf(plan, j.Id)))
-            .OrderBy(x => x.Role switch { TripStepRoles.GettingThere => 0, TripStepRoles.ComingBack => 1, _ => 2 })
-            .Take(2)
-            .Select(x => Build(x.Journey, x.Role, plan, taxis))
+            .Select(j => (Journey: j, Link: TripJourneyLinks.Resolve(plan, j.Id)))
+            .OrderBy(x => x.Link?.Role switch
+            {
+                TripStepRoles.GettingThere => 0,
+                TripStepRoles.ComingBack => 1,
+                TripStepRoles.Segment => 2,
+                _ => 3,
+            })
+            .ThenBy(x => x.Link?.LegIndex ?? int.MaxValue)
+            .Take(MaxJourneys)
+            .Select(x => Build(x.Journey, x.Link, plan, taxis, enquiries))
             .ToList();
 
     public static TripJourneyDto Build(SavedJourney j, string? role, TripPlan plan, Dictionary<Guid, JourneyTaxiInfo> taxis)
+        => Build(j, role == null ? null : new TripJourneyLink(role, null, null), plan, taxis, Array.Empty<TripEnquiry>());
+
+    // Travel date of a segment: the night date of the first day of the city leg entered.
+    public static DateOnly? SegmentDate(TripPlan plan, TripJourneyLink link)
+        => link.TravelDay is { } day && day > 0 && plan.Settings?.StartDate is { } start ? TripExecutionRules.NightDate(start, day) : null;
+
+    public static TripJourneyDto Build(
+        SavedJourney j, TripJourneyLink? link, TripPlan plan, Dictionary<Guid, JourneyTaxiInfo> taxis, IReadOnlyList<TripEnquiry> enquiries)
     {
-        var expected = role == null ? null : TripStepRules.ExpectedDate(role, plan);
+        var role = link?.Role;
+        var segment = role == TripStepRoles.Segment;
+        var expected = role == null ? null : segment ? SegmentDate(plan, link!) : TripStepRules.ExpectedDate(role, plan);
+        string? travelState = null;
+        if (segment)
+        {
+            var arrival = plan.Legs?.FirstOrDefault(l => l != null && l.Index == link!.LegIndex)?.Arrival;
+            travelState = TripTravelState.Of(arrival, j, TripSegmentRows.OfJourney(enquiries, j.Id), expected);
+        }
         return new TripJourneyDto
         {
             Id = j.Id,
             Role = role,
+            LegIndex = segment ? link!.LegIndex : null,
+            TravelDay = segment ? link!.TravelDay : null,
+            TravelState = travelState,
             FromName = j.FromName,
             FromLat = (double)j.FromLatitude,
             FromLng = (double)j.FromLongitude,
@@ -59,7 +83,7 @@ public static class TripJourneyDtoBuilder
             Date = j.TravelDate,
             ExpectedDate = expected,
             DateChanged = role != null && TripStepRules.DateChanged(expected, j.TravelDate),
-            StartChanged = role != null && TripStepRules.StartChanged(role, plan.Steps?.StartFrom, j),
+            StartChanged = role != null && !segment && TripStepRules.StartChanged(role, plan.Steps?.StartFrom, j),
             People = j.People,
             Cars = j.Cars,
             Status = j.Status,

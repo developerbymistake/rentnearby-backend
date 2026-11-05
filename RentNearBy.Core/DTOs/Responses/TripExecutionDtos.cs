@@ -36,6 +36,8 @@ public class TripEnquiryDto
     public int CounterCount { get; set; }
     public int RevisedCount { get; set; }
     public TripEnquiryContextDto Context { get; set; } = new();
+    // A journey car between two cities of the trip (Day = travel day).
+    public bool IsSegment { get; set; }
     public TripPhoneBookingDto? PhoneBooking { get; set; }
     public TripHostConfirmDto HostConfirm { get; set; } = new();
     public TripAdvanceDto Advance { get; set; } = new();
@@ -61,6 +63,9 @@ public class TripEnquiryContextDto
     public string Text { get; set; } = string.Empty;
     public int? CityIndex { get; set; }
     public int? CityCount { get; set; }
+    public Guid? JourneyId { get; set; }
+    // The car (journey leg) 1..3, never the city leg.
+    public int? JourneyLegIndex { get; set; }
 }
 
 public class TripPhoneBookingDto

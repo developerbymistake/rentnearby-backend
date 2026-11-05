@@ -727,4 +727,65 @@ public class TripNotificationsTests
         }
         return instance;
     }
+
+    // ---- journey cars between cities (CONTRACT_MCB D5, D8)
+
+    private static TripEnquiry SegmentRow()
+    {
+        var e = TaxiRow();
+        e.Day = 3;
+        e.DaysJson = "[3]";
+        e.CheckIn = new DateOnly(2026, 11, 3);
+        e.CheckOut = new DateOnly(2026, 11, 4);
+        e.ContextJson = """{"city":"Badrinath","adults":4,"journeyId":"dddddddd-0000-0000-0000-000000000001","legIndex":2}""";
+        return e;
+    }
+
+    [Fact]
+    public void Segment_row_pushes_route_to_the_trip_plan()
+    {
+        var e = SegmentRow();
+        foreach (var n in new[]
+        {
+            TripNotifications.TripNotAvailable(e, Ctx(Traveller)),
+            TripNotifications.TripEnquiryExpired(e, Ctx(Traveller)),
+            TripNotifications.TripNoReply(e, Ctx(Traveller)),
+        })
+        {
+            Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
+            using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+            Assert.Equal(TripId, doc.RootElement.GetProperty("tripId").GetGuid());
+        }
+    }
+
+    [Fact]
+    public void Local_taxi_row_still_routes_to_the_taxi_replies()
+    {
+        var local = TaxiRow();
+        local.Day = null;
+        Assert.Equal(UserNotificationRoutes.TripTaxiReplies, TripNotifications.TripNotAvailable(local, Ctx(Traveller)).ActionRoute);
+    }
+
+    [Fact]
+    public void Local_taxi_row_with_a_day_but_no_journey_is_not_a_segment()
+    {
+        var split = TaxiRow();
+        split.Day = 2;
+        Assert.Equal(UserNotificationRoutes.TripTaxiReplies, TripNotifications.TripNotAvailable(split, Ctx(Traveller)).ActionRoute);
+    }
+
+    [Fact]
+    public void No_reply_segment_names_the_city_and_date()
+    {
+        var n = TripNotifications.TripNoReplySegment(SegmentRow(), Ctx(Traveller));
+        Assert.Equal("No reply from the drivers yet", n.Title);
+        Assert.Equal("Travel to Badrinath on 03 Nov. Call them or ask the backups.", n.Body);
+        Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
+        Assert.Equal(Traveller, n.TargetUserId);
+    }
+
+    [Fact]
+    public void Driver_side_pushes_of_a_segment_row_stay_on_trip_leads()
+        => Assert.Equal(UserNotificationRoutes.TripLeads,
+            TripNotifications.TripTaxiBookedByTraveller(SegmentRow(), Ctx(Owner)).ActionRoute);
 }

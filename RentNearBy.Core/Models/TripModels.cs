@@ -268,13 +268,21 @@ public sealed class TripTravel
     public string? LeavesAt { get; set; }
     public int? RoadMinutes { get; set; }
     public string? Note { get; set; }
+    // Journey mode only: the saved taxi journey that carries him from the previous city.
+    public Guid? JourneyId { get; set; }
+    public string? PlanKey { get; set; }
+    public int? Cars { get; set; }
+    public int? ListedTotal { get; set; }
+    // Own mode: the train/bus hub he reaches when no driver goes the whole road.
+    public string? HubName { get; set; }
 }
 
 public static class TripTravelModes
 {
     public const string Own = "own";
+    public const string Journey = "journey";
 
-    public static readonly string[] All = [Own];
+    public static readonly string[] All = [Own, Journey];
 }
 
 public static class TripTravelHows
@@ -376,6 +384,8 @@ public static class TripStepRoles
 {
     public const string GettingThere = "gettingThere";
     public const string ComingBack = "comingBack";
+    // Travel between two cities (legs[k].arrival.journeyId); never a step.
+    public const string Segment = "segment";
 
     public static readonly string[] All = [GettingThere, ComingBack];
 }

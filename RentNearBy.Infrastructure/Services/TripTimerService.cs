@@ -18,7 +18,8 @@ namespace RentNearBy.Infrastructure.Services;
 //   5. Advance holds past HoldUntil -> Failed/HoldExpired; cards rewritten; push to both sides (hold:{id}:t|o).
 //   6. Hourly host reminder while the proof is sent and the hold runs (proof:{id}:{proofSentAt}:{hour}).
 //   7. Taxi FareSent leads past ExpiresAt -> Expired; push once (exp:{id}).
-//   8. Asked enquiries 24 h old with no reply -> one traveller reminder (noreply:{id}); muted trips skipped.
+//   8. Asked enquiries 24 h old with no reply -> one traveller reminder (noreply:{id}; a journey car between cities:
+//      one per travel segment, noreply:seg:{tripId}:{date}); muted trips skipped.
 //   9. Host link unanswered for 24 h -> one traveller reminder (hostnc:{id}); muted trips skipped.
 //  10. Trip date reminders: 3 days before (d3), start day (d0), day after the last day (done); keyed by date, muted trips skipped.
 //  11. Planned trips 7 days past the last day with nothing open -> Completed (no push, runs even when muted).
@@ -374,7 +375,10 @@ public class TripTimerService(
                     || !await TripRemindableAsync(db, tripId, ct))
                     continue;
                 var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(e, travellerId);
-                if (await notifier.SendOnceAsync(TripNotifications.TripNoReply(e, ctx), TripReminderRules.NoReplyKey(e.Id), tripId, e.Id))
+                var segment = TripSegmentRows.IsSegment(e) && e.CheckIn != null;
+                var push = segment ? TripNotifications.TripNoReplySegment(e, ctx) : TripNotifications.TripNoReply(e, ctx);
+                var key = segment ? TripReminderRules.NoReplySegmentKey(tripId, e.CheckIn!.Value) : TripReminderRules.NoReplyKey(e.Id);
+                if (await notifier.SendOnceAsync(push, key, tripId, e.Id))
                     done++;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

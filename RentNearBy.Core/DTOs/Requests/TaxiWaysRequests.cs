@@ -53,6 +53,9 @@ public class SaveJourneyRequest
     public int People { get; set; }
     public string PlanKey { get; set; } = string.Empty;
     public List<SaveJourneyLegRequest> Legs { get; set; } = new();
+    // Travel between two cities of a trip: both together; LegIndex = the city leg travelled to (2..n).
+    public Guid? TripId { get; set; }
+    public int? LegIndex { get; set; }
 }
 
 public class ReplaceJourneyDriverRequest

@@ -24,4 +24,6 @@ public interface ITripRepository : IRepository<Trip>
     Task<TripCityInfo?> FindLegSnapshotAsync(Guid ownerUserId, long cityKey);
     // Tracked; the row an earlier create with this client id inserted. Null when none.
     Task<Trip?> FindByClientIdAsync(Guid ownerUserId, Guid clientTripId);
+    // AsNoTracking; the caller's trips among ids (one query).
+    Task<List<Trip>> GetByIdsForOwnerAsync(IReadOnlyCollection<Guid> ids, Guid ownerUserId);
 }

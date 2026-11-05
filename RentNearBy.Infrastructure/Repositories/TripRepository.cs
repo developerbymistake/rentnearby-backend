@@ -127,4 +127,13 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
 
     public async Task<Trip?> FindByClientIdAsync(Guid ownerUserId, Guid clientTripId)
         => await _dbSet.FirstOrDefaultAsync(t => t.OwnerUserId == ownerUserId && t.ClientTripId == clientTripId);
+
+    public async Task<List<Trip>> GetByIdsForOwnerAsync(IReadOnlyCollection<Guid> ids, Guid ownerUserId)
+    {
+        if (ids.Count == 0) return new List<Trip>();
+        var list = ids.Distinct().ToList();
+        return await _dbSet.AsNoTracking()
+            .Where(t => list.Contains(t.Id) && t.OwnerUserId == ownerUserId)
+            .ToListAsync();
+    }
 }

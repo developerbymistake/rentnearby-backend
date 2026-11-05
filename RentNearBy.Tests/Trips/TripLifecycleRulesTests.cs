@@ -618,4 +618,148 @@ public class TripLifecycleRulesTests
         Assert.Contains(TripStatuses.Draft, TripStatuses.Savable);
         Assert.Contains(TripStatuses.Planned, TripStatuses.Savable);
     }
+
+    // ---- travel between cities (CONTRACT_MCB D6): Haridwar days 1-2, Badrinath days 3-4, day 3 = travel day
+
+    private static readonly Guid JourneyA = Guid.Parse("dddddddd-0000-0000-0000-00000000000a");
+    private static readonly Guid JourneyB = Guid.Parse("dddddddd-0000-0000-0000-00000000000b");
+
+    private static TripPlan TwoCityPlan(TripTravel? arrival)
+    {
+        var plan = new TripPlan
+        {
+            Settings = new TripSettings { StartDate = Start },
+            Legs =
+            [
+                new TripCityLeg { Index = 1, CityName = "Haridwar" },
+                new TripCityLeg { Index = 2, CityName = "Badrinath", Arrival = arrival },
+            ],
+        };
+        for (var d = 1; d <= 4; d++)
+        {
+            var day = new TripDay { Day = d, Leg = d <= 2 ? 1 : 2 };
+            day.Spots.Add(new TripSpot { Id = $"s{d}", Name = $"Spot {d}" });
+            plan.Days.Add(day);
+        }
+        return plan;
+    }
+
+    private static TripTravel JourneyArrival(Guid id, int cars = 2) =>
+        new() { Mode = TripTravelModes.Journey, FromName = "Haridwar", JourneyId = id, Cars = cars };
+
+    private static TripEnquiry Segment(string status, int car, Guid? journey = null, int? fare = null) => new()
+    {
+        Id = Guid.NewGuid(),
+        TripId = Guid.NewGuid(),
+        Kind = TripEnquiryKinds.Taxi,
+        Status = status,
+        Day = 3,
+        DaysJson = "[3]",
+        CheckIn = Start.AddDays(2),
+        CheckOut = Start.AddDays(3),
+        AgreedFare = fare,
+        ContextJson = $$"""{"city":"Badrinath","journeyId":"{{journey ?? JourneyA}}","legIndex":{{car}}}""",
+    };
+
+    private static Trip FourDayTrip() => PlannedTrip(end: Start.AddDays(3));
+
+    [Fact]
+    public void Segment_rows_stay_out_of_taxi_counts_but_in_the_agreed_total()
+    {
+        var plan = TwoCityPlan(JourneyArrival(JourneyA));
+        var c = TripBookingSummary.Count(plan, [Segment(TripEnquiryStatuses.BookedByTraveller, 1, fare: 4200)]);
+        Assert.Equal(0, c.TaxisTotal);
+        Assert.Equal(0, c.TaxisConfirmed);
+        Assert.Equal(2, c.TravelTotal);
+        Assert.Equal(1, c.TravelConfirmed);
+        Assert.Equal(4200, c.AgreedTotal);
+    }
+
+    [Fact]
+    public void Two_cars_one_booked_is_confirming_both_booked_is_ready()
+    {
+        var plan = TwoCityPlan(JourneyArrival(JourneyA));
+        Assert.Equal(TripBookingStates.Confirming, Compute(FourDayTrip(), plan, Segment(TripEnquiryStatuses.BookedByTraveller, 1)));
+        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan,
+            Segment(TripEnquiryStatuses.BookedByTraveller, 1), Segment(TripEnquiryStatuses.ConfirmedByBoth, 2)));
+    }
+
+    [Fact]
+    public void Saved_unasked_journey_keeps_the_trip_confirming()
+        => Assert.Equal(TripBookingStates.Confirming, Compute(FourDayTrip(), TwoCityPlan(JourneyArrival(JourneyA))));
+
+    [Fact]
+    public void Own_travel_is_settled_and_not_a_travel_car()
+    {
+        var plan = TwoCityPlan(new TripTravel { Mode = TripTravelModes.Own, FromName = "Haridwar", How = "bus" });
+        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan));
+        var c = TripBookingSummary.Count(plan, []);
+        Assert.Equal(0, c.TravelTotal);
+        Assert.Equal(0, c.TaxisTotal);
+    }
+
+    [Fact]
+    public void No_arrival_blocks_nothing()
+        => Assert.Equal(TripBookingStates.PlanOnly, Compute(FourDayTrip(), TwoCityPlan(null)));
+
+    [Fact]
+    public void Stale_segment_rows_of_a_replaced_journey_are_ignored()
+    {
+        var plan = TwoCityPlan(JourneyArrival(JourneyA));
+        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan,
+            Segment(TripEnquiryStatuses.BookedByTraveller, 1), Segment(TripEnquiryStatuses.BookedByTraveller, 2),
+            Segment(TripEnquiryStatuses.Asked, 1, JourneyB), Segment(TripEnquiryStatuses.NotAvailable, 2, JourneyB)));
+    }
+
+    [Fact]
+    public void Red_segment_row_counts_until_another_driver_books_that_car()
+    {
+        var plan = TwoCityPlan(JourneyArrival(JourneyA, cars: 1));
+        Assert.Equal(TripBookingStates.Confirming, Compute(FourDayTrip(), plan, Segment(TripEnquiryStatuses.NotAvailable, 1)));
+        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan,
+            Segment(TripEnquiryStatuses.NotAvailable, 1), Segment(TripEnquiryStatuses.BookedByTraveller, 1)));
+    }
+
+    [Fact]
+    public void Open_segment_row_is_open()
+    {
+        var plan = TwoCityPlan(JourneyArrival(JourneyA, cars: 1));
+        Assert.Equal(TripBookingStates.Confirming, Compute(FourDayTrip(), plan, Segment(TripEnquiryStatuses.FareSent, 1)));
+    }
+
+    [Fact]
+    public void Segment_and_local_taxi_on_the_travel_day_never_merge()
+    {
+        var plan = TwoCityPlan(JourneyArrival(JourneyA, cars: 1));
+        var local = Taxi(TripEnquiryStatuses.BookedByTraveller, "[3,4]", fare: 3000);
+        local.CheckIn = Start.AddDays(2);
+        local.CheckOut = Start.AddDays(4);
+        var c = TripBookingSummary.Count(plan, [local]);
+        Assert.Equal(2, c.TaxisConfirmed);
+        Assert.Equal(0, c.TravelConfirmed);
+        Assert.Equal(1, c.TravelTotal);
+        Assert.Equal(TripBookingStates.Confirming, Compute(FourDayTrip(), plan, local));
+    }
+
+    [Fact]
+    public void AllSettled_needs_every_journey_car_booked()
+    {
+        var plan = TwoCityPlan(JourneyArrival(JourneyA));
+        Assert.False(TripReminderRules.AllSettled(plan, []));
+        Assert.False(TripReminderRules.AllSettled(plan, [Segment(TripEnquiryStatuses.BookedByTraveller, 1)]));
+        Assert.True(TripReminderRules.AllSettled(plan,
+            [Segment(TripEnquiryStatuses.BookedByTraveller, 1), Segment(TripEnquiryStatuses.BookedByTraveller, 2)]));
+    }
+
+    [Fact]
+    public void NoReplySegmentKey_is_short_and_keyed_by_trip_and_date()
+    {
+        var trip = Guid.NewGuid();
+        var key = TripReminderRules.NoReplySegmentKey(trip, new DateOnly(2026, 11, 3));
+        Assert.StartsWith("noreply:seg:", key);
+        Assert.EndsWith(":20261103", key);
+        Assert.Contains(trip.ToString("N"), key);
+        Assert.True(key.Length <= 80);
+        Assert.NotEqual(TripReminderRules.NoReplyKey(trip), key);
+    }
 }

@@ -34,6 +34,9 @@ public static class JourneyErrorTypes
     public const string JourneyLimitReached = "JourneyLimitReached";
     public const string DriverNotOnLeg = "DriverNotOnLeg";
     public const string ConcurrentUpdate = "CONCURRENT_UPDATE";
+    public const string JourneyInTrip = "JourneyInTrip";
+    public const string JourneyNotInPlan = "JourneyNotInPlan";
+    public const string RouteMismatch = "RouteMismatch";
 }
 
 public static class JourneyRules
@@ -133,15 +136,17 @@ public static class JourneyNotifications
 {
     public const string Route = "/my-journeys";
 
-    public static NotificationEvent DriverPaused(Guid userId, Guid journeyId, string driverName, string from, string to, string? backupName)
+    // A journey linked to a trip opens the trip plan; a free journey opens My journeys.
+    public static NotificationEvent DriverPaused(
+        Guid userId, Guid journeyId, string driverName, string from, string to, string? backupName, Guid? tripId = null)
         => Make(userId, journeyId, JourneyNotificationTypes.JourneyDriverPaused, "A driver is unavailable",
             string.IsNullOrWhiteSpace(backupName)
                 ? $"{driverName} paused his taxi for {from} to {to}. Open the journey to pick another driver."
-                : $"{driverName} paused his taxi for {from} to {to}. Backup ready: {backupName}.");
+                : $"{driverName} paused his taxi for {from} to {to}. Backup ready: {backupName}.", tripId);
 
-    public static NotificationEvent DriverBack(Guid userId, Guid journeyId, string driverName, string from, string to)
+    public static NotificationEvent DriverBack(Guid userId, Guid journeyId, string driverName, string from, string to, Guid? tripId = null)
         => Make(userId, journeyId, JourneyNotificationTypes.JourneyDriverBack, "Driver available again",
-            $"{driverName} is back for {from} to {to}.");
+            $"{driverName} is back for {from} to {to}.", tripId);
 
     public static NotificationEvent DayBefore(Guid userId, Guid journeyId, string from, string to, int notAsked)
         => Make(userId, journeyId, JourneyNotificationTypes.JourneyDayBefore, "Your journey is tomorrow",
@@ -149,15 +154,17 @@ public static class JourneyNotifications
                 ? $"{from} to {to}. {notAsked} {(notAsked == 1 ? "driver" : "drivers")} not asked yet."
                 : $"{from} to {to}. All drivers answered.");
 
-    private static NotificationEvent Make(Guid userId, Guid journeyId, string type, string title, string body) => new()
+    private static NotificationEvent Make(Guid userId, Guid journeyId, string type, string title, string body, Guid? tripId = null) => new()
     {
         Id = Guid.NewGuid(),
         TargetUserId = userId,
         Type = type,
         Title = title,
         Body = body,
-        ActionRoute = Route,
-        ActionArgumentsJson = $"{{\"journeyId\":\"{journeyId}\"}}",
+        ActionRoute = tripId == null ? Route : UserNotificationRoutes.TripPlan,
+        ActionArgumentsJson = tripId is { } t
+            ? $"{{\"tripId\":\"{t}\",\"journeyId\":\"{journeyId}\"}}"
+            : $"{{\"journeyId\":\"{journeyId}\"}}",
         CreatedAt = DateTime.UtcNow,
     };
 }

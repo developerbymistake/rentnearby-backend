@@ -323,7 +323,7 @@ public static class TripHandlers
         plan.Normalize();
         if (await ResolveLegsAsync(plan, null, catalog, unitOfWork, create: true) is { } legError) return legError;
         KeepSkippedTaxiDays(plan, null);
-        var linkIds = await SanitiseStepsAsync(plan, journeys, userId);
+        var linkIds = await SanitiseLinksAsync(plan, journeys, userId, null);
 
         var now = DateTime.UtcNow;
         var trip = new Trip
@@ -408,30 +408,38 @@ public static class TripHandlers
         var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
         var dto = ToDto(trip, plan, enquiries);
         dto.Enquiries = await TripEnquiryDtoBuilder.BuildManyAsync(unitOfWork, enquiries, viewerId, nowUtc);
-        dto.Journeys = await JourneysOfAsync(journeys, trip, plan, viewerId);
+        dto.Journeys = await JourneysOfAsync(journeys, trip, plan, viewerId, enquiries);
         return dto;
     }
 
-    internal static async Task<List<TripJourneyDto>> JourneysOfAsync(ISavedJourneyRepository journeys, Trip trip, TripPlan plan, Guid viewerId)
+    internal static async Task<List<TripJourneyDto>> JourneysOfAsync(
+        ISavedJourneyRepository journeys, Trip trip, TripPlan plan, Guid viewerId, IReadOnlyList<TripEnquiry> enquiries)
     {
         if (trip.OwnerUserId != viewerId) return new List<TripJourneyDto>();
         var linked = await journeys.GetByTripAsync(trip.Id, viewerId);
         if (linked.Count == 0) return new List<TripJourneyDto>();
         var taxis = await TripJourneyDtoBuilder.LoadTaxisAsync(journeys, linked);
-        return TripJourneyDtoBuilder.BuildMany(linked, plan, taxis);
+        return TripJourneyDtoBuilder.BuildMany(linked, plan, taxis, enquiries);
     }
 
-    // Steps are trusted only for the caller's live journeys; returns the ids to link to the trip.
+    // Steps and city arrivals are trusted only for the caller's live journeys; returns the ids to link to the trip.
     // carriedForTrip: the steps were kept from the stored plan, so a journey since linked to another trip stays there.
-    private static async Task<List<Guid>> SanitiseStepsAsync(
-        TripPlan plan, ISavedJourneyRepository journeys, Guid userId, Guid? carriedForTrip = null)
+    // An arrival never takes a journey from another trip (tripId = this trip, null on create).
+    private static async Task<List<Guid>> SanitiseLinksAsync(
+        TripPlan plan, ISavedJourneyRepository journeys, Guid userId, Guid? tripId, Guid? carriedForTrip = null)
     {
-        var referenced = TripStepRules.ReferencedIds(plan.Steps);
-        var owned = referenced.Count == 0
-            ? new HashSet<Guid>()
-            : LinkableIds(await journeys.GetOwnedByIdsAsync(referenced, userId), carriedForTrip);
-        return TripStepRules.Sanitise(plan.Steps, owned);
+        var referenced = TripJourneyLinks.ReferencedIds(plan);
+        var loaded = referenced.Count == 0 ? new List<SavedJourney>() : await journeys.GetOwnedByIdsAsync(referenced, userId);
+        var keep = TripStepRules.Sanitise(plan.Steps, LinkableIds(loaded, carriedForTrip));
+        TripTravelRules.SanitiseArrivals(plan, SegmentLinkableIds(loaded, tripId), keep);
+        return keep;
     }
+
+    public static HashSet<Guid> SegmentLinkableIds(IEnumerable<SavedJourney> owned, Guid? tripId)
+        => owned
+            .Where(j => j.TripId == null || j.TripId == tripId)
+            .Select(j => j.Id)
+            .ToHashSet();
 
     public static HashSet<Guid> LinkableIds(IEnumerable<SavedJourney> owned, Guid? carriedForTrip)
         => owned
@@ -494,7 +502,7 @@ public static class TripHandlers
             && (TripDateRules.StartMoved(trip.StartDate, plan.Settings.StartDate)
                 || (trip.EndDate is { } storedEnd && plan.EndDate is { } nextEnd && nextEnd < storedEnd)))
             TripStepRules.ClearDates(plan.Steps);
-        var linkIds = await SanitiseStepsAsync(plan, journeys, userId, requestedSteps == null ? trip.Id : null);
+        var linkIds = await SanitiseLinksAsync(plan, journeys, userId, trip.Id, requestedSteps == null ? trip.Id : null);
 
         // A title the traveller typed is never touched; the default follows the cities.
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, plan.LegCities);
@@ -608,8 +616,9 @@ public static class TripHandlers
         }
 
         await TripEnquiryHandlers.AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
-        var dto = ToDto(trip, plan, await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id));
-        dto.Journeys = await JourneysOfAsync(journeys, trip, plan, userId);
+        var tripEnquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
+        var dto = ToDto(trip, plan, tripEnquiries);
+        dto.Journeys = await JourneysOfAsync(journeys, trip, plan, userId, tripEnquiries);
         return OkResponse(dto);
     }
 

@@ -58,4 +58,89 @@ public class JourneyRulesTests
         Assert.NotEqual(JourneyRules.BackKey(j, t, new DateOnly(2026, 11, 1)), JourneyRules.BackKey(j, t, new DateOnly(2026, 11, 2)));
         Assert.Equal(JourneyRules.PausedKey(j, t), JourneyRules.PausedKey(j, t));
     }
+
+    // ---- journeys in a trip (CONTRACT_MCB D8)
+
+    [Fact]
+    public void Paused_and_back_route_to_my_journeys_without_a_trip()
+    {
+        var journey = Guid.NewGuid();
+        var paused = JourneyNotifications.DriverPaused(Guid.NewGuid(), journey, "Sunil", "Haridwar", "Badrinath", "Mohan");
+        var back = JourneyNotifications.DriverBack(Guid.NewGuid(), journey, "Sunil", "Haridwar", "Badrinath");
+
+        Assert.Equal(JourneyNotifications.Route, paused.ActionRoute);
+        Assert.Equal(JourneyNotifications.Route, back.ActionRoute);
+        Assert.Equal($"{{\"journeyId\":\"{journey}\"}}", paused.ActionArgumentsJson);
+    }
+
+    [Fact]
+    public void Paused_and_back_route_to_the_trip_plan_for_a_journey_in_a_trip()
+    {
+        var journey = Guid.NewGuid();
+        var trip = Guid.NewGuid();
+        var paused = JourneyNotifications.DriverPaused(Guid.NewGuid(), journey, "Sunil", "Haridwar", "Badrinath", null, trip);
+        var back = JourneyNotifications.DriverBack(Guid.NewGuid(), journey, "Sunil", "Haridwar", "Badrinath", trip);
+
+        Assert.Equal(UserNotificationRoutes.TripPlan, paused.ActionRoute);
+        Assert.Equal(UserNotificationRoutes.TripPlan, back.ActionRoute);
+        Assert.Contains($"\"tripId\":\"{trip}\"", paused.ActionArgumentsJson);
+        Assert.Contains($"\"tripId\":\"{trip}\"", back.ActionArgumentsJson);
+    }
+
+    [Fact]
+    public void Eve_key_is_unchanged()
+    {
+        var j = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        Assert.Equal("jrn:e:11111111222233334444555555555555", JourneyRules.EveKey(j));
+    }
+
+    private static SavedJourney WatchedJourney(DateOnly date, Guid? tripId, Guid driver) => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = Guid.NewGuid(),
+        TripId = tripId,
+        FromName = "Haridwar",
+        ToName = "Badrinath",
+        TravelDate = date,
+        Legs = { new SavedJourneyLeg { LegIndex = 1, FromName = "Haridwar", ToName = "Badrinath", DriverTaxiId = driver, DriverAvailable = true } },
+    };
+
+    private static JourneyTaxiInfo Taxi(Guid id, bool isPublic) =>
+        new(id, Guid.NewGuid(), "Sunil", "Innova", 7, null, null, "new", null, null, isPublic);
+
+    [Fact]
+    public void Watch_sends_the_eve_push_only_for_a_free_journey()
+    {
+        var today = new DateOnly(2026, 11, 5);
+        var driver = Guid.NewGuid();
+        var taxis = new Dictionary<Guid, JourneyTaxiInfo> { [driver] = Taxi(driver, true) };
+
+        var free = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
+        RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
+            WatchedJourney(today.AddDays(1), null, driver), taxis, today, DateTime.UtcNow, free);
+        var inTrip = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
+        RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
+            WatchedJourney(today.AddDays(1), Guid.NewGuid(), driver), taxis, today, DateTime.UtcNow, inTrip);
+
+        Assert.Single(free);
+        Assert.Empty(inTrip);
+    }
+
+    [Fact]
+    public void Watch_routes_a_paused_driver_of_a_trip_journey_to_the_plan()
+    {
+        var today = new DateOnly(2026, 11, 5);
+        var driver = Guid.NewGuid();
+        var trip = Guid.NewGuid();
+        var taxis = new Dictionary<Guid, JourneyTaxiInfo> { [driver] = Taxi(driver, false) };
+        var pushes = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
+
+        var dirty = RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
+            WatchedJourney(today.AddDays(5), trip, driver), taxis, today, DateTime.UtcNow, pushes);
+
+        Assert.True(dirty);
+        var push = Assert.Single(pushes);
+        Assert.Equal(UserNotificationRoutes.TripPlan, push.Event.ActionRoute);
+        Assert.Contains(trip.ToString(), push.Event.ActionArgumentsJson);
+    }
 }

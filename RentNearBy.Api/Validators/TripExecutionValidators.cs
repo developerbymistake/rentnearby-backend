@@ -263,9 +263,18 @@ public class CreateTaxiBookingRequestValidator : AbstractValidator<CreateTaxiBoo
     {
         RuleFor(x => x.TaxiId).NotEmpty().WithMessage("Taxi must not be empty");
 
+        RuleFor(x => x.JourneyId)
+            .Must((r, id) => r.JourneyLegIndex == null ? id == null : id != null && id != Guid.Empty)
+            .WithMessage("Journey is required");
+        RuleFor(x => x.JourneyLegIndex)
+            .Must((r, i) => r.JourneyId == null ? i == null : i is >= 1 and <= JourneyRules.MaxLegs)
+            .WithMessage("Unknown leg");
+
         RuleFor(x => x.Days)
-            .Must(d => d != null && d.Count is >= 1 and <= TripLimits.MaxDays)
-            .WithMessage($"Pick 1 to {TripLimits.MaxDays} days")
+            .Must((r, d) => r.JourneyId != null
+                ? d == null || d.Count <= 1
+                : d != null && d.Count is >= 1 and <= TripLimits.MaxDays)
+            .WithMessage(r => r.JourneyId != null ? "Journey cars travel on the travel day" : $"Pick 1 to {TripLimits.MaxDays} days")
             .Must(d => d == null || d.Distinct().Count() == d.Count)
             .WithMessage("Days must be different")
             .Must(d => d == null || d.All(v => v is >= 1 and <= TripLimits.MaxDays))

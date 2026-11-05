@@ -6,6 +6,8 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Api.Validators;
+using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -28,7 +30,7 @@ public static class JourneyHandlers
 
     public static async Task<IResult> Save(
         SaveJourneyRequest request, IValidator<SaveJourneyRequest> validator, ClaimsPrincipal principal,
-        ISavedJourneyRepository journeys, IRateLimitService rateLimiter, HttpContext http)
+        ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, IRateLimitService rateLimiter, HttpContext http)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request);
@@ -41,13 +43,38 @@ public static class JourneyHandlers
             return TooManyRequestsResponse();
         }
 
+        // Travel between two cities of a trip: the journey is pre-linked so it is in the trip before the plan save lands.
+        TripLinkTarget? target = null;
+        if (request.TripId is { } requestTripId)
+        {
+            var (resolved, error) = await ResolveTargetAsync(unitOfWork, requestTripId, request, userId);
+            if (error != null) return error;
+            target = resolved;
+        }
+
         // Same plan, date and people = the same journey; a people change is a new journey (D24). A completed one is never reused.
         var existing = await journeys.FindByPlanAsync(userId, request.PlanKey, request.Date);
         if (existing != null && existing.People != request.People)
             existing = (await journeys.GetLiveByUserAsync(userId))
                 .FirstOrDefault(j => j.Status != JourneyStatuses.Completed
                     && j.PlanKey == request.PlanKey && j.TravelDate == request.Date && j.People == request.People);
-        if (existing != null) return OkResponse(await BuildAsync(journeys, existing, new HashSet<int>()));
+        if (existing != null)
+        {
+            if (target != null)
+            {
+                if (existing.TripId is { } linkedTrip && linkedTrip != target.Trip.Id)
+                    return ErrorResponse(409, "This journey is in another trip", JourneyErrorTypes.JourneyInTrip);
+                if (TripJourneyLinks.Resolve(target.Plan, existing.Id) is { } link
+                    && (link.Role != TripStepRoles.Segment || link.LegIndex != target.LegIndex))
+                    return ErrorResponse(409, "This journey is already in your trip", JourneyErrorTypes.JourneyInTrip);
+                if (existing.TripId != target.Trip.Id)
+                {
+                    await journeys.SetTripAsync(existing.Id, target.Trip.Id);
+                    existing.TripId = target.Trip.Id;
+                }
+            }
+            return OkResponse(await BuildAsync(journeys, unitOfWork, userId, existing, new HashSet<int>(), target));
+        }
 
         if (await journeys.CountLiveAsync(userId) >= JourneyRules.MaxLive)
             return ConflictResponse("Up to 20 saved journeys.", JourneyErrorTypes.JourneyLimitReached);
@@ -74,6 +101,7 @@ public static class JourneyHandlers
             People = (short)request.People,
             PlanKey = request.PlanKey,
             Cars = (short)legs.Count,
+            TripId = target?.Trip.Id,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -120,38 +148,96 @@ public static class JourneyHandlers
 
         await journeys.AddAsync(journey);
         await journeys.SaveChangesAsync();
-        return CreatedResponse(await BuildAsync(journeys, journey, new HashSet<int>()), $"/api/v1/taxis/journeys/{journey.Id}");
+        return CreatedResponse(
+            await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>(), target), $"/api/v1/taxis/journeys/{journey.Id}");
     }
+
+    private sealed record TripLinkTarget(Trip Trip, TripPlan Plan, int LegIndex, int TravelDay);
+
+    // D2 checks in order: owned trip, not completed, dates, leg, travel date, route ends.
+    private static async Task<(TripLinkTarget? Target, IResult? Error)> ResolveTargetAsync(
+        IUnitOfWork unitOfWork, Guid tripId, SaveJourneyRequest request, Guid userId)
+    {
+        var trip = (await unitOfWork.Trips.GetByIdsForOwnerAsync([tripId], userId)).FirstOrDefault();
+        if (trip == null) return (null, ErrorResponse(404, "Trip not found", TripErrorTypes.TripNotFound));
+        if (trip.Status == TripStatuses.Completed) return (null, BadRequestResponse("This trip is completed"));
+        if (trip.StartDate is not { } start)
+            return (null, ErrorResponse(422, "Add your trip dates first.", TripEnquiryErrorTypes.TripDatesRequired));
+
+        var plan = TripPlanReader.Read(trip);
+        var legIndex = request.LegIndex ?? 0;
+        var legs = plan.Legs ?? new List<TripCityLeg>();
+        var travelDay = legIndex >= 2 && legIndex <= legs.Count ? plan.LegStart(legIndex) : 0;
+        if (travelDay <= 0) return (null, BadRequestResponse(SaveJourneyRequestValidator.UnknownCityMessage));
+
+        if (request.Date != TripExecutionRules.NightDate(start, travelDay))
+            return (null, ErrorResponse(409, "Your trip date changed. Search again.", TripEnquiryErrorTypes.TravelDateChanged));
+
+        var leg = legs[legIndex - 1];
+        var previous = legs[legIndex - 2];
+        if (GeoMath.HaversineKm(request.ToLat, request.ToLng, leg.Latitude, leg.Longitude) > RouteMatchKm
+            || GeoMath.HaversineKm(request.FromLat, request.FromLng, previous.Latitude, previous.Longitude) > RouteMatchKm)
+            return (null, BadRequestResponse("This journey is for another route", JourneyErrorTypes.RouteMismatch));
+
+        return (new TripLinkTarget(trip, plan, legIndex, travelDay), null);
+    }
+
+    private const double RouteMatchKm = 50;
 
     // ---------- GET /taxis/journeys ----------
 
-    public static async Task<IResult> List(ClaimsPrincipal principal, ISavedJourneyRepository journeys)
+    public static async Task<IResult> List(ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var rows = await journeys.GetLiveByUserAsync(userId);
         var taxis = await LoadTaxisAsync(journeys, rows);
-        return OkResponse(new JourneyListDto { Items = rows.Select(j => Map(j, taxis, new HashSet<int>())).ToList() });
+        var trips = await LoadTripsAsync(unitOfWork, rows, userId);
+        return OkResponse(new JourneyListDto
+        {
+            Items = rows.Select(j => WithTrip(Map(j, taxis, new HashSet<int>()), j, trips, null)).ToList(),
+        });
     }
 
     // ---------- GET /taxis/journeys/{id} ----------
 
-    public static async Task<IResult> Get(Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys)
+    public static async Task<IResult> Get(Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var journey = await journeys.GetOwnedAsync(id, userId, tracked: false);
         if (journey == null) return NotFound();
-        return OkResponse(await BuildAsync(journeys, journey, new HashSet<int>()));
+        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>()));
     }
 
     // ---------- DELETE /taxis/journeys/{id} ----------
 
-    public static async Task<IResult> Delete(Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys)
+    // A journey with booked cars in a trip stays until they are cancelled; open asks of its trip travel are withdrawn.
+    public static async Task<IResult> Delete(
+        Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork,
+        ITripNotifier notifier, ILoggerFactory loggers)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var journey = await journeys.GetOwnedAsync(id, userId, tracked: true);
         if (journey == null) return NotFound();
+
+        var now = DateTime.UtcNow;
+        var pushes = new List<TripPendingPush>();
+        if (journey.TripId != null)
+        {
+            var rows = await journeys.GetSegmentRowsAsync(journey.Id);
+            if (rows.Any(r => TripEnquiryStatuses.IsBooked(r.Status)))
+                return ErrorResponse(409, "Cancel the booked cars in your trip first", JourneyErrorTypes.JourneyInTrip);
+            foreach (var row in rows.Where(r => TripEnquiryStatuses.IsWithdrawable(r.Status)))
+            {
+                row.Status = TripEnquiryStatuses.Closed;
+                row.FailReason = TripCloseReasons.Withdrawn;
+                row.UpdatedAt = now;
+                pushes.Add(new TripPendingPush(row, row.OwnerUserId, TripEnquiryHandlers.EnquiryWithdrawn));
+            }
+        }
+
         journey.IsDeleted = true;
-        journey.UpdatedAt = DateTime.UtcNow;
+        journey.TripId = null;
+        journey.UpdatedAt = now;
         try
         {
             await journeys.SaveChangesAsync();
@@ -160,13 +246,17 @@ public static class JourneyHandlers
         {
             return Concurrent();
         }
+
+        if (pushes.Count > 0)
+            await TripPushSender.SendAsync(pushes, unitOfWork.TripEnquiries, notifier, loggers.CreateLogger("Journeys"));
         return NoContentResponse();
     }
 
     // ---------- POST /taxis/journeys/{id}/refresh ----------
 
     public static async Task<IResult> Refresh(
-        Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys, IRateLimitService rateLimiter, HttpContext http)
+        Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, IRateLimitService rateLimiter,
+        HttpContext http)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -215,7 +305,7 @@ public static class JourneyHandlers
         {
             return Concurrent();
         }
-        return OkResponse(await BuildAsync(journeys, journey, fareChanged));
+        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, fareChanged));
     }
 
     private static async Task RefreshLegAsync(
@@ -269,7 +359,7 @@ public static class JourneyHandlers
 
     public static async Task<IResult> ReplaceDriver(
         Guid id, int legIndex, ReplaceJourneyDriverRequest request, IValidator<ReplaceJourneyDriverRequest> validator,
-        ClaimsPrincipal principal, ISavedJourneyRepository journeys)
+        ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request);
@@ -323,14 +413,14 @@ public static class JourneyHandlers
                 return Concurrent();
             }
         }
-        return OkResponse(await BuildAsync(journeys, journey, new HashSet<int>()));
+        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>()));
     }
 
     // ---------- PUT /taxis/journeys/{id}/status ----------
 
     public static async Task<IResult> SetStatus(
         Guid id, JourneyStatusRequest request, IValidator<JourneyStatusRequest> validator, ClaimsPrincipal principal,
-        ISavedJourneyRepository journeys)
+        ISavedJourneyRepository journeys, IUnitOfWork unitOfWork)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request);
@@ -351,7 +441,7 @@ public static class JourneyHandlers
                 return Concurrent();
             }
         }
-        return OkResponse(await BuildAsync(journeys, journey, new HashSet<int>()));
+        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>()));
     }
 
     // ---------- mapping ----------
@@ -372,8 +462,41 @@ public static class JourneyHandlers
         return await journeys.LoadTaxisAsync(ids);
     }
 
-    private static async Task<JourneyDto> BuildAsync(ISavedJourneyRepository journeys, SavedJourney journey, HashSet<int> fareChanged)
-        => Map(journey, await LoadTaxisAsync(journeys, [journey]), fareChanged);
+    private static async Task<JourneyDto> BuildAsync(
+        ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, Guid userId, SavedJourney journey, HashSet<int> fareChanged,
+        TripLinkTarget? target = null)
+    {
+        var dto = Map(journey, await LoadTaxisAsync(journeys, [journey]), fareChanged);
+        var trips = target != null
+            ? new Dictionary<Guid, (Trip Trip, TripPlan Plan)> { [target.Trip.Id] = (target.Trip, target.Plan) }
+            : await LoadTripsAsync(unitOfWork, [journey], userId);
+        return WithTrip(dto, journey, trips, target);
+    }
+
+    // One owner-scoped trips query per response.
+    private static async Task<Dictionary<Guid, (Trip Trip, TripPlan Plan)>> LoadTripsAsync(
+        IUnitOfWork unitOfWork, IEnumerable<SavedJourney> rows, Guid userId)
+    {
+        var ids = rows.Where(j => j.TripId != null).Select(j => j.TripId!.Value).Distinct().ToList();
+        if (ids.Count == 0) return new Dictionary<Guid, (Trip Trip, TripPlan Plan)>();
+        var trips = await unitOfWork.Trips.GetByIdsForOwnerAsync(ids, userId);
+        return trips.ToDictionary(t => t.Id, t => (t, TripPlanReader.Read(t)));
+    }
+
+    // A pre-linked journey the plan does not reference yet takes its role from the save request.
+    private static JourneyDto WithTrip(
+        JourneyDto dto, SavedJourney j, Dictionary<Guid, (Trip Trip, TripPlan Plan)> trips, TripLinkTarget? target)
+    {
+        if (j.TripId is not { } tripId || !trips.TryGetValue(tripId, out var entry)) return dto;
+        dto.TripTitle = entry.Trip.Title;
+        var link = TripJourneyLinks.Resolve(entry.Plan, j.Id);
+        if (link == null && target != null && target.Trip.Id == tripId)
+            link = new TripJourneyLink(TripStepRoles.Segment, target.LegIndex, target.TravelDay);
+        dto.TripRole = link?.Role;
+        dto.TripLegIndex = link?.LegIndex;
+        dto.TripTravelDay = link?.TravelDay;
+        return dto;
+    }
 
     internal static JourneyDto Map(SavedJourney j, Dictionary<Guid, JourneyTaxiInfo> taxis, HashSet<int> fareChanged) => new()
     {

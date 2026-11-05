@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using RentNearBy.Core.Entities;
 
@@ -378,6 +379,7 @@ public static class TripEnquiryErrorTypes
     public const string ProblemOutsideTrip = "ProblemOutsideTrip";
     public const string AskAgainNothing = "AskAgainNothing";
     public const string TripNeedsUpdate = "TripNeedsUpdate";
+    public const string TravelDateChanged = "TravelDateChanged";
     public const string TripCompleted = "TripCompleted";
     public const string EnquiryEnded = "EnquiryEnded";
     public const string NightFailed = "NightFailed";
@@ -593,6 +595,72 @@ public static class TripEnquiryCity
         context.CityIndex = leg.Index;
         context.CityCount = count;
         context.TripDayCount = rowDayCount > 0 ? rowDayCount : plan.Days?.Count ?? 0;
+    }
+}
+
+public static class TripEnquiryContexts
+{
+    public static TripEnquiryContext Read(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new TripEnquiryContext();
+        try { return JsonSerializer.Deserialize<TripEnquiryContext>(json, TripJson.Options) ?? new TripEnquiryContext(); }
+        catch (JsonException) { return new TripEnquiryContext(); }
+    }
+}
+
+// Journey car between two cities of a trip (Day = travel day). Problem splits of a local taxi also carry Day, so the journey id decides.
+public static class TripSegmentRows
+{
+    public static bool IsSegment(TripEnquiry e)
+        => e.Kind == TripEnquiryKinds.Taxi && e.TripId != null && e.Day != null && JourneyIdOf(e) != null;
+
+    public static Guid? JourneyIdOf(TripEnquiry e)
+        => string.IsNullOrEmpty(e.ContextJson) || !e.ContextJson.Contains("journeyId", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : TripEnquiryContexts.Read(e.ContextJson).JourneyId;
+
+    public static int? CarOf(TripEnquiry e) => TripEnquiryContexts.Read(e.ContextJson).LegIndex;
+
+    public static List<TripEnquiry> OfJourney(IEnumerable<TripEnquiry> rows, Guid journeyId)
+        => rows.Where(r => IsSegment(r) && JourneyIdOf(r) == journeyId).ToList();
+}
+
+public static class TripSegmentContext
+{
+    public static TripEnquiryContext Build(
+        Trip trip, TripPlan plan, TripCityLeg leg, int travelDay, DateOnly date, Guid journeyId,
+        int carIndex, int carOf, string fromName, string toName, string? comesFrom, int people, int carsNeeded,
+        string? travellerName, string? pickupTime, string? pickupPlace)
+    {
+        var settings = plan.Settings ?? new TripSettings();
+        var from = TripTextSafety.Clean(fromName);
+        var name = TripTextSafety.Clean(travellerName);
+        var time = !string.IsNullOrWhiteSpace(pickupTime) && Regex.IsMatch(pickupTime.Trim(), TripLeadRules.PickupTimePattern)
+            ? pickupTime.Trim()
+            : null;
+        var context = new TripEnquiryContext
+        {
+            TripTitle = TripTextSafety.CleanOrNull(trip.Title, 120),
+            Adults = settings.Adults ?? people,
+            Kids = settings.Kids ?? 0,
+            Rooms = null,
+            Needs = [],
+            TravellerName = name.Length == 0 ? null : name,
+            Days = [new TripEnquiryContextDay { Day = travelDay, Date = date, Minutes = 0, Spots = [] }],
+            PickupTime = time,
+            PickupPlace = TripTextSafety.CleanOrNull(pickupPlace, TripLeadRules.PickupPlaceMax)
+                ?? JourneyLeadText.PickupPlace(from, carIndex, carOf),
+            JourneyId = journeyId,
+            LegIndex = carIndex,
+        };
+        TripEnquiryCity.Apply(context, plan, travelDay, trip.CityName, trip.DayCount);
+        var to = TripTextSafety.Clean(toName);
+        if (to.Length == 0) to = TripTextSafety.Clean(leg.CityName);
+        if (to.Length == 0) to = context.City;
+        var comes = TripTextSafety.CleanOrNull(comesFrom, TripExecutionRules.MaxTextLen);
+        context.Text = JourneyLeadText.Build(from, to, date, Math.Max(1, people), carIndex, carOf, comes, Math.Max(1, carsNeeded))
+            + TripEnquiryText.CitySuffixOf(context);
+        return context;
     }
 }
 

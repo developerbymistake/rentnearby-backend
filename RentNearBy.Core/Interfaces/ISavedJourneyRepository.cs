@@ -37,5 +37,9 @@ public interface ISavedJourneyRepository
     // Links keepIds to the trip and unlinks the caller's other journeys of that trip. Set-based, untouched rows stay as they are.
     Task RelinkTripAsync(Guid tripId, Guid userId, IReadOnlyCollection<Guid> keepIds);
     Task UnlinkTripAsync(Guid tripId);
+    // Set-based; one journey's trip link (pre-link at save, unlink at delete).
+    Task SetTripAsync(Guid journeyId, Guid? tripId);
+    // Tracked segment rows (TripId set, Taxi, Day set) whose context carries this journey; any status.
+    Task<List<TripEnquiry>> GetSegmentRowsAsync(Guid journeyId);
     Task<int> SaveChangesAsync();
 }

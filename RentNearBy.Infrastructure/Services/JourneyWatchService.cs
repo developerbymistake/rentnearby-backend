@@ -11,14 +11,15 @@ namespace RentNearBy.Infrastructure.Services;
 // Every 10 min (first pass after 1 min), journeys with TravelDate >= today (IST) and not Completed:
 //   a chosen driver no longer public -> leg unavailable, journey DriverUnavailable, push once (jrn:p:...)
 //   the same driver public again     -> leg available, status recomputed, push once per day (jrn:b:...)
-//   TravelDate is tomorrow           -> push once (jrn:e:...)
+//   TravelDate is tomorrow           -> push once (jrn:e:...), not for a journey in a trip (its trip reminders cover it)
+// A journey in a trip routes the paused/back pushes to the trip plan.
 public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<JourneyWatchService> logger) : BackgroundService
 {
     private static readonly TimeSpan FirstDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(10);
     private const int Batch = 500;
 
-    private sealed record Pending(string Dedupe, NotificationEvent Event, Guid JourneyId);
+    internal sealed record Pending(string Dedupe, NotificationEvent Event, Guid JourneyId);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -104,7 +105,7 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
     }
 
     // Applies availability to the legs; returns true when a leg changed.
-    private static bool Evaluate(
+    internal static bool Evaluate(
         SavedJourney journey, Dictionary<Guid, JourneyTaxiInfo> taxis, DateOnly today, DateTime now, List<Pending> pushes)
     {
         var dirty = false;
@@ -119,7 +120,8 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
                 var name = driver?.DriverName ?? "Your driver";
                 pushes.Add(new Pending(
                     JourneyRules.PausedKey(journey.Id, leg.DriverTaxiId),
-                    JourneyNotifications.DriverPaused(journey.UserId, journey.Id, name, leg.FromName, leg.ToName, FirstLiveBackup(leg, taxis)),
+                    JourneyNotifications.DriverPaused(
+                        journey.UserId, journey.Id, name, leg.FromName, leg.ToName, FirstLiveBackup(leg, taxis), journey.TripId),
                     journey.Id));
             }
             else if (isPublic && !leg.DriverAvailable)
@@ -129,12 +131,12 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
                 dirty = true;
                 pushes.Add(new Pending(
                     JourneyRules.BackKey(journey.Id, leg.DriverTaxiId, today),
-                    JourneyNotifications.DriverBack(journey.UserId, journey.Id, driver!.DriverName, leg.FromName, leg.ToName),
+                    JourneyNotifications.DriverBack(journey.UserId, journey.Id, driver!.DriverName, leg.FromName, leg.ToName, journey.TripId),
                     journey.Id));
             }
         }
 
-        if (journey.TravelDate == today.AddDays(1))
+        if (journey.TripId == null && journey.TravelDate == today.AddDays(1))
         {
             var notAsked = journey.Legs.Count(l => l.LastEnquiryId == null);
             pushes.Add(new Pending(

@@ -1251,13 +1251,130 @@ public class TripRequestValidatorsTests
     [Theory]
     [InlineData("journey", null, null, SaveTripRequestValidator.TravelMessage)]
     [InlineData("own", "plane", null, SaveTripRequestValidator.TravelMessage)]
-    [InlineData("own", "bus", 300, SaveTripRequestValidator.RoadTimeMessage)]
+    [InlineData("own", "bus", 901, SaveTripRequestValidator.RoadTimeMessage)]
+    [InlineData("own", "bus", -1, SaveTripRequestValidator.RoadTimeMessage)]
+    [InlineData("train", null, null, SaveTripRequestValidator.TravelMessage)]
     public void Save_BadArrival_Invalid(string mode, string? how, int? roadMinutes, string message)
     {
         var request = MultiCity([1, 2], CityKey, SecondCity);
         request.Plan.Legs![1].Arrival = new TripTravel { Mode = mode, FromName = "Haridwar", How = how, RoadMinutes = roadMinutes };
 
         ValidationAssert.HasMessage(SaveValidator.Validate(request), message);
+    }
+
+    // ---- travel between cities by a saved journey (CONTRACT_MCB D3)
+
+    private static SaveTripRequest WithArrival(TripTravel arrival)
+    {
+        var request = MultiCity([1, 2], CityKey, SecondCity);
+        request.Plan.Legs![1].Arrival = arrival;
+        return request;
+    }
+
+    private static TripTravel JourneyTravel(Guid? id = null) => new()
+    {
+        Mode = TripTravelModes.Journey, FromName = "Haridwar", JourneyId = id ?? Guid.NewGuid(),
+        PlanKey = null, Cars = 2, ListedTotal = 14000, RoadMinutes = 600,
+    };
+
+    [Fact]
+    public void TravelModes_HasOwnAndJourney()
+    {
+        Assert.Equal(2, TripTravelModes.All.Length);
+        Assert.Contains(TripTravelModes.Own, TripTravelModes.All);
+        Assert.Contains(TripTravelModes.Journey, TripTravelModes.All);
+    }
+
+    [Fact]
+    public void Save_JourneyArrival_Valid()
+        => SaveValidator.TestValidate(WithArrival(JourneyTravel())).ShouldNotHaveAnyValidationErrors();
+
+    [Fact]
+    public void Save_JourneyArrivalRoadMinutes600_Valid()
+    {
+        var travel = JourneyTravel();
+        travel.RoadMinutes = 600;
+
+        SaveValidator.TestValidate(WithArrival(travel)).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_JourneyArrivalRoadMinutes901_Invalid()
+    {
+        var travel = JourneyTravel();
+        travel.RoadMinutes = 901;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(WithArrival(travel)), SaveTripRequestValidator.RoadTimeMessage);
+    }
+
+    [Fact]
+    public void Save_JourneyArrivalWithoutId_Invalid()
+    {
+        var travel = JourneyTravel();
+        travel.JourneyId = null;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(WithArrival(travel)), SaveTripRequestValidator.TravelMessage);
+    }
+
+    [Fact]
+    public void Save_JourneyArrivalEmptyId_Invalid()
+        => ValidationAssert.HasMessage(
+            SaveValidator.Validate(WithArrival(JourneyTravel(Guid.Empty))), SaveTripRequestValidator.TravelMessage);
+
+    [Theory]
+    [InlineData("how")]
+    [InlineData("ownName")]
+    [InlineData("ownPhone")]
+    [InlineData("leavesAt")]
+    public void Save_JourneyArrivalWithOwnFields_Invalid(string field)
+    {
+        var travel = JourneyTravel();
+        switch (field)
+        {
+            case "how": travel.How = TripTravelHows.Train; break;
+            case "ownName": travel.OwnName = "Shatabdi"; break;
+            case "ownPhone": travel.OwnPhone = "9876543210"; break;
+            default: travel.LeavesAt = "06:45"; break;
+        }
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(WithArrival(travel)), SaveTripRequestValidator.TravelMessage);
+    }
+
+    [Fact]
+    public void Save_OwnArrivalWithJourneyId_Invalid()
+        => ValidationAssert.HasMessage(
+            SaveValidator.Validate(WithArrival(new TripTravel
+            {
+                Mode = TripTravelModes.Own, FromName = "Haridwar", How = TripTravelHows.Train, JourneyId = Guid.NewGuid(),
+            })),
+            SaveTripRequestValidator.TravelMessage);
+
+    [Fact]
+    public void Save_OwnArrivalWithHub_Valid()
+        => SaveValidator.TestValidate(WithArrival(new TripTravel
+            {
+                Mode = TripTravelModes.Own, FromName = "Haridwar", How = TripTravelHows.Train, HubName = "Rishikesh",
+            }))
+            .ShouldNotHaveAnyValidationErrors();
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    public void Save_JourneyArrivalCarsOutOfRange_Invalid(int cars)
+    {
+        var travel = JourneyTravel();
+        travel.Cars = cars;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(WithArrival(travel)), SaveTripRequestValidator.TravelMessage);
+    }
+
+    [Fact]
+    public void Save_JourneyArrivalBadPlanKey_Invalid()
+    {
+        var travel = JourneyTravel();
+        travel.PlanKey = "not a key";
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(WithArrival(travel)), SaveTripRequestValidator.TravelMessage);
     }
 
     [Fact]

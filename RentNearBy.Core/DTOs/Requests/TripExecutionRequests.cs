@@ -32,6 +32,9 @@ public class CreateTaxiBookingRequest
     public Guid? ReplaceEnquiryId { get; set; }
     // Every booked driver the traveller agreed to replace on these days (ReplaceEnquiryId counts too).
     public List<Guid>? ReplaceEnquiryIds { get; set; }
+    // Both or neither: a journey car between two cities; Days is empty or the travel day.
+    public Guid? JourneyId { get; set; }
+    public int? JourneyLegIndex { get; set; }
 }
 
 public class AskAdvanceRequest

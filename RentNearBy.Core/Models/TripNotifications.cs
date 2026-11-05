@@ -203,6 +203,15 @@ public static class TripNotifications
         Traveller(e, ctx, NotificationTypes.TripNoReply, $"No reply yet from {Listing(e, ctx)}",
             $"Call or WhatsApp; or ask another {AskWord(e)}.", Plan(e, ctx));
 
+    // One push per travel segment (key NoReplySegmentKey), whichever car's lead is due first.
+    public static NotificationEvent TripNoReplySegment(TripEnquiry e, TripPushContext ctx)
+    {
+        var city = Name(TripEnquiryContexts.Read(e.ContextJson).City, "your next city");
+        var date = e.CheckIn is { } d ? $" on {d.ToString("dd MMM", Inv)}" : string.Empty;
+        return Traveller(e, ctx, NotificationTypes.TripNoReply, "No reply from the drivers yet",
+            $"Travel to {city}{date}. Call them or ask the backups.", Plan(e, ctx));
+    }
+
     public static NotificationEvent TripProblemReported(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripProblemReported, $"Problem on {Name(ctx.TravellerName, "a guest")}'s trip",
             IsTaxi(e) ? "The driver did not come." : "The host could not give the room.", IsTaxi(e) ? Leads(e) : Enquiries(e, ctx));
@@ -361,7 +370,7 @@ public static class TripNotifications
     private static Target Plan(TripEnquiry e, TripPushContext ctx)
     {
         if (e.TripId is { } t)
-            return IsTaxi(e)
+            return IsTaxi(e) && !TripSegmentRows.IsSegment(e)
                 ? new(UserNotificationRoutes.TripTaxiReplies, JsonSerializer.Serialize(new
                 {
                     tripId = t, day = FirstDay(e), enquiryId = e.Id, date = e.CheckIn?.ToString("yyyy-MM-dd", Inv),
