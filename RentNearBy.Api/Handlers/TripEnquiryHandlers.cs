@@ -59,7 +59,7 @@ public static class TripEnquiryAuth
 
 public static class TripEnquiryHandlers
 {
-    private const string OpenUniqueIndex = "ix_tripenquiries_open_unique";
+    internal const string OpenUniqueIndex = "ix_tripenquiries_open_unique";
     private const string OpenTaxiUniqueIndex = "ix_tripenquiries_open_taxi_unique";
     private static readonly TimeSpan Hour = TimeSpan.FromHours(1);
     private static readonly TimeSpan Day24 = TimeSpan.FromHours(24);
@@ -1225,6 +1225,8 @@ public static class TripEnquiryHandlers
                 return conflict;
             }
 
+            if (tripStart is { } planStart && (e.CheckIn != checkIn || e.CheckOut != checkOut))
+                RebuildStayContext(e, TripEnquiryDtoBuilder.ReadContext(e.ContextJson), await LoadPlanAsync(db, e.TripId), planStart, checkIn.Value, checkOut.Value);
             e.Status = TripEnquiryStatuses.ConfirmedByBoth;
             e.AcceptedOfferId = offer.Id;
             e.AgreedTotal = offer.Total;
@@ -1251,6 +1253,11 @@ public static class TripEnquiryHandlers
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch (DbUpdateException ex) when (IsOpenUniqueViolation(ex))
         {
             await unitOfWork.RollbackTransactionAsync();
             return Concurrent();
@@ -1636,12 +1643,27 @@ public static class TripEnquiryHandlers
         var history = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
         var targets = new List<Guid>();
         var preSkipped = new List<TripSkippedDto>();
+        var askDays = new List<string>();
+        var todayIst = TripExecutionRules.TodayIst(DateTime.UtcNow);
         foreach (var listingId in shortlist)
         {
             var latest = history.FirstOrDefault(x => x.Kind == request.Kind && x.ListingId == listingId && CoversDay(x, day, date));
             if (latest != null && TripEnquiryStatuses.IsOpen(latest.Status)) preSkipped.Add(Skip(listingId, TripSkipReasons.AlreadyOpen));
-            else targets.Add(listingId);
+            else
+            {
+                targets.Add(listingId);
+                if (isTaxi)
+                {
+                    var days = latest == null
+                        ? new List<int> { day }
+                        : CurrentTaxiDays(latest, trip.StartDate!.Value).Where(d => TripExecutionRules.NightDate(trip.StartDate!.Value, d) >= todayIst).ToList();
+                    askDays.Add(string.Join(",", days.Count == 0 ? new List<int> { day } : days));
+                }
+            }
         }
+        var sharedDays = isTaxi && askDays.Distinct().Count() == 1
+            ? askDays[0].Split(',').Select(int.Parse).ToList()
+            : new List<int> { day };
         if (targets.Count == 0)
             return ConflictResponse("Nothing to ask again. Shortlist a stay first.", TripEnquiryErrorTypes.AskAgainNothing);
 
@@ -1649,7 +1671,7 @@ public static class TripEnquiryHandlers
         {
             Kind = request.Kind,
             Day = isTaxi ? 0 : day,
-            Days = isTaxi ? new List<int> { day } : null,
+            Days = isTaxi ? sharedDays : null,
             ListingIds = targets.Take(TripExecutionRules.MaxOpenPerNight).ToList(),
             AllNights = false,
         };
@@ -1744,6 +1766,8 @@ public static class TripEnquiryHandlers
                     posts.Add(staleRewrite);
             }
 
+            if (tripStart is { } planStart && (e.CheckIn != checkIn || e.CheckOut != checkOut))
+                RebuildStayContext(e, TripEnquiryDtoBuilder.ReadContext(e.ContextJson), await LoadPlanAsync(db, e.TripId), planStart, checkIn, checkOut);
             offer.Status = TripOfferStatuses.Accepted;
             offer.RespondedAt = now;
             e.AcceptedOfferId = offer.Id;
@@ -1760,6 +1784,11 @@ public static class TripEnquiryHandlers
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch (DbUpdateException ex) when (IsOpenUniqueViolation(ex))
         {
             await unitOfWork.RollbackTransactionAsync();
             return Concurrent();
@@ -1869,9 +1898,11 @@ public static class TripEnquiryHandlers
         await TripPushSender.SendAsync(pushes, unitOfWork.TripEnquiries, notifier, logger);
     }
 
-    // One stay per night: a confirmed row on any overlapping night blocks (409 with data) unless it is replaceId,
-    // which is cancelled by the guest here; closeOthers closes the other unconfirmed rows on those nights. No mutation on 409.
-    private static async Task<IResult?> ApplyNightRulesAsync(
+    // One stay per night: a confirmed row on any overlapping night blocks (409 with data) unless it is replaceId, whose
+    // overlapping nights are cancelled by the guest here (the rest of it stays booked); closeOthers closes the other
+    // unconfirmed rows on those nights. The target's own stay never keeps a second open row on those nights. No mutation on 409.
+    // callerId must be the guest: it is the actor of the system lines.
+    internal static async Task<IResult?> ApplyNightRulesAsync(
         ApplicationDbContext db, ITripChatService chat, TripEnquiry target, DateOnly checkIn, DateOnly checkOut,
         bool closeOthers, Guid? replaceId, Guid callerId, List<TripChatPost> posts, List<TripPendingPush> pushes, DateTime now)
     {
@@ -1889,18 +1920,20 @@ public static class TripEnquiryHandlers
                 new TripNightConflictDto { EnquiryId = blocking.Id, ListingName = blocking.ListingName });
 
         foreach (var replaced in confirmed)
+            await ReplaceNightsAsync(db, chat, replaced, checkIn, checkOut, callerId, posts, pushes, now);
+
+        // Same stay, same nights: the row being booked takes them, so the other open ask closes (else ix_tripenquiries_open_unique).
+        foreach (var same in overlapping.Where(x => x.ListingId == target.ListingId && TripEnquiryStatuses.IsUnconfirmed(x.Status)))
         {
-            replaced.Status = TripEnquiryStatuses.CancelledByTraveller;
-            replaced.CancelledAt = now;
-            replaced.CancelledByUserId = callerId;
-            replaced.UpdatedAt = now;
-            await TripEnquiryOps.PostSystemAsync(db, chat, replaced, callerId, TripSystemLines.CancelledByTraveller, posts);
-            pushes.Add(new TripPendingPush(replaced, replaced.OwnerUserId, TripNotifications.TripTravellerCancelled));
+            same.Status = TripEnquiryStatuses.Closed;
+            same.FailReason = TripCloseReasons.BookedElsewhere;
+            same.UpdatedAt = now;
+            await TripEnquiryOps.CloseOpenOfferAsync(db, chat, same, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
         }
 
         if (closeOthers)
         {
-            foreach (var other in overlapping.Where(x => TripEnquiryStatuses.IsUnconfirmed(x.Status)))
+            foreach (var other in overlapping.Where(x => x.ListingId != target.ListingId && TripEnquiryStatuses.IsUnconfirmed(x.Status)))
             {
                 other.Status = TripEnquiryStatuses.Closed;
                 other.FailReason = TripCloseReasons.BookedElsewhere;
@@ -1909,7 +1942,139 @@ public static class TripEnquiryHandlers
                 await TripEnquiryOps.PostSystemAsync(db, chat, other, callerId, TripSystemLines.BookedElsewhere, posts);
             }
         }
+        // Saved before the caller moves the target's Day: the filtered unique index is checked per statement.
+        await db.SaveChangesAsync();
         return null;
+    }
+
+    // Per night: only the nights [checkIn, checkOut) are cancelled; the nights before and after stay booked at their share.
+    private static async Task ReplaceNightsAsync(
+        ApplicationDbContext db, ITripChatService chat, TripEnquiry replaced, DateOnly checkIn, DateOnly checkOut, Guid callerId,
+        List<TripChatPost> posts, List<TripPendingPush> pushes, DateTime now)
+    {
+        var split = TripReplaceSplit.Plan(replaced, checkIn, checkOut, callerId, now);
+        if (split.Kept is not { } kept)
+        {
+            await TripEnquiryOps.PostSystemAsync(db, chat, replaced, callerId, TripSystemLines.CancelledByTraveller, posts);
+            pushes.Add(new TripPendingPush(replaced, replaced.OwnerUserId, TripNotifications.TripTravellerCancelled));
+            return;
+        }
+
+        var cancelled = split.Cancelled;
+        db.TripEnquiries.Add(cancelled);
+        if (split.KeptAfter is { } keptAfter) db.TripEnquiries.Add(keptAfter);
+        // Revised offers and change requests were written for the old range: none survives the split.
+        await TripEnquiryOps.CloseOpenOfferAsync(db, chat, kept, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
+
+        var conversation = kept.ConversationId is { } conversationId
+            ? await db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId)
+            : null;
+        IReadOnlyList<TripEnquiry> keptRows = split.KeptAfter is { } second ? [kept, second] : [kept];
+        if (kept.AcceptedOfferId is { } acceptedId && await db.TripOffers.FirstOrDefaultAsync(o => o.Id == acceptedId) is { } accepted)
+        {
+            accepted.Status = TripOfferStatuses.Superseded;
+            if (accepted.MessageId is { } oldCard && await chat.RewriteStatusAsync(oldCard, TripCardStatuses.Superseded) is { } rewrite)
+                posts.Add(rewrite);
+            foreach (var row in keptRows)
+            {
+                var shrunk = TripProblemSplit.ShrinkAcceptedOffer(accepted, row, now);
+                if (conversation != null)
+                {
+                    var card = await chat.PostAsync(conversation, shrunk.SenderUserId, TripMessageTypes.Offer,
+                        KeptOfferCardPayload(row, shrunk), $"Offer · Rs {shrunk.Total}");
+                    shrunk.MessageId = card.Message.Id;
+                    posts.Add(card);
+                }
+                db.TripOffers.Add(shrunk);
+                row.AcceptedOfferId = shrunk.Id;
+            }
+        }
+        else if (ReadBooking(kept) != null)
+        {
+            if (await RewritePhoneCardAsync(db, kept, TripCardStatuses.Pending) is { } phoneRewrite) posts.Add(phoneRewrite);
+            if (split.KeptAfter is { } phoneAfter && conversation != null && ReadBooking(phoneAfter) is { } afterBooking)
+                posts.Add(await chat.PostAsync(conversation, callerId, TripMessageTypes.PhoneBooking,
+                    PhoneCardPayload(phoneAfter, afterBooking, TripCardStatuses.Pending), "Booking recorded by phone"));
+        }
+
+        var cut = TripReplaceSplit.NightsText(cancelled.CheckIn, cancelled.CheckOut);
+        var keep = string.Join(" and ", keptRows.Select(r => TripReplaceSplit.NightsText(r.CheckIn, r.CheckOut)));
+        if (conversation != null && cancelled.TravellerUserId is { } guestId)
+            posts.Add(await chat.PostSystemAsync(conversation, guestId, TripSystemLines.CancelledByTraveller,
+                $"The guest cancelled {cut}. The other nights stay booked."));
+        pushes.Add(new TripPendingPush(cancelled, cancelled.OwnerUserId, NightsCancelled(cut, keep)));
+    }
+
+    private static Func<TripEnquiry, TripPushContext, NotificationEvent> NightsCancelled(string cut, string keep) => (e, ctx) =>
+    {
+        var n = TripNotifications.TripTravellerCancelled(e, ctx);
+        n.Title = "Booking changed";
+        n.Body = $"{TripDateText.FirstName(ctx.TravellerName)} cancelled {cut}. You keep {keep}.";
+        return n;
+    };
+
+    private static object KeptOfferCardPayload(TripEnquiry kept, TripOffer shrunk) => new
+    {
+        enquiryId = kept.Id,
+        offerId = shrunk.Id,
+        checkIn = shrunk.CheckIn,
+        checkOut = shrunk.CheckOut,
+        nights = (int)shrunk.Nights,
+        lines = TripEnquiryDtoBuilder.ReadLines(shrunk.LinesJson),
+        total = shrunk.Total,
+        listedPerNight = (int?)null,
+        inclusions = shrunk.Inclusions,
+        needsEchoed = JsonSerializer.Deserialize<string[]>(shrunk.NeedsEchoedJson ?? "[]", TripJson.Options) ?? [],
+        advanceAmount = shrunk.AdvanceAmount,
+        balanceNote = shrunk.BalanceNote,
+        cancellationText = shrunk.CancellationText,
+        gstInvoice = shrunk.GstInvoice,
+        validUntil = shrunk.ValidUntil,
+        status = TripCardStatuses.Accepted,
+        datesDiffer = false,
+    };
+
+    // The stay row's context covers exactly [checkIn, checkOut): known days stay, new nights come from the plan, the text follows.
+    public static void RebuildStayContext(
+        TripEnquiry e, TripEnquiryContext context, TripPlan? plan, DateOnly start, DateOnly checkIn, DateOnly checkOut)
+    {
+        var days = new List<TripEnquiryContextDay>();
+        for (var date = checkIn; date < checkOut; date = date.AddDays(1))
+        {
+            if (context.Days.FirstOrDefault(d => d.Date == date) is { } known)
+            {
+                days.Add(known);
+                continue;
+            }
+            var day = (int)TripExecutionRules.DayOf(start, date);
+            var planDay = plan?.Days?.FirstOrDefault(x => x.Day == day);
+            days.Add(new TripEnquiryContextDay
+            {
+                Day = day,
+                Date = date,
+                Minutes = planDay?.Spots.Sum(s => s.VisitMinutes) ?? 0,
+                Spots = planDay?.Spots
+                    .Select(s => TripTextSafety.Clean(s.Name))
+                    .Where(n => n.Length > 0)
+                    .ToList() ?? new List<string>(),
+            });
+        }
+        context.Days = days;
+        context.Text = TripEnquiryText.Build(context, checkIn, checkOut, checkOut.DayNumber - checkIn.DayNumber > 1);
+        e.ContextJson = JsonSerializer.Serialize(context, TripJson.Options);
+    }
+
+    // A racing write took the same stay and night (ix_tripenquiries_open_unique): answered as a concurrent change, never a 500.
+    internal static bool IsOpenUniqueViolation(DbUpdateException ex)
+        => ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: OpenUniqueIndex };
+
+    internal static async Task<TripPlan?> LoadPlanAsync(ApplicationDbContext db, Guid? tripId)
+    {
+        if (tripId is not { } id) return null;
+        var json = await db.Trips.AsNoTracking().Where(t => t.Id == id).Select(t => t.PlanJson).FirstOrDefaultAsync();
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options); }
+        catch (JsonException) { return null; }
     }
 
     private static IResult? CheckNight(Trip trip, int day, DateTime now)

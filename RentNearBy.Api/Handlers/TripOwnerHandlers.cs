@@ -545,10 +545,21 @@ public static class TripOwnerHandlers
                 new TripNightConflictDto { EnquiryId = blocking.Id, ListingName = blocking.ListingName });
 
         var lines = TripEnquiryDtoBuilder.ReadLines(change.LinesJson);
+        var guestId = e.TravellerUserId ?? callerId;
+        var plan = await TripEnquiryHandlers.LoadPlanAsync(db, tripId);
         var posts = new List<TripChatPost>();
+        var pushes = new List<TripPendingPush>();
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            // One stay per night, as on accept: other hosts' asks on the new nights close, a racing booking answers 409.
+            if (await TripEnquiryHandlers.ApplyNightRulesAsync(db, chat, e, checkIn, checkOut, closeOthers: true, replaceId: null,
+                    guestId, posts, pushes, now) is { } conflict)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return conflict;
+            }
+
             foreach (var old in offers)
             {
                 if (old.Id == change.Id) continue;
@@ -574,7 +585,7 @@ public static class TripOwnerHandlers
             context.Adults = change.Adults ?? context.Adults;
             context.Kids = change.Kids ?? context.Kids;
             context.Rooms = lines.Count > 0 ? lines.Sum(l => l.Units) : context.Rooms;
-            e.ContextJson = JsonSerializer.Serialize(context, TripJson.Options);
+            TripEnquiryHandlers.RebuildStayContext(e, context, plan, start, checkIn, checkOut);
             e.UpdatedAt = now;
             await unitOfWork.SaveChangesAsync();
 
@@ -590,6 +601,11 @@ public static class TripOwnerHandlers
             await unitOfWork.RollbackTransactionAsync();
             return Concurrent();
         }
+        catch (DbUpdateException ex) when (TripEnquiryHandlers.IsOpenUniqueViolation(ex))
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
         catch
         {
             await unitOfWork.RollbackTransactionAsync();
@@ -597,9 +613,9 @@ public static class TripOwnerHandlers
         }
 
         await chat.AfterCommitAsync(posts);
+        pushes.Add(new TripPendingPush(e, e.TravellerUserId, TripNotifications.TripChangeAccepted, Total: change.Total));
         await TripPushSender.SendAsync(
-            [new TripPendingPush(e, e.TravellerUserId, TripNotifications.TripChangeAccepted, Total: change.Total)],
-            unitOfWork.TripEnquiries, notifier, httpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TripOwner"));
+            pushes, unitOfWork.TripEnquiries, notifier, httpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TripOwner"));
 
         return OkResponse(await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId));
     }

@@ -9,6 +9,9 @@ public class TripPlannerGateFilter(IOptions<TripPlannerOptions> options) : IEndp
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
+        if (context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<SkipTripPlannerGateAttribute>() != null)
+            return await next(context);
+
         if (!options.Value.Enabled)
             return ForbiddenResponse("Trip planner is not available right now.", TripErrorTypes.TripPlannerDisabled);
 

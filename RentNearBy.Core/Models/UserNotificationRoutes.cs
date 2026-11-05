@@ -23,4 +23,12 @@ public static class UserNotificationRoutes
         ListingKinds.Taxi => MyTaxi,
         _ => MyPlots,
     };
+
+    // Inbox routes a role change deletes for the kind being left: its listing screen plus its trip owner screen.
+    public static IReadOnlyList<string> OwnedByKind(string listingKind) => listingKind switch
+    {
+        ListingKinds.Stay => [MyStays, StayEnquiries],
+        ListingKinds.Taxi => [MyTaxi, TripLeads],
+        _ => [ForListingKind(listingKind)],
+    };
 }

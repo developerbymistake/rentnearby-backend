@@ -106,6 +106,7 @@ public class TripEnquiryClosure(
             e.UpdatedAt = now;
             await TripEnquiryOps.CloseOpenOfferAsync(db, chat, e, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, _posts, now);
             await TripEnquiryOps.PostSystemAsync(db, chat, e, e.OwnerUserId, TripSystemLines.ListingRemoved, _posts);
+            await JourneyLegSync.SyncAsync(db, e, now);
             if (e.TravellerUserId is { } travellerId)
                 pushes.Add(await BuildAsync(e, travellerId, TripNotifications.TripListingRemoved, $"gone:{e.Id}", e.TripId));
         }
@@ -180,6 +181,7 @@ public class TripEnquiryClosure(
             e.Status = TripEnquiryStatuses.NotAvailable;
             e.FailReason = null;
             e.UpdatedAt = now;
+            await JourneyLegSync.SyncAsync(db, e, now);
             if (e.TravellerUserId is { } travellerId)
                 pushes.Add(await BuildAsync(e, travellerId, TripNotifications.TripNotAvailable, $"gone-rate:{e.Id}", e.TripId));
         }

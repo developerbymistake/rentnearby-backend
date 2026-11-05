@@ -242,7 +242,8 @@ public static class AdminRoleHandlers
                 if (purgeKind is ListingKinds.Stay or ListingKinds.Taxi)
                     tripPushes = await tripClosure.OnListingsRemovedAsync(purgeKind, purgedListingIds);
                 await unitOfWork.ListingReports.AutoResolvePendingForListingsAsync(purgedListingIds, purgeKind);
-                await unitOfWork.Notifications.DeleteByActionRouteForUserAsync(user.Id, UserNotificationRoutes.ForListingKind(purgeKind));
+                foreach (var route in UserNotificationRoutes.OwnedByKind(purgeKind))
+                    await unitOfWork.Notifications.DeleteByActionRouteForUserAsync(user.Id, route);
             }
 
             await unitOfWork.Users.SetRoleAsync(user.Id, target.Id);

@@ -143,6 +143,7 @@ public static class AdminTripHandlers
             e.UpdatedAt = now;
             await TripEnquiryOps.CloseOpenOfferAsync(db, chat, e, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
             await TripEnquiryOps.PostSystemAsync(db, chat, e, null, TripSystemLines.AdminClosed, posts);
+            await JourneyLegSync.SyncAsync(db, e, now);
             await unitOfWork.SaveChangesAsync();
             await unitOfWork.CommitTransactionAsync();
         }
