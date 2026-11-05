@@ -398,7 +398,9 @@ public static class TripSummaryRecordBuilder
         {
             var date = start?.AddDays(day.Day - 1);
             var match = Pick(stays.Where(d => Covers(d, day.Day, date)).ToList());
-            if (match != null)
+            // A recorded own stay or skipped night wins over a cancelled booking; only a live booking beats it.
+            var settled = day.Stay?.IsOwn == true || day.Stay?.Skipped == true;
+            if (match != null && (TripEnquiryStatuses.IsBooked(match.Status) || !settled))
             {
                 rawById.TryGetValue(match.Id, out var row);
                 record.Nights.Add(NightFrom(match, row, day.Day, date, firstNight: shown.Add(match.Id)));

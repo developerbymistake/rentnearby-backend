@@ -32,10 +32,14 @@ public class SavedJourneyRepository(ApplicationDbContext context) : ISavedJourne
         return await query.FirstOrDefaultAsync();
     }
 
+    // A completed journey is never reused: the same plan and date asked again is a new journey.
     public async Task<SavedJourney?> FindByPlanAsync(Guid userId, string planKey, DateOnly date)
         => await context.Set<SavedJourney>().AsNoTracking()
             .Include(j => j.Legs)
-            .FirstOrDefaultAsync(j => j.UserId == userId && !j.IsDeleted && j.PlanKey == planKey && j.TravelDate == date);
+            .Where(j => j.UserId == userId && !j.IsDeleted && j.Status != JourneyStatuses.Completed
+                && j.PlanKey == planKey && j.TravelDate == date)
+            .OrderByDescending(j => j.UpdatedAt)
+            .FirstOrDefaultAsync();
 
     public async Task<Dictionary<Guid, JourneyTaxiInfo>> LoadTaxisAsync(IReadOnlyCollection<Guid> taxiIds)
     {

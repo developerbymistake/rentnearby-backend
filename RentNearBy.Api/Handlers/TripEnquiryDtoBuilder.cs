@@ -199,14 +199,30 @@ public static class TripEnquiryDtoBuilder
     public static async Task<TripEnquiryDto> BuildOneAsync(IUnitOfWork unitOfWork, TripEnquiry e, Guid viewerId, DateTime nowUtc)
         => (await BuildManyAsync(unitOfWork, [e], viewerId, nowUtc))[0];
 
-    public static TripOfferDto ToOfferDto(TripOffer o, TripEnquiry e) => new()
+    public static TripOfferDto ToOfferDto(TripOffer o, TripEnquiry e)
+    {
+        var lines = ReadLines(o.LinesJson);
+        return ToOfferDto(o, e, lines);
+    }
+
+    // CounterLines keeps sum(units x price) = guest price x units up to per-line rounding, so the unit average is the guest's price.
+    public static int? ProposedPerNight(TripOffer o, IReadOnlyList<TripOfferLine> lines)
+    {
+        if (o.Kind != TripOfferKinds.Counter) return null;
+        long units = lines.Sum(l => (long)Math.Max(0, l.Units));
+        if (units == 0) return null;
+        return (int)Math.Round((double)lines.Sum(l => (long)l.Units * l.PricePerNight) / units, MidpointRounding.AwayFromZero);
+    }
+
+    private static TripOfferDto ToOfferDto(TripOffer o, TripEnquiry e, List<TripOfferLine> lines) => new()
     {
         Id = o.Id,
         Kind = o.Kind,
         CheckIn = o.CheckIn,
         CheckOut = o.CheckOut,
         Nights = o.Nights,
-        Lines = ReadLines(o.LinesJson),
+        Lines = lines,
+        ProposedPerNight = ProposedPerNight(o, lines),
         Total = o.Total,
         Inclusions = o.Inclusions,
         NeedsEchoed = ReadStrings(o.NeedsEchoedJson),

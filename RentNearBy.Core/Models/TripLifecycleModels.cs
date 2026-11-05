@@ -296,7 +296,24 @@ public static class TripProblemSplit
         e.AgreedTotal = keptTotal;
         e.UpdatedAt = nowUtc;
         ShrinkPhoneBooking(e, kept);
+        RebuildContext(e, d => d >= checkIn && d < date, (ctx, a, b) => TripEnquiryText.Build(ctx, a, b, b.DayNumber - a.DayNumber > 1));
+        RebuildContext(failed, d => d >= date && d < checkOut, (ctx, a, b) => TripEnquiryText.Build(ctx, a, b, b.DayNumber - a.DayNumber > 1));
         return (e, failed);
+    }
+
+    // The row's context keeps only the days it still covers, and its text follows its own dates.
+    private static void RebuildContext(TripEnquiry row, Func<DateOnly, bool> covers, Func<TripEnquiryContext, DateOnly, DateOnly, string> text)
+    {
+        if (string.IsNullOrWhiteSpace(row.ContextJson) || row.CheckIn is not { } checkIn || row.CheckOut is not { } checkOut) return;
+        try
+        {
+            var ctx = JsonSerializer.Deserialize<TripEnquiryContext>(row.ContextJson, TripJson.Options);
+            if (ctx == null) return;
+            ctx.Days = ctx.Days.Where(d => d.Date is not { } x || covers(x)).ToList();
+            ctx.Text = text(ctx, checkIn, checkOut);
+            row.ContextJson = JsonSerializer.Serialize(ctx, TripJson.Options);
+        }
+        catch (JsonException) { }
     }
 
     // The accepted terms as they stand after the split: same rooms and terms, the kept nights and total.
@@ -364,6 +381,10 @@ public static class TripProblemSplit
         e.CheckOut = firstDate.AddDays(keptDays[^1].Stored - first + 1);
         e.AgreedFare = e.AgreedFare is { } f ? Share(f, keptDays.Count, days.Count) : null;
         e.UpdatedAt = nowUtc;
+        var keptDates = keptDays.Select(x => firstDate.AddDays(x.Stored - first)).ToHashSet();
+        var failedDates = failedDays.Select(x => firstDate.AddDays(x.Stored - first)).ToHashSet();
+        RebuildContext(e, keptDates.Contains, TripEnquiryText.BuildLead);
+        RebuildContext(failed, failedDates.Contains, TripEnquiryText.BuildLead);
         return (e, failed);
     }
 

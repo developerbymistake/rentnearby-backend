@@ -169,6 +169,8 @@ public class TripOfferDto
     public int? Kids { get; set; }
     // The locked AgreedTotal while a Revised / ChangeRequest row is Pending, else null.
     public int? OldTotal { get; set; }
+    // Counter only: the guest's per-room-per-night price (lines are rescaled to the host's room mix).
+    public int? ProposedPerNight { get; set; }
     public DateTime? ValidUntil { get; set; }
     public string Status { get; set; } = TripOfferStatuses.Pending;
     public DateTime? RespondedAt { get; set; }

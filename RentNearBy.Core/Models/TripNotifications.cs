@@ -157,9 +157,35 @@ public static class TripNotifications
         Host(e, ctx, NotificationTypes.TripRevisedKept, "Revised offer not accepted",
             $"{Name(ctx.TravellerName, "A guest")} keeps Rs {Money(ctx.Total)}.", ChatOrEnquiries(e, ctx));
 
-    public static NotificationEvent TripChangeRequest(TripEnquiry e, TripPushContext ctx) =>
+    public static NotificationEvent TripChangeRequest(TripEnquiry e, TripPushContext ctx) => TripChangeRequest(e, ctx, null, null);
+
+    // ctx dates and the people passed in are the REQUESTED values; ctx.Total is the new total.
+    public static NotificationEvent TripChangeRequest(TripEnquiry e, TripPushContext ctx, int? adults, int? kids) =>
         Host(e, ctx, NotificationTypes.TripChangeRequest, "Change request",
-            $"{Name(ctx.TravellerName, "A guest")} asks for " + Join(" · ", Dates(e), People(e)) + ".", ChatOrEnquiries(e, ctx));
+            $"{Name(ctx.TravellerName, "A guest")} asks for "
+            + Join(" · ", Dates(e, ctx), adults != null ? PeopleText(adults, kids) : People(e),
+                ctx.Total is { } total ? $"Rs {Money(total)}" : string.Empty) + ".",
+            ChatOrEnquiries(e, ctx));
+
+    // Offer expiry, existing types: the guest's side reuses TripEnquiryExpired, the host's TripOfferDeclined.
+    public static NotificationEvent TripOfferExpired(TripEnquiry e, TripPushContext ctx) =>
+        Traveller(e, ctx, NotificationTypes.TripEnquiryExpired, $"{Listing(e, ctx)} offer expired", "Ask again or call.", Chat(e, ctx));
+
+    public static NotificationEvent TripOfferLapsed(TripEnquiry e, TripPushContext ctx) =>
+        Host(e, ctx, NotificationTypes.TripOfferDeclined, "Offer expired",
+            $"{Name(ctx.TravellerName, "The guest")} did not answer."
+            + (e.Status == TripEnquiryStatuses.Asked ? " Send a new offer." : string.Empty), ChatOrEnquiries(e, ctx));
+
+    // A driver whose lead lost days to another booked taxi; e already holds only the kept days.
+    public static NotificationEvent TripLeadDaysTaken(TripEnquiry e, TripPushContext ctx, string removed, bool quoteAgain) =>
+        Host(e, ctx, NotificationTypes.TripLeadReceived,
+            $"{(string.IsNullOrWhiteSpace(ctx.TravellerName) ? "The traveller" : TripDateText.FirstName(ctx.TravellerName))} booked another taxi for {removed}",
+            $"Still asking for {Dates(e)}." + (quoteAgain ? " Send your fare again." : string.Empty), Leads(e));
+
+    // The traveller's side of the same shrink when the driver's fare was cleared.
+    public static NotificationEvent TripFareCleared(TripEnquiry e, TripPushContext ctx) =>
+        Traveller(e, ctx, NotificationTypes.TripDriverFare, $"{Listing(e, ctx)} needs to quote again",
+            $"His fare was for more days. Now asking for {Dates(e)}.", Plan(e, ctx));
 
     public static NotificationEvent TripChangeAccepted(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripChangeAccepted, $"{Listing(e, ctx)} accepted your change",
@@ -251,6 +277,11 @@ public static class TripNotifications
     public static string People(TripEnquiry e)
     {
         var (adults, kids) = ReadPeople(e.ContextJson);
+        return PeopleText(adults, kids);
+    }
+
+    private static string PeopleText(int? adults, int? kids)
+    {
         if (adults is null) return string.Empty;
         var a = adults.Value == 1 ? "1 adult" : $"{adults.Value} adults";
         return kids is > 0 ? $"{a}, {kids.Value} {(kids.Value == 1 ? "kid" : "kids")}" : a;
@@ -327,7 +358,10 @@ public static class TripNotifications
     {
         if (e.TripId is { } t)
             return IsTaxi(e)
-                ? new(UserNotificationRoutes.TripTaxiReplies, JsonSerializer.Serialize(new { tripId = t, day = FirstDay(e), enquiryId = e.Id }))
+                ? new(UserNotificationRoutes.TripTaxiReplies, JsonSerializer.Serialize(new
+                {
+                    tripId = t, day = FirstDay(e), enquiryId = e.Id, date = e.CheckIn?.ToString("yyyy-MM-dd", Inv),
+                }))
                 : new(UserNotificationRoutes.TripPlan, JsonSerializer.Serialize(new { tripId = t }));
         if (IsTaxi(e))
             return new(JourneyNotifications.Route, ctx.JourneyId is { } j ? JsonSerializer.Serialize(new { journeyId = j }) : null);

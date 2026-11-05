@@ -12,7 +12,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Services;
 
 // Every 5 min (first pass at startup), one scope per pass, one transaction per row:
-//   1. Pending offers past ValidUntil -> Expired; the enquiry goes back to Asked (or Expired when its own window is over). No push.
+//   1. Pending offers past ValidUntil -> Expired; the enquiry goes back to Asked (or Expired when its own window is over); push to both sides (offerexp:{offerId}:t|o).
 //   2. Unconfirmed enquiries past ExpiresAt or whose check-in day has passed -> Expired; push once (exp:{id}).
 //   3. IsUrgent refresh for open rows whose check-in is now within 72 h.
 //   4. Purges: push logs after 90 days, trip-less enquiries after 180 days.
@@ -89,6 +89,7 @@ public class TripTimerService(
         var db = sp.GetRequiredService<ApplicationDbContext>();
         var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
         var chat = sp.GetRequiredService<ITripChatService>();
+        var notifier = sp.GetRequiredService<ITripNotifier>();
         var now = DateTime.UtcNow;
         var due = await unitOfWork.TripOffers.GetExpiredPendingAsync(now, Batch);
         var done = 0;
@@ -97,6 +98,7 @@ public class TripTimerService(
         {
             if (ct.IsCancellationRequested) break;
             var posts = new List<TripChatPost>();
+            TripEnquiry? lapsed = null;
             await unitOfWork.BeginTransactionAsync();
             try
             {
@@ -116,8 +118,14 @@ public class TripTimerService(
                 if (enquiry != null && enquiry.Status == TripEnquiryStatuses.Offered)
                 {
                     var next = enquiry.ExpiresAt > now ? TripEnquiryStatuses.Asked : TripEnquiryStatuses.Expired;
-                    await unitOfWork.TripEnquiries.TryTransitionAsync(enquiry.Id, [TripEnquiryStatuses.Offered], next, null, now);
+                    var moved = await unitOfWork.TripEnquiries.TryTransitionAsync(enquiry.Id, [TripEnquiryStatuses.Offered], next, null, now);
                     await TripEnquiryOps.PostSystemAsync(db, chat, enquiry, offer.SenderUserId, TripSystemLines.OfferExpired, posts);
+                    if (moved > 0)
+                    {
+                        enquiry.Status = next;
+                        enquiry.UpdatedAt = now;
+                        lapsed = enquiry;
+                    }
                 }
 
                 await unitOfWork.CommitTransactionAsync();
@@ -127,11 +135,13 @@ public class TripTimerService(
             {
                 await unitOfWork.RollbackTransactionAsync();
                 posts.Clear();
+                lapsed = null;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 await unitOfWork.RollbackTransactionAsync();
                 posts.Clear();
+                lapsed = null;
                 logger.LogError(ex, "Trip timer: offer expiry failed for {OfferId}", row.Id);
             }
             finally
@@ -139,6 +149,14 @@ public class TripTimerService(
                 db.ChangeTracker.Clear();
             }
             await chat.AfterCommitAsync(posts);
+            if (lapsed != null)
+                await TripPushSender.SendAsync(
+                [
+                    new TripPendingPush(lapsed, lapsed.TravellerUserId, TripNotifications.TripOfferExpired,
+                        DedupeKey: $"offerexp:{row.Id}:t"),
+                    new TripPendingPush(lapsed, lapsed.OwnerUserId, TripNotifications.TripOfferLapsed,
+                        DedupeKey: $"offerexp:{row.Id}:o"),
+                ], unitOfWork.TripEnquiries, notifier, logger);
         }
         return done;
     }

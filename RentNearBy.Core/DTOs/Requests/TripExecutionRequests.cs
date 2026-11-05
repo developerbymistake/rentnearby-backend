@@ -73,6 +73,8 @@ public class CreatePhoneBookingRequest : IPhoneBookingFields
     public Guid StayId { get; set; }
     public int Day { get; set; }
     public bool AllNights { get; set; }
+    // Explicit nights from Day (capped at the trip's last night); when set, AllNights is ignored.
+    public int? Nights { get; set; }
     public string HostName { get; set; } = string.Empty;
     public string HostPhone { get; set; } = string.Empty;
     public string RoomName { get; set; } = string.Empty;
@@ -87,6 +89,7 @@ public class CreatePhoneBookingRequest : IPhoneBookingFields
 public class EditPhoneBookingRequest : IPhoneBookingFields
 {
     public bool AllNights { get; set; }
+    public int? Nights { get; set; }
     public string HostName { get; set; } = string.Empty;
     public string HostPhone { get; set; } = string.Empty;
     public string RoomName { get; set; } = string.Empty;

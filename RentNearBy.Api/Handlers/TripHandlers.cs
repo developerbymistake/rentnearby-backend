@@ -433,19 +433,38 @@ public static class TripHandlers
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, trip.CityName);
         if (request.Status != null) trip.Status = request.Status;
         var oldStart = trip.StartDate;
+        var oldEnd = trip.EndDate;
         ApplyPlan(trip, plan);
         var now = DateTime.UtcNow;
         trip.UpdatedAt = now;
 
-        // A new start date: unconfirmed asks that no longer fit can never get an offer, so they close and the owner is told.
-        // A day-count change alone never closes rows. Confirmed bookings keep their dates (D7).
-        var closing = TripDateRules.StartMoved(oldStart, trip.StartDate)
-            ? (await db.TripEnquiries
+        // A new start date or an earlier end: unconfirmed asks with a night outside the trip can never get an offer,
+        // so they close and the owner is told. Confirmed bookings keep their dates (D7); their pending revised offers
+        // and change requests that fall outside can never be accepted, so they are superseded.
+        var startMoved = TripDateRules.StartMoved(oldStart, trip.StartDate);
+        var endCut = !startMoved && oldEnd is { } previousEnd && trip.EndDate is { } newEnd && newEnd < previousEnd;
+        var closing = new List<TripEnquiry>();
+        var staleOffers = new List<TripOffer>();
+        if (startMoved || endCut)
+        {
+            closing = (await db.TripEnquiries
                     .Where(x => x.TripId == trip.Id && TripEnquiryStatuses.Withdrawable.Contains(x.Status))
                     .ToListAsync())
                 .Where(x => TripDateRules.OutsideWindow(trip.StartDate, trip.EndDate, x.CheckIn, x.CheckOut))
-                .ToList()
-            : new List<TripEnquiry>();
+                .ToList();
+            var bookedIds = await db.TripEnquiries
+                .Where(x => x.TripId == trip.Id && TripEnquiryStatuses.Booked.Contains(x.Status))
+                .Select(x => x.Id)
+                .ToListAsync();
+            if (bookedIds.Count > 0)
+                staleOffers = (await db.TripOffers
+                        .Where(o => bookedIds.Contains(o.TripEnquiryId) && o.Status == TripOfferStatuses.Pending
+                            && (o.Kind == TripOfferKinds.Revised || o.Kind == TripOfferKinds.ChangeRequest))
+                        .ToListAsync())
+                    .Where(o => o.CheckIn != null && o.CheckOut != null
+                        && TripDateRules.OutsideWindow(trip.StartDate, trip.EndDate, o.CheckIn, o.CheckOut))
+                    .ToList();
+        }
         var posts = new List<TripChatPost>();
         var pushes = new List<TripPendingPush>();
 
@@ -459,7 +478,17 @@ public static class TripHandlers
                 x.UpdatedAt = now;
                 await TripEnquiryOps.CloseOpenOfferAsync(db, chat, x, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
                 await TripEnquiryOps.PostSystemAsync(db, chat, x, userId, TripSystemLines.TripDatesChanged, posts);
-                pushes.Add(new TripPendingPush(x, x.OwnerUserId, TripEnquiryHandlers.EnquiryClosedByDateChange));
+                pushes.Add(new TripPendingPush(x, x.OwnerUserId,
+                    endCut
+                        ? (Func<TripEnquiry, TripPushContext, NotificationEvent>)TripEnquiryHandlers.EnquiryClosedByDaysCut
+                        : TripEnquiryHandlers.EnquiryClosedByDateChange));
+            }
+            foreach (var o in staleOffers)
+            {
+                o.Status = TripOfferStatuses.Superseded;
+                o.RespondedAt ??= now;
+                if (o.MessageId is { } messageId && await chat.RewriteStatusAsync(messageId, TripCardStatuses.Superseded) is { } rewrite)
+                    posts.Add(rewrite);
             }
             await unitOfWork.SaveChangesAsync();
             await unitOfWork.CommitTransactionAsync();

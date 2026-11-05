@@ -50,6 +50,13 @@ public static class TaxiWaysAskHandlers
         var items = new List<(int LegIndex, TripEnquiry Enquiry)>();
         var skipped = new List<AskSkippedDto>();
         var candidates = new List<(AskLegRequest Leg, TaxiRow Taxi)>();
+        // A people change makes a new journey for the same plan and date (D24): its open leads replace the old journey's.
+        var siblingIds = await db.Set<SavedJourney>().AsNoTracking()
+            .Where(j => j.UserId == callerId && !j.IsDeleted && j.Id != journey.Id
+                && j.PlanKey == journey.PlanKey && j.TravelDate == journey.TravelDate)
+            .Select(j => j.Id)
+            .ToListAsync();
+        var replacedLeadIds = new HashSet<Guid>();
 
         foreach (var leg in request.Legs.OrderBy(l => l.LegIndex))
         {
@@ -81,6 +88,10 @@ public static class TaxiWaysAskHandlers
                     items.Add((leg.LegIndex, same));
                     continue;
                 }
+                foreach (var old in mine.Where(x => x.TripId == null && TripEnquiryStatuses.IsWithdrawable(x.Status)
+                    && x.CheckIn is { } a && x.CheckOut is { } b && TripExecutionRules.NightsOverlap(a, b, date, checkOut)
+                    && IsLeadOfAny(x, siblingIds, leg.LegIndex)))
+                    replacedLeadIds.Add(old.Id);
                 candidates.Add((leg, taxi));
             }
         }
@@ -102,6 +113,20 @@ public static class TaxiWaysAskHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            if (replacedLeadIds.Count > 0)
+            {
+                var ids = replacedLeadIds.ToList();
+                var oldLeads = await db.TripEnquiries.Where(x => ids.Contains(x.Id)).ToListAsync();
+                foreach (var old in oldLeads.Where(x => TripEnquiryStatuses.IsWithdrawable(x.Status)))
+                {
+                    old.Status = TripEnquiryStatuses.Closed;
+                    old.FailReason = TripCloseReasons.Withdrawn;
+                    old.UpdatedAt = now;
+                    pushes.Add(new TripPendingPush(old, old.OwnerUserId, TripEnquiryHandlers.EnquiryWithdrawn));
+                }
+                await db.SaveChangesAsync();
+            }
+
             foreach (var (leg, taxi) in candidates)
             {
                 var fromName = TripTextSafety.Clean(leg.FromName);
@@ -211,6 +236,13 @@ public static class TaxiWaysAskHandlers
     {
         var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
         return context.JourneyId == journeyId && context.LegIndex == legIndex;
+    }
+
+    private static bool IsLeadOfAny(TripEnquiry e, IReadOnlyCollection<Guid> journeyIds, int legIndex)
+    {
+        if (journeyIds.Count == 0) return false;
+        var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
+        return context.JourneyId is { } id && journeyIds.Contains(id) && context.LegIndex == legIndex;
     }
 
     private static AskSkippedDto Skip(int legIndex, Guid taxiId, string reason)

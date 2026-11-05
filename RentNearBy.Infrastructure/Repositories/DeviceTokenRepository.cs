@@ -47,12 +47,15 @@ public class DeviceTokenRepository(ApplicationDbContext context) : IDeviceTokenR
 
     public async Task MarkInvalidAsync(string token)
     {
-        var entity = await context.DeviceTokens
-            .FirstOrDefaultAsync(d => d.Token == token);
-        if (entity != null)
+        // One row per (token, user): a shared device holds several, and a dead token is dead for every one of them.
+        var rows = await context.DeviceTokens
+            .Where(d => d.Token == token && d.IsValid)
+            .ToListAsync();
+        var now = DateTime.UtcNow;
+        foreach (var entity in rows)
         {
             entity.IsValid = false;
-            entity.UpdatedAt = DateTime.UtcNow;
+            entity.UpdatedAt = now;
         }
     }
 

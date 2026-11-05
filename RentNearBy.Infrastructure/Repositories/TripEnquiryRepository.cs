@@ -227,9 +227,14 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
         return new TripPushContext(recipientUserId, travellerName, e.ListingName, chatArgs, total, confirmed, ownerName, journeyId);
     }
 
-    // The chosen driver's lead is a leg's LastEnquiryId; a backup's lead is matched by driver and travel date.
+    // The journey stored in the lead's context at ask time wins; older leads fall back to the leg's LastEnquiryId,
+    // then to the newest journey of that date with the driver.
     private async Task<Guid?> FindJourneyIdAsync(TripEnquiry e, Guid travellerId)
     {
+        if (ReadJourneyId(e.ContextJson) is { } stored
+            && await _context.Set<SavedJourney>().AsNoTracking().AnyAsync(j => j.Id == stored && j.UserId == travellerId && !j.IsDeleted))
+            return stored;
+
         var byLeg = await _context.Set<SavedJourneyLeg>().AsNoTracking()
             .Where(l => l.LastEnquiryId == e.Id && l.Journey.UserId == travellerId && !l.Journey.IsDeleted)
             .Select(l => (Guid?)l.JourneyId)
@@ -243,6 +248,13 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
             .OrderByDescending(j => j.UpdatedAt)
             .Select(j => (Guid?)j.Id)
             .FirstOrDefaultAsync();
+    }
+
+    private static Guid? ReadJourneyId(string? contextJson)
+    {
+        if (string.IsNullOrWhiteSpace(contextJson)) return null;
+        try { return JsonSerializer.Deserialize<TripEnquiryContext>(contextJson, TripJson.Options)?.JourneyId; }
+        catch (JsonException) { return null; }
     }
 
     public async Task<(IReadOnlyList<TripEnquiry> Items, bool HasMore)> GetDriverPagedAsync(Guid driverId, string bucket, int page, int pageSize)

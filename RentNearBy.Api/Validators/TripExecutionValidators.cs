@@ -103,6 +103,10 @@ public class CreatePhoneBookingRequestValidator : PhoneBookingFieldsValidator<Cr
         RuleFor(x => x.Day)
             .InclusiveBetween(1, TripExecutionValidation.MaxDay)
             .WithMessage($"Day must be 1 to {TripExecutionValidation.MaxDay}");
+        RuleFor(x => x.Nights)
+            .InclusiveBetween(1, TripExecutionValidation.MaxNights)
+            .When(x => x.Nights != null)
+            .WithMessage($"Nights must be 1 to {TripExecutionValidation.MaxNights}");
         RuleFor(x => x.ReplaceEnquiryId)
             .Must(id => id == null || id != Guid.Empty)
             .WithMessage("Replace id must not be empty");
@@ -111,6 +115,13 @@ public class CreatePhoneBookingRequestValidator : PhoneBookingFieldsValidator<Cr
 
 public class EditPhoneBookingRequestValidator : PhoneBookingFieldsValidator<EditPhoneBookingRequest>
 {
+    public EditPhoneBookingRequestValidator()
+    {
+        RuleFor(x => x.Nights)
+            .InclusiveBetween(1, TripExecutionValidation.MaxNights)
+            .When(x => x.Nights != null)
+            .WithMessage($"Nights must be 1 to {TripExecutionValidation.MaxNights}");
+    }
 }
 
 public class CancelTripEnquiryRequestValidator : AbstractValidator<CancelTripEnquiryRequest>
