@@ -179,9 +179,14 @@ public static class TripEnquiryDtoBuilder
             : new Dictionary<Guid, (string? Phone, string? WhatsApp)>();
 
         var tripDates = new Dictionary<Guid, (DateOnly? Start, DateOnly? End)>();
+        var tripPlans = new Dictionary<Guid, TripPlan>();
         foreach (var tripId in enquiries.Where(e => e.TripId != null).Select(e => e.TripId!.Value).Distinct())
             if (await unitOfWork.Trips.GetByIdAsync(tripId) is { } trip)
+            {
                 tripDates[tripId] = (trip.StartDate, trip.EndDate);
+                if (enquiries.Any(e => e.TripId == tripId && e.TravellerUserId == viewerId))
+                    tripPlans[tripId] = TripPlanReader.Read(trip);
+            }
 
         return enquiries.Select(e =>
         {
@@ -196,9 +201,34 @@ public static class TripEnquiryDtoBuilder
             {
                 dto.TripStartDate = dates.Start?.ToString("yyyy-MM-dd");
                 dto.TripCheckOutLimit = dates.End is { } end ? TripDateRules.CheckOutLimit(end).ToString("yyyy-MM-dd") : null;
+                if (tripPlans.TryGetValue(id, out var plan))
+                    ApplyLegFlags(dto, e, plan, dates.Start, e.TravellerUserId == viewerId);
             }
             return dto;
         }).ToList();
+    }
+
+    // Wrong city and outside trip are a view of the row's dates against the current plan; a host or driver never sees them.
+    public static void ApplyLegFlags(TripEnquiryDto dto, TripEnquiry e, TripPlan plan, DateOnly? start, bool travellerViewer)
+    {
+        dto.WrongCity = false;
+        dto.WrongNights = 0;
+        dto.WrongTotal = 0;
+        dto.WrongFirstDay = null;
+        dto.WrongDayCity = null;
+        dto.OutsideTrip = false;
+        if (!travellerViewer) return;
+
+        var wrong = TripLegRules.WrongCity(e, plan, start);
+        if (wrong.Any)
+        {
+            dto.WrongCity = true;
+            dto.WrongNights = wrong.Wrong;
+            dto.WrongTotal = wrong.Total;
+            dto.WrongFirstDay = wrong.FirstWrongDay;
+            dto.WrongDayCity = wrong.DayCity;
+        }
+        dto.OutsideTrip = TripLegRules.OutsideTrip(e, plan, start);
     }
 
     public static async Task<TripEnquiryDto> BuildOneAsync(IUnitOfWork unitOfWork, TripEnquiry e, Guid viewerId, DateTime nowUtc)

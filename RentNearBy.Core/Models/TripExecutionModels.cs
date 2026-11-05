@@ -384,6 +384,8 @@ public static class TripEnquiryErrorTypes
     public const string TripCompleted = "TripCompleted";
     public const string EnquiryEnded = "EnquiryEnded";
     public const string NightFailed = "NightFailed";
+    public const string NoStayNight = "NoStayNight";
+    public const string DaysAcrossCities = "DaysAcrossCities";
     public const string ConcurrentUpdate = "CONCURRENT_UPDATE";
     public const string CONCURRENT_UPDATE = ConcurrentUpdate;
 }

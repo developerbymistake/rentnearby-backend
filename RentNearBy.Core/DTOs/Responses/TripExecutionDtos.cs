@@ -38,6 +38,13 @@ public class TripEnquiryDto
     public TripEnquiryContextDto Context { get; set; } = new();
     // A journey car between two cities of the trip (Day = travel day).
     public bool IsSegment { get; set; }
+    // Derived on every read from the row's dates and the current plan, traveller only; never stored.
+    public bool WrongCity { get; set; }
+    public int WrongNights { get; set; }
+    public int WrongTotal { get; set; }
+    public int? WrongFirstDay { get; set; }
+    public string? WrongDayCity { get; set; }
+    public bool OutsideTrip { get; set; }
     public TripPhoneBookingDto? PhoneBooking { get; set; }
     public TripHostConfirmDto HostConfirm { get; set; } = new();
     public TripAdvanceDto Advance { get; set; } = new();

@@ -795,4 +795,48 @@ public class TripLifecycleRulesTests
         Assert.True(key.Length <= 80);
         Assert.NotEqual(TripReminderRules.NoReplyKey(trip), key);
     }
+
+    // ---- No stay tonight on a two-city trip (CONTRACT_MCC D0): night 2 = Haridwar's last night, spent on the road
+
+    private static TripPlan TwoCityWithRoadNight()
+    {
+        var plan = TwoCityPlan(null);
+        plan.Days[1].Stay = new TripStayChoice { Name = "No stay tonight", Skipped = true };
+        return plan;
+    }
+
+    [Fact]
+    public void Skipped_leg_end_night_with_the_other_nights_booked_is_ready_and_all_settled()
+    {
+        var plan = TwoCityWithRoadNight();
+        TripEnquiry[] rows = [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 1), Stay(TripEnquiryStatuses.BookedByTraveller, 3, 4)];
+
+        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan, rows));
+        Assert.True(TripReminderRules.AllSettled(plan, rows));
+    }
+
+    [Fact]
+    public void Skipped_night_with_an_open_stay_row_on_it_is_confirming()
+    {
+        var plan = TwoCityWithRoadNight();
+        TripEnquiry[] rows =
+        [
+            Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 1), Stay(TripEnquiryStatuses.ConfirmedByBoth, 3, 4),
+            Stay(TripEnquiryStatuses.Asked, 2, 2),
+        ];
+
+        Assert.Equal(TripBookingStates.Confirming, Compute(FourDayTrip(), plan, rows));
+        Assert.False(TripReminderRules.AllSettled(plan, rows));
+    }
+
+    [Fact]
+    public void Skipped_night_is_kept_out_of_the_stay_total()
+    {
+        var plan = TwoCityWithRoadNight();
+        var c = TripBookingSummary.Count(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 1), Stay(TripEnquiryStatuses.ConfirmedByBoth, 3, 4)]);
+
+        Assert.Equal(3, c.StaysTotal);
+        Assert.Equal(3, c.StaysConfirmed);
+        Assert.Equal(0, c.StaysOwn);
+    }
 }

@@ -1416,6 +1416,15 @@ public class TripRequestValidatorsTests
     }
 
     [Fact]
+    public void Save_ShortlistSameAsDayInsideOneLeg_Valid()
+    {
+        var request = MultiCity([1, 2, 2], CityKey, SecondCity);
+        request.Plan.Days[2].StayShortlist = [new TripStayShortlistItem { StayId = Guid.NewGuid(), Name = "Alka", SameAsDay = 2 }];
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
     public void Save_BookingDaysAcrossLegs_Invalid()
     {
         var request = MultiCity([1, 2], CityKey, SecondCity);
