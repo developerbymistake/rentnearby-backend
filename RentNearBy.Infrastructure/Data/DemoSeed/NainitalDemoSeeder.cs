@@ -8,8 +8,8 @@ using RentNearBy.Core.Utils;
 namespace RentNearBy.Infrastructure.Data.DemoSeed;
 
 // TEST DATA ONLY. 10 approved Stay owners and 10 approved Taxi drivers in Nainital district so a seeker can test the
-// Trip Planner. Off unless DEMO_SEED_NAINITAL=true. Owners cannot log in (fake phones, no OTP).
-// Remove: delete this folder + the one `DEMO_SEED_NAINITAL` block in Program.cs + run remove_demo_seed.sql.
+// Trip Planner. Runs on every start. Owners cannot log in (fake phones, no OTP).
+// Remove: delete this folder + the one SeedAsync statement in Program.cs + run remove_demo_seed.sql.
 public static class NainitalDemoSeeder
 {
     // Marker for cleanup: every demo user has a phone 90000001xx (stay) or 90000002xx (taxi).

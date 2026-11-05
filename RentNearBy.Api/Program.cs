@@ -146,9 +146,8 @@ using (var scope = app.Services.CreateScope())
         await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db, scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
         Console.WriteLine("[STARTUP] Seeder complete.");
 
-        // TEST DATA: remove this block with the Data/DemoSeed folder (see its README).
-        if (app.Configuration.GetValue<bool>("DEMO_SEED_NAINITAL"))
-            await RentNearBy.Infrastructure.Data.DemoSeed.NainitalDemoSeeder.SeedAsync(db,
+        // TEST DATA, runs on every start: remove this statement with the Data/DemoSeed folder (see its README).
+        await RentNearBy.Infrastructure.Data.DemoSeed.NainitalDemoSeeder.SeedAsync(db,
                 scope.ServiceProvider.GetRequiredService<RentNearBy.Core.Interfaces.IIdentityCipher>(),
                 scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
     }
