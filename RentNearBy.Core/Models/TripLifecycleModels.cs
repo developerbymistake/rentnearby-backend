@@ -38,7 +38,7 @@ public static class TripBookingStates
         if (map.HasOpen || map.HasUnreplacedRed) return Confirming;
         if (!map.StayAny.IsSubsetOf(map.StaySettled) || !map.TaxiAny.IsSubsetOf(map.TaxiSettled)
             || !map.SegmentAny.IsSubsetOf(map.SegmentSettled)) return Confirming;
-        return map.StaySettled.Count + map.TaxiSettled.Count + map.SegmentSettled.Count == 0 ? Confirming : Ready;
+        return map.StaySettled.Count + map.TaxiSettled.Count + map.SegmentSettled.Count(s => s.Car > 0) == 0 ? Confirming : Ready;
     }
 
     // An advance counts as open only while the booking is still live: cancel, problem and replace never reset AdvanceStatus.
@@ -67,7 +67,8 @@ internal sealed class TripBookingMap
     public bool HasOpen, HasUnreplacedRed, HasLiveEnquiry;
     public int OpenStays, OpenTaxis;
 
-    public bool IsEmpty => StayAny.Count == 0 && TaxiAny.Count == 0 && SegmentAny.Count == 0 && !HasLiveEnquiry;
+    // Own travel (car 0) says nothing about nights or days, so it never makes the plan non-empty.
+    public bool IsEmpty => StayAny.Count == 0 && TaxiAny.Count == 0 && !SegmentAny.Any(s => s.Car > 0) && !HasLiveEnquiry;
 
     private static bool IsRed(TripEnquiry e) => e.Status is TripEnquiryStatuses.NotAvailable or TripEnquiryStatuses.Expired
         or TripEnquiryStatuses.Declined or TripEnquiryStatuses.Failed
@@ -137,7 +138,7 @@ internal sealed class TripBookingMap
         }
 
         var live = new List<TripEnquiry>();
-        var segments = new List<(TripEnquiry Row, int Day, int Car)>();
+        var segments = new List<(TripEnquiry Row, int Day, int Car, bool OnDate)>();
         foreach (var e in enquiries.Where(e => e.Status != TripEnquiryStatuses.Closed))
         {
             if (!TripSegmentRows.IsSegment(e))
@@ -148,17 +149,18 @@ internal sealed class TripBookingMap
             var ctx = TripEnquiryContexts.Read(e.ContextJson);
             if (ctx.JourneyId is { } id && journeys.TryGetValue(id, out var day) && ctx.LegIndex is { } car
                 && map.SegmentAny.Contains((day, car)))
-                segments.Add((e, day, car));
+                segments.Add((e, day, car, start is not { } s || e.CheckIn == TripExecutionRules.NightDate(s, day)));
         }
         map.HasLiveEnquiry = live.Count > 0 || segments.Count > 0;
 
-        foreach (var (e, day, car) in segments)
+        // A row on an old travel date (days or start changed) is never settled or open: it counts as red, like the tile.
+        foreach (var (e, day, car, _) in segments.Where(x => x.OnDate))
         {
             if (TripBookingStates.IsSettled(e)) map.SegmentSettled.Add((day, car));
             if (TripBookingStates.IsOpenForCompletion(e)) map.HasOpen = true;
         }
-        foreach (var (e, day, car) in segments)
-            if (IsRed(e) && !map.SegmentSettled.Contains((day, car))) map.HasUnreplacedRed = true;
+        foreach (var (e, day, car, onDate) in segments)
+            if ((!onDate || IsRed(e)) && !map.SegmentSettled.Contains((day, car))) map.HasUnreplacedRed = true;
 
         foreach (var e in live)
         {

@@ -692,10 +692,43 @@ public class TripLifecycleRulesTests
     public void Own_travel_is_settled_and_not_a_travel_car()
     {
         var plan = TwoCityPlan(new TripTravel { Mode = TripTravelModes.Own, FromName = "Haridwar", How = "bus" });
-        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan));
+        Assert.True(TripReminderRules.AllSettled(plan, []));
         var c = TripBookingSummary.Count(plan, []);
         Assert.Equal(0, c.TravelTotal);
         Assert.Equal(0, c.TaxisTotal);
+
+        plan.Days[0].Stay = new TripStayChoice { Name = "Own", IsOwn = true };
+        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan));
+    }
+
+    [Fact]
+    public void Own_travel_alone_keeps_the_trip_plan_only_and_the_3_day_push_on()
+    {
+        var plan = TwoCityPlan(new TripTravel { Mode = TripTravelModes.Own, FromName = "Haridwar", How = "bus" });
+        var trip = FourDayTrip();
+        trip.DistrictId = Guid.NewGuid();
+        Assert.Equal(TripBookingStates.PlanOnly, Compute(trip, plan));
+        Assert.True(TripReminderRules.ShouldRemindStartsIn(trip, plan, [], Start.AddDays(-3)));
+    }
+
+    [Fact]
+    public void Journey_cars_booked_on_an_old_travel_date_do_not_settle_the_trip()
+    {
+        var plan = TwoCityPlan(JourneyArrival(JourneyA));
+        // A day added to city 1: the travel day is now day 4, the bookings still carry day 3's date.
+        plan.Days[2].Leg = 1;
+        var oldDate = new[] { Segment(TripEnquiryStatuses.BookedByTraveller, 1), Segment(TripEnquiryStatuses.ConfirmedByBoth, 2) };
+        foreach (var row in oldDate) row.Day = 4;
+        Assert.Equal(TripBookingStates.Confirming, Compute(FourDayTrip(), plan, oldDate));
+        Assert.False(TripReminderRules.AllSettled(plan, oldDate));
+        Assert.Equal(0, TripBookingSummary.Count(plan, oldDate).TravelConfirmed);
+
+        foreach (var row in oldDate)
+        {
+            row.CheckIn = Start.AddDays(3);
+            row.CheckOut = Start.AddDays(4);
+        }
+        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan, oldDate));
     }
 
     [Fact]

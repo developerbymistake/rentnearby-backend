@@ -281,7 +281,7 @@ public static class TaxiWaysAskHandlers
 
     internal sealed record SegmentPickResult(TripEnquiry? Same, string? Skip, IReadOnlyList<Guid> Replaced);
 
-    // Null segment = a step journey: today's trip-less path.
+    // Null segment = a step journey or a journey no plan field references: today's trip-less path.
     private static async Task<(SegmentAsk? Segment, IResult? Error)> ResolveSegmentAsync(
         IUnitOfWork unitOfWork, SavedJourney journey, Guid tripId, Guid callerId)
     {
@@ -289,8 +289,12 @@ public static class TaxiWaysAskHandlers
         if (trip == null) return (null, ErrorResponse(404, "Trip not found", TripErrorTypes.TripNotFound));
         var plan = TripPlanReader.Read(trip);
         var link = TripJourneyLinks.Resolve(plan, journey.Id);
+        // The plan save writes the plan and TripId together, so an unreferenced TripId is a stale link: it is cleared here.
         if (link == null)
-            return (null, ErrorResponse(409, "Your trip is still saving. Try again.", JourneyErrorTypes.JourneyNotInPlan));
+        {
+            journey.TripId = null;
+            return (null, null);
+        }
         if (link.Role != TripStepRoles.Segment) return (null, null);
 
         var leg = plan.Legs?.FirstOrDefault(l => l != null && l.Index == link.LegIndex);
@@ -328,6 +332,13 @@ public static class TaxiWaysAskHandlers
         if (earlier.Any(x => !TripEnquiryStatuses.IsWithdrawable(x.Status)))
             return new SegmentPickResult(null, TripSkipReasons.AlreadyBooked, []);
         var replaced = earlier.Select(x => x.Id).ToList();
+        // The driver's row of a journey the plan no longer holds gives way; another car's row keeps the day (skip reported).
+        foreach (var stale in rows.Where(x => x.TripId == segment.Trip.Id && x.Day == day && !replaced.Contains(x.Id)
+            && TripSegmentRows.Classify(x, segment.Plan, journeyId, car) == TripSegmentRows.RowStale))
+        {
+            if (!TripEnquiryStatuses.IsWithdrawable(stale.Status)) return new SegmentPickResult(null, TripSkipReasons.AlreadyBooked, []);
+            replaced.Add(stale.Id);
+        }
         if (rows.Any(x => x.TripId == segment.Trip.Id && x.Day == day && !replaced.Contains(x.Id)))
             return new SegmentPickResult(null, TripSkipReasons.AlreadyOpen, []);
 

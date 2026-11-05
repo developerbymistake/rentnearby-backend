@@ -114,6 +114,7 @@ public static class TripJourneyDtoBuilder
             DriverAvailable = l.DriverAvailable,
             LastKnownStatus = l.LastKnownStatus,
             LastEnquiryId = l.LastEnquiryId,
+            LastQuotedFare = l.LastQuotedFare,
             TaxiId = l.DriverTaxiId,
             DriverName = driver?.DriverName ?? "Driver",
             VehicleTypeName = driver?.VehicleTypeName,

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq.Expressions;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -623,6 +624,21 @@ public static class TripSegmentRows
 
     public static List<TripEnquiry> OfJourney(IEnumerable<TripEnquiry> rows, Guid journeyId)
         => rows.Where(r => IsSegment(r) && JourneyIdOf(r) == journeyId).ToList();
+
+    // A local sightseeing taxi row of a trip (no travel day); journey cars and trip-less journey leads are not.
+    public static readonly Expression<Func<TripEnquiry, bool>> LocalTaxi =
+        e => e.Kind == TripEnquiryKinds.Taxi && e.TripId != null && e.Day == null;
+
+    public const string RowOwn = "own", RowStale = "stale", RowOther = "other";
+
+    // A driver's open row on the travel day, met by an ask or "I booked" for (journey, car): only this car's row is reused;
+    // a row of a journey the plan no longer holds gives way; another car or a local split day keeps it (one open row per day).
+    public static string Classify(TripEnquiry existing, TripPlan plan, Guid journeyId, int car)
+    {
+        if (!IsSegment(existing) || JourneyIdOf(existing) is not { } id) return RowOther;
+        if (id == journeyId) return CarOf(existing) == car ? RowOwn : RowOther;
+        return TripJourneyLinks.Resolve(plan, id)?.Role == TripStepRoles.Segment ? RowOther : RowStale;
+    }
 }
 
 public static class TripSegmentContext

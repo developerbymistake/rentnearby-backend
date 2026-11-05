@@ -43,7 +43,8 @@ public static class JourneyHandlers
             return TooManyRequestsResponse();
         }
 
-        // Travel between two cities of a trip: the journey is pre-linked so it is in the trip before the plan save lands.
+        // Travel between two cities of a trip: checked and answered with its trip role, but never linked here. The plan save
+        // writes the arrival and TripId together (RelinkTripAsync), so a link the app does not finish can never strand it.
         TripLinkTarget? target = null;
         if (request.TripId is { } requestTripId)
         {
@@ -63,15 +64,15 @@ public static class JourneyHandlers
             if (target != null)
             {
                 if (existing.TripId is { } linkedTrip && linkedTrip != target.Trip.Id)
-                    return ErrorResponse(409, "This journey is in another trip", JourneyErrorTypes.JourneyInTrip);
+                {
+                    if (await IsInPlanAsync(unitOfWork, linkedTrip, existing.Id, userId))
+                        return ErrorResponse(409, "This journey is in another trip", JourneyErrorTypes.JourneyInTrip);
+                    await journeys.SetTripAsync(existing.Id, null);
+                    existing.TripId = null;
+                }
                 if (TripJourneyLinks.Resolve(target.Plan, existing.Id) is { } link
                     && (link.Role != TripStepRoles.Segment || link.LegIndex != target.LegIndex))
                     return ErrorResponse(409, "This journey is already in your trip", JourneyErrorTypes.JourneyInTrip);
-                if (existing.TripId != target.Trip.Id)
-                {
-                    await journeys.SetTripAsync(existing.Id, target.Trip.Id);
-                    existing.TripId = target.Trip.Id;
-                }
             }
             return OkResponse(await BuildAsync(journeys, unitOfWork, userId, existing, new HashSet<int>(), target));
         }
@@ -101,7 +102,6 @@ public static class JourneyHandlers
             People = (short)request.People,
             PlanKey = request.PlanKey,
             Cars = (short)legs.Count,
-            TripId = target?.Trip.Id,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -152,26 +152,24 @@ public static class JourneyHandlers
             await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>(), target), $"/api/v1/taxis/journeys/{journey.Id}");
     }
 
-    private sealed record TripLinkTarget(Trip Trip, TripPlan Plan, int LegIndex, int TravelDay);
+    private sealed record TripLinkTarget(Trip Trip, TripPlan Plan, int LegIndex, int? TravelDay);
 
-    // D2 checks in order: owned trip, not completed, dates, leg, travel date, route ends.
+    // Owned trip, not completed, leg, route ends. The date is the one the app computed from its plan, which may be ahead of
+    // the stored row (dates or days edited, autosave pending): it is taken as sent. The plan save links; the travel tile
+    // and the ask compare the journey's date with the saved trip (TravelDateChanged there).
     private static async Task<(TripLinkTarget? Target, IResult? Error)> ResolveTargetAsync(
         IUnitOfWork unitOfWork, Guid tripId, SaveJourneyRequest request, Guid userId)
     {
         var trip = (await unitOfWork.Trips.GetByIdsForOwnerAsync([tripId], userId)).FirstOrDefault();
         if (trip == null) return (null, ErrorResponse(404, "Trip not found", TripErrorTypes.TripNotFound));
         if (trip.Status == TripStatuses.Completed) return (null, BadRequestResponse("This trip is completed"));
-        if (trip.StartDate is not { } start)
-            return (null, ErrorResponse(422, "Add your trip dates first.", TripEnquiryErrorTypes.TripDatesRequired));
 
         var plan = TripPlanReader.Read(trip);
         var legIndex = request.LegIndex ?? 0;
+        if (legIndex < 2) return (null, BadRequestResponse(SaveJourneyRequestValidator.UnknownCityMessage));
         var legs = plan.Legs ?? new List<TripCityLeg>();
-        var travelDay = legIndex >= 2 && legIndex <= legs.Count ? plan.LegStart(legIndex) : 0;
-        if (travelDay <= 0) return (null, BadRequestResponse(SaveJourneyRequestValidator.UnknownCityMessage));
-
-        if (request.Date != TripExecutionRules.NightDate(start, travelDay))
-            return (null, ErrorResponse(409, "Your trip date changed. Search again.", TripEnquiryErrorTypes.TravelDateChanged));
+        // A city added and not saved yet has no stored leg: nothing stored to check it against.
+        if (legIndex > legs.Count) return (new TripLinkTarget(trip, plan, legIndex, null), null);
 
         var leg = legs[legIndex - 1];
         var previous = legs[legIndex - 2];
@@ -179,7 +177,14 @@ public static class JourneyHandlers
             || GeoMath.HaversineKm(request.FromLat, request.FromLng, previous.Latitude, previous.Longitude) > RouteMatchKm)
             return (null, BadRequestResponse("This journey is for another route", JourneyErrorTypes.RouteMismatch));
 
-        return (new TripLinkTarget(trip, plan, legIndex, travelDay), null);
+        var travelDay = plan.LegStart(legIndex);
+        return (new TripLinkTarget(trip, plan, legIndex, travelDay > 0 ? travelDay : null), null);
+    }
+
+    private static async Task<bool> IsInPlanAsync(IUnitOfWork unitOfWork, Guid tripId, Guid journeyId, Guid userId)
+    {
+        var trip = (await unitOfWork.Trips.GetByIdsForOwnerAsync([tripId], userId)).FirstOrDefault();
+        return trip != null && TripJourneyLinks.Resolve(TripPlanReader.Read(trip), journeyId) != null;
     }
 
     private const double RouteMatchKm = 50;
@@ -483,11 +488,12 @@ public static class JourneyHandlers
         return trips.ToDictionary(t => t.Id, t => (t, TripPlanReader.Read(t)));
     }
 
-    // A pre-linked journey the plan does not reference yet takes its role from the save request.
+    // A journey saved for a trip and not yet in its saved plan answers with the trip and role of the save request.
     private static JourneyDto WithTrip(
         JourneyDto dto, SavedJourney j, Dictionary<Guid, (Trip Trip, TripPlan Plan)> trips, TripLinkTarget? target)
     {
-        if (j.TripId is not { } tripId || !trips.TryGetValue(tripId, out var entry)) return dto;
+        if ((j.TripId ?? target?.Trip.Id) is not { } tripId || !trips.TryGetValue(tripId, out var entry)) return dto;
+        dto.TripId = tripId;
         dto.TripTitle = entry.Trip.Title;
         var link = TripJourneyLinks.Resolve(entry.Plan, j.Id);
         if (link == null && target != null && target.Trip.Id == tripId)

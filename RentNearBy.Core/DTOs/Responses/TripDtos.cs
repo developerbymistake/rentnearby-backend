@@ -147,6 +147,7 @@ public class TripJourneyLegDto
     public bool DriverAvailable { get; set; }
     public string LastKnownStatus { get; set; } = "Unknown";
     public Guid? LastEnquiryId { get; set; }
+    public int? LastQuotedFare { get; set; }
     public Guid TaxiId { get; set; }
     public string DriverName { get; set; } = string.Empty;
     public string? VehicleTypeName { get; set; }

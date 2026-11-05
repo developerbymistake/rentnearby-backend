@@ -5,13 +5,14 @@ using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
 // Every 10 min (first pass after 1 min), journeys with TravelDate >= today (IST) and not Completed:
 //   a chosen driver no longer public -> leg unavailable, journey DriverUnavailable, push once (jrn:p:...)
 //   the same driver public again     -> leg available, status recomputed, push once per day (jrn:b:...)
-//   TravelDate is tomorrow           -> push once (jrn:e:...), not for a journey in a trip (its trip reminders cover it)
+//   TravelDate is tomorrow           -> push once (jrn:e:...), not for travel between two cities of a trip (the plan covers it)
 // A journey in a trip routes the paused/back pushes to the trip plan.
 public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<JourneyWatchService> logger) : BackgroundService
 {
@@ -58,13 +59,15 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
                 .Where(id => id != Guid.Empty)
                 .ToHashSet();
             var taxis = await repo.LoadTaxisAsync(taxiIds);
+            var segmentIds = await SegmentJourneyIdsAsync(
+                sp.GetRequiredService<ApplicationDbContext>(), journeys.Where(j => j.TravelDate == today.AddDays(1)).ToList(), ct);
 
             int changed = 0, sent = 0;
             foreach (var journey in journeys)
             {
                 if (ct.IsCancellationRequested) break;
                 var pushes = new List<Pending>();
-                var dirty = Evaluate(journey, taxis, today, now, pushes);
+                var dirty = Evaluate(journey, taxis, today, now, pushes, segmentIds);
                 if (dirty)
                 {
                     journey.Status = JourneyRules.JourneyStatusOf(journey.Legs);
@@ -104,9 +107,27 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
         }
     }
 
+    // Journeys of tomorrow that are travel between two cities of their trip (one trips query per pass).
+    private static async Task<HashSet<Guid>> SegmentJourneyIdsAsync(
+        ApplicationDbContext db, IReadOnlyList<SavedJourney> tomorrow, CancellationToken ct)
+    {
+        var linked = tomorrow.Where(j => j.TripId != null).ToList();
+        if (linked.Count == 0) return new HashSet<Guid>();
+        var tripIds = linked.Select(j => j.TripId!.Value).Distinct().ToList();
+        var trips = await db.Trips.AsNoTracking().Where(t => tripIds.Contains(t.Id)).ToListAsync(ct);
+        var plans = trips.ToDictionary(t => t.Id, t => (t.OwnerUserId, Plan: TripPlanReader.Read(t)));
+        return linked
+            .Where(j => plans.TryGetValue(j.TripId!.Value, out var p) && p.OwnerUserId == j.UserId
+                && TripJourneyLinks.Resolve(p.Plan, j.Id)?.Role == TripStepRoles.Segment)
+            .Select(j => j.Id)
+            .ToHashSet();
+    }
+
     // Applies availability to the legs; returns true when a leg changed.
+    // segmentIds: journeys that are travel between two cities; their eve is the trip's (step journeys keep this push).
     internal static bool Evaluate(
-        SavedJourney journey, Dictionary<Guid, JourneyTaxiInfo> taxis, DateOnly today, DateTime now, List<Pending> pushes)
+        SavedJourney journey, Dictionary<Guid, JourneyTaxiInfo> taxis, DateOnly today, DateTime now, List<Pending> pushes,
+        IReadOnlySet<Guid>? segmentIds = null)
     {
         var dirty = false;
         foreach (var leg in journey.Legs.OrderBy(l => l.LegIndex))
@@ -136,7 +157,7 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
             }
         }
 
-        if (journey.TripId == null && journey.TravelDate == today.AddDays(1))
+        if (journey.TravelDate == today.AddDays(1) && segmentIds?.Contains(journey.Id) != true)
         {
             var notAsked = journey.Legs.Count(l => l.LastEnquiryId == null);
             pushes.Add(new Pending(

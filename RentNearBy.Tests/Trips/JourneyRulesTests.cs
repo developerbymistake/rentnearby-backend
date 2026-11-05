@@ -109,7 +109,7 @@ public class JourneyRulesTests
         new(id, Guid.NewGuid(), "Sunil", "Innova", 7, null, null, "new", null, null, isPublic);
 
     [Fact]
-    public void Watch_sends_the_eve_push_only_for_a_free_journey()
+    public void Watch_skips_the_eve_push_only_for_a_segment_journey()
     {
         var today = new DateOnly(2026, 11, 5);
         var driver = Guid.NewGuid();
@@ -118,12 +118,17 @@ public class JourneyRulesTests
         var free = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
         RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
             WatchedJourney(today.AddDays(1), null, driver), taxis, today, DateTime.UtcNow, free);
-        var inTrip = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
+        var step = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
         RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
-            WatchedJourney(today.AddDays(1), Guid.NewGuid(), driver), taxis, today, DateTime.UtcNow, inTrip);
+            WatchedJourney(today.AddDays(1), Guid.NewGuid(), driver), taxis, today, DateTime.UtcNow, step, new HashSet<Guid>());
+        var segmentJourney = WatchedJourney(today.AddDays(1), Guid.NewGuid(), driver);
+        var segment = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
+        RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(
+            segmentJourney, taxis, today, DateTime.UtcNow, segment, new HashSet<Guid> { segmentJourney.Id });
 
         Assert.Single(free);
-        Assert.Empty(inTrip);
+        Assert.Equal(JourneyRules.EveKey(Assert.Single(step).JourneyId), step[0].Dedupe);
+        Assert.Empty(segment);
     }
 
     [Fact]

@@ -827,11 +827,22 @@ public static class TripEnquiryHandlers
 
         var day = (short)travelDay;
         var existing = await unitOfWork.TripEnquiries.FindOpenAsync(trip.Id, TripEnquiryKinds.Taxi, taxi.Id, day);
-        if (existing != null && TripEnquiryStatuses.IsBooked(existing.Status)
-            && (!TripSegmentRows.IsSegment(existing) || TripSegmentRows.JourneyIdOf(existing) != journey.Id
-                || TripSegmentRows.CarOf(existing) != carIndex))
+        var existingKind = existing == null ? null : TripSegmentRows.Classify(existing, plan, journey.Id, carIndex);
+        if (existingKind != TripSegmentRows.RowOwn
+            && taxi.Id != car.DriverTaxiId && taxi.Id != car.Backup1TaxiId && taxi.Id != car.Backup2TaxiId)
+            return BadRequestResponse("This driver is not on this car");
+        if (existing != null && existingKind != TripSegmentRows.RowOwn && TripEnquiryStatuses.IsBooked(existing.Status))
             return ErrorResponse(409, $"{existing.ListingName} is already booked on this day.", TripEnquiryErrorTypes.DayAlreadyBooked,
                 new TripNightConflictDto { EnquiryId = existing.Id, ListingName = existing.ListingName });
+        if (existing != null && existingKind == TripSegmentRows.RowOther)
+            return ErrorResponse(409, $"{existing.ListingName} is asked for another car on this day.", TripEnquiryErrorTypes.DayAlreadyBooked,
+                new TripNightConflictDto { EnquiryId = existing.Id, ListingName = existing.ListingName });
+        // A row of a replaced or removed journey gives way: it is withdrawn in the booking transaction, never taken over.
+        var staleRow = existingKind == TripSegmentRows.RowStale ? existing : null;
+        if (staleRow != null && !TripEnquiryStatuses.IsWithdrawable(staleRow.Status))
+            return ErrorResponse(409, $"{staleRow.ListingName} is already booked on this day.", TripEnquiryErrorTypes.DayAlreadyBooked,
+                new TripNightConflictDto { EnquiryId = staleRow.Id, ListingName = staleRow.ListingName });
+        if (staleRow != null) existing = null;
         var created = existing == null;
         var wasBooked = existing != null && TripEnquiryStatuses.IsBooked(existing.Status);
 
@@ -890,6 +901,16 @@ public static class TripEnquiryHandlers
                     other.FailReason = TripCloseReasons.BookedElsewhere;
                     other.UpdatedAt = now;
                 }
+            }
+
+            if (staleRow != null)
+            {
+                staleRow.Status = TripEnquiryStatuses.Closed;
+                staleRow.FailReason = TripCloseReasons.Withdrawn;
+                staleRow.UpdatedAt = now;
+                await db.SaveChangesAsync();
+                await JourneyLegSync.SyncAsync(db, staleRow, now);
+                pushes.Add(new TripPendingPush(staleRow, staleRow.OwnerUserId, EnquiryWithdrawn));
             }
 
             if (existing != null)

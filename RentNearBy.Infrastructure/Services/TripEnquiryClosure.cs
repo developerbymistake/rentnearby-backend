@@ -166,11 +166,12 @@ public class TripEnquiryClosure(
         await db.SaveChangesAsync();
     }
 
+    // Local sightseeing leads only (trip row, no travel day): journey cars and trip-less journey leads ride a route, not the day rate.
     public async Task<IReadOnlyList<TripClosurePush>> OnTaxiRateClearedAsync(Guid taxiId)
     {
         var rows = await db.TripEnquiries
-            .Where(e => e.Kind == TripEnquiryKinds.Taxi && e.ListingId == taxiId
-                && (e.Status == TripEnquiryStatuses.Asked || e.Status == TripEnquiryStatuses.FareSent))
+            .Where(TripSegmentRows.LocalTaxi)
+            .Where(e => e.ListingId == taxiId && (e.Status == TripEnquiryStatuses.Asked || e.Status == TripEnquiryStatuses.FareSent))
             .ToListAsync();
         if (rows.Count == 0) return [];
 
