@@ -175,7 +175,7 @@ public static class TripLifecycleHandlers
 
     public static async Task<IResult> Complete(
         Guid tripId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, ITripChatService chat,
-        ILoggerFactory loggers)
+        ILoggerFactory loggers, ISavedJourneyRepository journeys)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -203,7 +203,7 @@ public static class TripLifecycleHandlers
             await PostCompletedLinesAsync(unitOfWork, db, chat, loggers, trip, userId);
         }
 
-        return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, trip, userId, DateTime.UtcNow));
+        return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, journeys, trip, userId, DateTime.UtcNow));
     }
 
     // Best effort: the hosts of confirmed stays see that the trip ended; a failure never undoes the completion.
@@ -243,7 +243,8 @@ public static class TripLifecycleHandlers
 
     // ---------- PUT /trips/{tripId}/mute ----------
 
-    public static async Task<IResult> Mute(Guid tripId, MuteTripRequest request, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> Mute(
+        Guid tripId, MuteTripRequest request, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -266,12 +267,13 @@ public static class TripLifecycleHandlers
             }
         }
 
-        return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, trip, userId, now));
+        return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, journeys, trip, userId, now));
     }
 
     // ---------- GET /trips/{tripId}/summary ----------
 
-    public static async Task<IResult> Summary(Guid tripId, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> Summary(
+        Guid tripId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -281,7 +283,9 @@ public static class TripLifecycleHandlers
         var now = DateTime.UtcNow;
         var raw = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
         var dtos = await TripEnquiryDtoBuilder.BuildManyAsync(unitOfWork, raw, userId, now);
-        return OkResponse(TripSummaryRecordBuilder.Build(trip, TripHandlers.ReadPlan(trip), dtos, raw, now));
+        var linked = await journeys.GetByTripAsync(trip.Id, userId);
+        var taxis = await TripJourneyDtoBuilder.LoadTaxisAsync(journeys, linked);
+        return OkResponse(TripSummaryRecordBuilder.Build(trip, TripHandlers.ReadPlan(trip), dtos, raw, now, linked, taxis));
     }
 
     // ---------- POST /trips/enquiries/{id}/report-traveller ----------
@@ -364,7 +368,8 @@ public static class TripSummaryRecordBuilder
     private const string You = "you";
 
     public static TripSummaryRecordDto Build(
-        Trip trip, TripPlan plan, IReadOnlyList<TripEnquiryDto> dtos, IReadOnlyList<TripEnquiry> raw, DateTime nowUtc)
+        Trip trip, TripPlan plan, IReadOnlyList<TripEnquiryDto> dtos, IReadOnlyList<TripEnquiry> raw, DateTime nowUtc,
+        IReadOnlyList<SavedJourney> journeys, Dictionary<Guid, JourneyTaxiInfo> taxis)
     {
         var start = trip.StartDate ?? plan.Settings?.StartDate;
         var rawById = raw.GroupBy(e => e.Id).ToDictionary(g => g.Key, g => g.First());
@@ -450,7 +455,20 @@ public static class TripSummaryRecordBuilder
             record.Taxis.Add(TaxiFrom(d, row, plan));
         }
         record.Taxis.AddRange(OwnTaxis(plan));
+
+        record.Steps = plan.Steps;
+        record.GettingThere = StepJourney(plan, TripStepRoles.GettingThere, journeys, taxis);
+        record.ComingBack = StepJourney(plan, TripStepRoles.ComingBack, journeys, taxis);
         return record;
+    }
+
+    // Only a chosen or booked step shows its journey.
+    private static TripJourneyDto? StepJourney(
+        TripPlan plan, string role, IReadOnlyList<SavedJourney> journeys, Dictionary<Guid, JourneyTaxiInfo> taxis)
+    {
+        if (!TripStepRules.NeedsLink(TripStepRules.StepOf(plan.Steps, role))) return null;
+        var journey = TripJourneyDtoBuilder.JourneyFor(plan, role, journeys);
+        return journey == null ? null : TripJourneyDtoBuilder.Build(journey, role, plan, taxis);
     }
 
     private const string TripOwnDisplay = "own";

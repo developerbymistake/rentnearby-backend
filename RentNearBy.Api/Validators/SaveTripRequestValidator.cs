@@ -82,6 +82,7 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
                 .Must(d => PlanTripRequestValidator.IsValidStartDate(d!.Value)).WithMessage(PlanTripRequestValidator.InvalidStartDateMessage)
                 .When(x => x.Plan.Settings != null && x.Plan.Settings.StartDate != null);
             RuleFor(x => x.Plan.Settings).SetValidator(new TripSettingsValidator()).When(x => x.Plan.Settings != null);
+            RuleFor(x => x.Plan.Steps!).SetValidator(new TripStepsValidator()).When(x => x.Plan.Steps != null);
 
             RuleFor(x => x.Plan.Days)
                 .Cascade(CascadeMode.Stop)
@@ -216,11 +217,49 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
         public TripTaxiChoiceValidator()
         {
             RuleFor(t => t.TaxiId)
-                .Must((t, id) => t.IsOwn == true || (id != null && id != Guid.Empty)).WithMessage("Taxi is required");
+                .Must((t, id) => t.IsOwn == true || t.Skipped == true || (id != null && id != Guid.Empty)).WithMessage("Taxi is required");
             RuleFor(t => t.Name).Must(IsValidOwnName).WithMessage(OwnNameMessage).When(t => t.IsOwn == true);
+            RuleFor(t => t.IsOwn)
+                .Must(own => own != true).WithMessage("A day is either your own taxi or no taxi")
+                .When(t => t.Skipped == true);
             RuleFor(t => t.OwnPhone).Must(IsValidPhone).WithMessage(PhoneMessage);
             RuleFor(t => t.Note).Must(IsValidNote).WithMessage(NoteMessage);
             RuleFor(t => t.Booking!).SetValidator(new TripTaxiBookingValidator()).When(t => t.Booking != null);
+        }
+    }
+
+    internal sealed class TripStepsValidator : AbstractValidator<TripSteps>
+    {
+        public const string StartFromMessage = "Starting from must be 1 to 80 characters";
+        public const string StatusMessage = "Invalid step status";
+        public const string DateMessage = "Invalid travel date";
+
+        public TripStepsValidator()
+        {
+            RuleFor(s => s.StartFrom!.Name)
+                .Must(n => n != null && n.Trim().Length is >= 1 and <= TripStepRules.NameMax).WithMessage(StartFromMessage)
+                .When(s => s.StartFrom != null);
+            RuleFor(s => s.StartFrom!)
+                .Must(p => p.Lat is >= -90 and <= 90 && p.Lon is >= -180 and <= 180)
+                .OverridePropertyName("Coordinates")
+                .WithMessage(PlanTripRequestValidator.InvalidCoordinatesMessage)
+                .When(s => s.StartFrom != null);
+            RuleFor(s => s.GettingThere!).SetValidator(new TripStepValidator()).When(s => s.GettingThere != null);
+            RuleFor(s => s.ComingBack!).SetValidator(new TripStepValidator()).When(s => s.ComingBack != null);
+        }
+    }
+
+    internal sealed class TripStepValidator : AbstractValidator<TripStep>
+    {
+        public TripStepValidator()
+        {
+            RuleFor(s => s.Status)
+                .Must(v => TripStepStatuses.All.Contains(v!)).WithMessage(TripStepsValidator.StatusMessage)
+                .When(s => s.Status != null);
+            RuleFor(s => s.Note).Must(IsValidNote).WithMessage(NoteMessage);
+            RuleFor(s => s.Date)
+                .Must(d => PlanTripRequestValidator.IsValidStartDate(d!.Value)).WithMessage(TripStepsValidator.DateMessage)
+                .When(s => s.Date != null);
         }
     }
 

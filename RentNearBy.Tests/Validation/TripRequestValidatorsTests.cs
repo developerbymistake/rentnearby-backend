@@ -957,4 +957,120 @@ public class TripRequestValidatorsTests
         if (ok) Assert.True(result.IsValid);
         else ValidationAssert.HasMessage(result, PlanTripRequestValidator.MaxDaysMessage);
     }
+
+    // ---- trip steps (CONTRACT_STEPS 2.2) ----
+
+    private static SaveTripRequest WithSteps(TripSteps steps)
+    {
+        var request = Save();
+        request.Plan.Steps = steps;
+        return request;
+    }
+
+    [Fact]
+    public void Save_FullSteps_Valid()
+    {
+        var request = WithSteps(new TripSteps
+        {
+            StartFrom = new TripStartFrom { Name = "Delhi", Lat = 28.61, Lon = 77.21 },
+            GettingThere = new TripStep { Status = TripStepStatuses.Chosen, JourneyId = Guid.NewGuid(), Date = new DateOnly(2026, 11, 1) },
+            ComingBack = new TripStep { Status = TripStepStatuses.Own, Note = "Own car, leaving 6 am" },
+        });
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_EmptyStepsObject_Valid()
+        => SaveValidator.TestValidate(WithSteps(new TripSteps())).ShouldNotHaveAnyValidationErrors();
+
+    [Fact]
+    public void Save_StepBadStatus_Invalid()
+    {
+        var request = WithSteps(new TripSteps { GettingThere = new TripStep { Status = "asked" } });
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid step status");
+    }
+
+    [Fact]
+    public void Save_StepNote301_Invalid()
+    {
+        var request = WithSteps(new TripSteps { ComingBack = new TripStep { Status = TripStepStatuses.Own, Note = new string('a', 301) } });
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Note can be up to 300 characters");
+    }
+
+    [Fact]
+    public void Save_StartFromBadLat_Invalid()
+    {
+        var request = WithSteps(new TripSteps { StartFrom = new TripStartFrom { Name = "Delhi", Lat = 91, Lon = 77.21 } });
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid coordinates");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Save_StartFromBlankName_Invalid(string name)
+    {
+        var request = WithSteps(new TripSteps { StartFrom = new TripStartFrom { Name = name, Lat = 28.61, Lon = 77.21 } });
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Starting from must be 1 to 80 characters");
+    }
+
+    [Fact]
+    public void Save_StartFromName81_Invalid()
+    {
+        var request = WithSteps(new TripSteps { StartFrom = new TripStartFrom { Name = new string('a', 81), Lat = 28.61, Lon = 77.21 } });
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Starting from must be 1 to 80 characters");
+    }
+
+    [Fact]
+    public void Save_StepDateOutOfRange_Invalid()
+    {
+        var request = WithSteps(new TripSteps { GettingThere = new TripStep { Date = new DateOnly(1999, 12, 31) } });
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid travel date");
+    }
+
+    [Fact]
+    public void Save_StepsFromJson_EmptyJourneyIdReadsNull()
+    {
+        var json = "{\"status\":\"Draft\",\"plan\":{\"version\":3,\"cityKey\":502141,\"settings\":{\"dayLimitMinutes\":450},"
+                   + "\"days\":[{\"day\":1,\"spots\":[]}],"
+                   + "\"steps\":{\"gettingThere\":{\"status\":\"notStarted\",\"journeyId\":\"\"}}}}";
+        var request = System.Text.Json.JsonSerializer.Deserialize<SaveTripRequest>(json, TripJson.Options)!;
+
+        Assert.Null(request.Plan.Steps!.GettingThere!.JourneyId);
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_SkippedTaxiDayWithoutId_Valid()
+    {
+        var request = FromJson("\"taxi\":{\"name\":\"No taxi this day\",\"skipped\":true}");
+
+        Assert.True(request.Plan.Days[0].Taxi!.Skipped);
+        Assert.Null(request.Plan.Days[0].Taxi!.TaxiId);
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_PlainTaxiWithoutId_StillInvalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Taxi = new TripTaxiChoice { Name = "Ramesh", Skipped = false };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
+    }
+
+    [Fact]
+    public void Save_SkippedAndOwnTaxi_Invalid()
+    {
+        var request = Save();
+        request.Plan.Days[0].Taxi = new TripTaxiChoice { IsOwn = true, Skipped = true, Name = "Mohan" };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "A day is either your own taxi or no taxi");
+    }
 }

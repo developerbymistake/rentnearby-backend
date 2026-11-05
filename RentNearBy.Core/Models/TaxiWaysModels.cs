@@ -37,7 +37,7 @@ public sealed class TaxiWaysOptions
     public double StayRadiusKm { get; set; } = 15;
     public int MaxStays { get; set; } = 6;
     public int MaxLocalTaxis { get; set; } = 10;
-    public int MaxDaysAhead { get; set; } = 90;
+    public int MaxDaysAhead { get; set; } = 365;
     public int MaxPeople { get; set; } = 12;
     public int DefaultPeople { get; set; } = 2;
     public int LegPageSize { get; set; } = 8;

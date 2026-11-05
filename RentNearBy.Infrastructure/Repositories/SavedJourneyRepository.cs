@@ -159,5 +159,50 @@ public class SavedJourneyRepository(ApplicationDbContext context) : ISavedJourne
             .Take(take)
             .ToListAsync();
 
+    public async Task<List<SavedJourney>> GetOwnedByIdsAsync(IReadOnlyCollection<Guid> ids, Guid userId)
+    {
+        if (ids.Count == 0) return new List<SavedJourney>();
+        var list = ids.Distinct().ToList();
+        return await context.Set<SavedJourney>().AsNoTracking()
+            .Include(j => j.Legs)
+            .Where(j => list.Contains(j.Id) && j.UserId == userId && !j.IsDeleted)
+            .ToListAsync();
+    }
+
+    public async Task<List<SavedJourney>> GetByTripAsync(Guid tripId, Guid userId)
+        => await context.Set<SavedJourney>().AsNoTracking()
+            .Include(j => j.Legs)
+            .Where(j => j.TripId == tripId && j.UserId == userId && !j.IsDeleted)
+            .OrderByDescending(j => j.UpdatedAt)
+            .ToListAsync();
+
+    public async Task<Dictionary<Guid, List<SavedJourney>>> GetByTripsAsync(IReadOnlyCollection<Guid> tripIds, Guid userId)
+    {
+        if (tripIds.Count == 0) return new Dictionary<Guid, List<SavedJourney>>();
+        var ids = tripIds.Distinct().ToList();
+        var rows = await context.Set<SavedJourney>().AsNoTracking()
+            .Include(j => j.Legs)
+            .Where(j => j.TripId != null && ids.Contains(j.TripId.Value) && j.UserId == userId && !j.IsDeleted)
+            .ToListAsync();
+        return rows.GroupBy(j => j.TripId!.Value).ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    public async Task RelinkTripAsync(Guid tripId, Guid userId, IReadOnlyCollection<Guid> keepIds)
+    {
+        var keep = keepIds.Distinct().ToList();
+        if (keep.Count > 0)
+            await context.Set<SavedJourney>()
+                .Where(j => keep.Contains(j.Id) && j.UserId == userId && !j.IsDeleted && j.TripId != tripId)
+                .ExecuteUpdateAsync(s => s.SetProperty(j => j.TripId, (Guid?)tripId));
+        await context.Set<SavedJourney>()
+            .Where(j => j.TripId == tripId && j.UserId == userId && !keep.Contains(j.Id))
+            .ExecuteUpdateAsync(s => s.SetProperty(j => j.TripId, (Guid?)null));
+    }
+
+    public async Task UnlinkTripAsync(Guid tripId)
+        => await context.Set<SavedJourney>()
+            .Where(j => j.TripId == tripId)
+            .ExecuteUpdateAsync(s => s.SetProperty(j => j.TripId, (Guid?)null));
+
     public Task<int> SaveChangesAsync() => context.SaveChangesAsync();
 }

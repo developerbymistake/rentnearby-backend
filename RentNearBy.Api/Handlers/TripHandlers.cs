@@ -274,7 +274,8 @@ public static class TripHandlers
     }
 
     public static async Task<IResult> GetMine(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, int page = 1, int pageSize = DefaultPageSize, string? state = null)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys,
+        int page = 1, int pageSize = DefaultPageSize, string? state = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -287,12 +288,17 @@ public static class TripHandlers
         var (items, hasMore) = await unitOfWork.Trips.GetByOwnerPagedAsync(userId, pageNo, size, stateText == StateCompleted);
         var (upcoming, completed) = await unitOfWork.Trips.GetStateCountsAsync(userId);
 
-        var enquiries = await unitOfWork.TripEnquiries.GetByTripsAsync(items.Select(t => t.Id).ToList());
+        var tripIds = items.Select(t => t.Id).ToList();
+        var enquiries = await unitOfWork.TripEnquiries.GetByTripsAsync(tripIds);
         var byTrip = enquiries.Where(e => e.TripId != null).GroupBy(e => e.TripId!.Value).ToDictionary(g => g.Key, g => (IReadOnlyList<TripEnquiry>)g.ToList());
+        var journeysByTrip = await journeys.GetByTripsAsync(tripIds, userId);
 
         return OkResponse(new TripListDto
         {
-            Items = items.Select(t => ToSummary(t, byTrip.TryGetValue(t.Id, out var list) ? list : Array.Empty<TripEnquiry>())).ToList(),
+            Items = items.Select(t => ToSummary(
+                t,
+                byTrip.TryGetValue(t.Id, out var list) ? list : Array.Empty<TripEnquiry>(),
+                journeysByTrip.TryGetValue(t.Id, out var linked) ? linked : new List<SavedJourney>())).ToList(),
             HasMore = hasMore,
             Counts = new TripListCountsDto { Upcoming = upcoming, Completed = completed },
         });
@@ -300,7 +306,7 @@ public static class TripHandlers
 
     public static async Task<IResult> Create(
         SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
-        ITripCityCatalog catalog)
+        ITripCityCatalog catalog, ISavedJourneyRepository journeys, ILoggerFactory loggers)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -323,6 +329,7 @@ public static class TripHandlers
         plan.CityKey = city.CityKey;
         plan.CityName = city.Name;
         plan.DistrictId = districtId;
+        var linkIds = await SanitiseStepsAsync(plan, journeys, userId);
 
         var now = DateTime.UtcNow;
         var trip = new Trip
@@ -357,10 +364,23 @@ public static class TripHandlers
             return OkResponse(ToDto(winner, ReadPlan(winner)));
         }
 
+        // The trip row must exist before a journey can point at it; a failure here is healed by the next save.
+        if (linkIds.Count > 0)
+        {
+            try
+            {
+                await journeys.RelinkTripAsync(trip.Id, userId, linkIds);
+            }
+            catch (Exception ex) when (ex is DbUpdateException or NpgsqlException)
+            {
+                loggers.CreateLogger("Trips").LogWarning(ex, "trip.journeys.relink_failed {TripId}", trip.Id);
+            }
+        }
+
         return CreatedResponse(ToDto(trip, plan), $"/api/v1/trips/{trip.Id}");
     }
 
-    public static async Task<IResult> GetById(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetById(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -368,7 +388,7 @@ public static class TripHandlers
         if (trip == null) return TripNotFound();
 
         await AdoptDistrictAsync(unitOfWork, trip);
-        var dto = await BuildDtoAsync(unitOfWork, trip, userId, DateTime.UtcNow);
+        var dto = await BuildDtoAsync(unitOfWork, journeys, trip, userId, DateTime.UtcNow);
         dto.Plan.DistrictId ??= trip.DistrictId;
         return OkResponse(dto);
     }
@@ -390,19 +410,41 @@ public static class TripHandlers
         }
     }
 
-    // The trip with its enquiries (newest first) and the derived booking state.
-    internal static async Task<TripDto> BuildDtoAsync(IUnitOfWork unitOfWork, Trip trip, Guid viewerId, DateTime nowUtc)
+    // The trip with its enquiries (newest first), its linked journeys and the derived booking state.
+    internal static async Task<TripDto> BuildDtoAsync(
+        IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, Trip trip, Guid viewerId, DateTime nowUtc)
     {
         var plan = ReadPlan(trip);
         var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
         var dto = ToDto(trip, plan, enquiries);
         dto.Enquiries = await TripEnquiryDtoBuilder.BuildManyAsync(unitOfWork, enquiries, viewerId, nowUtc);
+        dto.Journeys = await JourneysOfAsync(journeys, trip, plan, viewerId);
         return dto;
+    }
+
+    internal static async Task<List<TripJourneyDto>> JourneysOfAsync(ISavedJourneyRepository journeys, Trip trip, TripPlan plan, Guid viewerId)
+    {
+        if (trip.OwnerUserId != viewerId) return new List<TripJourneyDto>();
+        var linked = await journeys.GetByTripAsync(trip.Id, viewerId);
+        if (linked.Count == 0) return new List<TripJourneyDto>();
+        var taxis = await TripJourneyDtoBuilder.LoadTaxisAsync(journeys, linked);
+        return TripJourneyDtoBuilder.BuildMany(linked, plan, taxis);
+    }
+
+    // Steps are trusted only for the caller's live journeys; returns the ids to link to the trip.
+    private static async Task<List<Guid>> SanitiseStepsAsync(TripPlan plan, ISavedJourneyRepository journeys, Guid userId)
+    {
+        var referenced = TripStepRules.ReferencedIds(plan.Steps);
+        var owned = referenced.Count == 0
+            ? new HashSet<Guid>()
+            : (await journeys.GetOwnedByIdsAsync(referenced, userId)).Select(j => j.Id).ToHashSet();
+        return TripStepRules.Sanitise(plan.Steps, owned);
     }
 
     public static async Task<IResult> Update(
         Guid id, SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
-        ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier, ILoggerFactory loggers)
+        ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier, ILoggerFactory loggers,
+        ISavedJourneyRepository journeys)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -429,6 +471,15 @@ public static class TripHandlers
         plan.CityKey = trip.CityKey;
         plan.CityName = trip.CityName;
         plan.DistrictId = trip.DistrictId;
+
+        // An app that does not know steps sends none: the stored ones stay; on its date change their own dates go.
+        var requestedSteps = plan.Steps;
+        plan.Steps = TripStepsMerge.Resolve(ReadPlan(trip).Steps, requestedSteps);
+        if (requestedSteps == null
+            && (TripDateRules.StartMoved(trip.StartDate, plan.Settings.StartDate)
+                || (trip.EndDate is { } storedEnd && plan.EndDate is { } nextEnd && nextEnd < storedEnd)))
+            TripStepRules.ClearDates(plan.Steps);
+        var linkIds = await SanitiseStepsAsync(plan, journeys, userId);
 
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, trip.CityName);
         if (request.Status != null) trip.Status = request.Status;
@@ -523,6 +574,7 @@ public static class TripHandlers
                     ? (Func<TripEnquiry, TripPushContext, NotificationEvent>)OfferOutsideShortenedTrip
                     : OfferOutsideMovedTrip));
             }
+            await journeys.RelinkTripAsync(trip.Id, userId, linkIds);
             await unitOfWork.SaveChangesAsync();
             await unitOfWork.CommitTransactionAsync();
         }
@@ -538,7 +590,9 @@ public static class TripHandlers
         }
 
         await TripEnquiryHandlers.AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
-        return OkResponse(ToDto(trip, plan, await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id)));
+        var dto = ToDto(trip, plan, await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id));
+        dto.Journeys = await JourneysOfAsync(journeys, trip, plan, userId);
+        return OkResponse(dto);
     }
 
     // The host's offer (or the guest's counter) no longer fits the trip: the enquiry is back to Asked.
@@ -558,7 +612,9 @@ public static class TripHandlers
     }
 
     // Open enquiries close first (confirmed ones count as a guest cancel); each owner told once after commit.
-    public static async Task<IResult> Delete(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ITripEnquiryClosure closure)
+    // Linked journeys are unlinked, never deleted.
+    public static async Task<IResult> Delete(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ITripEnquiryClosure closure, ISavedJourneyRepository journeys)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -570,6 +626,7 @@ public static class TripHandlers
         try
         {
             pushes = await closure.OnTripDeletedAsync(trip.Id);
+            await journeys.UnlinkTripAsync(trip.Id);
             await unitOfWork.Trips.DeleteAsync(trip);
             await unitOfWork.SaveChangesAsync();
             await unitOfWork.CommitTransactionAsync();
@@ -682,7 +739,7 @@ public static class TripHandlers
         SpotCount = c.SpotCount,
     };
 
-    private static TripSummaryDto ToSummary(Trip trip, IReadOnlyList<TripEnquiry> enquiries)
+    private static TripSummaryDto ToSummary(Trip trip, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney> journeys)
     {
         var plan = ReadPlan(trip);
         var counts = TripBookingSummary.Count(plan, enquiries);
@@ -694,7 +751,7 @@ public static class TripHandlers
             CityName = trip.CityName,
             DayCount = trip.DayCount,
             SpotCount = trip.SpotCount,
-            TaxiDays = plan.Days.Count(d => d.Taxi != null),
+            TaxiDays = plan.Days.Count(d => d.Taxi != null && d.Taxi.Skipped != true),
             StayDays = plan.Days.Count(d => d.Stay != null),
             StayName = plan.Days.Select(d => d.Stay?.Name).FirstOrDefault(n => !string.IsNullOrEmpty(n)),
             StartDate = trip.StartDate,
@@ -710,6 +767,8 @@ public static class TripHandlers
             StaysOwn = counts.StaysOwn,
             TaxisOwn = counts.TaxisOwn,
             AgreedTotal = counts.AgreedTotal,
+            GettingThere = TripJourneyDtoBuilder.DisplayOf(plan, TripStepRoles.GettingThere, journeys),
+            ComingBack = TripJourneyDtoBuilder.DisplayOf(plan, TripStepRoles.ComingBack, journeys),
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,
             UpdatedAt = trip.UpdatedAt,

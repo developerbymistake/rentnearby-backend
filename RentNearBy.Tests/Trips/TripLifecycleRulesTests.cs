@@ -274,6 +274,37 @@ public class TripLifecycleRulesTests
     }
 
     [Fact]
+    public void Skipped_taxi_day_is_settled_and_kept_out_of_the_taxi_chips()
+    {
+        var plan = Plan();
+        plan.Days[0].Taxi = new TripTaxiChoice { Name = "No taxi this day", Skipped = true };
+        plan.Days[1].Taxi = new TripTaxiChoice { TaxiId = Guid.NewGuid(), Name = "Ramesh" };
+        var c = TripBookingSummary.Count(plan, []);
+        Assert.Equal(0, c.TaxisConfirmed);
+        Assert.Equal(1, c.TaxisTotal);
+        Assert.Equal(0, c.TaxisOwn);
+    }
+
+    [Fact]
+    public void All_taxi_days_skipped_with_a_settled_stay_is_ready()
+    {
+        var plan = Plan();
+        foreach (var day in plan.Days) day.Taxi = new TripTaxiChoice { Name = "No taxi this day", Skipped = true };
+        Assert.Equal("ready", Compute(PlannedTrip(), plan, Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3)));
+        Assert.True(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3)]));
+    }
+
+    [Fact]
+    public void A_booked_taxi_enquiry_on_a_skipped_day_counts_as_a_taxi()
+    {
+        var plan = Plan();
+        plan.Days[0].Taxi = new TripTaxiChoice { Name = "No taxi this day", Skipped = true };
+        var c = TripBookingSummary.Count(plan, [Taxi(TripEnquiryStatuses.BookedByTraveller, "[1]")]);
+        Assert.Equal(1, c.TaxisConfirmed);
+        Assert.Equal(1, c.TaxisTotal);
+    }
+
+    [Fact]
     public void Count_of_an_empty_trip_is_zero()
     {
         var c = TripBookingSummary.Count(Plan(), []);
@@ -355,6 +386,41 @@ public class TripLifecycleRulesTests
         Assert.Equal("No stay yet. 1 taxi enquiry waiting.",
             TripReminderRules.StartsInSummary(plan, [Taxi(TripEnquiryStatuses.FareSent)]));
         Assert.Equal("No stay yet. No taxi yet.", TripReminderRules.StartsInSummary(plan, []));
+    }
+
+    [Fact]
+    public void StartsInSummary_adds_the_getting_there_line_only_for_not_started_with_a_start()
+    {
+        var plan = Plan();
+        var start = new TripStartFrom { Name = "Delhi", Lat = 28.61, Lon = 77.21 };
+
+        plan.Steps = new TripSteps { StartFrom = start };
+        Assert.Equal("No stay yet. No taxi yet. Getting there not sorted.", TripReminderRules.StartsInSummary(plan, []));
+
+        plan.Steps = new TripSteps { StartFrom = start, GettingThere = new TripStep { Status = TripStepStatuses.NotStarted } };
+        Assert.EndsWith(TripReminderRules.GettingThereNudge, TripReminderRules.StartsInSummary(plan, []));
+
+        foreach (var status in new[] { TripStepStatuses.Chosen, TripStepStatuses.Booked, TripStepStatuses.Own, TripStepStatuses.Skipped, TripStepStatuses.NotNeeded })
+        {
+            plan.Steps = new TripSteps { StartFrom = start, GettingThere = new TripStep { Status = status } };
+            Assert.Equal("No stay yet. No taxi yet.", TripReminderRules.StartsInSummary(plan, []));
+        }
+
+        plan.Steps = new TripSteps();
+        Assert.Equal("No stay yet. No taxi yet.", TripReminderRules.StartsInSummary(plan, []));
+        plan.Steps = null;
+        Assert.Equal("No stay yet. No taxi yet.", TripReminderRules.StartsInSummary(plan, []));
+    }
+
+    [Fact]
+    public void StartsInSummary_skipped_taxi_days_are_not_a_booked_taxi()
+    {
+        var plan = Plan();
+        plan.Days[0].Taxi = new TripTaxiChoice { Name = "No taxi this day", Skipped = true };
+        var taxi = Taxi(TripEnquiryStatuses.ConfirmedByBoth, "[2,3]");
+        taxi.CheckIn = Start.AddDays(1);
+        Assert.Equal("Stay confirmed. Taxi confirmed.",
+            TripReminderRules.StartsInSummary(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3), taxi]));
     }
 
     [Fact]

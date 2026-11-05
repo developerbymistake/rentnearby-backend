@@ -378,6 +378,7 @@ public static class JourneyHandlers
     internal static JourneyDto Map(SavedJourney j, Dictionary<Guid, JourneyTaxiInfo> taxis, HashSet<int> fareChanged) => new()
     {
         Id = j.Id,
+        TripId = j.TripId,
         FromName = j.FromName,
         FromLat = (double)j.FromLatitude,
         FromLng = (double)j.FromLongitude,

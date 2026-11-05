@@ -58,7 +58,7 @@ internal sealed class TripBookingMap
 {
     public readonly HashSet<int> StayAny = new(), StaySettled = new(), TaxiAny = new(), TaxiSettled = new(), TaxiBoth = new();
     // Plan-only nights (own stay, No stay tonight) and own taxi days; a day a live enquiry covers is not in these sets.
-    public readonly HashSet<int> StayOwn = new(), StaySkipped = new(), TaxiOwn = new();
+    public readonly HashSet<int> StayOwn = new(), StaySkipped = new(), TaxiOwn = new(), TaxiSkipped = new();
     public bool HasOpen, HasUnreplacedRed, HasLiveEnquiry;
     public int OpenStays, OpenTaxis;
 
@@ -98,6 +98,11 @@ internal sealed class TripBookingMap
                     map.TaxiSettled.Add(day.Day);
                     map.TaxiOwn.Add(day.Day);
                 }
+                else if (day.Taxi.Skipped == true)
+                {
+                    map.TaxiSettled.Add(day.Day);
+                    map.TaxiSkipped.Add(day.Day);
+                }
                 else if (day.Taxi.Booking != null) map.TaxiSettled.Add(day.Day);
             }
         }
@@ -111,7 +116,11 @@ internal sealed class TripBookingMap
             (taxi ? map.TaxiAny : map.StayAny).UnionWith(days);
             if (TripBookingStates.IsSettled(e))
             {
-                if (taxi) map.TaxiOwn.ExceptWith(days);
+                if (taxi)
+                {
+                    map.TaxiOwn.ExceptWith(days);
+                    map.TaxiSkipped.ExceptWith(days);
+                }
                 else
                 {
                     map.StayOwn.ExceptWith(days);
@@ -173,9 +182,10 @@ public static class TripBookingSummary
             .Select(g => g.First())
             .Sum(e => (e.Kind == TripEnquiryKinds.Taxi ? e.AgreedFare : e.AgreedTotal) ?? 0);
         var plainStays = map.StayOwn.Count + map.StaySkipped.Count;
+        var plainTaxis = map.TaxiOwn.Count + map.TaxiSkipped.Count;
         return new TripBookingCounts(
             map.StaySettled.Count - plainStays, map.StayAny.Count - plainStays,
-            map.TaxiSettled.Count - map.TaxiOwn.Count, map.TaxiAny.Count - map.TaxiOwn.Count,
+            map.TaxiSettled.Count - plainTaxis, map.TaxiAny.Count - plainTaxis,
             total, map.StayOwn.Count, map.TaxiOwn.Count);
     }
 }
@@ -219,8 +229,16 @@ public static class TripReminderRules
     public static string TodayKey(Guid tripId, DateOnly start) => $"d0:{tripId}:{start:yyyyMMdd}";
     public static string MarkCompleteKey(Guid tripId, DateOnly end) => $"done:{tripId}:{end:yyyyMMdd}";
 
-    // "Stay confirmed. Taxi is booked by you." | "1 stay enquiry waiting. No taxi yet."
+    public const string GettingThereNudge = "Getting there not sorted.";
+
+    // "Stay confirmed. Taxi is booked by you." | "1 stay enquiry waiting. No taxi yet." (+ " Getting there not sorted.")
     public static string StartsInSummary(TripPlan plan, IReadOnlyList<TripEnquiry> enquiries)
+    {
+        var text = BookingSummary(plan, enquiries);
+        return TripStepRules.NeedsNudge(plan.Steps) ? $"{text} {GettingThereNudge}" : text;
+    }
+
+    private static string BookingSummary(TripPlan plan, IReadOnlyList<TripEnquiry> enquiries)
     {
         var map = TripBookingMap.Build(plan, enquiries);
         string stay;
@@ -228,10 +246,13 @@ public static class TripReminderRules
         else if (map.StayAny.Count > 0 && map.StayAny.IsSubsetOf(map.StaySettled)) stay = "Stay confirmed.";
         else stay = "No stay yet.";
 
+        // A "No taxi this day" day is settled but is not a taxi.
+        var taxiDays = new HashSet<int>(map.TaxiAny);
+        taxiDays.ExceptWith(map.TaxiSkipped);
         string taxi;
         if (map.OpenTaxis > 0) taxi = $"{map.OpenTaxis} taxi {(map.OpenTaxis == 1 ? "enquiry" : "enquiries")} waiting.";
-        else if (map.TaxiAny.Count > 0 && map.TaxiAny.IsSubsetOf(map.TaxiSettled))
-            taxi = map.TaxiAny.IsSubsetOf(map.TaxiBoth) ? "Taxi confirmed." : "Taxi is booked by you.";
+        else if (taxiDays.Count > 0 && taxiDays.IsSubsetOf(map.TaxiSettled))
+            taxi = taxiDays.IsSubsetOf(map.TaxiBoth) ? "Taxi confirmed." : "Taxi is booked by you.";
         else taxi = "No taxi yet.";
         return $"{stay} {taxi}";
     }

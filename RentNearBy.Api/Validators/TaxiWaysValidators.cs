@@ -8,7 +8,7 @@ namespace RentNearBy.Api.Validators;
 internal static class TaxiWaysRules
 {
     public static readonly Regex KeyPattern = new(@"^[A-Za-z0-9:_.~-]{3,200}$", RegexOptions.CultureInvariant);
-    public const string DateMessage = "Pick a date within the next 90 days";
+    public const string DateMessage = "Pick a date within the next year";
     public const string PeopleMessage = "People must be 1 to 12";
     public const string NameMessage = "Place name is required, up to 80 characters";
     public const string KeyMessage = "Invalid plan";

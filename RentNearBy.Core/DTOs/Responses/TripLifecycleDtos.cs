@@ -87,4 +87,7 @@ public class TripSummaryRecordDto
     public List<TripSummaryDayDto> Days { get; set; } = new();
     public List<TripSummaryNightDto> Nights { get; set; } = new();
     public List<TripSummaryTaxiDto> Taxis { get; set; } = new();
+    public RentNearBy.Core.Models.TripSteps? Steps { get; set; }
+    public TripJourneyDto? GettingThere { get; set; }
+    public TripJourneyDto? ComingBack { get; set; }
 }

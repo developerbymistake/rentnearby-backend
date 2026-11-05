@@ -94,11 +94,62 @@ public class TripDto
     public TripPlan Plan { get; set; } = new();
     // Newest first; filled by GET /trips/{id} only.
     public List<TripEnquiryDto> Enquiries { get; set; } = new();
+    // The caller's live journeys linked to this trip (at most two); role null = linked but no step uses it.
+    public List<TripJourneyDto> Journeys { get; set; } = new();
     public string BookingState { get; set; } = TripBookingStates.Draft;
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+// A saved journey as the trip shows it (Getting there / Coming back).
+public class TripJourneyDto
+{
+    public Guid Id { get; set; }
+    public string? Role { get; set; }
+    public string FromName { get; set; } = string.Empty;
+    public double FromLat { get; set; }
+    public double FromLng { get; set; }
+    public string ToName { get; set; } = string.Empty;
+    public double ToLat { get; set; }
+    public double ToLng { get; set; }
+    public DateOnly Date { get; set; }
+    public DateOnly? ExpectedDate { get; set; }
+    public bool DateChanged { get; set; }
+    public bool StartChanged { get; set; }
+    public int People { get; set; }
+    public int Cars { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public int? ListedTotal { get; set; }
+    public bool AnyAsked { get; set; }
+    public DateTime? LastRefreshedAt { get; set; }
+    public List<TripJourneyLegDto> Legs { get; set; } = new();
+}
+
+public class TripJourneyLegDto
+{
+    public int LegIndex { get; set; }
+    public string FromName { get; set; } = string.Empty;
+    public string ToName { get; set; } = string.Empty;
+    public string? MeetingPlace { get; set; }
+    // The whole stretch: listed fare x CarsNeeded.
+    public int? ListedFare { get; set; }
+    public int CarsNeeded { get; set; } = 1;
+    public bool Partial { get; set; }
+    public bool DriverAvailable { get; set; }
+    public string LastKnownStatus { get; set; } = "Unknown";
+    public Guid? LastEnquiryId { get; set; }
+    public Guid TaxiId { get; set; }
+    public string DriverName { get; set; } = string.Empty;
+    public string? VehicleTypeName { get; set; }
+    public short? Seats { get; set; }
+    public string? PlateDisplay { get; set; }
+    // Only while the driver is still public.
+    public string? Phone { get; set; }
+    public string? WhatsApp { get; set; }
+    public Guid? BackupTaxiId { get; set; }
+    public string? BackupName { get; set; }
 }
 
 public class TripSummaryDto
@@ -126,6 +177,9 @@ public class TripSummaryDto
     public int StaysOwn { get; set; }
     public int TaxisOwn { get; set; }
     public int AgreedTotal { get; set; }
+    // Derived step display (TripStepDisplays); null when the plan has no steps.
+    public string? GettingThere { get; set; }
+    public string? ComingBack { get; set; }
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

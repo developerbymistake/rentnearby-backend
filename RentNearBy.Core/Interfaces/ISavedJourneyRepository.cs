@@ -29,5 +29,13 @@ public interface ISavedJourneyRepository
 
     // Journeys still to travel (TravelDate >= fromDate, not Completed, not deleted) with legs, tracked.
     Task<List<SavedJourney>> GetWatchedAsync(DateOnly fromDate, int take);
+
+    // Trip steps: the caller's live journeys only.
+    Task<List<SavedJourney>> GetOwnedByIdsAsync(IReadOnlyCollection<Guid> ids, Guid userId);
+    Task<List<SavedJourney>> GetByTripAsync(Guid tripId, Guid userId);
+    Task<Dictionary<Guid, List<SavedJourney>>> GetByTripsAsync(IReadOnlyCollection<Guid> tripIds, Guid userId);
+    // Links keepIds to the trip and unlinks the caller's other journeys of that trip. Set-based, untouched rows stay as they are.
+    Task RelinkTripAsync(Guid tripId, Guid userId, IReadOnlyCollection<Guid> keepIds);
+    Task UnlinkTripAsync(Guid tripId);
     Task<int> SaveChangesAsync();
 }

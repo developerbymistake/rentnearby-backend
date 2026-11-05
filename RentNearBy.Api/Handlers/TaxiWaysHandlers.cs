@@ -56,7 +56,7 @@ public static class TaxiWaysHandlers
         if (fromLat is not (>= -90 and <= 90) || toLat is not (>= -90 and <= 90)
             || fromLng is not (>= -180 and <= 180) || toLng is not (>= -180 and <= 180))
             return BadRequestResponse("Invalid coordinates");
-        if (!DateValid(date, options.Value)) return BadRequestResponse("Pick a date within the next 90 days", TaxiWaysErrorTypes.InvalidDate);
+        if (!DateValid(date, options.Value)) return BadRequestResponse("Pick a date within the next year", TaxiWaysErrorTypes.InvalidDate);
         if (!PeopleValid(people, options.Value, out var count)) return BadRequestResponse("Invalid number of people");
         var from = CleanName(fromName);
         var to = CleanName(toName);
@@ -78,7 +78,7 @@ public static class TaxiWaysHandlers
         if (limited != null) return limited;
 
         if (!PeopleValid(people, options.Value, out var count)) return BadRequestResponse("Invalid number of people");
-        if (date != null && !DateValid(date, options.Value)) return BadRequestResponse("Pick a date within the next 90 days", TaxiWaysErrorTypes.InvalidDate);
+        if (date != null && !DateValid(date, options.Value)) return BadRequestResponse("Pick a date within the next year", TaxiWaysErrorTypes.InvalidDate);
         if (!TaxiWaysKeys.IsValidKey(planKey)) return PlanNotFound();
 
         try

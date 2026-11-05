@@ -251,6 +251,82 @@ public class TripPlanJsonTests
     }
 
     [Fact]
+    public void Steps_RoundTrip()
+    {
+        var journeyId = Guid.NewGuid();
+        var plan = Sample();
+        plan.Steps = new TripSteps
+        {
+            StartFrom = new TripStartFrom { Name = "Delhi", Lat = 28.61, Lon = 77.21 },
+            GettingThere = new TripStep { Status = TripStepStatuses.Chosen, JourneyId = journeyId, Date = new DateOnly(2026, 11, 1) },
+            ComingBack = new TripStep { Status = TripStepStatuses.Own, Note = "Own car, leaving 6 am" },
+        };
+
+        var json = JsonSerializer.Serialize(plan, TripJson.Options);
+        using (var doc = JsonDocument.Parse(json))
+        {
+            var steps = doc.RootElement.GetProperty("steps");
+            Assert.Equal("Delhi", steps.GetProperty("startFrom").GetProperty("name").GetString());
+            Assert.Equal(28.61, steps.GetProperty("startFrom").GetProperty("lat").GetDouble());
+            Assert.Equal(77.21, steps.GetProperty("startFrom").GetProperty("lon").GetDouble());
+            Assert.Equal("chosen", steps.GetProperty("gettingThere").GetProperty("status").GetString());
+            Assert.Equal("2026-11-01", steps.GetProperty("gettingThere").GetProperty("date").GetString());
+            Assert.False(steps.GetProperty("comingBack").TryGetProperty("journeyId", out _));
+        }
+
+        var back = JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options)!;
+        Assert.Equal(TripPlan.CurrentVersion, back.Version);
+        Assert.Equal(3, back.Version);
+        Assert.Equal("Delhi", back.Steps!.StartFrom!.Name);
+        Assert.Equal(journeyId, back.Steps.GettingThere!.JourneyId);
+        Assert.Equal(new DateOnly(2026, 11, 1), back.Steps.GettingThere.Date);
+        Assert.Equal(TripStepStatuses.Own, back.Steps.ComingBack!.Status);
+        Assert.Equal("Own car, leaving 6 am", back.Steps.ComingBack.Note);
+        Assert.Null(back.Steps.ComingBack.JourneyId);
+    }
+
+    [Fact]
+    public void OldDocumentWithoutSteps_ReadsStepsNull()
+    {
+        var json = JsonSerializer.Serialize(Sample(), TripJson.Options);
+        Assert.DoesNotContain("\"steps\"", json);
+
+        var plan = JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options)!;
+        Assert.Null(plan.Steps);
+    }
+
+    [Fact]
+    public void StepJourneyIdEmptyText_ReadsNull()
+    {
+        var steps = JsonSerializer.Deserialize<TripSteps>(
+            "{\"gettingThere\":{\"status\":\"notStarted\",\"journeyId\":\"\"},\"comingBack\":{\"journeyId\":null}}", TripJson.Options)!;
+
+        Assert.Null(steps.GettingThere!.JourneyId);
+        Assert.Null(steps.ComingBack!.JourneyId);
+        Assert.Null(steps.ComingBack.Status);
+    }
+
+    [Fact]
+    public void SkippedTaxiDay_RoundTripWithoutIdKey()
+    {
+        var plan = Sample();
+        plan.Days[1].Taxi = new TripTaxiChoice { Skipped = true, Name = "No taxi this day" };
+
+        var json = JsonSerializer.Serialize(plan, TripJson.Options);
+        using (var doc = JsonDocument.Parse(json))
+        {
+            var taxi = doc.RootElement.GetProperty("days")[1].GetProperty("taxi");
+            Assert.True(taxi.GetProperty("skipped").GetBoolean());
+            Assert.False(taxi.TryGetProperty("taxiId", out _));
+        }
+
+        var back = JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options)!;
+        Assert.True(back.Days[1].Taxi!.Skipped);
+        Assert.Null(back.Days[1].Taxi!.TaxiId);
+        Assert.Null(back.Days[0].Taxi!.Skipped);
+    }
+
+    [Fact]
     public void RealId_StillReads()
     {
         var id = Guid.NewGuid();

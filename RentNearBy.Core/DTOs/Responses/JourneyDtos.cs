@@ -43,6 +43,8 @@ public class JourneyLegDto
 public class JourneyDto
 {
     public Guid Id { get; set; }
+    // The trip whose plan step uses this journey.
+    public Guid? TripId { get; set; }
     public string FromName { get; set; } = string.Empty;
     public double FromLat { get; set; }
     public double FromLng { get; set; }

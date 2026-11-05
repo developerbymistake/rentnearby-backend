@@ -149,6 +149,8 @@ public sealed class TripPlan
     public double? CentreLongitude { get; set; }
     public List<TripDay> Days { get; set; } = new();
     public TripSettings Settings { get; set; } = new();
+    // Null = written by an app that does not know steps: the server keeps the stored copy (TripStepsMerge).
+    public TripSteps? Steps { get; set; }
 
     // Last DAY of the trip (drives Trips.EndDate, reminders and the list).
     [JsonIgnore]
@@ -184,7 +186,7 @@ public sealed class TripSpot
 
 public sealed class TripTaxiChoice
 {
-    // Null only for an own booking (IsOwn).
+    // Null only for an own booking (IsOwn) or a day without taxi (Skipped).
     public Guid? TaxiId { get; set; }
     public string Name { get; set; } = "";
     // Per-day rupees: the day rate when selected, the booked share round(Booking.AgreedFare / Booking.Days.Length), or the own taxi fare.
@@ -195,6 +197,70 @@ public sealed class TripTaxiChoice
     public string? Note { get; set; }
     public bool? WholeTrip { get; set; }
     public TripTaxiBooking? Booking { get; set; }
+    // No taxi this day.
+    public bool? Skipped { get; set; }
+}
+
+public sealed class TripSteps
+{
+    public TripStartFrom? StartFrom { get; set; }
+    public TripStep? GettingThere { get; set; }
+    public TripStep? ComingBack { get; set; }
+}
+
+public sealed class TripStartFrom
+{
+    public string Name { get; set; } = "";
+    public double Lat { get; set; }
+    public double Lon { get; set; }
+}
+
+// Absent step or status = notStarted. JourneyId only with chosen|booked (sanitised on save).
+public sealed class TripStep
+{
+    public string? Status { get; set; }
+    public Guid? JourneyId { get; set; }
+    public string? Note { get; set; }
+    public DateOnly? Date { get; set; }
+}
+
+public static class TripStepStatuses
+{
+    public const string NotStarted = "notStarted";
+    public const string Chosen = "chosen";
+    public const string Booked = "booked";
+    public const string Own = "own";
+    public const string Skipped = "skipped";
+    public const string NotNeeded = "notNeeded";
+
+    public static readonly string[] All = [NotStarted, Chosen, Booked, Own, Skipped, NotNeeded];
+}
+
+public static class TripStepRoles
+{
+    public const string GettingThere = "gettingThere";
+    public const string ComingBack = "comingBack";
+
+    public static readonly string[] All = [GettingThere, ComingBack];
+}
+
+public static class TripStepDisplays
+{
+    public const string NotStarted = TripStepStatuses.NotStarted;
+    public const string Asked = "asked";
+    public const string Chosen = TripStepStatuses.Chosen;
+    public const string Booked = TripStepStatuses.Booked;
+    public const string Own = TripStepStatuses.Own;
+    public const string Skipped = TripStepStatuses.Skipped;
+    public const string NotNeeded = TripStepStatuses.NotNeeded;
+
+    public static readonly string[] All = [NotStarted, Asked, Chosen, Booked, Own, Skipped, NotNeeded];
+}
+
+public static class TripStepsMerge
+{
+    // Requested null (an older app) keeps the stored steps; any object, {} included, is authoritative.
+    public static TripSteps? Resolve(TripSteps? stored, TripSteps? requested) => requested ?? stored;
 }
 
 // "I booked": the same copy sits on every day listed in Days.
