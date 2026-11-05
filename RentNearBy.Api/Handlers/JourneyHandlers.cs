@@ -262,12 +262,7 @@ public static class JourneyHandlers
         leg.Backup2TaxiId = backups.Count > 1 ? backups[1] : null;
 
         if (leg.LastEnquiryId is { } enquiryId && enquiries.TryGetValue(enquiryId, out var e))
-        {
-            var status = JourneyRules.LegStatusOf(e);
-            leg.LastKnownStatus = status;
-            leg.LastQuotedFare = JourneyRules.QuotedFareOf(e);
-            leg.LastKnownAt = status == JourneyLegStatuses.NoAnswer ? e.CreatedAt : e.DriverRepliedAt ?? e.UpdatedAt;
-        }
+            JourneyLegState.Of(e).ApplyTo(leg);
     }
 
     // ---------- PUT /taxis/journeys/{id}/legs/{legIndex}/driver ----------

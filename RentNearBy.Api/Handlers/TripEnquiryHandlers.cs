@@ -962,8 +962,16 @@ public static class TripEnquiryHandlers
             return Closed("This booking can no longer be edited.");
 
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(tripId, callerId);
-        if (trip == null || trip.StartDate == null || e.Day is not { } day) return Closed("This booking can no longer be edited.");
-        var (checkIn, checkOut) = Nights(trip, day, request.AllNights, request.Nights);
+        if (trip?.StartDate is not { } start || trip.EndDate is not { } end || e.CheckIn is not { } checkIn || e.CheckOut is not { } currentOut)
+            return Closed("This booking can no longer be edited.");
+
+        // The check-in never moves (D7); only the length changes, capped at the trip's check-out morning.
+        var left = TripDateRules.CheckOutLimit(end).DayNumber - checkIn.DayNumber;
+        if (checkIn < start || left < 1)
+            return ErrorResponse(422, TripDateRules.OutsideTripMessage, TripEnquiryErrorTypes.OfferOutsideTrip);
+        var current = Math.Max(1, currentOut.DayNumber - checkIn.DayNumber);
+        var nights = request.Nights ?? (request.AllNights ? left : current);
+        var checkOut = checkIn.AddDays(Math.Clamp(nights, 1, left));
 
         var now = DateTime.UtcNow;
         var posts = new List<TripChatPost>();
@@ -976,6 +984,7 @@ public static class TripEnquiryHandlers
                 await unitOfWork.RollbackTransactionAsync();
                 return conflict;
             }
+            e.Day = (short)(checkIn.DayNumber - start.DayNumber + 1);
             ApplyPhoneFields(e, Fields(request), checkIn, checkOut, now, keepRecordedAt: true);
             await db.SaveChangesAsync();
             if (await RewritePhoneCardAsync(db, e, TripCardStatuses.Pending) is { } rewrite) posts.Add(rewrite);

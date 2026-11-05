@@ -95,6 +95,7 @@ public static class TripLeadHandlers
             await unitOfWork.SaveChangesAsync();
 
             if (firstAnswer) await CountAnsweredAsync(db, e.ListingId);
+            await JourneyLegSync.SyncAsync(db, e, now);
 
             await unitOfWork.CommitTransactionAsync();
         }
@@ -137,6 +138,7 @@ public static class TripLeadHandlers
             await unitOfWork.SaveChangesAsync();
 
             if (firstAnswer) await CountAnsweredAsync(db, e.ListingId);
+            await JourneyLegSync.SyncAsync(db, e, now);
 
             await unitOfWork.CommitTransactionAsync();
         }
@@ -168,7 +170,7 @@ public static class TripLeadHandlers
         if (e.Status != TripEnquiryStatuses.BookedByTraveller) return Closed();
 
         var now = DateTime.UtcNow;
-        if (!await SaveAsync(unitOfWork, e, () =>
+        if (!await SaveAsync(unitOfWork, db, e, now, () =>
         {
             e.Status = TripEnquiryStatuses.ConfirmedByBoth;
             e.FailReason = null;
@@ -194,7 +196,7 @@ public static class TripLeadHandlers
         if (e.Status != TripEnquiryStatuses.BookedByTraveller) return Closed();
 
         var now = DateTime.UtcNow;
-        if (!await SaveAsync(unitOfWork, e, () =>
+        if (!await SaveAsync(unitOfWork, db, e, now, () =>
         {
             e.Status = TripEnquiryStatuses.Failed;
             e.FailReason = TripFailReasons.DriverDenied;
@@ -231,14 +233,16 @@ public static class TripLeadHandlers
         return owns ? (null, e, callerId) : (forbidden, null, callerId);
     }
 
-    // One short transaction for a plain state change.
-    private static async Task<bool> SaveAsync(IUnitOfWork unitOfWork, TripEnquiry e, Action apply)
+    // One short transaction for a plain state change; a journey lead's leg follows in the same transaction.
+    private static async Task<bool> SaveAsync(
+        IUnitOfWork unitOfWork, ApplicationDbContext db, TripEnquiry e, DateTime now, Action apply)
     {
         await unitOfWork.BeginTransactionAsync();
         try
         {
             apply();
             await unitOfWork.SaveChangesAsync();
+            await JourneyLegSync.SyncAsync(db, e, now);
             await unitOfWork.CommitTransactionAsync();
             return true;
         }

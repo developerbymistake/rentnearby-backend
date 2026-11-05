@@ -13,9 +13,9 @@ public static class TripExecutionEndpoints
         group.MapPost("/{tripId:guid}/enquiries", TripEnquiryHandlers.Create).Gated();
         group.MapPost("/{tripId:guid}/phone-bookings", TripEnquiryHandlers.CreatePhoneBooking).Gated();
 
-        group.MapGet("/enquiries/owner", TripOwnerHandlers.GetMine).Gated("CanListStays");
+        group.MapGet("/enquiries/owner", TripOwnerHandlers.GetMine).Gated("CanListStays").WithMetadata(new SkipTripPlannerGateAttribute());
         // Get one, withdraw and cancel serve journey leads too (no planner gate, party checked in the handlers).
-        group.MapGet("/enquiries/by-conversation/{conversationId:guid}", TripEnquiryHandlers.GetByConversation).Gated();
+        group.MapGet("/enquiries/by-conversation/{conversationId:guid}", TripEnquiryHandlers.GetByConversation).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapGet("/enquiries/{id:guid}", TripEnquiryHandlers.GetOne).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapPut("/enquiries/{id:guid}/phone-booking", TripEnquiryHandlers.EditPhoneBooking).Gated();
         group.MapPost("/enquiries/{id:guid}/host-confirm-link/resend", TripEnquiryHandlers.ResendHostLink).Gated();
@@ -24,28 +24,29 @@ public static class TripExecutionEndpoints
         group.MapPost("/enquiries/{id:guid}/offers/{offerId:guid}/accept", TripEnquiryHandlers.AcceptOffer).Gated();
         group.MapPost("/enquiries/{id:guid}/offers/{offerId:guid}/decline", TripEnquiryHandlers.DeclineOffer).Gated();
 
-        group.MapPost("/enquiries/{id:guid}/offers", TripOwnerHandlers.SendOffer).Gated();
-        group.MapPost("/enquiries/{id:guid}/not-available", TripOwnerHandlers.NotAvailable).Gated();
-        group.MapPost("/enquiries/{id:guid}/host-confirm", TripOwnerHandlers.HostConfirm).Gated();
+        // Host side answers open enquiries whatever the planner flag says; only new asks stay planner-gated.
+        group.MapPost("/enquiries/{id:guid}/offers", TripOwnerHandlers.SendOffer).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/enquiries/{id:guid}/not-available", TripOwnerHandlers.NotAvailable).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/enquiries/{id:guid}/host-confirm", TripOwnerHandlers.HostConfirm).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
 
         // Counter and change request: guest side. Revised offer and accept change: host side (checked in the handlers).
         group.MapPost("/enquiries/{id:guid}/counter", TripEnquiryHandlers.Counter).Gated();
         group.MapPost("/enquiries/{id:guid}/change-request", TripEnquiryHandlers.ChangeRequest).Gated();
-        group.MapPost("/enquiries/{id:guid}/revised-offer", TripOwnerHandlers.RevisedOffer).Gated();
-        group.MapPost("/enquiries/{id:guid}/change-request/{offerId:guid}/accept", TripOwnerHandlers.AcceptChange).Gated();
+        group.MapPost("/enquiries/{id:guid}/revised-offer", TripOwnerHandlers.RevisedOffer).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/enquiries/{id:guid}/change-request/{offerId:guid}/accept", TripOwnerHandlers.AcceptChange).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
 
         // Trip lifecycle. complete / mute / summary have no booking side effect, so they skip the execution gate.
         group.MapPost("/{tripId:guid}/problems", TripLifecycleHandlers.Problem).Gated();
         group.MapPost("/{tripId:guid}/complete", TripLifecycleHandlers.Complete).RequireAuthorization();
         group.MapPut("/{tripId:guid}/mute", TripLifecycleHandlers.Mute).RequireAuthorization();
         group.MapGet("/{tripId:guid}/summary", TripLifecycleHandlers.Summary).RequireAuthorization();
-        group.MapPost("/enquiries/{id:guid}/report-traveller", TripLifecycleHandlers.ReportTraveller).Gated();
+        group.MapPost("/enquiries/{id:guid}/report-traveller", TripLifecycleHandlers.ReportTraveller).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
 
         // Stay advance: ask / received / not-yet are host-only, proof-sent is guest-only (checked in the handlers).
-        group.MapPost("/enquiries/{id:guid}/advance/ask", TripAdvanceHandlers.Ask).Gated();
+        group.MapPost("/enquiries/{id:guid}/advance/ask", TripAdvanceHandlers.Ask).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapPost("/enquiries/{id:guid}/advance/proof-sent", TripAdvanceHandlers.ProofSent).Gated();
-        group.MapPost("/enquiries/{id:guid}/advance/received", TripAdvanceHandlers.Received).Gated();
-        group.MapPost("/enquiries/{id:guid}/advance/not-yet", TripAdvanceHandlers.NotYet).Gated();
+        group.MapPost("/enquiries/{id:guid}/advance/received", TripAdvanceHandlers.Received).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/enquiries/{id:guid}/advance/not-yet", TripAdvanceHandlers.NotYet).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
 
         // Taxi: "I booked" by the traveller; the driver's Trip leads list and actions.
         group.MapPost("/{tripId:guid}/taxi-bookings", TripEnquiryHandlers.CreateTaxiBooking).Gated();

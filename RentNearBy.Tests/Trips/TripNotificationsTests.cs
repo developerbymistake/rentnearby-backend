@@ -142,7 +142,7 @@ public class TripNotificationsTests
     [Fact]
     public void Chat_routes_carry_the_full_argument_map()
     {
-        string[] keys = ["conversationId", "listingType", "listingId", "otherPartyId", "otherPartyName", "isOwner", "status", "isBlockedByMe"];
+        string[] keys = ["conversationId", "listingType", "listingId", "otherPartyId", "otherPartyName", "isOwner", "enquiryId"];
         foreach (var b in Builders())
         {
             var n = Build(b, urgent: false);
@@ -384,6 +384,48 @@ public class TripNotificationsTests
     {
         var n = TripNotifications.TripDriverFare(TaxiRow(), Ctx(Traveller, ownerName: null));
         Assert.StartsWith("Bisht Cabs replied", n.Title);
+    }
+
+    [Fact]
+    public void Driver_fare_without_a_listed_fare_skips_the_listed_sentence()
+    {
+        var e = TaxiRow();
+        e.ListedRateSnapshot = null;
+        var n = TripNotifications.TripDriverFare(e, Ctx(Traveller));
+        Assert.DoesNotContain("Listed", n.Body);
+        Assert.StartsWith("Call to settle", n.Body);
+    }
+
+    [Fact]
+    public void Lapsed_fare_names_the_driver_and_routes_like_the_fare()
+    {
+        var e = TaxiRow();
+        var lapsed = TripNotifications.TripDriverFareLapsed(e, Ctx(Traveller));
+        var fare = TripNotifications.TripDriverFare(e, Ctx(Traveller));
+        Assert.Equal("Mohan Bisht's fare has lapsed", lapsed.Title);
+        Assert.Equal("Call him or tap I booked if you agreed.", lapsed.Body);
+        Assert.DoesNotContain("No reply", lapsed.Title);
+        Assert.Equal(fare.ActionRoute, lapsed.ActionRoute);
+        Assert.Equal(fare.ActionArgumentsJson, lapsed.ActionArgumentsJson);
+    }
+
+    [Fact]
+    public void Lapsed_journey_fare_has_no_i_booked()
+    {
+        var e = TaxiRow();
+        e.TripId = null;
+        Assert.DoesNotContain("I booked", TripNotifications.TripDriverFareLapsed(e, Ctx(Traveller)).Body);
+    }
+
+    [Fact]
+    public void Taxi_replies_args_always_carry_the_first_date()
+    {
+        var e = TaxiRow();
+        e.DaysJson = "[3,2]";
+        e.CheckIn = new DateOnly(2026, 11, 6);
+        var n = TripNotifications.TripDriverFare(e, Ctx(Traveller));
+        using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+        Assert.Equal("2026-11-06", doc.RootElement.GetProperty("date").GetString());
     }
 
     [Fact]
@@ -635,7 +677,7 @@ public class TripNotificationsTests
         {
             ["conversationId"] = Guid.NewGuid(), ["listingType"] = "Stay", ["listingId"] = Guid.NewGuid(), ["stayTypeId"] = null,
             ["otherPartyId"] = Guid.NewGuid(), ["otherPartyName"] = "Rahul", ["listingTitle"] = "Deodar Homestay", ["area"] = "Nainital",
-            ["isOwner"] = true, ["status"] = "Active", ["isBlockedByMe"] = false,
+            ["isOwner"] = true, ["enquiryId"] = Guid.NewGuid(),
         }),
         "contextjson" => """{"city":"Nainital","adults":2,"kids":1,"travellerName":"Rahul"}""",
         _ => "{}",

@@ -209,8 +209,7 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
                     ["listingTitle"] = stay?.Name ?? e.ListingName,
                     ["area"] = stay?.CityName ?? stay?.DistrictName,
                     ["isOwner"] = isOwner,
-                    ["status"] = c.Status,
-                    ["isBlockedByMe"] = false,
+                    ["enquiryId"] = e.Id,
                 });
             }
         }

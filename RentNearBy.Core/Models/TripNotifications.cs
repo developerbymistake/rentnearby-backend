@@ -110,8 +110,12 @@ public static class TripNotifications
 
     public static NotificationEvent TripDriverFare(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripDriverFare, $"{Listing(e, ctx)} replied Rs {Money(e.DriverFare)}",
-            $"Listed Rs {Money(TripLeadRules.ListedTotal(e.ListedRateSnapshot, DayCount(e)))}. "
+            (e.ListedRateSnapshot is null ? string.Empty : $"Listed Rs {Money(TripLeadRules.ListedTotal(e.ListedRateSnapshot, DayCount(e)))}. ")
             + (e.TripId == null ? "Call to settle." : "Call to settle, then tap I booked."), Plan(e, ctx));
+
+    public static NotificationEvent TripDriverFareLapsed(TripEnquiry e, TripPushContext ctx) =>
+        Traveller(e, ctx, NotificationTypes.TripEnquiryExpired, $"{Listing(e, ctx)}'s fare has lapsed",
+            e.TripId == null ? "Call him if you agreed." : "Call him or tap I booked if you agreed.", Plan(e, ctx));
 
     public static NotificationEvent TripTaxiBookedByTraveller(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripTaxiBookedByTraveller, $"{Name(ctx.TravellerName, "A traveller")} booked you",

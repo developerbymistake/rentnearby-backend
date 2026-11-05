@@ -190,9 +190,10 @@ public class TripTimerService(
                 await TripEnquiryOps.CloseOpenOfferAsync(db, chat, row, TripOfferStatuses.Expired, TripCardStatuses.Expired, posts, now);
                 await TripEnquiryOps.PostSystemAsync(db, chat, row, row.OwnerUserId, TripSystemLines.Expired, posts);
                 await db.SaveChangesAsync(ct);
-                await unitOfWork.CommitTransactionAsync();
                 row.Status = TripEnquiryStatuses.Expired;
                 row.UpdatedAt = now;
+                await JourneyLegSync.SyncAsync(db, row, now);
+                await unitOfWork.CommitTransactionAsync();
                 expired = row;
                 done++;
             }
@@ -218,6 +219,7 @@ public class TripTimerService(
 
     private async Task<int> FareSentExpiryPassAsync(IServiceProvider sp, CancellationToken ct)
     {
+        var db = sp.GetRequiredService<ApplicationDbContext>();
         var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
         var notifier = sp.GetRequiredService<ITripNotifier>();
         var now = DateTime.UtcNow;
@@ -227,24 +229,31 @@ public class TripTimerService(
         foreach (var row in due)
         {
             if (ct.IsCancellationRequested) break;
-            int rows;
+            await unitOfWork.BeginTransactionAsync();
             try
             {
-                rows = await unitOfWork.TripEnquiries.TryTransitionAsync(
+                var rows = await unitOfWork.TripEnquiries.TryTransitionAsync(
                     row.Id, [TripEnquiryStatuses.FareSent], TripEnquiryStatuses.Expired, null, now);
+                if (rows == 0)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    continue;
+                }
+                row.Status = TripEnquiryStatuses.Expired;
+                row.UpdatedAt = now;
+                await JourneyLegSync.SyncAsync(db, row, now);
+                await unitOfWork.CommitTransactionAsync();
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                await unitOfWork.RollbackTransactionAsync();
                 logger.LogError(ex, "Trip timer: lead expiry failed for {EnquiryId}", row.Id);
                 continue;
             }
-            if (rows == 0) continue;
 
-            row.Status = TripEnquiryStatuses.Expired;
-            row.UpdatedAt = now;
             done++;
             await TripPushSender.SendAsync(
-                [new TripPendingPush(row, row.TravellerUserId, TripNotifications.TripEnquiryExpired, DedupeKey: $"exp:{row.Id}")],
+                [new TripPendingPush(row, row.TravellerUserId, TripNotifications.TripDriverFareLapsed, DedupeKey: $"exp:{row.Id}")],
                 unitOfWork.TripEnquiries, notifier, logger);
         }
         return done;

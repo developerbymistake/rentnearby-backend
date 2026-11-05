@@ -282,7 +282,8 @@ public static class AdminStayHandlers
 
     // Soft delete, same as the owner's DeleteMine: photos removed, pending reports auto-resolved.
     public static async Task<IResult> DeleteStay(
-        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp)
+        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp,
+        ITripEnquiryClosure tripClosure)
     {
         var stay = await unitOfWork.Stays.GetByIdAsync(id);
         if (stay == null || stay.IsDeleted) return NotFoundResponse("Stay not found");
@@ -294,11 +295,25 @@ public static class AdminStayHandlers
         stay.DeletedAt = now;
         stay.UpdatedAt = now;
 
-        try { await unitOfWork.SaveChangesAsync(); }
+        IReadOnlyList<TripClosurePush> tripPushes;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+            tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, [stay.Id]);
+            await unitOfWork.CommitTransactionAsync();
+        }
         catch (DbUpdateConcurrencyException)
         {
+            await unitOfWork.RollbackTransactionAsync();
             return ConflictResponse("This stay was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
         }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        await tripClosure.AfterCommitAsync(tripPushes);
 
         await unitOfWork.StayJobs.CloseActiveForStayAsync(stay.Id);
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(stay.Id, ListingKinds.Stay);

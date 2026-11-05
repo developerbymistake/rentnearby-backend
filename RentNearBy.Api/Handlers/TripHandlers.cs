@@ -445,13 +445,31 @@ public static class TripHandlers
         var endCut = !startMoved && oldEnd is { } previousEnd && trip.EndDate is { } newEnd && newEnd < previousEnd;
         var closing = new List<TripEnquiry>();
         var staleOffers = new List<TripOffer>();
+        var reopened = new List<TripEnquiry>();
+        var reopenedOffers = new List<TripOffer>();
         if (startMoved || endCut)
         {
-            closing = (await db.TripEnquiries
-                    .Where(x => x.TripId == trip.Id && TripEnquiryStatuses.Withdrawable.Contains(x.Status))
-                    .ToListAsync())
-                .Where(x => TripDateRules.OutsideWindow(trip.StartDate, trip.EndDate, x.CheckIn, x.CheckOut))
+            var open = await db.TripEnquiries
+                .Where(x => x.TripId == trip.Id && TripEnquiryStatuses.Withdrawable.Contains(x.Status))
+                .ToListAsync();
+            closing = open.Where(x => TripDateRules.OutsideWindow(trip.StartDate, trip.EndDate, x.CheckIn, x.CheckOut)).ToList();
+
+            // An enquiry still inside the trip can hold an offer or counter for wider dates that can no longer be accepted.
+            var negotiating = open
+                .Where(x => !closing.Contains(x) && x.Status is TripEnquiryStatuses.Offered or TripEnquiryStatuses.Countered)
                 .ToList();
+            if (negotiating.Count > 0)
+            {
+                var negotiatingIds = negotiating.Select(x => x.Id).ToList();
+                reopenedOffers = (await db.TripOffers
+                        .Where(o => negotiatingIds.Contains(o.TripEnquiryId) && o.Status == TripOfferStatuses.Pending
+                            && (o.Kind == TripOfferKinds.Offer || o.Kind == TripOfferKinds.Counter))
+                        .ToListAsync())
+                    .Where(o => o.CheckIn != null && o.CheckOut != null
+                        && TripDateRules.OutsideWindow(trip.StartDate, trip.EndDate, o.CheckIn, o.CheckOut))
+                    .ToList();
+                reopened = negotiating.Where(x => reopenedOffers.Any(o => o.TripEnquiryId == x.Id)).ToList();
+            }
             var bookedIds = await db.TripEnquiries
                 .Where(x => x.TripId == trip.Id && TripEnquiryStatuses.Booked.Contains(x.Status))
                 .Select(x => x.Id)
@@ -490,6 +508,21 @@ public static class TripHandlers
                 if (o.MessageId is { } messageId && await chat.RewriteStatusAsync(messageId, TripCardStatuses.Superseded) is { } rewrite)
                     posts.Add(rewrite);
             }
+            foreach (var o in reopenedOffers)
+            {
+                o.Status = TripOfferStatuses.Superseded;
+                o.RespondedAt ??= now;
+                if (o.MessageId is { } messageId && await chat.RewriteStatusAsync(messageId, TripCardStatuses.Superseded) is { } rewrite)
+                    posts.Add(rewrite);
+            }
+            foreach (var x in reopened)
+            {
+                x.Status = TripEnquiryStatuses.Asked;
+                x.UpdatedAt = now;
+                pushes.Add(new TripPendingPush(x, x.OwnerUserId, endCut
+                    ? (Func<TripEnquiry, TripPushContext, NotificationEvent>)OfferOutsideShortenedTrip
+                    : OfferOutsideMovedTrip));
+            }
             await unitOfWork.SaveChangesAsync();
             await unitOfWork.CommitTransactionAsync();
         }
@@ -506,6 +539,22 @@ public static class TripHandlers
 
         await TripEnquiryHandlers.AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
         return OkResponse(ToDto(trip, plan, await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id)));
+    }
+
+    // The host's offer (or the guest's counter) no longer fits the trip: the enquiry is back to Asked.
+    private static NotificationEvent OfferOutsideMovedTrip(TripEnquiry e, TripPushContext ctx)
+        => OfferOutsideTrip(e, ctx, "changed the trip dates");
+
+    private static NotificationEvent OfferOutsideShortenedTrip(TripEnquiry e, TripPushContext ctx)
+        => OfferOutsideTrip(e, ctx, "shortened the trip");
+
+    private static NotificationEvent OfferOutsideTrip(TripEnquiry e, TripPushContext ctx, string what)
+    {
+        var n = TripNotifications.TripEnquiryReceived(e, ctx);
+        var who = string.IsNullOrWhiteSpace(ctx.TravellerName) ? "The guest" : ctx.TravellerName.Trim();
+        n.Title = (e.IsUrgent ? "Urgent · " : string.Empty) + "Send a new offer";
+        n.Body = $"{who} {what}. Offer again for {TripNotifications.Dates(e)}.";
+        return n;
     }
 
     // Open enquiries close first (confirmed ones count as a guest cancel); each owner told once after commit.

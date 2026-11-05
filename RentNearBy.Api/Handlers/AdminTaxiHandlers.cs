@@ -293,7 +293,8 @@ public static class AdminTaxiHandlers
 
     // Soft delete, same as the driver's DeleteMine: plate photo removed, pending reports auto-resolved.
     public static async Task<IResult> DeleteTaxi(
-        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp)
+        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp,
+        ITripEnquiryClosure tripClosure)
     {
         var taxi = await unitOfWork.Taxis.GetByIdAsync(id);
         if (taxi == null || taxi.IsDeleted) return NotFoundResponse(TaxiNotFound);
@@ -305,8 +306,25 @@ public static class AdminTaxiHandlers
         taxi.DeletedAt = now;
         taxi.UpdatedAt = now;
 
-        try { await unitOfWork.SaveChangesAsync(); }
-        catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        IReadOnlyList<TripClosurePush> tripPushes;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+            tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, [taxi.Id]);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        await tripClosure.AfterCommitAsync(tripPushes);
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(taxi.Id, ListingKinds.Taxi);
         await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
