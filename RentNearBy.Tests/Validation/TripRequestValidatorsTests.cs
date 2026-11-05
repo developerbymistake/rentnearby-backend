@@ -700,6 +700,7 @@ public class TripRequestValidatorsTests
     public void Save_TaxiWithoutId_Invalid()
     {
         var request = Save();
+        request.Plan.Steps = new TripSteps();
         request.Plan.Days[0].Taxi = new TripTaxiChoice { TaxiId = null, Name = "Ramesh" };
 
         ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
@@ -876,6 +877,7 @@ public class TripRequestValidatorsTests
     public void Save_NonOwnTaxiWithoutId_Invalid()
     {
         var request = FromJson("\"taxi\":{\"name\":\"Ramesh\"}");
+        request.Plan.Steps = new TripSteps();
 
         ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
     }
@@ -1060,9 +1062,82 @@ public class TripRequestValidatorsTests
     public void Save_PlainTaxiWithoutId_StillInvalid()
     {
         var request = Save();
+        request.Plan.Steps = new TripSteps();
         request.Plan.Days[0].Taxi = new TripTaxiChoice { Name = "Ramesh", Skipped = false };
 
         ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
+    }
+
+    // ---- steps-unaware app writing back a "No taxi this day" day (build 57)
+
+    [Fact]
+    public void Save_OldAppTaxiEmptyStringId_WithoutSteps_Valid()
+    {
+        var request = FromJson("\"taxi\":{\"taxiId\":\"\",\"name\":\"No taxi this day\",\"isOwn\":false}");
+
+        Assert.Null(request.Plan.Steps);
+        Assert.Null(request.Plan.Days[0].Taxi!.TaxiId);
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_OldAppTaxiEmptyStringId_WithSteps_Invalid()
+    {
+        var request = FromJson("\"taxi\":{\"taxiId\":\"\",\"name\":\"No taxi this day\",\"isOwn\":false}");
+        request.Plan.Steps = new TripSteps();
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
+    }
+
+    [Fact]
+    public void Save_SkippedTaxiEmptyStringId_WithSteps_Valid()
+    {
+        var request = FromJson("\"taxi\":{\"taxiId\":\"\",\"name\":\"No taxi this day\",\"skipped\":true}");
+        request.Plan.Steps = new TripSteps();
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void KeepSkippedTaxiDays_StoredSkippedDay_StaysSkipped()
+    {
+        var stored = Save(null, 1, 1).Plan;
+        stored.Days[1].Taxi = new TripTaxiChoice { Name = "No taxi this day", Skipped = true };
+        var plan = Save(null, 1, 1).Plan;
+        plan.Days[0].Taxi = new TripTaxiChoice { Name = "Old", TaxiId = null };
+        plan.Days[1].Taxi = new TripTaxiChoice { Name = "No taxi this day", TaxiId = null };
+
+        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedTaxiDays(plan, stored);
+
+        Assert.Null(plan.Days[0].Taxi);
+        Assert.True(plan.Days[1].Taxi!.Skipped);
+    }
+
+    [Fact]
+    public void KeepSkippedTaxiDays_StepsAwareRequest_Untouched()
+    {
+        var plan = Save().Plan;
+        plan.Steps = new TripSteps();
+        plan.Days[0].Taxi = new TripTaxiChoice { Name = "Ramesh", TaxiId = null };
+
+        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedTaxiDays(plan, null);
+
+        Assert.NotNull(plan.Days[0].Taxi);
+    }
+
+    [Fact]
+    public void KeepSkippedTaxiDays_OwnAndPickedTaxis_Untouched()
+    {
+        var plan = Save(null, 1, 1).Plan;
+        var taxiId = Guid.NewGuid();
+        plan.Days[0].Taxi = new TripTaxiChoice { Name = "Mohan", IsOwn = true };
+        plan.Days[1].Taxi = new TripTaxiChoice { Name = "Ramesh", TaxiId = taxiId };
+
+        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedTaxiDays(plan, null);
+
+        Assert.True(plan.Days[0].Taxi!.IsOwn);
+        Assert.Equal(taxiId, plan.Days[1].Taxi!.TaxiId);
+        Assert.Null(plan.Days[1].Taxi!.Skipped);
     }
 
     [Fact]

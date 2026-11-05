@@ -507,6 +507,75 @@ public class TripLifecycleRulesTests
         Assert.False(TripReminderRules.ShouldRemindStartsIn(PlannedTrip(TripStatuses.Completed), Plan(), [], today));
     }
 
+    private static TripPlan WithGettingThere(string status)
+    {
+        var plan = Plan();
+        plan.Steps = new TripSteps
+        {
+            StartFrom = new TripStartFrom { Name = "Delhi", Lat = 28.61, Lon = 77.21 },
+            GettingThere = new TripStep { Status = status },
+        };
+        return plan;
+    }
+
+    [Fact]
+    public void Starts_in_sends_the_nudge_for_a_ready_trip()
+    {
+        var today = Start.AddDays(-3);
+        var trip = PlannedTrip();
+        TripEnquiry[] ready = [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2)];
+        var plan = WithGettingThere(TripStepStatuses.NotStarted);
+
+        Assert.False(TripReminderRules.ShouldRemindStartsIn(trip, plan, ready, today));
+        Assert.True(TripReminderRules.ShouldSendStartsIn(trip, plan, ready, today));
+        Assert.Equal(TripReminderRules.GettingThereNudge, TripReminderRules.StartsInBody(trip, plan, ready, today));
+    }
+
+    [Fact]
+    public void Starts_in_sends_the_nudge_without_a_district()
+    {
+        var today = Start.AddDays(-3);
+        var trip = PlannedTrip();
+        trip.DistrictId = null;
+        var plan = WithGettingThere(TripStepStatuses.NotStarted);
+
+        Assert.True(TripReminderRules.ShouldSendStartsIn(trip, plan, [], today));
+        Assert.Equal("Getting there not sorted.", TripReminderRules.StartsInBody(trip, plan, [], today));
+    }
+
+    [Theory]
+    [InlineData(TripStepStatuses.Own)]
+    [InlineData(TripStepStatuses.Skipped)]
+    [InlineData(TripStepStatuses.NotNeeded)]
+    public void Starts_in_no_nudge_when_getting_there_is_handled(string status)
+    {
+        var today = Start.AddDays(-3);
+        TripEnquiry[] ready = [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2)];
+
+        Assert.False(TripReminderRules.ShouldSendStartsIn(PlannedTrip(), WithGettingThere(status), ready, today));
+    }
+
+    [Fact]
+    public void Starts_in_nudge_keeps_the_days_left_guard()
+    {
+        TripEnquiry[] ready = [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2)];
+
+        Assert.False(TripReminderRules.ShouldSendStartsIn(PlannedTrip(), WithGettingThere(TripStepStatuses.NotStarted), ready, Start));
+    }
+
+    [Fact]
+    public void Starts_in_booking_reminder_keeps_the_summary_with_the_nudge()
+    {
+        var today = Start.AddDays(-3);
+        var trip = PlannedTrip();
+        TripEnquiry[] open = [Stay(TripEnquiryStatuses.Asked, 1, 1)];
+        var plan = WithGettingThere(TripStepStatuses.NotStarted);
+
+        Assert.True(TripReminderRules.ShouldSendStartsIn(trip, plan, open, today));
+        Assert.Equal(TripReminderRules.StartsInSummary(plan, open), TripReminderRules.StartsInBody(trip, plan, open, today));
+        Assert.EndsWith(TripReminderRules.GettingThereNudge, TripReminderRules.StartsInBody(trip, plan, open, today));
+    }
+
     [Theory]
     [InlineData(2026, 10, 31, false)]
     [InlineData(2026, 11, 1, true)]

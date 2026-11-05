@@ -221,6 +221,15 @@ public static class TripReminderRules
             _ => false,
         };
     }
+
+    // The 3-day push also goes out when Getting there is the only thing left to sort.
+    public static bool ShouldSendStartsIn(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst)
+        => trip.StartDate is { } start && DaysLeft(start, todayIst) > 0
+           && (ShouldRemindStartsIn(trip, plan, enquiries, todayIst) || TripStepRules.NeedsNudge(plan.Steps));
+
+    public static string StartsInBody(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst)
+        => ShouldRemindStartsIn(trip, plan, enquiries, todayIst) ? StartsInSummary(plan, enquiries) : GettingThereNudge;
+
     public static bool ProblemAllowed(Trip t, DateOnly todayIst) => t.StartDate is { } s && t.EndDate is { } e && s <= todayIst && todayIst <= e.AddDays(1);
 
     public static string NoReplyKey(Guid enquiryId) => $"noreply:{enquiryId}";

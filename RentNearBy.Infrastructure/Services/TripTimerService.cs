@@ -448,12 +448,12 @@ public class TripTimerService(
                 if (trip.StartDate is { } start)
                 {
                     if (TripReminderRules.InWindow(TripReminderRules.StartsInDueUtc(start), now)
-                        && TripReminderRules.ShouldRemindStartsIn(trip, plan, enquiries, today)
+                        && TripReminderRules.ShouldSendStartsIn(trip, plan, enquiries, today)
                         && await TripRemindableAsync(db, trip.Id, ct)
                         && await notifier.SendOnceAsync(
                             TripReminderNotifications.StartsIn(
                                 trip.OwnerUserId, trip.Id, trip.CityName, TripReminderRules.DaysLeft(start, today),
-                                TripReminderRules.StartsInSummary(plan, enquiries)),
+                                TripReminderRules.StartsInBody(trip, plan, enquiries, today)),
                             TripReminderRules.StartsInKey(trip.Id, start), trip.Id, null))
                         done++;
 

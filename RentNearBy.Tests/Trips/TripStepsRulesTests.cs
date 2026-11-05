@@ -28,6 +28,41 @@ public class TripStepsRulesTests
         Legs = { new SavedJourneyLeg { LegIndex = 1, DriverTaxiId = Guid.NewGuid(), LastEnquiryId = asked ? Guid.NewGuid() : null } },
     };
 
+    [Fact]
+    public void Carried_steps_never_pull_a_journey_from_another_trip()
+    {
+        var tripA = Guid.NewGuid();
+        var tripB = Guid.NewGuid();
+        var movedToB = Journey();
+        movedToB.TripId = tripB;
+        var ownA = Journey();
+        ownA.TripId = tripA;
+        var free = Journey();
+        var steps = new TripSteps
+        {
+            StartFrom = Delhi,
+            GettingThere = new TripStep { Status = TripStepStatuses.Chosen, JourneyId = movedToB.Id },
+            ComingBack = new TripStep { Status = TripStepStatuses.Chosen, JourneyId = ownA.Id },
+        };
+
+        var linkable = RentNearBy.Api.Handlers.TripHandlers.LinkableIds([movedToB, ownA, free], tripA);
+        var keep = TripStepRules.Sanitise(steps, linkable);
+
+        Assert.Equal(new[] { ownA.Id }, keep);
+        Assert.Null(steps.GettingThere!.JourneyId);
+        Assert.Equal(TripStepStatuses.NotStarted, steps.GettingThere.Status);
+        Assert.Contains(free.Id, linkable);
+    }
+
+    [Fact]
+    public void Sent_steps_may_link_a_journey_of_another_trip()
+    {
+        var other = Journey();
+        other.TripId = Guid.NewGuid();
+
+        Assert.Contains(other.Id, RentNearBy.Api.Handlers.TripHandlers.LinkableIds([other], null));
+    }
+
     // About 1 km of latitude.
     private const double KmLat = 1 / 111.195;
 

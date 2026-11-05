@@ -329,6 +329,7 @@ public static class TripHandlers
         plan.CityKey = city.CityKey;
         plan.CityName = city.Name;
         plan.DistrictId = districtId;
+        KeepSkippedTaxiDays(plan, null);
         var linkIds = await SanitiseStepsAsync(plan, journeys, userId);
 
         var now = DateTime.UtcNow;
@@ -432,13 +433,35 @@ public static class TripHandlers
     }
 
     // Steps are trusted only for the caller's live journeys; returns the ids to link to the trip.
-    private static async Task<List<Guid>> SanitiseStepsAsync(TripPlan plan, ISavedJourneyRepository journeys, Guid userId)
+    // carriedForTrip: the steps were kept from the stored plan, so a journey since linked to another trip stays there.
+    private static async Task<List<Guid>> SanitiseStepsAsync(
+        TripPlan plan, ISavedJourneyRepository journeys, Guid userId, Guid? carriedForTrip = null)
     {
         var referenced = TripStepRules.ReferencedIds(plan.Steps);
         var owned = referenced.Count == 0
             ? new HashSet<Guid>()
-            : (await journeys.GetOwnedByIdsAsync(referenced, userId)).Select(j => j.Id).ToHashSet();
+            : LinkableIds(await journeys.GetOwnedByIdsAsync(referenced, userId), carriedForTrip);
         return TripStepRules.Sanitise(plan.Steps, owned);
+    }
+
+    public static HashSet<Guid> LinkableIds(IEnumerable<SavedJourney> owned, Guid? carriedForTrip)
+        => owned
+            .Where(j => carriedForTrip == null || j.TripId == null || j.TripId == carriedForTrip)
+            .Select(j => j.Id)
+            .ToHashSet();
+
+    // A steps-unaware app writes a "No taxi this day" day back as a plain taxi with no id: it stays skipped when the
+    // stored day was skipped, otherwise the day has no taxi.
+    public static void KeepSkippedTaxiDays(TripPlan plan, TripPlan? stored)
+    {
+        if (plan.Steps != null) return;
+        foreach (var day in plan.Days)
+        {
+            if (day.Taxi is not { TaxiId: null } taxi || taxi.IsOwn == true || taxi.Skipped == true) continue;
+            var storedTaxi = stored?.Days.FirstOrDefault(d => d.Day == day.Day)?.Taxi;
+            if (storedTaxi?.Skipped == true) taxi.Skipped = true;
+            else day.Taxi = null;
+        }
     }
 
     public static async Task<IResult> Update(
@@ -473,13 +496,15 @@ public static class TripHandlers
         plan.DistrictId = trip.DistrictId;
 
         // An app that does not know steps sends none: the stored ones stay; on its date change their own dates go.
+        var stored = ReadPlan(trip);
+        KeepSkippedTaxiDays(plan, stored);
         var requestedSteps = plan.Steps;
-        plan.Steps = TripStepsMerge.Resolve(ReadPlan(trip).Steps, requestedSteps);
+        plan.Steps = TripStepsMerge.Resolve(stored.Steps, requestedSteps);
         if (requestedSteps == null
             && (TripDateRules.StartMoved(trip.StartDate, plan.Settings.StartDate)
                 || (trip.EndDate is { } storedEnd && plan.EndDate is { } nextEnd && nextEnd < storedEnd)))
             TripStepRules.ClearDates(plan.Steps);
-        var linkIds = await SanitiseStepsAsync(plan, journeys, userId);
+        var linkIds = await SanitiseStepsAsync(plan, journeys, userId, requestedSteps == null ? trip.Id : null);
 
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, trip.CityName);
         if (request.Status != null) trip.Status = request.Status;

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using FluentValidation;
+using FluentValidation.Results;
 using Microsoft.Extensions.Options;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Models;
@@ -212,12 +213,23 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
         }
     }
 
+    // An app that does not know steps writes a "No taxi this day" day back with an empty id and no skipped flag.
+    internal const string StepsUnawareKey = "trip.stepsUnaware";
+
+    protected override bool PreValidate(ValidationContext<SaveTripRequest> context, ValidationResult result)
+    {
+        context.RootContextData[StepsUnawareKey] = context.InstanceToValidate?.Plan is { Steps: null };
+        return true;
+    }
+
     internal sealed class TripTaxiChoiceValidator : AbstractValidator<TripTaxiChoice>
     {
         public TripTaxiChoiceValidator()
         {
             RuleFor(t => t.TaxiId)
-                .Must((t, id) => t.IsOwn == true || t.Skipped == true || (id != null && id != Guid.Empty)).WithMessage("Taxi is required");
+                .Must((t, id, ctx) => t.IsOwn == true || t.Skipped == true || (id != null && id != Guid.Empty)
+                                      || (id == null && ctx.RootContextData.TryGetValue(StepsUnawareKey, out var v) && v is true))
+                .WithMessage("Taxi is required");
             RuleFor(t => t.Name).Must(IsValidOwnName).WithMessage(OwnNameMessage).When(t => t.IsOwn == true);
             RuleFor(t => t.IsOwn)
                 .Must(own => own != true).WithMessage("A day is either your own taxi or no taxi")
