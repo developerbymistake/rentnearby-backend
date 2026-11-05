@@ -296,20 +296,20 @@ app.MapGet("/delete-account", () => Results.Content("""
 </head>
 <body>
 <h1>Delete Your Bakhli Account</h1>
-<p>You can delete your account directly from the Bakhli app. The deletion is <strong>immediate and permanent</strong>.</p>
+<p>You can request deletion of your account directly from the Bakhli app.</p>
 <div class="card">
 <strong>Steps to delete your account in the app:</strong><br><br>
 <div class="step"><div class="num">1</div><span>Open the Bakhli app and sign in</span></div>
 <div class="step"><div class="num">2</div><span>Go to <strong>Profile</strong> (bottom navigation)</span></div>
 <div class="step"><div class="num">3</div><span>Scroll down and tap <strong>"Delete Account"</strong></span></div>
 <div class="step"><div class="num">4</div><span>Type <strong>DELETE</strong> to confirm</span></div>
-<div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> — your account is deleted instantly</span></div>
+<div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> to submit your request</span></div>
 </div>
 <div class="warn">
-<strong>Warning:</strong> This action is permanent and cannot be undone. All your stays, taxis, trips, photos and any active plan will be permanently removed. Payment receipts are kept without your personal details. The name, mobile number and dates of a deleted account may be kept for up to 180 days to prevent fraud and handle legal claims, and are then deleted. Licence, date of birth, registration and GSTIN details given by Taxi Drivers and Stay Owners are kept for the same 180 days and then deleted.
+<strong>Please note:</strong> This action cannot be undone. When you delete your account, we take reasonable steps to delete or anonymise your personal information. Some information may be kept where required by law or for legitimate purposes such as preventing fraud, resolving disputes and keeping records. Messages, enquiries and reports shared with other users may remain available to them.
 </div>
 <div class="warn">
-<strong>Subscriptions:</strong> Deleting your account stops your Bakhli plan, but it does not refund any payment already made. You can also check your subscriptions in Google Play (Play Store &gt; Payments and subscriptions &gt; Subscriptions).
+<strong>Subscriptions:</strong> Subscriptions are managed in Google Play (Play Store &gt; Payments and subscriptions &gt; Subscriptions). Deleting your account does not entitle you to a refund of any payment already made.
 </div>
 <p>If you are unable to access the app, contact us at <a href="mailto:supportbakhli@gmail.com">supportbakhli@gmail.com</a> with subject <em>"Account Deletion Request"</em>.</p>
 <p><a href="https://developerbymistake.github.io/bakhli-privacy-policy/">Privacy Policy</a></p>
