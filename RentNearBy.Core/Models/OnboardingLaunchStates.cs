@@ -4,7 +4,7 @@ namespace RentNearBy.Core.Models;
 public static class OnboardingLaunchStates
 {
     public static readonly string[] Names =
-        ["Uttarakhand", "Himachal Pradesh", "Rajasthan", "Goa", "Kerala", "Jammu and Kashmir"];
+        ["Uttarakhand", "Himachal Pradesh"];
 
     public static bool Contains(string? stateName) =>
         stateName != null && Array.IndexOf(Names, stateName) >= 0;
