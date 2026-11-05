@@ -12,7 +12,7 @@ namespace RentNearBy.Infrastructure.Services;
 // Every 10 min (first pass after 1 min), journeys with TravelDate >= today (IST) and not Completed:
 //   a chosen driver no longer public -> leg unavailable, journey DriverUnavailable, push once (jrn:p:...)
 //   the same driver public again     -> leg available, status recomputed, push once per day (jrn:b:...)
-//   TravelDate is tomorrow           -> push once (jrn:e:...), not for travel between two cities of a trip (the plan covers it)
+//   TravelDate is tomorrow           -> push once (jrn:e:...), not when the trip's travel-eve push covers it (TripEveCovers)
 // A journey in a trip routes the paused/back pushes to the trip plan.
 public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<JourneyWatchService> logger) : BackgroundService
 {
@@ -107,7 +107,7 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
         }
     }
 
-    // Journeys of tomorrow that are travel between two cities of their trip (one trips query per pass).
+    // Journeys of tomorrow whose eve the trip's travel-eve pass sends instead (one trips query per pass).
     private static async Task<HashSet<Guid>> SegmentJourneyIdsAsync(
         ApplicationDbContext db, IReadOnlyList<SavedJourney> tomorrow, CancellationToken ct)
     {
@@ -115,12 +115,24 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
         if (linked.Count == 0) return new HashSet<Guid>();
         var tripIds = linked.Select(j => j.TripId!.Value).Distinct().ToList();
         var trips = await db.Trips.AsNoTracking().Where(t => tripIds.Contains(t.Id)).ToListAsync(ct);
-        var plans = trips.ToDictionary(t => t.Id, t => (t.OwnerUserId, Plan: TripPlanReader.Read(t)));
+        var plans = trips.ToDictionary(t => t.Id, t => (Trip: t, Plan: TripPlanReader.Read(t)));
         return linked
-            .Where(j => plans.TryGetValue(j.TripId!.Value, out var p) && p.OwnerUserId == j.UserId
-                && TripJourneyLinks.Resolve(p.Plan, j.Id)?.Role == TripStepRoles.Segment)
+            .Where(j => plans.TryGetValue(j.TripId!.Value, out var p) && TripEveCovers(p.Trip, p.Plan, j))
             .Select(j => j.Id)
             .ToHashSet();
+    }
+
+    // Mirrors TripTimerService.TravelEvePassAsync: a Planned, unmuted trip whose travel day for this segment journey
+    // falls on the journey's own date. Any other journey (Draft trip, muted, date moved) keeps its own eve push.
+    internal static bool TripEveCovers(Trip trip, TripPlan plan, SavedJourney journey)
+    {
+        if (trip.OwnerUserId != journey.UserId || trip.Status != TripStatuses.Planned || trip.MutedAt != null) return false;
+        if (trip.StartDate is not { } start || trip.EndDate is not { } end) return false;
+        if (plan.Legs is not { Count: > 1 }) return false;
+        if (TripJourneyLinks.Resolve(plan, journey.Id) is not { Role: TripStepRoles.Segment, TravelDay: { } day }
+            || !plan.IsTravelDay(day)) return false;
+        var date = TripExecutionRules.NightDate(start, day);
+        return date == journey.TravelDate && date <= end;
     }
 
     // Applies availability to the legs; returns true when a leg changed.

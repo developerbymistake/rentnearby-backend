@@ -75,18 +75,30 @@ public class TripSummaryLegsTests
     }
 
     [Fact]
-    public void Journey_is_settled_only_when_every_car_is()
+    public void Journey_counts_its_cars()
     {
         var plan = Plan(1, 2, 2, 2);
         var journeyId = Guid.NewGuid();
         plan.Legs![1].Arrival = Journey(journeyId);
 
-        Assert.Equal((1, 0), TripSummaryLegs.Counters(plan, [Car(journeyId, 1, 2, TripEnquiryStatuses.BookedByTraveller)]));
-        Assert.Equal((1, 1), TripSummaryLegs.Counters(plan,
+        Assert.Equal((2, 0), TripSummaryLegs.Counters(plan, []));
+        Assert.Equal((2, 1), TripSummaryLegs.Counters(plan, [Car(journeyId, 1, 2, TripEnquiryStatuses.BookedByTraveller)]));
+        Assert.Equal((2, 2), TripSummaryLegs.Counters(plan,
         [
             Car(journeyId, 1, 2, TripEnquiryStatuses.BookedByTraveller),
             Car(journeyId, 2, 2, TripEnquiryStatuses.ConfirmedByBoth),
         ]));
+        Assert.Equal((2, 0), TripSummaryLegs.Counters(plan, [Car(journeyId, 1, 2, TripEnquiryStatuses.FareSent)]));
+    }
+
+    [Fact]
+    public void Cars_own_and_unplanned_travel_add_up()
+    {
+        var plan = Plan(1, 2, 3, 4);
+        var journeyId = Guid.NewGuid();
+        plan.Legs![1].Arrival = Journey(journeyId);
+        plan.Legs![2].Arrival = Own();
+        Assert.Equal((4, 2), TripSummaryLegs.Counters(plan, [Car(journeyId, 1, 2, TripEnquiryStatuses.ConfirmedByBoth)]));
     }
 
     [Fact]
@@ -95,7 +107,7 @@ public class TripSummaryLegsTests
         var plan = Plan(1, 2, 2, 2);
         var old = Guid.NewGuid();
         plan.Legs![1].Arrival = Journey(Guid.NewGuid());
-        Assert.Equal((1, 0), TripSummaryLegs.Counters(plan,
+        Assert.Equal((2, 0), TripSummaryLegs.Counters(plan,
         [
             Car(old, 1, 2, TripEnquiryStatuses.ConfirmedByBoth),
             Car(old, 2, 2, TripEnquiryStatuses.ConfirmedByBoth),

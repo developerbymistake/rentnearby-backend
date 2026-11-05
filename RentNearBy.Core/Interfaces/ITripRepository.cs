@@ -14,8 +14,9 @@ public interface ITripRepository : IRepository<Trip>
     Task<(int Upcoming, int Completed)> GetStateCountsAsync(Guid ownerUserId);
     // AsNoTracking; Planned, not muted, StartDate in [startFrom, startTo] or EndDate in [endFrom, endTo].
     Task<IReadOnlyList<Trip>> GetReminderCandidatesAsync(DateOnly startFrom, DateOnly startTo, DateOnly endFrom, DateOnly endTo, int take);
-    // AsNoTracking; Planned, not muted, StartDate <= date <= EndDate.
-    Task<IReadOnlyList<Trip>> GetRunningOnAsync(DateOnly date, int take);
+    // AsNoTracking; Planned, not muted, StartDate <= travelDate <= EndDate, more than one city leg, no trv push logged for
+    // travelDate. Keyset by Id after `after`; Next = the cursor of the following page, null when exhausted.
+    Task<(IReadOnlyList<Trip> Items, Guid? Next)> GetTravelEveCandidatesAsync(DateOnly travelDate, Guid? after, int take);
     // AsNoTracking; Planned with EndDate <= endBefore.
     Task<IReadOnlyList<Trip>> GetAutoCompleteCandidatesAsync(DateOnly endBefore, int take);
     // Set-based, WHERE Status = 'Planned'. Returns rows affected.

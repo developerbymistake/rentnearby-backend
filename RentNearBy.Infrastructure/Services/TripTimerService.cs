@@ -467,7 +467,7 @@ public class TripTimerService(
                     if (TripReminderRules.InWindow(TripReminderRules.TodayDueUtc(start), now)
                         && await TripRemindableAsync(db, trip.Id, ct)
                         && await notifier.SendOnceAsync(
-                            TripReminderNotifications.StartsToday(trip.OwnerUserId, trip.Id, TripReminderRules.TodayBody(enquiries)),
+                            TripReminderNotifications.StartsToday(trip.OwnerUserId, trip.Id, TripReminderRules.TodayBody(enquiries, start)),
                             TripReminderRules.TodayKey(trip.Id, start), trip.Id, null))
                         done++;
                 }
@@ -502,9 +502,24 @@ public class TripTimerService(
         var now = DateTime.UtcNow;
         var tomorrow = TripExecutionRules.TodayIst(now).AddDays(1);
         if (!TripReminderRules.TravelEveInWindow(tomorrow, now)) return 0;
-        var trips = await unitOfWork.Trips.GetRunningOnAsync(tomorrow, Batch);
         var done = 0;
+        Guid? after = null;
+        do
+        {
+            if (ct.IsCancellationRequested) break;
+            var (trips, next) = await unitOfWork.Trips.GetTravelEveCandidatesAsync(tomorrow, after, Batch);
+            after = next;
+            done += await TravelEvePageAsync(trips, tomorrow, db, unitOfWork, journeyRepo, notifier, ct);
+        }
+        while (after != null);
+        return done;
+    }
 
+    private async Task<int> TravelEvePageAsync(
+        IReadOnlyList<Trip> trips, DateOnly tomorrow, ApplicationDbContext db, IUnitOfWork unitOfWork,
+        ISavedJourneyRepository journeyRepo, ITripNotifier notifier, CancellationToken ct)
+    {
+        var done = 0;
         foreach (var trip in trips)
         {
             if (ct.IsCancellationRequested) break;

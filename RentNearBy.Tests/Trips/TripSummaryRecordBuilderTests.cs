@@ -258,13 +258,51 @@ public class TripSummaryRecordBuilderTests
         var record = TripSummaryRecordBuilder.Build(NewTrip(4), plan, dtos, raw, Now, [], Taxis());
 
         var travel = record.Legs[1].Travel!;
-        Assert.Equal(TripTravelStates.NotPlanned, travel.State);
+        Assert.Equal(TripTravelStates.PartlyBooked, travel.State);
         var car = Assert.Single(travel.Cars);
         Assert.Equal(1, car.Car);
         Assert.Equal("Sunil K", car.DriverName);
         Assert.Equal(4200, car.AgreedFare);
         Assert.Equal(Sunil, car.TaxiId);
+        Assert.Equal("Haridwar", car.FromName);
+        Assert.Equal(string.Empty, car.ToName);
         Assert.DoesNotContain(record.Taxis, t => t.EnquiryId == car1.Id);
+    }
+
+    [Fact]
+    public void Missing_journey_with_every_car_booked_reads_booked_with_the_route_ends()
+    {
+        var (plan, journey, car1, local) = TwoCities();
+        var car2 = SegmentRow(journey.Id, 2, 2, TripEnquiryStatuses.BookedByTraveller, 9800);
+        var travel = Build(NewTrip(4), plan, [car1, car2, local], []).Legs[1].Travel!;
+
+        Assert.Equal(TripTravelStates.Booked, travel.State);
+        Assert.Equal(2, travel.Cars.Count);
+        Assert.Equal("Haridwar", travel.Cars[0].FromName);
+        Assert.Equal("Badrinath", travel.Cars[1].ToName);
+        Assert.Equal("Haridwar", travel.FromName);
+        Assert.Equal("Badrinath", travel.ToName);
+    }
+
+    [Fact]
+    public void Missing_journey_with_only_cancelled_cars_is_not_planned()
+    {
+        var (plan, journey, _, local) = TwoCities();
+        var cancelled = SegmentRow(journey.Id, 1, 2, TripEnquiryStatuses.CancelledByTraveller, 4200);
+        var travel = Build(NewTrip(4), plan, [cancelled, local], []).Legs[1].Travel!;
+
+        Assert.Equal(TripTravelStates.NotPlanned, travel.State);
+        Assert.Equal("Haridwar", Assert.Single(travel.Cars).FromName);
+    }
+
+    [Fact]
+    public void Rows_state_reads_date_changed_for_a_booked_car_on_another_day()
+    {
+        var journeyId = Guid.NewGuid();
+        var rows = new[] { SegmentRow(journeyId, 1, 3, TripEnquiryStatuses.ConfirmedByBoth, 4200) };
+        Assert.Equal(TripTravelStates.DateChanged, TripTravelState.OfRows(rows, 1, Start.AddDays(1)));
+        Assert.Equal(TripTravelStates.Confirmed, TripTravelState.OfRows(rows, 1, Start.AddDays(2)));
+        Assert.Equal(TripTravelStates.NotPlanned, TripTravelState.OfRows([], 2, Start.AddDays(1)));
     }
 
     [Fact]

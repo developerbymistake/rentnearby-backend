@@ -541,12 +541,19 @@ public static class TripSummaryRecordBuilder
 
         if (journey == null)
         {
-            foreach (var group in rows.Where(d => d.Context.JourneyLegIndex != null)
-                         .GroupBy(d => d.Context.JourneyLegIndex!.Value).OrderBy(g => g.Key))
+            // The journey is gone but its car rows remain: route ends from the travel itself, state from the rows.
+            var groups = rows.Where(d => d.Context.JourneyLegIndex is > 0)
+                .GroupBy(d => d.Context.JourneyLegIndex!.Value).OrderBy(g => g.Key).ToList();
+            var cars = Math.Clamp(arrival.Cars ?? 0, 0, JourneyRules.MaxLegs);
+            var lastCar = Math.Max(cars, groups.Count > 0 ? groups[^1].Key : 0);
+            foreach (var group in groups)
             {
                 var row = PickCar(group);
-                travel.Cars.Add(CarFrom(group.Key, row!, rawById, row!.Owner.Name, null, string.Empty, string.Empty, null, null, row.ListingId));
+                travel.Cars.Add(CarFrom(group.Key, row!, rawById, row!.Owner.Name, null,
+                    group.Key == 1 ? travel.FromName : string.Empty, group.Key == lastCar ? travel.ToName : string.Empty,
+                    null, null, row.ListingId));
             }
+            travel.State = TripTravelState.OfRows(TripSegmentRows.OfJourney(raw, journeyId), cars, date);
             return travel;
         }
 

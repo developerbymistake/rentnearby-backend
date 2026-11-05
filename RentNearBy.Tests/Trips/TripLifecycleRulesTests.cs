@@ -427,11 +427,35 @@ public class TripLifecycleRulesTests
     public void TodayBody_samples()
     {
         Assert.Equal("Pickup 8:30 am. Tap for the driver's number.",
-            TripReminderRules.TodayBody([Taxi(TripEnquiryStatuses.BookedByTraveller, pickup: "08:30")]));
-        Assert.Equal("Tap for your bookings.", TripReminderRules.TodayBody([]));
-        Assert.Equal("Tap for your bookings.", TripReminderRules.TodayBody([Taxi(TripEnquiryStatuses.BookedByTraveller)]));
-        Assert.Equal("Tap for your bookings.", TripReminderRules.TodayBody([Taxi(TripEnquiryStatuses.FareSent, pickup: "08:30")]));
-        Assert.Equal("Tap for your bookings.", TripReminderRules.TodayBody([Stay(TripEnquiryStatuses.ConfirmedByBoth)]));
+            TripReminderRules.TodayBody([Taxi(TripEnquiryStatuses.BookedByTraveller, pickup: "08:30")], Start));
+        Assert.Equal("Tap for your bookings.", TripReminderRules.TodayBody([], Start));
+        Assert.Equal("Tap for your bookings.", TripReminderRules.TodayBody([Taxi(TripEnquiryStatuses.BookedByTraveller)], Start));
+        Assert.Equal("Tap for your bookings.", TripReminderRules.TodayBody([Taxi(TripEnquiryStatuses.FareSent, pickup: "08:30")], Start));
+        Assert.Equal("Tap for your bookings.", TripReminderRules.TodayBody([Stay(TripEnquiryStatuses.ConfirmedByBoth)], Start));
+    }
+
+    [Fact]
+    public void TodayBody_ignores_later_taxis_and_journey_cars()
+    {
+        var later = Taxi(TripEnquiryStatuses.BookedByTraveller, days: "[2,3]", pickup: "07:00");
+        later.CheckIn = Start.AddDays(1);
+        var car = new TripEnquiry
+        {
+            Id = Guid.NewGuid(),
+            TripId = Guid.NewGuid(),
+            Kind = TripEnquiryKinds.Taxi,
+            Day = 2,
+            DaysJson = "[2]",
+            CheckIn = Start.AddDays(1),
+            CheckOut = Start.AddDays(2),
+            Status = TripEnquiryStatuses.BookedByTraveller,
+            PickupTime = "06:00",
+            ContextJson = $$"""{"city":"Badrinath","journeyId":"{{Guid.NewGuid()}}","legIndex":1}""",
+        };
+        var local = Taxi(TripEnquiryStatuses.ConfirmedByBoth, days: "[1]", pickup: "09:15");
+
+        Assert.Equal("Tap for your bookings.", TripReminderRules.TodayBody([later, car], Start));
+        Assert.Equal("Pickup 9:15 am. Tap for the driver's number.", TripReminderRules.TodayBody([car, later, local], Start));
     }
 
     [Fact]

@@ -32,12 +32,28 @@ public static class TripSummaryLegs
         return legs.Count > 0 ? legs : [1];
     }
 
+    // My Trips "Travel {settled} of {segments}" (mock Q15): every car of a planned journey, 1 per own travel (settled),
+    // 1 per segment with no travel yet (open). Settled cars are booked or confirmed on the travel date.
     public static (int Segments, int Settled) Counters(TripPlan plan, IReadOnlyList<TripEnquiry> enquiries)
     {
         var legs = plan.Legs ?? new List<TripCityLeg>();
         if (legs.Count <= 1) return (0, 0);
-        var settled = SettledSegments(plan, TripBookingMap.Build(plan, enquiries));
-        return (legs.Count - 1, settled.Count(s => s.Value));
+        var map = TripBookingMap.Build(plan, enquiries);
+        int total = 0, settled = 0;
+        for (var k = 2; k <= legs.Count; k++)
+        {
+            var travelDay = plan.LegStart(k);
+            var cars = map.SegmentAny.Count(s => travelDay >= 1 && s.Day == travelDay && s.Car > 0);
+            if (cars > 0)
+            {
+                total += cars;
+                settled += map.SegmentSettled.Count(s => s.Day == travelDay && s.Car > 0);
+                continue;
+            }
+            total++;
+            if (travelDay >= 1 && map.SegmentOwn.Contains((travelDay, 0))) settled++;
+        }
+        return (total, settled);
     }
 
     // "Travel booked." | "1 travel not booked." | null (one city, or no travel chosen yet). Own travel counts as booked.

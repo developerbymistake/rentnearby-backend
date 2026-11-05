@@ -71,14 +71,34 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
             .Take(take)
             .ToListAsync();
 
-    public async Task<IReadOnlyList<Trip>> GetRunningOnAsync(DateOnly date, int take)
-        => await _dbSet.AsNoTracking()
-            .Where(t => t.Status == TripStatuses.Planned && t.MutedAt == null
-                && t.StartDate != null && t.EndDate != null && t.StartDate <= date && date <= t.EndDate)
-            .OrderBy(t => t.StartDate)
-            .ThenBy(t => t.Id)
-            .Take(take)
+    // One-city trips never reach the page, nor trips whose trv key for this date is already logged.
+    public async Task<(IReadOnlyList<Trip> Items, Guid? Next)> GetTravelEveCandidatesAsync(DateOnly travelDate, Guid? after, int take)
+    {
+        var size = Math.Max(1, take);
+        var status = TripStatuses.Planned;
+        var keyPrefix = "trv:";
+        var keySuffix = $":{travelDate:yyyyMMdd}";
+        var ids = await _context.Database
+            .SqlQuery<Guid>($"""
+                SELECT t."Id" AS "Value" FROM "Trips" t
+                WHERE t."Status" = {status} AND t."MutedAt" IS NULL
+                  AND t."StartDate" IS NOT NULL AND t."EndDate" IS NOT NULL
+                  AND t."StartDate" <= {travelDate} AND t."EndDate" >= {travelDate}
+                  AND (CASE WHEN jsonb_typeof(t."PlanJson" -> 'legs') = 'array'
+                            THEN jsonb_array_length(t."PlanJson" -> 'legs') ELSE 0 END) > 1
+                  AND NOT EXISTS (SELECT 1 FROM "TripPushLogs" p
+                                  WHERE p."DedupeKey" = {keyPrefix} || t."Id"::text || {keySuffix})
+                  AND ({after}::uuid IS NULL OR t."Id" > {after}::uuid)
+                ORDER BY t."Id"
+                LIMIT {size}
+                """)
             .ToListAsync();
+        if (ids.Count == 0) return (Array.Empty<Trip>(), null);
+
+        var trips = await _dbSet.AsNoTracking().Where(t => ids.Contains(t.Id)).ToListAsync();
+        var order = ids.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        return (trips.OrderBy(t => order[t.Id]).ToList(), ids.Count == size ? ids[^1] : (Guid?)null);
+    }
 
     public async Task<IReadOnlyList<Trip>> GetAutoCompleteCandidatesAsync(DateOnly endBefore, int take)
         => await _dbSet.AsNoTracking()

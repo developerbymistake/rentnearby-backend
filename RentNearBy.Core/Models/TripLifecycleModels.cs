@@ -297,6 +297,28 @@ public static class TripTravelState
         return askedCars.All(c => c.LastKnownStatus == JourneyLegStatuses.Free) ? TripTravelStates.Free : TripTravelStates.Asked;
     }
 
+    // The journey was deleted or unlinked while its car rows remain: booked cars still drive the state.
+    // cars = the arrival's car count (0 when unknown); a booked row on another date than the travel day reads dateChanged.
+    public static string OfRows(IReadOnlyList<TripEnquiry> journeyRows, int cars, DateOnly? travelDate)
+    {
+        var rows = journeyRows
+            .Where(r => r.Status != TripEnquiryStatuses.Closed)
+            .Select(r => (Row: r, Car: TripSegmentRows.CarOf(r) ?? 0))
+            .Where(x => x.Car > 0)
+            .ToList();
+        static bool IsBookedRow(TripEnquiry r) => r.Status is TripEnquiryStatuses.BookedByTraveller or TripEnquiryStatuses.ConfirmedByBoth;
+
+        var bookedRows = rows.Where(x => IsBookedRow(x.Row)).ToList();
+        if (bookedRows.Count == 0) return TripTravelStates.NotPlanned;
+        if (travelDate is { } date && bookedRows.Any(x => x.Row.CheckIn is { } d && d != date)) return TripTravelStates.DateChanged;
+
+        var total = Math.Max(cars, rows.Max(x => x.Car));
+        var booked = bookedRows.Select(x => x.Car).Distinct().Count();
+        if (booked < total) return TripTravelStates.PartlyBooked;
+        var confirmed = bookedRows.Where(x => x.Row.Status == TripEnquiryStatuses.ConfirmedByBoth).Select(x => x.Car).Distinct().Count();
+        return confirmed == total ? TripTravelStates.Confirmed : TripTravelStates.Booked;
+    }
+
     private static bool IsRed(TripEnquiry e) => e.Status is TripEnquiryStatuses.NotAvailable or TripEnquiryStatuses.Declined
         or TripEnquiryStatuses.Expired or TripEnquiryStatuses.Failed
         or TripEnquiryStatuses.CancelledByOwner or TripEnquiryStatuses.CancelledByTraveller;
@@ -396,11 +418,13 @@ public static class TripReminderRules
         return $"{stay} {taxi}";
     }
 
-    // "Pickup 8:30 am. Tap for the driver's number." when a booked taxi has a pickup time, else "Tap for your bookings."
-    public static string TodayBody(IReadOnlyList<TripEnquiry> enquiries)
+    // "Pickup 8:30 am. Tap for the driver's number." when a booked local taxi of day 1 has a pickup time, else
+    // "Tap for your bookings." Journey cars are never day 1; their pickup goes out in the travel-eve push.
+    public static string TodayBody(IReadOnlyList<TripEnquiry> enquiries, DateOnly start)
     {
         var time = enquiries
-            .Where(e => e.Kind == TripEnquiryKinds.Taxi && TripEnquiryStatuses.IsBooked(e.Status))
+            .Where(e => e.Kind == TripEnquiryKinds.Taxi && TripEnquiryStatuses.IsBooked(e.Status)
+                && !TripSegmentRows.IsSegment(e) && e.CheckIn == start)
             .OrderBy(e => e.CheckIn)
             .Select(e => TripEnquiryText.TimeText(e.PickupTime))
             .FirstOrDefault(t => t != null);

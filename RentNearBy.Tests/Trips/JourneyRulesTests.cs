@@ -131,6 +131,69 @@ public class JourneyRulesTests
         Assert.Empty(segment);
     }
 
+    private static (Trip Trip, TripPlan Plan, SavedJourney Journey) SegmentTrip(DateOnly start, DateOnly journeyDate)
+    {
+        var owner = Guid.NewGuid();
+        var trip = new Trip
+        {
+            Id = Guid.NewGuid(), OwnerUserId = owner, Status = TripStatuses.Planned,
+            StartDate = start, EndDate = start.AddDays(3),
+        };
+        var journey = WatchedJourney(journeyDate, trip.Id, Guid.NewGuid());
+        journey.UserId = owner;
+        var plan = new TripPlan
+        {
+            Settings = new TripSettings { StartDate = start },
+            Legs =
+            [
+                new TripCityLeg { Index = 1, CityKey = 210000001, CityName = "Haridwar", Latitude = 30, Longitude = 78 },
+                new TripCityLeg
+                {
+                    Index = 2, CityKey = 210000002, CityName = "Badrinath", Latitude = 30, Longitude = 79,
+                    Arrival = new TripTravel { Mode = TripTravelModes.Journey, FromName = "Haridwar", JourneyId = journey.Id, Cars = 1 },
+                },
+            ],
+        };
+        for (var d = 1; d <= 4; d++) plan.Days.Add(new TripDay { Day = d, Leg = d == 1 ? 1 : 2 });
+        return (trip, plan, journey);
+    }
+
+    [Fact]
+    public void Trip_eve_covers_only_a_planned_unmuted_trip_on_the_journey_date()
+    {
+        var start = new DateOnly(2026, 11, 1);
+        var (trip, plan, journey) = SegmentTrip(start, start.AddDays(1));
+        Assert.True(RentNearBy.Infrastructure.Services.JourneyWatchService.TripEveCovers(trip, plan, journey));
+
+        trip.Status = TripStatuses.Draft;
+        Assert.False(RentNearBy.Infrastructure.Services.JourneyWatchService.TripEveCovers(trip, plan, journey));
+
+        trip.Status = TripStatuses.Planned;
+        trip.MutedAt = DateTime.UtcNow;
+        Assert.False(RentNearBy.Infrastructure.Services.JourneyWatchService.TripEveCovers(trip, plan, journey));
+
+        var (moved, movedPlan, movedJourney) = SegmentTrip(start.AddDays(1), start.AddDays(1));
+        Assert.False(RentNearBy.Infrastructure.Services.JourneyWatchService.TripEveCovers(moved, movedPlan, movedJourney));
+    }
+
+    [Fact]
+    public void Watch_sends_the_journey_eve_for_a_draft_trip_segment()
+    {
+        var today = new DateOnly(2026, 11, 1);
+        var (trip, plan, journey) = SegmentTrip(today, today.AddDays(1));
+        trip.Status = TripStatuses.Draft;
+        var driver = journey.Legs.First().DriverTaxiId;
+        var taxis = new Dictionary<Guid, JourneyTaxiInfo> { [driver] = Taxi(driver, true) };
+        var covered = RentNearBy.Infrastructure.Services.JourneyWatchService.TripEveCovers(trip, plan, journey)
+            ? new HashSet<Guid> { journey.Id }
+            : new HashSet<Guid>();
+        var pushes = new List<RentNearBy.Infrastructure.Services.JourneyWatchService.Pending>();
+
+        RentNearBy.Infrastructure.Services.JourneyWatchService.Evaluate(journey, taxis, today, DateTime.UtcNow, pushes, covered);
+
+        Assert.Equal(JourneyRules.EveKey(journey.Id), Assert.Single(pushes).Dedupe);
+    }
+
     [Fact]
     public void Watch_routes_a_paused_driver_of_a_trip_journey_to_the_plan()
     {
