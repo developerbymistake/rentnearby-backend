@@ -161,6 +161,126 @@ public class DaySplitTests
         Assert.Equal(Days(DaySplit.Solve(input)), Days(DaySplit.Solve(input)));
     }
 
+    // Final verify 9: 60 places, 14 days, 20 places closed on Mondays (days 1 and 8). The old search made 3,544 splits here.
+    [Fact]
+    public void Final9_SixtyPlacesTwentyClosed_BoundedSplits()
+    {
+        const int n = 60;
+        var m = new int[n, n];
+        for (var i = 0; i < n; i++)
+        for (var j = 0; j < n; j++)
+            if (i != j) m[i, j] = 5 + 3 * Math.Abs(i - j);
+        var closed = new bool[n, 14];
+        for (var p = 0; p < n; p += 3) closed[p, 0] = closed[p, 7] = true;
+
+        var result = DaySplit.Solve(new DaySplitInput(Enumerable.Range(0, n).ToArray(), Visits(n), m, Limit, 14, Closed: closed));
+
+        Assert.Equal(0, result.Violations);
+        Assert.Equal(0, result.Overflow);
+        Assert.Equal(12, result.Days.Length);
+        Assert.Equal(n, result.Days.SelectMany(d => d).Distinct().Count());
+        Assert.InRange(result.Evaluations, 2, 200);
+    }
+
+    [Fact]
+    public void Final9_NoStartDate_OneSplit()
+    {
+        var result = DaySplit.Solve(new DaySplitInput(Enumerable.Range(0, 9).ToArray(), Visits(10), Hills(), Limit, 14));
+
+        Assert.Equal(1, result.Evaluations);
+    }
+
+    [Fact]
+    public void Final9_ClosureThatDoesNotBind_TwoSplitsSamePlan()
+    {
+        var closed = new bool[9, 14];
+        closed[5, 0] = true;
+
+        var result = DaySplit.Solve(new DaySplitInput(Enumerable.Range(0, 9).ToArray(), Visits(10), Hills(), Limit, 14, Closed: closed));
+
+        Assert.Equal(2, result.Evaluations);
+        Assert.Equal(new[] { new[] { 0, 1, 2, 3 }, new[] { 4, 5, 6, 7, 8 } }, Days(result));
+    }
+
+    [Fact]
+    public void Final9_SingleClosedPlace_OneSplit()
+    {
+        var closed = new bool[1, 14];
+        closed[0, 0] = true;
+
+        var result = DaySplit.Solve(new DaySplitInput([0], [60], new int[1, 1], Limit, 14, Closed: closed));
+
+        Assert.Equal(1, result.Evaluations);
+        Assert.Empty(result.Days[0]);
+        Assert.Equal(new[] { 0 }, result.Days[1]);
+    }
+
+    // Final verify 10: 2 capped days, 400 min used on day 1. Day 1 kept free = 690 on day 2 (240 over); 2 + 8 = max 100 over.
+    [Fact]
+    public void Final10_CappedDays_DayOneTakesPlacesWhenThatLowersTheOverflow()
+    {
+        var result = DaySplit.Solve(new DaySplitInput(Enumerable.Range(0, 10).ToArray(), Visits(10), Line(10, 10), Limit, 2, Reserved: 400));
+
+        Assert.Equal(new[] { new[] { 0, 1 }, new[] { 2, 3, 4, 5, 6, 7, 8, 9 } }, Days(result));
+        Assert.Equal(100, result.Overflow);
+    }
+
+    [Fact]
+    public void Final10_EnoughDays_DayOneStaysFree()
+    {
+        var result = DaySplit.Solve(new DaySplitInput(Enumerable.Range(0, 10).ToArray(), Visits(10), Line(10, 10), Limit, 14, Reserved: 400));
+
+        Assert.Equal(3, result.Days.Length);
+        Assert.Empty(result.Days[0]);
+        Assert.Equal(0, result.Overflow);
+    }
+
+    // Final verify 11: Sunday start, 2 days, A and B 240 min each, both closed Monday. {A},{B} fits; only Monday crowds day 1.
+    [Fact]
+    public void Final11_ClosedDaysCrowd_OverflowWithZeroOpenOverflow()
+    {
+        var closed = new bool[2, 2];
+        closed[0, 1] = closed[1, 1] = true;
+
+        var result = DaySplit.Solve(new DaySplitInput([0, 1], Visits(2, 240), Line(2, 10), Limit, 2, Closed: closed));
+
+        Assert.Single(result.Days);
+        Assert.Equal(40, result.Overflow);
+        Assert.Equal(0, result.OpenOverflow);
+    }
+
+    [Fact]
+    public void Final11_Splitter_ClosedDaysCrowd_NotTooManyDays()
+    {
+        var sunday = new DateOnly(2026, 11, 1);
+        TripSpot Long(string id, double lat) => new()
+        {
+            Id = id, Name = id, Latitude = lat, Longitude = 79.45, Category = "attraction", VisitMinutes = 240, ClosedDays = [1],
+        };
+        var spots = new[] { Long("a", 29.39), Long("b", 29.391) };
+        var matrix = new RoadMatrix(Line(2, 10), new double[2, 2], new bool[2, 2]);
+
+        var result = DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, sunday, 2), matrix);
+
+        var warning = Assert.Single(result.Warnings, w => w.Code == TripWarningCodes.ClosedDaysCrowd);
+        Assert.Equal(1, warning.Day);
+        Assert.Equal("Closed days make Day 1 long", warning.Message);
+        Assert.DoesNotContain(result.Warnings, w => w.Code == TripWarningCodes.TooManyDays);
+    }
+
+    [Fact]
+    public void Final11_Splitter_RealShortage_StaysTooManyDays()
+    {
+        var spots = Enumerable.Range(0, 10).Select(i => Spot($"s{i}", 29.39 + i * 0.001, 79.45)).ToArray();
+        var matrix = new RoadMatrix(Line(10, 10), new double[10, 10], new bool[10, 10]);
+
+        var result = DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, null, 2, 400), matrix);
+
+        Assert.Equal(new[] { 2, 8 }, result.Days.Select(d => d.Spots.Count).ToArray());
+        Assert.Contains(result.Warnings, w => w.Code == TripWarningCodes.TooManyDays);
+        Assert.DoesNotContain(result.Warnings, w => w.Code == TripWarningCodes.ClosedDaysCrowd);
+    }
+
     [Fact]
     public void Anchor_IsValid_BothOrNeitherAndNearTheCity()
     {

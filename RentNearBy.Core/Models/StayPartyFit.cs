@@ -10,7 +10,8 @@ public sealed record StayFitQuote(bool Fits, IReadOnlyList<StayFitLine> Lines, i
 // Which rooms seat the party, at the lowest price. Room types are unlimited in units (the host decides availability).
 public static class StayPartyFit
 {
-    public const int MaxGuests = 100, MaxRoomsWanted = 20;
+    // A room seats at most MaxRoomCapacity ("4+"), so MaxRoomsWanted rooms can always seat MaxGuests.
+    public const int MaxRoomCapacity = 4, MaxRoomsWanted = 25, MaxGuests = MaxRoomsWanted * MaxRoomCapacity;
 
     public static int CapacityOf(int maxGuests) => Math.Max(1, maxGuests);
 

@@ -267,6 +267,9 @@ public static class AdminTripHandlers
         var travellerIds = e.TravellerUserId is { } t ? new List<Guid> { t } : new List<Guid>();
         var notMeCounts = await NotMeCountsAsync(db, travellerIds, DateTime.UtcNow);
         var offers = (await unitOfWork.TripOffers.GetByEnquiriesAsync([e.Id])).TryGetValue(e.Id, out var list) ? list : new List<TripOffer>();
+        var remindersSent = e.ProofSentAt is { } proofSentAt
+            ? HostReminderTally.Sent(await unitOfWork.TripPushLogs.GetKeysAsync(e.Id, HostReminderTally.KeyPrefix(e.Id, proofSentAt)), e.Id, proofSentAt)
+            : 0;
 
         var detail = new AdminTripEnquiryDetailDto();
         Fill(detail, e, parties, notMeCounts);
@@ -317,7 +320,7 @@ public static class AdminTripHandlers
             ProofSentAt = e.ProofSentAt,
             ReceivedAt = e.AdvanceReceivedAt,
             NotYetAt = e.AdvanceNotYetAt,
-            ReminderCount = e.HostReminderCount,
+            ReminderCount = remindersSent,
             LastHostReminderAt = e.LastHostReminderAt,
         };
         detail.Taxi = e.Kind != TripEnquiryKinds.Taxi ? null : new AdminTripTaxiDto

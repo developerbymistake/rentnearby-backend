@@ -22,4 +22,10 @@ public class TripPushLogRepository(ApplicationDbContext context) : ITripPushLogR
 
     public async Task<int> PurgeOlderThanAsync(DateTime cutoffUtc)
         => await context.TripPushLogs.Where(p => p.SentAt < cutoffUtc).ExecuteDeleteAsync();
+
+    public async Task<List<string>> GetKeysAsync(Guid enquiryId, string keyPrefix)
+        => await context.TripPushLogs.AsNoTracking()
+            .Where(p => p.TripEnquiryId == enquiryId && p.DedupeKey.StartsWith(keyPrefix))
+            .Select(p => p.DedupeKey)
+            .ToListAsync();
 }

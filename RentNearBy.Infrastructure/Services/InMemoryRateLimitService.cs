@@ -24,7 +24,7 @@ public class InMemoryRateLimitService : IRateLimitService
             var (allowed, remaining, retryMs) = log.TryAcquire(_nowMs(), (long)window.TotalMilliseconds, maxAttempts, permits, token);
             return Task.FromResult(allowed
                 ? new RateLimitResult(true, remaining, null, token)
-                : new RateLimitResult(false, 0, TimeSpan.FromMilliseconds(retryMs)));
+                : new RateLimitResult(false, 0, RateLimitRetry.WholeSeconds(retryMs)));
         }
     }
 

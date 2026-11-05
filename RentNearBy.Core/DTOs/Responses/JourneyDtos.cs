@@ -27,9 +27,12 @@ public class JourneyLegDto
     public string? MeetingPlace { get; set; }
     public JourneyDriverDto Driver { get; set; } = new();
     public List<JourneyDriverDto> Backups { get; set; } = new();
-    // The whole stretch: listed fare x CarsNeeded.
+    // The whole stretch for the group, priced on the server: the seat cover's fare (driver + CoverDrivers, or driver x CarsNeeded).
     public int? ListedFare { get; set; }
     public int CarsNeeded { get; set; } = 1;
+    // The other cars of the seat cover (driver excluded); empty = the driver carries the group alone.
+    public List<Guid> CoverTaxiIds { get; set; } = new();
+    public List<JourneyDriverDto> CoverDrivers { get; set; } = new();
     public string? SeatsNote { get; set; }
     public bool Partial { get; set; }
     public Guid? LastEnquiryId { get; set; }

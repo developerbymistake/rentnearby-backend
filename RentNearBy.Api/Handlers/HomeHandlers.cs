@@ -33,7 +33,8 @@ public static class HomeHandlers
     private const int FeedMaxLimit = 10;
     private const int FeedDefaultRecentLimit = 10;
 
-    private sealed record FeedSlot(string Section, string Key, TimeSpan Ttl);
+    // GenKey: the stay/taxi generation the entry is stamped with (CacheStamp); null = plain value (recent stays).
+    private sealed record FeedSlot(string Section, string Key, TimeSpan Ttl, string? GenKey = null);
 
     // One call for every Home rail. Off tabs are skipped before any Redis/DB work and come back null; all cached
     // sections are read with ONE MGET; only misses hit the DB, sequentially on the request's DbContext, and each
@@ -69,19 +70,43 @@ public static class HomeHandlers
 
         var slots = new List<FeedSlot>(3);
         if (Want(FeedSections.Stays, feed.Tabs.Stays))
-            slots.Add(new FeedSlot(FeedSections.Stays, StayCache.BrowseKey(district, cityId, null, null, "newest", take), StayCache.BrowseTtl));
+            slots.Add(new FeedSlot(FeedSections.Stays, StayCache.BrowseKey(district, cityId, null, null, "newest", take), StayCache.BrowseTtl,
+                StayCache.GenKey(district)));
         if (Want(FeedSections.Taxis, feed.Tabs.Taxi))
-            slots.Add(new FeedSlot(FeedSections.Taxis, TaxiCache.LocalKey(district, cityId, null, take), TaxiCache.LocalTtl));
+            slots.Add(new FeedSlot(FeedSections.Taxis, TaxiCache.LocalKey(district, cityId, null, take), TaxiCache.LocalTtl,
+                TaxiCache.GenKey(district)));
         if (Want(FeedSections.RecentStays, feed.Tabs.Stays))
             slots.Add(new FeedSlot(FeedSections.RecentStays, StayCache.RecentKey, StayCache.RecentTtl));
 
         if (slots.Count == 0) return OkResponse(feed);
 
+        // One MGET: every section key, then the generation keys of the stamped sections.
         var cached = new RedisValue[slots.Count];
+        var generations = new long?[slots.Count];
         if (redis != null)
         {
-            try { cached = await redis.GetDatabase().StringGetAsync(slots.Select(s => (RedisKey)s.Key).ToArray()); }
-            catch { cached = new RedisValue[slots.Count]; }
+            var genKeys = slots.Where(s => s.GenKey != null).Select(s => s.GenKey!).Distinct().ToList();
+            try
+            {
+                var values = await redis.GetDatabase().StringGetAsync(
+                    slots.Select(s => (RedisKey)s.Key).Concat(genKeys.Select(k => (RedisKey)k)).ToArray());
+                for (var i = 0; i < slots.Count; i++)
+                {
+                    if (slots[i].GenKey is not { } genKey)
+                    {
+                        cached[i] = values[i];
+                        continue;
+                    }
+                    var generation = CacheStamp.Generation(values[slots.Count + genKeys.IndexOf(genKey)]);
+                    generations[i] = generation;
+                    cached[i] = CacheStamp.Unwrap(values[i], generation);
+                }
+            }
+            catch
+            {
+                cached = new RedisValue[slots.Count];
+                generations = new long?[slots.Count];
+            }
         }
 
         var writes = new List<(string Key, string Json, TimeSpan Ttl)>();
@@ -91,7 +116,9 @@ public static class HomeHandlers
             var hit = Deserialize<T>(cached[index]);
             if (hit != null) return hit;
             var fresh = await load();
-            if (redis != null) writes.Add((slots[index].Key, JsonSerializer.Serialize(fresh), slots[index].Ttl));
+            var json = JsonSerializer.Serialize(fresh);
+            if (redis != null && slots[index].GenKey == null) writes.Add((slots[index].Key, json, slots[index].Ttl));
+            else if (redis != null && generations[index] is { } g) writes.Add((slots[index].Key, CacheStamp.Wrap(g, json), slots[index].Ttl));
             return fresh;
         }
 

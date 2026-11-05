@@ -18,7 +18,8 @@ using static RentNearBy.Api.Extensions.ApiResults;
 namespace RentNearBy.Api.Handlers;
 
 // Redis keys for the stay feeds. Busted on every change that moves a stay in or out of the public
-// set (approve, reject, accepting toggle, price edit, delete, report takedown, role purge).
+// set (approve, reject, accepting toggle, price edit, delete, report takedown, role purge): the district's
+// browse/nearby/nearest entries by one generation INCR (FeedCache), the recent list by a direct delete.
 public static class StayCache
 {
     public static readonly TimeSpan BrowseTtl = TimeSpan.FromSeconds(30);
@@ -33,11 +34,14 @@ public static class StayCache
     public const int RecentMax = 20;
     public static readonly TimeSpan RecentTtl = TimeSpan.FromMinutes(3);
 
-    public static string NearbyKey(Guid districtId, Guid? stayTypeId, double radius, double lat, double lng)
-        => $"stays:nearby:{districtId}:{stayTypeId:N}:{radius:F1}:{lat:F3}:{lng:F3}";
+    // Both hold the candidate set of a whole grid cell (GeoCacheKey); the exact cut and distances are made per caller.
+    public static string NearbyKey(Guid districtId, Guid? stayTypeId, double radius, GeoCell cell)
+        => string.Create(CultureInfo.InvariantCulture, $"stays:nearby:{districtId}:{stayTypeId:N}:{GeoCacheKey.RadiusKey(radius):F1}:{cell.Key}");
 
-    public static string NearestKey(Guid districtId, Guid? stayTypeId, int count, double lat, double lng)
-        => $"stays:nearest:{districtId}:{stayTypeId:N}:{count}:{lat:F3}:{lng:F3}";
+    public static string NearestKey(Guid districtId, Guid? stayTypeId, int count, GeoCell cell)
+        => string.Create(CultureInfo.InvariantCulture, $"stays:nearest:{districtId}:{stayTypeId:N}:{count}:{cell.Key}");
+
+    public static string GenKey(Guid districtId) => ListingCacheKeys.StayGen(districtId);
 
     public static async Task InvalidateAsync(IConnectionMultiplexer? redis, Guid? districtId)
     {
@@ -45,17 +49,10 @@ public static class StayCache
         if (redis == null) return;
         try
         {
-            var db = redis.GetDatabase();
-            await db.KeyDeleteAsync(RecentKey);
-            if (districtId == null) return;
-            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
-            if (server == null) return;
-            var id = districtId.Value;
-            foreach (var pattern in new[] { $"stays:browse:{id:N}:*", $"stays:nearby:{id}:*", $"stays:nearest:{id}:*" })
-                await foreach (var key in server.KeysAsync(pattern: pattern))
-                    await db.KeyDeleteAsync(key);
+            await redis.GetDatabase().KeyDeleteAsync(RecentKey);
         }
         catch { /* best-effort: TTL (<= 60s) covers Redis failures */ }
+        if (districtId is { } id) await FeedCache.BumpAsync(redis, new[] { GenKey(id) });
     }
 }
 
@@ -117,23 +114,17 @@ public static class StayHandlers
         var cacheKey = StayCache.BrowseKey(districtId, cityId, mealsFilter, stayTypeId, sort, size);
 
         BrowsePage<StayBrowseDto>? result = null;
-        if (redis != null)
+        var (cached, generation) = await FeedCache.ReadAsync(redis, cacheKey, StayCache.GenKey(districtId));
+        if (cached != null)
         {
-            try
-            {
-                var cached = await redis.GetDatabase().StringGetAsync(cacheKey);
-                if (cached.HasValue) result = JsonSerializer.Deserialize<BrowsePage<StayBrowseDto>>(cached!);
-            }
-            catch { result = null; }
+            try { result = JsonSerializer.Deserialize<BrowsePage<StayBrowseDto>>(cached); }
+            catch (JsonException) { result = null; }
         }
 
         if (result == null)
         {
             result = await unitOfWork.Stays.BrowsePagedAsync(districtId, cityId, mealsFilter, stayTypeId, sort, pageNo, size, cursor);
-            if (redis != null)
-            {
-                try { await redis.GetDatabase().StringSetAsync(cacheKey, JsonSerializer.Serialize(result), StayCache.BrowseTtl); } catch { }
-            }
+            await FeedCache.WriteAsync(redis, cacheKey, generation, JsonSerializer.Serialize(result), StayCache.BrowseTtl);
         }
 
         return OkResponse(new { items = result.Items, hasMore = result.HasMore, nextCursor = result.NextCursor });
@@ -146,21 +137,18 @@ public static class StayHandlers
         foreach (var d in items) { d.OwnerName = null; d.OwnerPhone = null; }
     }
 
-    private static async Task<List<StayNearbyDto>?> ReadNearbyCacheAsync(IConnectionMultiplexer? redis, string key)
+    private static async Task<(List<StayNearbyDto>? Items, long? Generation)> ReadNearbyCacheAsync(
+        IConnectionMultiplexer? redis, string key, Guid districtId)
     {
-        if (redis == null) return null;
-        RedisValue cached = default;
-        try { cached = await redis.GetDatabase().StringGetAsync(key); } catch { }
-        if (!cached.HasValue) return null;
-        try { return JsonSerializer.Deserialize<List<StayNearbyDto>>(cached!); }
-        catch (JsonException) { return null; }
+        var (cached, generation) = await FeedCache.ReadAsync(redis, key, StayCache.GenKey(districtId));
+        if (cached == null) return (null, generation);
+        try { return (JsonSerializer.Deserialize<List<StayNearbyDto>>(cached), generation); }
+        catch (JsonException) { return (null, generation); }
     }
 
-    private static async Task WriteNearbyCacheAsync(IConnectionMultiplexer? redis, string key, List<StayNearbyDto> items, TimeSpan ttl)
-    {
-        if (redis == null) return;
-        try { await redis.GetDatabase().StringSetAsync(key, JsonSerializer.Serialize(items), ttl, When.NotExists); } catch { }
-    }
+    private static Task WriteNearbyCacheAsync(
+        IConnectionMultiplexer? redis, string key, long? generation, List<StayNearbyDto> items, TimeSpan ttl)
+        => FeedCache.WriteAsync(redis, key, generation, JsonSerializer.Serialize(items), ttl);
 
     public static async Task<IResult> GetNearby(
         double latitude, double longitude, double radius, Guid districtId, Guid? stayTypeId,
@@ -175,21 +163,24 @@ public static class StayHandlers
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
-        var cacheKey = StayCache.NearbyKey(districtId, stayTypeId, radius, latitude, longitude);
+        var cell = GeoCacheKey.Cell(latitude, longitude);
+        var cacheKey = StayCache.NearbyKey(districtId, stayTypeId, radius, cell);
 
-        var items = await ReadNearbyCacheAsync(redis, cacheKey);
-        if (items == null)
+        var (candidates, generation) = await ReadNearbyCacheAsync(redis, cacheKey, districtId);
+        if (candidates == null)
         {
-            items = (await unitOfWork.Stays.GetNearbyAsync(latitude, longitude, radius, districtId, stayTypeId)).ToList();
-            await WriteNearbyCacheAsync(redis, cacheKey, items, StayCache.NearbyTtl);
+            candidates = (await unitOfWork.Stays.GetNearbyAsync(
+                cell.CenterLat, cell.CenterLng, GeoCacheKey.CandidateRadiusKm(cell, radius), districtId, stayTypeId)).ToList();
+            await WriteNearbyCacheAsync(redis, cacheKey, generation, candidates, StayCache.NearbyTtl);
         }
 
+        var items = StayGeoRefine.WithinRadius(candidates, latitude, longitude, radius);
         items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
         if (!isAuth) RedactForAnonymous(items);
         return OkResponse(new { items });
     }
 
-    // Party params of the nearby quote, each optional: guests up to 100, rooms 1..20, nights 1..30.
+    // Party params of the nearby quote, each optional: guests up to StayPartyFit.MaxGuests, rooms 1..MaxRoomsWanted, nights 1..30.
     private static IResult? PartyError(int? guests, int? rooms, int? nights)
     {
         if (guests is > StayPartyFit.MaxGuests) return BadRequestResponse($"Guests must be at most {StayPartyFit.MaxGuests}");
@@ -220,15 +211,20 @@ public static class StayHandlers
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
-        var cacheKey = StayCache.NearestKey(districtId, stayTypeId, count, latitude, longitude);
+        var cell = GeoCacheKey.Cell(latitude, longitude);
+        var cacheKey = StayCache.NearestKey(districtId, stayTypeId, count, cell);
 
-        var items = await ReadNearbyCacheAsync(redis, cacheKey);
-        if (items == null)
+        var (candidates, generation) = await ReadNearbyCacheAsync(redis, cacheKey, districtId);
+        if (candidates == null)
         {
-            items = (await unitOfWork.Stays.GetNearestAsync(latitude, longitude, count, districtId, stayTypeId)).ToList();
-            await WriteNearbyCacheAsync(redis, cacheKey, items, StayCache.NearestTtl);
+            var knn = (await unitOfWork.Stays.GetNearestAsync(cell.CenterLat, cell.CenterLng, count, districtId, stayTypeId)).ToList();
+            candidates = StayGeoRefine.NearestCandidateRadiusKm(cell, knn) is { } candidateKm
+                ? (await unitOfWork.Stays.GetNearbyAsync(cell.CenterLat, cell.CenterLng, candidateKm, districtId, stayTypeId)).ToList()
+                : [];
+            await WriteNearbyCacheAsync(redis, cacheKey, generation, candidates, StayCache.NearestTtl);
         }
 
+        var items = StayGeoRefine.Nearest(candidates, latitude, longitude, count);
         items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
         if (!isAuth) RedactForAnonymous(items);
         return OkResponse(new { items });

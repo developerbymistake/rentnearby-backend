@@ -32,7 +32,8 @@ public static class AuthHandlers
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
         // Per-phone limit: 2 per hour
-        var phoneLimitRl = await rateLimiter.CheckAsync($"otp:send:login:{request.PhoneNumber}", OtpSendMax, OtpWindow);
+        var sends = new RateLimitPermits(rateLimiter);
+        var phoneLimitRl = await sends.TakeAsync($"otp:send:login:{request.PhoneNumber}", OtpSendMax, OtpWindow);
         if (!phoneLimitRl.IsAllowed)
         {
             httpContext.Response.Headers["Retry-After"] = ((int)phoneLimitRl.RetryAfter!.Value.TotalSeconds).ToString();
@@ -41,7 +42,10 @@ public static class AuthHandlers
 
         var sent = await otpService.SendOtpAsync(request.PhoneNumber, PhoneLoginNamespace);
         if (!sent)
+        {
+            await sends.ReleaseAllAsync();
             return Results.Problem("Could not send OTP. Please try again.", statusCode: 503);
+        }
 
         return OkResponse(new { message = "OTP sent successfully" });
     }
@@ -172,14 +176,15 @@ public static class AuthHandlers
         if (await unitOfWork.Users.IsPhoneUsedByOtherUserAsync(request.PhoneNumber, userId))
             return ConflictResponse("This number is already registered to another account. Please use a different number.", "PhoneAlreadyClaimed");
 
-        var phoneLimitRl = await rateLimiter.CheckAsync($"otp:send:{request.PhoneNumber}", OtpSendMax, OtpWindow);
+        var sends = new RateLimitPermits(rateLimiter);
+        var phoneLimitRl = await sends.TakeAsync($"otp:send:{request.PhoneNumber}", OtpSendMax, OtpWindow);
         if (!phoneLimitRl.IsAllowed)
         {
             httpContext.Response.Headers["Retry-After"] = ((int)phoneLimitRl.RetryAfter!.Value.TotalSeconds).ToString();
             return TooManyRequestsResponse();
         }
 
-        var userDailyRl = await rateLimiter.CheckAsync($"otp:send:user:{userId}", OtpUserDailySendMax, OtpUserDailyWindow);
+        var userDailyRl = await sends.TakeAsync($"otp:send:user:{userId}", OtpUserDailySendMax, OtpUserDailyWindow);
         if (!userDailyRl.IsAllowed)
         {
             httpContext.Response.Headers["Retry-After"] = ((int)userDailyRl.RetryAfter!.Value.TotalSeconds).ToString();
@@ -188,7 +193,10 @@ public static class AuthHandlers
 
         var sent = await otpService.SendOtpAsync(request.PhoneNumber);
         if (!sent)
+        {
+            await sends.ReleaseAllAsync();
             return Results.Problem("Could not send OTP. Please try again.", statusCode: 503);
+        }
 
         return OkResponse(new { message = "OTP sent successfully" });
     }

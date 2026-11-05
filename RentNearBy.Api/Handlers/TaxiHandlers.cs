@@ -18,37 +18,39 @@ using static RentNearBy.Api.Extensions.ApiResults;
 namespace RentNearBy.Api.Handlers;
 
 // Redis keys for the taxi feeds (first page only). Busted on every change that moves a taxi in or
-// out of the public set or changes what a card shows. Search keys are not district-bound, so every
-// invalidation also drops them.
+// out of the public set or changes what a card shows, by generation INCRs (FeedCache): the district's local
+// entries, and the search entries (not district-bound) on every invalidation.
 public static class TaxiCache
 {
     public static readonly TimeSpan LocalTtl = TimeSpan.FromSeconds(30);
     public static readonly TimeSpan SearchTtl = TimeSpan.FromSeconds(60);
 
-    public static string LocalKey(Guid districtId, Guid? cityId, string? category, int pageSize, bool cityOnly = false, bool localRate = false)
-        => $"taxis:local:{districtId:N}:{cityId:N}:{category}:{pageSize}{(cityOnly ? ":city" : "")}{(localRate ? ":rate" : "")}";
+    public static string LocalKey(Guid districtId, Guid? cityId, string? category, int pageSize, bool cityOnly = false, bool localRate = false,
+        TaxiLocalNeed? need = null)
+        => $"taxis:local:{districtId:N}:{cityId:N}:{category}:{pageSize}{(cityOnly ? ":city" : "")}{(localRate ? ":rate" : "")}{NeedPart(need)}";
 
+    // Pickup km and its tie-break come from the exact start point, so the point is keyed exactly, never rounded.
+    public static string NeedPart(TaxiLocalNeed? need)
+    {
+        if (need is not { IsEmpty: false }) return "";
+        var point = need.HasPoint ? $"{Exact(need.Lat!.Value)},{Exact(need.Lng!.Value)}" : "";
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $":need:{need.People}|{need.DayKm}|{point}");
+    }
+
+    // Both-ends match is a 5 km test on the exact points: a rounded key would hand one caller's set to another.
     public static string SearchKey(string? category, double fromLat, double fromLng, double toLat, double toLng, int pageSize)
-        => $"taxis:search:{category}:{fromLat:F3}:{fromLng:F3}:{toLat:F3}:{toLng:F3}:{pageSize}";
+        => $"taxis:search:{category}:{Exact(fromLat)}:{Exact(fromLng)}:{Exact(toLat)}:{Exact(toLng)}:{pageSize}";
+
+    private static string Exact(double value) => value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
+    public static string GenKey(Guid districtId) => ListingCacheKeys.TaxiGen(districtId);
+    public const string SearchGenKey = ListingCacheKeys.TaxiSearchGen;
 
     public static async Task InvalidateAsync(IConnectionMultiplexer? redis, Guid? districtId)
     {
         await RentNearBy.Infrastructure.Services.TripSupplyCache.BumpAsync(redis, districtId);
         await TaxiWaysVersion.BumpAsync(redis);
-        if (redis == null) return;
-        try
-        {
-            var db = redis.GetDatabase();
-            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
-            if (server == null) return;
-            var patterns = districtId.HasValue
-                ? new[] { $"taxis:local:{districtId.Value:N}:*", "taxis:search:*" }
-                : new[] { "taxis:search:*" };
-            foreach (var pattern in patterns)
-                await foreach (var key in server.KeysAsync(pattern: pattern))
-                    await db.KeyDeleteAsync(key);
-        }
-        catch { /* best-effort: TTL (<= 60s) covers Redis failures */ }
+        await FeedCache.BumpAsync(redis, districtId is { } id ? new[] { GenKey(id), SearchGenKey } : new[] { SearchGenKey });
     }
 }
 
@@ -133,43 +135,40 @@ public static class TaxiHandlers
     private static string? NormalizeCategory(string? category) =>
         category != null && TaxiVehicleCategories.All.Contains(category) ? category : null;
 
-    private static async Task<TaxiPage?> ReadPageCacheAsync(IConnectionMultiplexer? redis, string key)
+    private static async Task<(TaxiPage? Page, long? Generation)> ReadPageCacheAsync(IConnectionMultiplexer? redis, string key, string genKey)
     {
-        if (redis == null) return null;
-        try
-        {
-            var cached = await redis.GetDatabase().StringGetAsync(key);
-            return cached.HasValue ? JsonSerializer.Deserialize<TaxiPage>(cached!) : null;
-        }
-        catch { return null; }
+        var (cached, generation) = await FeedCache.ReadAsync(redis, key, genKey);
+        if (cached == null) return (null, generation);
+        try { return (JsonSerializer.Deserialize<TaxiPage>(cached), generation); }
+        catch (JsonException) { return (null, generation); }
     }
 
-    private static async Task WritePageCacheAsync(IConnectionMultiplexer? redis, string key, TaxiPage page, TimeSpan ttl)
-    {
-        if (redis == null) return;
-        try { await redis.GetDatabase().StringSetAsync(key, JsonSerializer.Serialize(page), ttl); } catch { }
-    }
+    private static Task WritePageCacheAsync(IConnectionMultiplexer? redis, string key, long? generation, TaxiPage page, TimeSpan ttl)
+        => FeedCache.WriteAsync(redis, key, generation, JsonSerializer.Serialize(page), ttl);
 
     // ---- Public ----
 
     // Local view: approved, available taxis whose base is in the district, city rows first, cheapest first.
     public static async Task<IResult> GetBrowse(
         Guid districtId, Guid? cityId, string? category,
-        IUnitOfWork unitOfWork, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize, bool cityOnly = false, bool localRate = false)
+        IUnitOfWork unitOfWork, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize, bool cityOnly = false, bool localRate = false,
+        int? people = null, int? dayKm = null, double? lat = null, double? lng = null)
     {
         if (districtId == Guid.Empty) return BadRequestResponse("District is required");
+        if (TaxiLocalNeedRules.Error(people, dayKm, lat, lng) is { } needError) return BadRequestResponse(needError);
+        var need = TaxiLocalNeedRules.Build(people, dayKm, lat, lng);
         var (pageNo, size) = ClampPaging(page, pageSize);
         var categoryFilter = NormalizeCategory(category);
         var cityOnlyFilter = cityOnly && cityId.HasValue;
         var redis = pageNo == 1 ? sp.GetService<IConnectionMultiplexer>() : null;
-        var cacheKey = TaxiCache.LocalKey(districtId, cityId, categoryFilter, size, cityOnlyFilter, localRate);
+        var cacheKey = TaxiCache.LocalKey(districtId, cityId, categoryFilter, size, cityOnlyFilter, localRate, need);
 
-        var result = await ReadPageCacheAsync(redis, cacheKey);
+        var (result, generation) = await ReadPageCacheAsync(redis, cacheKey, TaxiCache.GenKey(districtId));
         if (result == null)
         {
-            var (items, hasMore) = await unitOfWork.Taxis.BrowseLocalPagedAsync(districtId, cityId, categoryFilter, pageNo, size, cityOnlyFilter, localRate);
+            var (items, hasMore) = await unitOfWork.Taxis.BrowseLocalPagedAsync(districtId, cityId, categoryFilter, pageNo, size, cityOnlyFilter, localRate, need);
             result = new TaxiPage(items.ToList(), hasMore);
-            await WritePageCacheAsync(redis, cacheKey, result, TaxiCache.LocalTtl);
+            await WritePageCacheAsync(redis, cacheKey, generation, result, TaxiCache.LocalTtl);
         }
 
         return OkResponse(new { items = result.Items, hasMore = result.HasMore });
@@ -189,13 +188,13 @@ public static class TaxiHandlers
         var redis = pageNo == 1 ? sp.GetService<IConnectionMultiplexer>() : null;
         var cacheKey = TaxiCache.SearchKey(categoryFilter, fromLat.Value, fromLng.Value, toLat.Value, toLng.Value, size);
 
-        var result = await ReadPageCacheAsync(redis, cacheKey);
+        var (result, generation) = await ReadPageCacheAsync(redis, cacheKey, TaxiCache.SearchGenKey);
         if (result == null)
         {
             var (items, hasMore) = await unitOfWork.Taxis.SearchByRoutePagedAsync(
                 fromLat.Value, fromLng.Value, toLat.Value, toLng.Value, categoryFilter, pageNo, size);
             result = new TaxiPage(items.ToList(), hasMore);
-            await WritePageCacheAsync(redis, cacheKey, result, TaxiCache.SearchTtl);
+            await WritePageCacheAsync(redis, cacheKey, generation, result, TaxiCache.SearchTtl);
         }
 
         return OkResponse(new { items = result.Items, hasMore = result.HasMore });

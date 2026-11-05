@@ -1,9 +1,11 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
+using StackExchange.Redis;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -12,7 +14,9 @@ public class AccountDeletionService(
     IListingPurgeService listingPurgeService,
     IPlaySubscriptionRepository playSubscriptions,
     IOptions<PlayBillingOptions> playOptions,
-    ITripEnquiryClosure tripClosure)
+    ITripEnquiryClosure tripClosure,
+    IListingCacheInvalidator cacheInvalidator,
+    IServiceProvider services)
     : IAccountDeletionService
 {
     public async Task DeleteAccountAsync(Guid userId)
@@ -114,6 +118,13 @@ public class AccountDeletionService(
         // Trip enquiries: the user's own trips close (owners are told), then enquiries to the user's stay/taxi close.
         var tripPushes = new List<TripClosurePush>(await tripClosure.OnTravellerDeletedAsync(userId));
 
+        var stayDistricts = await context.StayListings.AsNoTracking()
+            .Where(s => s.UserId == userId && !s.IsDeleted && s.DistrictId != null)
+            .Select(s => s.DistrictId!.Value).Distinct().ToListAsync();
+        var taxiDistricts = await context.TaxiListings.AsNoTracking()
+            .Where(t => t.UserId == userId && !t.IsDeleted && t.DistrictId != null)
+            .Select(t => t.DistrictId!.Value).Distinct().ToListAsync();
+
         var (stayIds, taxiIds) = await listingPurgeService.PurgeUserListingsAsync(userId);
         tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, stayIds));
         tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, taxiIds));
@@ -124,6 +135,18 @@ public class AccountDeletionService(
 
         await tx.CommitAsync();
 
+        await BustListingCachesAsync(stayDistricts, taxiDistricts);
         await tripClosure.AfterCommitAsync(tripPushes);
+    }
+
+    // Same caches the stay/taxi delete paths clear: the feeds, the trip supply counts and the taxi ways version.
+    private async Task BustListingCachesAsync(List<Guid> stayDistricts, List<Guid> taxiDistricts)
+    {
+        var redis = services.GetService<IConnectionMultiplexer>();
+        foreach (var districtId in stayDistricts.Union(taxiDistricts))
+            await TripSupplyCache.BumpAsync(redis, districtId);
+        if (taxiDistricts.Count > 0) await TaxiWaysVersion.BumpAsync(redis);
+        if (stayDistricts.Count > 0) await cacheInvalidator.BustDistrictsAsync(ListingKinds.Stay, stayDistricts);
+        if (taxiDistricts.Count > 0) await cacheInvalidator.BustDistrictsAsync(ListingKinds.Taxi, taxiDistricts);
     }
 }

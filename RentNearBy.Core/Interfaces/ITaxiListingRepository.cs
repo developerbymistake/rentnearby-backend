@@ -21,6 +21,9 @@ public interface ITaxiListingRepository : IRepository<TaxiListing>
     Task<bool> IsPlateTakenAsync(string numberPlate, Guid exceptUserId);
     Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
         Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly = false, bool localRateOnly = false);
+    // need: a trip day's group, km and start point (TaxiLocalRanking); null keeps the plain order.
+    Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
+        Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly, bool localRateOnly, RentNearBy.Core.Models.TaxiLocalNeed? need);
     Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> SearchByRoutePagedAsync(
         double fromLat, double fromLng, double toLat, double toLng, string? category, int page, int pageSize);
     // status: one of TaxiStatuses.All, or "All" for every non-deleted row.

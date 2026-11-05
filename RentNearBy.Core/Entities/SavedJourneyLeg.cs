@@ -22,6 +22,8 @@ public class SavedJourneyLeg
     public bool Partial { get; set; }
     public Guid? Backup1TaxiId { get; set; }
     public Guid? Backup2TaxiId { get; set; }
+    // The other cars of the seat cover (JourneyLegPricing), the driver excluded; empty = the driver carries the group alone.
+    public Guid[] CoverTaxiIds { get; set; } = [];
 
     public Guid? LastEnquiryId { get; set; }
     public string LastKnownStatus { get; set; } = "Unknown";

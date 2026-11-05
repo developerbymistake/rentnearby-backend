@@ -132,6 +132,7 @@ public static class NainitalDemoSeeder
         var now = DateTime.UtcNow;
         var stayCount = 0;
         var taxiCount = 0;
+        var rewritten = 0;
 
         for (var i = 0; i < Stays.Length; i++)
         {
@@ -215,7 +216,7 @@ public static class NainitalDemoSeeder
             if (existing != Guid.Empty)
             {
                 var demoTaxi = await db.TaxiListings.Include(x => x.Routes).FirstOrDefaultAsync(x => x.UserId == existing);
-                if (demoTaxi != null) { await RewriteRoutesAsync(db, demoTaxi, t.Routes, now); }
+                if (demoTaxi != null && RewriteRoutes(db, demoTaxi, t.Routes, now)) rewritten++;
                 continue;
             }
 
@@ -268,19 +269,23 @@ public static class NainitalDemoSeeder
             taxiCount++;
         }
 
-        if (stayCount + taxiCount == 0) { logger.LogInformation("demo.seed.nainital: already present"); return; }
+        if (!HasChanges(stayCount, taxiCount, rewritten)) { logger.LogInformation("demo.seed.nainital: already present"); return; }
         await db.SaveChangesAsync();
-        logger.LogInformation("demo.seed.nainital: added {Stays} stays and {Taxis} taxis", stayCount, taxiCount);
+        logger.LogInformation("demo.seed.nainital: added {Stays} stays and {Taxis} taxis, rewrote routes of {Rewritten} taxis",
+            stayCount, taxiCount, rewritten);
     }
 
-    // Re-runs bring an already seeded database to the current route list.
-    private static async Task RewriteRoutesAsync(ApplicationDbContext db, TaxiListing taxi, RouteSeed[] routes, DateTime now)
+    internal static bool HasChanges(int stayCount, int taxiCount, int rewritten) => stayCount + taxiCount + rewritten > 0;
+
+    internal static bool RoutesMatch(IEnumerable<TaxiRoute> stored, IReadOnlyList<(string From, string To, int Fare)> wanted)
+        => stored.OrderBy(r => r.RouteIndex).Select(r => (r.FromName, r.ToName, r.Fare)).SequenceEqual(wanted);
+
+    // Re-runs bring an already seeded database to the current route list. Only tracks the delete and the inserts:
+    // the caller's single SaveChanges commits both together (EF orders the deletes first for the unique RouteIndex).
+    private static bool RewriteRoutes(ApplicationDbContext db, TaxiListing taxi, RouteSeed[] routes, DateTime now)
     {
-        if (taxi.Routes.Count == routes.Length
-            && taxi.Routes.OrderBy(r => r.RouteIndex).Select(r => r.FromName + ">" + r.ToName + ":" + r.Fare)
-                .SequenceEqual(routes.Select(r => r.From + ">" + r.To + ":" + r.Fare))) return;
+        if (RoutesMatch(taxi.Routes, routes.Select(r => (r.From, r.To, r.Fare)).ToList())) return false;
         db.TaxiRoutes.RemoveRange(taxi.Routes);
-        await db.SaveChangesAsync();
         for (var r = 0; r < routes.Length; r++)
         {
             var route = routes[r];
@@ -294,6 +299,7 @@ public static class NainitalDemoSeeder
         }
         taxi.MinFare = routes.Min(r => r.Fare);
         taxi.UpdatedAt = now;
+        return true;
     }
 
     // Valid GSTIN shape and check character (state 05 = Uttarakhand), so admin and owner screens show a real looking value.

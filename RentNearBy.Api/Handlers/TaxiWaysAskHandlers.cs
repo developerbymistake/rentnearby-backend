@@ -29,7 +29,7 @@ public static class TaxiWaysAskHandlers
     public static async Task<IResult> AskDrivers(
         AskDriversRequest request, IValidator<AskDriversRequest> validator, ClaimsPrincipal principal,
         IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, ApplicationDbContext db, ITripNotifier notifier,
-        IRateLimitService rateLimiter, ILoggerFactory loggers, HttpContext http)
+        IRateLimitService rateLimiter, ITaxiWaysSearch ways, ILoggerFactory loggers, HttpContext http)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
@@ -140,6 +140,7 @@ public static class TaxiWaysAskHandlers
         var (expiresAt, veryShortNotice) = TripExecutionRules.EnquiryExpiry(date, date, now);
         var isUrgent = TripExecutionRules.IsUrgent(date, now);
         var pushes = new List<TripPendingPush>();
+        var leadPrices = await LeadPricesAsync(ways, journeys, journey, candidates.Select(c => (c.Leg.LegIndex, c.Taxi.Id, c.Taxi.Seats)).ToList(), request.People);
 
         await unitOfWork.BeginTransactionAsync();
         try
@@ -164,11 +165,12 @@ public static class TaxiWaysAskHandlers
                 var legTo = TripTextSafety.Clean(leg.ToName);
                 var pickup = JourneyLeadText.PickupPlace(fromName, leg.LegIndex, leg.CarOf);
                 var comesFrom = string.IsNullOrWhiteSpace(leg.ComesFrom) ? null : TripTextSafety.Clean(leg.ComesFrom);
+                var price = leadPrices[(leg.LegIndex, taxi.Id)];
                 if (segment != null)
                 {
                     var (row, created) = await InsertSegmentRowAsync(
                         unitOfWork, db, segment, journey, leg, taxi, fromName, legTo, comesFrom, request.People,
-                        travellerName.Length == 0 ? null : travellerName, expiresAt, isUrgent, now);
+                        travellerName.Length == 0 ? null : travellerName, expiresAt, isUrgent, now, price);
                     if (row == null)
                     {
                         skipped.Add(Skip(leg.LegIndex, taxi.Id, TripSkipReasons.AlreadyOpen));
@@ -190,8 +192,7 @@ public static class TaxiWaysAskHandlers
                     PickupTime = null,
                     PickupPlace = pickup,
                     Text = JourneyLeadText.Build(
-                        fromName, legTo, date, request.People, leg.LegIndex, leg.CarOf, comesFrom,
-                        TaxiWaysRanking.CarsNeeded(request.People, taxi.Seats)),
+                        fromName, legTo, date, request.People, leg.LegIndex, leg.CarOf, comesFrom, price.Cars),
                     JourneyId = journey.Id,
                     LegIndex = leg.LegIndex,
                 };
@@ -217,7 +218,7 @@ public static class TaxiWaysAskHandlers
                     ExpiresAt = expiresAt,
                     IsUrgent = isUrgent,
                     AdvanceStatus = TripAdvanceStatuses.None,
-                    ListedRateSnapshot = leg.ListedFare,
+                    ListedRateSnapshot = price.Fare,
                     PickupTime = null,
                     PickupPlace = pickup,
                     CreatedAt = now,
@@ -351,12 +352,12 @@ public static class TaxiWaysAskHandlers
     private static async Task<(TripEnquiry? Row, bool Created)> InsertSegmentRowAsync(
         IUnitOfWork unitOfWork, ApplicationDbContext db, SegmentAsk segment, SavedJourney journey, AskLegRequest leg, TaxiRow taxi,
         string fromName, string toName, string? comesFrom, int people, string? travellerName, DateTime expiresAt, bool isUrgent,
-        DateTime now)
+        DateTime now, LeadPrice price)
     {
         var day = (short)segment.TravelDay;
         var context = TripSegmentContext.Build(
             segment.Trip, segment.Plan, segment.Leg, segment.TravelDay, segment.Date, journey.Id, leg.LegIndex, leg.CarOf,
-            fromName, toName, comesFrom, people, TaxiWaysRanking.CarsNeeded(people, taxi.Seats), travellerName, null, null);
+            fromName, toName, comesFrom, people, price.Cars, travellerName, null, null);
         var e = new TripEnquiry
         {
             Id = Guid.NewGuid(),
@@ -378,7 +379,7 @@ public static class TaxiWaysAskHandlers
             ExpiresAt = expiresAt,
             IsUrgent = isUrgent,
             AdvanceStatus = TripAdvanceStatuses.None,
-            ListedRateSnapshot = leg.ListedFare,
+            ListedRateSnapshot = price.Fare,
             PickupTime = null,
             PickupPlace = context.PickupPlace,
             CreatedAt = now,
@@ -399,6 +400,33 @@ public static class TaxiWaysAskHandlers
         await db.TaxiListings.Where(t => t.Id == taxi.Id)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.TripLeadsReceived, x => x.TripLeadsReceived + 1));
         return (e, true);
+    }
+
+    // Cars this driver brings and his listed rate for them; Fare null when the server cannot price him on the stretch.
+    internal readonly record struct LeadPrice(int Cars, int? Fare);
+
+    // Per (leg, taxi) of the new leads: cars from the saved leg's seat cover (JourneyLegPricing.CarsFor) and the server fare of
+    // the stretch (JourneyLegFares). The app's listedFare is never used.
+    private static async Task<Dictionary<(int LegIndex, Guid TaxiId), LeadPrice>> LeadPricesAsync(
+        ITaxiWaysSearch ways, ISavedJourneyRepository journeys, SavedJourney journey,
+        IReadOnlyList<(int LegIndex, Guid TaxiId, short? Seats)> asks, int people)
+    {
+        var prices = new Dictionary<(int, Guid), LeadPrice>();
+        if (asks.Count == 0) return prices;
+        var noTaxis = new Dictionary<Guid, JourneyTaxiInfo>();
+        foreach (var group in asks.GroupBy(a => a.LegIndex))
+        {
+            var leg = journey.Legs.First(l => l.LegIndex == group.Key);
+            var previousRoute = journey.Legs.FirstOrDefault(l => l.LegIndex == group.Key - 1)?.DriverRouteId;
+            var fares = await JourneyLegFares.LoadAsync(ways, journeys, leg, group.Select(a => a.TaxiId), noTaxis, previousRoute);
+            foreach (var (legIndex, taxiId, seats) in group)
+            {
+                var cars = JourneyLegPricing.CarsFor(taxiId, seats, people, leg.DriverTaxiId, leg.CoverTaxiIds);
+                prices[(legIndex, taxiId)] = new LeadPrice(
+                    cars, fares.TryGetValue(taxiId, out var f) ? JourneyLegPricing.LeadFare(f.PerCarFare, cars) : null);
+            }
+        }
+        return prices;
     }
 
     private static bool IsLeadOf(TripEnquiry e, Guid journeyId, int legIndex)

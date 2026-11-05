@@ -2138,6 +2138,12 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid?>("Backup2TaxiId")
                         .HasColumnType("uuid");
 
+                    b.PrimitiveCollection<Guid[]>("CoverTaxiIds")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid[]")
+                        .HasDefaultValueSql("'{}'::uuid[]");
+
                     b.Property<bool>("DriverAvailable")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")

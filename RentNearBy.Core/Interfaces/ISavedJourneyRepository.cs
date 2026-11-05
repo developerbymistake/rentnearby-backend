@@ -6,7 +6,8 @@ public sealed record JourneyTaxiInfo(
     Guid Id, Guid UserId, string DriverName, string? VehicleTypeName, short? Seats, string? PlateDisplay, string? CityName,
     string TripReplyLabel, string? Phone, string? WhatsApp, bool IsPublic);
 
-public sealed record JourneyLegMatch(Guid TaxiId, Guid RouteId, int Fare);
+// Partial: the stretch is a part of the route, Fare its road-length share (TaxiFare.ForSpan).
+public sealed record JourneyLegMatch(Guid TaxiId, Guid RouteId, int Fare, bool Partial = false);
 
 public interface ISavedJourneyRepository
 {

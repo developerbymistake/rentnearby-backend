@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using StackExchange.Redis;
 
 namespace RentNearBy.Infrastructure.Services;
@@ -83,7 +84,7 @@ public class RedisRateLimitService : IRateLimitService
             var retryMs = (long)result[2];
             return allowed
                 ? new RateLimitResult(true, remaining, null, token)
-                : new RateLimitResult(false, 0, TimeSpan.FromMilliseconds(retryMs));
+                : new RateLimitResult(false, 0, RateLimitRetry.WholeSeconds(retryMs));
         }
         catch (Exception ex)
         {

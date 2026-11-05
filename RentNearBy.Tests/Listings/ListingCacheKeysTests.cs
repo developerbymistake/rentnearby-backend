@@ -20,25 +20,35 @@ public class ListingCacheKeysTests
 
     [Theory]
     [InlineData("Unknown")]
-    public void Patterns_Unknown_NoScan(string kind)
-        => Assert.Empty(ListingCacheKeys.Patterns(kind, District));
+    public void GenKeys_Unknown_None(string kind)
+        => Assert.Empty(ListingCacheKeys.GenKeys(kind, District));
 
     [Fact]
-    public void Patterns_Stay_BrowseNearbyNearest()
-        => Assert.Equal(new[] { $"stays:browse:{N}:*", $"stays:nearby:{D}:*", $"stays:nearest:{D}:*" }, ListingCacheKeys.Patterns(ListingKinds.Stay, District));
+    public void GenKeys_Stay_DistrictGeneration()
+        => Assert.Equal(new[] { $"stays:gen:{N}" }, ListingCacheKeys.GenKeys(ListingKinds.Stay, District));
 
     [Fact]
-    public void Patterns_Taxi_LocalOnly()
-        => Assert.Equal(new[] { $"taxis:local:{N}:*" }, ListingCacheKeys.Patterns(ListingKinds.Taxi, District));
+    public void GenKeys_Taxi_DistrictGeneration()
+        => Assert.Equal(new[] { $"taxis:gen:{N}" }, ListingCacheKeys.GenKeys(ListingKinds.Taxi, District));
 
     [Fact]
-    public void GlobalPatterns_Taxi_Search()
-        => Assert.Equal(new[] { "taxis:search:*" }, ListingCacheKeys.GlobalPatterns(ListingKinds.Taxi));
+    public void GlobalGenKeys_Taxi_Search()
+        => Assert.Equal(new[] { "taxis:search:gen" }, ListingCacheKeys.GlobalGenKeys(ListingKinds.Taxi));
 
     [Theory]
     [InlineData("Stay")]
-    public void GlobalPatterns_OtherKinds_Empty(string kind)
-        => Assert.Empty(ListingCacheKeys.GlobalPatterns(kind));
+    [InlineData("Unknown")]
+    public void GlobalGenKeys_OtherKinds_Empty(string kind)
+        => Assert.Empty(ListingCacheKeys.GlobalGenKeys(kind));
+
+    [Fact]
+    public void GenKeys_NeverMatchAFeedKey()
+    {
+        Assert.DoesNotContain(":gen:", RentNearBy.Api.Handlers.StayCache.BrowseKey(District, null, null, null, "newest", 10));
+        Assert.DoesNotContain(":gen", RentNearBy.Api.Handlers.TaxiCache.LocalKey(District, null, null, 10));
+        Assert.Equal(ListingCacheKeys.StayGen(District), RentNearBy.Api.Handlers.StayCache.GenKey(District));
+        Assert.Equal(ListingCacheKeys.TaxiGen(District), RentNearBy.Api.Handlers.TaxiCache.GenKey(District));
+    }
 
     [Fact]
     public void ContextPatterns_ContextOnly()

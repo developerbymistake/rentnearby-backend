@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
@@ -13,9 +14,11 @@ namespace RentNearBy.Infrastructure.Services;
 // (keyset pages to the end, GetWatchedPageAsync):
 //   a chosen driver no longer public -> leg unavailable, journey DriverUnavailable, push once (jrn:p:...)
 //   the same driver public again     -> leg available, status recomputed, push once per day (jrn:b:...)
-//   18:00-24:00 IST the day before   -> push once per date (jrn:e:{id}:{date}), not when the trip's travel-eve push covers it (TripEveCovers)
+//   18:00-24:00 IST the day before   -> push once per date (jrn:e:{id}:{date}), not when the trip's travel-eve push covers it (JourneyEveCover)
 // A journey in a trip routes the paused/back pushes to the trip plan.
-public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<JourneyWatchService> logger) : BackgroundService
+public class JourneyWatchService(
+    IServiceScopeFactory scopeFactory, IOptionsMonitor<TripExecutionOptions> tripExecution, ILogger<JourneyWatchService> logger)
+    : BackgroundService
 {
     private static readonly TimeSpan FirstDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(10);
@@ -89,7 +92,8 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
             .Where(id => id != Guid.Empty)
             .ToHashSet();
         var taxis = await repo.LoadTaxisAsync(taxiIds);
-        var segmentIds = await SegmentJourneyIdsAsync(db, journeys.Where(j => j.TravelDate == today.AddDays(1)).ToList(), ct);
+        var segmentIds = await SegmentJourneyIdsAsync(
+            db, journeys.Where(j => j.TravelDate == today.AddDays(1)).ToList(), tripExecution.CurrentValue.Enabled, now, ct);
         var booked = await BookedLegsAsync(db, journeys, ct);
 
         int changed = 0, sent = 0;
@@ -134,17 +138,23 @@ public class JourneyWatchService(IServiceScopeFactory scopeFactory, ILogger<Jour
         return (changed, sent);
     }
 
-    // Journeys of tomorrow whose eve the trip's travel-eve pass sends instead (one trips query per pass).
+    // Journeys of tomorrow whose eve the trip's travel-eve push covers (one trips query and one push-log query per page).
     private static async Task<HashSet<Guid>> SegmentJourneyIdsAsync(
-        ApplicationDbContext db, IReadOnlyList<SavedJourney> tomorrow, CancellationToken ct)
+        ApplicationDbContext db, IReadOnlyList<SavedJourney> tomorrow, bool tripExecutionEnabled, DateTime now, CancellationToken ct)
     {
         var linked = tomorrow.Where(j => j.TripId != null).ToList();
         if (linked.Count == 0) return new HashSet<Guid>();
         var tripIds = linked.Select(j => j.TripId!.Value).Distinct().ToList();
         var trips = await db.Trips.AsNoTracking().Where(t => tripIds.Contains(t.Id)).ToListAsync(ct);
         var plans = trips.ToDictionary(t => t.Id, t => (Trip: t, Plan: TripPlanReader.Read(t)));
+        var keys = linked.Select(j => TripReminderRules.TravelEveKey(j.TripId!.Value, j.TravelDate)).Distinct().ToList();
+        var logged = (await db.TripPushLogs.AsNoTracking()
+            .Where(p => keys.Contains(p.DedupeKey)).Select(p => p.DedupeKey).ToListAsync(ct)).ToHashSet();
         return linked
-            .Where(j => plans.TryGetValue(j.TripId!.Value, out var p) && TripEveCovers(p.Trip, p.Plan, j))
+            .Where(j => plans.TryGetValue(j.TripId!.Value, out var p)
+                && JourneyEveCover.Covered(
+                    logged.Contains(TripReminderRules.TravelEveKey(j.TripId!.Value, j.TravelDate)),
+                    tripExecutionEnabled, TripEveCovers(p.Trip, p.Plan, j), j.TravelDate, now))
             .Select(j => j.Id)
             .ToHashSet();
     }

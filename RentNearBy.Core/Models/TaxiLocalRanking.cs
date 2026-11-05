@@ -7,6 +7,29 @@ public sealed record TaxiLocalNeed(int People = 0, int DayKm = 0, double? Lat = 
     public bool HasPoint => Lat is >= -90 and <= 90 && Lng is >= -180 and <= 180;
 }
 
+// GET /taxis/browse need params: people 0..JourneyRules.MaxPeople, dayKm 0..MaxDayKm, lat and lng both or neither.
+public static class TaxiLocalNeedRules
+{
+    public const int MaxDayKm = 1000;
+
+    public static string? Error(int? people, int? dayKm, double? lat, double? lng)
+    {
+        if (people is < 0 or > JourneyRules.MaxPeople) return $"People must be 0 to {JourneyRules.MaxPeople}";
+        if (dayKm is < 0 or > MaxDayKm) return $"Day km must be 0 to {MaxDayKm}";
+        if (lat.HasValue != lng.HasValue) return "Send both lat and lng";
+        if (lat is { } a && (double.IsNaN(a) || a < -90 || a > 90)) return "Invalid coordinates";
+        if (lng is { } b && (double.IsNaN(b) || b < -180 || b > 180)) return "Invalid coordinates";
+        return null;
+    }
+
+    // Null when nothing is asked, so the plain order and the plain cache key stay as before.
+    public static TaxiLocalNeed? Build(int? people, int? dayKm, double? lat, double? lng)
+    {
+        var need = new TaxiLocalNeed(people ?? 0, dayKm ?? 0, lat, lng);
+        return need.IsEmpty ? null : need;
+    }
+}
+
 // One driver against a need. Cars: his own vehicle once per started group of its seats (unknown seats = one car).
 // ExtraKm: km over his day limit (null when the limit or the day km is unknown); no per-km price is stored, so none is invented.
 public readonly record struct TaxiLocalFit(bool SeatsFit, bool KmFit, int Cars, int? DayCost, int? ExtraKm, double? PickupKm);

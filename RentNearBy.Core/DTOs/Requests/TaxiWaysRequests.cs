@@ -6,6 +6,7 @@ public class AskLegRequest
     public string LegKey { get; set; } = string.Empty;
     public string FromName { get; set; } = string.Empty;
     public string ToName { get; set; } = string.Empty;
+    // Ignored: the lead's listed rate is priced on the server (JourneyLegFares, JourneyLegPricing.CarsFor).
     public int? ListedFare { get; set; }
     public List<Guid> TaxiIds { get; set; } = new();
     public int CarOf { get; set; } = 1;
@@ -39,6 +40,9 @@ public class SaveJourneyLegRequest
     public bool Partial { get; set; }
     public Guid? Backup1TaxiId { get; set; }
     public Guid? Backup2TaxiId { get; set; }
+    // The other cars of the leg's seat cover the traveller accepted (WayLegDto.CoverTaxiIds minus the driver). The server
+    // re-solves the cover over the driver and these with its own fares; ListedFare is ignored.
+    public List<Guid> CoverTaxiIds { get; set; } = new();
 }
 
 public class SaveJourneyRequest

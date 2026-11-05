@@ -12,9 +12,6 @@ namespace RentNearBy.Infrastructure.Services;
 public class ListingCacheInvalidator(ApplicationDbContext db, IServiceProvider services, ILogger<ListingCacheInvalidator> logger)
     : IListingCacheInvalidator
 {
-    private const int ScanPageSize = 1000;
-    private const int DeleteChunk = 500;
-
     public Task BustForUserAsync(Guid userId, string kind) => BustForUsersAsync([userId], kind);
 
     public async Task BustForUsersAsync(IReadOnlyCollection<Guid> userIds, string kind)
@@ -52,54 +49,19 @@ public class ListingCacheInvalidator(ApplicationDbContext db, IServiceProvider s
 
         try
         {
-            var cache = redis.GetDatabase();
             var ids = districtIds.Distinct().ToList();
-
-            var server = redis.GetServers().FirstOrDefault(s => s.IsConnected);
             var keys = ids.SelectMany(d => ListingCacheKeys.Keys(kind, d)).Distinct().Select(k => (RedisKey)k).ToArray();
-            if (keys.Length > 0) await cache.KeyDeleteAsync(keys);
+            if (keys.Length > 0) await redis.GetDatabase().KeyDeleteAsync(keys);
 
-            if (server == null) return;
-            var patterns = ids.SelectMany(d => ListingCacheKeys.Patterns(kind, d))
-                .Concat(ListingCacheKeys.GlobalPatterns(kind))
+            var genKeys = ids.SelectMany(d => ListingCacheKeys.GenKeys(kind, d))
+                .Concat(ListingCacheKeys.GlobalGenKeys(kind))
                 .Distinct()
                 .ToList();
-            if (patterns.Count == 0) return;
-
-            // Every pattern is "<prefix>*": one keyspace SCAN, prefix-matched here, deleted in chunks.
-            var prefixes = patterns.Select(p => p[..^1]).ToArray();
-            var matched = new List<RedisKey>();
-            await foreach (var key in server.KeysAsync(pattern: CommonScanPattern(prefixes), pageSize: ScanPageSize))
-            {
-                var k = key.ToString();
-                if (!prefixes.Any(p => k.StartsWith(p, StringComparison.Ordinal))) continue;
-                matched.Add(key);
-                if (matched.Count >= DeleteChunk)
-                {
-                    await cache.KeyDeleteAsync(matched.ToArray());
-                    matched.Clear();
-                }
-            }
-            if (matched.Count > 0) await cache.KeyDeleteAsync(matched.ToArray());
+            await FeedCache.BumpAsync(redis, genKeys);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Cache bust failed for {Kind}", kind);
         }
-    }
-
-    // Longest shared prefix narrows the server-side MATCH; glob metacharacters stop it.
-    private static string CommonScanPattern(string[] prefixes)
-    {
-        var common = prefixes[0];
-        foreach (var p in prefixes.Skip(1))
-        {
-            var n = 0;
-            while (n < common.Length && n < p.Length && common[n] == p[n]) n++;
-            common = common[..n];
-        }
-        var stop = common.IndexOfAny(['*', '?', '[', ']', '\\']);
-        if (stop >= 0) common = common[..stop];
-        return common + "*";
     }
 }

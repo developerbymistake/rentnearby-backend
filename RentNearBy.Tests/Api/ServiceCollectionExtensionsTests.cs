@@ -1,9 +1,44 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using RentNearBy.Api.Extensions;
+using RentNearBy.Infrastructure.Services;
+using AppServiceRegistration = RentNearBy.Api.Extensions.ServiceCollectionExtensions;
 
 namespace RentNearBy.Tests.Api;
 
 public class ServiceCollectionExtensionsTests
 {
+    private static IServiceCollection Registered()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["DATABASE_URL"] = "Host=localhost;Database=test;Username=test;Password=test",
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddApplicationServices(configuration);
+        return services;
+    }
+
+    [Theory]
+    [InlineData(typeof(NotificationRetentionService))]
+    [InlineData(typeof(DeletedAccountRecordPurgeService))]
+    [InlineData(typeof(TripTimerService))]
+    [InlineData(typeof(JourneyWatchService))]
+    [InlineData(typeof(PlanLifecycleService))]
+    public void TimedJob_IsRegisteredAsHostedService(Type worker)
+    {
+        var hosted = Registered()
+            .Where(d => d.ServiceType == typeof(IHostedService))
+            .Select(d => d.ImplementationType)
+            .ToList();
+
+        Assert.Single(hosted, t => t == worker);
+    }
+
     [Theory]
     [InlineData("Cancel", PlayServerActions.Cancel)]
     [InlineData("cancel", PlayServerActions.Cancel)]
@@ -17,5 +52,5 @@ public class ServiceCollectionExtensionsTests
     [InlineData("   ", null)]
     [InlineData(null, null)]
     public void NormalizeRoleChangeAction_OnlyCancelOrRevokeProrated(string? value, string? expected)
-        => Assert.Equal(expected, ServiceCollectionExtensions.NormalizeRoleChangeAction(value));
+        => Assert.Equal(expected, AppServiceRegistration.NormalizeRoleChangeAction(value));
 }

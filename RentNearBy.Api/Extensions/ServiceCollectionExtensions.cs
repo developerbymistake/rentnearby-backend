@@ -117,6 +117,9 @@ public static class ServiceCollectionExtensions
         // Purges DeletedAccountRecords past their 180-day retention window (runs at 5:00 AM IST daily)
         services.AddHostedService<DeletedAccountRecordPurgeService>();
 
+        // Hourly: inbox rows past NotificationInbox.RetentionDays.
+        services.AddHostedService<NotificationRetentionService>();
+
         services.AddHttpClient<IRazorpayService, RazorpayService>();
 
         services.AddHttpClient<IGeocodingService, NominatimGeocodingService>(client =>

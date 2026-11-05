@@ -144,6 +144,34 @@ public class TaxiWaysSearch(
         };
     }
 
+    public async Task<Dictionary<Guid, LegTaxiFare>> LegFaresAsync(
+        string legKey, IReadOnlyCollection<Guid> taxiIds, Guid? excludeRoute = null, CancellationToken ct = default)
+    {
+        var fares = new Dictionary<Guid, LegTaxiFare>();
+        if (taxiIds.Count == 0 || !TaxiWaysKeys.TryParseLegKey(legKey, out var fromKey, out var toKey)) return fares;
+        var o = options.Value;
+        TaxiWaysNetworkSnapshot? snapshot;
+        try
+        {
+            snapshot = await network.GetAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning("taxi.ways.legfares network failed: {Error}", ex.Message);
+            return fares;
+        }
+        if (snapshot == null) return fares;
+        var a = TaxiWaysSearchEngine.AnchorFromKey(snapshot, fromKey, o);
+        var b = TaxiWaysSearchEngine.AnchorFromKey(snapshot, toKey, o);
+        if (a == null || b == null) return fares;
+
+        var wanted = taxiIds.ToHashSet();
+        foreach (var c in TaxiWaysSearchEngine.Candidates(snapshot, a, b, 1, o, basedHereFirst: a.MyLocation, excludeRoute: excludeRoute))
+            if (wanted.Contains(c.Driver.TaxiId))
+                fares[c.Driver.TaxiId] = new LegTaxiFare(c.Driver.TaxiId, c.Link.RouteId, c.Driver.Seats, c.Link.EstimatedFare, c.Link.Partial);
+        return fares;
+    }
+
     private static WayDriverDto WithContacts(WayDriverDto d, Dictionary<Guid, (string? Phone, string? WhatsApp)> contacts)
     {
         if (contacts.TryGetValue(d.TaxiId, out var c))

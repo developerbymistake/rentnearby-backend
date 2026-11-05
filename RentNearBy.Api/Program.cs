@@ -143,7 +143,8 @@ using (var scope = app.Services.CreateScope())
             Console.WriteLine("[STARTUP] Migrations applied. Running seeder...");
         }
 
-        await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db, scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
+        await RentNearBy.Infrastructure.Data.DataSeeder.SeedAsync(db, scope.ServiceProvider.GetRequiredService<ILogger<Program>>(),
+            RentNearBy.Core.Models.AppVersionSeed.ParseMinBuild(app.Configuration[RentNearBy.Core.Models.AppVersionSeed.AndroidMinBuildEnv]));
         Console.WriteLine("[STARTUP] Seeder complete.");
 
         // TEST DATA, runs on every start: remove this statement with the Data/DemoSeed folder (see its README).
@@ -303,7 +304,7 @@ app.MapGet("/delete-account", () => Results.Content("""
 <div class="step"><div class="num">2</div><span>Go to <strong>Profile</strong> (bottom navigation)</span></div>
 <div class="step"><div class="num">3</div><span>Scroll down and tap <strong>"Delete Account"</strong></span></div>
 <div class="step"><div class="num">4</div><span>Type <strong>DELETE</strong> to confirm</span></div>
-<div class="step"><div class="num">5</div><span>Tap <strong>Confirm</strong> to submit your request</span></div>
+<div class="step"><div class="num">5</div><span>Tap <strong>Delete Account</strong> to submit your request</span></div>
 </div>
 <div class="warn">
 <strong>Please note:</strong> Account deletion may not be reversible. We process deletion requests in line with our Privacy Policy and applicable law. We may delete, anonymise or retain certain information, for example where required by law or to prevent fraud, resolve disputes and keep records. Messages, enquiries and reports shared with other users may remain available to them.

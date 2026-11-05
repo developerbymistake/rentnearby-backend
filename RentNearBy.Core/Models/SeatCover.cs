@@ -43,6 +43,34 @@ public static class TaxiSeatCover
         return new SeatCoverResult([top.Rank], top.Fare * cars, cars, false);
     }
 
+    // Least-cost cover that must hold `required` (the chosen driver of a saved stretch): the DP starts from his seats.
+    // He seats the group alone, or his seats are unknown, or the others cannot fill the rest: he alone, once per started group.
+    public static SeatCoverResult SolveWith(SeatOption required, IReadOnlyList<SeatOption> others, int people)
+    {
+        if (people <= 0 || required.Seats is not { } rs || rs <= 0 || rs >= people)
+            return new SeatCoverResult([required.Rank], required.Fare, 1, people <= 0 || required.Seats >= people);
+
+        var best = new State?[people + 1];
+        best[Math.Min(people, (int)rs)] = new State(required.Fare, [required.Rank]);
+        foreach (var o in others.Where(x => x.Rank != required.Rank).OrderBy(x => x.Rank))
+        {
+            if (o.Seats is not { } seats || seats <= 0 || o.Fare < 0) continue;
+            var add = Math.Min((int)seats, people);
+            for (var c = people - 1; c >= 0; c--)
+            {
+                if (best[c] is not { } from) continue;
+                var next = new State(from.Fare + o.Fare, [.. from.Chosen, o.Rank]);
+                var at = Math.Min(people, c + add);
+                if (best[at] is not { } current || Better(next, current)) best[at] = next;
+            }
+        }
+
+        if (best[people] is { } cover)
+            return new SeatCoverResult(cover.Chosen, cover.Fare, cover.Chosen.Count, true);
+        var cars = TaxiWaysRanking.CarsNeeded(people, rs);
+        return new SeatCoverResult([required.Rank], required.Fare * cars, cars, false);
+    }
+
     private sealed record State(int Fare, List<int> Chosen);
 
     private static bool Better(State a, State b)

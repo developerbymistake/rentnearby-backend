@@ -61,6 +61,7 @@ public static class TaxiWaysModel
             e.Property(x => x.ToLatitude).HasColumnType("numeric(9,6)");
             e.Property(x => x.ToLongitude).HasColumnType("numeric(9,6)");
             e.Property(x => x.Partial).HasDefaultValue(false);
+            e.Property(x => x.CoverTaxiIds).HasColumnType("uuid[]").HasDefaultValueSql("'{}'::uuid[]").IsRequired();
             e.Property(x => x.LastKnownStatus).HasMaxLength(12).HasDefaultValue(JourneyLegStatuses.Unknown).IsRequired();
             e.Property(x => x.DriverAvailable).HasDefaultValue(true);
             e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");

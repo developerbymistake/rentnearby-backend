@@ -1655,6 +1655,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     Partial = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     Backup1TaxiId = table.Column<Guid>(type: "uuid", nullable: true),
                     Backup2TaxiId = table.Column<Guid>(type: "uuid", nullable: true),
+                    CoverTaxiIds = table.Column<Guid[]>(type: "uuid[]", nullable: false, defaultValueSql: "'{}'::uuid[]"),
                     LastEnquiryId = table.Column<Guid>(type: "uuid", nullable: true),
                     LastKnownStatus = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: false, defaultValue: "Unknown"),
                     LastQuotedFare = table.Column<int>(type: "integer", nullable: true),

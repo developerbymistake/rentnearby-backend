@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261105164544_InitialCreate")]
+    [Migration("20261105183627_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -2140,6 +2140,12 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Guid?>("Backup2TaxiId")
                         .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<Guid[]>("CoverTaxiIds")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid[]")
+                        .HasDefaultValueSql("'{}'::uuid[]");
 
                     b.Property<bool>("DriverAvailable")
                         .ValueGeneratedOnAdd()

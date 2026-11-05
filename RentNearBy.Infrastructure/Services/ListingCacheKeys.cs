@@ -3,10 +3,16 @@ using RentNearBy.Core.Models;
 namespace RentNearBy.Infrastructure.Services;
 
 // Redis keys for every public feed a plan rank or visibility change can touch.
-// Stays and taxis use fixed keys + prefix patterns (key builders in StayCache, TaxiCache).
+// Stays and taxis: fixed keys deleted directly + generation keys bumped with INCR (FeedCache, CacheStamp); the feed key
+// builders are in StayCache and TaxiCache. No stay or taxi invalidation scans the keyspace.
 public static class ListingCacheKeys
 {
     public const string RecentStays = "home:recentStays";
+
+    // Stay browse/nearby/nearest of a district; taxi local of a district; taxi route search (district-free).
+    public static string StayGen(Guid districtId) => $"stays:gen:{districtId:N}";
+    public static string TaxiGen(Guid districtId) => $"taxis:gen:{districtId:N}";
+    public const string TaxiSearchGen = "taxis:search:gen";
 
     // District context payload (district fields + its cities), the only cell-invariant part of /context.
     public static string ContextDistrict(Guid districtId) => $"context:district:{districtId:N}";
@@ -18,23 +24,18 @@ public static class ListingCacheKeys
         _ => [],
     };
 
-    // Patterns scanned once per district.
-    public static string[] Patterns(string kind, Guid districtId) => kind switch
+    // Generation keys bumped once per district.
+    public static string[] GenKeys(string kind, Guid districtId) => kind switch
     {
-        ListingKinds.Stay =>
-        [
-            $"stays:browse:{districtId:N}:*",
-            $"stays:nearby:{districtId}:*",
-            $"stays:nearest:{districtId}:*",
-        ],
-        ListingKinds.Taxi => [$"taxis:local:{districtId:N}:*"],
+        ListingKinds.Stay => [StayGen(districtId)],
+        ListingKinds.Taxi => [TaxiGen(districtId)],
         _ => [],
     };
 
-    // District-free patterns, scanned once per call.
-    public static string[] GlobalPatterns(string kind) => kind switch
+    // District-free generation keys, bumped once per call.
+    public static string[] GlobalGenKeys(string kind) => kind switch
     {
-        ListingKinds.Taxi => ["taxis:search:*"],
+        ListingKinds.Taxi => [TaxiSearchGen],
         _ => [],
     };
 

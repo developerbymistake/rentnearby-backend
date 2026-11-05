@@ -22,7 +22,7 @@ public static class DataSeeder
     private static readonly JsonSerializerOptions CaseInsensitiveJson = new() { PropertyNameCaseInsensitive = true };
     private static readonly WKTReader WktReader = new();
 
-    public static async Task SeedAsync(ApplicationDbContext db, ILogger logger)
+    public static async Task SeedAsync(ApplicationDbContext db, ILogger logger, int? androidMinBuild = null)
     {
         await SeedStayTypesAsync(db);
         await SeedStayRegistrationTypesAsync(db);
@@ -35,7 +35,7 @@ public static class DataSeeder
         await SeedCitiesAsync(db, logger);
         await SeedAppFeatureFlagsAsync(db);
         await SeedAppTabsAsync(db);
-        await SeedAppVersionConfigsAsync(db);
+        await SeedAppVersionConfigsAsync(db, androidMinBuild);
         await SeedAdminsAsync(db);
     }
 
@@ -104,30 +104,16 @@ public static class DataSeeder
         await db.SaveChangesAsync();
     }
 
-    // Seeded disabled with build 1 so deploying the backend never gates anyone until an admin opts in.
-    private static async Task SeedAppVersionConfigsAsync(ApplicationDbContext db)
+    // Seeded disabled with build 1 so deploying the backend never gates anyone until an admin opts in, unless
+    // APP_MIN_BUILD_ANDROID is set (AppVersionSeed): then the fresh Android row starts gated at that build.
+    private static async Task SeedAppVersionConfigsAsync(ApplicationDbContext db, int? androidMinBuild)
     {
         var added = false;
         foreach (var platform in AppPlatforms.All)
         {
             if (await db.AppVersionConfigs.AnyAsync(c => c.Platform == platform)) continue;
 
-            db.AppVersionConfigs.Add(new AppVersionConfig
-            {
-                Id = Guid.NewGuid(),
-                Platform = platform,
-                IsEnabled = false,
-                MinBuildNumber = 1,
-                MinVersionName = "1.0.0",
-                LatestBuildNumber = 1,
-                LatestVersionName = "1.0.0",
-                StoreUrl = platform == AppPlatforms.Android
-                    ? AppPlatforms.AndroidStoreUrl
-                    : null,
-                ForceCacheMaxAgeHours = AppVersionRules.DefaultForceCacheMaxAgeHours,
-                MaxSeenBuild = 0,
-                UpdatedAt = DateTime.UtcNow,
-            });
+            db.AppVersionConfigs.Add(AppVersionSeed.Initial(platform, androidMinBuild, DateTime.UtcNow));
             added = true;
         }
         if (added) await db.SaveChangesAsync();

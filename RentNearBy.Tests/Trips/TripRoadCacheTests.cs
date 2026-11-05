@@ -23,12 +23,16 @@ public class TripRoadCacheTests
                 : null;
     }
 
-    private sealed class FakeSpots(List<TripSpotDto> spots) : ITripSpotCache
+    private sealed class FakeSpots(List<TripSpotDto> spots, string status = TripSpotStatuses.Ready) : ITripSpotCache
     {
         public int Invalidated;
+        public int Reads;
 
         public Task<CachedCitySpots?> GetAsync(long cityKey, CancellationToken ct = default)
-            => Task.FromResult<CachedCitySpots?>(new CachedCitySpots { CityKey = cityKey, Status = TripSpotStatuses.Ready, Spots = spots });
+        {
+            Interlocked.Increment(ref Reads);
+            return Task.FromResult<CachedCitySpots?>(new CachedCitySpots { CityKey = cityKey, Status = status, Spots = spots });
+        }
 
         public Task InvalidateAsync(long cityKey)
         {
@@ -403,6 +407,96 @@ public class TripRoadCacheTests
         Assert.False(redis.Has(TripCacheKeys.MatrixLock(Key)));
         Assert.Equal(1, spots.Invalidated);
         Assert.Equal(1, catalog.Invalidated);
+    }
+
+    // Final verify 13: an invalidation during a build drops the old matrix instead of serving it for 48 h.
+    [Fact]
+    public async Task InvalidateDuringBuild_StaleMatrixIsNotStored()
+    {
+        var spots = MakeSpots(20);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var osrm = new FakeOsrm { Gate = gate.Task };
+        var redis = new FakeRedis();
+        var cache = Cache(redis, osrm, new FakeSpots(spots));
+
+        var build = cache.GetCityMatrixAsync(Key);
+        for (var i = 0; i < 400 && Volatile.Read(ref osrm.BlockCalls) == 0; i++) await Task.Delay(5);
+        Assert.Equal(1, osrm.BlockCalls);
+        await cache.InvalidateAsync(Key);
+        gate.SetResult();
+
+        Assert.Null(await build);
+        Assert.False(redis.Has(TripCacheKeys.Matrix(Key)));
+        Assert.True(redis.Has(TripMatrixRules.GenKey(Key)));
+
+        Assert.NotNull(await cache.GetCityMatrixAsync(Key));
+        Assert.True(redis.Has(TripCacheKeys.Matrix(Key)));
+    }
+
+    // Final verify 14: a city that can never have a matrix is marked once; later plans start no build.
+    [Fact]
+    public async Task TooManySpots_SkipMarker_PeekStartsNoBuild()
+    {
+        var redis = new FakeRedis();
+        var osrm = new FakeOsrm();
+        var spots = new FakeSpots(MakeSpots(12));
+        var cache = Cache(redis, osrm, spots, new TripPlannerOptions { CityMatrixMaxSpots = 10 });
+
+        Assert.Null(await cache.GetCityMatrixAsync(Key));
+        Assert.Equal(TimeSpan.FromHours(48), redis.Store[TripMatrixRules.SkipKey(Key)].Ttl);
+        Assert.Null(await cache.PeekCityMatrixAsync(Key));
+        Assert.Null(await cache.PeekCityMatrixAsync(Key));
+
+        Assert.Equal(1, spots.Reads);
+        Assert.Equal(0, osrm.BlockCalls);
+        Assert.False(redis.Has(TripCacheKeys.MatrixLock(Key)));
+
+        await cache.InvalidateAsync(Key);
+        Assert.False(redis.Has(TripMatrixRules.SkipKey(Key)));
+    }
+
+    [Fact]
+    public async Task NotReadyCity_SkipMarkerLastsUntilTheSpotCacheRetries()
+    {
+        var redis = new FakeRedis();
+        var spots = new FakeSpots(new List<TripSpotDto>(), TripSpotStatuses.NotReady);
+        var cache = Cache(redis, new FakeOsrm(), spots);
+
+        Assert.Null(await cache.GetCityMatrixAsync(Key));
+
+        Assert.Equal(TimeSpan.FromMinutes(60), redis.Store[TripMatrixRules.SkipKey(Key)].Ttl);
+        Assert.Null(await cache.PeekCityMatrixAsync(Key));
+        Assert.Equal(1, spots.Reads);
+    }
+
+    [Fact]
+    public async Task OsrmFailure_WritesNoSkipMarker()
+    {
+        var redis = new FakeRedis();
+        var cache = Cache(redis, new FakeOsrm { FailBlock = _ => true }, new FakeSpots(MakeSpots(5)));
+
+        Assert.Null(await cache.GetCityMatrixAsync(Key));
+
+        Assert.False(redis.Has(TripMatrixRules.SkipKey(Key)));
+    }
+
+    [Fact]
+    public void MatrixRules_SkipTtlAndGeneration()
+    {
+        var o = new TripPlannerOptions();
+
+        Assert.Null(TripMatrixRules.SkipTtl(null, 0, o));
+        Assert.Null(TripMatrixRules.SkipTtl(TripSpotStatuses.Ready, 2, o));
+        Assert.Null(TripMatrixRules.SkipTtl(TripSpotStatuses.Ready, 300, o));
+        Assert.Equal(TimeSpan.FromHours(48), TripMatrixRules.SkipTtl(TripSpotStatuses.Ready, 301, o));
+        Assert.Equal(TimeSpan.FromHours(48), TripMatrixRules.SkipTtl(TripSpotStatuses.Ready, 1, o));
+        Assert.Equal(TimeSpan.FromMinutes(60), TripMatrixRules.SkipTtl(TripSpotStatuses.NotReady, 0, o));
+        Assert.Equal(TimeSpan.FromMinutes(60), TripMatrixRules.SkipTtl(TripSpotStatuses.Stale, 450, o));
+        Assert.True(TripMatrixRules.SameGeneration("", ""));
+        Assert.False(TripMatrixRules.SameGeneration("", "a1"));
+        Assert.False(TripMatrixRules.SameGeneration("a1", null));
+        Assert.Equal("trip:matrix:110000001:gen", TripMatrixRules.GenKey(Key));
+        Assert.Equal("trip:matrix:110000001:skip", TripMatrixRules.SkipKey(Key));
     }
 
     [Fact]

@@ -37,6 +37,9 @@ public class SaveJourneyLegRequestValidator : AbstractValidator<SaveJourneyLegRe
         RuleFor(x => x.ToLng).Must(TaxiWaysRules.IsLng).WithMessage("Invalid coordinates");
         RuleFor(x => x.DriverTaxiId).NotEmpty().WithMessage("Driver is required");
         RuleFor(x => x.ListedFare).Must(TaxiWaysRules.IsFare).WithMessage(TaxiWaysRules.FareMessage);
+        RuleFor(x => x.CoverTaxiIds).Must(ids => ids == null
+                || (ids.Count < JourneyRules.MaxPeople && ids.All(i => i != Guid.Empty) && ids.Distinct().Count() == ids.Count))
+            .WithMessage("Invalid drivers");
     }
 }
 

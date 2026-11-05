@@ -137,15 +137,21 @@ public class SavedJourneyRepository(ApplicationDbContext context) : ISavedJourne
             where t.Id == taxiId && !t.IsDeleted && t.Status == TaxiStatuses.Approved && t.IsAvailable
                 && g.Status == TaxiRouteGeometryStatuses.Ok && g.GeometryJson != null
             orderby r.Fare
-            select new { RouteId = r.Id, r.Fare, g.GeometryJson }).ToListAsync();
+            select new { RouteId = r.Id, r.Fare, r.FromLatitude, r.FromLongitude, r.ToLatitude, r.ToLongitude, g.GeometryJson }).ToListAsync();
 
+        // The network's own rule: an end within MatchRadiusMeters of the route's end is that end, else a point near the road.
+        var a = new TaxiWaysPoint(fromLat, fromLng);
+        var b = new TaxiWaysPoint(toLat, toLng);
         foreach (var row in along)
         {
-            var line = TaxiRouteGeometryRules.ParseLine(row.GeometryJson);
+            var line = TaxiRouteGeometryRules.ParseLine(row.GeometryJson).Select(p => new TaxiWaysPoint(p.Lat, p.Lon)).ToList();
             if (line.Count < 2) continue;
-            if (TaxiRouteGeometryRules.DistanceToLineMetres(fromLat, fromLng, line) <= NearRoadMetres
-                && TaxiRouteGeometryRules.DistanceToLineMetres(toLat, toLng, line) <= NearRoadMetres)
-                return new JourneyLegMatch(taxiId, row.RouteId, PartFare(row.Fare, line, fromLat, fromLng, toLat, toLng));
+            var span = TaxiFare.SpanOnRoute(
+                line,
+                new TaxiWaysPoint((double)row.FromLatitude, (double)row.FromLongitude),
+                new TaxiWaysPoint((double)row.ToLatitude, (double)row.ToLongitude),
+                a, b, radius, NearRoadMetres);
+            if (span is { } s) return new JourneyLegMatch(taxiId, row.RouteId, TaxiFare.ForSpan(row.Fare, s), TaxiFare.IsPart(s));
         }
         return null;
     }

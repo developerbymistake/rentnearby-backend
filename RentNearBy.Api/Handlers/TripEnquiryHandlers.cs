@@ -175,9 +175,10 @@ public static class TripEnquiryHandlers
             candidates.Add(stay);
         }
 
-        // Only a request that sends or widens an enquiry spends an ask.
+        // Only a request that sends or widens an enquiry spends an ask; a request that writes nothing gives it back.
+        var asks = new RateLimitPermits(rateLimiter);
         if (candidates.Count > 0 || stayMerges.Count > 0)
-            if (await EnquiryRateLimitedAsync(rateLimiter, http, callerId, asksHeader: true) is { } limited) return limited;
+            if (await EnquiryRateLimitedAsync(asks, http, callerId, asksHeader: true) is { } limited) return limited;
 
         var (expiresAt, veryShortNotice) = TripExecutionRules.EnquiryExpiry(trip.StartDate!.Value, checkIn, now);
         var posts = new List<TripChatPost>();
@@ -202,6 +203,7 @@ public static class TripEnquiryHandlers
                 if (mergesNow == null)
                 {
                     await unitOfWork.RollbackTransactionAsync();
+                    await asks.ReleaseAllAsync();
                     return Concurrent();
                 }
 
@@ -244,6 +246,7 @@ public static class TripEnquiryHandlers
                             continue;
                         }
                         await unitOfWork.RollbackTransactionAsync();
+                        await asks.ReleaseAllAsync();
                         return ErrorResponse(conv.Status, conv.Message ?? "Could not start the chat.", conv.ErrorType ?? "BadRequest");
                     }
 
@@ -302,15 +305,18 @@ public static class TripEnquiryHandlers
             {
                 // The host answered the enquiry while its nights were being joined.
                 await unitOfWork.RollbackTransactionAsync();
+                await asks.ReleaseAllAsync();
                 return Concurrent();
             }
             catch
             {
                 await unitOfWork.RollbackTransactionAsync();
+                await asks.ReleaseAllAsync();
                 throw;
             }
         }
 
+        if (pushes.Count == 0) await asks.ReleaseAllAsync();
         await AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
 
         return CreatedResponse(new TripEnquiryBatchDto
@@ -495,11 +501,12 @@ public static class TripEnquiryHandlers
             candidates.Add(taxi);
         }
 
-        // Only a request that sends or widens a lead spends the ask and lead quotas.
+        // Only a request that sends or widens a lead spends the ask and lead quotas; a request that writes nothing gives them back.
+        var quotas = new RateLimitPermits(rateLimiter);
         if (candidates.Count > 0 || merges.Count > 0)
         {
-            if (await EnquiryRateLimitedAsync(rateLimiter, http, callerId, asksHeader: true) is { } limited) return limited;
-            var leadLimit = await rateLimiter.CheckAsync($"trip:lead:{trip.Id}", TripLeadRules.LeadsPerTripPerDay, Day24);
+            if (await EnquiryRateLimitedAsync(quotas, http, callerId, asksHeader: true) is { } limited) return limited;
+            var leadLimit = await quotas.TakeAsync($"trip:lead:{trip.Id}", TripLeadRules.LeadsPerTripPerDay, Day24);
             if (!leadLimit.IsAllowed)
             {
                 http.Response.Headers["Retry-After"] = ((int)Math.Ceiling((leadLimit.RetryAfter ?? Day24).TotalSeconds)).ToString();
@@ -603,15 +610,18 @@ public static class TripEnquiryHandlers
             {
                 // The driver answered the lead while its days were being merged.
                 await unitOfWork.RollbackTransactionAsync();
+                await quotas.ReleaseAllAsync();
                 return Concurrent();
             }
             catch
             {
                 await unitOfWork.RollbackTransactionAsync();
+                await quotas.ReleaseAllAsync();
                 throw;
             }
         }
 
+        if (pushes.Count == 0) await quotas.ReleaseAllAsync();
         await AfterCommitAsync(chat, [], pushes, unitOfWork, notifier, loggers);
 
         return CreatedResponse(new TripEnquiryBatchDto
@@ -1101,9 +1111,14 @@ public static class TripEnquiryHandlers
         if (CheckNoStayNights(plan, trip.StartDate!.Value, request.Day, checkIn, checkOut) is { } roadError) return roadError;
         var multiNight = request.Nights != null ? TripExecutionRules.Nights(checkIn, checkOut) > 1 : request.AllNights;
 
-        if (await EnquiryRateLimitedAsync(rateLimiter, http, callerId) is { } limited) return limited;
-        if (await RateLimitedAsync(rateLimiter, http, $"trip:phonebooking:{callerId}", TripExecutionRules.PhoneBookingsPerDay, Day24) is { } pbLimited)
-            return pbLimited;
+        var asks = new RateLimitPermits(rateLimiter);
+        if (await EnquiryRateLimitedAsync(asks, http, callerId) is { } limited) return limited;
+        var phoneBookings = await asks.TakeAsync($"trip:phonebooking:{callerId}", TripExecutionRules.PhoneBookingsPerDay, Day24);
+        if (!phoneBookings.IsAllowed)
+        {
+            http.Response.Headers["Retry-After"] = ((int)(phoneBookings.RetryAfter ?? Day24).TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         if (await unitOfWork.TripEnquiries.CountNotMeAsync(callerId, now.AddDays(-TripExecutionRules.NotMeWindowDays))
             >= TripExecutionRules.NotMePauseCount)
@@ -2701,14 +2716,15 @@ public static class TripEnquiryHandlers
 
     private static TripSkippedDto Skip(Guid listingId, string reason) => new() { ListingId = listingId, Reason = reason };
 
-    // One count per request on both keys; asksHeader adds X-Trip-Asks-Left (hourly asks left) to the answer, 2xx or 429.
-    private static async Task<IResult?> EnquiryRateLimitedAsync(IRateLimitService rateLimiter, HttpContext http, Guid userId, bool asksHeader = false)
+    // One count per request on both keys, held by the caller's lease (a daily denial gives the hourly permit back);
+    // asksHeader adds X-Trip-Asks-Left (hourly asks left) to the answer, 2xx or 429.
+    private static async Task<IResult?> EnquiryRateLimitedAsync(RateLimitPermits lease, HttpContext http, Guid userId, bool asksHeader = false)
     {
-        var hourly = await rateLimiter.CheckAsync($"trip:enquiry:h:{userId}", TripExecutionRules.EnquiriesPerHour, Hour);
+        var hourly = await lease.TakeAsync($"trip:enquiry:h:{userId}", TripExecutionRules.EnquiriesPerHour, Hour);
         if (asksHeader) http.Response.Headers[TripExecutionRules.AsksLeftHeader] = Math.Max(0, hourly.RemainingAttempts).ToString();
         if (!hourly.IsAllowed) return EnquiryLimited(http, hourly.RetryAfter ?? Hour);
 
-        var daily = await rateLimiter.CheckAsync($"trip:enquiry:d:{userId}", TripExecutionRules.EnquiriesPerDay, Day24);
+        var daily = await lease.TakeAsync($"trip:enquiry:d:{userId}", TripExecutionRules.EnquiriesPerDay, Day24);
         return daily.IsAllowed ? null : EnquiryLimited(http, daily.RetryAfter ?? Day24);
     }
 

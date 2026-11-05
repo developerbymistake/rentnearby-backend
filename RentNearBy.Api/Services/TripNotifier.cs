@@ -4,6 +4,7 @@ using RentNearBy.Api.Handlers;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Api.Services;
@@ -31,8 +32,11 @@ public sealed class TripNotifier(
         await AdminHandlers.SendGoLiveNotificationAsync(hub, publisher, n, logger);
     }
 
-    // The dedupe row and the inbox row commit together, so a failed inbox save leaves the key free for the next pass.
     public async Task<bool> SendOnceAsync(NotificationEvent n, string dedupeKey, Guid? tripId, Guid? enquiryId)
+        => await TrySendOnceAsync(n, dedupeKey, tripId, enquiryId) == TripSendOutcome.Sent;
+
+    // The dedupe row and the inbox row commit together, so a failed inbox save leaves the key free for the next pass.
+    public async Task<TripSendOutcome> TrySendOnceAsync(NotificationEvent n, string dedupeKey, Guid? tripId, Guid? enquiryId)
     {
         var tx = db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync() : null;
         try
@@ -49,7 +53,7 @@ public sealed class TripNotifier(
             if (!inserted)
             {
                 if (tx != null) await tx.RollbackAsync();
-                return false;
+                return TripSendOutcome.Duplicate;
             }
 
             if (n.TargetUserId != null)
@@ -67,7 +71,7 @@ public sealed class TripNotifier(
                 try { await tx.RollbackAsync(); } catch { }
             }
             db.Entry(n).State = EntityState.Detached;
-            return false;
+            return TripSendOutcome.Failed;
         }
         finally
         {
@@ -75,6 +79,6 @@ public sealed class TripNotifier(
         }
 
         if (n.TargetUserId != null) await AdminHandlers.SendGoLiveNotificationAsync(hub, publisher, n, logger);
-        return true;
+        return TripSendOutcome.Sent;
     }
 }

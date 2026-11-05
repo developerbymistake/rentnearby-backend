@@ -69,16 +69,22 @@ public class NotificationRepository(ApplicationDbContext context)
             WHERE ""Id"" = {notificationId} AND (""TargetUserId"" = {userId} OR ""TargetUserId"" IS NULL)
             ON CONFLICT (""UserId"", ""NotificationId"") DO NOTHING");
 
-    // One row update: the watermark moves to now (never back), whatever the inbox size.
+    // NotificationWatermark in one statement on the database clock: the watermark moves to now() - SettleSeconds (never
+    // back) and the rows this statement sees newer than it get their own read row (a short tail, not the whole inbox).
     public async Task<int> MarkAllReadAsync(Guid userId)
-    {
-        var now = DateTime.UtcNow;
-        return await _context.Users
-            .Where(u => u.Id == userId
-                && (EF.Property<DateTime?>(u, NotificationInbox.ReadUpToProperty) == null
-                    || EF.Property<DateTime?>(u, NotificationInbox.ReadUpToProperty) < now))
-            .ExecuteUpdateAsync(s => s.SetProperty(u => EF.Property<DateTime?>(u, NotificationInbox.ReadUpToProperty), now));
-    }
+        => await _context.Database.ExecuteSqlInterpolatedAsync($"""
+            WITH w AS (SELECT now() - make_interval(secs => {NotificationWatermark.SettleSeconds}) AS at),
+            tail AS (
+                INSERT INTO "NotificationReads" ("UserId", "NotificationId", "ReadAt")
+                SELECT {userId}, n."Id", now()
+                FROM "NotificationEvents" n, w
+                WHERE n."TargetUserId" = {userId} AND n."CreatedAt" > w.at
+                ON CONFLICT ("UserId", "NotificationId") DO NOTHING
+                RETURNING 1)
+            UPDATE "Users" u SET "NotificationsReadUpTo" = w.at
+            FROM w
+            WHERE u."Id" = {userId} AND (u."NotificationsReadUpTo" IS NULL OR u."NotificationsReadUpTo" < w.at)
+            """);
 
     // A repeating alert keeps one inbox row: older rows of this type for this enquiry go (their reads cascade).
     public async Task<int> DeleteSupersededAsync(Guid userId, string type, Guid enquiryId, Guid keepId)

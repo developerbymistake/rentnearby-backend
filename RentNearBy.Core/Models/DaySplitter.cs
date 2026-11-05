@@ -23,6 +23,7 @@ public static class TripWarningCodes
     public const string RouteMissing = "RouteMissing";
     public const string OsrmUnavailable = "OsrmUnavailable";
     public const string TooManyDays = "TooManyDays";
+    public const string ClosedDaysCrowd = "ClosedDaysCrowd";
 }
 
 // One continuous path through every place (shortest total road time, start end nearest the centre or the anchor), cut into
@@ -77,7 +78,9 @@ public static class DaySplitter
         if (plan.Overflow > 0)
         {
             var worst = builders.MaxBy(b => b.Visit + b.Drive + b.Reserved)!.Day;
-            warnings.Insert(0, new SplitWarning(TripWarningCodes.TooManyDays, $"Places do not fit in {maxDays} days", null, worst));
+            warnings.Insert(0, plan.OpenOverflow == 0
+                ? new SplitWarning(TripWarningCodes.ClosedDaysCrowd, $"Closed days make Day {worst} long", null, worst)
+                : new SplitWarning(TripWarningCodes.TooManyDays, $"Places do not fit in {maxDays} days", null, worst));
         }
 
         return Finish(builders, spots, input.DayLimitMinutes, warnings);

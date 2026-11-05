@@ -1117,8 +1117,44 @@ public static class TaxiWaysSearchEngine
 
         var (plans, relaxed) = TaxiWaysChainSearch.Plans(s, from, to, people, o);
         result.Plans.AddRange(plans);
+        if (DirectCoverPlan(s, from, to, result.AllTheWay, people, o) is { } direct)
+        {
+            // One stretch, no change: a chain that costs as much or more and is no quicker gives way (TaxiWaysChainSearch.Front).
+            var directMinutes = PlanMinutes(direct);
+            result.Plans.RemoveAll(p => direct.Total <= p.Total
+                && (directMinutes == null || PlanMinutes(p) is not { } pm || directMinutes <= pm));
+            result.Plans.Insert(0, direct);
+            var max = Math.Max(1, o.MaxPlans);
+            if (result.Plans.Count > max) result.Plans.RemoveRange(max, result.Plans.Count - max);
+        }
         result.Expansions = relaxed;
         return result;
+    }
+
+    // All the way with several drivers' cars (plan key p1~from~to, one leg): kept only when the least-cost seat cover uses two
+    // or more distinct cars and is cheaper than every single driver bringing his own cars for the whole group.
+    public static TaxiWaysPlan? DirectCoverPlan(
+        TaxiWaysNetworkSnapshot s, TaxiWaysAnchor from, TaxiWaysAnchor to, IReadOnlyList<TaxiWaysCandidate> allTheWay, int people,
+        TaxiWaysOptions o)
+    {
+        if (allTheWay.Count < 2 || people <= 1) return null;
+        var plan = BuildPlan(s, [from, to], people, o);
+        if (plan == null || plan.Legs.Count != 1) return null;
+        var cover = plan.Legs[0].Cover;
+        if (!cover.Covered || cover.Chosen.Count < 2) return null;
+        var single = allTheWay.Min(c => (long)c.Link.EstimatedFare * TaxiWaysRanking.CarsNeeded(people, c.Driver.Seats));
+        return cover.Fare < single ? plan : null;
+    }
+
+    private static int? PlanMinutes(TaxiWaysPlan plan)
+    {
+        var sum = 0;
+        foreach (var leg in plan.Legs)
+        {
+            if (leg.Minutes is not { } m) return null;
+            sum += m;
+        }
+        return sum;
     }
 
     // Places from which `to` is reachable in at most maxCars legs (reverse BFS), for "Reach X by train or bus".

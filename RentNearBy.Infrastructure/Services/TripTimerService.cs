@@ -352,10 +352,11 @@ public class TripTimerService(
                 {
                     var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(row, ownerId);
                     var n = TripNotifications.TripAdvanceProofSent(row, ctx);
-                    var sent = await notifier.SendOnceAsync(n, TripAdvanceRules.ProofKey(row.Id, proofSentAt, slot.Number), row.TripId, row.Id);
-                    // Not sent = this slot's key is already logged (an earlier pass sent it): move past it either way.
+                    var outcome = await notifier.TrySendOnceAsync(n, TripAdvanceRules.ProofKey(row.Id, proofSentAt, slot.Number), row.TripId, row.Id);
+                    // Failed = nothing logged: keep the count so the next tick retries this slot. Duplicate = an earlier pass sent it.
+                    if (!TripSendOutcomes.AdvancesCursor(outcome)) continue;
                     await unitOfWork.TripEnquiries.TryBumpReminderAsync(row.Id, count, slot.NextCount, now);
-                    if (!sent) continue;
+                    if (outcome != TripSendOutcome.Sent) continue;
                     done++;
                     await unitOfWork.Notifications.DeleteSupersededAsync(ownerId, n.Type, row.Id, n.Id);
                 }

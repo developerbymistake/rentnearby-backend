@@ -30,7 +30,7 @@ public static class JourneyHandlers
 
     public static async Task<IResult> Save(
         SaveJourneyRequest request, IValidator<SaveJourneyRequest> validator, ClaimsPrincipal principal,
-        ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, IRateLimitService rateLimiter, HttpContext http)
+        ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, IRateLimitService rateLimiter, ITaxiWaysSearch ways, HttpContext http)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request);
@@ -82,7 +82,7 @@ public static class JourneyHandlers
 
         var legs = request.Legs.OrderBy(l => l.LegIndex).ToList();
         var ids = legs
-            .SelectMany(l => new[] { l.DriverTaxiId, l.Backup1TaxiId ?? Guid.Empty, l.Backup2TaxiId ?? Guid.Empty })
+            .SelectMany(l => new[] { l.DriverTaxiId, l.Backup1TaxiId ?? Guid.Empty, l.Backup2TaxiId ?? Guid.Empty }.Concat(l.CoverTaxiIds ?? []))
             .Where(id => id != Guid.Empty)
             .ToHashSet();
         var taxis = await journeys.LoadTaxisAsync(ids);
@@ -106,6 +106,7 @@ public static class JourneyHandlers
             UpdatedAt = now,
         };
 
+        Guid? previousRoute = null;
         foreach (var l in legs)
         {
             if (!taxis.TryGetValue(l.DriverTaxiId, out var driver) || !driver.IsPublic || driver.UserId == userId)
@@ -117,13 +118,18 @@ public static class JourneyHandlers
                 .Distinct()
                 .ToList();
 
-            // A part of a driver's route is priced by its road share on the server (TaxiFare), never at the whole route's fare.
-            var perCar = l.ListedFare;
-            if (l.Partial)
-            {
-                var part = await journeys.FindOnLegAsync(l.DriverTaxiId, l.FromLat, l.FromLng, l.ToLat, l.ToLng);
-                if (part != null) perCar = part.Fare;
-            }
+            // Priced only on the server (the network's link, else the stored route), and the seat cover is re-solved over
+            // the driver and the cover cars the traveller accepted. The client's fare is never stored.
+            var coverIds = (l.CoverTaxiIds ?? [])
+                .Where(c => c != l.DriverTaxiId && taxis.TryGetValue(c, out var t) && t.IsPublic && t.UserId != userId)
+                .Distinct()
+                .ToList();
+            var fares = await JourneyLegFares.LoadAsync(
+                ways, journeys, l.LegKey, l.FromLat, l.FromLng, l.ToLat, l.ToLng, coverIds.Prepend(l.DriverTaxiId), taxis, previousRoute);
+            if (JourneyLegFares.Quote(l.DriverTaxiId, coverIds, fares, request.People) is not { } quote)
+                return ErrorResponse(409, "This driver does not go on this stretch.", JourneyErrorTypes.DriverNotOnLeg);
+            var driverFare = fares[l.DriverTaxiId];
+            previousRoute = driverFare.RouteId;
 
             journey.Legs.Add(new SavedJourneyLeg
             {
@@ -139,10 +145,10 @@ public static class JourneyHandlers
                 ToLongitude = (decimal)l.ToLng,
                 MeetingPlace = string.IsNullOrWhiteSpace(l.MeetingPlace) ? null : TripTextSafety.Clean(l.MeetingPlace),
                 DriverTaxiId = l.DriverTaxiId,
-                DriverRouteId = l.DriverRouteId,
-                // Per car fare of this one driver; the saved leg holds the whole stretch.
-                ListedFare = perCar is { } fare ? fare * TaxiWaysRanking.CarsNeeded(request.People, driver.Seats) : null,
-                Partial = l.Partial,
+                DriverRouteId = driverFare.RouteId,
+                ListedFare = quote.Fare,
+                Partial = driverFare.Partial,
+                CoverTaxiIds = quote.CoverOthers.ToArray(),
                 Backup1TaxiId = backups.Count > 0 ? backups[0] : null,
                 Backup2TaxiId = backups.Count > 1 ? backups[1] : null,
                 LastKnownStatus = JourneyLegStatuses.Unknown,
@@ -271,7 +277,7 @@ public static class JourneyHandlers
 
     public static async Task<IResult> Refresh(
         Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, IRateLimitService rateLimiter,
-        HttpContext http)
+        ITaxiWaysSearch ways, HttpContext http)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -290,15 +296,16 @@ public static class JourneyHandlers
         {
             var now = DateTime.UtcNow;
             var taxiIds = journey.Legs
-                .SelectMany(l => new[] { l.DriverTaxiId, l.Backup1TaxiId ?? Guid.Empty, l.Backup2TaxiId ?? Guid.Empty })
-                .Where(g => g != Guid.Empty)
+                .SelectMany(LegTaxiIds)
                 .ToHashSet();
             var taxis = await journeys.LoadTaxisAsync(taxiIds);
             var enquiries = await journeys.LoadEnquiriesAsync(journey.Legs.Where(l => l.LastEnquiryId != null).Select(l => l.LastEnquiryId!.Value).ToList());
 
+            Guid? previousRoute = null;
             foreach (var leg in journey.Legs.OrderBy(l => l.LegIndex))
             {
-                await RefreshLegAsync(journeys, journey, leg, taxis, enquiries, fareChanged, now, journey.People);
+                await RefreshLegAsync(ways, journeys, leg, taxis, enquiries, fareChanged, journey.People, previousRoute);
+                previousRoute = leg.DriverRouteId;
                 leg.UpdatedAt = now;
             }
 
@@ -323,24 +330,31 @@ public static class JourneyHandlers
         return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, fareChanged));
     }
 
+    // Every taxi a saved leg names: driver, backups and the other cars of its seat cover.
+    private static IEnumerable<Guid> LegTaxiIds(SavedJourneyLeg l)
+        => new[] { l.DriverTaxiId, l.Backup1TaxiId ?? Guid.Empty, l.Backup2TaxiId ?? Guid.Empty }
+            .Concat(l.CoverTaxiIds)
+            .Where(g => g != Guid.Empty);
+
+    // The cover is re-solved over the driver and the cover cars still listed on the stretch, with live server fares.
     private static async Task RefreshLegAsync(
-        ISavedJourneyRepository journeys, SavedJourney journey, SavedJourneyLeg leg, Dictionary<Guid, JourneyTaxiInfo> taxis,
-        Dictionary<Guid, TripEnquiry> enquiries, HashSet<int> fareChanged, DateTime now, int people)
+        ITaxiWaysSearch ways, ISavedJourneyRepository journeys, SavedJourneyLeg leg, Dictionary<Guid, JourneyTaxiInfo> taxis,
+        Dictionary<Guid, TripEnquiry> enquiries, HashSet<int> fareChanged, int people, Guid? previousRoute)
     {
         var driverLive = taxis.TryGetValue(leg.DriverTaxiId, out var driver) && driver.IsPublic;
         if (driverLive)
         {
-            var match = await journeys.FindOnLegAsync(
-                leg.DriverTaxiId, (double)leg.FromLatitude, (double)leg.FromLongitude, (double)leg.ToLatitude, (double)leg.ToLongitude);
-            if (match != null)
+            var cover = leg.CoverTaxiIds.Where(c => c != leg.DriverTaxiId && taxis.TryGetValue(c, out var t) && t.IsPublic).ToList();
+            var fares = await JourneyLegFares.LoadAsync(ways, journeys, leg, cover.Prepend(leg.DriverTaxiId), taxis, previousRoute);
+            if (JourneyLegFares.Quote(leg.DriverTaxiId, cover, fares, people) is { } quote)
             {
-                var fare = match.Fare * TaxiWaysRanking.CarsNeeded(people, driver!.Seats);
-                if (leg.ListedFare != fare)
+                if (leg.ListedFare != quote.Fare)
                 {
                     if (leg.ListedFare != null) fareChanged.Add(leg.LegIndex);
-                    leg.ListedFare = fare;
+                    leg.ListedFare = quote.Fare;
                 }
-                leg.DriverRouteId = match.RouteId;
+                leg.DriverRouteId = fares[leg.DriverTaxiId].RouteId;
+                leg.CoverTaxiIds = quote.CoverOthers.ToArray();
             }
             // A pass-through stretch has no end-to-end route until its road line exists: never mark it unavailable for that.
             else if (!leg.Partial)
@@ -374,7 +388,7 @@ public static class JourneyHandlers
 
     public static async Task<IResult> ReplaceDriver(
         Guid id, int legIndex, ReplaceJourneyDriverRequest request, IValidator<ReplaceJourneyDriverRequest> validator,
-        ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork)
+        ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, ITaxiWaysSearch ways)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request);
@@ -392,13 +406,17 @@ public static class JourneyHandlers
             if (bookedLegs.Contains(legIndex))
                 return ErrorResponse(409, "Cancel this booked car in your trip first", JourneyErrorTypes.JourneyInTrip);
 
-            var taxis = await journeys.LoadTaxisAsync([request.TaxiId, leg.DriverTaxiId]);
+            var taxis = await journeys.LoadTaxisAsync([request.TaxiId, leg.DriverTaxiId, .. leg.CoverTaxiIds]);
             if (!taxis.TryGetValue(request.TaxiId, out var next) || !next.IsPublic || next.UserId == userId)
                 return ErrorResponse(409, "This driver is not available.", JourneyErrorTypes.DriverNotOnLeg);
 
-            var match = await journeys.FindOnLegAsync(
-                request.TaxiId, (double)leg.FromLatitude, (double)leg.FromLongitude, (double)leg.ToLatitude, (double)leg.ToLongitude);
-            if (match == null)
+            // The new driver takes the old one's car in the cover; the other cover cars stay and the cover is re-solved.
+            var cover = leg.CoverTaxiIds
+                .Where(c => c != request.TaxiId && c != leg.DriverTaxiId && taxis.TryGetValue(c, out var t) && t.IsPublic)
+                .ToList();
+            var previousRoute = journey.Legs.FirstOrDefault(l => l.LegIndex == legIndex - 1)?.DriverRouteId;
+            var fares = await JourneyLegFares.LoadAsync(ways, journeys, leg, cover.Prepend(request.TaxiId), taxis, previousRoute);
+            if (JourneyLegFares.Quote(request.TaxiId, cover, fares, journey.People) is not { } quote)
                 return ErrorResponse(409, "This driver does not go on this stretch.", JourneyErrorTypes.DriverNotOnLeg);
 
             var oldId = leg.DriverTaxiId;
@@ -409,8 +427,10 @@ public static class JourneyHandlers
 
             var now = DateTime.UtcNow;
             leg.DriverTaxiId = request.TaxiId;
-            leg.DriverRouteId = match.RouteId;
-            leg.ListedFare = match.Fare * TaxiWaysRanking.CarsNeeded(journey.People, next.Seats);
+            leg.DriverRouteId = fares[request.TaxiId].RouteId;
+            leg.ListedFare = quote.Fare;
+            leg.CoverTaxiIds = quote.CoverOthers.ToArray();
+            leg.Partial = fares[request.TaxiId].Partial;
             leg.Backup1TaxiId = backups.Count > 0 ? backups[0] : null;
             leg.Backup2TaxiId = backups.Count > 1 ? backups[1] : null;
             leg.LastEnquiryId = null;
@@ -484,8 +504,7 @@ public static class JourneyHandlers
     {
         var ids = rows
             .SelectMany(j => j.Legs)
-            .SelectMany(l => new[] { l.DriverTaxiId, l.Backup1TaxiId ?? Guid.Empty, l.Backup2TaxiId ?? Guid.Empty })
-            .Where(g => g != Guid.Empty)
+            .SelectMany(LegTaxiIds)
             .ToHashSet();
         return await journeys.LoadTaxisAsync(ids);
     }
@@ -572,8 +591,12 @@ public static class JourneyHandlers
                 .Select(b => Driver(b!.Value, taxis))
                 .ToList(),
             ListedFare = l.ListedFare,
-            CarsNeeded = CarsOf(j.People, l.DriverTaxiId, taxis),
-            SeatsNote = taxis.TryGetValue(l.DriverTaxiId, out var legDriver) ? TaxiWaysRanking.SeatsNote(j.People, legDriver.Seats) : null,
+            CarsNeeded = JourneyLegPricing.CarsOfLeg(j.People, SeatsOf(l.DriverTaxiId, taxis), l.CoverTaxiIds),
+            CoverTaxiIds = l.CoverTaxiIds.ToList(),
+            CoverDrivers = l.CoverTaxiIds.Select(c => Driver(c, taxis)).ToList(),
+            SeatsNote = l.CoverTaxiIds.Length > 0
+                ? TaxiWaysRanking.CoverNote(j.People, l.CoverTaxiIds.Prepend(l.DriverTaxiId).Select(c => SeatsOf(c, taxis)))
+                : taxis.TryGetValue(l.DriverTaxiId, out var legDriver) ? TaxiWaysRanking.SeatsNote(j.People, legDriver.Seats) : null,
             Partial = l.Partial,
             LastEnquiryId = l.LastEnquiryId,
             LastKnownStatus = l.LastKnownStatus,
@@ -586,10 +609,10 @@ public static class JourneyHandlers
         }).ToList(),
     };
 
-    // Phone numbers only for a driver who is still listed.
-    private static int CarsOf(int people, Guid taxiId, Dictionary<Guid, JourneyTaxiInfo> taxis)
-        => TaxiWaysRanking.CarsNeeded(people, taxis.TryGetValue(taxiId, out var t) ? t.Seats : null);
+    private static short? SeatsOf(Guid taxiId, Dictionary<Guid, JourneyTaxiInfo> taxis)
+        => taxis.TryGetValue(taxiId, out var t) ? t.Seats : null;
 
+    // Phone numbers only for a driver who is still listed.
     private static JourneyDriverDto Driver(Guid taxiId, Dictionary<Guid, JourneyTaxiInfo> taxis)
     {
         if (!taxis.TryGetValue(taxiId, out var t))

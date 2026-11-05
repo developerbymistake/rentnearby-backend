@@ -44,6 +44,7 @@ public class TripRoadCache(
 
         var hit = await ReadMatrixAsync(redis, cityKey);
         if (hit != null) return hit;
+        if (await IsSkippedAsync(redis, cityKey)) return null;
 
         return await SharedBuild(redis, cityKey).WaitAsync(ct);
     }
@@ -55,21 +56,28 @@ public class TripRoadCache(
 
         var hit = await ReadMatrixAsync(redis, cityKey);
         if (hit != null) return hit;
+        if (await IsSkippedAsync(redis, cityKey)) return null;
 
         _ = SharedBuild(redis, cityKey);
         return null;
     }
 
+    private async Task<bool> IsSkippedAsync(IConnectionMultiplexer redis, long cityKey)
+        => await ReadAsync(redis, TripMatrixRules.SkipKey(cityKey)) != null;
+
     private Task<CityRoadMatrix?> SharedBuild(IConnectionMultiplexer redis, long cityKey)
         => _inflight.GetOrAdd(cityKey, key => new Lazy<Task<CityRoadMatrix?>>(() => Task.Run(() => LoadOnceAsync(redis, key)))).Value;
 
+    // A new generation first, then the delete: a build that read the old generation never leaves its matrix behind.
     public async Task InvalidateAsync(long cityKey)
     {
         var redis = sp.GetService<IConnectionMultiplexer>();
         if (redis == null) return;
         try
         {
-            await redis.GetDatabase().KeyDeleteAsync(new RedisKey[] { TripCacheKeys.Matrix(cityKey), TripCacheKeys.MatrixLock(cityKey) });
+            var db = redis.GetDatabase();
+            await db.StringSetAsync(TripMatrixRules.GenKey(cityKey), Guid.NewGuid().ToString("N"), TimeSpan.FromHours(options.Value.CacheTtlHours));
+            await db.KeyDeleteAsync(new RedisKey[] { TripCacheKeys.Matrix(cityKey), TripCacheKeys.MatrixLock(cityKey), TripMatrixRules.SkipKey(cityKey) });
         }
         catch (Exception ex)
         {
@@ -160,12 +168,23 @@ public class TripRoadCache(
             var again = await ReadMatrixAsync(redis, cityKey);
             if (again != null) return again;
 
-            var spots = await spotCache.GetAsync(cityKey);
-            var matrix = await BuildAsync(redis, cityKey, spots?.Spots, o);
+            var generation = await ReadGenerationAsync(redis, cityKey);
+            if (generation == null) return null;
+
+            var cached = await spotCache.GetAsync(cityKey);
+            var spots = (cached?.Spots ?? new()).DistinctBy(s => s.Id).ToList();
+            if (TripMatrixRules.SkipTtl(cached?.Status, spots.Count, o) is { } skipTtl)
+            {
+                await WriteIfCurrentAsync(redis, cityKey, generation, TripMatrixRules.SkipKey(cityKey), "1", skipTtl);
+                return null;
+            }
+
+            var matrix = await BuildAsync(redis, cityKey, spots, o);
             if (matrix == null) return null;
 
-            await WriteAsync(redis, TripCacheKeys.Matrix(cityKey), JsonSerializer.Serialize(matrix), TimeSpan.FromHours(o.CacheTtlHours));
-            return matrix;
+            var stored = await WriteIfCurrentAsync(redis, cityKey, generation, TripCacheKeys.Matrix(cityKey), JsonSerializer.Serialize(matrix),
+                TimeSpan.FromHours(o.CacheTtlHours));
+            return stored ? matrix : null;
         }
         catch (Exception ex)
         {
@@ -321,6 +340,32 @@ public class TripRoadCache(
             logger.LogWarning("TripRoadCache: matrix of {CityKey} unreadable: {Error}", cityKey, ex.Message);
             return null;
         }
+    }
+
+    // "" when no invalidation has set one; null when Redis failed.
+    private async Task<string?> ReadGenerationAsync(IConnectionMultiplexer redis, long cityKey)
+    {
+        try
+        {
+            var value = await redis.GetDatabase().StringGetAsync(TripMatrixRules.GenKey(cityKey));
+            return value.IsNullOrEmpty ? string.Empty : value.ToString();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("TripRoadCache: generation read of {CityKey} failed: {Error}", cityKey, ex.Message);
+            return null;
+        }
+    }
+
+    // InvalidateAsync sets the generation before it deletes, so the check after the write removes any value written
+    // across an invalidation; the check before it skips the write in the common case.
+    private async Task<bool> WriteIfCurrentAsync(IConnectionMultiplexer redis, long cityKey, string generation, string key, string value, TimeSpan ttl)
+    {
+        if (!TripMatrixRules.SameGeneration(generation, await ReadGenerationAsync(redis, cityKey))) return false;
+        await WriteAsync(redis, key, value, ttl);
+        if (TripMatrixRules.SameGeneration(generation, await ReadGenerationAsync(redis, cityKey))) return true;
+        await DeleteAsync(redis, key);
+        return false;
     }
 
     private async Task<string?> ReadAsync(IConnectionMultiplexer? redis, string key)
