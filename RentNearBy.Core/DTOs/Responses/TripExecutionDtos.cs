@@ -16,6 +16,9 @@ public class TripEnquiryDto
     public DateOnly? CheckIn { get; set; }
     public DateOnly? CheckOut { get; set; }
     public int Nights { get; set; }
+    // yyyy-MM-dd of the trip (null without a trip): first night and the latest allowed check-out (last day + 1).
+    public string? TripStartDate { get; set; }
+    public string? TripCheckOutLimit { get; set; }
     public Guid? ConversationId { get; set; }
     public string Status { get; set; } = TripEnquiryStatuses.Asked;
     public string? FailReason { get; set; }

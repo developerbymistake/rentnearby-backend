@@ -28,7 +28,7 @@ public sealed class TripNotifier(
             return;
         }
 
-        await AdminHandlers.SendGoLiveNotificationAsync(hub, publisher, n);
+        await AdminHandlers.SendGoLiveNotificationAsync(hub, publisher, n, logger);
     }
 
     // The dedupe row and the inbox row commit together, so a failed inbox save leaves the key free for the next pass.
@@ -74,7 +74,7 @@ public sealed class TripNotifier(
             if (tx != null) await tx.DisposeAsync();
         }
 
-        if (n.TargetUserId != null) await AdminHandlers.SendGoLiveNotificationAsync(hub, publisher, n);
+        if (n.TargetUserId != null) await AdminHandlers.SendGoLiveNotificationAsync(hub, publisher, n, logger);
         return true;
     }
 }

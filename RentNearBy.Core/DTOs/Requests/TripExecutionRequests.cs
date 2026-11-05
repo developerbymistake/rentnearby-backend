@@ -11,6 +11,8 @@ public class CreateTripEnquiryRequest
     public List<int>? Days { get; set; }
     public List<Guid> ListingIds { get; set; } = new();
     public bool AllNights { get; set; }
+    // Stay only: explicit nights from Day (capped at the trip's last night); when set, AllNights is ignored.
+    public int? Nights { get; set; }
     // Taxi only, "HH:mm"; null = from the trip settings.
     public string? PickupTime { get; set; }
     public string? PickupPlace { get; set; }

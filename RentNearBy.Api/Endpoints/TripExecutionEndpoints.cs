@@ -14,12 +14,13 @@ public static class TripExecutionEndpoints
         group.MapPost("/{tripId:guid}/phone-bookings", TripEnquiryHandlers.CreatePhoneBooking).Gated();
 
         group.MapGet("/enquiries/owner", TripOwnerHandlers.GetMine).Gated("CanListStays");
+        // Get one, withdraw and cancel serve journey leads too (no planner gate, party checked in the handlers).
         group.MapGet("/enquiries/by-conversation/{conversationId:guid}", TripEnquiryHandlers.GetByConversation).Gated();
-        group.MapGet("/enquiries/{id:guid}", TripEnquiryHandlers.GetOne).Gated();
+        group.MapGet("/enquiries/{id:guid}", TripEnquiryHandlers.GetOne).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapPut("/enquiries/{id:guid}/phone-booking", TripEnquiryHandlers.EditPhoneBooking).Gated();
         group.MapPost("/enquiries/{id:guid}/host-confirm-link/resend", TripEnquiryHandlers.ResendHostLink).Gated();
-        group.MapPost("/enquiries/{id:guid}/withdraw", TripEnquiryHandlers.Withdraw).Gated();
-        group.MapPost("/enquiries/{id:guid}/cancel", TripEnquiryHandlers.Cancel).Gated();
+        group.MapPost("/enquiries/{id:guid}/withdraw", TripEnquiryHandlers.Withdraw).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/enquiries/{id:guid}/cancel", TripEnquiryHandlers.Cancel).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapPost("/enquiries/{id:guid}/offers/{offerId:guid}/accept", TripEnquiryHandlers.AcceptOffer).Gated();
         group.MapPost("/enquiries/{id:guid}/offers/{offerId:guid}/decline", TripEnquiryHandlers.DeclineOffer).Gated();
 

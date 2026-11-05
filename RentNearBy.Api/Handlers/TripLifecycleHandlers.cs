@@ -28,6 +28,28 @@ public static class TripLifecycleHandlers
     private static IResult Concurrent()
         => ConflictResponse("This trip just changed.", TripEnquiryErrorTypes.ConcurrentUpdate);
 
+    // The kept nights as an accepted offer card (same shape as a sent offer).
+    private static object KeptOfferPayload(TripEnquiry kept, TripOffer shrunk) => new
+    {
+        enquiryId = kept.Id,
+        offerId = shrunk.Id,
+        checkIn = shrunk.CheckIn,
+        checkOut = shrunk.CheckOut,
+        nights = (int)shrunk.Nights,
+        lines = TripEnquiryDtoBuilder.ReadLines(shrunk.LinesJson),
+        total = shrunk.Total,
+        listedPerNight = (int?)null,
+        inclusions = shrunk.Inclusions,
+        needsEchoed = JsonSerializer.Deserialize<string[]>(shrunk.NeedsEchoedJson ?? "[]", TripJson.Options) ?? [],
+        advanceAmount = shrunk.AdvanceAmount,
+        balanceNote = shrunk.BalanceNote,
+        cancellationText = shrunk.CancellationText,
+        gstInvoice = shrunk.GstInvoice,
+        validUntil = shrunk.ValidUntil,
+        status = TripCardStatuses.Accepted,
+        datesDiffer = false,
+    };
+
     // The enquiry id a stay/taxi report may carry: only the caller's own enquiry for this listing, else ignored.
     public static async Task<Guid?> OwnTripEnquiryIdAsync(IUnitOfWork unitOfWork, Guid? tripEnquiryId, Guid listingId, Guid callerId)
     {
@@ -105,6 +127,16 @@ public static class TripLifecycleHandlers
                     {
                         var shrunk = TripProblemSplit.ShrinkAcceptedOffer(accepted, kept, now);
                         accepted.Status = TripOfferStatuses.Superseded;
+                        if (accepted.MessageId is { } oldCard && await chat.RewriteStatusAsync(oldCard, TripCardStatuses.Superseded) is { } rewrite)
+                            posts.Add(rewrite);
+                        if (kept.ConversationId is { } keptConversationId
+                            && await db.Conversations.FirstOrDefaultAsync(c => c.Id == keptConversationId) is { } conversation)
+                        {
+                            var card = await chat.PostAsync(conversation, shrunk.SenderUserId, TripMessageTypes.Offer,
+                                KeptOfferPayload(kept, shrunk), $"Offer · Rs {shrunk.Total}");
+                            shrunk.MessageId = card.Message.Id;
+                            posts.Add(card);
+                        }
                         db.TripOffers.Add(shrunk);
                         kept.AcceptedOfferId = shrunk.Id;
                     }

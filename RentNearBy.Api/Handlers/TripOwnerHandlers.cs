@@ -235,7 +235,9 @@ public static class TripOwnerHandlers
 
         await chat.AfterCommitAsync(posts);
         await TripPushSender.SendAsync(
-            [new TripPendingPush(e, e.TravellerUserId, TripNotifications.TripOfferReceived, Total: total)],
+            [new TripPendingPush(e, e.TravellerUserId,
+                (row, ctx) => TripNotifications.TripOfferReceived(row, ctx with { CheckIn = offer.CheckIn, CheckOut = offer.CheckOut }),
+                Total: total)],
             unitOfWork.TripEnquiries, notifier, httpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TripOwner"));
 
         var dto = await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId);
@@ -491,7 +493,9 @@ public static class TripOwnerHandlers
 
         await chat.AfterCommitAsync(posts);
         await TripPushSender.SendAsync(
-            [new TripPendingPush(e, e.TravellerUserId, TripNotifications.TripRevisedOffer, Total: total)],
+            [new TripPendingPush(e, e.TravellerUserId,
+                (row, ctx) => TripNotifications.TripRevisedOffer(row, ctx with { CheckIn = offer.CheckIn, CheckOut = offer.CheckOut }),
+                Total: total)],
             unitOfWork.TripEnquiries, notifier, httpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("TripOwner"));
 
         var dto = await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId);

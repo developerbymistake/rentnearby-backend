@@ -173,13 +173,27 @@ public static class TripEnquiryDtoBuilder
             ? await unitOfWork.TripEnquiries.LoadTaxiContactsAsync(taxiIds)
             : new Dictionary<Guid, (string? Phone, string? WhatsApp)>();
 
-        return enquiries.Select(e => Build(
-            e,
-            offers.TryGetValue(e.Id, out var list) ? list : new List<TripOffer>(),
-            Party(parties, e.TravellerUserId),
-            Party(parties, e.OwnerUserId),
-            viewerId, nowUtc,
-            contacts.TryGetValue(e.ListingId, out var contact) ? contact : ((string? Phone, string? WhatsApp)?)null)).ToList();
+        var tripDates = new Dictionary<Guid, (DateOnly? Start, DateOnly? End)>();
+        foreach (var tripId in enquiries.Where(e => e.TripId != null).Select(e => e.TripId!.Value).Distinct())
+            if (await unitOfWork.Trips.GetByIdAsync(tripId) is { } trip)
+                tripDates[tripId] = (trip.StartDate, trip.EndDate);
+
+        return enquiries.Select(e =>
+        {
+            var dto = Build(
+                e,
+                offers.TryGetValue(e.Id, out var list) ? list : new List<TripOffer>(),
+                Party(parties, e.TravellerUserId),
+                Party(parties, e.OwnerUserId),
+                viewerId, nowUtc,
+                contacts.TryGetValue(e.ListingId, out var contact) ? contact : ((string? Phone, string? WhatsApp)?)null);
+            if (e.TripId is { } id && tripDates.TryGetValue(id, out var dates))
+            {
+                dto.TripStartDate = dates.Start?.ToString("yyyy-MM-dd");
+                dto.TripCheckOutLimit = dates.End is { } end ? TripDateRules.CheckOutLimit(end).ToString("yyyy-MM-dd") : null;
+            }
+            return dto;
+        }).ToList();
     }
 
     public static async Task<TripEnquiryDto> BuildOneAsync(IUnitOfWork unitOfWork, TripEnquiry e, Guid viewerId, DateTime nowUtc)

@@ -46,7 +46,7 @@ public static class TripNotifications
 
     public static NotificationEvent TripOfferReceived(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripOfferReceived, $"{Listing(e, ctx)} sent an offer",
-            $"Rs {Money(ctx.Total)} for {Dates(e)}. Valid {(e.IsUrgent ? "2 h" : "24 h")}.", Chat(e, ctx));
+            $"Rs {Money(ctx.Total)} for {Dates(e, ctx)}. Valid {(e.IsUrgent ? "2 h" : "24 h")}.", Chat(e, ctx));
 
     public static NotificationEvent TripHostConfirmed(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripHostConfirmed, $"{Listing(e, ctx)} confirmed",
@@ -144,11 +144,14 @@ public static class TripNotifications
 
     public static NotificationEvent TripCounterReceived(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripCounterReceived, $"{Name(ctx.TravellerName, "A guest")} proposed a price",
-            $"Rs {Money(ctx.Total)} per room per night for {Dates(e)}.", ChatOrEnquiries(e, ctx));
+            $"Rs {Money(ctx.Total)} per room per night for {Dates(e, ctx)}.", ChatOrEnquiries(e, ctx));
 
     public static NotificationEvent TripRevisedOffer(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripRevisedOffer, $"{Listing(e, ctx)} revised the price",
-            $"Rs {Money(e.AgreedTotal)} to Rs {Money(ctx.Total)}. Your price stays until you accept.", Chat(e, ctx));
+            $"Rs {Money(e.AgreedTotal)} to Rs {Money(ctx.Total)}{NewDates(e, ctx)}. Your price stays until you accept.", Chat(e, ctx));
+
+    private static string NewDates(TripEnquiry e, TripPushContext ctx) =>
+        ctx.CheckIn is { } a && (a != e.CheckIn || (ctx.CheckOut ?? e.CheckOut) != e.CheckOut) ? $" for {Dates(e, ctx)}" : string.Empty;
 
     public static NotificationEvent TripRevisedKept(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripRevisedKept, "Revised offer not accepted",
@@ -172,7 +175,7 @@ public static class TripNotifications
 
     public static NotificationEvent TripProblemReported(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripProblemReported, $"Problem on {Name(ctx.TravellerName, "a guest")}'s trip",
-            IsTaxi(e) ? "The driver did not come." : "The host could not give the room.", OwnerList(e, ctx));
+            IsTaxi(e) ? "The driver did not come." : "The host could not give the room.", IsTaxi(e) ? Leads(e) : Enquiries(e, ctx));
 
     private static string? PhoneHostName(TripEnquiry e)
     {
@@ -187,11 +190,19 @@ public static class TripNotifications
 
     // ── formatting ───────────────────────────────────────────────────────────
 
-    // "01-02 Nov", or "01 Nov - 02 Dec" across months. Taxi rows store CheckOut = last day + 1, so they show the last day;
-    // non-consecutive taxi days (DaysJson) read "05, 07 Nov".
-    public static string Dates(TripEnquiry e)
+    // Stay rows read as nights ("Night of 05 Nov", "2 nights from 05 Nov"); the check-out morning is not a stay day.
+    // Taxi rows store CheckOut = last day + 1, so they show the last day; non-consecutive taxi days (DaysJson) read "05, 07 Nov".
+    public static string Dates(TripEnquiry e) => Dates(e, null);
+
+    // ctx.CheckIn/CheckOut (an offer's own dates) win over the enquiry's range.
+    private static string Dates(TripEnquiry e, TripPushContext? ctx)
     {
-        if (!IsTaxi(e) || e.CheckIn is not { } a || e.CheckOut is not { } b) return DateRange(e.CheckIn, e.CheckOut);
+        if (!IsTaxi(e))
+        {
+            var checkIn = ctx?.CheckIn ?? e.CheckIn;
+            return checkIn is null ? "your dates" : TripDateText.StayNights(checkIn, ctx?.CheckOut ?? e.CheckOut);
+        }
+        if (e.CheckIn is not { } a || e.CheckOut is not { } b) return DateRange(e.CheckIn, e.CheckOut);
         if (TaxiDates(e, a) is { } dates) return DayList(dates);
         var last = b.AddDays(-1);
         return last <= a ? a.ToString("dd MMM", Inv) : DateRange(a, last);

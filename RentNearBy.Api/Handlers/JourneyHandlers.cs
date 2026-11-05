@@ -41,7 +41,11 @@ public static class JourneyHandlers
             return TooManyRequestsResponse();
         }
 
+        // Same plan, date and people = the same journey; a people change is a new journey (D24).
         var existing = await journeys.FindByPlanAsync(userId, request.PlanKey, request.Date);
+        if (existing != null && existing.People != request.People)
+            existing = (await journeys.GetLiveByUserAsync(userId))
+                .FirstOrDefault(j => j.PlanKey == request.PlanKey && j.TravelDate == request.Date && j.People == request.People);
         if (existing != null) return OkResponse(await BuildAsync(journeys, existing, new HashSet<int>()));
 
         if (await journeys.CountLiveAsync(userId) >= JourneyRules.MaxLive)

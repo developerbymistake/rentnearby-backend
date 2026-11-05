@@ -40,12 +40,6 @@ public static class TaxiWaysAskHandlers
         if (journey.Status == JourneyStatuses.Completed) return BadRequestResponse("This journey is completed");
         if (request.Legs.Any(l => journey.Legs.All(x => x.LegIndex != l.LegIndex))) return BadRequestResponse("Unknown leg");
 
-        var hourlyCheck = await rateLimiter.CheckAsync($"trip:enquiry:h:{callerId}", TripExecutionRules.EnquiriesPerHour, Hour);
-        http.Response.Headers[AsksLeftHeader] = Math.Max(0, hourlyCheck.RemainingAttempts).ToString();
-        if (!hourlyCheck.IsAllowed) return Limited(http, hourlyCheck, Hour);
-        if (await RateLimitedAsync(rateLimiter, http, $"trip:enquiry:d:{callerId}", TripExecutionRules.EnquiriesPerDay, Day24) is { } daily)
-            return daily;
-
         var now = DateTime.UtcNow;
         var date = request.Date;
         var checkOut = date.AddDays(1);
@@ -89,6 +83,16 @@ public static class TaxiWaysAskHandlers
                 }
                 candidates.Add((leg, taxi));
             }
+        }
+
+        // Only an ask that sends a new lead spends the shared ask quota.
+        if (candidates.Count > 0)
+        {
+            var hourlyCheck = await rateLimiter.CheckAsync($"trip:enquiry:h:{callerId}", TripExecutionRules.EnquiriesPerHour, Hour);
+            http.Response.Headers[AsksLeftHeader] = Math.Max(0, hourlyCheck.RemainingAttempts).ToString();
+            if (!hourlyCheck.IsAllowed) return Limited(http, hourlyCheck, Hour);
+            if (await RateLimitedAsync(rateLimiter, http, $"trip:enquiry:d:{callerId}", TripExecutionRules.EnquiriesPerDay, Day24) is { } daily)
+                return daily;
         }
 
         var (expiresAt, veryShortNotice) = TripExecutionRules.EnquiryExpiry(date, date, now);

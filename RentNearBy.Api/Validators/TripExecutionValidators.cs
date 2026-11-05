@@ -25,6 +25,11 @@ public class CreateTripEnquiryRequestValidator : AbstractValidator<CreateTripEnq
             .When(x => x.Kind != TripEnquiryKinds.Taxi)
             .WithMessage($"Day must be 1 to {TripExecutionValidation.MaxDay}");
 
+        RuleFor(x => x.Nights)
+            .InclusiveBetween(1, TripExecutionValidation.MaxNights)
+            .When(x => x.Nights != null && x.Kind != TripEnquiryKinds.Taxi)
+            .WithMessage($"Nights must be 1 to {TripExecutionValidation.MaxNights}");
+
         RuleFor(x => x.Days)
             .Must(d => d != null && d.Count is >= 1 and <= TripLeadRules.MaxLeadDays)
             .WithMessage($"Pick 1 to {TripLeadRules.MaxLeadDays} days")

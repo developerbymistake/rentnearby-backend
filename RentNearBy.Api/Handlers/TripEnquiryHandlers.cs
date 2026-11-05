@@ -103,7 +103,8 @@ public static class TripEnquiryHandlers
 
         var now = DateTime.UtcNow;
         if (CheckNight(trip, request.Day, now) is { } nightError) return nightError;
-        var (checkIn, checkOut) = Nights(trip, request.Day, request.AllNights);
+        var (checkIn, checkOut) = Nights(trip, request.Day, request.AllNights, request.Nights);
+        var multiNight = request.Nights != null ? TripExecutionRules.Nights(checkIn, checkOut) > 1 : request.AllNights;
 
         var tabs = await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache);
         if (!TabState.IsKindActive(tabs, ListingKinds.Stay))
@@ -143,20 +144,22 @@ public static class TripEnquiryHandlers
                 continue;
             }
 
+            // One open unconfirmed row per stay and trip, so the shared chat always acts on the right row:
+            // an Asked row next to or overlapping the new nights takes their union; any other unconfirmed row blocks a second one.
+            var unconfirmed = tripOpen.FirstOrDefault(x => x.ListingId == listingId && TripEnquiryStatuses.IsUnconfirmed(x.Status));
+            var joinable = unconfirmed is { Status: TripEnquiryStatuses.Asked }
+                && (Adjacent(unconfirmed, checkIn, checkOut) || Overlaps(unconfirmed, checkIn, checkOut));
+
             var mine = await unitOfWork.TripEnquiries.GetOpenByTravellerListingAsync(callerId, TripEnquiryKinds.Stay, listingId);
-            if (mine.Any(x => Overlaps(x, checkIn, checkOut)))
+            if (mine.Any(x => Overlaps(x, checkIn, checkOut) && !(joinable && x.Id == unconfirmed!.Id)))
             {
                 skipped.Add(Skip(listingId, TripSkipReasons.AlreadyOpen));
                 continue;
             }
 
-            // One open unconfirmed row per stay and trip, so the shared chat always acts on the right row:
-            // next to an Asked row the nights join it; any other unconfirmed row of this stay blocks a second one.
-            var unconfirmed = tripOpen.FirstOrDefault(x => x.ListingId == listingId && TripEnquiryStatuses.IsUnconfirmed(x.Status));
             if (unconfirmed != null)
             {
-                if (unconfirmed.Status == TripEnquiryStatuses.Asked && Adjacent(unconfirmed, checkIn, checkOut)
-                    && FitsNightCap(tripOpen, listingId, candidates.Count + stayMerges.Count, checkIn, checkOut))
+                if (joinable && FitsNightCap(tripOpen, listingId, candidates.Count + stayMerges.Count, checkIn, checkOut))
                     stayMerges.Add(unconfirmed);
                 else
                     skipped.Add(Skip(listingId, TripSkipReasons.AlreadyOpen));
@@ -179,7 +182,7 @@ public static class TripEnquiryHandlers
         if (candidates.Count > 0 || stayMerges.Count > 0)
         {
             var plan = ReadPlan(trip);
-            var context = BuildContext(trip, plan, request.Day, checkIn, checkOut, request.AllNights, travellerName);
+            var context = BuildContext(trip, plan, request.Day, checkIn, checkOut, multiNight, travellerName);
             var contextJson = JsonSerializer.Serialize(context, TripJson.Options);
             var isUrgent = TripExecutionRules.IsUrgent(trip.StartDate!.Value, now);
 
@@ -551,6 +554,29 @@ public static class TripEnquiryHandlers
         return n;
     }
 
+    // The row keeps only `kept`: days, span and the lead text follow.
+    private static void ShrinkLead(Trip trip, TripPlan plan, TripEnquiry row, List<int> kept, string travellerName, DateTime now)
+    {
+        var (keptIn, keptOut) = TaxiSpan(trip, kept);
+        var context = BuildLeadContext(trip, plan, kept, keptIn, keptOut, travellerName, row.PickupTime, row.PickupPlace);
+        row.DaysJson = JsonSerializer.Serialize(kept, TripJson.Options);
+        row.CheckIn = keptIn;
+        row.CheckOut = keptOut;
+        row.ContextJson = JsonSerializer.Serialize(context, TripJson.Options);
+        row.UpdatedAt = now;
+    }
+
+    private static string DayDates(DateOnly start, IEnumerable<int> days)
+        => string.Join(", ", days.OrderBy(d => d).Select(d => TripDateText.Day(TripExecutionRules.NightDate(start, d))));
+
+    private static Func<TripEnquiry, TripPushContext, NotificationEvent> LeadDaysRemoved(string removed) => (e, ctx) =>
+    {
+        var n = TripNotifications.TripBookingChanged(e, ctx);
+        n.Title = (e.IsUrgent ? "Urgent · " : string.Empty) + $"{TripDateText.FirstName(ctx.TravellerName)} booked another taxi for {removed}";
+        n.Body = $"You keep {TripNotifications.Dates(e)}, Rs {(e.AgreedFare ?? 0).ToString("N0", System.Globalization.CultureInfo.InvariantCulture)}.";
+        return n;
+    };
+
     // ---------- POST /trips/{tripId}/taxi-bookings ("I booked") ----------
 
     public static async Task<IResult> CreateTaxiBooking(
@@ -626,26 +652,49 @@ public static class TripEnquiryHandlers
                     new TripNightConflictDto { EnquiryId = blocking.Id, ListingName = blocking.ListingName });
             }
 
+            var plan = ReadPlan(trip);
+
+            // A replaced driver loses only the days taken; his other days stay booked at a prorated fare.
             foreach (var replaced in booked)
             {
-                replaced.Status = TripEnquiryStatuses.CancelledByTraveller;
-                replaced.CancelledAt = now;
-                replaced.CancelledByUserId = callerId;
-                replaced.UpdatedAt = now;
-                pushes.Add(new TripPendingPush(replaced, replaced.OwnerUserId, TripNotifications.TripTravellerCancelled));
+                var rowDays = TripEnquiryDtoBuilder.ReadDays(replaced.DaysJson) ?? [];
+                var kept = TripLeadRules.RemainingDays(rowDays, newDays);
+                if (kept.Count == 0)
+                {
+                    replaced.Status = TripEnquiryStatuses.CancelledByTraveller;
+                    replaced.CancelledAt = now;
+                    replaced.CancelledByUserId = callerId;
+                    replaced.UpdatedAt = now;
+                    pushes.Add(new TripPendingPush(replaced, replaced.OwnerUserId, TripNotifications.TripTravellerCancelled));
+                    continue;
+                }
+                var removed = rowDays.Except(kept).ToList();
+                ShrinkLead(trip, plan, replaced, kept, travellerName, now);
+                replaced.AgreedFare = TripLeadRules.ProrateFare(replaced.AgreedFare, kept.Count, Math.Max(1, rowDays.Length));
+                replaced.ExpiresAt = TripExecutionRules.IstMidnightUtc(replaced.CheckOut!.Value);
+                pushes.Add(new TripPendingPush(replaced, replaced.OwnerUserId, LeadDaysRemoved(DayDates(tripStart, removed))));
             }
 
             if (request.CloseOthers)
             {
                 foreach (var other in sharing.Where(x => x.Status is TripEnquiryStatuses.Asked or TripEnquiryStatuses.FareSent))
                 {
-                    other.Status = TripEnquiryStatuses.Closed;
-                    other.FailReason = TripCloseReasons.BookedElsewhere;
-                    other.UpdatedAt = now;
+                    var rowDays = TripEnquiryDtoBuilder.ReadDays(other.DaysJson) ?? [];
+                    var kept = TripLeadRules.RemainingDays(rowDays, newDays);
+                    if (kept.Count == 0)
+                    {
+                        other.Status = TripEnquiryStatuses.Closed;
+                        other.FailReason = TripCloseReasons.BookedElsewhere;
+                        other.UpdatedAt = now;
+                        continue;
+                    }
+                    // The fare was for the old day set, so the driver quotes again for the days left.
+                    ShrinkLead(trip, plan, other, kept, travellerName, now);
+                    if (other.Status == TripEnquiryStatuses.FareSent) TripLeadRules.ResetForMerge(other);
+                    pushes.Add(new TripPendingPush(other, other.OwnerUserId, LeadDaysUpdated));
                 }
             }
 
-            var plan = ReadPlan(trip);
             var context = BuildLeadContext(trip, plan, days, checkIn, checkOut, travellerName, pickupTime, pickupPlace);
 
             if (existing != null)
@@ -1011,11 +1060,8 @@ public static class TripEnquiryHandlers
             throw;
         }
 
-        // A taxi lead has no chat, so the driver only learns of the withdraw from this push.
-        var pushes = e.Kind == TripEnquiryKinds.Taxi
-            ? new List<TripPendingPush> { new(e, e.OwnerUserId, EnquiryWithdrawn) }
-            : new List<TripPendingPush>();
-        await AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
+        // The chat line alone sends no push, so the host or driver is told here.
+        await AfterCommitAsync(chat, posts, [new TripPendingPush(e, e.OwnerUserId, EnquiryWithdrawn)], unitOfWork, notifier, loggers);
         return OkResponse(await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, callerId, now));
     }
 
@@ -1023,7 +1069,8 @@ public static class TripEnquiryHandlers
     internal static NotificationEvent EnquiryWithdrawn(TripEnquiry e, TripPushContext ctx)
     {
         var n = TripNotifications.TripTravellerCancelled(e, ctx);
-        var who = string.IsNullOrWhiteSpace(ctx.TravellerName) ? "A traveller" : ctx.TravellerName.Trim();
+        var who = !string.IsNullOrWhiteSpace(ctx.TravellerName) ? ctx.TravellerName.Trim()
+            : e.Kind == TripEnquiryKinds.Taxi ? "A traveller" : "A guest";
         n.Title = (e.IsUrgent ? "Urgent · " : string.Empty) + "Enquiry withdrawn";
         n.Body = $"{who} withdrew the enquiry for {TripNotifications.Dates(e)}.";
         return n;
@@ -1271,35 +1318,43 @@ public static class TripEnquiryHandlers
         var now = DateTime.UtcNow;
         var tripStart = await db.Trips.AsNoTracking().Where(t => t.Id == e.TripId).Select(t => t.StartDate).FirstOrDefaultAsync();
         var offers = await unitOfWork.TripOffers.GetByEnquiryAsync(e.Id);
-        var openCounter =offers.FirstOrDefault(o => o.Kind == TripOfferKinds.Counter && o.Status == TripOfferStatuses.Pending);
-        if (openCounter != null && TripEnquiryDtoBuilder.ReadLines(openCounter.LinesJson).FirstOrDefault()?.PricePerNight == request.PricePerNight)
+        var openCounter = offers.FirstOrDefault(o => o.Kind == TripOfferKinds.Counter && o.Status == TripOfferStatuses.Pending);
+
+        // The counter answers the host's latest offer: its rooms, guests and dates at the guest's per-room price.
+        var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
+        var hostOffer = offers.Where(o => o.Kind == TripOfferKinds.Offer)
+            .OrderBy(o => o.Status == TripOfferStatuses.Pending ? 0 : 1)
+            .ThenByDescending(o => o.CreatedAt)
+            .FirstOrDefault();
+        var lines = TripOfferRules.CounterLines(
+            hostOffer == null ? null : TripEnquiryDtoBuilder.ReadLines(hostOffer.LinesJson),
+            request.PricePerNight, context.Rooms ?? 1, (context.Adults ?? 2) + (context.Kids ?? 0));
+        var counterIn = hostOffer?.CheckIn ?? e.CheckIn;
+        var counterOut = hostOffer?.CheckOut ?? e.CheckOut;
+        var units = lines.Sum(l => l.Units);
+        var roomName = lines[0].RoomName;
+        var nights = Math.Max(1, TripExecutionRules.Nights(counterIn, counterOut));
+        var total = TripExecutionRules.ComputeTotal(lines, nights);
+
+        if (openCounter != null && openCounter.Total == total && openCounter.CheckIn == counterIn && openCounter.CheckOut == counterOut)
         {
             var current = await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, callerId, now);
             return OkResponse(new TripOfferResultDto { Enquiry = current, Offer = current.PendingCounter ?? new TripOfferDto { Id = openCounter.Id } });
         }
         if (offers.Count(o => o.Kind == TripOfferKinds.Counter) >= TripOfferRules.MaxCounters)
             return ConflictResponse("You can propose a price 3 times.", TripEnquiryErrorTypes.CounterLimit);
-
-        var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
-        var units = Math.Max(1, context.Rooms ?? 1);
-        var guests = Math.Max(1, (context.Adults ?? 2) + (context.Kids ?? 0));
-        var openOffer = offers.FirstOrDefault(o => o.Kind == TripOfferKinds.Offer && o.Status == TripOfferStatuses.Pending);
-        var roomName = openOffer == null ? null : TripEnquiryDtoBuilder.ReadLines(openOffer.LinesJson).FirstOrDefault()?.RoomName;
-        var nights = Math.Max(1, TripExecutionRules.Nights(e.CheckIn, e.CheckOut));
-        var total = TripOfferRules.CounterTotal(request.PricePerNight, units, nights);
         if (total > TripExecutionRules.MaxAmount) return BadRequestResponse(TripExecutionRules.TotalRangeMessage);
 
         var listed = await ListedPerNightAsync(db, e.ListingId, roomName);
         var note = TripTextSafety.CleanOrNull(request.Note, TripExecutionRules.NoteMax);
-        var lines = new List<TripOfferLine> { new() { RoomName = roomName, Units = units, Guests = guests, PricePerNight = request.PricePerNight } };
         var counter = new TripOffer
         {
             Id = Guid.NewGuid(),
             TripEnquiryId = e.Id,
             Kind = TripOfferKinds.Counter,
             SenderUserId = callerId,
-            CheckIn = e.CheckIn,
-            CheckOut = e.CheckOut,
+            CheckIn = counterIn,
+            CheckOut = counterOut,
             LinesJson = JsonSerializer.Serialize(lines, TripJson.Options),
             Nights = (short)nights,
             Total = total,
@@ -1332,10 +1387,13 @@ public static class TripEnquiryHandlers
                     units,
                     nights,
                     total,
+                    checkIn = IsoDate(counterIn),
+                    checkOut = IsoDate(counterOut),
+                    lines,
                     listedPerNight = listed,
                     note,
                     status = TripCardStatuses.Pending,
-                }, $"Proposed Rs {request.PricePerNight} a night");
+                }, $"Proposed Rs {request.PricePerNight} per room per night");
                 counter.MessageId = post.Message.Id;
                 posts.Add(post);
             }
@@ -1343,9 +1401,9 @@ public static class TripEnquiryHandlers
             db.TripOffers.Add(counter);
             e.Status = TripEnquiryStatuses.Countered;
             // The host gets the same reply window an offer gives the guest, so the counter never expires while he decides.
-            if (tripStart is { } start && e.CheckIn is { } counterIn)
+            if (tripStart is { } start && e.CheckIn is { } enquiryIn)
             {
-                var hostWindow = TripExecutionRules.OfferValidUntil(start, counterIn, now);
+                var hostWindow = TripExecutionRules.OfferValidUntil(start, enquiryIn, now);
                 if (hostWindow > e.ExpiresAt) e.ExpiresAt = hostWindow;
             }
             e.UpdatedAt = now;
@@ -1364,7 +1422,9 @@ public static class TripEnquiryHandlers
         }
 
         await AfterCommitAsync(chat, posts,
-            [new TripPendingPush(e, e.OwnerUserId, TripNotifications.TripCounterReceived, Total: request.PricePerNight)],
+            [new TripPendingPush(e, e.OwnerUserId,
+                (row, ctx) => TripNotifications.TripCounterReceived(row, ctx with { CheckIn = counterIn, CheckOut = counterOut }),
+                Total: request.PricePerNight)],
             unitOfWork, notifier, loggers);
         var dto = await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, callerId, now);
         return CreatedResponse(
@@ -1817,13 +1877,10 @@ public static class TripEnquiryHandlers
     }
 
     // Every day of the trip has a night. All nights = from this night through the last day's night (check-out the morning after the last day).
-    private static (DateOnly CheckIn, DateOnly CheckOut) Nights(Trip trip, int day, bool allNights)
+    private static (DateOnly CheckIn, DateOnly CheckOut) Nights(Trip trip, int day, bool allNights, int? nights = null)
     {
         var start = trip.StartDate!.Value;
-        var checkIn = TripExecutionRules.NightDate(start, day);
-        var lastDay = TripExecutionRules.NightDate(start, Math.Max(1, trip.DayCount));
-        var checkOut = allNights ? TripDateRules.CheckOutLimit(lastDay) : checkIn.AddDays(1);
-        return (checkIn, checkOut);
+        return (TripExecutionRules.NightDate(start, day), TripDateRules.StayCheckOut(start, trip.DayCount, day, allNights, nights));
     }
 
     private static bool Overlaps(TripEnquiry x, DateOnly checkIn, DateOnly checkOut)

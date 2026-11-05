@@ -9,6 +9,15 @@ public class DeviceTokenRepository(ApplicationDbContext context) : IDeviceTokenR
 {
     public async Task UpsertAsync(Guid userId, string token)
     {
+        var staleOwners = await context.DeviceTokens
+            .Where(d => d.Token == token && d.UserId != userId && d.IsValid)
+            .ToListAsync();
+        foreach (var stale in staleOwners)
+        {
+            stale.IsValid = false;
+            stale.UpdatedAt = DateTime.UtcNow;
+        }
+
         var existing = await context.DeviceTokens
             .FirstOrDefaultAsync(d => d.Token == token && d.UserId == userId);
 
@@ -18,12 +27,6 @@ public class DeviceTokenRepository(ApplicationDbContext context) : IDeviceTokenR
             existing.UpdatedAt = DateTime.UtcNow;
             return;
         }
-
-        // If same token belongs to a different user (device reassigned), invalidate old record
-        var staleOwner = await context.DeviceTokens
-            .FirstOrDefaultAsync(d => d.Token == token && d.UserId != userId);
-        if (staleOwner != null)
-            staleOwner.IsValid = false;
 
         await context.DeviceTokens.AddAsync(new DeviceToken
         {

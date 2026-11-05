@@ -251,6 +251,14 @@ public static class TripLeadRules
         row.DriverFareEditCount = 0;
     }
 
+    // Days a row keeps when another driver takes some of them; empty = the whole row is taken.
+    public static List<int> RemainingDays(IReadOnlyCollection<int>? rowDays, IReadOnlyCollection<int> taken)
+        => (rowDays ?? Array.Empty<int>()).Where(d => !taken.Contains(d)).Distinct().OrderBy(d => d).ToList();
+
+    // A multi-day fare split by days kept.
+    public static int? ProrateFare(int? fare, int keptDays, int allDays)
+        => fare is { } f && allDays > 0 ? TripExecutionRules.Saturate((long)f * keptDays / allDays) : fare;
+
     // Booked past days of the stored row, as day numbers of the current trip start; an edit keeps them.
     public static List<int> KeptPastDays(IReadOnlyList<int>? storedDays, DateOnly? rowCheckIn, DateOnly start, int dayCount, DateOnly todayIst)
     {
@@ -282,6 +290,18 @@ public static class TripDateRules
         if (checkIn is not { } a || checkOut is not { } b) return false;
         return !InsideTrip(s, e, a, b);
     }
+
+    // Stay check-out from night `day`: explicit nights (capped at the last night) win over allNights.
+    public static DateOnly StayCheckOut(DateOnly start, int dayCount, int day, bool allNights, int? nights)
+    {
+        var checkIn = TripExecutionRules.NightDate(start, day);
+        var left = Math.Max(1, dayCount - day + 1);
+        if (nights is { } n) return checkIn.AddDays(Math.Clamp(n, 1, left));
+        return checkIn.AddDays(allNights ? left : 1);
+    }
+
+    // Only a new start date moves the nights; a day-count change is confirmed in the app first.
+    public static bool StartMoved(DateOnly? oldStart, DateOnly? newStart) => oldStart != null && oldStart != newStart;
 
     public const string OutsideTripMessage = "Offer dates must be inside the trip (check-out the morning after the last day).";
 }
@@ -373,6 +393,25 @@ public static class TripOfferRules
 
     public static int CounterTotal(int pricePerNight, int units, int nights)
         => TripExecutionRules.Saturate((long)Math.Max(1, nights) * Math.Max(1, units) * pricePerNight);
+
+    // The host's lines (rooms, units, guests) at the guest's per-room price; lines of different prices keep their ratio.
+    // Without an offer: one line of `units` rooms.
+    public static List<TripOfferLine> CounterLines(IReadOnlyList<TripOfferLine>? offerLines, int perRoomPrice, int units, int guests)
+    {
+        var lines = (offerLines ?? []).Where(l => l.Units > 0 && l.PricePerNight > 0).ToList();
+        if (lines.Count == 0)
+            return [new TripOfferLine { Units = Math.Max(1, units), Guests = Math.Max(1, guests), PricePerNight = perRoomPrice }];
+
+        long totalUnits = lines.Sum(l => (long)l.Units);
+        long offered = lines.Sum(l => (long)l.Units * l.PricePerNight);
+        return lines.Select(l => new TripOfferLine
+        {
+            RoomName = l.RoomName,
+            Units = l.Units,
+            Guests = l.Guests,
+            PricePerNight = (int)Math.Max(1, Math.Round((double)l.PricePerNight * perRoomPrice * totalUnits / offered, MidpointRounding.AwayFromZero)),
+        }).ToList();
+    }
 
     // Price lock: a change request keeps every accepted line's PricePerNight; units follow the requested rooms
     // (extra rooms go to the first line, fewer rooms are taken from the last lines); guests are spread by units.
@@ -577,7 +616,8 @@ public sealed record TripOwnerCounts(int New, int Offered, int Confirmed, int Cl
 // Input of every TripNotifications builder. ChatArgsJson = the full chat-conversation map for the recipient, null without a conversation.
 public sealed record TripPushContext(
     Guid RecipientUserId, string TravellerName, string ListingName, string? ChatArgsJson,
-    int? Total = null, bool? Confirmed = null, string? OwnerName = null, Guid? JourneyId = null);
+    int? Total = null, bool? Confirmed = null, string? OwnerName = null, Guid? JourneyId = null,
+    DateOnly? CheckIn = null, DateOnly? CheckOut = null);
 
 public static class TripTextSafety
 {
@@ -817,6 +857,14 @@ public static class TripDateText
 
     public static string Range(DateOnly? checkIn, DateOnly? checkOut)
         => checkIn is { } a && checkOut is { } b ? Range(a, b) : checkIn is { } c ? Day(c) : string.Empty;
+
+    // Stay wording; the check-out morning is not a stay day: "Night of 05 Nov", "2 nights from 05 Nov".
+    public static string StayNights(DateOnly? checkIn, DateOnly? checkOut)
+    {
+        if (checkIn is not { } a) return string.Empty;
+        var n = TripExecutionRules.Nights(checkIn, checkOut);
+        return n <= 1 ? $"Night of {Day(a)}" : $"{n} nights from {Day(a)}";
+    }
 
     // "6:00 pm" (IST).
     public static string TimeIst(DateTime utc)

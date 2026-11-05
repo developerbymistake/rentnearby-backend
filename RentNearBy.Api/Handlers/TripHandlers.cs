@@ -432,15 +432,14 @@ public static class TripHandlers
 
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, trip.CityName);
         if (request.Status != null) trip.Status = request.Status;
-        var (oldStart, oldEnd) = (trip.StartDate, trip.EndDate);
+        var oldStart = trip.StartDate;
         ApplyPlan(trip, plan);
         var now = DateTime.UtcNow;
         trip.UpdatedAt = now;
 
-        // New dates: unconfirmed asks that no longer fit can never get an offer, so they close and the owner is told.
-        // Confirmed bookings keep their dates (D7).
-        var datesMoved = oldStart != null && (oldStart != trip.StartDate || oldEnd != trip.EndDate);
-        var closing = datesMoved
+        // A new start date: unconfirmed asks that no longer fit can never get an offer, so they close and the owner is told.
+        // A day-count change alone never closes rows. Confirmed bookings keep their dates (D7).
+        var closing = TripDateRules.StartMoved(oldStart, trip.StartDate)
             ? (await db.TripEnquiries
                     .Where(x => x.TripId == trip.Id && TripEnquiryStatuses.Withdrawable.Contains(x.Status))
                     .ToListAsync())

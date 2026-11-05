@@ -1713,7 +1713,8 @@ public static class AdminHandlers
     // reuses) + RabbitMQ notification.push publish for NotificationPushWorkerService. Best-effort:
     // a push failure must never turn an already-committed Approve/Reject into an error response.
     internal static async Task SendGoLiveNotificationAsync(
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, NotificationEvent notification)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, NotificationEvent notification,
+        ILogger? logger = null)
     {
         try
         {
@@ -1727,14 +1728,20 @@ public static class AdminHandlers
                 actionArguments = NotificationDto.ParseArguments(notification.ActionArgumentsJson),
             });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "notify.hub_failed {NotificationId} {Type}", notification.Id, notification.Type);
+        }
 
         try
         {
             var payload = JsonSerializer.Serialize(new NotificationPushPayload(notification.Id, notification.TargetUserId!.Value));
             await publisher.PublishAsync("notification.push", payload);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "notify.publish_failed {NotificationId} {Type}", notification.Id, notification.Type);
+        }
     }
 
     private static NotificationEvent BuildRoomApprovedPausedNotification(Guid userId) => new()
