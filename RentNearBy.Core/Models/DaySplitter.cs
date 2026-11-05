@@ -25,7 +25,8 @@ public static class TripWarningCodes
     public const string TooManyDays = "TooManyDays";
 }
 
-// Doc 4.1: nearest-neighbour by road minutes from the spot nearest the centre, cut into days at the limit.
+// One continuous path through every place (shortest total road time, start end nearest the centre), cut into days at the
+// limit. A greedy nearest-neighbour walk leaves single places behind and doubles back between areas; the path never does.
 public static class DaySplitter
 {
     // A travel day with less free time than this takes no place.
@@ -58,6 +59,7 @@ public static class DaySplitter
         var current = new DayBuilder(1, Math.Max(0, input.FirstDayUsedMinutes));
         builders.Add(current);
         var pending = -1;
+        var order = RoutePath.Order(minutes, spots, input.CentreLat, input.CentreLon);
 
         while (remaining > 0)
         {
@@ -81,8 +83,8 @@ public static class DaySplitter
                 {
                     var from = LastPlaced(builders);
                     start = from < 0
-                        ? NearestToCentre(spots, visited, weekday, input.CentreLat, input.CentreLon)
-                        : NearestByRoad(minutes, visited, spots, weekday, from);
+                        ? NextByOrder(order, visited, spots, weekday, -1)
+                        : NextByOrder(order, visited, spots, weekday, from);
                 }
 
                 if (start >= 0)
@@ -114,18 +116,18 @@ public static class DaySplitter
                     builders.RemoveAt(builders.Count - 1);
                     current = builders[^1];
                 }
-                AppendClosedRest(current, visited, spots, matrix, warnings, input.StartDate, input.CentreLat, input.CentreLon);
+                AppendClosedRest(current, visited, spots, matrix, warnings, input.StartDate, order);
                 break;
             }
 
             var last = current.Last;
-            var candidate = NearestByRoad(minutes, visited, spots, weekday, last);
+            var candidate = NextByOrder(order, visited, spots, weekday, last);
             if (candidate < 0)
             {
                 // Places left are closed today; they move to a later day.
                 if (current.Day >= maxDays)
                 {
-                    AppendTooManyDays(current, visited, spots, matrix, warnings, input.StartDate);
+                    AppendTooManyDays(current, visited, spots, matrix, warnings, input.StartDate, order);
                     break;
                 }
                 current = new DayBuilder(current.Day + 1);
@@ -138,7 +140,7 @@ public static class DaySplitter
             {
                 if (current.Day >= maxDays)
                 {
-                    AppendTooManyDays(current, visited, spots, matrix, warnings, input.StartDate);
+                    AppendTooManyDays(current, visited, spots, matrix, warnings, input.StartDate, order);
                     break;
                 }
                 current = new DayBuilder(current.Day + 1);
@@ -229,11 +231,11 @@ public static class DaySplitter
         day.Visit += spots[spot].VisitMinutes;
     }
 
-    private static void AppendRest(DayBuilder day, bool[] visited, IReadOnlyList<TripSpot> spots, RoadMatrix matrix, List<SplitWarning> warnings, DateOnly? startDate)
+    private static void AppendRest(DayBuilder day, bool[] visited, IReadOnlyList<TripSpot> spots, RoadMatrix matrix, List<SplitWarning> warnings, DateOnly? startDate, int[] order)
     {
         while (true)
         {
-            var next = NearestByRoad(matrix.Minutes!, visited, spots, null, day.Last);
+            var next = NextByOrder(order, visited, spots, null, day.Last);
             if (next < 0) return;
             Append(day, next, spots, matrix);
             visited[next] = true;
@@ -243,12 +245,10 @@ public static class DaySplitter
 
     // No later open day within the limit: the rest joins this day and each place is flagged.
     private static void AppendClosedRest(DayBuilder day, bool[] visited, IReadOnlyList<TripSpot> spots, RoadMatrix matrix, List<SplitWarning> warnings,
-        DateOnly? startDate, double centreLat, double centreLon)
+        DateOnly? startDate, int[] order)
     {
         var weekday = WeekdayOf(startDate, day.Day);
-        var next = day.Last < 0
-            ? NearestToCentre(spots, visited, null, centreLat, centreLon)
-            : NearestByRoad(matrix.Minutes!, visited, spots, null, day.Last);
+        var next = NextByOrder(order, visited, spots, null, day.Last);
         while (next >= 0)
         {
             Append(day, next, spots, matrix);
@@ -256,7 +256,7 @@ public static class DaySplitter
             var spot = spots[next];
             var message = IsClosed(spot, weekday) ? $"{spot.Name} is closed on that day" : $"{spot.Name} is closed on the later days";
             warnings.Add(new SplitWarning(TripWarningCodes.ClosedDay, message, spot.Id, day.Day));
-            next = NearestByRoad(matrix.Minutes!, visited, spots, null, day.Last);
+            next = NextByOrder(order, visited, spots, null, day.Last);
         }
     }
 
@@ -280,10 +280,10 @@ public static class DaySplitter
         return false;
     }
 
-    private static void AppendTooManyDays(DayBuilder day, bool[] visited, IReadOnlyList<TripSpot> spots, RoadMatrix matrix, List<SplitWarning> warnings, DateOnly? startDate)
+    private static void AppendTooManyDays(DayBuilder day, bool[] visited, IReadOnlyList<TripSpot> spots, RoadMatrix matrix, List<SplitWarning> warnings, DateOnly? startDate, int[] order)
     {
         warnings.Add(new SplitWarning(TripWarningCodes.TooManyDays, $"Places beyond {day.Day} days were added to Day {day.Day}", null, day.Day));
-        AppendRest(day, visited, spots, matrix, warnings, startDate);
+        AppendRest(day, visited, spots, matrix, warnings, startDate, order);
     }
 
     private static SplitResult Finish(List<DayBuilder> builders, IReadOnlyList<TripSpot> spots, int limit, List<SplitWarning> warnings)
@@ -303,31 +303,22 @@ public static class DaySplitter
         return new SplitResult(days, dayWarnings);
     }
 
-    private static int NearestToCentre(IReadOnlyList<TripSpot> spots, bool[] visited, int? weekday, double lat, double lon)
+    // The next open, unvisited place along the path after `from` (or the first one without `from`); when the path end is
+    // reached the earliest skipped place (closed on an earlier day) comes next.
+    private static int NextByOrder(int[] order, bool[] visited, IReadOnlyList<TripSpot> spots, int? weekday, int from)
     {
-        var best = -1;
-        var bestKm = double.MaxValue;
-        for (var i = 0; i < spots.Count; i++)
+        var start = from < 0 ? 0 : Array.IndexOf(order, from) + 1;
+        for (var k = start; k < order.Length; k++)
         {
-            if (visited[i] || IsClosed(spots[i], weekday)) continue;
-            var km = GeoMath.HaversineKm(lat, lon, spots[i].Latitude, spots[i].Longitude);
-            if (km < bestKm) { bestKm = km; best = i; }
+            var i = order[k];
+            if (!visited[i] && !IsClosed(spots[i], weekday)) return i;
         }
-        return best;
-    }
-
-    // Ties go to the smaller index; from = -1 falls back to the first open spot.
-    private static int NearestByRoad(int[,] minutes, bool[] visited, IReadOnlyList<TripSpot> spots, int? weekday, int from)
-    {
-        var best = -1;
-        var bestMinutes = int.MaxValue;
-        for (var i = 0; i < spots.Count; i++)
+        for (var k = 0; k < Math.Min(start, order.Length); k++)
         {
-            if (visited[i] || IsClosed(spots[i], weekday)) continue;
-            var m = from >= 0 ? minutes[from, i] : 0;
-            if (m < bestMinutes) { bestMinutes = m; best = i; }
+            var i = order[k];
+            if (!visited[i] && !IsClosed(spots[i], weekday)) return i;
         }
-        return best;
+        return -1;
     }
 
     // ISO weekday (Monday = 1 .. Sunday = 7) of trip day `day`, or null without a start date.
