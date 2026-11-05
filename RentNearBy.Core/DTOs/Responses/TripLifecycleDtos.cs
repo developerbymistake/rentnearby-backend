@@ -77,6 +77,8 @@ public class TripSummaryRecordDto
     public Guid TripId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;
+    // Ordered city names of the trip; one entry on a one-city trip.
+    public List<string> LegCities { get; set; } = new();
     public DateOnly? StartDate { get; set; }
     public DateOnly? EndDate { get; set; }
     public int? Adults { get; set; }

@@ -42,9 +42,10 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
         if (!osrmAvailable && allSpots.Count >= 2)
             warnings.Add(new TripWarningDto { Code = TripWarningCodes.OsrmUnavailable, Message = "Road times are estimates" });
 
+        var firstDayUsed = Math.Clamp(request.FirstDayUsedMinutes ?? 0, 0, 900);
         var result = recalculate
-            ? DaySplitter.Recalculate(days, limit, request.StartDate, matrix, allSpots)
-            : DaySplitter.Split(new SplitInput(allSpots, centreLat, centreLon, limit, request.StartDate, maxDays), matrix);
+            ? DaySplitter.Recalculate(days, limit, request.StartDate, matrix, allSpots, firstDayUsed)
+            : DaySplitter.Split(new SplitInput(allSpots, centreLat, centreLon, limit, request.StartDate, maxDays, firstDayUsed), matrix);
 
         warnings.AddRange(result.Warnings.Select(w => new TripWarningDto { Code = w.Code, Message = w.Message, SpotId = w.SpotId, Day = w.Day }));
 
@@ -86,8 +87,8 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
         }
 
         dto.Warnings = warnings;
-        logger.LogDebug("trip.plan {Mode} city={CityKey} spots={Spots} days={Days} osrm={Osrm}",
-            request.Mode, city.CityKey, allSpots.Count, dto.Days.Count, osrmAvailable);
+        logger.LogDebug("trip.plan {Mode} city={CityKey} leg={LegIndex} firstDayUsed={FirstDayUsed} spots={Spots} days={Days} osrm={Osrm}",
+            request.Mode, city.CityKey, request.LegIndex, firstDayUsed, allSpots.Count, dto.Days.Count, osrmAvailable);
         return dto;
     }
 

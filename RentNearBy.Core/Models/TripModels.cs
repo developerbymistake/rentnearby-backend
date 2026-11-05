@@ -46,8 +46,9 @@ public static class TripErrorTypes
 // Hard caps; TripPlannerOptions can only lower them.
 public static class TripLimits
 {
-    public const int MaxSpots = 40;
+    public const int MaxSpots = 60;
     public const int MaxDays = 14;
+    public const int MaxLegs = 4;
 }
 
 public static class TripCacheKeys
@@ -136,17 +137,21 @@ public static class TripPace
     public const int Normal = 450;
 }
 
-// PlanJson v3 (Trip.PlanJson, serialized with TripJson.Options); v2 documents read as v3 with the new fields null.
+// PlanJson v4 (Trip.PlanJson, serialized with TripJson.Options); v2/v3 documents read with the new fields null
+// and become one leg through Normalize.
 public sealed class TripPlan
 {
-    public const int CurrentVersion = 3;
-    public static readonly int[] SupportedVersions = [2, 3];
+    public const int CurrentVersion = 4;
+    public static readonly int[] SupportedVersions = [2, 3, 4];
     public int Version { get; set; } = CurrentVersion;
+    // The five city fields always equal Legs[0] after Normalize.
     public long CityKey { get; set; }
     public Guid? DistrictId { get; set; }
     public string CityName { get; set; } = string.Empty;
     public double? CentreLatitude { get; set; }
     public double? CentreLongitude { get; set; }
+    // Null = a v3 document or an app that does not know cities; Normalize makes it one leg.
+    public List<TripCityLeg>? Legs { get; set; }
     public List<TripDay> Days { get; set; } = new();
     public TripSettings Settings { get; set; } = new();
     // Null = written by an app that does not know steps: the server keeps the stored copy (TripStepsMerge).
@@ -159,11 +164,142 @@ public sealed class TripPlan
     // Every day has a night: check-out is the morning after the last day.
     [JsonIgnore]
     public DateOnly? CheckOutDate => EndDate?.AddDays(1);
+
+    [JsonIgnore]
+    public List<string> LegCities => Legs is { Count: > 0 } ? Legs.Select(l => l.CityName).ToList() : [CityName];
+
+    // 1 when Legs is null/empty or the day is unknown.
+    public int LegIndexOf(int day)
+    {
+        if (Legs is not { Count: > 0 }) return 1;
+        var leg = Days?.FirstOrDefault(d => d != null && d.Day == day)?.Leg ?? 1;
+        return Math.Clamp(leg, 1, Legs.Count);
+    }
+
+    public TripCityLeg? LegOf(int day)
+    {
+        if (Legs is not { Count: > 0 }) return null;
+        return Legs[LegIndexOf(day) - 1];
+    }
+
+    public IEnumerable<TripDay> DaysOf(int legIndex)
+        => (Days ?? new List<TripDay>()).Where(d => d != null && LegIndexOf(d.Day) == legIndex);
+
+    // Day numbers; 0 when the leg has no day.
+    public int LegStart(int legIndex) => DaysOf(legIndex).Select(d => d.Day).DefaultIfEmpty(0).Min();
+
+    public int LegEnd(int legIndex) => DaysOf(legIndex).Select(d => d.Day).DefaultIfEmpty(0).Max();
+
+    // The first day of a leg 2+ is the travel day (morning check-out, then the road).
+    public bool IsTravelDay(int day)
+    {
+        if (Days?.Any(d => d != null && d.Day == day) != true) return false;
+        var leg = LegIndexOf(day);
+        return leg >= 2 && LegStart(leg) == day;
+    }
+
+    // Pure and idempotent: legs 1..n, every day on a leg (non-decreasing), the five city fields = Legs[0].
+    public void Normalize(long cityKey = 0, string? cityName = null, double lat = 0, double lon = 0, Guid? districtId = null)
+    {
+        Legs?.RemoveAll(l => l == null);
+        if (Legs is not { Count: > 0 })
+        {
+            var own = CityKey > 0;
+            Legs =
+            [
+                new TripCityLeg
+                {
+                    Index = 1,
+                    CityKey = own ? CityKey : cityKey,
+                    CityName = own && !string.IsNullOrEmpty(CityName) ? CityName : cityName ?? CityName ?? string.Empty,
+                    DistrictId = own ? DistrictId ?? districtId : districtId ?? DistrictId,
+                    Latitude = own ? CentreLatitude ?? lat : lat,
+                    Longitude = own ? CentreLongitude ?? lon : lon,
+                },
+            ];
+        }
+        for (var i = 0; i < Legs.Count; i++) Legs[i].Index = i + 1;
+        // The row is leg 1 on every save; a district adopted on read reaches the first leg too.
+        Legs[0].DistrictId ??= districtId;
+
+        Days ??= new List<TripDay>();
+        var previous = 1;
+        foreach (var day in Days)
+        {
+            if (day == null) continue;
+            var leg = Math.Clamp(day.Leg ?? previous, 1, Legs.Count);
+            if (leg < previous) leg = previous;
+            day.Leg = leg;
+            previous = leg;
+        }
+
+        var first = Legs[0];
+        CityKey = first.CityKey;
+        CityName = first.CityName;
+        DistrictId = first.DistrictId;
+        CentreLatitude = first.Latitude;
+        CentreLongitude = first.Longitude;
+    }
+}
+
+// One city of a trip. Index is 1-based and follows the list order.
+public sealed class TripCityLeg
+{
+    public int Index { get; set; }
+    public long CityKey { get; set; }
+    public string CityName { get; set; } = string.Empty;
+    public Guid? DistrictId { get; set; }
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    // True = the city has no places yet (stay and taxi only); allowed on legs 2+.
+    public bool? NotReady { get; set; }
+    // Travel from the previous city; never on leg 1 (that is the trip step Getting there).
+    public TripTravel? Arrival { get; set; }
+}
+
+public sealed class TripTravel
+{
+    public string Mode { get; set; } = TripTravelModes.Own;
+    public string FromName { get; set; } = string.Empty;
+    public string? How { get; set; }
+    public string? OwnName { get; set; }
+    public string? OwnPhone { get; set; }
+    // "HH:mm", 24 h.
+    public string? LeavesAt { get; set; }
+    public int? RoadMinutes { get; set; }
+    public string? Note { get; set; }
+}
+
+public static class TripTravelModes
+{
+    public const string Own = "own";
+
+    public static readonly string[] All = [Own];
+}
+
+public static class TripTravelHows
+{
+    public const string Car = "car";
+    public const string Bus = "bus";
+    public const string Train = "train";
+    public const string Other = "other";
+
+    public static readonly string[] All = [Car, Bus, Train, Other];
+}
+
+public static class TripTravelRoad
+{
+    public const int HalfDay = 240;
+    public const int WholeDay = 450;
+
+    public static readonly int[] All = [HalfDay, WholeDay];
 }
 
 public sealed class TripDay
 {
     public int Day { get; set; }
+    // 1-based leg of this day; null on a v3 document (read as the previous day's leg).
+    public int? Leg { get; set; }
     public List<TripSpot> Spots { get; set; } = new();
     public TripTaxiChoice? Taxi { get; set; }
     public TripStayChoice? Stay { get; set; }
@@ -490,7 +626,8 @@ public sealed class CityRoadMatrix
 // Geometry = GeoJSON LineString.
 public sealed record RoadRoute(int Minutes, double Km, JsonElement Geometry);
 
-public sealed record SplitInput(IReadOnlyList<TripSpot> Spots, double CentreLat, double CentreLon, int DayLimitMinutes, DateOnly? StartDate, int MaxDays);
+// FirstDayUsedMinutes: road time already spent on day 1 (a travel day into the city).
+public sealed record SplitInput(IReadOnlyList<TripSpot> Spots, double CentreLat, double CentreLon, int DayLimitMinutes, DateOnly? StartDate, int MaxDays, int FirstDayUsedMinutes = 0);
 
 public sealed record SplitLeg(string FromId, string ToId, int Minutes, double Km, bool IsEstimate);
 

@@ -176,7 +176,7 @@ public static class TripHandlers
         if (await ReadSupplyAsync(redis, memory, key) is { } cached) return OkResponse(cached);
 
         var (available, city) = await catalog.FindAsync(cityKey);
-        city ??= await unitOfWork.Trips.FindCitySnapshotAsync(userId, cityKey);
+        city ??= await unitOfWork.Trips.FindLegSnapshotAsync(userId, cityKey);
         if (city == null) return available ? CityNotFound() : CitiesUnavailable();
 
         var supply = new TripCitySupplyDto
@@ -257,7 +257,7 @@ public static class TripHandlers
     {
         var (available, city) = await catalog.FindAsync(cityKey);
         if (city != null) return (city, null);
-        var saved = await unitOfWork.Trips.FindCitySnapshotAsync(userId, cityKey);
+        var saved = await unitOfWork.Trips.FindLegSnapshotAsync(userId, cityKey);
         if (saved != null) return (saved, null);
         return (null, available ? CityNotFound() : CitiesUnavailable());
     }
@@ -318,17 +318,10 @@ public static class TripHandlers
             && await unitOfWork.Trips.FindByClientIdAsync(userId, clientId) is { } existing)
             return OkResponse(ToDto(existing, ReadPlan(existing)));
 
-        // A new trip needs a live city; the server snapshot wins over the client copy.
-        var (available, city) = await catalog.FindAsync(request.Plan.CityKey);
-        if (!available) return CitiesUnavailable();
-        if (city == null) return CityNotFound();
-
-        var districtId = await unitOfWork.Districts.FindActiveContainingAsync(city.Latitude, city.Longitude);
-
+        // A new trip needs live cities; the server snapshot wins over the client copy.
         var plan = request.Plan;
-        plan.CityKey = city.CityKey;
-        plan.CityName = city.Name;
-        plan.DistrictId = districtId;
+        plan.Normalize();
+        if (await ResolveLegsAsync(plan, null, catalog, unitOfWork, create: true) is { } legError) return legError;
         KeepSkippedTaxiDays(plan, null);
         var linkIds = await SanitiseStepsAsync(plan, journeys, userId);
 
@@ -337,17 +330,13 @@ public static class TripHandlers
         {
             Id = Guid.NewGuid(),
             OwnerUserId = userId,
-            CityKey = city.CityKey,
-            CityName = city.Name,
-            CityLatitude = city.Latitude,
-            CityLongitude = city.Longitude,
-            DistrictId = districtId,
-            Title = TitleOrDefault(request.Title, city.Name),
+            Title = TitleOrDefault(request.Title, plan.LegCities),
             Status = request.Status ?? TripStatuses.Draft,
             ClientTripId = request.ClientTripId,
             CreatedAt = now,
             UpdatedAt = now,
         };
+        CopyFirstLeg(trip, plan);
         ApplyPlan(trip, plan);
 
         await unitOfWork.Trips.AddAsync(trip);
@@ -467,9 +456,12 @@ public static class TripHandlers
     public static async Task<IResult> Update(
         Guid id, SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
         ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier, ILoggerFactory loggers,
-        ISavedJourneyRepository journeys)
+        ISavedJourneyRepository journeys, ITripCityCatalog catalog)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+
+        // Read before validation: the validator normalises the plan, which synthesises legs.
+        var legless = request.Plan?.Legs is not { Count: > 0 };
 
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return Invalid(validation);
@@ -477,26 +469,24 @@ public static class TripHandlers
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
         if (trip == null) return TripNotFound();
 
-        // An older app would drop fields of a newer plan version.
-        if (StoredPlanVersion(trip) > request.Plan.Version)
+        // An app that does not know cities would drop the other legs of a multi-city trip.
+        var stored = ReadPlan(trip);
+        if (TripPlanCompat.NeedsUpdate(stored, legless, StoredPlanVersion(trip)))
             return ConflictResponse("Update the app to edit this trip.", TripEnquiryErrorTypes.TripNeedsUpdate);
         if (trip.Status == TripStatuses.Completed)
             return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
 
         var status = request.Status ?? trip.Status;
-        if (status == TripStatuses.Planned && request.Plan.Days.Sum(d => d.Spots.Count) == 0)
+        if (status == TripStatuses.Planned && request.Plan!.Days.Sum(d => d.Spots.Count) == 0)
             return BadRequestResponse(PlanTripRequestValidator.NoPlacesMessage);
 
-        // The trip's city never changes; the row's snapshot wins over the client's copy.
-        // A district activated after create is picked up here; a found district is never re-resolved.
-        trip.DistrictId ??= await unitOfWork.Districts.FindActiveContainingAsync(trip.CityLatitude, trip.CityLongitude);
-        var plan = request.Plan;
-        plan.CityKey = trip.CityKey;
-        plan.CityName = trip.CityName;
-        plan.DistrictId = trip.DistrictId;
+        // Stored legs keep their snapshot (no Atlas call); only a new leg is looked up. A legless body edits the one stored city.
+        var plan = request.Plan!;
+        plan.Normalize();
+        if (legless) plan.Legs![0].CityKey = stored.Legs![0].CityKey;
+        if (await ResolveLegsAsync(plan, stored, catalog, unitOfWork, create: false) is { } legError) return legError;
 
         // An app that does not know steps sends none: the stored ones stay; on its date change their own dates go.
-        var stored = ReadPlan(trip);
         KeepSkippedTaxiDays(plan, stored);
         var requestedSteps = plan.Steps;
         plan.Steps = TripStepsMerge.Resolve(stored.Steps, requestedSteps);
@@ -506,8 +496,11 @@ public static class TripHandlers
             TripStepRules.ClearDates(plan.Steps);
         var linkIds = await SanitiseStepsAsync(plan, journeys, userId, requestedSteps == null ? trip.Id : null);
 
-        if (request.Title != null) trip.Title = TitleOrDefault(request.Title, trip.CityName);
+        // A title the traveller typed is never touched; the default follows the cities.
+        if (request.Title != null) trip.Title = TitleOrDefault(request.Title, plan.LegCities);
+        else if (trip.Title == TripTitles.Default(stored.LegCities)) trip.Title = TripTitles.Default(plan.LegCities);
         if (request.Status != null) trip.Status = request.Status;
+        CopyFirstLeg(trip, plan);
         var oldStart = trip.StartDate;
         var oldEnd = trip.EndDate;
         ApplyPlan(trip, plan);
@@ -683,12 +676,69 @@ public static class TripHandlers
         Total = 0,
     };
 
-    private static string TitleOrDefault(string? title, string cityName)
+    private static string TitleOrDefault(string? title, IReadOnlyList<string> cityNames)
     {
         var trimmed = title?.Trim();
-        if (!string.IsNullOrEmpty(trimmed)) return trimmed;
-        var fallback = $"{cityName} trip";
-        return fallback.Length <= 80 ? fallback : fallback[..80];
+        return !string.IsNullOrEmpty(trimmed) ? trimmed : TripTitles.Default(cityNames);
+    }
+
+    private static IResult LegCityNotFound(TripCityLeg leg)
+    {
+        var name = string.IsNullOrWhiteSpace(leg.CityName) ? "This city" : leg.CityName.Trim();
+        return ErrorResponse(404, $"{name} is not available now", TripErrorTypes.CityNotFound, new { legIndex = leg.Index });
+    }
+
+    // Plan is normalised. A leg stored on this trip keeps its snapshot (its district is resolved only while null);
+    // any other leg must be a live city. Ends with the five city fields = leg 1.
+    private static async Task<IResult?> ResolveLegsAsync(
+        TripPlan plan, TripPlan? stored, ITripCityCatalog catalog, IUnitOfWork unitOfWork, bool create)
+    {
+        var known = (stored?.Legs ?? new List<TripCityLeg>())
+            .Where(l => l.CityKey > 0)
+            .GroupBy(l => l.CityKey)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        foreach (var leg in plan.Legs!)
+        {
+            if (known.TryGetValue(leg.CityKey, out var snapshot))
+            {
+                leg.CityName = snapshot.CityName;
+                leg.Latitude = snapshot.Latitude;
+                leg.Longitude = snapshot.Longitude;
+                leg.NotReady = snapshot.NotReady;
+                leg.DistrictId = snapshot.DistrictId
+                    ?? await unitOfWork.Districts.FindActiveContainingAsync(snapshot.Latitude, snapshot.Longitude);
+                continue;
+            }
+
+            var (available, city) = await catalog.FindAsync(leg.CityKey);
+            if (!available) return CitiesUnavailable();
+            if (city == null) return LegCityNotFound(leg);
+            var ready = city.Status == TripSpotStatuses.Ready;
+            if (create && leg.Index == 1 && !ready) return BadRequestResponse("Pick a city with places first");
+
+            leg.CityName = city.Name;
+            leg.Latitude = city.Latitude;
+            leg.Longitude = city.Longitude;
+            leg.NotReady = ready ? null : true;
+            leg.DistrictId = await unitOfWork.Districts.FindActiveContainingAsync(city.Latitude, city.Longitude);
+        }
+
+        for (var i = 1; i < plan.Legs.Count; i++)
+            if (plan.Legs[i].Arrival is { } arrival) arrival.FromName = plan.Legs[i - 1].CityName;
+
+        plan.Normalize();
+        return null;
+    }
+
+    private static void CopyFirstLeg(Trip trip, TripPlan plan)
+    {
+        var first = plan.Legs![0];
+        trip.CityKey = first.CityKey;
+        trip.CityName = first.CityName;
+        trip.CityLatitude = first.Latitude;
+        trip.CityLongitude = first.Longitude;
+        trip.DistrictId = first.DistrictId;
     }
 
     private static void ApplyPlan(Trip trip, TripPlan plan)
@@ -716,17 +766,7 @@ public static class TripHandlers
         }
     }
 
-    internal static TripPlan ReadPlan(Trip trip)
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<TripPlan>(trip.PlanJson, TripJson.Options) ?? new TripPlan();
-        }
-        catch (JsonException)
-        {
-            return new TripPlan();
-        }
-    }
+    internal static TripPlan ReadPlan(Trip trip) => TripPlanReader.Read(trip);
 
     private static TripDto ToDto(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry>? enquiries = null) => new()
     {
@@ -738,6 +778,8 @@ public static class TripHandlers
         CityLatitude = trip.CityLatitude,
         CityLongitude = trip.CityLongitude,
         DistrictId = trip.DistrictId,
+        LegCount = plan.Legs is { Count: > 0 } legs ? legs.Count : 1,
+        LegCities = plan.Legs is { Count: > 0 } ? plan.LegCities : [trip.CityName],
         DayCount = trip.DayCount,
         SpotCount = trip.SpotCount,
         StartDate = trip.StartDate,
@@ -774,6 +816,8 @@ public static class TripHandlers
             Title = trip.Title,
             Status = trip.Status,
             CityName = trip.CityName,
+            LegCount = plan.Legs?.Count ?? 1,
+            LegCities = plan.LegCities,
             DayCount = trip.DayCount,
             SpotCount = trip.SpotCount,
             TaxiDays = plan.Days.Count(d => d.Taxi != null && d.Taxi.Skipped != true),

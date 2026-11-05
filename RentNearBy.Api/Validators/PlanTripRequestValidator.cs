@@ -12,6 +12,8 @@ public class PlanTripRequestValidator : AbstractValidator<PlanTripRequest>
     public const string InvalidCoordinatesMessage = "Invalid coordinates";
     public const string InvalidStartDateMessage = "Invalid start date";
     public const string MaxDaysMessage = "Days must be 1 to 14";
+    public const string InvalidRoadTimeMessage = "Invalid road time";
+    public const string InvalidCityMessage = "Invalid city";
 
     public static string TooManyPlacesMessage(int max) => $"A trip can have up to {max} places";
 
@@ -86,6 +88,14 @@ public class PlanTripRequestValidator : AbstractValidator<PlanTripRequest>
         RuleFor(x => x.MaxDays)
             .InclusiveBetween(1, TripLimits.MaxDays).WithMessage(MaxDaysMessage)
             .When(x => x.MaxDays != null);
+
+        RuleFor(x => x.FirstDayUsedMinutes)
+            .InclusiveBetween(0, 900).WithMessage(InvalidRoadTimeMessage)
+            .When(x => x.FirstDayUsedMinutes != null);
+
+        RuleFor(x => x.LegIndex)
+            .InclusiveBetween(1, TripLimits.MaxLegs).WithMessage(InvalidCityMessage)
+            .When(x => x.LegIndex != null);
     }
 
     internal sealed class PlanSpotInputValidator : AbstractValidator<PlanSpotInput>

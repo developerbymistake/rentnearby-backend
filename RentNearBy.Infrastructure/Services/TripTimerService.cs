@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -517,11 +516,7 @@ public class TripTimerService(
         => await db.Trips.AsNoTracking().AnyAsync(
             t => t.Id == tripId && t.MutedAt == null && t.Status != TripStatuses.Completed, ct);
 
-    private static TripPlan ReadPlan(Trip trip)
-    {
-        try { return JsonSerializer.Deserialize<TripPlan>(trip.PlanJson, TripJson.Options) ?? new TripPlan(); }
-        catch (JsonException) { return new TripPlan(); }
-    }
+    private static TripPlan ReadPlan(Trip trip) => TripPlanReader.Read(trip);
 
     private static async Task RewriteCardAsync(
         ITripChatService chat, Guid conversationId, string type, Guid enquiryId, string status, List<TripChatPost> posts)

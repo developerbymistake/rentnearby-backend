@@ -59,6 +59,8 @@ public class TripEnquiryContextDto
     public string? PickupTime { get; set; }
     public string? PickupPlace { get; set; }
     public string Text { get; set; } = string.Empty;
+    public int? CityIndex { get; set; }
+    public int? CityCount { get; set; }
 }
 
 public class TripPhoneBookingDto

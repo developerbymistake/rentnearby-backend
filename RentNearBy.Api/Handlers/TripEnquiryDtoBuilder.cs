@@ -90,6 +90,8 @@ public static class TripEnquiryDtoBuilder
                 PickupTime = context.PickupTime,
                 PickupPlace = context.PickupPlace,
                 Text = context.Text,
+                CityIndex = context.CityIndex,
+                CityCount = context.CityCount,
             },
             PhoneBooking = phoneBooking == null ? null : new TripPhoneBookingDto
             {

@@ -20,6 +20,8 @@ public interface ITripRepository : IRepository<Trip>
     Task<int> TryCompleteAsync(Guid id, DateTime nowUtc);
     // AsNoTracking; the caller's most recently updated trip for this Atlas city, as a city snapshot. Null when none.
     Task<TripCityInfo?> FindCitySnapshotAsync(Guid ownerUserId, long cityKey);
+    // FindCitySnapshotAsync, else the matching leg of the caller's most recently updated trip whose plan holds the city.
+    Task<TripCityInfo?> FindLegSnapshotAsync(Guid ownerUserId, long cityKey);
     // Tracked; the row an earlier create with this client id inserted. Null when none.
     Task<Trip?> FindByClientIdAsync(Guid ownerUserId, Guid clientTripId);
 }

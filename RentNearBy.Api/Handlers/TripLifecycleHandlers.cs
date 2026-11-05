@@ -378,6 +378,7 @@ public static class TripSummaryRecordBuilder
             TripId = trip.Id,
             Title = trip.Title,
             City = trip.CityName,
+            LegCities = plan.Legs is { Count: > 0 } ? plan.LegCities : [trip.CityName],
             StartDate = start,
             EndDate = trip.EndDate ?? plan.EndDate,
             Adults = plan.Settings?.Adults,

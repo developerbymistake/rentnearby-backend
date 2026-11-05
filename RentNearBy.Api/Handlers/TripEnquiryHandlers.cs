@@ -2060,6 +2060,7 @@ public static class TripEnquiryHandlers
             });
         }
         context.Days = days;
+        if (context.CityCount > 1 && plan?.Days is { Count: > 0 } planDays) context.TripDayCount = planDays.Count;
         context.Text = TripEnquiryText.Build(context, checkIn, checkOut, checkOut.DayNumber - checkIn.DayNumber > 1);
         e.ContextJson = JsonSerializer.Serialize(context, TripJson.Options);
     }
@@ -2073,8 +2074,9 @@ public static class TripEnquiryHandlers
         if (tripId is not { } id) return null;
         var json = await db.Trips.AsNoTracking().Where(t => t.Id == id).Select(t => t.PlanJson).FirstOrDefaultAsync();
         if (string.IsNullOrWhiteSpace(json)) return null;
-        try { return JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options); }
-        catch (JsonException) { return null; }
+        var plan = TripPlanReader.Parse(json);
+        plan.Normalize();
+        return plan;
     }
 
     private static IResult? CheckNight(Trip trip, int day, DateTime now)
@@ -2194,7 +2196,6 @@ public static class TripEnquiryHandlers
         var context = new TripEnquiryContext
         {
             TripTitle = null,
-            City = TripTextSafety.Clean(trip.CityName),
             Adults = settings.Adults,
             Kids = settings.Kids,
             Rooms = null,
@@ -2204,6 +2205,7 @@ public static class TripEnquiryHandlers
             PickupTime = time,
             PickupPlace = place,
         };
+        ApplyCity(context, trip, plan, chosen.Count == 0 ? 1 : chosen.Min());
         context.Text = TripEnquiryText.BuildLead(context, checkIn, checkOut);
         return context;
     }
@@ -2254,7 +2256,6 @@ public static class TripEnquiryHandlers
         var context = new TripEnquiryContext
         {
             TripTitle = null,
-            City = TripTextSafety.Clean(trip.CityName),
             Adults = settings.Adults,
             Kids = settings.Kids,
             Rooms = settings.Rooms,
@@ -2262,15 +2263,15 @@ public static class TripEnquiryHandlers
             TravellerName = travellerName.Length == 0 ? null : travellerName,
             Days = days,
         };
+        ApplyCity(context, trip, plan, firstDay);
         context.Text = TripEnquiryText.Build(context, checkIn, checkOut, allNights);
         return context;
     }
 
-    private static TripPlan ReadPlan(Trip trip)
-    {
-        try { return JsonSerializer.Deserialize<TripPlan>(trip.PlanJson, TripJson.Options) ?? new TripPlan(); }
-        catch (JsonException) { return new TripPlan(); }
-    }
+    private static void ApplyCity(TripEnquiryContext context, Trip trip, TripPlan plan, int day)
+        => TripEnquiryCity.Apply(context, plan, day, trip.CityName, trip.DayCount);
+
+    private static TripPlan ReadPlan(Trip trip) => TripPlanReader.Read(trip);
 
     private sealed record StaySnapshot(
         Guid Id, Guid UserId, string? Name, string Status, bool AcceptingGuests, bool IsDeleted, double? Latitude, double? Longitude);

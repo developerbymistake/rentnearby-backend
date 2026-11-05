@@ -87,6 +87,9 @@ public class TripDto
     public double CityLatitude { get; set; }
     public double CityLongitude { get; set; }
     public Guid? DistrictId { get; set; }
+    public int LegCount { get; set; } = 1;
+    // Ordered city names; CityName stays the first one.
+    public List<string> LegCities { get; set; } = new();
     public int DayCount { get; set; }
     public int SpotCount { get; set; }
     public DateOnly? StartDate { get; set; }
@@ -158,6 +161,8 @@ public class TripSummaryDto
     public string Title { get; set; } = string.Empty;
     public string Status { get; set; } = TripStatuses.Draft;
     public string CityName { get; set; } = string.Empty;
+    public int LegCount { get; set; } = 1;
+    public List<string> LegCities { get; set; } = new();
     public int DayCount { get; set; }
     public int SpotCount { get; set; }
     public int TaxiDays { get; set; }

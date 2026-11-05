@@ -100,6 +100,31 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
             })
             .FirstOrDefaultAsync();
 
+    // Row city first; else a later city of one of the caller's trips (fallback path only, no index).
+    public async Task<TripCityInfo?> FindLegSnapshotAsync(Guid ownerUserId, long cityKey)
+    {
+        if (await FindCitySnapshotAsync(ownerUserId, cityKey) is { } row) return row;
+
+        var probe = $"{{\"legs\":[{{\"cityKey\":{cityKey}}}]}}";
+        var json = (await _context.Database
+                .SqlQuery<string>($"""
+                    SELECT "PlanJson" AS "Value" FROM "Trips"
+                    WHERE "OwnerUserId" = {ownerUserId} AND "PlanJson" @> {probe}::jsonb
+                    ORDER BY "UpdatedAt" DESC
+                    LIMIT 1
+                    """)
+                .ToListAsync())
+            .FirstOrDefault();
+        if (json == null) return null;
+
+        var plan = TripPlanReader.Parse(json);
+        plan.Normalize();
+        var leg = plan.Legs!.FirstOrDefault(l => l.CityKey == cityKey);
+        return leg == null
+            ? null
+            : new TripCityInfo { CityKey = leg.CityKey, Name = leg.CityName, Latitude = leg.Latitude, Longitude = leg.Longitude };
+    }
+
     public async Task<Trip?> FindByClientIdAsync(Guid ownerUserId, Guid clientTripId)
         => await _dbSet.FirstOrDefaultAsync(t => t.OwnerUserId == ownerUserId && t.ClientTripId == clientTripId);
 }

@@ -28,9 +28,13 @@ public static class TripWarningCodes
 // Doc 4.1: nearest-neighbour by road minutes from the spot nearest the centre, cut into days at the limit.
 public static class DaySplitter
 {
-    private sealed class DayBuilder(int day)
+    // A travel day with less free time than this takes no place.
+    public const int MinFreeMinutes = 60;
+
+    private sealed class DayBuilder(int day, int reserved = 0)
     {
         public int Day { get; } = day;
+        public int Reserved { get; } = reserved;
         public List<int> Spots { get; } = new();
         public List<SplitLeg> Legs { get; } = new();
         public int Visit { get; set; }
@@ -51,7 +55,7 @@ public static class DaySplitter
         var builders = new List<DayBuilder>();
         var visited = new bool[n];
         var remaining = n;
-        var current = new DayBuilder(1);
+        var current = new DayBuilder(1, Math.Max(0, input.FirstDayUsedMinutes));
         builders.Add(current);
         var pending = -1;
 
@@ -61,6 +65,13 @@ public static class DaySplitter
 
             if (current.Spots.Count == 0)
             {
+                if (current.Reserved > 0 && current.Day < maxDays && limit - current.Reserved < MinFreeMinutes)
+                {
+                    current = new DayBuilder(current.Day + 1);
+                    builders.Add(current);
+                    continue;
+                }
+
                 int start;
                 if (pending >= 0 && !IsClosed(spots[pending], weekday))
                 {
@@ -76,6 +87,13 @@ public static class DaySplitter
 
                 if (start >= 0)
                 {
+                    if (current.Reserved > 0 && current.Day < maxDays && current.Reserved + spots[start].VisitMinutes > limit)
+                    {
+                        current = new DayBuilder(current.Day + 1);
+                        builders.Add(current);
+                        pending = start;
+                        continue;
+                    }
                     pending = -1;
                     Append(current, start, spots, matrix);
                     visited[start] = true;
@@ -115,7 +133,7 @@ public static class DaySplitter
                 continue;
             }
 
-            var candidateTotal = current.Visit + current.Drive + minutes[last, candidate] + spots[candidate].VisitMinutes;
+            var candidateTotal = current.Visit + current.Drive + current.Reserved + minutes[last, candidate] + spots[candidate].VisitMinutes;
             if (candidateTotal > limit)
             {
                 if (current.Day >= maxDays)
@@ -138,17 +156,20 @@ public static class DaySplitter
     }
 
     // The user's order always wins: only times, flags and the closed-day warning are computed.
-    public static SplitResult Recalculate(IReadOnlyList<(int Day, List<TripSpot> Spots)> days, int dayLimitMinutes, DateOnly? startDate, RoadMatrix matrix, IReadOnlyList<TripSpot> allSpots)
+    public static SplitResult Recalculate(IReadOnlyList<(int Day, List<TripSpot> Spots)> days, int dayLimitMinutes, DateOnly? startDate, RoadMatrix matrix, IReadOnlyList<TripSpot> allSpots,
+        int firstDayUsedMinutes = 0)
     {
         var index = new Dictionary<string, int>(StringComparer.Ordinal);
         for (var i = 0; i < allSpots.Count; i++)
             index.TryAdd(allSpots[i].Id, i);
 
+        // Day numbers are local to the city leg; the app leaves out empty days, so the reserve goes on day 1 only.
+        var reserved = Math.Max(0, firstDayUsedMinutes);
         var warnings = new List<SplitWarning>();
         var builders = new List<DayBuilder>();
         foreach (var (day, daySpots) in days)
         {
-            var builder = new DayBuilder(day);
+            var builder = new DayBuilder(day, day == 1 ? reserved : 0);
             foreach (var spot in daySpots)
             {
                 if (!index.TryGetValue(spot.Id, out var i)) continue;
@@ -273,7 +294,7 @@ public static class DaySplitter
         {
             var km = Math.Round(b.Legs.Sum(l => l.Km), 1);
             var isEstimate = b.Legs.Any(l => l.IsEstimate);
-            var overLimit = b.Visit + b.Drive > limit;
+            var overLimit = b.Visit + b.Drive + b.Reserved > limit;
             days.Add(new SplitDay(b.Day, b.Spots.Select(i => spots[i]).ToList(), b.Visit, b.Drive, km, isEstimate, overLimit, b.Legs));
             if (overLimit) dayWarnings.Add(new SplitWarning(TripWarningCodes.OverLimit, $"Day {b.Day} is over the limit", null, b.Day));
             if (isEstimate) dayWarnings.Add(new SplitWarning(TripWarningCodes.Estimate, $"Day {b.Day} uses estimated road times", null, b.Day));

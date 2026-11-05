@@ -8,7 +8,7 @@ public sealed class TripPlannerOptions
     public bool Enabled { get; set; } = true;
     public int DayLimitMinutes { get; set; } = 450;
     public int SpotsPageSize { get; set; } = 20;
-    public int MaxSpotsPerTrip { get; set; } = 40;
+    public int MaxSpotsPerTrip { get; set; } = 60;
     public int MaxDays { get; set; } = 14;
     public int CacheTtlHours { get; set; } = 48;
     public int StaleTtlDays { get; set; } = 7;

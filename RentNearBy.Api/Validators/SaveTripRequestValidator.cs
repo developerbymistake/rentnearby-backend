@@ -39,16 +39,41 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
         => (lat == null && lon == null)
            || (lat is >= -90 and <= 90 && lon is >= -180 and <= 180);
 
-    // A booking copy must list distinct days of this plan, including the day it sits on.
-    internal static bool BookingDaysValid(TripDay day, int dayCount)
+    public const string MaxLegsMessage = "Up to 4 cities in one trip";
+    public const string LegOrderMessage = "Invalid city order";
+    public const string DuplicateCityMessage = "A city can be in a trip once";
+    public const string FirstArrivalMessage = "The first city has no travel to it";
+    public const string DaysFollowLegsMessage = "Days must follow the cities in order";
+    public const string SameCityStayMessage = "Same stay must be an earlier night in the same city";
+    public const string TravelMessage = "Invalid travel";
+    public const string RoadTimeMessage = "Invalid road time";
+    public const string TimeMessage = "Invalid time";
+
+    // A booking copy must list distinct days of this plan in one city, including the day it sits on.
+    internal static bool BookingDaysValid(TripDay day, TripPlan plan)
     {
         var booking = day.Taxi?.Booking;
         if (booking == null) return true;
         var days = booking.Days;
         if (days == null || days.Length == 0) return false;
+        var dayCount = plan.Days.Count;
+        var leg = plan.LegIndexOf(day.Day);
         return days.Distinct().Count() == days.Length
-               && days.All(n => n >= 1 && n <= dayCount)
+               && days.All(n => n >= 1 && n <= dayCount && plan.LegIndexOf(n) == leg)
                && days.Contains(day.Day);
+    }
+
+    // Out-of-range targets are refused by the earlier-day rule.
+    internal static bool SameAsDayInLeg(TripPlan plan, TripDay day, int? target)
+        => target is not { } t || t < 1 || t >= day.Day || plan.LegIndexOf(t) == plan.LegIndexOf(day.Day);
+
+    internal static bool DaysFollowLegs(IReadOnlyList<TripDay> days, int legCount)
+    {
+        if (days.Count == 0) return true;
+        if (days[0].Leg != 1 || days[^1].Leg != legCount) return false;
+        for (var i = 1; i < days.Count; i++)
+            if (days[i].Leg - days[i - 1].Leg is not (0 or 1)) return false;
+        return true;
     }
 
     public SaveTripRequestValidator(IOptions<TripPlannerOptions>? options = null)
@@ -84,6 +109,20 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
                 .When(x => x.Plan.Settings != null && x.Plan.Settings.StartDate != null);
             RuleFor(x => x.Plan.Settings).SetValidator(new TripSettingsValidator()).When(x => x.Plan.Settings != null);
             RuleFor(x => x.Plan.Steps!).SetValidator(new TripStepsValidator()).When(x => x.Plan.Steps != null);
+
+            // Legs exist here: PreValidate normalised the plan (a legless body is one leg).
+            When(x => x.Plan.Legs != null, () =>
+            {
+                RuleFor(x => x.Plan.Legs!)
+                    .Cascade(CascadeMode.Stop)
+                    .Must(l => l.Count is >= 1 and <= TripLimits.MaxLegs).WithMessage(MaxLegsMessage)
+                    .Must(l => l.Select((g, i) => g.Index == i + 1).All(ok => ok)).WithMessage(LegOrderMessage)
+                    .Must(l => l.Skip(1).All(g => g.CityKey > 0)).WithMessage("City is required")
+                    .Must(l => l.Where(g => g.CityKey > 0).Select(g => g.CityKey).Distinct().Count() == l.Count(g => g.CityKey > 0))
+                    .WithMessage(DuplicateCityMessage)
+                    .Must(l => l[0].Arrival == null).WithMessage(FirstArrivalMessage);
+                RuleForEach(x => x.Plan.Legs!).SetValidator(new TripCityLegValidator());
+            });
 
             RuleFor(x => x.Plan.Days)
                 .Cascade(CascadeMode.Stop)
@@ -156,7 +195,16 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
                 });
 
                 RuleForEach(x => x.Plan.Days)
-                    .Must((x, d) => BookingDaysValid(d, x.Plan.Days.Count)).WithMessage("Invalid booking days");
+                    .Must((x, d) => BookingDaysValid(d, x.Plan)).WithMessage("Invalid booking days");
+
+                RuleFor(x => x.Plan.Days)
+                    .Must((x, d) => DaysFollowLegs(d, x.Plan.Legs!.Count)).WithMessage(DaysFollowLegsMessage)
+                    .When(x => x.Plan.Legs is { Count: > 0 });
+
+                RuleForEach(x => x.Plan.Days)
+                    .Must((x, d) => SameAsDayInLeg(x.Plan, d, d.Stay?.SameAsDay)
+                                    && (d.StayShortlist == null || d.StayShortlist.All(i => i == null || SameAsDayInLeg(x.Plan, d, i.SameAsDay))))
+                    .WithMessage(SameCityStayMessage);
             });
         });
     }
@@ -216,10 +264,49 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
     // An app that does not know steps writes a "No taxi this day" day back with an empty id and no skipped flag.
     internal const string StepsUnawareKey = "trip.stepsUnaware";
 
+    // The body carried no legs (v3 or an app that does not know cities); its synthesised leg skips the leg text rules.
+    internal const string LeglessKey = "trip.legless";
+
     protected override bool PreValidate(ValidationContext<SaveTripRequest> context, ValidationResult result)
     {
-        context.RootContextData[StepsUnawareKey] = context.InstanceToValidate?.Plan is { Steps: null };
+        var plan = context.InstanceToValidate?.Plan;
+        context.RootContextData[StepsUnawareKey] = plan is { Steps: null };
+        context.RootContextData[LeglessKey] = plan is { Legs: not { Count: > 0 } };
+        plan?.Normalize();
         return true;
+    }
+
+    internal sealed class TripCityLegValidator : AbstractValidator<TripCityLeg>
+    {
+        public TripCityLegValidator()
+        {
+            RuleFor(l => l.CityName)
+                .Must((l, n, ctx) => (ctx.RootContextData.TryGetValue(LeglessKey, out var v) && v is true)
+                                     || (n != null && n.Trim().Length is >= 1 and <= MaxNameLength))
+                .WithMessage("City name must be 1 to 120 characters");
+            RuleFor(l => l)
+                .Must(l => l.Latitude is >= -90 and <= 90 && l.Longitude is >= -180 and <= 180)
+                .OverridePropertyName("Coordinates")
+                .WithMessage(PlanTripRequestValidator.InvalidCoordinatesMessage);
+            RuleFor(l => l.Arrival!).SetValidator(new TripTravelValidator()).When(l => l.Arrival != null);
+        }
+    }
+
+    internal sealed class TripTravelValidator : AbstractValidator<TripTravel>
+    {
+        public TripTravelValidator()
+        {
+            RuleFor(t => t.Mode).Must(m => m != null && TripTravelModes.All.Contains(m)).WithMessage(TravelMessage);
+            RuleFor(t => t.FromName).Must(n => n == null || n.Length <= MaxNameLength).WithMessage(TravelMessage);
+            RuleFor(t => t.How).Must(h => h == null || TripTravelHows.All.Contains(h)).WithMessage(TravelMessage);
+            RuleFor(t => t.OwnName)
+                .Must(n => n == null || n.Trim().Length <= MaxOwnNameLength).WithMessage("Name or number can be up to 80 characters");
+            RuleFor(t => t.OwnPhone).Must(IsValidPhone).WithMessage(PhoneMessage);
+            RuleFor(t => t.LeavesAt).Must(IsValidPickupTime).WithMessage(TimeMessage);
+            RuleFor(t => t.RoadMinutes)
+                .Must(m => m == null || TripTravelRoad.All.Contains(m.Value)).WithMessage(RoadTimeMessage);
+            RuleFor(t => t.Note).Must(IsValidNote).WithMessage(NoteMessage);
+        }
     }
 
     internal sealed class TripTaxiChoiceValidator : AbstractValidator<TripTaxiChoice>

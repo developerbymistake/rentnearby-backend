@@ -574,6 +574,26 @@ public sealed class TripEnquiryContext
     // Journey leads only: the saved journey and leg the lead belongs to.
     public Guid? JourneyId { get; set; }
     public int? LegIndex { get; set; }
+    // Multi-city trips only (null on a one-city trip): the city of the first night / first chosen day, the city count and the trip length.
+    public int? CityIndex { get; set; }
+    public int? CityCount { get; set; }
+    public int? TripDayCount { get; set; }
+}
+
+public static class TripEnquiryCity
+{
+    // City = the leg of that day; index, count and trip length only on a multi-city plan, so one-city JSON is unchanged.
+    public static void Apply(TripEnquiryContext context, TripPlan plan, int day, string? rowCityName, int rowDayCount)
+    {
+        var leg = plan.LegOf(day);
+        var name = TripTextSafety.Clean(leg?.CityName);
+        context.City = name.Length > 0 ? name : TripTextSafety.Clean(rowCityName);
+        var count = plan.Legs?.Count ?? 0;
+        if (leg == null || count <= 1) return;
+        context.CityIndex = leg.Index;
+        context.CityCount = count;
+        context.TripDayCount = rowDayCount > 0 ? rowDayCount : plan.Days?.Count ?? 0;
+    }
 }
 
 public sealed class TripEnquiryContextDay
@@ -673,6 +693,7 @@ public static class TripEnquiryText
         }
 
         sb.Append(" Is a room free? Please share the best price.");
+        sb.Append(CitySuffixOf(ctx));
         return sb.ToString();
     }
 
@@ -703,8 +724,18 @@ public static class TripEnquiryText
             if (duration != null) sb.Append(" (").Append(duration).Append(')');
             sb.Append(": ").Append(SpotsText(day.Spots)).Append('.');
         }
+        sb.Append(CitySuffixOf(ctx));
         return sb.ToString();
     }
+
+    public static string CitySuffix(int dayCount, int cityIndex, int cityCount)
+        => cityCount <= 1 ? string.Empty : $" Part of a {dayCount}-day trip, {cityIndex} of {cityCount} cities.";
+
+    // Kept inside Build/BuildLead so every rebuild of a multi-city row (split, shrink, replace) keeps the sentence.
+    public static string CitySuffixOf(TripEnquiryContext ctx)
+        => ctx.CityCount is { } count && count > 1 && ctx.CityIndex is { } index && ctx.TripDayCount is { } days && days > 0
+            ? CitySuffix(days, index, count)
+            : string.Empty;
 
     // "08:30" -> "8:30 am"; null when not a valid HH:mm.
     public static string? TimeText(string? hhmm)

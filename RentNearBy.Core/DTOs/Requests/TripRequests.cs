@@ -12,6 +12,10 @@ public class PlanTripRequest
     public DateOnly? StartDate { get; set; }
     // Auto mode only: 1..14, null = the configured default.
     public int? MaxDays { get; set; }
+    // Road minutes already spent on day 1 (travel day of a city leg), 0..900.
+    public int? FirstDayUsedMinutes { get; set; }
+    // City leg 1..4, log only.
+    public int? LegIndex { get; set; }
 }
 
 public class PlanSpotInput

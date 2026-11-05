@@ -316,4 +316,125 @@ public class DaySplitterTests
 
         Assert.Single(result.Days);
     }
+
+    // MC-A D7: a travel day starts with used minutes.
+    private static SplitResult SplitReserved(IReadOnlyList<TripSpot> spots, RoadMatrix matrix, int reserved, DateOnly? start = null, int maxDays = 14)
+        => DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, start, maxDays, reserved), matrix);
+
+    private static TripSpot[] Row(int count, int visit) => Enumerable.Range(0, count).Select(i => Spot($"s{i}", visit, 29.39 + i * 0.001, 79.45)).ToArray();
+
+    [Fact]
+    public void Split_ReservedZero_SameAsToday()
+    {
+        var spots = Row(8, 60);
+        var matrix = Matrix(8, 10);
+
+        var plain = Split(spots, matrix);
+        var reserved = SplitReserved(spots, matrix, 0);
+
+        Assert.Equal(plain.Days.Select(d => string.Join(",", Ids(d))), reserved.Days.Select(d => string.Join(",", Ids(d))));
+        Assert.Equal(plain.Days.Select(d => d.OverLimit), reserved.Days.Select(d => d.OverLimit));
+    }
+
+    [Fact]
+    public void Split_Reserved300_DayOneTakesFewerPlaces()
+    {
+        var spots = Row(8, 60);
+        var matrix = Matrix(8, 10);
+
+        var plain = Split(spots, matrix);
+        var result = SplitReserved(spots, matrix, 300);
+
+        Assert.Equal(6, plain.Days[0].Spots.Count);
+        Assert.Equal(2, result.Days[0].Spots.Count);
+        Assert.False(result.Days[0].OverLimit);
+        Assert.Equal(120, result.Days[0].VisitMinutes);
+        Assert.Equal(130, result.Days[0].TotalMinutes);
+        Assert.Equal(8, result.Days.SelectMany(d => d.Spots).Count());
+    }
+
+    [Fact]
+    public void Split_Reserved420_DayOneEmptyFirstPlaceOnDayTwo()
+    {
+        var spots = Row(3, 60);
+
+        var result = SplitReserved(spots, Matrix(3, 10), 420);
+
+        Assert.Equal(2, result.Days.Count);
+        Assert.Equal(1, result.Days[0].Day);
+        Assert.Empty(result.Days[0].Spots);
+        Assert.False(result.Days[0].OverLimit);
+        Assert.Equal(3, result.Days[1].Spots.Count);
+        Assert.DoesNotContain(result.Warnings, w => w.Code == TripWarningCodes.OverLimit && w.Day == 1);
+    }
+
+    [Fact]
+    public void Split_Reserved420MaxDaysOne_AllOnDayOneOverLimit()
+    {
+        var spots = Row(3, 60);
+
+        var result = SplitReserved(spots, Matrix(3, 10), 420, maxDays: 1);
+
+        var day = Assert.Single(result.Days);
+        Assert.Equal(3, day.Spots.Count);
+        Assert.True(day.OverLimit);
+        Assert.Equal(180, day.VisitMinutes);
+        Assert.Contains(result.Warnings, w => w.Code == TripWarningCodes.OverLimit && w.Day == 1);
+    }
+
+    [Fact]
+    public void Split_ReservedFirstPlaceDoesNotFit_MovesToDayTwo()
+    {
+        var spots = new[] { Spot("a", 200) };
+
+        var result = SplitReserved(spots, DaySplitter.FillEstimates(spots, null, 30, 2), 300);
+
+        Assert.Equal(2, result.Days.Count);
+        Assert.Empty(result.Days[0].Spots);
+        Assert.Equal(new[] { "a" }, Ids(result.Days[1]));
+    }
+
+    [Fact]
+    public void Split_ReservedWithClosedDay_ClosedLogicUnchanged()
+    {
+        var spots = new[] { Spot("a", 60, 29.39, 79.45), Spot("b", 60, 29.391, 79.451, [Iso(Start.AddDays(1))]) };
+
+        var result = SplitReserved(spots, Matrix(2, 10), 420, start: Start);
+
+        Assert.Equal(3, result.Days.Count);
+        Assert.Empty(result.Days[0].Spots);
+        Assert.Equal(new[] { "a" }, Ids(result.Days[1]));
+        Assert.Equal(new[] { "b" }, Ids(result.Days[2]));
+        Assert.DoesNotContain(result.Warnings, w => w.Code == TripWarningCodes.ClosedDay);
+    }
+
+    [Fact]
+    public void Recalculate_Reserved_FirstDayOverLimit()
+    {
+        var a = Spot("a", 60);
+        var b = Spot("b", 60);
+        var c = Spot("c", 60);
+        var days = new List<(int Day, List<TripSpot> Spots)> { (1, new List<TripSpot> { a, b }), (2, new List<TripSpot> { c }) };
+        var matrix = Matrix(3, 10);
+
+        var plain = DaySplitter.Recalculate(days, Limit, null, matrix, new[] { a, b, c });
+        var result = DaySplitter.Recalculate(days, Limit, null, matrix, new[] { a, b, c }, 350);
+
+        Assert.False(plain.Days[0].OverLimit);
+        Assert.True(result.Days[0].OverLimit);
+        Assert.Equal(130, result.Days[0].TotalMinutes);
+        Assert.False(result.Days[1].OverLimit);
+        Assert.Contains(result.Warnings, w => w.Code == TripWarningCodes.OverLimit && w.Day == 1);
+    }
+
+    [Fact]
+    public void Recalculate_ReservedWithoutDayOne_NoDayReserved()
+    {
+        var a = Spot("a", 400);
+        var days = new List<(int Day, List<TripSpot> Spots)> { (2, new List<TripSpot> { a }) };
+
+        var result = DaySplitter.Recalculate(days, Limit, null, Matrix(1, 10), new[] { a }, 450);
+
+        Assert.False(Assert.Single(result.Days).OverLimit);
+    }
 }

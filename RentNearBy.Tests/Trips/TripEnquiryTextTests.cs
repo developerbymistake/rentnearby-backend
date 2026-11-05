@@ -149,4 +149,49 @@ public class TripEnquiryTextTests
     {
         Assert.Equal("Naina Devi Temple", TripTextSafety.Clean("Naina Devi Temple"));
     }
+
+    [Fact]
+    public void City_suffix_for_a_multi_city_trip()
+    {
+        Assert.Equal(" Part of a 4-day trip, 2 of 2 cities.", TripEnquiryText.CitySuffix(4, 2, 2));
+        Assert.Equal("", TripEnquiryText.CitySuffix(4, 1, 1));
+        Assert.Equal("", TripEnquiryText.CitySuffix(4, 1, 0));
+    }
+
+    [Fact]
+    public void One_city_context_has_no_city_sentence_and_no_city_fields()
+    {
+        var ctx = Full();
+        var text = TripEnquiryText.Build(ctx, In, new DateOnly(2026, 11, 2), false);
+        Assert.DoesNotContain("Part of a", text);
+        var json = JsonSerializer.Serialize(ctx, TripJson.Options);
+        Assert.DoesNotContain("cityIndex", json);
+        Assert.DoesNotContain("cityCount", json);
+        Assert.DoesNotContain("tripDayCount", json);
+    }
+
+    [Fact]
+    public void Multi_city_context_ends_with_the_city_sentence()
+    {
+        var ctx = Ctx(new
+        {
+            city = "Badrinath",
+            adults = 2,
+            days = new[] { Day(2, "2026-11-02", "Badrinath Temple") },
+            cityIndex = 2,
+            cityCount = 2,
+            tripDayCount = 4,
+        });
+
+        var stay = TripEnquiryText.Build(ctx, new DateOnly(2026, 11, 2), new DateOnly(2026, 11, 3), false);
+        var lead = TripEnquiryText.BuildLead(ctx, new DateOnly(2026, 11, 2), new DateOnly(2026, 11, 3));
+
+        Assert.StartsWith("Hi, trip to Badrinath", stay);
+        Assert.EndsWith("Please share the best price. Part of a 4-day trip, 2 of 2 cities.", stay);
+        Assert.EndsWith(" Part of a 4-day trip, 2 of 2 cities.", lead);
+        var back = Ctx(ctx);
+        Assert.Equal(2, back.CityIndex);
+        Assert.Equal(2, back.CityCount);
+        Assert.Equal(4, back.TripDayCount);
+    }
 }
