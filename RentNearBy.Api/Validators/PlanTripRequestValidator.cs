@@ -19,6 +19,11 @@ public class PlanTripRequestValidator : AbstractValidator<PlanTripRequest>
 
     public static bool IsValidStartDate(DateOnly date) => date.Year is >= 2000 and <= 2100;
 
+    // Both or neither, finite and in range.
+    public static bool IsPoint(double? lat, double? lon) =>
+        (lat == null && lon == null)
+        || (lat is { } a && lon is { } b && double.IsFinite(a) && double.IsFinite(b) && a is >= -90 and <= 90 && b is >= -180 and <= 180);
+
     public PlanTripRequestValidator(IOptions<TripPlannerOptions>? options = null)
     {
         var maxSpots = Math.Clamp(options?.Value.MaxSpotsPerTrip ?? TripLimits.MaxSpots, 1, TripLimits.MaxSpots);
@@ -71,6 +76,10 @@ public class PlanTripRequestValidator : AbstractValidator<PlanTripRequest>
                 RuleForEach(x => x.Days).ChildRules(day =>
                 {
                     day.RuleForEach(d => d.Spots).SetValidator(new PlanSpotInputValidator());
+                    day.RuleFor(d => d)
+                        .Must(d => IsPoint(d.StartLatitude, d.StartLongitude) && IsPoint(d.EndLatitude, d.EndLongitude))
+                        .OverridePropertyName("Coordinates")
+                        .WithMessage(InvalidCoordinatesMessage);
                 });
             });
 

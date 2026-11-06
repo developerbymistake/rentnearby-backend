@@ -500,10 +500,19 @@ public class TripRequestValidatorsTests
     }
 
     [Fact]
-    public void Save_Version5_Invalid()
+    public void Save_Version5_Valid()
     {
         var request = Save();
         request.Plan.Version = 5;
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_Version6_Invalid()
+    {
+        var request = Save();
+        request.Plan.Version = 6;
 
         ValidationAssert.HasMessage(SaveValidator.Validate(request), "Unsupported plan version");
     }
@@ -889,12 +898,12 @@ public class TripRequestValidatorsTests
         => Assert.Throws<System.Text.Json.JsonException>(() => FromJson("\"stay\":{\"stayId\":\"abc\",\"name\":\"Lake View\"}"));
 
     [Fact]
-    public void Save_OwnStayNameMissing_Invalid()
+    public void Save_OwnStayNameMissing_Valid()
     {
         var request = Save();
         request.Plan.Days[0].Stay = new TripStayChoice { IsOwn = true, Name = "  " };
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Name must be 1 to 80 characters");
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
     }
 
     [Fact]
@@ -903,7 +912,7 @@ public class TripRequestValidatorsTests
         var request = Save();
         request.Plan.Days[0].Taxi = new TripTaxiChoice { IsOwn = true, Name = new string('a', 81) };
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Name must be 1 to 80 characters");
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Name can be up to 80 characters");
     }
 
     [Fact]

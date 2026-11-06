@@ -390,8 +390,8 @@ public static class TripSummaryRecordBuilder
             EndDate = trip.EndDate ?? plan.EndDate,
             Adults = plan.Settings?.Adults,
             Kids = plan.Settings?.Kids,
-            BookingState = TripBookingStates.Compute(trip, plan, raw),
-            AgreedTotal = TripBookingSummary.Count(plan, raw).AgreedTotal,
+            BookingState = TripBookingStates.Compute(trip, plan, raw, journeys),
+            AgreedTotal = TripBookingSummary.Count(plan, raw, journeys).AgreedTotal,
             GeneratedAt = nowUtc,
         };
 

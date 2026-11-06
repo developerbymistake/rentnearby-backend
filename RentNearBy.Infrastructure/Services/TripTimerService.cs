@@ -73,15 +73,16 @@ public class TripTimerService(
             var reminders = await HostReminderPassAsync(sp, ct);
             var noReply = await NoReplyPassAsync(sp, ct);
             var hostNc = await HostNotConfirmedPassAsync(sp, ct);
+            var bookedSilence = await BookedSilencePassAsync(sp, ct);
             var dates = await DateReminderPassAsync(sp, ct);
             var travelEve = await TravelEvePassAsync(sp, ct);
             var completed = await AutoCompletePassAsync(sp, ct);
             var urgent = await UrgentPassAsync(sp);
             var purged = await PurgePassAsync(sp);
-            if (offers + enquiries + leads + hold + reminders + noReply + hostNc + dates + travelEve + completed + urgent + purged > 0)
+            if (offers + enquiries + leads + hold + reminders + noReply + hostNc + bookedSilence + dates + travelEve + completed + urgent + purged > 0)
                 logger.LogInformation(
-                    "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} noreply={NoReply} hostnc={HostNc} dates={Dates} traveleve={TravelEve} completed={Completed}",
-                    offers, enquiries, urgent, purged, hold, reminders, leads, noReply, hostNc, dates, travelEve, completed);
+                    "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} noreply={NoReply} hostnc={HostNc} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
+                    offers, enquiries, urgent, purged, hold, reminders, leads, noReply, hostNc, bookedSilence, dates, travelEve, completed);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -413,6 +414,14 @@ public class TripTimerService(
         }
         while (after != null);
         return done;
+    }
+
+    private async Task<int> BookedSilencePassAsync(IServiceProvider sp, CancellationToken ct)
+    {
+        var db = sp.GetRequiredService<ApplicationDbContext>();
+        var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
+        var notifier = sp.GetRequiredService<ITripNotifier>();
+        return await TripLeadSilence.RemindBookedAsync(db, unitOfWork.TripEnquiries, notifier, DateTime.UtcNow, Batch, logger, ct);
     }
 
     private async Task<int> HostNotConfirmedPassAsync(IServiceProvider sp, CancellationToken ct)

@@ -9,9 +9,10 @@ public interface ITripRepository : IRepository<Trip>
     Task<Trip?> GetByIdForOwnerAsync(Guid id, Guid ownerUserId);
     // AsNoTracking, UpdatedAt DESC, Take(pageSize + 1).
     Task<(IReadOnlyList<Trip> Items, bool HasMore)> GetByOwnerPagedAsync(Guid ownerUserId, int page, int pageSize);
-    // AsNoTracking, UpdatedAt DESC; completed picks Status = Completed, otherwise every other status.
-    Task<(IReadOnlyList<Trip> Items, bool HasMore)> GetByOwnerPagedAsync(Guid ownerUserId, int page, int pageSize, bool completed);
-    Task<(int Upcoming, int Completed)> GetStateCountsAsync(Guid ownerUserId);
+    // AsNoTracking; past = TripListRules.IsPast (EndDate DESC, UpdatedAt DESC), else active (StartDate ASC NULLS LAST, UpdatedAt DESC).
+    Task<(IReadOnlyList<Trip> Items, bool HasMore)> GetByOwnerPagedAsync(Guid ownerUserId, int page, int pageSize, bool past, DateOnly todayIst);
+    // Same predicate as the list; active + past = every trip of the owner.
+    Task<(int Active, int Past)> GetStateCountsAsync(Guid ownerUserId, DateOnly todayIst);
     // AsNoTracking; Planned, not muted, with StartDate in startsIn (d3 key not logged), StartDate in startsToday (d0 key
     // not logged) or EndDate in markComplete (done key not logged). Keyset by Id; Next = null when exhausted.
     Task<(IReadOnlyList<Trip> Items, Guid? Next)> GetDateReminderCandidatesAsync(

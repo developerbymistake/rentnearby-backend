@@ -878,8 +878,9 @@ public static class TripEnquiryHandlers
         return created ? CreatedResponse(dto, $"/api/v1/trips/enquiries/{target.Id}") : OkResponse(dto);
     }
 
-    // "I booked" for one car of the journey that carries the traveller between two cities (Day = travel day).
-    // Only another booked driver of the same car blocks; local taxis and other cars never do.
+    // "I booked" for one car of a journey the trip uses: Getting there, Coming back or travel between two cities
+    // (Day = DayOf(start, travel date), informational for the step roles). Only another booked driver of the same car
+    // blocks; local taxis and other cars never do.
     private static async Task<IResult> CreateSegmentBookingAsync(
         Trip trip, CreateTaxiBookingRequest request, Guid journeyId, int carIndex, Guid callerId,
         IUnitOfWork unitOfWork, ApplicationDbContext db, ISavedJourneyRepository journeys, ITripChatService chat, ITripNotifier notifier,
@@ -892,9 +893,12 @@ public static class TripEnquiryHandlers
         if (journey == null) return JourneyHandlers.NotFound();
         var plan = ReadPlan(trip);
         var link = journey.TripId == trip.Id ? TripJourneyLinks.Resolve(plan, journey.Id) : null;
-        if (link is not { Role: TripStepRoles.Segment, LegIndex: { } legIndex, TravelDay: { } travelDay }
-            || plan.Legs is not { } legs || legIndex < 2 || legIndex > legs.Count)
+        var cityLeg = link == null ? null : TripStepDates.LegFor(link.Role, plan, link.LegIndex);
+        if (link == null || cityLeg == null || (link.Role == TripStepRoles.Segment && link.LegIndex is not >= 2))
             return ConflictResponse("Your trip is still saving. Try again.", JourneyErrorTypes.JourneyNotInPlan);
+        if (TripStepDates.Expected(link.Role, plan, link.LegIndex) is not { } date)
+            return ErrorResponse(422, "Add your trip dates first.", TripEnquiryErrorTypes.TripDatesRequired);
+        var travelDay = (int)TripExecutionRules.DayOf(tripStart, date);
 
         var car = journey.Legs.FirstOrDefault(l => l.LegIndex == carIndex);
         if (car == null) return BadRequestResponse("Unknown leg");
@@ -902,8 +906,8 @@ public static class TripEnquiryHandlers
         if (requested.Count > 1 || (requested.Count == 1 && requested[0] != travelDay))
             return BadRequestResponse("Journey cars travel on the travel day");
         List<int> days = [travelDay];
-        if (CheckTaxiDays(trip, days, now) is { } dayError) return dayError;
-        var date = TripExecutionRules.NightDate(tripStart, travelDay);
+        if (date < TripExecutionRules.TodayIst(now))
+            return ErrorResponse(422, "This day has already passed.", TripEnquiryErrorTypes.DayInPast);
         if (journey.TravelDate != date)
             return ConflictResponse("Your trip date changed. Search again.", TripEnquiryErrorTypes.TravelDateChanged);
 
@@ -944,9 +948,9 @@ public static class TripEnquiryHandlers
         var pickupPlace = TripTextSafety.Clean(request.PickupPlace, TripLeadRules.PickupPlaceMax);
         var comesFrom = journey.Legs.FirstOrDefault(l => l.LegIndex == carIndex - 1)?.FromName;
         var context = TripSegmentContext.Build(
-            trip, plan, legs[legIndex - 1], travelDay, date, journey.Id, carIndex, journey.Legs.Count,
+            trip, plan, cityLeg, travelDay, date, journey.Id, carIndex, journey.Legs.Count,
             car.FromName, car.ToName, comesFrom, journey.People, TaxiWaysRanking.CarsNeeded(journey.People, seats),
-            travellerName, pickupTime, pickupPlace);
+            travellerName, pickupTime, pickupPlace, link.Role);
         var pushes = new List<TripPendingPush>();
         var replaceIds = (request.ReplaceEnquiryIds ?? new List<Guid>())
             .Take(TripLeadRules.MaxReplaceIds)
@@ -1151,7 +1155,7 @@ public static class TripEnquiryHandlers
             if (existing?.Status == TripEnquiryStatuses.ConfirmedByTraveller)
             {
                 // Same as PUT .../phone-booking: an edit, no new link.
-                if (await ApplyNightRulesAsync(db, chat, existing, checkIn, checkOut, closeOthers: false, replaceId: null, callerId, posts, pushes, now) is { } phoneConflict)
+                if (await ApplyNightRulesAsync(db, chat, existing, checkIn, checkOut, closeOthers: false, request.ReplaceEnquiryId, callerId, posts, pushes, now) is { } phoneConflict)
                 {
                     await unitOfWork.RollbackTransactionAsync();
                     return phoneConflict;
@@ -1308,7 +1312,7 @@ public static class TripEnquiryHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
-            if (await ApplyNightRulesAsync(db, chat, e, checkIn, checkOut, closeOthers: false, replaceId: null, callerId, posts, pushes, now) is { } conflict)
+            if (await ApplyNightRulesAsync(db, chat, e, checkIn, checkOut, closeOthers: false, request.ReplaceEnquiryId is { } r && r != Guid.Empty ? r : null, callerId, posts, pushes, now) is { } conflict)
             {
                 await unitOfWork.RollbackTransactionAsync();
                 return conflict;
@@ -1366,6 +1370,122 @@ public static class TripEnquiryHandlers
         catch (DbUpdateConcurrencyException) { return Concurrent(); }
 
         return OkResponse(await PhoneResultAsync(unitOfWork, e, token, callerId, now, options.Value, ReadTravellerName(e)));
+    }
+
+    // ---------- POST /trips/enquiries/{id}/lead-update ----------
+
+    // The traveller tells the driver the day's new stops or start: the lead context is rebuilt from the saved plan.
+    public static async Task<IResult> UpdateLead(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, ITripChatService chat,
+        ITripNotifier notifier, ILoggerFactory loggers)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
+
+        var e = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(id);
+        if (TripEnquiryAuth.RequireTraveller(e, callerId) is { } denied) return denied;
+        if (e!.Kind != TripEnquiryKinds.Taxi || TripSegmentRows.IsSegment(e) || e.TripId is not { } tripId
+            || TripEnquiryStatuses.IsTerminal(e.Status))
+            return Closed("This lead is closed.");
+
+        var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(tripId, callerId);
+        if (trip?.StartDate is not { } start) return Closed("This lead is closed.");
+        var days = CurrentTaxiDays(e, start).Where(d => d >= 1).ToList();
+        if (days.Count == 0) return Closed("This lead is closed.");
+
+        var now = DateTime.UtcNow;
+        var old = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
+        var plan = ReadPlan(trip);
+        var firstOld = old.Days.FirstOrDefault();
+        var newStart = TripDayStart.PlaceOf(plan, days[0]);
+        var oldStart = firstOld?.StartName ?? (firstOld?.Start == TripDayStart.Of(plan, days[0]) ? newStart : null);
+        var pickup = TripDayStart.Pickup(e.PickupPlace, oldStart, newStart);
+        var context = BuildLeadContext(trip, plan, days,
+            e.CheckIn ?? TripExecutionRules.NightDate(start, days[0]),
+            e.CheckOut ?? TripExecutionRules.NightDate(start, days[^1]).AddDays(1),
+            ReadTravellerName(e), e.PickupTime, pickup);
+        var withStart = firstOld?.Start != null;
+        var changed = DaysKey(context.Days, withStart) != DaysKey(old.Days, withStart) || !string.Equals(pickup, e.PickupPlace, StringComparison.Ordinal);
+        if (changed)
+        {
+            e.PickupPlace = context.PickupPlace;
+            e.ContextJson = JsonSerializer.Serialize(context, TripJson.Options);
+            e.UpdatedAt = now;
+            try { await db.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException) { return Concurrent(); }
+            await AfterCommitAsync(chat, [], [new TripPendingPush(e, e.OwnerUserId, LeadPlanUpdated)], unitOfWork, notifier, loggers);
+        }
+        return OkResponse(await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, callerId, now));
+    }
+
+    // ---------- POST /trips/enquiries/{id}/refresh-context ----------
+
+    public const string ContextRefreshLimitType = "ContextRefreshLimit";
+    public const int MaxContextRefreshes = 3;
+
+    // The traveller sends the host the day's current places: the stay row's context is rebuilt from the saved plan.
+    // A refresh that changes nothing is free; each real one counts, three at most per row.
+    public static async Task<IResult> RefreshContext(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, ITripChatService chat,
+        ITripNotifier notifier, ILoggerFactory loggers)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
+
+        var e = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(id);
+        if (TripEnquiryAuth.RequireTraveller(e, callerId) is { } denied) return denied;
+        if (e!.Kind != TripEnquiryKinds.Stay || e.TripId is not { } tripId || !TripEnquiryStatuses.IsOpen(e.Status)
+            || e.CheckIn is not { } checkIn || e.CheckOut is not { } checkOut)
+            return Closed("This enquiry is closed.");
+
+        var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(tripId, callerId);
+        if (trip?.StartDate is not { } start) return Closed("This enquiry is closed.");
+
+        var now = DateTime.UtcNow;
+        var originalJson = e.ContextJson;
+        var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
+        var before = DaysKey(context.Days);
+        context.Days = [];
+        RebuildStayContext(e, context, ReadPlan(trip), start, checkIn, checkOut);
+        var rebuilt = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
+        if (DaysKey(rebuilt.Days) == before)
+        {
+            e.ContextJson = originalJson;
+            db.Entry(e).State = EntityState.Unchanged;
+            return OkResponse(await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, callerId, now));
+        }
+
+        if (e.ContextRefreshCount >= MaxContextRefreshes)
+        {
+            e.ContextJson = originalJson;
+            db.Entry(e).State = EntityState.Unchanged;
+            return ConflictResponse("You already sent the host the new plan 3 times.", ContextRefreshLimitType);
+        }
+
+        e.ContextRefreshCount++;
+        e.UpdatedAt = now;
+        try { await db.SaveChangesAsync(); }
+        catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        await AfterCommitAsync(chat, [], [new TripPendingPush(e, e.OwnerUserId, StayPlanUpdated)], unitOfWork, notifier, loggers);
+        return OkResponse(await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, callerId, now));
+    }
+
+    private static NotificationEvent StayPlanUpdated(TripEnquiry e, TripPushContext ctx)
+    {
+        var n = TripNotifications.TripEnquiryReceived(e, ctx);
+        n.Title = (e.IsUrgent ? "Urgent · " : string.Empty) + "Trip plan updated";
+        n.Body = $"New places for {TripNotifications.Dates(e)}.";
+        return n;
+    }
+
+    // A row written before Start existed has none; comparing it would always look changed.
+    private static string DaysKey(IEnumerable<TripEnquiryContextDay> days, bool withStart = true) =>
+        JsonSerializer.Serialize(days.Select(d => new { d.Day, d.Date, d.Minutes, d.Spots, Start = withStart ? d.Start : null }), TripJson.Options);
+
+    private static NotificationEvent LeadPlanUpdated(TripEnquiry e, TripPushContext ctx)
+    {
+        var n = TripNotifications.TripLeadReceived(e, ctx);
+        n.Title = (e.IsUrgent ? "Urgent · " : string.Empty) + "Trip plan updated";
+        n.Body = $"New stops or start for {TripNotifications.Dates(e)}.";
+        return n;
     }
 
     // ---------- POST /trips/enquiries/{id}/withdraw ----------
@@ -1802,6 +1922,26 @@ public static class TripEnquiryHandlers
 
     // ---------- POST /trips/enquiries/{id}/change-request (guest; price lock until the host accepts) ----------
 
+    // A confirmed phone booking has no accepted offer: its agreed price stands in as one line so the change keeps the price lock.
+    public static TripOffer PhoneBase(TripPhoneBooking b, int rooms = 1, int guests = 1)
+    {
+        var nights = Math.Max(1, b.Nights);
+        rooms = Math.Max(1, rooms);
+        var line = new TripOfferLine
+        {
+            RoomName = string.IsNullOrWhiteSpace(b.RoomName) ? null : b.RoomName,
+            Units = rooms,
+            Guests = Math.Max(rooms, guests),
+            PricePerNight = Math.Max(0, b.AgreedTotal / nights / rooms),
+        };
+        return new TripOffer
+        {
+            LinesJson = JsonSerializer.Serialize(new List<TripOfferLine> { line }, TripJson.Options),
+            Total = b.AgreedTotal,
+            AdvanceAmount = b.AdvancePaid ? b.AdvanceAmount : null,
+        };
+    }
+
     public static async Task<IResult> ChangeRequest(
         Guid id, ChangeRequestRequest request, IValidator<ChangeRequestRequest> validator, ClaimsPrincipal principal,
         IUnitOfWork unitOfWork, ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier, ILoggerFactory loggers)
@@ -1815,7 +1955,9 @@ public static class TripEnquiryHandlers
         if (TripEnquiryAuth.RequireTraveller(found, callerId) is { } denied) return denied;
         var e = found!;
 
-        if (e.Kind != TripEnquiryKinds.Stay || e.Status != TripEnquiryStatuses.ConfirmedByBoth || e.AcceptedOfferId is not { } acceptedId
+        var phoneBase = e.AcceptedOfferId == null ? ReadBooking(e) : null;
+        if (e.Kind != TripEnquiryKinds.Stay || e.Status != TripEnquiryStatuses.ConfirmedByBoth
+            || (e.AcceptedOfferId == null && phoneBase == null)
             || e.ConversationId is not { } conversationId || e.TripId is not { } tripId)
             return Closed("A change needs a booking confirmed by both.");
 
@@ -1832,7 +1974,7 @@ public static class TripEnquiryHandlers
         var offers = await unitOfWork.TripOffers.GetByEnquiryAsync(e.Id);
         if (offers.Any(o => o.Kind == TripOfferKinds.ChangeRequest && o.Status == TripOfferStatuses.Pending))
             return ConflictResponse("A change request is already waiting.", TripEnquiryErrorTypes.ChangeNotAllowed);
-        var accepted = offers.FirstOrDefault(o => o.Id == acceptedId);
+        var accepted = phoneBase != null ? PhoneBase(phoneBase, TripEnquiryDtoBuilder.ReadContext(e.ContextJson).Rooms ?? 1, TripEnquiryDtoBuilder.ReadContext(e.ContextJson) is { } pc ? (pc.Adults ?? 1) + (pc.Kids ?? 0) : 1) : offers.FirstOrDefault(o => o.Id == e.AcceptedOfferId);
         if (accepted == null) return Closed("A change needs a booking confirmed by both.");
 
         var acceptedLines = TripEnquiryDtoBuilder.ReadLines(accepted.LinesJson);
@@ -2605,6 +2747,8 @@ public static class TripEnquiryHandlers
                     .Select(s => TripTextSafety.Clean(s.Name))
                     .Where(n => n.Length > 0)
                     .ToList() ?? new List<string>(),
+                Start = TripDayStart.Of(plan, d),
+                StartName = TripDayStart.PlaceOf(plan, d),
             };
         }).ToList();
 

@@ -181,11 +181,11 @@ public class JourneyWatchService(
     internal static bool TripEveCovers(Trip trip, TripPlan plan, SavedJourney journey)
     {
         if (trip.OwnerUserId != journey.UserId || trip.Status != TripStatuses.Planned || trip.MutedAt != null) return false;
-        if (trip.StartDate is not { } start || trip.EndDate is not { } end) return false;
+        if (trip.StartDate == null || trip.EndDate is not { } end) return false;
         if (plan.Legs is not { Count: > 1 }) return false;
-        if (TripJourneyLinks.Resolve(plan, journey.Id) is not { Role: TripStepRoles.Segment, TravelDay: { } day }
+        if (TripJourneyLinks.Resolve(plan, journey.Id) is not { Role: TripStepRoles.Segment, LegIndex: { } leg, TravelDay: { } day }
             || !plan.IsTravelDay(day)) return false;
-        var date = TripExecutionRules.NightDate(start, day);
+        var date = TripStepDates.Expected(TripStepRoles.Segment, plan, leg);
         return date == journey.TravelDate && date <= end;
     }
 

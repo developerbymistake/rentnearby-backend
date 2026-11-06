@@ -227,12 +227,12 @@ public class TripNotificationsTests
         new(recipient, "Rahul", "Bisht Cabs", chat, null, null, ownerName);
 
     [Fact]
-    public void Taxi_not_available_says_driver_and_routes_to_the_taxi_replies()
+    public void Taxi_not_available_says_driver_and_routes_to_the_taxi_step()
     {
         var n = TripNotifications.TripNotAvailable(TaxiRow(), Ctx(Traveller));
         Assert.Contains("driver", n.Body);
         Assert.DoesNotContain("stay", n.Body);
-        Assert.Equal(UserNotificationRoutes.TripTaxiReplies, n.ActionRoute);
+        Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
     }
 
     [Fact]
@@ -293,7 +293,7 @@ public class TripNotificationsTests
     }
 
     [Fact]
-    public void Taxi_traveller_pushes_route_to_the_taxi_replies_with_trip_day_and_enquiry()
+    public void Taxi_traveller_pushes_route_to_the_taxi_step_with_trip_and_day()
     {
         var e = TaxiRow();
         e.DaysJson = "[3,2]";
@@ -308,11 +308,11 @@ public class TripNotificationsTests
             TripNotifications.TripEnquiryClosedByAdmin(e, Ctx(Traveller)),
         })
         {
-            Assert.Equal(UserNotificationRoutes.TripTaxiReplies, n.ActionRoute);
+            Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
             using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
             Assert.Equal(TripId.ToString(), doc.RootElement.GetProperty("tripId").GetString());
+            Assert.Equal(TripStepKinds.Taxi, doc.RootElement.GetProperty("step").GetString());
             Assert.Equal(2, doc.RootElement.GetProperty("day").GetInt32());
-            Assert.Equal(e.Id.ToString(), doc.RootElement.GetProperty("enquiryId").GetString());
         }
     }
 
@@ -788,11 +788,11 @@ public class TripNotificationsTests
     }
 
     [Fact]
-    public void Local_taxi_row_still_routes_to_the_taxi_replies()
+    public void Local_taxi_row_routes_to_the_taxi_step()
     {
         var local = TaxiRow();
         local.Day = null;
-        Assert.Equal(UserNotificationRoutes.TripTaxiReplies, TripNotifications.TripNotAvailable(local, Ctx(Traveller)).ActionRoute);
+        Assert.Equal(UserNotificationRoutes.TripPlan, TripNotifications.TripNotAvailable(local, Ctx(Traveller)).ActionRoute);
     }
 
     [Fact]
@@ -800,7 +800,7 @@ public class TripNotificationsTests
     {
         var split = TaxiRow();
         split.Day = 2;
-        Assert.Equal(UserNotificationRoutes.TripTaxiReplies, TripNotifications.TripNotAvailable(split, Ctx(Traveller)).ActionRoute);
+        Assert.Equal(UserNotificationRoutes.TripPlan, TripNotifications.TripNotAvailable(split, Ctx(Traveller)).ActionRoute);
     }
 
     [Fact]
@@ -811,6 +811,58 @@ public class TripNotificationsTests
         Assert.Equal("Travel to Badrinath on 03 Nov. Call them or ask the backups.", n.Body);
         Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
         Assert.Equal(Traveller, n.TargetUserId);
+    }
+
+    // ---- step arguments of the plan route (CONTRACT_WIZARD 8.5)
+
+    [Fact]
+    public void Stay_push_opens_the_stay_step_of_its_night()
+    {
+        var e = StayRow();
+        e.Day = 2;
+        using var doc = JsonDocument.Parse(TripNotifications.TripHostConfirmed(e, Ctx(Traveller)).ActionArgumentsJson!);
+        Assert.Equal("stay", doc.RootElement.GetProperty("step").GetString());
+        Assert.Equal(2, doc.RootElement.GetProperty("day").GetInt32());
+        Assert.True(doc.RootElement.TryGetProperty("date", out _));
+    }
+
+    [Fact]
+    public void City_change_push_opens_the_travel_step_of_its_leg()
+    {
+        var e = SegmentRow();
+        e.ContextJson = """{"city":"Badrinath","journeyId":"dddddddd-0000-0000-0000-000000000001","legIndex":2,"cityIndex":2,"cityCount":2,"role":"segment"}""";
+        var n = TripNotifications.TripDriverConfirmed(e, Ctx(Traveller));
+        Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
+        using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+        Assert.Equal("travel", doc.RootElement.GetProperty("step").GetString());
+        Assert.Equal(2, doc.RootElement.GetProperty("legIndex").GetInt32());
+    }
+
+    [Fact]
+    public void Segment_row_without_a_stored_role_is_the_city_change()
+    {
+        using var doc = JsonDocument.Parse(TripNotifications.TripNotAvailable(SegmentRow(), Ctx(Traveller)).ActionArgumentsJson!);
+        Assert.Equal("travel", doc.RootElement.GetProperty("step").GetString());
+    }
+
+    [Theory]
+    [InlineData("gettingThere")]
+    [InlineData("comingBack")]
+    public void Getting_there_and_coming_back_pushes_carry_the_step_only(string role)
+    {
+        var e = SegmentRow();
+        e.Day = 0;
+        e.ContextJson = $$"""{"city":"Nainital","journeyId":"dddddddd-0000-0000-0000-000000000001","legIndex":1,"role":"{{role}}"}""";
+        foreach (var n in new[] { TripNotifications.TripDriverConfirmed(e, Ctx(Traveller)), TripNotifications.TripNoReplySegment(e, Ctx(Traveller)) })
+        {
+            Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
+            using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+            Assert.Equal(TripId, doc.RootElement.GetProperty("tripId").GetGuid());
+            Assert.Equal(role, doc.RootElement.GetProperty("step").GetString());
+            Assert.False(doc.RootElement.TryGetProperty("day", out _));
+            Assert.False(doc.RootElement.TryGetProperty("date", out _));
+            Assert.False(doc.RootElement.TryGetProperty("legIndex", out _));
+        }
     }
 
     [Fact]

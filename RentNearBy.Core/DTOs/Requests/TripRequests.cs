@@ -36,6 +36,13 @@ public class PlanDayInput
 {
     public int Day { get; set; }
     public List<PlanSpotInput> Spots { get; set; } = new();
+    // Where this day starts (last night's stay) and ends (tonight's stay), each both or neither; absent = the request anchor.
+    public double? StartLatitude { get; set; }
+    public double? StartLongitude { get; set; }
+    public double? EndLatitude { get; set; }
+    public double? EndLongitude { get; set; }
+    // Reorder this day's places for the shortest drive from start to end.
+    public bool BestOrder { get; set; }
 }
 
 public class SaveTripRequest

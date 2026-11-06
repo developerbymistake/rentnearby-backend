@@ -100,6 +100,7 @@ public class EditPhoneBookingRequest : IPhoneBookingFields
     public bool AdvancePaid { get; set; }
     public int? AdvanceAmount { get; set; }
     public string? Note { get; set; }
+    public Guid? ReplaceEnquiryId { get; set; }
 }
 
 public class CancelTripEnquiryRequest

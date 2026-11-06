@@ -51,21 +51,19 @@ public static class TripJourneyDtoBuilder
     public static TripJourneyDto Build(SavedJourney j, string? role, TripPlan plan, Dictionary<Guid, JourneyTaxiInfo> taxis)
         => Build(j, role == null ? null : new TripJourneyLink(role, null, null), plan, taxis, Array.Empty<TripEnquiry>());
 
-    // Travel date of a segment: the night date of the first day of the city leg entered.
-    public static DateOnly? SegmentDate(TripPlan plan, TripJourneyLink link)
-        => link.TravelDay is { } day && day > 0 && plan.Settings?.StartDate is { } start ? TripExecutionRules.NightDate(start, day) : null;
-
     public static TripJourneyDto Build(
         SavedJourney j, TripJourneyLink? link, TripPlan plan, Dictionary<Guid, JourneyTaxiInfo> taxis, IReadOnlyList<TripEnquiry> enquiries)
     {
         var role = link?.Role;
         var segment = role == TripStepRoles.Segment;
-        var expected = role == null ? null : segment ? SegmentDate(plan, link!) : TripStepRules.ExpectedDate(role, plan);
+        var expected = role == null ? null : TripStepDates.Expected(role, plan, link!.LegIndex);
         string? travelState = null;
-        if (segment)
+        if (role != null)
         {
-            var arrival = plan.Legs?.FirstOrDefault(l => l != null && l.Index == link!.LegIndex)?.Arrival;
-            travelState = TripTravelState.Of(arrival, j, TripSegmentRows.OfJourney(enquiries, j.Id), expected);
+            var rows = TripSegmentRows.OfJourney(enquiries, j.Id);
+            travelState = segment
+                ? TripTravelState.Of(TripStepDates.LegFor(role, plan, link!.LegIndex)?.Arrival, j, rows, expected)
+                : TripTravelState.OfStep(TripStepRules.StepOf(plan.Steps, role), j, rows, expected);
         }
         return new TripJourneyDto
         {
@@ -83,7 +81,7 @@ public static class TripJourneyDtoBuilder
             Date = j.TravelDate,
             ExpectedDate = expected,
             DateChanged = role != null && TripStepRules.DateChanged(expected, j.TravelDate),
-            StartChanged = role != null && !segment && TripStepRules.StartChanged(role, plan.Steps?.StartFrom, j),
+            StartChanged = role != null && !segment && TripStepRules.StartChanged(role, TripStepRules.EndOf(role, plan.Steps), j),
             People = j.People,
             Cars = j.Cars,
             Status = j.Status,

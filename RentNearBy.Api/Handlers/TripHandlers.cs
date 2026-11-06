@@ -36,8 +36,6 @@ public static class TripHandlers
     private const int MaxStateLength = 100;
     private const double MaxSpotDistanceKm = 200;
     private const string ClientIdIndex = "ix_trips_owner_client";
-    private const string StateUpcoming = "upcoming";
-    private const string StateCompleted = "completed";
 
     private static IResult TripNotFound() => ErrorResponse(404, "Trip not found", TripErrorTypes.TripNotFound);
 
@@ -314,8 +312,11 @@ public static class TripHandlers
         var spots = request.Mode == TripPlanModes.Recalculate
             ? (request.Days ?? new List<PlanDayInput>()).SelectMany(d => d.Spots)
             : request.Spots ?? new List<PlanSpotInput>();
+        var days = request.Mode == TripPlanModes.Recalculate ? request.Days ?? new List<PlanDayInput>() : new List<PlanDayInput>();
         return spots.All(s => GeoMath.HaversineKm(lat, lon, s.Latitude, s.Longitude) <= MaxSpotDistanceKm)
-            && TripAnchor.IsValid(request.AnchorLatitude, request.AnchorLongitude, lat, lon, MaxSpotDistanceKm);
+            && TripAnchor.IsValid(request.AnchorLatitude, request.AnchorLongitude, lat, lon, MaxSpotDistanceKm)
+            && days.All(d => TripAnchor.IsValid(d.StartLatitude, d.StartLongitude, lat, lon, MaxSpotDistanceKm)
+                && TripAnchor.IsValid(d.EndLatitude, d.EndLongitude, lat, lon, MaxSpotDistanceKm));
     }
 
     public static async Task<IResult> GetMine(
@@ -324,28 +325,30 @@ public static class TripHandlers
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
-        var stateText = string.IsNullOrWhiteSpace(state) ? StateUpcoming : state.Trim().ToLowerInvariant();
-        if (stateText is not (StateUpcoming or StateCompleted))
-            return BadRequestResponse("State must be upcoming or completed");
+        var listState = TripListRules.Resolve(state);
+        if (listState == null) return BadRequestResponse("State must be active or past");
 
         var pageNo = Math.Clamp(page, 1, MaxPage);
         var size = Math.Clamp(pageSize <= 0 ? DefaultPageSize : pageSize, 1, MaxPageSize);
-        var (items, hasMore) = await unitOfWork.Trips.GetByOwnerPagedAsync(userId, pageNo, size, stateText == StateCompleted);
-        var (upcoming, completed) = await unitOfWork.Trips.GetStateCountsAsync(userId);
+        var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
+        var (items, hasMore) = await unitOfWork.Trips.GetByOwnerPagedAsync(userId, pageNo, size, listState == TripListRules.Past, today);
+        var (active, past) = await unitOfWork.Trips.GetStateCountsAsync(userId, today);
 
         var tripIds = items.Select(t => t.Id).ToList();
         var enquiries = await unitOfWork.TripEnquiries.GetByTripsAsync(tripIds);
         var byTrip = enquiries.Where(e => e.TripId != null).GroupBy(e => e.TripId!.Value).ToDictionary(g => g.Key, g => (IReadOnlyList<TripEnquiry>)g.ToList());
         var journeysByTrip = await journeys.GetByTripsAsync(tripIds, userId);
+        var revised = await RevisedPendingAsync(unitOfWork, enquiries);
 
         return OkResponse(new TripListDto
         {
             Items = items.Select(t => ToSummary(
                 t,
                 byTrip.TryGetValue(t.Id, out var list) ? list : Array.Empty<TripEnquiry>(),
-                journeysByTrip.TryGetValue(t.Id, out var linked) ? linked : new List<SavedJourney>())).ToList(),
+                journeysByTrip.TryGetValue(t.Id, out var linked) ? linked : new List<SavedJourney>(),
+                revised)).ToList(),
             HasMore = hasMore,
-            Counts = new TripListCountsDto { Upcoming = upcoming, Completed = completed },
+            Counts = new TripListCountsDto { Upcoming = active, Completed = past },
         });
     }
 
@@ -452,17 +455,20 @@ public static class TripHandlers
     {
         var plan = ReadPlan(trip);
         var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
-        var dto = ToDto(trip, plan, enquiries);
+        var linked = await LinkedJourneysAsync(journeys, trip, viewerId);
+        var dto = ToDto(trip, plan, enquiries, linked, await RevisedPendingAsync(unitOfWork, enquiries));
         dto.Enquiries = await TripEnquiryDtoBuilder.BuildManyAsync(unitOfWork, enquiries, viewerId, nowUtc);
-        dto.Journeys = await JourneysOfAsync(journeys, trip, plan, viewerId, enquiries);
+        dto.Journeys = await JourneyDtosAsync(journeys, linked, plan, enquiries);
         return dto;
     }
 
-    internal static async Task<List<TripJourneyDto>> JourneysOfAsync(
-        ISavedJourneyRepository journeys, Trip trip, TripPlan plan, Guid viewerId, IReadOnlyList<TripEnquiry> enquiries)
+    // Only the owner sees the journeys linked to the trip.
+    private static async Task<IReadOnlyList<SavedJourney>> LinkedJourneysAsync(ISavedJourneyRepository journeys, Trip trip, Guid viewerId)
+        => trip.OwnerUserId == viewerId ? await journeys.GetByTripAsync(trip.Id, viewerId) : new List<SavedJourney>();
+
+    private static async Task<List<TripJourneyDto>> JourneyDtosAsync(
+        ISavedJourneyRepository journeys, IReadOnlyList<SavedJourney> linked, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries)
     {
-        if (trip.OwnerUserId != viewerId) return new List<TripJourneyDto>();
-        var linked = await journeys.GetByTripAsync(trip.Id, viewerId);
         if (linked.Count == 0) return new List<TripJourneyDto>();
         var taxis = await TripJourneyDtoBuilder.LoadTaxisAsync(journeys, linked);
         return TripJourneyDtoBuilder.BuildMany(linked, plan, taxis, enquiries);
@@ -559,6 +565,7 @@ public static class TripHandlers
         KeepSkippedNights(plan, stored);
         var requestedSteps = plan.Steps;
         plan.Steps = TripStepsMerge.Resolve(stored.Steps, requestedSteps);
+        TripPlanMerge.KeepStored(plan, stored, request.Plan!.Version);
         if (requestedSteps == null
             && (TripDateRules.StartMoved(trip.StartDate, plan.Settings.StartDate)
                 || (trip.EndDate is { } storedEnd && plan.EndDate is { } nextEnd && nextEnd < storedEnd)))
@@ -587,10 +594,13 @@ public static class TripHandlers
         var reopenedOffers = new List<TripOffer>();
         if (startMoved || endCut)
         {
-            var open = await db.TripEnquiries
-                .Where(x => x.TripId == trip.Id && TripEnquiryStatuses.Withdrawable.Contains(x.Status))
-                .ToListAsync();
-            closing = open.Where(x => TripDateRules.OutsideWindow(trip.StartDate, trip.EndDate, x.CheckIn, x.CheckOut)).ToList();
+            // Journey rows keep their own date rule (TripStepDates); the night window never closes them.
+            var open = (await db.TripEnquiries
+                    .Where(x => x.TripId == trip.Id && TripEnquiryStatuses.Withdrawable.Contains(x.Status))
+                    .ToListAsync())
+                .Where(x => !TripSegmentRows.IsSegment(x))
+                .ToList();
+            closing = open.Where(x => TripDateRules.RowOutsideWindow(x, trip.StartDate, trip.EndDate)).ToList();
 
             // An enquiry still inside the trip can hold an offer or counter for wider dates that can no longer be accepted.
             var negotiating = open
@@ -678,8 +688,9 @@ public static class TripHandlers
 
         await TripEnquiryHandlers.AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
         var tripEnquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
-        var dto = ToDto(trip, plan, tripEnquiries);
-        dto.Journeys = await JourneysOfAsync(journeys, trip, plan, userId, tripEnquiries);
+        var linked = await LinkedJourneysAsync(journeys, trip, userId);
+        var dto = ToDto(trip, plan, tripEnquiries, linked, await RevisedPendingAsync(unitOfWork, tripEnquiries));
+        dto.Journeys = await JourneyDtosAsync(journeys, linked, plan, tripEnquiries);
         return OkResponse(dto);
     }
 
@@ -840,29 +851,37 @@ public static class TripHandlers
 
     internal static TripPlan ReadPlan(Trip trip) => TripPlanReader.Read(trip);
 
-    private static TripDto ToDto(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry>? enquiries = null) => new()
+    private static TripDto ToDto(
+        Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry>? enquiries = null, IReadOnlyList<SavedJourney>? journeys = null,
+        IReadOnlySet<Guid>? revisedPending = null)
     {
-        Id = trip.Id,
-        Title = trip.Title,
-        Status = trip.Status,
-        CityKey = trip.CityKey,
-        CityName = trip.CityName,
-        CityLatitude = trip.CityLatitude,
-        CityLongitude = trip.CityLongitude,
-        DistrictId = trip.DistrictId,
-        LegCount = plan.Legs is { Count: > 0 } legs ? legs.Count : 1,
-        LegCities = plan.Legs is { Count: > 0 } ? plan.LegCities : [trip.CityName],
-        DayCount = trip.DayCount,
-        SpotCount = trip.SpotCount,
-        StartDate = trip.StartDate,
-        EndDate = trip.EndDate,
-        Plan = plan,
-        BookingState = TripBookingStates.Compute(trip, plan, enquiries ?? Array.Empty<TripEnquiry>()),
-        MutedAt = trip.MutedAt,
-        CompletedAt = trip.CompletedAt,
-        CreatedAt = trip.CreatedAt,
-        UpdatedAt = trip.UpdatedAt,
-    };
+        var rows = enquiries ?? Array.Empty<TripEnquiry>();
+        var linked = journeys ?? Array.Empty<SavedJourney>();
+        return new TripDto
+        {
+            Id = trip.Id,
+            Title = trip.Title,
+            Status = trip.Status,
+            CityKey = trip.CityKey,
+            CityName = trip.CityName,
+            CityLatitude = trip.CityLatitude,
+            CityLongitude = trip.CityLongitude,
+            DistrictId = trip.DistrictId,
+            LegCount = plan.Legs is { Count: > 0 } legs ? legs.Count : 1,
+            LegCities = plan.Legs is { Count: > 0 } ? plan.LegCities : [trip.CityName],
+            DayCount = trip.DayCount,
+            SpotCount = trip.SpotCount,
+            StartDate = trip.StartDate,
+            EndDate = trip.EndDate,
+            Plan = plan,
+            BookingState = TripBookingStates.Compute(trip, plan, rows, linked),
+            Progress = TripStepProgress.Compute(trip, plan, rows, linked, revisedPending),
+            MutedAt = trip.MutedAt,
+            CompletedAt = trip.CompletedAt,
+            CreatedAt = trip.CreatedAt,
+            UpdatedAt = trip.UpdatedAt,
+        };
+    }
 
     private static TripCityDto ToCityDto(TripCityInfo c) => new()
     {
@@ -878,11 +897,27 @@ public static class TripHandlers
         SpotCount = c.SpotCount,
     };
 
-    private static TripSummaryDto ToSummary(Trip trip, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney> journeys)
+    // Confirmed stay rows with a pending revised price; the step then needs the traveller.
+    internal static async Task<IReadOnlySet<Guid>> RevisedPendingAsync(IUnitOfWork unitOfWork, IReadOnlyList<TripEnquiry> rows)
+    {
+        var ids = rows
+            .Where(e => e.Kind == TripEnquiryKinds.Stay && e.Status == TripEnquiryStatuses.ConfirmedByBoth)
+            .Select(e => e.Id)
+            .ToList();
+        if (ids.Count == 0) return new HashSet<Guid>();
+        var offers = await unitOfWork.TripOffers.GetByEnquiriesAsync(ids);
+        return offers
+            .Where(kv => kv.Value.Any(o => o.Kind == TripOfferKinds.Revised && o.Status == TripOfferStatuses.Pending))
+            .Select(kv => kv.Key)
+            .ToHashSet();
+    }
+
+    private static TripSummaryDto ToSummary(
+        Trip trip, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney> journeys, IReadOnlySet<Guid>? revisedPending = null)
     {
         var plan = ReadPlan(trip);
-        var counts = TripBookingSummary.Count(plan, enquiries);
-        var bookingState = TripBookingStates.Compute(trip, plan, enquiries);
+        var counts = TripBookingSummary.Count(plan, enquiries, journeys);
+        var bookingState = TripBookingStates.Compute(trip, plan, enquiries, journeys);
         var travel = TripSummaryLegs.Counters(plan, enquiries);
         var cityLegs = plan.Legs is { Count: > 0 } planLegs
             ? planLegs
@@ -907,6 +942,7 @@ public static class TripHandlers
             Kids = plan.Settings?.Kids,
             Category = plan.Days.SelectMany(d => d.Spots).Select(s => s.Category).FirstOrDefault() ?? "attraction",
             BookingState = bookingState,
+            Progress = TripStepProgress.Compute(trip, plan, enquiries, journeys, revisedPending),
             StaysConfirmed = counts.StaysConfirmed,
             StaysTotal = counts.StaysTotal,
             TaxisConfirmed = counts.TaxisConfirmed,

@@ -17,11 +17,8 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
         var maxDays = Math.Clamp(request.MaxDays ?? o.MaxDays, 1, cap);
         var recalculate = request.Mode == TripPlanModes.Recalculate;
 
-        var days = recalculate
-            ? (request.Days ?? new List<PlanDayInput>())
-                .Select(d => (d.Day, Spots: d.Spots.Select(ToSpot).ToList()))
-                .ToList()
-            : new List<(int Day, List<TripSpot> Spots)>();
+        var dayInputs = recalculate ? request.Days ?? new List<PlanDayInput>() : new List<PlanDayInput>();
+        var days = dayInputs.Select(d => (d.Day, Spots: d.Spots.Select(ToSpot).ToList())).ToList();
         var allSpots = (recalculate
                 ? days.SelectMany(d => d.Spots)
                 : (request.Spots ?? new List<PlanSpotInput>()).Select(ToSpot))
@@ -31,11 +28,20 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
         var centreLat = city.Latitude;
         var centreLon = city.Longitude;
         var anchor = TripAnchor.Spot(request.AnchorLatitude, request.AnchorLongitude);
-        var matrixSpots = anchor == null ? allSpots : allSpots.Append(anchor).ToList();
+        var points = new DayPoints(allSpots.Count);
+        var anchorIndex = points.Add(anchor);
+        var ends = recalculate
+            ? dayInputs.Select(d => new DayEnds(
+                    points.Add(TripAnchor.Spot(d.StartLatitude, d.StartLongitude)) is var a and >= 0 ? a : anchorIndex,
+                    points.Add(TripAnchor.Spot(d.EndLatitude, d.EndLongitude)) is var b and >= 0 ? b : anchorIndex,
+                    d.BestOrder))
+                .ToList()
+            : null;
+        var matrixSpots = points.Count == 0 ? allSpots : allSpots.Concat(points.Spots).ToList();
 
         RoadMatrix? raw = null;
         if (matrixSpots.Count >= 2 && osrm.IsConfigured)
-            raw = anchor == null
+            raw = points.Count == 0
                 ? await CityMatrixSliceAsync(city, allSpots, ct) ?? await osrm.TableAsync(Points(allSpots), ct)
                 : await osrm.TableAsync(Points(matrixSpots), ct) ?? TripAnchor.Embed(await CityMatrixSliceAsync(city, allSpots, ct), matrixSpots.Count);
         var matrix = DaySplitter.FillEstimates(matrixSpots, raw, o.FallbackSpeedKmh, o.EstimateFactor);
@@ -47,7 +53,7 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
 
         var firstDayUsed = Math.Clamp(request.FirstDayUsedMinutes ?? 0, 0, 900);
         var result = recalculate
-            ? DaySplitter.Recalculate(days, limit, request.StartDate, matrix, allSpots, firstDayUsed, anchor)
+            ? DaySplitter.Recalculate(days, limit, request.StartDate, matrix, allSpots, firstDayUsed, null, ends)
             : DaySplitter.Split(new SplitInput(allSpots, centreLat, centreLon, limit, request.StartDate, maxDays, firstDayUsed), matrix, anchor);
 
         warnings.AddRange(result.Warnings.Select(w => new TripWarningDto { Code = w.Code, Message = w.Message, SpotId = w.SpotId, Day = w.Day }));
@@ -61,8 +67,9 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
         };
 
         var routes = new List<(TripPlanDayDto Day, List<(double Lat, double Lon)> Points)>();
-        foreach (var day in result.Days)
+        for (var k = 0; k < result.Days.Count; k++)
         {
+            var day = result.Days[k];
             var dayDto = new TripPlanDayDto
             {
                 Day = day.Day,
@@ -76,9 +83,11 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
                 Legs = day.Legs.Select(l => new TripLegDto { FromId = l.FromId, ToId = l.ToId, Minutes = l.Minutes, Km = l.Km, IsEstimate = l.IsEstimate }).ToList(),
             };
 
-            var points = RoutePoints(day.Spots, anchor);
-            if (osrmAvailable && points.Count >= 2 && routes.Count < o.RouteGeometryMaxDays)
-                routes.Add((dayDto, points));
+            var start = ends == null ? anchor : points.At(ends[k].Start);
+            var end = ends == null ? anchor : points.At(ends[k].End);
+            var route = RoutePoints(day.Spots, start, end);
+            if (osrmAvailable && route.Count >= 2 && routes.Count < o.RouteGeometryMaxDays)
+                routes.Add((dayDto, route));
 
             dto.Days.Add(dayDto);
         }
@@ -107,14 +116,31 @@ public class TripPlannerService(IOsrmClient osrm, ITripRoadCache roadCache, IOpt
 
     private static List<(double Lat, double Lon)> Points(IEnumerable<TripSpot> spots) => spots.Select(s => (s.Latitude, s.Longitude)).ToList();
 
-    // With an anchor the day route starts and ends at it.
-    private static List<(double Lat, double Lon)> RoutePoints(List<TripSpot> spots, TripSpot? anchor)
+    // The day route starts at last night's stay and ends at tonight's when they are known.
+    private static List<(double Lat, double Lon)> RoutePoints(List<TripSpot> spots, TripSpot? start, TripSpot? end)
     {
         var points = Points(spots);
-        if (anchor == null || points.Count == 0) return points;
-        points.Insert(0, (anchor.Latitude, anchor.Longitude));
-        points.Add((anchor.Latitude, anchor.Longitude));
+        if (points.Count == 0) return points;
+        if (start != null) points.Insert(0, (start.Latitude, start.Longitude));
+        if (end != null) points.Add((end.Latitude, end.Longitude));
         return points;
+    }
+
+    // Day points (stays) placed after the places in the matrix, one row per distinct point.
+    private sealed class DayPoints(int offset)
+    {
+        public List<TripSpot> Spots { get; } = new();
+        public int Count => Spots.Count;
+
+        public int Add(TripSpot? p)
+        {
+            if (p == null) return -1;
+            var i = Spots.FindIndex(x => x.Latitude == p.Latitude && x.Longitude == p.Longitude);
+            if (i < 0) { Spots.Add(p); i = Spots.Count - 1; }
+            return offset + i;
+        }
+
+        public TripSpot? At(int index) => index < offset || index - offset >= Spots.Count ? null : Spots[index - offset];
     }
 
     private static TripSpot ToSpot(PlanSpotInput s) => new()

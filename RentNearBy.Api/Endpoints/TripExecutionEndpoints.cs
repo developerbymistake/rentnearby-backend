@@ -20,6 +20,8 @@ public static class TripExecutionEndpoints
         group.MapPut("/enquiries/{id:guid}/phone-booking", TripEnquiryHandlers.EditPhoneBooking).Gated();
         group.MapPost("/enquiries/{id:guid}/host-confirm-link/resend", TripEnquiryHandlers.ResendHostLink).Gated();
         group.MapPost("/enquiries/{id:guid}/withdraw", TripEnquiryHandlers.Withdraw).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/enquiries/{id:guid}/refresh-context", TripEnquiryHandlers.RefreshContext).Gated();
+        group.MapPost("/enquiries/{id:guid}/lead-update", TripEnquiryHandlers.UpdateLead).Gated();
         group.MapPost("/enquiries/{id:guid}/cancel", TripEnquiryHandlers.Cancel).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapPost("/enquiries/{id:guid}/offers/{offerId:guid}/accept", TripEnquiryHandlers.AcceptOffer).Gated();
         group.MapPost("/enquiries/{id:guid}/offers/{offerId:guid}/decline", TripEnquiryHandlers.DeclineOffer).Gated();

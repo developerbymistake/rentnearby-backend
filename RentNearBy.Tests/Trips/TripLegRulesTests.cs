@@ -277,8 +277,12 @@ public class TripLegRulesTests
     }
 
     [Fact]
-    public void One_city_plan_is_never_wrong()
-        => Assert.Equal(TripWrongCity.None, TripLegRules.WrongCity(StayRow(1, 3, "Rishikesh"), OneCity(4), Start));
+    public void One_city_plan_is_never_wrong_for_its_own_city()
+        => Assert.Equal(TripWrongCity.None, TripLegRules.WrongCity(StayRow(1, 3, "Haridwar"), OneCity(4), Start));
+
+    [Fact]
+    public void One_city_plan_flags_a_row_of_a_removed_city()
+        => Assert.True(TripLegRules.WrongCity(StayRow(1, 3, "Rishikesh"), OneCity(4), Start).Any);
 
     [Fact]
     public void Segment_row_is_never_wrong()
@@ -335,4 +339,19 @@ public class TripLegRulesTests
     [Fact]
     public void Segment_row_is_never_outside()
         => Assert.False(TripLegRules.OutsideTrip(SegmentRow(), TwoCity(), Start.AddDays(5)));
+
+    [Theory]
+    [InlineData("comingBack", 5)]
+    [InlineData("gettingThere", 0)]
+    public void Journey_rows_of_every_role_are_never_outside_the_trip(string role, int day)
+    {
+        var row = SegmentRow();
+        var date = Start.AddDays(day - 1);
+        row.Day = (short)day;
+        row.CheckIn = date;
+        row.CheckOut = date.AddDays(1);
+        row.ContextJson = $$"""{"city":"Badrinath","journeyId":"{{Guid.NewGuid()}}","legIndex":1,"role":"{{role}}"}""";
+        Assert.False(TripLegRules.OutsideTrip(row, TwoCity(), Start));
+        Assert.Equal(TripWrongCity.None, TripLegRules.WrongCity(row, TwoCity(), Start));
+    }
 }

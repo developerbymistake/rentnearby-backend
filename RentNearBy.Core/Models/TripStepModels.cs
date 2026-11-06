@@ -14,19 +14,16 @@ public static class TripStepRules
     public static string StatusOf(TripStep? step)
         => step?.Status is { } s && TripStepStatuses.All.Contains(s) ? s : TripStepStatuses.NotStarted;
 
-    // Getting there: the step's own date, else the trip start. Coming back: its own date, else check-out (start + dayCount).
-    public static DateOnly? ExpectedDate(string role, TripPlan plan)
-    {
-        if (StepOf(plan.Steps, role)?.Date is { } own) return own;
-        return role == TripStepRoles.ComingBack ? plan.CheckOutDate : plan.Settings?.StartDate;
-    }
-
     public static bool DateChanged(DateOnly? expected, DateOnly travel) => expected is { } e && e != travel;
 
     public static bool StartChanged(TripStartFrom? start, double lat, double lon)
         => start != null && GeoMath.HaversineKm(start.Lat, start.Lon, lat, lon) * 1000 > SameCityMetres;
 
-    // Getting there leaves from Starting from; Coming back ends there.
+    // Getting there leaves from Starting from; Coming back ends at Going home to, else there.
+    public static TripStartFrom? EndOf(string role, TripSteps? steps)
+        => role == TripStepRoles.ComingBack ? steps?.GoingHomeTo ?? steps?.StartFrom : steps?.StartFrom;
+
+
     public static bool StartChanged(string role, TripStartFrom? start, SavedJourney j)
         => role == TripStepRoles.ComingBack
             ? StartChanged(start, (double)j.ToLatitude, (double)j.ToLongitude)
@@ -99,6 +96,35 @@ public static class TripStepRules
     {
         if (steps?.GettingThere != null) steps.GettingThere.Date = null;
         if (steps?.ComingBack != null) steps.ComingBack.Date = null;
+    }
+}
+
+// The one date rule of every journey row (mirror of the app's TripStepRules.expectedDate).
+public static class TripStepDates
+{
+    // Getting there: own date, else the start. Coming back: own date, else ComingBackDate (leave-on). Segment: the leg's
+    // first day. Null without a start date (an own step date still counts).
+    public static DateOnly? Expected(string role, TripPlan plan, int? legIndex)
+    {
+        if (role == TripStepRoles.Segment)
+        {
+            var day = legIndex is { } k ? plan.LegStart(k) : 0;
+            return day > 0 && plan.Settings?.StartDate is { } start ? TripExecutionRules.NightDate(start, day) : null;
+        }
+        if (TripStepRules.StepOf(plan.Steps, role)?.Date is { } own) return own;
+        return role == TripStepRoles.ComingBack ? plan.ComingBackDate : plan.Settings?.StartDate;
+    }
+
+    // The city a journey row belongs to: the first city for Getting there, the last for Coming back, else the leg entered.
+    public static TripCityLeg? LegFor(string role, TripPlan plan, int? legIndex)
+    {
+        if (plan.Legs is not { Count: > 0 } legs) return null;
+        return role switch
+        {
+            TripStepRoles.GettingThere => legs[0],
+            TripStepRoles.ComingBack => legs[^1],
+            _ => legIndex is { } k && k >= 1 && k <= legs.Count ? legs[k - 1] : null,
+        };
     }
 }
 

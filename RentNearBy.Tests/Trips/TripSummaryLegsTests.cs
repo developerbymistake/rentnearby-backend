@@ -82,10 +82,16 @@ public class TripSummaryLegsTests
         plan.Legs![1].Arrival = Journey(journeyId);
 
         Assert.Equal((2, 0), TripSummaryLegs.Counters(plan, []));
-        Assert.Equal((2, 1), TripSummaryLegs.Counters(plan, [Car(journeyId, 1, 2, TripEnquiryStatuses.BookedByTraveller)]));
-        Assert.Equal((2, 2), TripSummaryLegs.Counters(plan,
+        Assert.Equal((2, 0), TripSummaryLegs.Counters(plan, [Car(journeyId, 1, 2, TripEnquiryStatuses.BookedByTraveller)]));
+        Assert.Equal((2, 1), TripSummaryLegs.Counters(plan, [Car(journeyId, 1, 2, TripEnquiryStatuses.ConfirmedByBoth)]));
+        Assert.Equal((2, 1), TripSummaryLegs.Counters(plan,
         [
             Car(journeyId, 1, 2, TripEnquiryStatuses.BookedByTraveller),
+            Car(journeyId, 2, 2, TripEnquiryStatuses.ConfirmedByBoth),
+        ]));
+        Assert.Equal((2, 2), TripSummaryLegs.Counters(plan,
+        [
+            Car(journeyId, 1, 2, TripEnquiryStatuses.ConfirmedByBoth),
             Car(journeyId, 2, 2, TripEnquiryStatuses.ConfirmedByBoth),
         ]));
         Assert.Equal((2, 0), TripSummaryLegs.Counters(plan, [Car(journeyId, 1, 2, TripEnquiryStatuses.FareSent)]));

@@ -76,7 +76,7 @@ public class TripStepsRulesTests
         Assert.Equal("gettingThere", TripStepRoles.GettingThere);
         Assert.Equal("comingBack", TripStepRoles.ComingBack);
         Assert.Equal(5000.0, TripStepRules.SameCityMetres);
-        Assert.Equal(4, TripPlan.CurrentVersion);
+        Assert.Equal(5, TripPlan.CurrentVersion);
     }
 
     [Fact]
@@ -93,18 +93,18 @@ public class TripStepsRulesTests
 
     [Fact]
     public void ExpectedDate_getting_there_defaults_to_the_start()
-        => Assert.Equal(Start, TripStepRules.ExpectedDate(TripStepRoles.GettingThere, Plan(start: Start)));
+        => Assert.Equal(Start, TripStepDates.Expected(TripStepRoles.GettingThere, Plan(start: Start), null));
 
     [Theory]
     [InlineData(1, 2)]
     [InlineData(3, 4)]
     [InlineData(14, 15)]
     public void ExpectedDate_coming_back_defaults_to_check_out(int days, int checkOutDay)
-        => Assert.Equal(Start.AddDays(checkOutDay - 1), TripStepRules.ExpectedDate(TripStepRoles.ComingBack, Plan(days, Start)));
+        => Assert.Equal(Start.AddDays(checkOutDay - 1), TripStepDates.Expected(TripStepRoles.ComingBack, Plan(days, Start), null));
 
     [Fact]
     public void ExpectedDate_one_day_trip_comes_back_on_day_two()
-        => Assert.Equal(new DateOnly(2026, 11, 2), TripStepRules.ExpectedDate(TripStepRoles.ComingBack, Plan(1, Start)));
+        => Assert.Equal(new DateOnly(2026, 11, 2), TripStepDates.Expected(TripStepRoles.ComingBack, Plan(1, Start), null));
 
     [Fact]
     public void ExpectedDate_step_date_wins()
@@ -115,15 +115,15 @@ public class TripStepsRulesTests
             ComingBack = new TripStep { Date = Start.AddDays(5) },
         };
         var plan = Plan(3, Start, steps);
-        Assert.Equal(Start.AddDays(-1), TripStepRules.ExpectedDate(TripStepRoles.GettingThere, plan));
-        Assert.Equal(Start.AddDays(5), TripStepRules.ExpectedDate(TripStepRoles.ComingBack, plan));
+        Assert.Equal(Start.AddDays(-1), TripStepDates.Expected(TripStepRoles.GettingThere, plan, null));
+        Assert.Equal(Start.AddDays(5), TripStepDates.Expected(TripStepRoles.ComingBack, plan, null));
     }
 
     [Fact]
     public void ExpectedDate_without_dates_is_null()
     {
-        Assert.Null(TripStepRules.ExpectedDate(TripStepRoles.GettingThere, Plan()));
-        Assert.Null(TripStepRules.ExpectedDate(TripStepRoles.ComingBack, Plan()));
+        Assert.Null(TripStepDates.Expected(TripStepRoles.GettingThere, Plan(), null));
+        Assert.Null(TripStepDates.Expected(TripStepRoles.ComingBack, Plan(), null));
     }
 
     // ---- date / start changed
@@ -157,6 +157,16 @@ public class TripStepsRulesTests
         back.ToLatitude = 28.6139m; back.ToLongitude = 77.2090m;
         Assert.False(TripStepRules.StartChanged(TripStepRoles.ComingBack, Delhi, back));
         Assert.True(TripStepRules.StartChanged(TripStepRoles.GettingThere, Delhi, back));
+    }
+
+    [Fact]
+    public void EndOf_coming_back_uses_going_home_to_else_start()
+    {
+        var jaipur = new TripStartFrom { Name = "Jaipur", Lat = 26.91, Lon = 75.79 };
+        Assert.Same(Delhi, TripStepRules.EndOf(TripStepRoles.ComingBack, new TripSteps { StartFrom = Delhi }));
+        Assert.Same(jaipur, TripStepRules.EndOf(TripStepRoles.ComingBack, new TripSteps { StartFrom = Delhi, GoingHomeTo = jaipur }));
+        Assert.Same(Delhi, TripStepRules.EndOf(TripStepRoles.GettingThere, new TripSteps { StartFrom = Delhi, GoingHomeTo = jaipur }));
+        Assert.Null(TripStepRules.EndOf(TripStepRoles.ComingBack, null));
     }
 
     // ---- display

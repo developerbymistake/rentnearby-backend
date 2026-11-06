@@ -303,6 +303,10 @@ public static class TripDateRules
         return !InsideTrip(s, e, a, b);
     }
 
+    // Journey rows (any role) are dated by the journey, not by a night: only their own date rule applies to them.
+    public static bool RowOutsideWindow(TripEnquiry row, DateOnly? start, DateOnly? end)
+        => !TripSegmentRows.IsSegment(row) && OutsideWindow(start, end, row.CheckIn, row.CheckOut);
+
     // Stay check-out from night `day`: explicit nights (capped at the last night) win over allNights.
     public static DateOnly StayCheckOut(DateOnly start, int dayCount, int day, bool allNights, int? nights)
     {
@@ -598,6 +602,8 @@ public sealed class TripEnquiryContext
     // Journey leads only: the saved journey and leg the lead belongs to.
     public Guid? JourneyId { get; set; }
     public int? LegIndex { get; set; }
+    // Journey rows of a trip: gettingThere | comingBack | segment (TripStepRoles); null on rows written before v5.
+    public string? Role { get; set; }
     // Multi-city trips only (null on a one-city trip): the city of the first night / first chosen day, the city count and the trip length.
     public int? CityIndex { get; set; }
     public int? CityCount { get; set; }
@@ -630,9 +636,13 @@ public static class TripEnquiryContexts
     }
 }
 
-// Journey car between two cities of a trip (Day = travel day). Problem splits of a local taxi also carry Day, so the journey id decides.
+// Journey car of a trip, any role (Day = travel day, informational for Getting there / Coming back). Problem splits of a
+// local taxi also carry Day, so the journey id decides.
 public static class TripSegmentRows
 {
+    // Rows written before the role was stored are segments.
+    public static string RoleOf(TripEnquiry e) => TripEnquiryContexts.Read(e.ContextJson).Role ?? TripStepRoles.Segment;
+
     public static bool IsSegment(TripEnquiry e)
         => e.Kind == TripEnquiryKinds.Taxi && e.TripId != null && e.Day != null && JourneyIdOf(e) != null;
 
@@ -653,12 +663,13 @@ public static class TripSegmentRows
     public const string RowOwn = "own", RowStale = "stale", RowOther = "other";
 
     // A driver's open row on the travel day, met by an ask or "I booked" for (journey, car): only this car's row is reused;
-    // a row of a journey the plan no longer holds gives way; another car or a local split day keeps it (one open row per day).
+    // a row of a journey the plan no longer holds gives way; another car, another linked journey or a local split day keeps
+    // it (one open row per day).
     public static string Classify(TripEnquiry existing, TripPlan plan, Guid journeyId, int car)
     {
         if (!IsSegment(existing) || JourneyIdOf(existing) is not { } id) return RowOther;
         if (id == journeyId) return CarOf(existing) == car ? RowOwn : RowOther;
-        return TripJourneyLinks.Resolve(plan, id)?.Role == TripStepRoles.Segment ? RowOther : RowStale;
+        return TripJourneyLinks.Resolve(plan, id) != null ? RowOther : RowStale;
     }
 }
 
@@ -667,7 +678,7 @@ public static class TripSegmentContext
     public static TripEnquiryContext Build(
         Trip trip, TripPlan plan, TripCityLeg leg, int travelDay, DateOnly date, Guid journeyId,
         int carIndex, int carOf, string fromName, string toName, string? comesFrom, int people, int carsNeeded,
-        string? travellerName, string? pickupTime, string? pickupPlace)
+        string? travellerName, string? pickupTime, string? pickupPlace, string role = TripStepRoles.Segment)
     {
         var settings = plan.Settings ?? new TripSettings();
         var from = TripTextSafety.Clean(fromName);
@@ -689,8 +700,12 @@ public static class TripSegmentContext
                 ?? JourneyLeadText.PickupPlace(from, carIndex, carOf),
             JourneyId = journeyId,
             LegIndex = carIndex,
+            Role = role,
         };
-        TripEnquiryCity.Apply(context, plan, travelDay, trip.CityName, trip.DayCount);
+        // Getting there may run the day before the trip and Coming back on the check-out morning: the city is the leg's.
+        var dayCount = plan.Days?.Count ?? 0;
+        var cityDay = travelDay >= 1 && travelDay <= dayCount ? travelDay : Math.Max(1, plan.LegStart(Math.Max(1, leg.Index)));
+        TripEnquiryCity.Apply(context, plan, cityDay, trip.CityName, trip.DayCount);
         var to = TripTextSafety.Clean(toName);
         if (to.Length == 0) to = TripTextSafety.Clean(leg.CityName);
         if (to.Length == 0) to = context.City;
@@ -707,6 +722,46 @@ public sealed class TripEnquiryContextDay
     public DateOnly? Date { get; set; }
     public int Minutes { get; set; }
     public List<string> Spots { get; set; } = new();
+    // Local taxi leads only: where the day started when the driver was asked (TripDayStart).
+    public string? Start { get; set; }
+    // Local taxi leads only: the name of that start (last night's stay), the default pickup.
+    public string? StartName { get; set; }
+}
+
+// The start of a day as the driver was told: arrival, last night's stay of the same city, own stay, no stay or not chosen.
+public static class TripDayStart
+{
+    public const string Arrival = "arrival";
+    public const string NotChosen = "none";
+    public const string NoStay = "skipped";
+    public const string Own = "own";
+
+    public static string Of(TripPlan plan, int day)
+    {
+        if (day <= 1 || plan.LegIndexOf(day - 1) != plan.LegIndexOf(day)) return Arrival;
+        var stay = plan.Days?.FirstOrDefault(x => x.Day == day - 1)?.Stay;
+        if (stay == null) return NotChosen;
+        if (stay.Skipped == true) return NoStay;
+        if (stay.IsOwn == true) return Own;
+        return stay.StayId is { } id && id != Guid.Empty ? $"stay:{id:D}" : NotChosen;
+    }
+
+    // Last night's stay of the same city (own or listed), or null.
+    public static string? PlaceOf(TripPlan plan, int day)
+    {
+        if (day <= 1 || plan.LegIndexOf(day - 1) != plan.LegIndexOf(day)) return null;
+        var stay = plan.Days?.FirstOrDefault(x => x.Day == day - 1)?.Stay;
+        if (stay == null || stay.Skipped == true) return null;
+        return TripTextSafety.CleanOrNull(stay.Name, TripLeadRules.PickupPlaceMax);
+    }
+
+    // A pickup the traveller left at the day's start follows the new start; a typed one stays.
+    public static string? Pickup(string? current, string? oldStart, string? newStart)
+    {
+        var cur = string.IsNullOrWhiteSpace(current) ? null : current.Trim();
+        if (cur == null) return newStart;
+        return oldStart != null && string.Equals(cur, oldStart.Trim(), StringComparison.OrdinalIgnoreCase) ? newStart : cur;
+    }
 }
 
 // TripEnquiry.PhoneBookingJson.

@@ -52,6 +52,37 @@ public class TripLifecycleRulesTests
 
     private static string Compute(Trip t, TripPlan p, params TripEnquiry[] e) => TripBookingStates.Compute(t, p, e);
 
+    // Ready needs every step counted: basics, Getting there and Coming back own, and every night / taxi day that no
+    // trip row covers sorted as own stay / no taxi. The scenario under test keeps its own choices and rows.
+    private static TripPlan Full(TripPlan plan, params TripEnquiry[] rows)
+    {
+        plan.Settings.Adults ??= 2;
+        plan.Steps ??= new TripSteps();
+        plan.Steps.StartFrom ??= new TripStartFrom { Name = "Delhi", Lat = 28.61, Lon = 77.21 };
+        plan.Steps.GettingThere ??= new TripStep { Status = TripStepStatuses.Own };
+        plan.Steps.ComingBack ??= new TripStep { Status = TripStepStatuses.Own };
+        foreach (var leg in (plan.Legs ?? []).Skip(1).Where(l => l.Arrival == null))
+            leg.Arrival = new TripTravel { Mode = TripTravelModes.Own, FromName = "Haridwar", How = "bus" };
+        var stays = Covered(plan, TripEnquiryKinds.Stay, rows);
+        var taxis = Covered(plan, TripEnquiryKinds.Taxi, rows);
+        foreach (var day in plan.Days)
+        {
+            if (day.Stay == null && !stays.Contains(day.Day)) day.Stay = new TripStayChoice { Name = "Own", IsOwn = true };
+            if (day.Taxi == null && !taxis.Contains(day.Day)) day.Taxi = new TripTaxiChoice { Name = "No taxi this day", Skipped = true };
+        }
+        return plan;
+    }
+
+    private static HashSet<int> Covered(TripPlan plan, string kind, TripEnquiry[] rows)
+        => plan.Settings.StartDate is not { } start
+            ? new HashSet<int>()
+            : rows.Where(r => r.Kind == kind && r.Status != TripEnquiryStatuses.Closed && !TripSegmentRows.IsSegment(r))
+                .SelectMany(TripLegRules.DatesOf)
+                .Select(d => d.DayNumber - start.DayNumber + 1)
+                .ToHashSet();
+
+    private static string ComputeFull(Trip t, TripPlan p, params TripEnquiry[] e) => Compute(t, Full(p, e), e);
+
     // ---- booking state
 
     [Fact]
@@ -106,7 +137,28 @@ public class TripLifecycleRulesTests
     {
         var plan = Plan();
         plan.Days[0].Stay = new TripStayChoice { Name = "No stay tonight", Skipped = true };
-        Assert.Equal("ready", Compute(PlannedTrip(), plan));
+        Assert.Equal("ready", ComputeFull(PlannedTrip(), plan));
+    }
+
+    [Fact]
+    public void Ready_needs_every_step_counted()
+    {
+        TripEnquiry[] rows = [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3)];
+        Assert.Equal("confirming", Compute(PlannedTrip(), Plan(), rows));
+        Assert.Equal("ready", ComputeFull(PlannedTrip(), Plan(), rows));
+
+        var noComingBack = Full(Plan(), rows);
+        noComingBack.Steps!.ComingBack = null;
+        Assert.Equal("confirming", Compute(PlannedTrip(), noComingBack, rows));
+    }
+
+    [Fact]
+    public void One_confirmed_night_of_three_is_confirming()
+    {
+        var plan = Plan();
+        plan.Days[1].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "B" };
+        plan.Days[2].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "C" };
+        Assert.Equal("confirming", ComputeFull(PlannedTrip(), plan, Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 1)));
     }
 
     [Fact]
@@ -115,7 +167,7 @@ public class TripLifecycleRulesTests
         var plan = Plan();
         plan.Days[2].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Last" };
         Assert.Equal("confirming", Compute(PlannedTrip(), plan));
-        Assert.Equal("ready", Compute(PlannedTrip(), plan, Stay(TripEnquiryStatuses.ConfirmedByBoth, 3, 3)));
+        Assert.Equal("ready", ComputeFull(PlannedTrip(), plan, Stay(TripEnquiryStatuses.ConfirmedByBoth, 3, 3)));
     }
 
     [Theory]
@@ -131,7 +183,7 @@ public class TripLifecycleRulesTests
 
     [Fact]
     public void Every_night_confirmed_by_both_is_ready()
-        => Assert.Equal("ready", Compute(PlannedTrip(), Plan(), Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2)));
+        => Assert.Equal("ready", ComputeFull(PlannedTrip(), Plan(), Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2)));
 
     [Fact]
     public void One_night_confirmed_and_the_other_open_is_confirming()
@@ -149,7 +201,7 @@ public class TripLifecycleRulesTests
     [Fact]
     public void A_red_row_replaced_by_a_settled_row_is_ready()
     {
-        var state = Compute(PlannedTrip(), Plan(),
+        var state = ComputeFull(PlannedTrip(), Plan(),
             Stay(TripEnquiryStatuses.NotAvailable, 1, 1),
             Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2));
         Assert.Equal("ready", state);
@@ -160,15 +212,17 @@ public class TripLifecycleRulesTests
     {
         var withClosed = Compute(PlannedTrip(), Plan(), Stay(TripEnquiryStatuses.Closed, 1, 2));
         Assert.Equal(Compute(PlannedTrip(), Plan()), withClosed);
-        var settled = Compute(PlannedTrip(), Plan(), Stay(TripEnquiryStatuses.Closed, 1, 2), Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2));
+        var settled = ComputeFull(PlannedTrip(), Plan(), Stay(TripEnquiryStatuses.Closed, 1, 2), Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2));
         Assert.Equal("ready", settled);
     }
 
     [Fact]
-    public void A_taxi_booked_by_you_settles_its_days()
+    public void A_taxi_booked_by_you_waits_for_the_driver()
     {
-        var state = Compute(PlannedTrip(), Plan(), Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Taxi(TripEnquiryStatuses.BookedByTraveller));
-        Assert.Equal("ready", state);
+        var booked = ComputeFull(PlannedTrip(), Plan(), Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Taxi(TripEnquiryStatuses.BookedByTraveller));
+        Assert.Equal("confirming", booked);
+        var confirmed = ComputeFull(PlannedTrip(), Plan(), Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Taxi(TripEnquiryStatuses.ConfirmedByBoth));
+        Assert.Equal("ready", confirmed);
     }
 
     [Fact]
@@ -186,7 +240,7 @@ public class TripLifecycleRulesTests
         Assert.Equal("confirming", Compute(PlannedTrip(), plan));
 
         plan.Days[0].Taxi = new TripTaxiChoice { Name = "Own", IsOwn = true };
-        Assert.Equal("ready", Compute(PlannedTrip(), plan));
+        Assert.Equal("ready", ComputeFull(PlannedTrip(), plan));
     }
 
     // ---- open for completion / settled
@@ -209,11 +263,11 @@ public class TripLifecycleRulesTests
 
     [Theory]
     [InlineData(TripEnquiryStatuses.ConfirmedByBoth, true)]
-    [InlineData(TripEnquiryStatuses.BookedByTraveller, true)]
+    [InlineData(TripEnquiryStatuses.BookedByTraveller, false)]
     [InlineData(TripEnquiryStatuses.ConfirmedByTraveller, false)]
     [InlineData(TripEnquiryStatuses.Asked, false)]
     [InlineData(TripEnquiryStatuses.NotAvailable, false)]
-    public void IsSettled_is_green_or_blue(string status, bool expected)
+    public void IsSettled_is_confirmed_by_both_only(string status, bool expected)
         => Assert.Equal(expected, TripBookingStates.IsSettled(Stay(status)));
 
     // ---- counts
@@ -231,9 +285,13 @@ public class TripLifecycleRulesTests
         var c = TripBookingSummary.Count(plan, [stay, taxi]);
         Assert.Equal(1, c.StaysConfirmed);
         Assert.Equal(2, c.StaysTotal);
-        Assert.Equal(3, c.TaxisConfirmed);
+        // Booked by the traveller alone is not confirmed; the agreed money still adds up.
+        Assert.Equal(0, c.TaxisConfirmed);
         Assert.Equal(3, c.TaxisTotal);
         Assert.Equal(7200, c.AgreedTotal);
+
+        var confirmed = TripBookingSummary.Count(plan, [stay, Taxi(TripEnquiryStatuses.ConfirmedByBoth, fare: 3400)]);
+        Assert.Equal(3, confirmed.TaxisConfirmed);
     }
 
     [Fact]
@@ -290,18 +348,29 @@ public class TripLifecycleRulesTests
     {
         var plan = Plan();
         foreach (var day in plan.Days) day.Taxi = new TripTaxiChoice { Name = "No taxi this day", Skipped = true };
-        Assert.Equal("ready", Compute(PlannedTrip(), plan, Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3)));
+        Assert.Equal("ready", ComputeFull(PlannedTrip(), plan, Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3)));
         Assert.True(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3)]));
     }
 
     [Fact]
-    public void A_booked_taxi_enquiry_on_a_skipped_day_counts_as_a_taxi()
+    public void A_confirmed_taxi_enquiry_on_a_skipped_day_counts_as_a_taxi()
     {
         var plan = Plan();
         plan.Days[0].Taxi = new TripTaxiChoice { Name = "No taxi this day", Skipped = true };
-        var c = TripBookingSummary.Count(plan, [Taxi(TripEnquiryStatuses.BookedByTraveller, "[1]")]);
+        var c = TripBookingSummary.Count(plan, [Taxi(TripEnquiryStatuses.ConfirmedByBoth, "[1]")]);
         Assert.Equal(1, c.TaxisConfirmed);
         Assert.Equal(1, c.TaxisTotal);
+    }
+
+    [Fact]
+    public void A_taxi_booked_by_you_on_a_skipped_day_is_two_plans_not_a_confirmed_taxi()
+    {
+        var plan = Plan();
+        plan.Days[0].Taxi = new TripTaxiChoice { Name = "No taxi this day", Skipped = true };
+        TripEnquiry[] rows = [Taxi(TripEnquiryStatuses.BookedByTraveller, "[1]")];
+        var c = TripBookingSummary.Count(plan, rows);
+        Assert.Equal(0, c.TaxisConfirmed);
+        Assert.Equal("confirming", ComputeFull(PlannedTrip(), plan, rows));
     }
 
     [Fact]
@@ -316,7 +385,7 @@ public class TripLifecycleRulesTests
     {
         var plan = Plan();
         plan.Settings.StartDate = Start.AddDays(1);
-        var c = TripBookingSummary.Count(plan, [Taxi(TripEnquiryStatuses.BookedByTraveller)]);
+        var c = TripBookingSummary.Count(plan, [Taxi(TripEnquiryStatuses.ConfirmedByBoth)]);
         Assert.Equal(2, c.TaxisTotal);
         Assert.Equal(2, c.TaxisConfirmed);
     }
@@ -462,7 +531,8 @@ public class TripLifecycleRulesTests
     public void AllSettled_cases()
     {
         var plan = Plan();
-        Assert.True(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Taxi(TripEnquiryStatuses.BookedByTraveller)]));
+        Assert.False(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Taxi(TripEnquiryStatuses.BookedByTraveller)]));
+        Assert.True(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Taxi(TripEnquiryStatuses.ConfirmedByBoth)]));
         Assert.True(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 1)]));
         Assert.False(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Stay(TripEnquiryStatuses.Asked, 1, 1)]));
         Assert.False(TripReminderRules.AllSettled(plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 2), Taxi(TripEnquiryStatuses.FareSent)]));
@@ -687,25 +757,60 @@ public class TripLifecycleRulesTests
 
     private static Trip FourDayTrip() => PlannedTrip(end: Start.AddDays(3));
 
+    // A saved journey whose cars were all asked (answer Free), travelling on the given date (default: day 3).
+    private static SavedJourney Saved(Guid id, int cars = 2, DateOnly? date = null)
+    {
+        var journey = new SavedJourney { Id = id, TravelDate = date ?? Start.AddDays(2), Cars = (short)cars };
+        for (var car = 1; car <= cars; car++)
+            journey.Legs.Add(new SavedJourneyLeg
+            {
+                LegIndex = (short)car, LastEnquiryId = Guid.NewGuid(), LastKnownStatus = JourneyLegStatuses.Free, DriverAvailable = true,
+            });
+        return journey;
+    }
+
+    private static SavedJourney SavedA(int cars = 2) => Saved(JourneyA, cars);
+
+    private static string ComputeWith(Trip t, TripPlan p, SavedJourney[] journeys, params TripEnquiry[] e)
+        => TripBookingStates.Compute(t, Full(p, e), e, journeys);
+
     [Fact]
     public void Segment_rows_stay_out_of_taxi_counts_but_in_the_agreed_total()
     {
         var plan = TwoCityPlan(JourneyArrival(JourneyA));
-        var c = TripBookingSummary.Count(plan, [Segment(TripEnquiryStatuses.BookedByTraveller, 1, fare: 4200)]);
+        var c = TripBookingSummary.Count(plan, [Segment(TripEnquiryStatuses.ConfirmedByBoth, 1, fare: 4200)]);
         Assert.Equal(0, c.TaxisTotal);
         Assert.Equal(0, c.TaxisConfirmed);
         Assert.Equal(2, c.TravelTotal);
         Assert.Equal(1, c.TravelConfirmed);
         Assert.Equal(4200, c.AgreedTotal);
+
+        var booked = TripBookingSummary.Count(plan, [Segment(TripEnquiryStatuses.BookedByTraveller, 1, fare: 4200)]);
+        Assert.Equal(0, booked.TravelConfirmed);
+        Assert.Equal(4200, booked.AgreedTotal);
     }
 
     [Fact]
-    public void Two_cars_one_booked_is_confirming_both_booked_is_ready()
+    public void Two_cars_need_both_drivers_to_confirm()
     {
         var plan = TwoCityPlan(JourneyArrival(JourneyA));
-        Assert.Equal(TripBookingStates.Confirming, Compute(FourDayTrip(), plan, Segment(TripEnquiryStatuses.BookedByTraveller, 1)));
-        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan,
+        Assert.Equal(TripBookingStates.Confirming, ComputeFull(FourDayTrip(), plan, Segment(TripEnquiryStatuses.ConfirmedByBoth, 1)));
+        Assert.Equal(TripBookingStates.Confirming, ComputeFull(FourDayTrip(), plan,
             Segment(TripEnquiryStatuses.BookedByTraveller, 1), Segment(TripEnquiryStatuses.ConfirmedByBoth, 2)));
+        Assert.Equal(TripBookingStates.Ready, ComputeWith(FourDayTrip(), plan, [SavedA()],
+            Segment(TripEnquiryStatuses.ConfirmedByBoth, 1), Segment(TripEnquiryStatuses.ConfirmedByBoth, 2)));
+    }
+
+    [Fact]
+    public void An_own_car_is_settled()
+    {
+        var arrival = JourneyArrival(JourneyA);
+        arrival.OwnCars = [2];
+        var plan = TwoCityPlan(arrival);
+        TripEnquiry[] rows = [Segment(TripEnquiryStatuses.ConfirmedByBoth, 1)];
+        Assert.Equal(TripBookingStates.Ready, ComputeWith(FourDayTrip(), plan, [SavedA()], rows));
+        Assert.True(TripReminderRules.AllSettled(plan, rows));
+        Assert.Equal(2, TripBookingSummary.Count(plan, rows).TravelConfirmed);
     }
 
     [Fact]
@@ -722,7 +827,7 @@ public class TripLifecycleRulesTests
         Assert.Equal(0, c.TaxisTotal);
 
         plan.Days[0].Stay = new TripStayChoice { Name = "Own", IsOwn = true };
-        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan));
+        Assert.Equal(TripBookingStates.Ready, ComputeFull(FourDayTrip(), plan));
     }
 
     [Fact]
@@ -749,10 +854,11 @@ public class TripLifecycleRulesTests
 
         foreach (var row in oldDate)
         {
+            row.Status = TripEnquiryStatuses.ConfirmedByBoth;
             row.CheckIn = Start.AddDays(3);
             row.CheckOut = Start.AddDays(4);
         }
-        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan, oldDate));
+        Assert.Equal(TripBookingStates.Ready, ComputeWith(FourDayTrip(), plan, [Saved(JourneyA, date: Start.AddDays(3))], oldDate));
     }
 
     [Fact]
@@ -763,18 +869,20 @@ public class TripLifecycleRulesTests
     public void Stale_segment_rows_of_a_replaced_journey_are_ignored()
     {
         var plan = TwoCityPlan(JourneyArrival(JourneyA));
-        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan,
-            Segment(TripEnquiryStatuses.BookedByTraveller, 1), Segment(TripEnquiryStatuses.BookedByTraveller, 2),
+        Assert.Equal(TripBookingStates.Ready, ComputeWith(FourDayTrip(), plan, [SavedA()],
+            Segment(TripEnquiryStatuses.ConfirmedByBoth, 1), Segment(TripEnquiryStatuses.ConfirmedByBoth, 2),
             Segment(TripEnquiryStatuses.Asked, 1, JourneyB), Segment(TripEnquiryStatuses.NotAvailable, 2, JourneyB)));
     }
 
     [Fact]
-    public void Red_segment_row_counts_until_another_driver_books_that_car()
+    public void Red_segment_row_counts_until_another_driver_confirms_that_car()
     {
         var plan = TwoCityPlan(JourneyArrival(JourneyA, cars: 1));
         Assert.Equal(TripBookingStates.Confirming, Compute(FourDayTrip(), plan, Segment(TripEnquiryStatuses.NotAvailable, 1)));
-        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan,
+        Assert.Equal(TripBookingStates.Confirming, ComputeWith(FourDayTrip(), plan, [SavedA(1)],
             Segment(TripEnquiryStatuses.NotAvailable, 1), Segment(TripEnquiryStatuses.BookedByTraveller, 1)));
+        Assert.Equal(TripBookingStates.Ready, ComputeWith(FourDayTrip(), plan, [SavedA(1)],
+            Segment(TripEnquiryStatuses.NotAvailable, 1), Segment(TripEnquiryStatuses.ConfirmedByBoth, 1)));
     }
 
     [Fact]
@@ -792,20 +900,23 @@ public class TripLifecycleRulesTests
         local.CheckIn = Start.AddDays(2);
         local.CheckOut = Start.AddDays(4);
         var c = TripBookingSummary.Count(plan, [local]);
-        Assert.Equal(2, c.TaxisConfirmed);
+        Assert.Equal(2, c.TaxisTotal);
+        Assert.Equal(0, c.TaxisConfirmed);
         Assert.Equal(0, c.TravelConfirmed);
         Assert.Equal(1, c.TravelTotal);
         Assert.Equal(TripBookingStates.Confirming, Compute(FourDayTrip(), plan, local));
     }
 
     [Fact]
-    public void AllSettled_needs_every_journey_car_booked()
+    public void AllSettled_needs_every_journey_car_confirmed()
     {
         var plan = TwoCityPlan(JourneyArrival(JourneyA));
         Assert.False(TripReminderRules.AllSettled(plan, []));
-        Assert.False(TripReminderRules.AllSettled(plan, [Segment(TripEnquiryStatuses.BookedByTraveller, 1)]));
-        Assert.True(TripReminderRules.AllSettled(plan,
+        Assert.False(TripReminderRules.AllSettled(plan, [Segment(TripEnquiryStatuses.ConfirmedByBoth, 1)]));
+        Assert.False(TripReminderRules.AllSettled(plan,
             [Segment(TripEnquiryStatuses.BookedByTraveller, 1), Segment(TripEnquiryStatuses.BookedByTraveller, 2)]));
+        Assert.True(TripReminderRules.AllSettled(plan,
+            [Segment(TripEnquiryStatuses.ConfirmedByBoth, 1), Segment(TripEnquiryStatuses.ConfirmedByBoth, 2)]));
     }
 
     [Fact]
@@ -833,9 +944,9 @@ public class TripLifecycleRulesTests
     public void Skipped_leg_end_night_with_the_other_nights_booked_is_ready_and_all_settled()
     {
         var plan = TwoCityWithRoadNight();
-        TripEnquiry[] rows = [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 1), Stay(TripEnquiryStatuses.BookedByTraveller, 3, 4)];
+        TripEnquiry[] rows = [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 1), Stay(TripEnquiryStatuses.ConfirmedByBoth, 3, 4)];
 
-        Assert.Equal(TripBookingStates.Ready, Compute(FourDayTrip(), plan, rows));
+        Assert.Equal(TripBookingStates.Ready, ComputeFull(FourDayTrip(), plan, rows));
         Assert.True(TripReminderRules.AllSettled(plan, rows));
     }
 
@@ -934,4 +1045,130 @@ public class TripLifecycleRulesTests
     [Fact]
     public void StartsInSummary_two_cities_without_travel_adds_nothing()
         => Assert.Equal("No stay yet. No taxi yet.", TripReminderRules.StartsInSummary(TwoCityPlan(null), []));
+
+    // ---- step journeys in the booking map (keyed by role, leg, car)
+
+    private static readonly Guid StepJourney = Guid.Parse("dddddddd-0000-0000-0000-0000000000c1");
+
+    private static TripEnquiry StepRow(string status, int car, string role, DateOnly date) => new()
+    {
+        Id = Guid.NewGuid(),
+        TripId = Guid.NewGuid(),
+        Kind = TripEnquiryKinds.Taxi,
+        Status = status,
+        Day = TripExecutionRules.DayOf(Start, date),
+        DaysJson = $"[{TripExecutionRules.DayOf(Start, date)}]",
+        CheckIn = date,
+        CheckOut = date.AddDays(1),
+        ContextJson = $$"""{"city":"Nainital","journeyId":"{{StepJourney}}","legIndex":{{car}},"role":"{{role}}"}""",
+    };
+
+    private static TripPlan WithGettingThereJourney(List<int>? ownCars = null)
+    {
+        var plan = Plan();
+        plan.Steps = new TripSteps
+        {
+            StartFrom = new TripStartFrom { Name = "Delhi", Lat = 28.61, Lon = 77.21 },
+            GettingThere = new TripStep { Status = TripStepStatuses.Chosen, JourneyId = StepJourney, OwnCars = ownCars },
+        };
+        return plan;
+    }
+
+    [Fact]
+    public void Getting_there_journey_needs_every_car_confirmed()
+    {
+        SavedJourney[] journeys = [Saved(StepJourney, 2, Start)];
+        var stay = Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3);
+        var car1 = StepRow(TripEnquiryStatuses.ConfirmedByBoth, 1, TripStepRoles.GettingThere, Start);
+        TripEnquiry[] one = [stay, car1];
+        Assert.Equal(TripBookingStates.Confirming, ComputeWith(PlannedTrip(), WithGettingThereJourney(), journeys, one));
+        TripEnquiry[] asked = [stay, car1, StepRow(TripEnquiryStatuses.Asked, 2, TripStepRoles.GettingThere, Start)];
+        Assert.False(TripReminderRules.AllSettled(WithGettingThereJourney(), asked));
+
+        TripEnquiry[] both = [stay, car1, StepRow(TripEnquiryStatuses.ConfirmedByBoth, 2, TripStepRoles.GettingThere, Start)];
+        Assert.Equal(TripBookingStates.Ready, ComputeWith(PlannedTrip(), WithGettingThereJourney(), journeys, both));
+        Assert.True(TripReminderRules.AllSettled(WithGettingThereJourney(), both));
+    }
+
+    [Fact]
+    public void Getting_there_own_car_settles_that_car()
+    {
+        SavedJourney[] journeys = [Saved(StepJourney, 2, Start)];
+        TripEnquiry[] rows = [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3), StepRow(TripEnquiryStatuses.ConfirmedByBoth, 1, TripStepRoles.GettingThere, Start)];
+        Assert.Equal(TripBookingStates.Ready, ComputeWith(PlannedTrip(), WithGettingThereJourney([2]), journeys, rows));
+    }
+
+    [Fact]
+    public void Getting_there_row_on_another_date_is_red()
+    {
+        SavedJourney[] journeys = [Saved(StepJourney, 1, Start)];
+        TripEnquiry[] rows = [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3), StepRow(TripEnquiryStatuses.ConfirmedByBoth, 1, TripStepRoles.GettingThere, Start.AddDays(-1))];
+        Assert.False(TripReminderRules.AllSettled(WithGettingThereJourney(), rows));
+
+        var dayBefore = WithGettingThereJourney();
+        dayBefore.Steps!.GettingThere!.Date = Start.AddDays(-1);
+        Assert.True(TripReminderRules.AllSettled(dayBefore, rows));
+    }
+
+    [Fact]
+    public void Step_journey_cars_stay_out_of_the_travel_counts()
+    {
+        var c = TripBookingSummary.Count(WithGettingThereJourney(), [StepRow(TripEnquiryStatuses.ConfirmedByBoth, 1, TripStepRoles.GettingThere, Start)]);
+        Assert.Equal(0, c.TravelTotal);
+        Assert.Equal(0, c.TravelConfirmed);
+        Assert.Equal(0, c.TaxisTotal);
+    }
+
+    // ---- My Trips active / past (IST day)
+
+    private static readonly DateOnly Today = new(2026, 11, 10);
+
+    [Theory]
+    [InlineData(TripStatuses.Planned, 0, false)]
+    [InlineData(TripStatuses.Planned, -1, false)]
+    [InlineData(TripStatuses.Planned, -2, true)]
+    [InlineData(TripStatuses.Draft, 5, false)]
+    [InlineData(TripStatuses.Completed, 5, true)]
+    public void IsPast_keeps_the_check_out_day_active(string status, int endOffset, bool past)
+        => Assert.Equal(past, TripListRules.IsPast(status, Today.AddDays(endOffset), Today));
+
+    [Fact]
+    public void IsPast_without_dates_is_active_until_completed()
+    {
+        Assert.False(TripListRules.IsPast(TripStatuses.Planned, null, Today));
+        Assert.True(TripListRules.IsPast(TripStatuses.Completed, null, Today));
+    }
+
+    [Fact]
+    public void List_predicates_split_every_trip_once_like_IsPast()
+    {
+        var trips = new[]
+        {
+            new Trip { Status = TripStatuses.Planned, EndDate = Today.AddDays(-1) },
+            new Trip { Status = TripStatuses.Planned, EndDate = Today.AddDays(-2) },
+            new Trip { Status = TripStatuses.Completed, EndDate = Today.AddDays(3) },
+            new Trip { Status = TripStatuses.Draft, EndDate = null },
+        };
+        var past = TripListRules.PastPredicate(Today).Compile();
+        var active = TripListRules.ActivePredicate(Today).Compile();
+        foreach (var t in trips)
+        {
+            Assert.Equal(TripListRules.IsPast(t.Status, t.EndDate, Today), past(t));
+            Assert.NotEqual(past(t), active(t));
+        }
+        Assert.True(active(trips[0]));
+        Assert.True(past(trips[1]));
+        Assert.True(past(trips[2]));
+        Assert.True(active(trips[3]));
+    }
+
+    [Theory]
+    [InlineData(null, TripListRules.Active)]
+    [InlineData("active", TripListRules.Active)]
+    [InlineData("upcoming", TripListRules.Active)]
+    [InlineData("PAST", TripListRules.Past)]
+    [InlineData("completed", TripListRules.Past)]
+    [InlineData("later", null)]
+    public void List_state_accepts_the_old_names(string? state, string? expected)
+        => Assert.Equal(expected, TripListRules.Resolve(state));
 }

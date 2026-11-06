@@ -133,6 +133,59 @@ public class TripSegmentContextTests
         Assert.False(TripSegmentRows.IsSegment(tripLess));
     }
 
+    // ---- journey rows of every role (CONTRACT_WIZARD 8.6)
+
+    [Fact]
+    public void Segment_build_stores_the_segment_role()
+    {
+        var c = Build(TwoCityPlan());
+        Assert.Equal(TripStepRoles.Segment, c.Role);
+        Assert.Contains("\"role\":\"segment\"", JsonSerializer.Serialize(c, TripJson.Options));
+    }
+
+    [Fact]
+    public void Coming_back_on_the_check_out_morning_names_the_last_city()
+    {
+        var plan = TwoCityPlan();
+        var c = TripSegmentContext.Build(TwoCityTrip(), plan, plan.Legs![1], 5, Start.AddDays(4), JourneyId,
+            1, 1, "Badrinath", "Delhi", null, 4, 1, "Rahul", null, null, TripStepRoles.ComingBack);
+        Assert.Equal(TripStepRoles.ComingBack, c.Role);
+        Assert.Equal("Badrinath", c.City);
+        Assert.Equal(5, Assert.Single(c.Days).Day);
+        Assert.Contains("05 Nov", c.Text);
+    }
+
+    [Fact]
+    public void Getting_there_the_day_before_names_the_first_city()
+    {
+        var plan = TwoCityPlan();
+        var c = TripSegmentContext.Build(TwoCityTrip(), plan, plan.Legs![0], 0, Start.AddDays(-1), JourneyId,
+            1, 1, "Delhi", "Haridwar", null, 4, 1, "Rahul", null, null, TripStepRoles.GettingThere);
+        Assert.Equal(TripStepRoles.GettingThere, c.Role);
+        Assert.Equal("Haridwar", c.City);
+    }
+
+    [Fact]
+    public void Role_of_a_row_defaults_to_segment()
+    {
+        Assert.Equal(TripStepRoles.Segment, TripSegmentRows.RoleOf(Row(journeyId: JourneyId)));
+        var back = Row(day: 0, journeyId: JourneyId);
+        back.ContextJson = $$"""{"journeyId":"{{JourneyId}}","legIndex":1,"role":"comingBack"}""";
+        Assert.Equal(TripStepRoles.ComingBack, TripSegmentRows.RoleOf(back));
+        Assert.True(TripSegmentRows.IsSegment(back));
+    }
+
+    [Fact]
+    public void A_row_of_a_linked_step_journey_is_another_car_not_stale()
+    {
+        var trip = Guid.NewGuid();
+        var stepJourney = Guid.NewGuid();
+        var plan = TwoCityPlan();
+        plan.Steps = new TripSteps { GettingThere = new TripStep { Status = TripStepStatuses.Chosen, JourneyId = stepJourney } };
+        Assert.Equal(TripSegmentRows.RowOther, TripSegmentRows.Classify(Row(tripId: trip, journeyId: stepJourney), plan, JourneyId, 1));
+        Assert.Equal(TripSegmentRows.RowStale, TripSegmentRows.Classify(Row(tripId: trip, journeyId: Guid.NewGuid()), plan, JourneyId, 1));
+    }
+
     [Fact]
     public void OfJourney_keeps_only_segment_rows_of_that_journey()
     {

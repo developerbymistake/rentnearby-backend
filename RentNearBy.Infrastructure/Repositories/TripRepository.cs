@@ -29,18 +29,21 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
         return (rows, hasMore);
     }
 
-    public async Task<(IReadOnlyList<Trip> Items, bool HasMore)> GetByOwnerPagedAsync(Guid ownerUserId, int page, int pageSize, bool completed)
+    public async Task<(IReadOnlyList<Trip> Items, bool HasMore)> GetByOwnerPagedAsync(
+        Guid ownerUserId, int page, int pageSize, bool past, DateOnly todayIst)
     {
         var size = Math.Max(1, pageSize);
         var skip = (Math.Max(1, page) - 1) * size;
 
         var query = _dbSet.AsNoTracking().Where(t => t.OwnerUserId == ownerUserId);
-        query = completed
-            ? query.Where(t => t.Status == TripStatuses.Completed)
-            : query.Where(t => t.Status != TripStatuses.Completed);
+        // Active: soonest first, undated last. Past: latest end first.
+        var ordered = past
+            ? query.Where(TripListRules.PastPredicate(todayIst))
+                .OrderBy(t => t.EndDate == null).ThenByDescending(t => t.EndDate).ThenByDescending(t => t.UpdatedAt)
+            : query.Where(TripListRules.ActivePredicate(todayIst))
+                .OrderBy(t => t.StartDate == null).ThenBy(t => t.StartDate).ThenByDescending(t => t.UpdatedAt);
 
-        var rows = await query
-            .OrderByDescending(t => t.UpdatedAt)
+        var rows = await ordered
             .ThenByDescending(t => t.Id)
             .Skip(skip)
             .Take(size + 1)
@@ -51,14 +54,12 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
         return (rows, hasMore);
     }
 
-    public async Task<(int Upcoming, int Completed)> GetStateCountsAsync(Guid ownerUserId)
+    public async Task<(int Active, int Past)> GetStateCountsAsync(Guid ownerUserId, DateOnly todayIst)
     {
-        var rows = await _dbSet.AsNoTracking()
-            .Where(t => t.OwnerUserId == ownerUserId)
-            .GroupBy(t => t.Status == TripStatuses.Completed)
-            .Select(g => new { Completed = g.Key, Count = g.Count() })
-            .ToListAsync();
-        return (rows.Where(r => !r.Completed).Sum(r => r.Count), rows.Where(r => r.Completed).Sum(r => r.Count));
+        var mine = _dbSet.AsNoTracking().Where(t => t.OwnerUserId == ownerUserId);
+        var past = await mine.Where(TripListRules.PastPredicate(todayIst)).CountAsync();
+        var all = await mine.CountAsync();
+        return (all - past, past);
     }
 
     // Only trips with a date reminder whose window is open (the date sets come from TripReminderRules.*OpenDates) and

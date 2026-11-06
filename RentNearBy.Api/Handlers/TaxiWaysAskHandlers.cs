@@ -15,7 +15,8 @@ namespace RentNearBy.Api.Handlers;
 
 // POST /taxis/ways/ask: trip-less taxi leads (TripId null) that belong to a saved journey. The driver answers them
 // in /trip-leads through the untouched TripLeadHandlers; the journey screen shows the answer on Refresh.
-// A journey that is the travel between two cities of a trip writes segment rows instead (TripId set, Day = travel day).
+// A journey a trip uses (Getting there, Coming back, travel between two cities) writes journey rows on the trip instead
+// (TripId set, Day = travel day, dated by TripStepDates).
 public static class TaxiWaysAskHandlers
 {
     private static readonly TimeSpan Hour = TimeSpan.FromHours(1);
@@ -41,7 +42,7 @@ public static class TaxiWaysAskHandlers
         if (journey.Status == JourneyStatuses.Completed) return BadRequestResponse("This journey is completed");
         if (request.Legs.Any(l => journey.Legs.All(x => x.LegIndex != l.LegIndex))) return BadRequestResponse("Unknown leg");
 
-        // A journey in a trip: a step keeps the trip-less leads; travel between two cities writes segment rows on the trip.
+        // A journey in a trip writes journey rows on the trip (every role).
         SegmentAsk? segment = null;
         if (journey.TripId is { } linkedTripId)
         {
@@ -278,11 +279,12 @@ public static class TaxiWaysAskHandlers
         }, $"/api/v1/taxis/journeys/{journey.Id}");
     }
 
-    internal sealed record SegmentAsk(Trip Trip, TripPlan Plan, TripCityLeg Leg, int TravelDay, DateOnly Date);
+    // Role = gettingThere | comingBack | segment; TravelDay = DayOf(start, Date), informational for the step roles (0 or N + 1 allowed).
+    internal sealed record SegmentAsk(Trip Trip, TripPlan Plan, TripCityLeg Leg, int TravelDay, DateOnly Date, string Role = TripStepRoles.Segment);
 
     internal sealed record SegmentPickResult(TripEnquiry? Same, string? Skip, IReadOnlyList<Guid> Replaced);
 
-    // Null segment = a step journey or a journey no plan field references: today's trip-less path.
+    // Null segment = a journey no plan field references, or a step journey of a trip without dates: the trip-less path.
     private static async Task<(SegmentAsk? Segment, IResult? Error)> ResolveSegmentAsync(
         IUnitOfWork unitOfWork, SavedJourney journey, Guid tripId, Guid callerId)
     {
@@ -296,17 +298,21 @@ public static class TaxiWaysAskHandlers
             journey.TripId = null;
             return (null, null);
         }
-        if (link.Role != TripStepRoles.Segment) return (null, null);
 
-        var leg = plan.Legs?.FirstOrDefault(l => l != null && l.Index == link.LegIndex);
-        if (leg == null || link.TravelDay is not { } travelDay || travelDay <= 0) return (null, BadRequestResponse("Unknown city"));
+        var segment = link.Role == TripStepRoles.Segment;
+        var leg = TripStepDates.LegFor(link.Role, plan, link.LegIndex);
+        if (leg == null || (segment && link.TravelDay is not > 0)) return (null, BadRequestResponse("Unknown city"));
         if (trip.StartDate is not { } start)
+        {
+            if (!segment) return (null, null);
             return (null, ErrorResponse(422, "Add your trip dates first.", TripEnquiryErrorTypes.TripDatesRequired));
-        var date = TripExecutionRules.NightDate(start, travelDay);
+        }
+        if (TripStepDates.Expected(link.Role, plan, link.LegIndex) is not { } date)
+            return (null, ErrorResponse(422, "Add your trip dates first.", TripEnquiryErrorTypes.TripDatesRequired));
         if (journey.TravelDate != date)
             return (null, ErrorResponse(409, "Your trip date changed. Search again.", TripEnquiryErrorTypes.TravelDateChanged));
         if (trip.Status == TripStatuses.Completed) return (null, BadRequestResponse("This trip is completed"));
-        return (new SegmentAsk(trip, plan, leg, travelDay, date), null);
+        return (new SegmentAsk(trip, plan, leg, TripExecutionRules.DayOf(start, date), date, link.Role), null);
     }
 
     // Dedupe inside the journey only: a local lead of the trip (Day null) is never adopted or replaced.
@@ -357,7 +363,7 @@ public static class TaxiWaysAskHandlers
         var day = (short)segment.TravelDay;
         var context = TripSegmentContext.Build(
             segment.Trip, segment.Plan, segment.Leg, segment.TravelDay, segment.Date, journey.Id, leg.LegIndex, leg.CarOf,
-            fromName, toName, comesFrom, people, price.Cars, travellerName, null, null);
+            fromName, toName, comesFrom, people, price.Cars, travellerName, null, null, segment.Role);
         var e = new TripEnquiry
         {
             Id = Guid.NewGuid(),

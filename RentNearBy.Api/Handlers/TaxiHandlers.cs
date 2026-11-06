@@ -757,6 +757,8 @@ public static class TaxiHandlers
         ClaimsPrincipal principal,
         IValidator<UpdateTaxiAvailabilityRequest> validator,
         IUnitOfWork unitOfWork,
+        ApplicationDbContext db,
+        ITripEnquiryClosure tripClosure,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -772,11 +774,31 @@ public static class TaxiHandlers
         if (taxi.Status != TaxiStatuses.Approved)
             return ConflictResponse("Your taxi is not live yet.", TaxiErrorTypes.TaxiNotApproved);
 
+        var wasAvailable = taxi.IsAvailable;
         taxi.IsAvailable = request.IsAvailable!.Value;
         taxi.UpdatedAt = DateTime.UtcNow;
+        var paused = wasAvailable && !taxi.IsAvailable;
 
-        try { await unitOfWork.SaveChangesAsync(); }
-        catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        // A paused driver ends his unanswered local trip leads; pushes go out after commit.
+        IReadOnlyList<TripClosurePush> tripPushes = [];
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await unitOfWork.SaveChangesAsync();
+            if (paused) tripPushes = await TripLeadSilence.ClosePausedDriverLeadsAsync(db, unitOfWork.TripEnquiries, taxi.Id, taxi.UpdatedAt);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        if (paused) await tripClosure.AfterCommitAsync(tripPushes);
 
         await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
         return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));

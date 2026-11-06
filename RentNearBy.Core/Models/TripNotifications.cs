@@ -206,10 +206,11 @@ public static class TripNotifications
     // One push per travel segment (key NoReplySegmentKey), whichever car's lead is due first.
     public static NotificationEvent TripNoReplySegment(TripEnquiry e, TripPushContext ctx)
     {
-        var city = Name(TripEnquiryContexts.Read(e.ContextJson).City, "your next city");
+        var context = TripEnquiryContexts.Read(e.ContextJson);
         var date = e.CheckIn is { } d ? $" on {d.ToString("dd MMM", Inv)}" : string.Empty;
+        var trip = context.Role == TripStepRoles.ComingBack ? "Coming back" : $"Travel to {Name(context.City, "your next city")}";
         return Traveller(e, ctx, NotificationTypes.TripNoReply, "No reply from the drivers yet",
-            $"Travel to {city}{date}. Call them or ask the backups.", Plan(e, ctx));
+            $"{trip}{date}. Call them or ask the backups.", Plan(e, ctx));
     }
 
     public static NotificationEvent TripProblemReported(TripEnquiry e, TripPushContext ctx) =>
@@ -366,20 +367,32 @@ public static class TripNotifications
 
     private static Target ChatOrEnquiries(TripEnquiry e, TripPushContext ctx) => ctx.ChatArgsJson != null ? Chat(e, ctx) : Enquiries(e, ctx);
 
-    // Traveller side: a trip taxi opens its day's replies, a journey lead (no trip) its saved journey,
-    // a stay or a travel-day car the plan on its night / travel day.
+    // Traveller side: a trip's local taxi opens its day's taxi step, a journey lead (no trip) its saved journey; a stay opens
+    // its night's step, a journey row its step (city change: step travel + legIndex; Getting there / Coming back: the step only).
     private static Target Plan(TripEnquiry e, TripPushContext ctx)
     {
         if (e.TripId is { } t)
-            return IsTaxi(e) && !TripSegmentRows.IsSegment(e)
-                ? new(UserNotificationRoutes.TripTaxiReplies, JsonSerializer.Serialize(new
+        {
+            var date = e.CheckIn?.ToString("yyyy-MM-dd", Inv);
+            if (!TripSegmentRows.IsSegment(e))
+                return IsTaxi(e)
+                    ? new(UserNotificationRoutes.TripPlan, JsonSerializer.Serialize(new
+                    {
+                        tripId = t, step = TripStepKinds.Taxi, day = FirstDay(e), date,
+                    }))
+                    : new(UserNotificationRoutes.TripPlan, JsonSerializer.Serialize(new
+                    {
+                        tripId = t, step = TripStepKinds.Stay, day = e.Day, date,
+                    }));
+            var context = TripEnquiryContexts.Read(e.ContextJson);
+            var role = context.Role ?? TripStepRoles.Segment;
+            return role == TripStepRoles.Segment
+                ? new(UserNotificationRoutes.TripPlan, JsonSerializer.Serialize(new
                 {
-                    tripId = t, day = FirstDay(e), enquiryId = e.Id, date = e.CheckIn?.ToString("yyyy-MM-dd", Inv),
+                    tripId = t, step = TripStepKinds.Travel, legIndex = context.CityIndex, day = e.Day, date,
                 }))
-                : new(UserNotificationRoutes.TripPlan, JsonSerializer.Serialize(new
-                {
-                    tripId = t, day = e.Day, date = e.CheckIn?.ToString("yyyy-MM-dd", Inv),
-                }));
+                : new(UserNotificationRoutes.TripPlan, JsonSerializer.Serialize(new { tripId = t, step = role }));
+        }
         if (IsTaxi(e))
             return new(JourneyNotifications.Route, ctx.JourneyId is { } j ? JsonSerializer.Serialize(new { journeyId = j }) : null);
         return new(UserNotificationRoutes.MyTrips, null);

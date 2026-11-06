@@ -100,6 +100,8 @@ public class TripDto
     // The caller's live journeys linked to this trip (at most two); role null = linked but no step uses it.
     public List<TripJourneyDto> Journeys { get; set; } = new();
     public string BookingState { get; set; } = TripBookingStates.Draft;
+    // Confirm-based step progress (TripStepProgress).
+    public TripProgress Progress { get; set; } = new();
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -128,7 +130,7 @@ public class TripJourneyDto
     public bool AnyAsked { get; set; }
     public DateTime? LastRefreshedAt { get; set; }
     public List<TripJourneyLegDto> Legs { get; set; } = new();
-    // Segments only (Role "segment"): the city leg travelled to, its first day and the derived travel state.
+    // LegIndex and TravelDay for segments only (the city leg travelled to and its first day); TravelState for every role.
     public int? LegIndex { get; set; }
     public int? TravelDay { get; set; }
     public string? TravelState { get; set; }
@@ -180,6 +182,7 @@ public class TripSummaryDto
     // Category of the first spot, for the card icon.
     public string Category { get; set; } = "attraction";
     public string BookingState { get; set; } = TripBookingStates.Draft;
+    public TripProgress Progress { get; set; } = new();
     public int StaysConfirmed { get; set; }
     public int StaysTotal { get; set; }
     public int TaxisConfirmed { get; set; }

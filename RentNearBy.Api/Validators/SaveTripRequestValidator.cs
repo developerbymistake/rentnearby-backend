@@ -15,7 +15,7 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
     private const int MaxNoteLength = 300;
     private const int MaxPlaceLength = 80;
     private const int MaxOwnNameLength = 80;
-    private const string OwnNameMessage = "Name must be 1 to 80 characters";
+    private const string OwnNameMessage = "Name can be up to 80 characters";
     private const string ShortlistMessage = "Up to 3 shortlisted per day";
     private const string NoteMessage = "Note can be up to 300 characters";
     private const string PhoneMessage = "Enter a 10 digit phone";
@@ -33,7 +33,19 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
 
     internal static bool IsValidNote(string? value) => value == null || value.Length <= MaxNoteLength;
 
-    internal static bool IsValidOwnName(string? value) => value != null && value.Trim().Length is >= 1 and <= MaxOwnNameLength;
+    // The name of an own stay or taxi is optional (blank = none).
+    internal static bool IsValidOwnName(string? value) => value == null || value.Trim().Length <= MaxOwnNameLength;
+
+    public const int MaxDismissed = 100;
+    public const string DismissedMessage = "Invalid dismissed list";
+    public const string LeaveOnMessage = "Invalid leave-on";
+    public const string OwnCarsMessage = "Invalid own cars";
+
+    internal static bool IsValidDismissed(List<Guid>? ids)
+        => ids == null || (ids.Count <= MaxDismissed && ids.All(id => id != Guid.Empty) && ids.Distinct().Count() == ids.Count);
+
+    internal static bool IsValidOwnCars(List<int>? cars)
+        => cars == null || (cars.All(c => c is >= 1 and <= JourneyRules.MaxLegs) && cars.Distinct().Count() == cars.Count);
 
     internal static bool IsValidCoordinates(double? lat, double? lon)
         => (lat == null && lon == null)
@@ -99,6 +111,7 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
             RuleFor(x => x.Plan.Version)
                 .Must(v => TripPlan.SupportedVersions.Contains(v)).WithMessage("Unsupported plan version");
             RuleFor(x => x.Plan.CityKey).GreaterThan(0).WithMessage("City is required");
+            RuleFor(x => x.Plan.DismissedEnquiryIds).Must(IsValidDismissed).WithMessage(DismissedMessage);
 
             RuleFor(x => x.Plan.Settings).NotNull().WithMessage("Plan settings are required");
             RuleFor(x => x.Plan.Settings.DayLimitMinutes)
@@ -319,6 +332,7 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
             RuleFor(t => t.Cars).Must(c => c == null || c.Value is >= 1 and <= JourneyRules.MaxLegs).WithMessage(TravelMessage);
             RuleFor(t => t.ListedTotal).Must(v => v == null || v.Value is >= 0 and <= MaxTravelListedTotal).WithMessage(TravelMessage);
             RuleFor(t => t.HubName).Must(n => n == null || n.Trim().Length <= MaxNameLength).WithMessage(TravelMessage);
+            RuleFor(t => t.OwnCars).Must(IsValidOwnCars).WithMessage(OwnCarsMessage);
         }
 
         public const int MaxTravelRoadMinutes = 900;
@@ -346,6 +360,7 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
     internal sealed class TripStepsValidator : AbstractValidator<TripSteps>
     {
         public const string StartFromMessage = "Starting from must be 1 to 80 characters";
+        public const string GoingHomeMessage = "Going home to must be 1 to 80 characters";
         public const string StatusMessage = "Invalid step status";
         public const string DateMessage = "Invalid travel date";
 
@@ -359,8 +374,20 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
                 .OverridePropertyName("Coordinates")
                 .WithMessage(PlanTripRequestValidator.InvalidCoordinatesMessage)
                 .When(s => s.StartFrom != null);
+            RuleFor(s => s.GoingHomeTo!.Name)
+                .Must(n => n != null && n.Trim().Length is >= 1 and <= TripStepRules.NameMax).WithMessage(GoingHomeMessage)
+                .When(s => s.GoingHomeTo != null);
+            RuleFor(s => s.GoingHomeTo!)
+                .Must(p => p.Lat is >= -90 and <= 90 && p.Lon is >= -180 and <= 180)
+                .OverridePropertyName("GoingHomeCoordinates")
+                .WithMessage(PlanTripRequestValidator.InvalidCoordinatesMessage)
+                .When(s => s.GoingHomeTo != null);
             RuleFor(s => s.GettingThere!).SetValidator(new TripStepValidator()).When(s => s.GettingThere != null);
             RuleFor(s => s.ComingBack!).SetValidator(new TripStepValidator()).When(s => s.ComingBack != null);
+            RuleFor(s => s.GettingThere!.LeaveOn).Null().WithMessage(LeaveOnMessage).When(s => s.GettingThere != null);
+            RuleFor(s => s.ComingBack!.LeaveOn)
+                .Must(v => v == null || TripLeaveOn.All.Contains(v)).WithMessage(LeaveOnMessage)
+                .When(s => s.ComingBack != null);
         }
     }
 
@@ -371,7 +398,18 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
             RuleFor(s => s.Status)
                 .Must(v => TripStepStatuses.All.Contains(v!)).WithMessage(TripStepsValidator.StatusMessage)
                 .When(s => s.Status != null);
+            RuleFor(s => s.OwnCars).Must(IsValidOwnCars).WithMessage(OwnCarsMessage);
             RuleFor(s => s.Note).Must(IsValidNote).WithMessage(NoteMessage);
+            RuleFor(s => s.How).Must(h => h == null || TripTravelHows.All.Contains(h)).WithMessage(TravelMessage);
+            RuleFor(s => s.OwnName)
+                .Must(n => n == null || n.Trim().Length <= MaxOwnNameLength).WithMessage("Name or number can be up to 80 characters");
+            RuleFor(s => s.OwnPhone).Must(IsValidPhone).WithMessage(PhoneMessage);
+            RuleFor(s => s.LeavesAt).Must(IsValidPickupTime).WithMessage(TimeMessage);
+            RuleFor(s => s)
+                .Must(s => s.How == null && s.OwnName == null && s.OwnPhone == null && s.LeavesAt == null)
+                .OverridePropertyName("How")
+                .WithMessage(TravelMessage)
+                .When(s => s.Status != TripStepStatuses.Own);
             RuleFor(s => s.Date)
                 .Must(d => PlanTripRequestValidator.IsValidStartDate(d!.Value)).WithMessage(TripStepsValidator.DateMessage)
                 .When(s => s.Date != null);
@@ -402,6 +440,9 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
             RuleFor(s => s.IsOwn)
                 .Must(own => own != true).WithMessage("A night is either your own stay or no stay")
                 .When(s => s.Skipped == true);
+            RuleFor(s => s.LeaveMoved)
+                .Must(v => v != true).WithMessage("Only a no-stay night can move the leave time")
+                .When(s => s.Skipped != true);
             RuleFor(s => s)
                 .Must(s => IsValidCoordinates(s.Latitude, s.Longitude))
                 .OverridePropertyName("Coordinates")

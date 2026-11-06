@@ -33,7 +33,7 @@ public static class TripSummaryLegs
     }
 
     // My Trips "Travel {settled} of {segments}" (mock Q15): every car of a planned journey, 1 per own travel (settled),
-    // 1 per segment with no travel yet (open). Settled cars are booked or confirmed on the travel date.
+    // 1 per segment with no travel yet (open). Settled cars are confirmed by both on the travel date, or his own.
     public static (int Segments, int Settled) Counters(TripPlan plan, IReadOnlyList<TripEnquiry> enquiries)
     {
         var legs = plan.Legs ?? new List<TripCityLeg>();
@@ -42,16 +42,15 @@ public static class TripSummaryLegs
         int total = 0, settled = 0;
         for (var k = 2; k <= legs.Count; k++)
         {
-            var travelDay = plan.LegStart(k);
-            var cars = map.SegmentAny.Count(s => travelDay >= 1 && s.Day == travelDay && s.Car > 0);
+            var cars = map.SegmentAny.Count(s => IsLeg(s, k) && s.Car > 0);
             if (cars > 0)
             {
                 total += cars;
-                settled += map.SegmentSettled.Count(s => s.Day == travelDay && s.Car > 0);
+                settled += map.SegmentSettled.Count(s => IsLeg(s, k) && s.Car > 0);
                 continue;
             }
             total++;
-            if (travelDay >= 1 && map.SegmentOwn.Contains((travelDay, 0))) settled++;
+            if (map.SegmentOwn.Contains((TripStepRoles.Segment, k, 0))) settled++;
         }
         return (total, settled);
     }
@@ -94,9 +93,8 @@ public static class TripSummaryLegs
         var staySettled = map.StaySettled.Where(days.Contains).ToHashSet();
         var taxiAny = map.TaxiAny.Where(days.Contains).ToHashSet();
         var taxiSettled = map.TaxiSettled.Where(days.Contains).ToHashSet();
-        var travelDay = legIndex >= 2 ? plan.LegStart(legIndex) : 0;
-        var segAny = map.SegmentAny.Where(s => travelDay >= 1 && s.Day == travelDay).ToHashSet();
-        var segSettled = map.SegmentSettled.Where(s => travelDay >= 1 && s.Day == travelDay).ToHashSet();
+        var segAny = map.SegmentAny.Where(s => legIndex >= 2 && IsLeg(s, legIndex)).ToHashSet();
+        var segSettled = map.SegmentSettled.Where(s => legIndex >= 2 && IsLeg(s, legIndex)).ToHashSet();
 
         var open = legRows.Any(TripBookingStates.IsOpenForCompletion) || segmentRows.Any(TripBookingStates.IsOpenForCompletion);
         if (open || !stayAny.IsSubsetOf(staySettled) || !taxiAny.IsSubsetOf(taxiSettled) || !segAny.IsSubsetOf(segSettled))
@@ -106,7 +104,7 @@ public static class TripSummaryLegs
             : TripBookingStates.PlanOnly;
     }
 
-    // Leg index (>= 2) -> settled: own travel, or every car of the current journey settled on the travel date.
+    // Leg index (>= 2) -> booked: own travel, or every car of the current journey own, booked by him or confirmed on the travel date.
     private static Dictionary<int, bool> SettledSegments(TripPlan plan, TripBookingMap map)
     {
         var legs = plan.Legs ?? new List<TripCityLeg>();
@@ -127,8 +125,12 @@ public static class TripSummaryLegs
             }
             var cars = Math.Clamp(arrival.Cars ?? 1, 1, JourneyRules.MaxLegs);
             result[k] = arrival.JourneyId != null
-                && Enumerable.Range(1, cars).All(car => map.SegmentSettled.Contains((travelDay, car)));
+                && Enumerable.Range(1, cars).All(car => map.SegmentSettled.Contains((TripStepRoles.Segment, k, car))
+                    || map.SegmentBookedByYou.Contains((TripStepRoles.Segment, k, car)));
         }
         return result;
     }
+
+    private static bool IsLeg((string Role, int Leg, int Car) key, int legIndex)
+        => key.Role == TripStepRoles.Segment && key.Leg == legIndex;
 }

@@ -26,6 +26,9 @@ public static class TripWarningCodes
     public const string ClosedDaysCrowd = "ClosedDaysCrowd";
 }
 
+// Matrix indices where one recalculated day starts and ends (-1 = no leg), and whether its places are reordered.
+public readonly record struct DayEnds(int Start, int End, bool BestOrder = false);
+
 // One continuous path through every place (shortest total road time, start end nearest the centre or the anchor), cut into
 // days by DaySplit (exact DP over the path). With an anchor (the stay) every day starts and ends there and those legs count.
 public static class DaySplitter
@@ -89,7 +92,7 @@ public static class DaySplitter
     // The user's order always wins: only times, flags and the closed-day warning are computed.
     // anchor != null: matrix is (n + 1) x (n + 1) over allSpots and its last row/column is the anchor.
     public static SplitResult Recalculate(IReadOnlyList<(int Day, List<TripSpot> Spots)> days, int dayLimitMinutes, DateOnly? startDate, RoadMatrix matrix, IReadOnlyList<TripSpot> allSpots,
-        int firstDayUsedMinutes = 0, TripSpot? anchor = null)
+        int firstDayUsedMinutes = 0, TripSpot? anchor = null, IReadOnlyList<DayEnds>? ends = null)
     {
         var anchorIndex = anchor == null ? -1 : allSpots.Count;
         var index = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -100,16 +103,21 @@ public static class DaySplitter
         var reserved = Math.Max(0, firstDayUsedMinutes);
         var warnings = new List<SplitWarning>();
         var builders = new List<DayBuilder>();
-        foreach (var (day, daySpots) in days)
+        for (var k = 0; k < days.Count; k++)
         {
+            var (day, daySpots) = days[k];
+            var end = ends != null && k < ends.Count ? ends[k] : new DayEnds(anchorIndex, anchorIndex);
             var builder = new DayBuilder(day, day == 1 ? reserved : 0);
+            var picked = new List<int>(daySpots.Count);
             foreach (var spot in daySpots)
+                if (index.TryGetValue(spot.Id, out var i) && !picked.Contains(i)) picked.Add(i);
+            if (end.BestOrder) picked = RoutePath.Between(matrix.Minutes!, picked, end.Start, end.End).ToList();
+            foreach (var i in picked)
             {
-                if (!index.TryGetValue(spot.Id, out var i)) continue;
-                Append(builder, i, allSpots, matrix, anchorIndex);
-                AddClosedWarning(warnings, spot, day, startDate);
+                Append(builder, i, allSpots, matrix, end.Start);
+                AddClosedWarning(warnings, allSpots[i], day, startDate);
             }
-            CloseAtAnchor(builder, allSpots, matrix, anchorIndex);
+            CloseAtAnchor(builder, allSpots, matrix, end.End);
             builders.Add(builder);
         }
 
@@ -154,24 +162,25 @@ public static class DaySplitter
     {
         var last = day.Last;
         if (last >= 0 || anchor >= 0)
-            AddLeg(day, last >= 0 ? last : anchor, spot, spots, matrix, anchor);
+            AddLeg(day, last >= 0 ? last : anchor, spot, spots, matrix);
         day.Spots.Add(spot);
         day.Visit += spots[spot].VisitMinutes;
     }
 
     private static void CloseAtAnchor(DayBuilder day, IReadOnlyList<TripSpot> spots, RoadMatrix matrix, int anchor)
     {
-        if (anchor >= 0 && day.Last >= 0) AddLeg(day, day.Last, anchor, spots, matrix, anchor);
+        if (anchor >= 0 && day.Last >= 0) AddLeg(day, day.Last, anchor, spots, matrix);
     }
 
-    private static void AddLeg(DayBuilder day, int from, int to, IReadOnlyList<TripSpot> spots, RoadMatrix matrix, int anchor)
+    private static void AddLeg(DayBuilder day, int from, int to, IReadOnlyList<TripSpot> spots, RoadMatrix matrix)
     {
         var m = matrix.Minutes![from, to];
-        day.Legs.Add(new SplitLeg(IdOf(from, spots, anchor), IdOf(to, spots, anchor), m, matrix.Km![from, to], matrix.IsEstimate[from, to]));
+        day.Legs.Add(new SplitLeg(IdOf(from, spots), IdOf(to, spots), m, matrix.Km![from, to], matrix.IsEstimate[from, to]));
         day.Drive += m;
     }
 
-    private static string IdOf(int index, IReadOnlyList<TripSpot> spots, int anchor) => index == anchor ? TripAnchor.Id : spots[index].Id;
+    // Matrix rows after the places are day points (stays).
+    private static string IdOf(int index, IReadOnlyList<TripSpot> spots) => index >= spots.Count ? TripAnchor.Id : spots[index].Id;
 
     // closed[place, day - 1]; null without a start date or when no place has closed days.
     private static bool[,]? ClosedTable(IReadOnlyList<TripSpot> spots, DateOnly? startDate, int maxDays)

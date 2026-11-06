@@ -54,7 +54,7 @@ public class TripPlanCompatTests
 
     [Fact]
     public void DocumentFromANewerServer_NeedsUpdate()
-        => Assert.True(TripPlanCompat.NeedsUpdate(Plan("Haridwar"), Plan("Haridwar"), 5));
+        => Assert.True(TripPlanCompat.NeedsUpdate(Plan("Haridwar"), Plan("Haridwar"), TripPlan.CurrentVersion + 1));
 
     [Fact]
     public void LeglessStoredPlan_HasNoMultiCityData()

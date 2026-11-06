@@ -3359,6 +3359,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("jsonb")
                         .HasDefaultValueSql("'{}'::jsonb");
 
+                    b.Property<short>("ContextRefreshCount")
+                        .HasColumnType("smallint");
+
                     b.Property<Guid?>("ConversationId")
                         .HasColumnType("uuid");
 

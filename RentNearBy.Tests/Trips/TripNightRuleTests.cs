@@ -86,4 +86,79 @@ public class TripNightRuleTests
     [Fact]
     public void Owner_bucket_without_check_out_stays_confirmed()
         => Assert.Equal(TripOwnerBuckets.Confirmed, TripOwnerBuckets.Of(TripEnquiryStatuses.ConfirmedByBoth, null, D(4)));
+
+    // ---- Change a confirmed stay: replacing one night of a booking keeps the other night booked
+
+    private static TripEnquiry StayRow(string status, int fromDay, int toDay, int? total = null) => new()
+    {
+        Id = Guid.NewGuid(),
+        TripId = Guid.NewGuid(),
+        Kind = TripEnquiryKinds.Stay,
+        Status = status,
+        Day = (short)fromDay,
+        CheckIn = D(fromDay),
+        CheckOut = D(toDay + 1),
+        AgreedTotal = total,
+        AdvanceStatus = TripAdvanceStatuses.None,
+    };
+
+    [Fact]
+    public void Replace_one_night_of_a_two_night_booking_keeps_the_other_night()
+    {
+        var booked = StayRow(TripEnquiryStatuses.ConfirmedByBoth, 1, 2, total: 4000);
+        var split = TripReplaceSplit.Plan(booked, D(2), D(3), Guid.NewGuid(), DateTime.UtcNow);
+
+        Assert.Same(booked, split.Kept);
+        Assert.Equal(TripEnquiryStatuses.ConfirmedByBoth, split.Kept!.Status);
+        Assert.Equal(D(1), split.Kept.CheckIn);
+        Assert.Equal(D(2), split.Kept.CheckOut);
+        Assert.Equal(TripEnquiryStatuses.CancelledByTraveller, split.Cancelled.Status);
+        Assert.Equal(D(2), split.Cancelled.CheckIn);
+        Assert.Equal(D(3), split.Cancelled.CheckOut);
+        Assert.Equal(4000, split.Kept.AgreedTotal + split.Cancelled.AgreedTotal);
+    }
+
+    [Fact]
+    public void Replace_a_booking_only_you_confirmed_cancels_it_whole()
+    {
+        var phone = StayRow(TripEnquiryStatuses.ConfirmedByTraveller, 2, 2, total: 1800);
+        var split = TripReplaceSplit.Plan(phone, D(2), D(3), Guid.NewGuid(), DateTime.UtcNow);
+
+        Assert.Null(split.Kept);
+        Assert.Same(phone, split.Cancelled);
+        Assert.Equal(TripEnquiryStatuses.CancelledByTraveller, phone.Status);
+    }
+
+    // ---- Journey rows are dated by their journey, never by the night window
+
+    private static TripEnquiry JourneyRow(DateOnly date, string role) => new()
+    {
+        Id = Guid.NewGuid(),
+        TripId = Guid.NewGuid(),
+        Kind = TripEnquiryKinds.Taxi,
+        Status = TripEnquiryStatuses.Asked,
+        Day = TripExecutionRules.DayOf(Start, date),
+        CheckIn = date,
+        CheckOut = date.AddDays(1),
+        ContextJson = $$"""{"city":"Nainital","journeyId":"{{Guid.NewGuid()}}","legIndex":1,"role":"{{role}}"}""",
+    };
+
+    [Fact]
+    public void Coming_back_row_on_the_check_out_morning_is_not_outside_the_trip()
+    {
+        var row = JourneyRow(TripDateRules.CheckOutLimit(End), TripStepRoles.ComingBack);
+        Assert.True(TripDateRules.OutsideWindow(Start, End, row.CheckIn, row.CheckOut));
+        Assert.False(TripDateRules.RowOutsideWindow(row, Start, End));
+    }
+
+    [Fact]
+    public void Getting_there_row_the_day_before_the_start_is_not_outside_the_trip()
+        => Assert.False(TripDateRules.RowOutsideWindow(JourneyRow(Start.AddDays(-1), TripStepRoles.GettingThere), Start, End));
+
+    [Fact]
+    public void A_stay_row_on_the_check_out_morning_is_still_outside()
+    {
+        var stay = StayRow(TripEnquiryStatuses.Asked, 4, 4);
+        Assert.True(TripDateRules.RowOutsideWindow(stay, Start, End));
+    }
 }

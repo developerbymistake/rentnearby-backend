@@ -43,6 +43,87 @@ public static class RoutePath
         return best!;
     }
 
+    public const int ExactBetweenMax = 10;
+
+    // Best order of one day's places (indices into `minutes`) from `start` to `end` (-1 = open end), directed road times.
+    // Keeps the given order unless another one is strictly shorter.
+    public static int[] Between(int[,] minutes, IReadOnlyList<int> items, int start, int end)
+    {
+        var n = items.Count;
+        var given = items.ToArray();
+        if (n < 2) return given;
+
+        long Leg(int from, int to) => from < 0 || to < 0 ? 0 : minutes[from, to];
+        long Cost(int[] path)
+        {
+            long total = Leg(start, path[0]) + Leg(path[^1], end);
+            for (var k = 0; k + 1 < path.Length; k++) total += minutes[path[k], path[k + 1]];
+            return total;
+        }
+
+        var best = n <= ExactBetweenMax ? Exact(items, start, end, Leg) : Greedy(items, start, Leg);
+        return Cost(best) < Cost(given) ? best : given;
+    }
+
+    private static int[] Exact(IReadOnlyList<int> items, int start, int end, Func<int, int, long> leg)
+    {
+        var n = items.Count;
+        var full = (1 << n) - 1;
+        var dp = new long[1 << n, n];
+        var from = new int[1 << n, n];
+        for (var m = 0; m <= full; m++)
+        for (var i = 0; i < n; i++) { dp[m, i] = long.MaxValue; from[m, i] = -1; }
+        for (var i = 0; i < n; i++) dp[1 << i, i] = leg(start, items[i]);
+        for (var m = 1; m <= full; m++)
+        for (var i = 0; i < n; i++)
+        {
+            if ((m & (1 << i)) == 0 || dp[m, i] == long.MaxValue) continue;
+            for (var j = 0; j < n; j++)
+            {
+                if ((m & (1 << j)) != 0) continue;
+                var next = m | (1 << j);
+                var c = dp[m, i] + leg(items[i], items[j]);
+                if (c < dp[next, j]) { dp[next, j] = c; from[next, j] = i; }
+            }
+        }
+        var last = 0;
+        var bestCost = long.MaxValue;
+        for (var i = 0; i < n; i++)
+        {
+            if (dp[full, i] == long.MaxValue) continue;
+            var c = dp[full, i] + leg(items[i], end);
+            if (c < bestCost) { bestCost = c; last = i; }
+        }
+        var path = new int[n];
+        var mask = full;
+        for (var k = n - 1; k >= 0; k--)
+        {
+            path[k] = items[last];
+            var prev = from[mask, last];
+            mask &= ~(1 << last);
+            last = prev;
+        }
+        return path;
+    }
+
+    private static int[] Greedy(IReadOnlyList<int> items, int start, Func<int, int, long> leg)
+    {
+        var left = items.ToList();
+        var path = new List<int>(left.Count);
+        var cur = start;
+        while (left.Count > 0)
+        {
+            var pick = left[0];
+            if (cur >= 0)
+                foreach (var x in left)
+                    if (leg(cur, x) < leg(cur, pick)) pick = x;
+            path.Add(pick);
+            left.Remove(pick);
+            cur = pick;
+        }
+        return path.ToArray();
+    }
+
     private static int[] NearestFrom(long[,] cost, int n, int start)
     {
         var path = new int[n];

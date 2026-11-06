@@ -20,6 +20,7 @@ public class TripEnquiry
     public DateOnly? CheckOut { get; set; }
     public Guid? ConversationId { get; set; }
     public string ContextJson { get; set; } = "{}";
+    public short ContextRefreshCount { get; set; }
     public string Status { get; set; } = TripEnquiryStatuses.Asked;
     public string? FailReason { get; set; }
     public DateTime ExpiresAt { get; set; }

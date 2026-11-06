@@ -93,8 +93,9 @@ public static class TripLegRules
 
     public static TripWrongCity WrongCity(TripEnquiry e, TripPlan plan, DateOnly? start)
     {
-        if (start is not { } s || TripSegmentRows.IsSegment(e) || (plan.Legs?.Count ?? 0) <= 1) return TripWrongCity.None;
+        if (start is not { } s || TripSegmentRows.IsSegment(e)) return TripWrongCity.None;
         if (HomeLegIndex(e, plan) is not { } home) return TripWrongCity.None;
+        if ((plan.Legs?.Count ?? 0) <= 1 && home != RemovedCityLeg) return TripWrongCity.None;
 
         var dayCount = plan.Days?.Count ?? 0;
         int wrong = 0, total = 0;

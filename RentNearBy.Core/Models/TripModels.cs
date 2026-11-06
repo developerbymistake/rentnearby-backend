@@ -137,12 +137,12 @@ public static class TripPace
     public const int Normal = 450;
 }
 
-// PlanJson v4 (Trip.PlanJson, serialized with TripJson.Options); v2/v3 documents read with the new fields null
+// PlanJson v5 (Trip.PlanJson, serialized with TripJson.Options); v2/v3/v4 documents read with the new fields null
 // and become one leg through Normalize.
 public sealed class TripPlan
 {
-    public const int CurrentVersion = 4;
-    public static readonly int[] SupportedVersions = [2, 3, 4];
+    public const int CurrentVersion = 5;
+    public static readonly int[] SupportedVersions = [2, 3, 4, 5];
     public int Version { get; set; } = CurrentVersion;
     // The five city fields always equal Legs[0] after Normalize.
     public long CityKey { get; set; }
@@ -156,6 +156,8 @@ public sealed class TripPlan
     public TripSettings Settings { get; set; } = new();
     // Null = written by an app that does not know steps: the server keeps the stored copy (TripStepsMerge).
     public TripSteps? Steps { get; set; }
+    // Problem rows the traveller dismissed (a red night or day reads "not sorted"). Null on a request keeps the stored list.
+    public List<Guid>? DismissedEnquiryIds { get; set; }
 
     // Last DAY of the trip (drives Trips.EndDate, reminders and the list).
     [JsonIgnore]
@@ -164,6 +166,10 @@ public sealed class TripPlan
     // Every day has a night: check-out is the morning after the last day.
     [JsonIgnore]
     public DateOnly? CheckOutDate => EndDate?.AddDays(1);
+
+    // Coming back without its own date: the last day's evening when he chose it, else the check-out morning.
+    [JsonIgnore]
+    public DateOnly? ComingBackDate => Steps?.ComingBack?.LeaveOn == TripLeaveOn.LastDayEvening ? EndDate : CheckOutDate;
 
     [JsonIgnore]
     public List<string> LegCities => Legs is { Count: > 0 } ? Legs.Select(l => l.CityName).ToList() : [CityName];
@@ -239,6 +245,60 @@ public sealed class TripPlan
         DistrictId = first.DistrictId;
         CentreLatitude = first.Latitude;
         CentreLongitude = first.Longitude;
+
+        // The app never decides a step is not needed: an old auto value is a step not started.
+        foreach (var step in new[] { Steps?.GettingThere, Steps?.ComingBack })
+            if (step?.Status == TripStepStatuses.NotNeeded) step.Status = TripStepStatuses.NotStarted;
+    }
+}
+
+public static class TripLeaveOn
+{
+    public const string CheckOut = "checkOut";
+    public const string LastDayEvening = "lastDayEvening";
+
+    public static readonly string[] All = [CheckOut, LastDayEvening];
+}
+
+// What an app older than PlanJson v5 cannot send: it keeps the stored rest days, leave-on, own cars, own step travel and going-home place.
+public static class TripPlanMerge
+{
+    public static void KeepStored(TripPlan plan, TripPlan? stored, int requestVersion)
+    {
+        plan.DismissedEnquiryIds ??= stored?.DismissedEnquiryIds;
+        if (stored == null || requestVersion >= 5) return;
+
+        if (plan.Steps != null && stored.Steps?.GoingHomeTo != null) plan.Steps.GoingHomeTo ??= stored.Steps.GoingHomeTo;
+
+        foreach (var day in plan.Days)
+            if (day != null && day.RestDay == null)
+                day.RestDay = stored.Days.FirstOrDefault(d => d != null && d.Day == day.Day)?.RestDay;
+
+        KeepStep(plan.Steps?.GettingThere, stored.Steps?.GettingThere);
+        KeepStep(plan.Steps?.ComingBack, stored.Steps?.ComingBack);
+        if (plan.Steps?.ComingBack is { } back && stored.Steps?.ComingBack is { } storedBack) back.LeaveOn ??= storedBack.LeaveOn;
+
+        var storedLegs = stored.Legs ?? new List<TripCityLeg>();
+        foreach (var leg in plan.Legs ?? new List<TripCityLeg>())
+        {
+            if (leg?.Arrival is not { JourneyId: { } id } arrival || arrival.OwnCars != null) continue;
+            arrival.OwnCars = storedLegs.FirstOrDefault(l => l?.Arrival?.JourneyId == id)?.Arrival?.OwnCars;
+        }
+    }
+
+    private static void KeepStep(TripStep? step, TripStep? stored)
+    {
+        if (step == null || stored == null) return;
+        if (step.Status == TripStepStatuses.Own && stored.Status == TripStepStatuses.Own
+            && step.How == null && step.OwnName == null && step.OwnPhone == null && step.LeavesAt == null)
+        {
+            step.How = stored.How;
+            step.OwnName = stored.OwnName;
+            step.OwnPhone = stored.OwnPhone;
+            step.LeavesAt = stored.LeavesAt;
+        }
+        if (step.OwnCars != null || step.JourneyId == null || step.JourneyId != stored.JourneyId) return;
+        step.OwnCars = stored.OwnCars;
     }
 }
 
@@ -275,6 +335,8 @@ public sealed class TripTravel
     public int? ListedTotal { get; set; }
     // Own mode: the train/bus hub he reaches when no driver goes the whole road.
     public string? HubName { get; set; }
+    // Journey mode: car numbers (1-based) he arranges himself; each counts as settled.
+    public List<int>? OwnCars { get; set; }
 }
 
 public static class TripTravelModes
@@ -308,6 +370,8 @@ public sealed class TripDay
     public int Day { get; set; }
     // 1-based leg of this day; null on a v3 document (read as the previous day's leg).
     public int? Leg { get; set; }
+    // True = no places this day, the traveller's choice.
+    public bool? RestDay { get; set; }
     public List<TripSpot> Spots { get; set; } = new();
     public TripTaxiChoice? Taxi { get; set; }
     public TripStayChoice? Stay { get; set; }
@@ -348,6 +412,8 @@ public sealed class TripTaxiChoice
 public sealed class TripSteps
 {
     public TripStartFrom? StartFrom { get; set; }
+    // Coming back ends here when set; null = back at StartFrom.
+    public TripStartFrom? GoingHomeTo { get; set; }
     public TripStep? GettingThere { get; set; }
     public TripStep? ComingBack { get; set; }
 }
@@ -366,6 +432,15 @@ public sealed class TripStep
     public Guid? JourneyId { get; set; }
     public string? Note { get; set; }
     public DateOnly? Date { get; set; }
+    // Coming back only (TripLeaveOn); null = check-out morning.
+    public string? LeaveOn { get; set; }
+    // Car numbers (1-based) of the step journey he arranges himself.
+    public List<int>? OwnCars { get; set; }
+    // Own travel (Status own only), same shape as TripTravel: TripTravelHows, name or number, phone, "HH:mm".
+    public string? How { get; set; }
+    public string? OwnName { get; set; }
+    public string? OwnPhone { get; set; }
+    public string? LeavesAt { get; set; }
 }
 
 public static class TripStepStatuses
@@ -437,6 +512,8 @@ public sealed class TripStayChoice
     public string? Note { get; set; }
     // No stay tonight (travelling).
     public bool? Skipped { get; set; }
+    // Skipped night that moved Coming back to the last evening; Undo restores check-out.
+    public bool? LeaveMoved { get; set; }
 }
 
 public sealed class TripStayShortlistItem
