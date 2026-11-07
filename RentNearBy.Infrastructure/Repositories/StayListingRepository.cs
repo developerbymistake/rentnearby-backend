@@ -194,7 +194,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
     private record BoxQueryResult(
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
         string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured,
-        int? MaxGuests, string? Meals, TimeOnly? CheckInTime, int RoomCount, string? RoomsJson, bool HasGroundFloorRoom);
+        int? MaxGuests, string? Meals, TimeOnly? CheckInTime, int RoomCount, string? RoomsJson, bool HasGroundFloorRoom,
+        string? CityName, string? DistrictName);
 
     private static string? CheckInText(TimeOnly? t) => t?.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
@@ -232,10 +233,14 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     s."CheckInTime",
                     COALESCE(rm."RoomCount", 0) AS "RoomCount",
                     rm."RoomsJson",
-                    COALESCE(rm."HasGroundFloorRoom", FALSE) AS "HasGroundFloorRoom"
+                    COALESCE(rm."HasGroundFloorRoom", FALSE) AS "HasGroundFloorRoom",
+                    c."Name" AS "CityName",
+                    d."Name" AS "DistrictName"
                 FROM "StayListings" s
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
                 LEFT JOIN "StayTypes" t ON t."Id" = s."StayTypeId"
+                LEFT JOIN "Cities" c ON c."Id" = s."CityId"
+                LEFT JOIN "Districts" d ON d."Id" = s."DistrictId"
                 LEFT JOIN LATERAL (
                     SELECT p."PhotoUrl"
                     FROM "StayPhotos" p
@@ -292,6 +297,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 CheckInTime = CheckInText(x.Row.CheckInTime),
                 RoomCount = x.Row.RoomCount,
                 HasGroundFloorRoom = x.Row.HasGroundFloorRoom,
+                CityName = x.Row.CityName,
+                DistrictName = x.Row.DistrictName,
                 Rooms = StayNearbyRooms.Parse(x.Row.RoomsJson),
             })
             .ToList();
@@ -300,7 +307,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
     private record KnnQueryResult(
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
         string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured, double DistanceMeters,
-        string? RoomsJson, bool HasGroundFloorRoom);
+        string? RoomsJson, bool HasGroundFloorRoom, string? CityName, string? DistrictName);
 
     public async Task<IEnumerable<StayNearbyDto>> GetNearestAsync(
         double latitude, double longitude, int count, Guid districtId, Guid? stayTypeId)
@@ -323,10 +330,14 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     s."IsFeatured",
                     ST_Distance(s."Location", ST_MakePoint({longitude}, {latitude})::geography) AS "DistanceMeters",
                     rm."RoomsJson",
-                    COALESCE(rm."HasGroundFloorRoom", FALSE) AS "HasGroundFloorRoom"
+                    COALESCE(rm."HasGroundFloorRoom", FALSE) AS "HasGroundFloorRoom",
+                    c."Name" AS "CityName",
+                    d."Name" AS "DistrictName"
                 FROM "StayListings" s
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
                 LEFT JOIN "StayTypes" t ON t."Id" = s."StayTypeId"
+                LEFT JOIN "Cities" c ON c."Id" = s."CityId"
+                LEFT JOIN "Districts" d ON d."Id" = s."DistrictId"
                 LEFT JOIN LATERAL (
                     SELECT p."PhotoUrl"
                     FROM "StayPhotos" p
@@ -372,6 +383,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 PriorityRank = r.PriorityRank,
                 IsFeatured = r.IsFeatured,
                 HasGroundFloorRoom = r.HasGroundFloorRoom,
+                CityName = r.CityName,
+                DistrictName = r.DistrictName,
                 Rooms = StayNearbyRooms.Parse(r.RoomsJson),
             })
             .ToList();
