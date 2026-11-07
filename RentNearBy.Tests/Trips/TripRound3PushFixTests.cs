@@ -107,21 +107,6 @@ public class TripRound3PushFixTests
         Assert.Null(TripEnquiryDtoBuilder.ToOfferDto(offer, Stay(Start, Start.AddDays(1))).ProposedPerNight);
     }
 
-    // Finding 16: phone bookings take explicit nights like enquiries.
-    [Theory]
-    [InlineData(0)]
-    [InlineData(15)]
-    public void Phone_nights_out_of_range_fail(int nights)
-    {
-        var request = new CreatePhoneBookingRequest
-        {
-            StayId = Guid.NewGuid(), Day = 1, Nights = nights, HostName = "Ramesh", HostPhone = "9876543210", RoomName = "Deluxe", AgreedTotal = 3000,
-        };
-        Assert.Contains(new CreatePhoneBookingRequestValidator().Validate(request).Errors, e => e.PropertyName == "Nights");
-        var edit = new EditPhoneBookingRequest { Nights = nights, HostName = "Ramesh", HostPhone = "9876543210", RoomName = "Deluxe", AgreedTotal = 3000 };
-        Assert.Contains(new EditPhoneBookingRequestValidator().Validate(edit).Errors, e => e.PropertyName == "Nights");
-    }
-
     [Fact]
     public void Phone_nights_cap_at_the_last_night()
     {

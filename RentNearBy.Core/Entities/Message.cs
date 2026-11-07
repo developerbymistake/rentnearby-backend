@@ -7,7 +7,7 @@ public class Message
     public Conversation? Conversation { get; set; }
     public Guid SenderId { get; set; }
 
-    // "quick_reply" | "contact_request" | "contact_response" | "schedule_proposal" | "schedule_response" | "system" | "trip_enquiry" | "trip_offer" | "trip_offer_response" | "trip_phone_booking" | "trip_advance_request" | "trip_advance_proof_sent" | "trip_counter" | "trip_revised_offer" | "trip_change_request" (trip types are written only by the trip endpoints)
+    // "quick_reply" | "contact_request" | "contact_response" | "schedule_proposal" | "schedule_response" | "system" | "trip_enquiry" | "trip_offer" | "trip_offer_response" | "trip_advance_request" | "trip_advance_proof_sent" | "trip_counter" | "trip_revised_offer" | "trip_change_request" (trip types are written only by the trip endpoints)
     public string Type { get; set; } = string.Empty;
 
     // Catalog keys only (e.g. {"key":"is_available"} or {"answerKey":"yes_available"}), never full text.

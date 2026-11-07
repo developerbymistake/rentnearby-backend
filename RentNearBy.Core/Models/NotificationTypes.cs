@@ -30,10 +30,6 @@ public static class NotificationTypes
     public const string TripOfferReceived = "TripOfferReceived";
     public const string TripOfferAccepted = "TripOfferAccepted";
     public const string TripOfferDeclined = "TripOfferDeclined";
-    public const string TripPhoneBookingRecorded = "TripPhoneBookingRecorded";
-    public const string TripHostConfirmed = "TripHostConfirmed";
-    public const string TripHostDenied = "TripHostDenied";
-    public const string TripHostLinkAnswered = "TripHostLinkAnswered";
     public const string TripListingRemoved = "TripListingRemoved";
     public const string TripTravellerLeft = "TripTravellerLeft";
     public const string TripEnquiryExpired = "TripEnquiryExpired";
@@ -57,7 +53,6 @@ public static class NotificationTypes
     public const string TripRevisedKept = "TripRevisedKept";
     public const string TripChangeRequest = "TripChangeRequest";
     public const string TripChangeAccepted = "TripChangeAccepted";
-    public const string TripHostNotConfirmed = "TripHostNotConfirmed";
     public const string TripNoReply = "TripNoReply";
     public const string TripProblemReported = "TripProblemReported";
     public const string TripStartsIn3Days = "TripStartsIn3Days";
@@ -92,10 +87,6 @@ public static class NotificationTypes
         [TripOfferReceived] = "trip_offer_received",
         [TripOfferAccepted] = "trip_offer_accepted",
         [TripOfferDeclined] = "trip_offer_declined",
-        [TripPhoneBookingRecorded] = "trip_phone_booking_recorded",
-        [TripHostConfirmed] = "trip_host_confirmed",
-        [TripHostDenied] = "trip_host_denied",
-        [TripHostLinkAnswered] = "trip_host_link_answered",
         [TripListingRemoved] = "trip_listing_removed",
         [TripTravellerLeft] = "trip_traveller_left",
         [TripEnquiryExpired] = "trip_enquiry_expired",
@@ -119,7 +110,6 @@ public static class NotificationTypes
         [TripRevisedKept] = "trip_revised_kept",
         [TripChangeRequest] = "trip_change_request",
         [TripChangeAccepted] = "trip_change_accepted",
-        [TripHostNotConfirmed] = "trip_host_not_confirmed",
         [TripNoReply] = "trip_no_reply",
         [TripProblemReported] = "trip_problem_reported",
         [TripStartsIn3Days] = "trip_starts_in_3_days",

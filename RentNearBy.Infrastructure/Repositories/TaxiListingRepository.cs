@@ -202,6 +202,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                 p.Row.PriorityRank, cityId != null && p.Row.CityId == cityId,
                 p.Latitude is { } lat ? (double)lat : null, p.Longitude is { } lng ? (double)lng : null)),
             need);
+        if (need.PickupLimitKm is { } limit)
+            ranked = ranked.Where(x => x.Fit.PickupKm is not { } km || km <= limit).ToList();
 
         var skip = (page - 1) * pageSize;
         var items = ranked.Skip(skip).Take(pageSize).Select(x =>

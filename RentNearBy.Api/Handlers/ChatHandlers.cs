@@ -1131,7 +1131,6 @@ public static class ChatHandlers
                     using (var doc = JsonDocument.Parse(message.PayloadJson))
                         return doc.RootElement.TryGetProperty("answer", out var ans) && ans.GetString() == "accepted"
                             ? "Offer accepted" : "Offer declined";
-                case "trip_phone_booking": return "Booking recorded by phone";
                 case "trip_advance_request":
                     using (var doc = JsonDocument.Parse(message.PayloadJson))
                         return doc.RootElement.TryGetProperty("amount", out var adv) && adv.TryGetInt32(out var advRupees)

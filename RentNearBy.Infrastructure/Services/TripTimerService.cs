@@ -21,13 +21,12 @@ namespace RentNearBy.Infrastructure.Services;
 //   7. Taxi FareSent leads past ExpiresAt -> Expired; push once (exp:{id}).
 //   8. Asked enquiries 24 h old with no reply -> one traveller reminder (noreply:{id}; a journey car between cities:
 //      one per travel segment, noreply:seg:{tripId}:{date}); muted trips skipped.
-//   9. Host link unanswered for 24 h -> one traveller reminder (hostnc:{id}); muted trips skipped.
-//  10. Trip date reminders: 3 days before (d3, 48 h window), start day (d0, until that day ends), day after the last day
+//   9. Trip date reminders: 3 days before (d3, 48 h window), start day (d0, until that day ends), day after the last day
 //      (done, until that day ends); keyed by date, muted trips skipped.
-//  11. Planned trips 7 days past the last day with nothing open -> Completed (no push, runs even when muted).
-//  12. Travel-eve: 18:00 IST the evening before a travel day between two cities, once (trv:{tripId}:{date}); muted trips skipped.
-// Passes 6, 8, 9, 10, 11 and 12 read keyset pages of only un-done work (key not logged / nothing open) until exhausted.
-// Order: 1, 2, 7, 5, 6, 8, 9, 10, 12, 11, 3, 4. Skipped while TripExecution:Enabled is false.
+//  10. Planned trips 7 days past the last day with nothing open -> Completed (no push, runs even when muted).
+//  11. Travel-eve: 18:00 IST the evening before a travel day between two cities, once (trv:{tripId}:{date}); muted trips skipped.
+// Passes 6, 8, 9, 10 and 11 read keyset pages of only un-done work (key not logged / nothing open) until exhausted.
+// Order: 1, 2, 7, 5, 6, 8, 9, 11, 10, 3, 4. Skipped while TripExecution:Enabled is false.
 public class TripTimerService(
     IServiceScopeFactory scopeFactory, IOptionsMonitor<TripExecutionOptions> options, ILogger<TripTimerService> logger)
     : BackgroundService
@@ -72,17 +71,16 @@ public class TripTimerService(
             var hold = await HoldExpiryPassAsync(sp, ct);
             var reminders = await HostReminderPassAsync(sp, ct);
             var noReply = await NoReplyPassAsync(sp, ct);
-            var hostNc = await HostNotConfirmedPassAsync(sp, ct);
             var bookedSilence = await BookedSilencePassAsync(sp, ct);
             var dates = await DateReminderPassAsync(sp, ct);
             var travelEve = await TravelEvePassAsync(sp, ct);
             var completed = await AutoCompletePassAsync(sp, ct);
             var urgent = await UrgentPassAsync(sp);
             var purged = await PurgePassAsync(sp);
-            if (offers + enquiries + leads + hold + reminders + noReply + hostNc + bookedSilence + dates + travelEve + completed + urgent + purged > 0)
+            if (offers + enquiries + leads + hold + reminders + noReply + bookedSilence + dates + travelEve + completed + urgent + purged > 0)
                 logger.LogInformation(
-                    "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} noreply={NoReply} hostnc={HostNc} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
-                    offers, enquiries, urgent, purged, hold, reminders, leads, noReply, hostNc, bookedSilence, dates, travelEve, completed);
+                    "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} noreply={NoReply} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
+                    offers, enquiries, urgent, purged, hold, reminders, leads, noReply, bookedSilence, dates, travelEve, completed);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -422,48 +420,6 @@ public class TripTimerService(
         var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
         var notifier = sp.GetRequiredService<ITripNotifier>();
         return await TripLeadSilence.RemindBookedAsync(db, unitOfWork.TripEnquiries, notifier, DateTime.UtcNow, Batch, logger, ct);
-    }
-
-    private async Task<int> HostNotConfirmedPassAsync(IServiceProvider sp, CancellationToken ct)
-    {
-        var db = sp.GetRequiredService<ApplicationDbContext>();
-        var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
-        var notifier = sp.GetRequiredService<ITripNotifier>();
-        var now = DateTime.UtcNow;
-        var done = 0;
-        Guid? after = null;
-        do
-        {
-            if (ct.IsCancellationRequested) break;
-            var (due, next) = await unitOfWork.TripEnquiries.GetHostNotConfirmedDueAsync(now, after, Batch);
-            after = next;
-            foreach (var row in due)
-            {
-                if (ct.IsCancellationRequested) break;
-                try
-                {
-                    var e = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(row.Id);
-                    if (e == null || e.Status != TripEnquiryStatuses.ConfirmedByTraveller || e.HostConfirmAnsweredAt != null
-                        || e.TripId is not { } tripId || e.TravellerUserId is not { } travellerId
-                        || !await TripRemindableAsync(db, tripId, ct))
-                        continue;
-                    var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(e, travellerId);
-                    if (await notifier.SendOnceAsync(
-                            TripNotifications.TripHostNotConfirmed(e, ctx), TripReminderRules.HostNotConfirmedKey(e.Id), tripId, e.Id))
-                        done++;
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    logger.LogError(ex, "Trip timer: host-not-confirmed reminder failed for {EnquiryId}", row.Id);
-                }
-                finally
-                {
-                    db.ChangeTracker.Clear();
-                }
-            }
-        }
-        while (after != null);
-        return done;
     }
 
     private async Task<int> DateReminderPassAsync(IServiceProvider sp, CancellationToken ct)

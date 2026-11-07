@@ -46,8 +46,6 @@ public class TripEnquiryDto
     public int? WrongFirstDay { get; set; }
     public string? WrongDayCity { get; set; }
     public bool OutsideTrip { get; set; }
-    public TripPhoneBookingDto? PhoneBooking { get; set; }
-    public TripHostConfirmDto HostConfirm { get; set; } = new();
     public TripAdvanceDto Advance { get; set; } = new();
     public TripTaxiDto? Taxi { get; set; }
     public TripPartyDto Traveller { get; set; } = new();
@@ -73,32 +71,6 @@ public class TripEnquiryContextDto
     public Guid? JourneyId { get; set; }
     // The car (journey leg) 1..3, never the city leg.
     public int? JourneyLegIndex { get; set; }
-}
-
-public class TripPhoneBookingDto
-{
-    public string HostName { get; set; } = string.Empty;
-    // Traveller side only; null for the owner.
-    public string? HostPhone { get; set; }
-    public string RoomName { get; set; } = string.Empty;
-    public int Nights { get; set; }
-    public int AgreedTotal { get; set; }
-    public bool AdvancePaid { get; set; }
-    public int? AdvanceAmount { get; set; }
-    public string? Note { get; set; }
-    public DateTime RecordedAt { get; set; }
-    public DateTime? UpdatedAt { get; set; }
-}
-
-public class TripHostConfirmDto
-{
-    public bool LinkSent { get; set; }
-    public int LinkCount { get; set; }
-    public DateTime? CanResendAt { get; set; }
-    public DateTime? AnsweredAt { get; set; }
-    public string? Answer { get; set; }
-    public string? AnsweredVia { get; set; }
-    public DateTime? CanOverrideUntil { get; set; }
 }
 
 public class TripAdvanceDto
@@ -207,13 +179,6 @@ public class TripEnquiryBatchDto
     // Open leads whose days were merged with this request; they are in Items too.
     public List<Guid> Updated { get; set; } = new();
     public bool VeryShortNotice { get; set; }
-}
-
-public class TripPhoneBookingResultDto
-{
-    public TripEnquiryDto Enquiry { get; set; } = new();
-    public string? ConfirmLink { get; set; }
-    public string? WhatsAppText { get; set; }
 }
 
 public class TripOwnerCountsDto

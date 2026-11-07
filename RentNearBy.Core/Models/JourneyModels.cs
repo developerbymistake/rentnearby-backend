@@ -54,7 +54,7 @@ public static class JourneyRules
 
     public static string LegStatusOf(TripEnquiry e) => e.Status switch
     {
-        TripEnquiryStatuses.FareSent or TripEnquiryStatuses.BookedByTraveller or TripEnquiryStatuses.ConfirmedByTraveller
+        TripEnquiryStatuses.FareSent or TripEnquiryStatuses.BookedByTraveller
             or TripEnquiryStatuses.ConfirmedByBoth => JourneyLegStatuses.Free,
         TripEnquiryStatuses.NotAvailable or TripEnquiryStatuses.Declined or TripEnquiryStatuses.Failed => JourneyLegStatuses.NotFree,
         TripEnquiryStatuses.Asked or TripEnquiryStatuses.Offered or TripEnquiryStatuses.Countered => JourneyLegStatuses.NoAnswer,

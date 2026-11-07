@@ -188,10 +188,8 @@ public class TripAdvanceRulesTests
     [InlineData(TripEnquiryStatuses.FareSent, null, TripDisplayStatuses.FareSent)]
     [InlineData(TripEnquiryStatuses.BookedByTraveller, null, TripDisplayStatuses.BookedByYou)]
     [InlineData(TripEnquiryStatuses.ConfirmedByBoth, null, TripDisplayStatuses.ConfirmedByBoth)]
-    [InlineData(TripEnquiryStatuses.ConfirmedByTraveller, null, TripDisplayStatuses.ConfirmedByYou)]
     [InlineData(TripEnquiryStatuses.Failed, TripFailReasons.HoldExpired, TripDisplayStatuses.HoldExpired)]
     [InlineData(TripEnquiryStatuses.Failed, TripFailReasons.DriverDenied, TripDisplayStatuses.NotMe)]
-    [InlineData(TripEnquiryStatuses.Failed, TripFailReasons.HostDenied, TripDisplayStatuses.NotMe)]
     [InlineData(TripEnquiryStatuses.NotAvailable, null, TripDisplayStatuses.NotAvailable)]
     [InlineData(TripEnquiryStatuses.Asked, null, TripDisplayStatuses.Asked)]
     [InlineData(TripEnquiryStatuses.Offered, null, TripDisplayStatuses.Offered)]
@@ -211,7 +209,7 @@ public class TripAdvanceRulesTests
     public void Booked_and_withdrawable_sets()
     {
         Assert.Equal(
-            new[] { TripEnquiryStatuses.ConfirmedByTraveller, TripEnquiryStatuses.ConfirmedByBoth, TripEnquiryStatuses.BookedByTraveller }.OrderBy(x => x),
+            new[] { TripEnquiryStatuses.ConfirmedByBoth, TripEnquiryStatuses.BookedByTraveller }.OrderBy(x => x),
             TripEnquiryStatuses.Booked.OrderBy(x => x));
         Assert.Equal(
             new[] { TripEnquiryStatuses.Asked, TripEnquiryStatuses.Offered, TripEnquiryStatuses.Countered, TripEnquiryStatuses.FareSent }.OrderBy(x => x),

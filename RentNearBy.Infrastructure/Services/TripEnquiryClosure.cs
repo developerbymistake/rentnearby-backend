@@ -10,7 +10,7 @@ namespace RentNearBy.Infrastructure.Services;
 // A push decided inside a transaction and built + sent after commit.
 public sealed record TripPendingPush(
     TripEnquiry Enquiry, Guid? RecipientUserId, Func<TripEnquiry, TripPushContext, NotificationEvent> Build,
-    int? Total = null, bool? Confirmed = null, string? DedupeKey = null);
+    int? Total = null, string? DedupeKey = null);
 
 public static class TripPushSender
 {
@@ -23,7 +23,7 @@ public static class TripPushSender
             if (p.RecipientUserId is not { } recipient) continue;
             try
             {
-                var ctx = await enquiries.LoadPushContextAsync(p.Enquiry, recipient, p.Total, p.Confirmed);
+                var ctx = await enquiries.LoadPushContextAsync(p.Enquiry, recipient, p.Total);
                 var n = p.Build(p.Enquiry, ctx);
                 if (p.DedupeKey != null)
                     await notifier.SendOnceAsync(n, p.DedupeKey, p.Enquiry.TripId, p.Enquiry.Id);

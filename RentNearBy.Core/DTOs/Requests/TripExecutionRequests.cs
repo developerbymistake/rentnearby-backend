@@ -59,50 +59,6 @@ public class TripDriverListQuery
     public int PageSize { get; set; } = 20;
 }
 
-// Shared by the create and edit phone-booking bodies (one validator base).
-public interface IPhoneBookingFields
-{
-    string? HostName { get; }
-    string? HostPhone { get; }
-    string? RoomName { get; }
-    int AgreedTotal { get; }
-    bool AdvancePaid { get; }
-    int? AdvanceAmount { get; }
-    string? Note { get; }
-}
-
-public class CreatePhoneBookingRequest : IPhoneBookingFields
-{
-    public Guid StayId { get; set; }
-    public int Day { get; set; }
-    public bool AllNights { get; set; }
-    // Explicit nights from Day (capped at the trip's last night); when set, AllNights is ignored.
-    public int? Nights { get; set; }
-    public string? HostName { get; set; }
-    public string? HostPhone { get; set; }
-    public string? RoomName { get; set; }
-    public int AgreedTotal { get; set; }
-    public bool AdvancePaid { get; set; }
-    public int? AdvanceAmount { get; set; }
-    public string? Note { get; set; }
-    public bool CloseOthers { get; set; } = true;
-    public Guid? ReplaceEnquiryId { get; set; }
-}
-
-public class EditPhoneBookingRequest : IPhoneBookingFields
-{
-    public bool AllNights { get; set; }
-    public int? Nights { get; set; }
-    public string? HostName { get; set; }
-    public string? HostPhone { get; set; }
-    public string? RoomName { get; set; }
-    public int AgreedTotal { get; set; }
-    public bool AdvancePaid { get; set; }
-    public int? AdvanceAmount { get; set; }
-    public string? Note { get; set; }
-    public Guid? ReplaceEnquiryId { get; set; }
-}
-
 public class CancelTripEnquiryRequest
 {
     public string? Reason { get; set; }
@@ -171,11 +127,6 @@ public class ChangeRequestRequest
     public int Kids { get; set; }
     public int Rooms { get; set; }
     public string? Note { get; set; }
-}
-
-public class HostConfirmRequest
-{
-    public bool Confirm { get; set; }
 }
 
 // Query of GET /trips/enquiries/owner; bound by the handler from query params.

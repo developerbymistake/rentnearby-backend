@@ -637,13 +637,6 @@ public static class TripSummaryRecordBuilder
         var offer = d.AcceptedOffer;
         var lines = offer?.Lines.Select(l => new TripSummaryRoomLineDto { RoomName = l.RoomName, Units = l.Units, Guests = l.Guests }).ToList()
             ?? new List<TripSummaryRoomLineDto>();
-        if (lines.Count == 0 && d.PhoneBooking is { } phone && !string.IsNullOrWhiteSpace(phone.RoomName))
-            lines.Add(new TripSummaryRoomLineDto
-            {
-                RoomName = phone.RoomName,
-                Units = d.Context.Rooms ?? 1,
-                Guests = (d.Context.Adults ?? 0) + (d.Context.Kids ?? 0),
-            });
 
         var (by, at) = ConfirmedOf(row);
         return new TripSummaryNightDto

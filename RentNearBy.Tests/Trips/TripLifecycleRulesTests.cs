@@ -87,7 +87,6 @@ public class TripLifecycleRulesTests
     [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripAdvanceStatuses.ProofSent, true)]
     [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripAdvanceStatuses.Received, false)]
     [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripAdvanceStatuses.None, false)]
-    [InlineData(TripEnquiryStatuses.ConfirmedByTraveller, TripAdvanceStatuses.None, false)]
     [InlineData(TripEnquiryStatuses.BookedByTraveller, TripAdvanceStatuses.None, false)]
     [InlineData(TripEnquiryStatuses.NotAvailable, TripAdvanceStatuses.None, false)]
     [InlineData(TripEnquiryStatuses.Closed, TripAdvanceStatuses.None, false)]
@@ -97,7 +96,6 @@ public class TripLifecycleRulesTests
     [Theory]
     [InlineData(TripEnquiryStatuses.ConfirmedByBoth, true)]
     [InlineData(TripEnquiryStatuses.BookedByTraveller, false)]
-    [InlineData(TripEnquiryStatuses.ConfirmedByTraveller, false)]
     [InlineData(TripEnquiryStatuses.Asked, false)]
     [InlineData(TripEnquiryStatuses.NotAvailable, false)]
     public void IsSettled_is_confirmed_by_both_only(string status, bool expected)
@@ -109,7 +107,6 @@ public class TripLifecycleRulesTests
     public void Reminder_constants_match_the_contract()
     {
         Assert.Equal(24, TripReminderRules.NoReplyHours);
-        Assert.Equal(24, TripReminderRules.HostNotConfirmedHours);
         Assert.Equal(48, TripReminderRules.WindowHours);
         Assert.Equal(3, TripReminderRules.DaysBeforeStart);
         Assert.Equal(9, TripReminderRules.StartsInHourIst);
@@ -143,7 +140,6 @@ public class TripLifecycleRulesTests
     {
         var id = Guid.Parse("11111111-2222-3333-4444-555555555555");
         Assert.Equal($"noreply:{id}", TripReminderRules.NoReplyKey(id));
-        Assert.Equal($"hostnc:{id}", TripReminderRules.HostNotConfirmedKey(id));
         Assert.Equal($"d3:{id}:20261104", TripReminderRules.StartsInKey(id, new DateOnly(2026, 11, 4)));
         Assert.Equal($"d0:{id}:20261104", TripReminderRules.TodayKey(id, new DateOnly(2026, 11, 4)));
         Assert.Equal($"done:{id}:20261103", TripReminderRules.MarkCompleteKey(id, new DateOnly(2026, 11, 3)));

@@ -136,21 +136,6 @@ public class TripRound2FixJbTests
         Assert.Equal(Night(2), r.CheckIn);
     }
 
-    [Fact]
-    public void Replace_shrinks_phone_booking_nights()
-    {
-        var r = Booked(1, 2, total: 4000);
-        r.AcceptedOfferId = null;
-        r.PhoneBookingJson = JsonSerializer.Serialize(new TripPhoneBooking { HostName = "Ramesh", Nights = 2, AgreedTotal = 4000 }, TripJson.Options);
-
-        TripReplaceSplit.Plan(r, Night(2), Night(3), Traveller, Now);
-
-        var booking = TripEnquiryDtoBuilder.ReadPhoneBooking(r.PhoneBookingJson);
-        Assert.NotNull(booking);
-        Assert.Equal(1, booking.Nights);
-        Assert.Equal(2000, booking.AgreedTotal);
-    }
-
     [Theory]
     [InlineData(1, 1, "the night of 05 Nov")]
     [InlineData(1, 3, "3 nights from 05 Nov")]

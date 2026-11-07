@@ -34,7 +34,8 @@ public static class TaxiCache
     {
         if (need is not { IsEmpty: false }) return "";
         var point = need.HasPoint ? $"{Exact(need.Lat!.Value)},{Exact(need.Lng!.Value)}" : "";
-        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $":need:{need.People}|{need.DayKm}|{point}");
+        var radius = need.PickupLimitKm is { } r ? Exact(r) : "";
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $":need:{need.People}|{need.DayKm}|{point}|{radius}");
     }
 
     // Both-ends match is a 5 km test on the exact points: a rounded key would hand one caller's set to another.
@@ -152,11 +153,11 @@ public static class TaxiHandlers
     public static async Task<IResult> GetBrowse(
         Guid districtId, Guid? cityId, string? category,
         IUnitOfWork unitOfWork, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize, bool cityOnly = false, bool localRate = false,
-        int? people = null, int? dayKm = null, double? lat = null, double? lng = null)
+        int? people = null, int? dayKm = null, double? lat = null, double? lng = null, double? radiusKm = null)
     {
         if (districtId == Guid.Empty) return BadRequestResponse("District is required");
-        if (TaxiLocalNeedRules.Error(people, dayKm, lat, lng) is { } needError) return BadRequestResponse(needError);
-        var need = TaxiLocalNeedRules.Build(people, dayKm, lat, lng);
+        if (TaxiLocalNeedRules.Error(people, dayKm, lat, lng, radiusKm) is { } needError) return BadRequestResponse(needError);
+        var need = TaxiLocalNeedRules.Build(people, dayKm, lat, lng, radiusKm);
         var (pageNo, size) = ClampPaging(page, pageSize);
         var categoryFilter = NormalizeCategory(category);
         var cityOnlyFilter = cityOnly && cityId.HasValue;

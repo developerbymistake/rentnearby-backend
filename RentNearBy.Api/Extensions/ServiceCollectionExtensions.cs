@@ -93,12 +93,11 @@ public static class ServiceCollectionExtensions
         // Consumes the atlas.city.changed fanout on queue atlas.city.changed.rentnearby.
         services.AddHostedService<AtlasCityChangedWorkerService>();
 
-        // Trip bookings (enquiries, offers, phone bookings). TRIP_EXECUTION_ENABLED=false pauses the routes and the timer.
+        // Trip bookings (enquiries, offers). TRIP_EXECUTION_ENABLED=false pauses the routes and the timer.
         services.Configure<TripExecutionOptions>(configuration.GetSection(TripExecutionOptions.Section));
         services.PostConfigure<TripExecutionOptions>(o =>
         {
             if (bool.TryParse(configuration["TRIP_EXECUTION_ENABLED"], out var enabled)) o.Enabled = enabled;
-            if (string.IsNullOrWhiteSpace(o.PublicBaseUrl)) o.PublicBaseUrl = "https://developerbymistake.tech";
         });
         services.AddScoped<IConversationFactory, ConversationFactory>();
         services.AddScoped<ITripChatService, TripChatService>();

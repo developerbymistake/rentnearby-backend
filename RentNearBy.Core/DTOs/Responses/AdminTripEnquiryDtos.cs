@@ -24,7 +24,6 @@ public class AdminTripEnquiryDto
     public int? AgreedFare { get; set; }
     public int? DriverFare { get; set; }
     public bool IsUrgent { get; set; }
-    public int NotMeCount30d { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
@@ -49,28 +48,6 @@ public class AdminTripAdvanceDto
     public DateTime? LastHostReminderAt { get; set; }
 }
 
-public class AdminTripHostConfirmDto
-{
-    public string? Answer { get; set; }
-    public string? AnsweredVia { get; set; }
-    public DateTime? AnsweredAt { get; set; }
-    public int LinkCount { get; set; }
-    public DateTime? TokenExpiresAt { get; set; }
-}
-
-public class AdminTripPhoneBookingDto
-{
-    public string HostName { get; set; } = string.Empty;
-    public string HostPhone { get; set; } = string.Empty;
-    public string RoomName { get; set; } = string.Empty;
-    public int Nights { get; set; }
-    public int AgreedTotal { get; set; }
-    public bool AdvancePaid { get; set; }
-    public int? AdvanceAmount { get; set; }
-    public string? Note { get; set; }
-    public DateTime RecordedAt { get; set; }
-}
-
 public class AdminTripTaxiDto
 {
     public int? ListedRate { get; set; }
@@ -88,11 +65,8 @@ public class AdminTripEnquiryDetailDto : AdminTripEnquiryDto
 {
     public TripEnquiryContextDto Context { get; set; } = new();
     public List<TripOfferDto> Offers { get; set; } = new();
-    public AdminTripPhoneBookingDto? PhoneBooking { get; set; }
-    public AdminTripHostConfirmDto HostConfirm { get; set; } = new();
     public AdminTripAdvanceDto Advance { get; set; } = new();
     public AdminTripTaxiDto? Taxi { get; set; }
-    public bool PhoneBookingsPaused { get; set; }
     public Guid? TripId { get; set; }
     public Guid? ConversationId { get; set; }
     public string? ClosedNote { get; set; }

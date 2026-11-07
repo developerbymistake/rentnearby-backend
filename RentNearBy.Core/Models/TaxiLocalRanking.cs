@@ -1,9 +1,10 @@
 namespace RentNearBy.Core.Models;
 
 // What a trip day asks of a local taxi: the group, the day's road km and where the day starts. 0 / null = not asked.
-public sealed record TaxiLocalNeed(int People = 0, int DayKm = 0, double? Lat = null, double? Lng = null)
+public sealed record TaxiLocalNeed(int People = 0, int DayKm = 0, double? Lat = null, double? Lng = null, double? RadiusKm = null)
 {
     public bool IsEmpty => People <= 0 && DayKm <= 0 && !HasPoint;
+    public double? PickupLimitKm => HasPoint && RadiusKm is > 0 ? RadiusKm : null;
     public bool HasPoint => Lat is >= -90 and <= 90 && Lng is >= -180 and <= 180;
 }
 
@@ -11,9 +12,11 @@ public sealed record TaxiLocalNeed(int People = 0, int DayKm = 0, double? Lat = 
 public static class TaxiLocalNeedRules
 {
     public const int MaxDayKm = 1000;
+    public const double MaxRadiusKm = 200;
 
-    public static string? Error(int? people, int? dayKm, double? lat, double? lng)
+    public static string? Error(int? people, int? dayKm, double? lat, double? lng, double? radiusKm = null)
     {
+        if (radiusKm is { } r0 && (double.IsNaN(r0) || r0 < 0 || r0 > MaxRadiusKm)) return $"Radius must be 0 to {MaxRadiusKm} km";
         if (people is < 0 or > JourneyRules.MaxPeople) return $"People must be 0 to {JourneyRules.MaxPeople}";
         if (dayKm is < 0 or > MaxDayKm) return $"Day km must be 0 to {MaxDayKm}";
         if (lat.HasValue != lng.HasValue) return "Send both lat and lng";
@@ -23,9 +26,9 @@ public static class TaxiLocalNeedRules
     }
 
     // Null when nothing is asked, so the plain order and the plain cache key stay as before.
-    public static TaxiLocalNeed? Build(int? people, int? dayKm, double? lat, double? lng)
+    public static TaxiLocalNeed? Build(int? people, int? dayKm, double? lat, double? lng, double? radiusKm = null)
     {
-        var need = new TaxiLocalNeed(people ?? 0, dayKm ?? 0, lat, lng);
+        var need = new TaxiLocalNeed(people ?? 0, dayKm ?? 0, lat, lng, radiusKm);
         return need.IsEmpty ? null : need;
     }
 }

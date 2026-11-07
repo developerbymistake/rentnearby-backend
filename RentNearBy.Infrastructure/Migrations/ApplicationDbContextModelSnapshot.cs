@@ -3404,35 +3404,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateTime?>("HoldUntil")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("HostConfirmAnswer")
-                        .HasMaxLength(8)
-                        .HasColumnType("character varying(8)");
-
-                    b.Property<DateTime?>("HostConfirmAnsweredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("HostConfirmAnsweredByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("HostConfirmAnsweredVia")
-                        .HasMaxLength(8)
-                        .HasColumnType("character varying(8)");
-
-                    b.Property<short>("HostConfirmLinkCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("smallint")
-                        .HasDefaultValue((short)0);
-
-                    b.Property<DateTime?>("HostConfirmTokenExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("HostConfirmTokenHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTime?>("HostConfirmTokenIssuedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<short>("HostReminderCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("smallint")
@@ -3470,9 +3441,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Guid?>("OwnerUserId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("PhoneBookingJson")
-                        .HasColumnType("jsonb");
 
                     b.Property<string>("PickupPlace")
                         .HasMaxLength(80)
@@ -3526,27 +3494,18 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasFilter("\"ConversationId\" IS NOT NULL");
 
                     b.HasIndex(new[] { "ExpiresAt" }, "ix_tripenquiries_expires")
-                        .HasFilter("\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller')");
+                        .HasFilter("\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')");
 
                     b.HasIndex(new[] { "HoldUntil" }, "ix_tripenquiries_hold")
                         .HasFilter("\"AdvanceStatus\" IN ('Pending','ProofSent')");
 
-                    b.HasIndex(new[] { "HostConfirmTokenHash" }, "ix_tripenquiries_host_token")
-                        .IsUnique()
-                        .HasFilter("\"HostConfirmTokenHash\" IS NOT NULL");
-
-                    b.HasIndex(new[] { "HostConfirmTokenIssuedAt" }, "ix_tripenquiries_hostnc")
-                        .HasFilter("\"Status\" = 'ConfirmedByTraveller' AND \"HostConfirmAnsweredAt\" IS NULL");
-
-                    b.HasIndex(new[] { "TravellerUserId", "HostConfirmAnswer", "HostConfirmAnsweredAt" }, "ix_tripenquiries_notme");
-
                     b.HasIndex(new[] { "TripId", "Kind", "ListingId", "CityLeg" }, "ix_tripenquiries_open_taxi_unique")
                         .IsUnique()
-                        .HasFilter("\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller') AND \"Day\" IS NULL");
+                        .HasFilter("\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller') AND \"Day\" IS NULL");
 
                     b.HasIndex(new[] { "TripId", "Kind", "ListingId", "Day" }, "ix_tripenquiries_open_unique")
                         .IsUnique()
-                        .HasFilter("\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller') AND \"Day\" IS NOT NULL");
+                        .HasFilter("\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller') AND \"Day\" IS NOT NULL");
 
                     b.HasIndex(new[] { "UpdatedAt" }, "ix_tripenquiries_orphan")
                         .HasFilter("\"TripId\" IS NULL");
@@ -3561,12 +3520,12 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsDescending(false, true);
 
                     b.HasIndex(new[] { "TravellerUserId", "Kind", "ListingId" }, "ix_tripenquiries_traveller_listing")
-                        .HasFilter("\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller')");
+                        .HasFilter("\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')");
 
                     b.HasIndex(new[] { "TripId" }, "ix_tripenquiries_trip");
 
                     b.HasIndex(new[] { "CheckIn" }, "ix_tripenquiries_urgent")
-                        .HasFilter("NOT \"IsUrgent\" AND \"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller')");
+                        .HasFilter("NOT \"IsUrgent\" AND \"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')");
 
                     b.ToTable("TripEnquiries", t =>
                         {
@@ -3576,7 +3535,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_tripenquiries_kind", "\"Kind\" IN ('Stay','Taxi')");
 
-                            t.HasCheckConstraint("ck_tripenquiries_status", "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller','NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Failed','Closed')");
+                            t.HasCheckConstraint("ck_tripenquiries_status", "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller','NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Failed','Closed')");
                         });
                 });
 

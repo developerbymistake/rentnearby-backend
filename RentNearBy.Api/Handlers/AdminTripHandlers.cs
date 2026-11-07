@@ -18,12 +18,10 @@ public static class AdminTripHandlers
     private const int DefaultPageSize = 20;
     private const int MaxPageSize = 50;
     private const int QueryMax = 40;
-    private const int NotMeThreshold = 3;
-    private static readonly TimeSpan NotMeWindow = TimeSpan.FromDays(30);
 
     // GET /admin/trips/enquiries
     public static async Task<IResult> GetEnquiries(
-        string? kind, string? status, string? q, bool? notMe, Guid? districtId, int? page, int? pageSize,
+        string? kind, string? status, string? q, Guid? districtId, int? page, int? pageSize,
         ApplicationDbContext db, IUnitOfWork unitOfWork)
     {
         if (!string.IsNullOrWhiteSpace(kind) && kind != TripEnquiryKinds.Stay && kind != TripEnquiryKinds.Taxi)
@@ -71,17 +69,6 @@ public static class AdminTripHandlers
             }
         }
 
-        if (notMe == true)
-        {
-            var since = now - NotMeWindow;
-            var flagged = db.TripEnquiries
-                .Where(x => x.TravellerUserId != null && x.HostConfirmAnswer == TripHostConfirmAnswers.NotMe && x.HostConfirmAnsweredAt >= since)
-                .GroupBy(x => x.TravellerUserId!.Value)
-                .Where(g => g.Count() >= NotMeThreshold)
-                .Select(g => g.Key);
-            query = query.Where(e => e.TravellerUserId != null && flagged.Contains(e.TravellerUserId.Value));
-        }
-
         var rows = await query
             .OrderByDescending(e => e.CreatedAt).ThenBy(e => e.Id)
             .Skip((pageNo - 1) * size)
@@ -93,11 +80,10 @@ public static class AdminTripHandlers
         var travellerIds = rows.Where(r => r.TravellerUserId != null).Select(r => r.TravellerUserId!.Value).Distinct().ToList();
         var parties = await unitOfWork.TripEnquiries.LoadPartiesAsync(
             travellerIds.Concat(rows.Where(r => r.OwnerUserId != null).Select(r => r.OwnerUserId!.Value)).Distinct().ToList());
-        var notMeCounts = await NotMeCountsAsync(db, travellerIds, now);
 
         return OkResponse(new AdminTripEnquiryPageDto
         {
-            Items = rows.Select(r => ToListDto(r, parties, notMeCounts)).ToList(),
+            Items = rows.Select(r => ToListDto(r, parties)).ToList(),
             HasMore = hasMore,
         });
     }
@@ -205,29 +191,16 @@ public static class AdminTripHandlers
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    private static async Task<Dictionary<Guid, int>> NotMeCountsAsync(ApplicationDbContext db, IReadOnlyCollection<Guid> travellerIds, DateTime now)
-    {
-        if (travellerIds.Count == 0) return new Dictionary<Guid, int>();
-        var since = now - NotMeWindow;
-        var rows = await db.TripEnquiries.AsNoTracking()
-            .Where(x => x.TravellerUserId != null && travellerIds.Contains(x.TravellerUserId.Value)
-                && x.HostConfirmAnswer == TripHostConfirmAnswers.NotMe && x.HostConfirmAnsweredAt >= since)
-            .GroupBy(x => x.TravellerUserId!.Value)
-            .Select(g => new { Id = g.Key, Count = g.Count() })
-            .ToListAsync();
-        return rows.ToDictionary(r => r.Id, r => r.Count);
-    }
-
     private static AdminTripEnquiryDto ToListDto(
-        TripEnquiry e, Dictionary<Guid, TripPartyInfo> parties, Dictionary<Guid, int> notMeCounts)
+        TripEnquiry e, Dictionary<Guid, TripPartyInfo> parties)
     {
         var dto = new AdminTripEnquiryDto();
-        Fill(dto, e, parties, notMeCounts);
+        Fill(dto, e, parties);
         return dto;
     }
 
     private static void Fill(
-        AdminTripEnquiryDto dto, TripEnquiry e, Dictionary<Guid, TripPartyInfo> parties, Dictionary<Guid, int> notMeCounts)
+        AdminTripEnquiryDto dto, TripEnquiry e, Dictionary<Guid, TripPartyInfo> parties)
     {
         var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
         var traveller = e.TravellerUserId is { } t && parties.TryGetValue(t, out var tp) ? tp : null;
@@ -255,7 +228,6 @@ public static class AdminTripHandlers
         dto.AgreedFare = e.AgreedFare;
         dto.DriverFare = e.DriverFare;
         dto.IsUrgent = e.IsUrgent;
-        dto.NotMeCount30d = e.TravellerUserId is { } id && notMeCounts.TryGetValue(id, out var count) ? count : 0;
         dto.CreatedAt = e.CreatedAt;
         dto.UpdatedAt = e.UpdatedAt;
     }
@@ -264,19 +236,16 @@ public static class AdminTripHandlers
     {
         var userIds = new[] { e.TravellerUserId, e.OwnerUserId }.OfType<Guid>().Distinct().ToList();
         var parties = await unitOfWork.TripEnquiries.LoadPartiesAsync(userIds);
-        var travellerIds = e.TravellerUserId is { } t ? new List<Guid> { t } : new List<Guid>();
-        var notMeCounts = await NotMeCountsAsync(db, travellerIds, DateTime.UtcNow);
         var offers = (await unitOfWork.TripOffers.GetByEnquiriesAsync([e.Id])).TryGetValue(e.Id, out var list) ? list : new List<TripOffer>();
         var remindersSent = e.ProofSentAt is { } proofSentAt
             ? HostReminderTally.Sent(await unitOfWork.TripPushLogs.GetKeysAsync(e.Id, HostReminderTally.KeyPrefix(e.Id, proofSentAt)), e.Id, proofSentAt)
             : 0;
 
         var detail = new AdminTripEnquiryDetailDto();
-        Fill(detail, e, parties, notMeCounts);
+        Fill(detail, e, parties);
 
         var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
         var days = ReadDays(e.DaysJson);
-        var phoneBooking = TripEnquiryDtoBuilder.ReadPhoneBooking(e.PhoneBookingJson);
 
         detail.Context = new TripEnquiryContextDto
         {
@@ -290,26 +259,6 @@ public static class AdminTripHandlers
             Text = context.Text,
         };
         detail.Offers = offers.OrderByDescending(o => o.CreatedAt).Select(o => TripEnquiryDtoBuilder.ToOfferDto(o, e)).ToList();
-        detail.PhoneBooking = phoneBooking == null ? null : new AdminTripPhoneBookingDto
-        {
-            HostName = phoneBooking.HostName,
-            HostPhone = phoneBooking.HostPhone,
-            RoomName = phoneBooking.RoomName,
-            Nights = phoneBooking.Nights,
-            AgreedTotal = phoneBooking.AgreedTotal,
-            AdvancePaid = phoneBooking.AdvancePaid,
-            AdvanceAmount = phoneBooking.AdvanceAmount,
-            Note = phoneBooking.Note,
-            RecordedAt = phoneBooking.RecordedAt,
-        };
-        detail.HostConfirm = new AdminTripHostConfirmDto
-        {
-            Answer = e.HostConfirmAnswer,
-            AnsweredVia = e.HostConfirmAnsweredVia,
-            AnsweredAt = e.HostConfirmAnsweredAt,
-            LinkCount = e.HostConfirmLinkCount,
-            TokenExpiresAt = e.HostConfirmTokenExpiresAt,
-        };
         detail.Advance = new AdminTripAdvanceDto
         {
             Status = e.AdvanceStatus,
@@ -334,7 +283,6 @@ public static class AdminTripHandlers
             PickupPlace = e.PickupPlace,
             Days = days,
         };
-        detail.PhoneBookingsPaused = detail.NotMeCount30d >= NotMeThreshold;
         detail.TripId = e.TripId;
         detail.ConversationId = e.ConversationId;
         detail.ClosedNote = e.FailReason == TripCloseReasons.AdminClosed ? e.CancelReason : null;

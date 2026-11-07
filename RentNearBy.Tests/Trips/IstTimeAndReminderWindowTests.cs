@@ -120,7 +120,6 @@ public class IstTimeAndReminderWindowTests
 
         Assert.Equal("noreply:" + d, TripReminderRules.NoReplyKey(id));
         Assert.Equal("noreply:seg:" + t.Replace("-", "") + ":20261112", TripReminderRules.NoReplySegmentKey(trip, date));
-        Assert.Equal("hostnc:" + d, TripReminderRules.HostNotConfirmedKey(id));
         Assert.Equal("d3:" + t + ":20261112", TripReminderRules.StartsInKey(trip, date));
         Assert.Equal("d0:" + t + ":20261112", TripReminderRules.TodayKey(trip, date));
         Assert.Equal("done:" + t + ":20261112", TripReminderRules.MarkCompleteKey(trip, date));

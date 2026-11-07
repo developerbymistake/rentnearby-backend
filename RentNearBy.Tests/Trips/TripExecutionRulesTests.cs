@@ -21,12 +21,6 @@ public class TripExecutionRulesTests
         Assert.Equal(2, TripExecutionRules.OfferUrgentHours);
         Assert.Equal(1, TripExecutionRules.OfferFloorHours);
         Assert.Equal(72, TripExecutionRules.UrgentHours);
-        Assert.Equal(7, TripExecutionRules.HostLinkDays);
-        Assert.Equal(14, TripExecutionRules.HostLinkMaxDays);
-        Assert.Equal(24, TripExecutionRules.HostLinkResendHours);
-        Assert.Equal(2, TripExecutionRules.HostLinkMaxCount);
-        Assert.Equal(3, TripExecutionRules.NotMePauseCount);
-        Assert.Equal(30, TripExecutionRules.NotMeWindowDays);
         Assert.Equal(80, TripExecutionRules.MaxTextLen);
         Assert.Equal(8, TripExecutionRules.MaxSpotsInText);
         Assert.Equal(9_900_000, TripExecutionRules.MaxAmount);
@@ -138,30 +132,6 @@ public class TripExecutionRulesTests
         Assert.Equal(Utc(2026, 10, 31, 19), TripExecutionRules.OfferValidUntil(Start, Start, Utc(2026, 10, 31, 18)));
     }
 
-    [Fact]
-    public void HostLinkExpiry_is_seven_days_when_check_in_is_soon()
-    {
-        Assert.Equal(Utc(2026, 10, 27), TripExecutionRules.HostLinkExpiry(new DateOnly(2026, 10, 25), Utc(2026, 10, 20)));
-    }
-
-    [Fact]
-    public void HostLinkExpiry_reaches_check_in_midnight_when_later_than_seven_days()
-    {
-        Assert.Equal(Utc(2026, 10, 31, 18, 30), TripExecutionRules.HostLinkExpiry(Start, Utc(2026, 10, 20)));
-    }
-
-    [Fact]
-    public void HostLinkExpiry_is_capped_at_14_days()
-    {
-        Assert.Equal(Utc(2026, 11, 3), TripExecutionRules.HostLinkExpiry(new DateOnly(2026, 12, 25), Utc(2026, 10, 20)));
-    }
-
-    [Fact]
-    public void HostLinkExpiry_for_a_past_check_in_is_seven_days()
-    {
-        Assert.Equal(Utc(2026, 10, 27), TripExecutionRules.HostLinkExpiry(new DateOnly(2026, 10, 1), Utc(2026, 10, 20)));
-    }
-
     [Theory]
     [InlineData(1, 3, 2, 4, true)]
     [InlineData(1, 2, 2, 3, false)]
@@ -191,12 +161,11 @@ public class TripExecutionRulesTests
     [InlineData(TripEnquiryStatuses.Asked, null, TripDisplayStatuses.Asked)]
     [InlineData(TripEnquiryStatuses.Countered, null, TripDisplayStatuses.Asked)]
     [InlineData(TripEnquiryStatuses.Offered, null, TripDisplayStatuses.Offered)]
-    [InlineData(TripEnquiryStatuses.ConfirmedByTraveller, null, TripDisplayStatuses.ConfirmedByYou)]
     [InlineData(TripEnquiryStatuses.ConfirmedByBoth, null, TripDisplayStatuses.ConfirmedByBoth)]
     [InlineData(TripEnquiryStatuses.NotAvailable, null, TripDisplayStatuses.NotAvailable)]
     [InlineData(TripEnquiryStatuses.Expired, null, TripDisplayStatuses.Expired)]
     [InlineData(TripEnquiryStatuses.Declined, null, TripDisplayStatuses.Declined)]
-    [InlineData(TripEnquiryStatuses.Failed, TripFailReasons.HostDenied, TripDisplayStatuses.NotMe)]
+    [InlineData(TripEnquiryStatuses.Failed, TripFailReasons.DriverDenied, TripDisplayStatuses.NotMe)]
     [InlineData(TripEnquiryStatuses.CancelledByTraveller, null, TripDisplayStatuses.Cancelled)]
     [InlineData(TripEnquiryStatuses.CancelledByOwner, null, TripDisplayStatuses.Cancelled)]
     [InlineData(TripEnquiryStatuses.Closed, null, TripDisplayStatuses.Closed)]
@@ -212,7 +181,6 @@ public class TripExecutionRulesTests
     {
         Assert.Equal("asked", TripDisplayStatuses.Asked);
         Assert.Equal("offered", TripDisplayStatuses.Offered);
-        Assert.Equal("confirmedByYou", TripDisplayStatuses.ConfirmedByYou);
         Assert.Equal("confirmedByBoth", TripDisplayStatuses.ConfirmedByBoth);
         Assert.Equal("notAvailable", TripDisplayStatuses.NotAvailable);
         Assert.Equal("expired", TripDisplayStatuses.Expired);

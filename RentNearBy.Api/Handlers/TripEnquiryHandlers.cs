@@ -1087,283 +1087,6 @@ public static class TripEnquiryHandlers
         return created ? CreatedResponse(dto, $"/api/v1/trips/enquiries/{target.Id}") : OkResponse(dto);
     }
 
-    // ---------- POST /trips/{tripId}/phone-bookings ----------
-
-    public static async Task<IResult> CreatePhoneBooking(
-        Guid tripId, CreatePhoneBookingRequest request, IValidator<CreatePhoneBookingRequest> validator, ClaimsPrincipal principal,
-        IUnitOfWork unitOfWork, ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier,
-        IRateLimitService rateLimiter, IOptions<TripExecutionOptions> options, ILoggerFactory loggers, HttpContext http)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
-
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return Invalid(validation);
-
-        var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(tripId, callerId);
-        if (trip == null) return TripNotFound();
-
-        var now = DateTime.UtcNow;
-        if (CheckNight(trip, request.Day, now) is { } nightError) return nightError;
-        var plan = ReadPlan(trip);
-        var (checkIn, checkOut) = Nights(trip, plan, request.Day, request.AllNights, request.Nights);
-        var multiNight = request.Nights != null ? TripExecutionRules.Nights(checkIn, checkOut) > 1 : request.AllNights;
-
-        var asks = new RateLimitPermits(rateLimiter);
-        if (await EnquiryRateLimitedAsync(asks, http, callerId) is { } limited) return limited;
-        var phoneBookings = await asks.TakeAsync($"trip:phonebooking:{callerId}", TripExecutionRules.PhoneBookingsPerDay, Day24);
-        if (!phoneBookings.IsAllowed)
-        {
-            http.Response.Headers["Retry-After"] = ((int)(phoneBookings.RetryAfter ?? Day24).TotalSeconds).ToString();
-            return TooManyRequestsResponse();
-        }
-
-        if (await unitOfWork.TripEnquiries.CountNotMeAsync(callerId, now.AddDays(-TripExecutionRules.NotMeWindowDays))
-            >= TripExecutionRules.NotMePauseCount)
-            return ErrorResponse(429, "Phone bookings are paused for 30 days.", TripEnquiryErrorTypes.PhoneBookingPaused);
-
-        // Paused or unapproved stays are allowed: the deal was made by phone.
-        var stay = await LoadStayAsync(db, request.StayId);
-        if (stay == null || stay.IsDeleted) return NotFoundResponse("Stay not found");
-        if (stay.UserId == callerId) return BadRequestResponse("This is your own stay.");
-        if (await IsBlockedAsync(unitOfWork, callerId, stay.UserId))
-            return ForbiddenResponse("You can't book with this host.", TripSkipReasons.Blocked);
-
-        var day = (short)request.Day;
-        var existing = await unitOfWork.TripEnquiries.FindOpenAsync(trip.Id, TripEnquiryKinds.Stay, stay.Id, day);
-        if (existing?.Status == TripEnquiryStatuses.ConfirmedByBoth)
-            return Closed("Already confirmed by both. Cancel it first.");
-
-        var travellerName = TripTextSafety.Clean(
-            await db.Users.AsNoTracking().Where(u => u.Id == callerId).Select(u => u.Name).FirstOrDefaultAsync());
-        var fields = Fields(request);
-        var posts = new List<TripChatPost>();
-        var pushes = new List<TripPendingPush>();
-        string? token = null;
-        TripEnquiry target;
-        var created = false;
-
-        await unitOfWork.BeginTransactionAsync();
-        try
-        {
-            if (existing?.Status == TripEnquiryStatuses.ConfirmedByTraveller)
-            {
-                // Same as PUT .../phone-booking: an edit, no new link.
-                if (await ApplyNightRulesAsync(db, chat, existing, checkIn, checkOut, closeOthers: false, request.ReplaceEnquiryId, callerId, posts, pushes, now) is { } phoneConflict)
-                {
-                    await unitOfWork.RollbackTransactionAsync();
-                    return phoneConflict;
-                }
-                ApplyPhoneFields(existing, fields, checkIn, checkOut, now, keepRecordedAt: true);
-                await db.SaveChangesAsync();
-                if (await RewritePhoneCardAsync(db, existing, TripCardStatuses.Pending) is { } rewrite) posts.Add(rewrite);
-                await db.SaveChangesAsync();
-                await unitOfWork.CommitTransactionAsync();
-                await AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
-                return OkResponse(await PhoneResultAsync(unitOfWork, existing, null, callerId, now, options.Value, travellerName));
-            }
-
-            if (existing != null)
-            {
-                target = existing;
-            }
-            else
-            {
-                var conversation = await unitOfWork.Conversations.FindExistingAsync(callerId, stay.UserId, ListingKinds.Stay, stay.Id);
-                var context = BuildContext(trip, plan, request.Day, checkIn, checkOut, multiNight, travellerName);
-                target = new TripEnquiry
-                {
-                    Id = Guid.NewGuid(),
-                    TripId = trip.Id,
-                    TravellerUserId = callerId,
-                    OwnerUserId = stay.UserId,
-                    Kind = TripEnquiryKinds.Stay,
-                    ListingId = stay.Id,
-                    ListingName = ListingName(stay),
-                    ListingLatitude = stay.Latitude,
-                    ListingLongitude = stay.Longitude,
-                    Day = day,
-                    ConversationId = conversation?.Id,
-                    ContextJson = JsonSerializer.Serialize(context, TripJson.Options),
-                    AdvanceStatus = TripAdvanceStatuses.None,
-                    IsUrgent = TripExecutionRules.IsUrgent(trip.StartDate!.Value, now),
-                    CreatedAt = now,
-                };
-                created = true;
-            }
-
-            if (await ApplyNightRulesAsync(db, chat, target, checkIn, checkOut, request.CloseOthers, request.ReplaceEnquiryId, callerId, posts, pushes, now) is { } conflict)
-            {
-                await unitOfWork.RollbackTransactionAsync();
-                return conflict;
-            }
-
-            if (!created)
-                await TripEnquiryOps.CloseOpenOfferAsync(db, chat, target, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
-
-            target.Status = TripEnquiryStatuses.ConfirmedByTraveller;
-            target.FailReason = null;
-            target.ConfirmedByTravellerAt = now;
-            target.ConfirmedByOwnerAt = null;
-            ApplyPhoneFields(target, fields, checkIn, checkOut, now, keepRecordedAt: false);
-            target.ExpiresAt = TripExecutionRules.HostLinkExpiry(checkIn, now);
-
-            token = HostConfirmTokens.Generate();
-            target.HostConfirmTokenHash = HostConfirmTokens.Hash(token);
-            target.HostConfirmTokenIssuedAt = now;
-            target.HostConfirmTokenExpiresAt = TripExecutionRules.HostLinkExpiry(checkIn, now);
-            target.HostConfirmLinkCount = 1;
-            target.HostConfirmAnsweredAt = null;
-            target.HostConfirmAnswer = null;
-            target.HostConfirmAnsweredVia = null;
-            target.HostConfirmAnsweredByUserId = null;
-
-            if (created) db.TripEnquiries.Add(target);
-            try
-            {
-                await db.SaveChangesAsync();
-            }
-            catch (DbUpdateException ex) when (created && ex.InnerException is PostgresException
-                { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: OpenUniqueIndex })
-            {
-                await unitOfWork.RollbackTransactionAsync();
-                return Concurrent();
-            }
-
-            if (target.ConversationId is { } conversationId
-                && await db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId) is { } conv)
-            {
-                posts.Add(await chat.PostAsync(conv, callerId, TripMessageTypes.PhoneBooking,
-                    PhoneCardPayload(target, ReadBooking(target)!, TripCardStatuses.Pending), "Booking recorded by phone"));
-            }
-
-            await PromoteToPlannedAsync(db, trip.Id);
-            await unitOfWork.CommitTransactionAsync();
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            return Concurrent();
-        }
-        catch
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            throw;
-        }
-
-        pushes.Add(new TripPendingPush(target, target.OwnerUserId, TripNotifications.TripPhoneBookingRecorded, Total: target.AgreedTotal));
-        await AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
-
-        var result = await PhoneResultAsync(unitOfWork, target, token, callerId, now, options.Value, travellerName);
-        return CreatedResponse(result, $"/api/v1/trips/enquiries/{target.Id}");
-    }
-
-    // ---------- PUT /trips/enquiries/{id}/phone-booking ----------
-
-    public static async Task<IResult> EditPhoneBooking(
-        Guid id, EditPhoneBookingRequest request, IValidator<EditPhoneBookingRequest> validator, ClaimsPrincipal principal,
-        IUnitOfWork unitOfWork, ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier,
-        IOptions<TripExecutionOptions> options, ILoggerFactory loggers)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
-
-        var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return Invalid(validation);
-
-        var e = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(id);
-        if (TripEnquiryAuth.RequireTraveller(e, callerId) is { } denied) return denied;
-        if (e!.Status != TripEnquiryStatuses.ConfirmedByTraveller || e.TripId is not { } tripId)
-            return Closed("This booking can no longer be edited.");
-
-        var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(tripId, callerId);
-        if (trip?.StartDate is not { } start || trip.EndDate is not { } end || e.CheckIn is not { } checkIn || e.CheckOut is not { } currentOut)
-            return Closed("This booking can no longer be edited.");
-
-        // The check-in never moves (D7); only the length changes, capped at the trip's check-out morning.
-        var left = TripDateRules.CheckOutLimit(end).DayNumber - checkIn.DayNumber;
-        if (checkIn < start || left < 1)
-            return ErrorResponse(422, TripDateRules.OutsideTripMessage, TripEnquiryErrorTypes.OfferOutsideTrip);
-        var current = Math.Max(1, currentOut.DayNumber - checkIn.DayNumber);
-        var plan = ReadPlan(trip);
-        var day = checkIn.DayNumber - start.DayNumber + 1;
-        // The stored length is kept unless the request changes it: a shorter one is taken as sent, a longer one ends at the
-        // leg's end, and neither cut ever goes below the stored nights by itself.
-        var keepOut = checkIn.AddDays(Math.Clamp(current, 1, left));
-        var asked = request.Nights ?? (request.AllNights ? (int?)null : current);
-        DateOnly checkOut;
-        if (asked == current) checkOut = keepOut;
-        else if (asked is { } fewer && fewer < current) checkOut = checkIn.AddDays(Math.Clamp(fewer, 1, left));
-        else
-        {
-            var legOut = Nights(trip, plan, day, request.AllNights, request.Nights).CheckOut;
-            checkOut = legOut > keepOut ? legOut : keepOut;
-        }
-
-        var now = DateTime.UtcNow;
-        var posts = new List<TripChatPost>();
-        var pushes = new List<TripPendingPush>();
-        await unitOfWork.BeginTransactionAsync();
-        try
-        {
-            if (await ApplyNightRulesAsync(db, chat, e, checkIn, checkOut, closeOthers: false, request.ReplaceEnquiryId is { } r && r != Guid.Empty ? r : null, callerId, posts, pushes, now) is { } conflict)
-            {
-                await unitOfWork.RollbackTransactionAsync();
-                return conflict;
-            }
-            e.Day = (short)(checkIn.DayNumber - start.DayNumber + 1);
-            ApplyPhoneFields(e, Fields(request), checkIn, checkOut, now, keepRecordedAt: true);
-            await db.SaveChangesAsync();
-            if (await RewritePhoneCardAsync(db, e, TripCardStatuses.Pending) is { } rewrite) posts.Add(rewrite);
-            await db.SaveChangesAsync();
-            await unitOfWork.CommitTransactionAsync();
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            return Concurrent();
-        }
-        catch
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            throw;
-        }
-
-        await AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
-        var travellerName = ReadTravellerName(e);
-        return OkResponse(await PhoneResultAsync(unitOfWork, e, null, callerId, now, options.Value, travellerName));
-    }
-
-    // ---------- POST /trips/enquiries/{id}/host-confirm-link/resend ----------
-
-    // Only the hash is stored, so a resend issues a fresh token; the older link stops working.
-    public static async Task<IResult> ResendHostLink(
-        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IOptions<TripExecutionOptions> options)
-    {
-        if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
-
-        var e = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(id);
-        if (TripEnquiryAuth.RequireTraveller(e, callerId) is { } denied) return denied;
-        if (e!.Status != TripEnquiryStatuses.ConfirmedByTraveller || e.HostConfirmAnsweredAt != null || e.HostConfirmTokenHash == null)
-            return Closed("The host already answered.");
-        if (e.HostConfirmLinkCount >= TripExecutionRules.HostLinkMaxCount)
-            return ConflictResponse("The link was already sent twice.", TripEnquiryErrorTypes.HostLinkLimit);
-
-        var now = DateTime.UtcNow;
-        var retryAt = (e.HostConfirmTokenIssuedAt ?? now).AddHours(TripExecutionRules.HostLinkResendHours);
-        if (now < retryAt)
-            return ErrorResponse(429, "You can resend the link after 24 hours.", TripEnquiryErrorTypes.HostLinkResendTooSoon, new { retryAt });
-
-        var token = HostConfirmTokens.Generate();
-        e.HostConfirmTokenHash = HostConfirmTokens.Hash(token);
-        e.HostConfirmTokenExpiresAt = e.CheckIn is { } checkIn ? TripExecutionRules.HostLinkExpiry(checkIn, now) : now.AddDays(TripExecutionRules.HostLinkDays);
-        e.HostConfirmLinkCount++;
-        e.UpdatedAt = now;
-
-        try { await unitOfWork.SaveChangesAsync(); }
-        catch (DbUpdateConcurrencyException) { return Concurrent(); }
-
-        return OkResponse(await PhoneResultAsync(unitOfWork, e, token, callerId, now, options.Value, ReadTravellerName(e)));
-    }
-
     // ---------- POST /trips/enquiries/{id}/lead-update ----------
 
     // The traveller tells the driver the day's new stops or start: the lead context is rebuilt from the saved plan.
@@ -1907,26 +1630,6 @@ public static class TripEnquiryHandlers
 
     // ---------- POST /trips/enquiries/{id}/change-request (guest; price lock until the host accepts) ----------
 
-    // A confirmed phone booking has no accepted offer: its agreed price stands in as one line so the change keeps the price lock.
-    public static TripOffer PhoneBase(TripPhoneBooking b, int rooms = 1, int guests = 1)
-    {
-        var nights = Math.Max(1, b.Nights);
-        rooms = Math.Max(1, rooms);
-        var line = new TripOfferLine
-        {
-            RoomName = string.IsNullOrWhiteSpace(b.RoomName) ? null : b.RoomName,
-            Units = rooms,
-            Guests = Math.Max(rooms, guests),
-            PricePerNight = Math.Max(0, b.AgreedTotal / nights / rooms),
-        };
-        return new TripOffer
-        {
-            LinesJson = JsonSerializer.Serialize(new List<TripOfferLine> { line }, TripJson.Options),
-            Total = b.AgreedTotal,
-            AdvanceAmount = b.AdvancePaid ? b.AdvanceAmount : null,
-        };
-    }
-
     public static async Task<IResult> ChangeRequest(
         Guid id, ChangeRequestRequest request, IValidator<ChangeRequestRequest> validator, ClaimsPrincipal principal,
         IUnitOfWork unitOfWork, ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier, ILoggerFactory loggers)
@@ -1940,9 +1643,8 @@ public static class TripEnquiryHandlers
         if (TripEnquiryAuth.RequireTraveller(found, callerId) is { } denied) return denied;
         var e = found!;
 
-        var phoneBase = e.AcceptedOfferId == null ? ReadBooking(e) : null;
         if (e.Kind != TripEnquiryKinds.Stay || e.Status != TripEnquiryStatuses.ConfirmedByBoth
-            || (e.AcceptedOfferId == null && phoneBase == null)
+            || e.AcceptedOfferId == null
             || e.ConversationId is not { } conversationId || e.TripId is not { } tripId)
             return Closed("A change needs a booking confirmed by both.");
 
@@ -1961,7 +1663,7 @@ public static class TripEnquiryHandlers
         var offers = await unitOfWork.TripOffers.GetByEnquiryAsync(e.Id);
         if (offers.Any(o => o.Kind == TripOfferKinds.ChangeRequest && o.Status == TripOfferStatuses.Pending))
             return ConflictResponse("A change request is already waiting.", TripEnquiryErrorTypes.ChangeNotAllowed);
-        var accepted = phoneBase != null ? PhoneBase(phoneBase, TripEnquiryDtoBuilder.ReadContext(e.ContextJson).Rooms ?? 1, TripEnquiryDtoBuilder.ReadContext(e.ContextJson) is { } pc ? (pc.Adults ?? 1) + (pc.Kids ?? 0) : 1) : offers.FirstOrDefault(o => o.Id == e.AcceptedOfferId);
+        var accepted = offers.FirstOrDefault(o => o.Id == e.AcceptedOfferId);
         if (accepted == null) return Closed("A change needs a booking confirmed by both.");
 
         var acceptedLines = TripEnquiryDtoBuilder.ReadLines(accepted.LinesJson);
@@ -2395,13 +2097,6 @@ public static class TripEnquiryHandlers
                 row.AcceptedOfferId = shrunk.Id;
             }
         }
-        else if (ReadBooking(kept) != null)
-        {
-            if (await RewritePhoneCardAsync(db, kept, TripCardStatuses.Pending) is { } phoneRewrite) posts.Add(phoneRewrite);
-            if (split.KeptAfter is { } phoneAfter && conversation != null && ReadBooking(phoneAfter) is { } afterBooking)
-                posts.Add(await chat.PostAsync(conversation, callerId, TripMessageTypes.PhoneBooking,
-                    PhoneCardPayload(phoneAfter, afterBooking, TripCardStatuses.Pending), "Booking recorded by phone"));
-        }
 
         var cut = TripReplaceSplit.NightsText(cancelled.CheckIn, cancelled.CheckOut);
         var keep = string.Join(" and ", keptRows.Select(r => TripReplaceSplit.NightsText(r.CheckIn, r.CheckOut)));
@@ -2748,59 +2443,8 @@ public static class TripEnquiryHandlers
 
     private static string IsoDate(DateOnly? d) => d?.ToString("yyyy-MM-dd") ?? string.Empty;
 
-    private sealed record PhoneFields(
-        string HostName, string HostPhone, string RoomName, int AgreedTotal, bool AdvancePaid, int? AdvanceAmount, string? Note);
-
-    private static PhoneFields Fields(IPhoneBookingFields r) => new(
-        TripTextSafety.Clean(r.HostName, TripExecutionRules.HostNameMax),
-        (r.HostPhone ?? string.Empty).Trim(),
-        TripTextSafety.Clean(r.RoomName, TripExecutionRules.RoomNameMax),
-        r.AgreedTotal,
-        r.AdvancePaid,
-        r.AdvancePaid ? r.AdvanceAmount : null,
-        TripTextSafety.CleanOrNull(r.Note, TripExecutionRules.NoteMax));
-
-    private static void ApplyPhoneFields(TripEnquiry e, PhoneFields f, DateOnly checkIn, DateOnly checkOut, DateTime now, bool keepRecordedAt)
-    {
-        var previous = keepRecordedAt ? ReadBooking(e) : null;
-        e.CheckIn = checkIn;
-        e.CheckOut = checkOut;
-        e.AgreedTotal = f.AgreedTotal > 0 ? f.AgreedTotal : null;
-        e.UpdatedAt = now;
-        e.PhoneBookingJson = JsonSerializer.Serialize(new TripPhoneBooking
-        {
-            HostName = f.HostName,
-            HostPhone = f.HostPhone,
-            RoomName = f.RoomName,
-            Nights = checkOut.DayNumber - checkIn.DayNumber,
-            AgreedTotal = f.AgreedTotal,
-            AdvancePaid = f.AdvancePaid,
-            AdvanceAmount = f.AdvanceAmount,
-            Note = f.Note,
-            RecordedAt = previous?.RecordedAt ?? now,
-            UpdatedAt = previous != null ? now : null,
-        }, TripJson.Options);
-    }
-
-    private static TripPhoneBooking? ReadBooking(TripEnquiry e) => TripEnquiryDtoBuilder.ReadPhoneBooking(e.PhoneBookingJson);
-
     private static string ReadTravellerName(TripEnquiry e)
         => TripEnquiryDtoBuilder.ReadContext(e.ContextJson).TravellerName ?? string.Empty;
-
-    internal static object PhoneCardPayload(TripEnquiry e, TripPhoneBooking b, string status) => new
-    {
-        enquiryId = e.Id,
-        hostName = b.HostName,
-        roomName = b.RoomName,
-        checkIn = IsoDate(e.CheckIn),
-        checkOut = IsoDate(e.CheckOut),
-        nights = b.Nights,
-        agreedTotal = b.AgreedTotal,
-        advancePaid = b.AdvancePaid,
-        advanceAmount = b.AdvanceAmount,
-        note = b.Note,
-        status,
-    };
 
     private static object OfferResponsePayload(TripEnquiry e, TripOffer offer, string answer) => new
     {
@@ -2811,52 +2455,4 @@ public static class TripEnquiryHandlers
         checkIn = IsoDate(offer.CheckIn ?? e.CheckIn),
         checkOut = IsoDate(offer.CheckOut ?? e.CheckOut),
     };
-
-    // The phone-booking card has no message id column: the latest trip_phone_booking message of the conversation for this enquiry.
-    internal static async Task<TripChatPost?> RewritePhoneCardAsync(ApplicationDbContext db, TripEnquiry e, string status)
-    {
-        if (e.ConversationId is not { } conversationId) return null;
-        var booking = ReadBooking(e);
-        if (booking == null) return null;
-        var candidates = await db.Messages
-            .Where(m => m.ConversationId == conversationId && m.Type == TripMessageTypes.PhoneBooking)
-            .OrderByDescending(m => m.CreatedAt)
-            .Take(20)
-            .ToListAsync();
-        var message = candidates.FirstOrDefault(m => PayloadEnquiryId(m.PayloadJson) == e.Id);
-        if (message == null) return null;
-        var conversation = await db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId);
-        if (conversation == null) return null;
-        message.PayloadJson = JsonSerializer.Serialize(PhoneCardPayload(e, booking, status));
-        var recipientUnread = conversation.RenterId == message.SenderId ? conversation.UnreadCountForOwner : conversation.UnreadCountForRenter;
-        return new TripChatPost(conversation, message, recipientUnread, false);
-    }
-
-    private static Guid? PayloadEnquiryId(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            return doc.RootElement.TryGetProperty("enquiryId", out var p) && p.TryGetGuid(out var g) ? g : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static async Task<TripPhoneBookingResultDto> PhoneResultAsync(
-        IUnitOfWork unitOfWork, TripEnquiry e, string? token, Guid viewerId, DateTime now, TripExecutionOptions options, string travellerName)
-    {
-        var dto = await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, viewerId, now);
-        if (token == null) return new TripPhoneBookingResultDto { Enquiry = dto };
-
-        var link = $"{options.PublicBaseUrl.TrimEnd('/')}/go/confirm/{token}";
-        var booking = ReadBooking(e);
-        var host = string.IsNullOrWhiteSpace(booking?.HostName) ? "Namaste." : $"Namaste {booking!.HostName} ji.";
-        var text = $"{host} {TripDateText.FirstName(travellerName)} recorded a stay booking with you on Bakhli: "
-            + $"{e.ListingName}, {TripDateText.Range(e.CheckIn, e.CheckOut)}, {(e.AgreedTotal is > 0 ? $"Rs {e.AgreedTotal}" : "price not set")}. Is this correct? Tap: {link}";
-        return new TripPhoneBookingResultDto { Enquiry = dto, ConfirmLink = link, WhatsAppText = text };
-    }
 }

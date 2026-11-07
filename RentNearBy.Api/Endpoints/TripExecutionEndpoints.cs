@@ -10,14 +10,11 @@ public static class TripExecutionEndpoints
     public static RouteGroupBuilder MapTripExecutionEndpoints(this RouteGroupBuilder group)
     {
         group.MapPost("/{tripId:guid}/enquiries", TripEnquiryHandlers.Create).Gated();
-        group.MapPost("/{tripId:guid}/phone-bookings", TripEnquiryHandlers.CreatePhoneBooking).Gated();
 
         group.MapGet("/enquiries/owner", TripOwnerHandlers.GetMine).Gated("CanListStays").WithMetadata(new SkipTripPlannerGateAttribute());
         // Get one, withdraw and cancel serve journey leads too (no planner gate, party checked in the handlers).
         group.MapGet("/enquiries/by-conversation/{conversationId:guid}", TripEnquiryHandlers.GetByConversation).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapGet("/enquiries/{id:guid}", TripEnquiryHandlers.GetOne).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
-        group.MapPut("/enquiries/{id:guid}/phone-booking", TripEnquiryHandlers.EditPhoneBooking).Gated();
-        group.MapPost("/enquiries/{id:guid}/host-confirm-link/resend", TripEnquiryHandlers.ResendHostLink).Gated();
         group.MapPost("/enquiries/{id:guid}/withdraw", TripEnquiryHandlers.Withdraw).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapPost("/enquiries/{id:guid}/refresh-context", TripEnquiryHandlers.RefreshContext).Gated();
         group.MapPost("/enquiries/{id:guid}/lead-update", TripEnquiryHandlers.UpdateLead).Gated();
@@ -28,7 +25,6 @@ public static class TripExecutionEndpoints
         // Host side answers open enquiries whatever the planner flag says; only new asks stay planner-gated.
         group.MapPost("/enquiries/{id:guid}/offers", TripOwnerHandlers.SendOffer).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapPost("/enquiries/{id:guid}/not-available", TripOwnerHandlers.NotAvailable).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
-        group.MapPost("/enquiries/{id:guid}/host-confirm", TripOwnerHandlers.HostConfirm).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
 
         // Counter and change request: guest side. Revised offer and accept change: host side (checked in the handlers).
         group.MapPost("/enquiries/{id:guid}/counter", TripEnquiryHandlers.Counter).Gated();

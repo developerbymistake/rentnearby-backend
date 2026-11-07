@@ -260,8 +260,6 @@ public static class TripEasyRows
             var needsYou = both.AdvanceStatus == TripAdvanceStatuses.Pending || ctx.RevisedPending.Contains(both.Id) || replace;
             return Cover(TripRowStates.Confirmed, needsYou);
         }
-        if (Has(TripEnquiryStatuses.ConfirmedByTraveller))
-            return Cover(TripRowStates.Booked, Has(TripEnquiryStatuses.Offered));
         if (Has(TripEnquiryStatuses.Offered))
             return Cover(TripRowStates.Offer, true);
         if (Has(TripEnquiryStatuses.Asked, TripEnquiryStatuses.Countered))

@@ -13,10 +13,6 @@ public class TripNotificationsTests
         (NotificationTypes.TripOfferReceived, "trip_offer_received"),
         (NotificationTypes.TripOfferAccepted, "trip_offer_accepted"),
         (NotificationTypes.TripOfferDeclined, "trip_offer_declined"),
-        (NotificationTypes.TripPhoneBookingRecorded, "trip_phone_booking_recorded"),
-        (NotificationTypes.TripHostConfirmed, "trip_host_confirmed"),
-        (NotificationTypes.TripHostDenied, "trip_host_denied"),
-        (NotificationTypes.TripHostLinkAnswered, "trip_host_link_answered"),
         (NotificationTypes.TripListingRemoved, "trip_listing_removed"),
         (NotificationTypes.TripTravellerLeft, "trip_traveller_left"),
         (NotificationTypes.TripEnquiryExpired, "trip_enquiry_expired"),
@@ -40,7 +36,6 @@ public class TripNotificationsTests
         (NotificationTypes.TripRevisedKept, "trip_revised_kept"),
         (NotificationTypes.TripChangeRequest, "trip_change_request"),
         (NotificationTypes.TripChangeAccepted, "trip_change_accepted"),
-        (NotificationTypes.TripHostNotConfirmed, "trip_host_not_confirmed"),
         (NotificationTypes.TripNoReply, "trip_no_reply"),
         (NotificationTypes.TripProblemReported, "trip_problem_reported"),
         (NotificationTypes.TripStartsIn3Days, "trip_starts_in_3_days"),
@@ -224,7 +219,7 @@ public class TripNotificationsTests
     };
 
     private static TripPushContext Ctx(Guid recipient, string? chat = null, string? ownerName = "Mohan Bisht") =>
-        new(recipient, "Rahul", "Bisht Cabs", chat, null, null, ownerName);
+        new(recipient, "Rahul", "Bisht Cabs", chat, null, ownerName);
 
     [Fact]
     public void Taxi_not_available_says_driver_and_routes_to_the_taxi_step()
@@ -260,7 +255,6 @@ public class TripNotificationsTests
         {
             TripNotifications.TripListingRemoved(e, Ctx(Traveller)),
             TripNotifications.TripOwnerCancelled(e, Ctx(Traveller)),
-            TripNotifications.TripHostDenied(e, Ctx(Traveller)),
         })
             Assert.Contains($"Pick another {kind}", n.Body);
     }
@@ -318,7 +312,7 @@ public class TripNotificationsTests
     [Fact]
     public void Stay_traveller_pushes_still_open_the_plan()
     {
-        var n = TripNotifications.TripHostConfirmed(StayRow(), Ctx(Traveller));
+        var n = TripNotifications.TripListingRemoved(StayRow(), Ctx(Traveller));
         Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
     }
 
@@ -329,7 +323,7 @@ public class TripNotificationsTests
         e.TripId = null;
         e.DaysJson = "[1]";
         var journeyId = Guid.NewGuid();
-        var ctx = new TripPushContext(Traveller, "Rahul", "Bisht Cabs", null, null, null, "Mohan Bisht", journeyId);
+        var ctx = new TripPushContext(Traveller, "Rahul", "Bisht Cabs", null, null, "Mohan Bisht", journeyId);
         foreach (var n in new[]
         {
             TripNotifications.TripDriverFare(e, ctx),
@@ -422,7 +416,7 @@ public class TripNotificationsTests
     {
         var e = StayRow();
         e.Day = 5;
-        var n = TripNotifications.TripHostDenied(e, Ctx(Traveller));
+        var n = TripNotifications.TripListingRemoved(e, Ctx(Traveller));
         Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
         using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
         Assert.Equal("stay:1", doc.RootElement.GetProperty("row").GetString());
@@ -637,8 +631,8 @@ public class TripNotificationsTests
     {
         var e = StayRow();
         var chat = SampleJson("chatargsjson");
-        var ctx = new TripPushContext(Owner, "Rahul", "Deodar Homestay", chat, 3600, null, null);
-        var tctx = new TripPushContext(Traveller, "Rahul", "Deodar Homestay", chat, 4200, null, null);
+        var ctx = new TripPushContext(Owner, "Rahul", "Deodar Homestay", chat, 3600, null);
+        var tctx = new TripPushContext(Traveller, "Rahul", "Deodar Homestay", chat, 4200, null);
         var counter = TripNotifications.TripCounterReceived(e, ctx);
         Assert.Equal(Owner, counter.TargetUserId);
         Assert.Equal("Rahul proposed a price", counter.Title);
@@ -651,17 +645,6 @@ public class TripNotificationsTests
         Assert.Equal(Owner, TripNotifications.TripChangeRequest(e, ctx).TargetUserId);
         Assert.Equal(Traveller, TripNotifications.TripChangeAccepted(e, tctx).TargetUserId);
         Assert.Equal(Traveller, TripNotifications.TripNoReply(e, tctx).TargetUserId);
-        Assert.Equal(Traveller, TripNotifications.TripHostNotConfirmed(e, tctx).TargetUserId);
-    }
-
-    [Fact]
-    public void Host_not_confirmed_prefers_the_phone_booking_host_name()
-    {
-        var e = StayRow();
-        e.PhoneBookingJson = """{"hostName":"Ramesh","hostPhone":"9876543210"}""";
-        var n = TripNotifications.TripHostNotConfirmed(e, new TripPushContext(Traveller, "Rahul", "Deodar Homestay", null, null, null, null));
-        Assert.Equal("Ramesh has not confirmed yet", n.Title);
-        Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
     }
 
     [Fact]
@@ -820,7 +803,7 @@ public class TripNotificationsTests
         var e = StayRow();
         e.Day = 2;
         e.ContextJson = """{"city":"Badrinath","cityIndex":2,"cityCount":2}""";
-        using var doc = JsonDocument.Parse(TripNotifications.TripHostConfirmed(e, Ctx(Traveller)).ActionArgumentsJson!);
+        using var doc = JsonDocument.Parse(TripNotifications.TripListingRemoved(e, Ctx(Traveller)).ActionArgumentsJson!);
         Assert.Equal("stay:2", doc.RootElement.GetProperty("row").GetString());
     }
 

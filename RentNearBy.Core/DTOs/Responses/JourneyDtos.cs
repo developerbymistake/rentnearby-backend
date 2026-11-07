@@ -41,7 +41,7 @@ public class JourneyLegDto
     public DateTime? LastKnownAt { get; set; }
     public bool DriverAvailable { get; set; }
     public bool FareChanged { get; set; }
-    // Set only when this car is booked in a trip: ConfirmedByTraveller | ConfirmedByBoth | BookedByTraveller.
+    // Set only when this car is booked in a trip: ConfirmedByBoth | BookedByTraveller.
     public string? BookingStatus { get; set; }
     public int? AgreedFare { get; set; }
 }

@@ -16,11 +16,10 @@ public class TripFinalFixBaTests
         => Assert.Null(TripStatusRules.OnSave(TripStatuses.Planned, null, 3));
 
     [Theory]
-    [InlineData(TripEnquiryStatuses.ConfirmedByTraveller, TripOwnerBuckets.New)]
     [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripOwnerBuckets.Confirmed)]
     [InlineData(TripEnquiryStatuses.Countered, TripOwnerBuckets.New)]
     [InlineData(TripEnquiryStatuses.Offered, TripOwnerBuckets.Offered)]
     [InlineData(TripEnquiryStatuses.Failed, TripOwnerBuckets.Closed)]
-    public void Owner_bucket_puts_a_phone_booking_waiting_for_the_host_in_new(string status, string bucket)
+    public void Owner_bucket_maps_status(string status, string bucket)
         => Assert.Equal(bucket, TripOwnerBuckets.Of(status));
 }

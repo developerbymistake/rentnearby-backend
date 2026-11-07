@@ -31,16 +31,6 @@ public class TripEnquiry
     public int? AgreedTotal { get; set; }
     public DateTime? ConfirmedByTravellerAt { get; set; }
     public DateTime? ConfirmedByOwnerAt { get; set; }
-    public string? PhoneBookingJson { get; set; }
-
-    public string? HostConfirmTokenHash { get; set; }
-    public DateTime? HostConfirmTokenIssuedAt { get; set; }
-    public DateTime? HostConfirmTokenExpiresAt { get; set; }
-    public short HostConfirmLinkCount { get; set; }
-    public DateTime? HostConfirmAnsweredAt { get; set; }
-    public string? HostConfirmAnswer { get; set; }
-    public string? HostConfirmAnsweredVia { get; set; }
-    public Guid? HostConfirmAnsweredByUserId { get; set; }
 
     public short DriverFareEditCount { get; set; }
     public string AdvanceStatus { get; set; } = TripAdvanceStatuses.None;

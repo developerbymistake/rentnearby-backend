@@ -21,7 +21,6 @@ public static class TripEnquiryStatuses
     public const string Asked = "Asked";
     public const string Offered = "Offered";
     public const string Countered = "Countered";
-    public const string ConfirmedByTraveller = "ConfirmedByTraveller";
     public const string ConfirmedByBoth = "ConfirmedByBoth";
     public const string FareSent = "FareSent";
     public const string BookedByTraveller = "BookedByTraveller";
@@ -33,21 +32,21 @@ public static class TripEnquiryStatuses
     public const string Failed = "Failed";
     public const string Closed = "Closed";
 
-    public static readonly string[] Open = [Asked, Offered, Countered, ConfirmedByTraveller, ConfirmedByBoth, FareSent, BookedByTraveller];
+    public static readonly string[] Open = [Asked, Offered, Countered, ConfirmedByBoth, FareSent, BookedByTraveller];
     // Withdrawable and expirable.
     public static readonly string[] Unconfirmed = [Asked, Offered, Countered];
     // Cancellable; a confirmed row holds its nights.
-    public static readonly string[] Confirmed = [ConfirmedByTraveller, ConfirmedByBoth];
+    public static readonly string[] Confirmed = [ConfirmedByBoth];
     public static readonly string[] All =
     [
-        Asked, Offered, Countered, ConfirmedByTraveller, ConfirmedByBoth, FareSent, BookedByTraveller,
+        Asked, Offered, Countered, ConfirmedByBoth, FareSent, BookedByTraveller,
         NotAvailable, Expired, Declined, CancelledByTraveller, CancelledByOwner, Failed, Closed,
     ];
 
     // Traveller Withdraw; a block closes these.
     public static readonly string[] Withdrawable = [Asked, Offered, Countered, FareSent];
     // Holds a night or a taxi day; cancel; closure -> Cancelled*.
-    public static readonly string[] Booked = [ConfirmedByTraveller, ConfirmedByBoth, BookedByTraveller];
+    public static readonly string[] Booked = [ConfirmedByBoth, BookedByTraveller];
 
     public static bool IsOpen(string s) => Array.IndexOf(Open, s) >= 0;
     public static bool IsTerminal(string s) => !IsOpen(s);
@@ -57,13 +56,12 @@ public static class TripEnquiryStatuses
     public static bool IsBooked(string s) => Array.IndexOf(Booked, s) >= 0;
 
     // SQL list for partial indexes and raw updates.
-    public const string OpenSqlList = "('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller')";
-    public const string AllSqlList = "('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller','NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Failed','Closed')";
+    public const string OpenSqlList = "('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')";
+    public const string AllSqlList = "('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller','NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Failed','Closed')";
 }
 
 public static class TripFailReasons
 {
-    public const string HostDenied = "HostDenied";
     public const string DriverDenied = "DriverDenied";
     public const string HoldExpired = "HoldExpired";
     public const string ProblemDriverNoShow = "ProblemDriverNoShow";
@@ -113,18 +111,6 @@ public static class TripOfferStatuses
     public const string Superseded = "Superseded";
 }
 
-public static class TripHostConfirmAnswers
-{
-    public const string Yes = "Yes";
-    public const string NotMe = "NotMe";
-}
-
-public static class TripHostConfirmVia
-{
-    public const string Link = "Link";
-    public const string App = "App";
-}
-
 public static class TripSkipReasons
 {
     public const string AlreadyOpen = "AlreadyOpen";
@@ -139,7 +125,6 @@ public static class TripDisplayStatuses
 {
     public const string Asked = "asked";
     public const string Offered = "offered";
-    public const string ConfirmedByYou = "confirmedByYou";
     public const string ConfirmedByBoth = "confirmedByBoth";
     public const string NotAvailable = "notAvailable";
     public const string Expired = "expired";
@@ -322,8 +307,7 @@ public static class TripDateRules
     public const string OutsideTripMessage = "Offer dates must be inside the trip (check-out the morning after the last day).";
 }
 
-// Owner list chips: new = Asked/Countered and a phone booking waiting for the host (ConfirmedByTraveller),
-// offered = Offered, confirmed = ConfirmedByBoth, closed = the rest.
+// Owner list chips: new = Asked/Countered, offered = Offered, confirmed = ConfirmedByBoth, closed = the rest.
 public static class TripOwnerBuckets
 {
     public const string New = "new";
@@ -333,7 +317,7 @@ public static class TripOwnerBuckets
 
     public static readonly string[] All = [New, Offered, Confirmed, Closed];
     public static readonly string[] NewStatuses =
-        [TripEnquiryStatuses.Asked, TripEnquiryStatuses.Countered, TripEnquiryStatuses.ConfirmedByTraveller];
+        [TripEnquiryStatuses.Asked, TripEnquiryStatuses.Countered];
     public static readonly string[] OfferedStatuses = [TripEnquiryStatuses.Offered];
     public static readonly string[] ConfirmedStatuses = [TripEnquiryStatuses.ConfirmedByBoth];
     // Booked rows that end: they list under closed once the stay is over.
@@ -341,7 +325,7 @@ public static class TripOwnerBuckets
 
     public static string Of(string status) => status switch
     {
-        TripEnquiryStatuses.Asked or TripEnquiryStatuses.Countered or TripEnquiryStatuses.ConfirmedByTraveller => New,
+        TripEnquiryStatuses.Asked or TripEnquiryStatuses.Countered => New,
         TripEnquiryStatuses.Offered => Offered,
         TripEnquiryStatuses.ConfirmedByBoth => Confirmed,
         _ => Closed,
@@ -373,9 +357,6 @@ public static class TripEnquiryErrorTypes
     public const string DayInPast = "DayInPast";
     public const string NightAlreadyConfirmed = "NightAlreadyConfirmed";
     public const string OfferOutsideTrip = "OfferOutsideTrip";
-    public const string PhoneBookingPaused = "PhoneBookingPaused";
-    public const string HostLinkResendTooSoon = "HostLinkResendTooSoon";
-    public const string HostLinkLimit = "HostLinkLimit";
     public const string TripExecutionDisabled = "TripExecutionDisabled";
     public const string KindNotAvailable = "KindNotAvailable";
     public const string AdvanceNotAllowed = "AdvanceNotAllowed";
@@ -480,7 +461,6 @@ public sealed class TripExecutionOptions
 {
     public const string Section = "TripExecution";
     public bool Enabled { get; set; } = true;
-    public string PublicBaseUrl { get; set; } = "https://developerbymistake.tech";
 }
 
 public static class TripExecutionRules
@@ -488,9 +468,7 @@ public static class TripExecutionRules
     public const int MaxShortlistPerNight = 3, MaxOpenPerNight = 3, MaxOffersPerEnquiry = 5, MaxLinesPerOffer = 5;
     public const int EnquiryHours = 48, ReplyBeforeHours = 12, FloorHours = 2;
     public const int OfferHours = 24, OfferUrgentHours = 2, OfferFloorHours = 1, UrgentHours = 72;
-    public const int HostLinkDays = 7, HostLinkMaxDays = 14, HostLinkResendHours = 24, HostLinkMaxCount = 2, HostLinkOverrideDays = 7;
-    public const int NotMeWindowDays = 30, NotMePauseCount = 3, NotMePauseDays = 30;
-    public const int PhoneBookingsPerDay = 10, EnquiriesPerHour = 20, EnquiriesPerDay = 60, OwnerActionsPerHour = 60, ConfirmPagePerMinute = 20;
+    public const int EnquiriesPerHour = 20, EnquiriesPerDay = 60, OwnerActionsPerHour = 60;
     public const int MaxTextLen = 80, MaxSpotsInText = 8, NoteMax = 300, CancellationMax = 300, BalanceNoteMax = 120, HostNameMax = 60, RoomNameMax = 40;
     public const int MinAmount = 1, MaxAmount = StayLimits.MaxPrice;
     public const string AsksLeftHeader = "X-Trip-Asks-Left";
@@ -529,13 +507,6 @@ public static class TripExecutionRules
         return valid < floor ? floor : valid;
     }
 
-    public static DateTime HostLinkExpiry(DateOnly checkIn, DateTime nowUtc)
-    {
-        var expires = Max(nowUtc.AddDays(HostLinkDays), IstMidnightUtc(checkIn));
-        var cap = nowUtc.AddDays(HostLinkMaxDays);
-        return expires > cap ? cap : expires;
-    }
-
     public static bool NightsOverlap(DateOnly aIn, DateOnly aOut, DateOnly bIn, DateOnly bOut) => aIn < bOut && bIn < aOut;
 
     // At most MaxOpenPerNight open stay enquiries on every night of [checkIn, checkOut): rows of listingId are not counted,
@@ -566,13 +537,12 @@ public static class TripExecutionRules
         TripEnquiryStatuses.Asked or TripEnquiryStatuses.Countered => TripDisplayStatuses.Asked,
         TripEnquiryStatuses.Offered => TripDisplayStatuses.Offered,
         TripEnquiryStatuses.FareSent => TripDisplayStatuses.FareSent,
-        TripEnquiryStatuses.ConfirmedByTraveller => TripDisplayStatuses.ConfirmedByYou,
         TripEnquiryStatuses.BookedByTraveller => TripDisplayStatuses.BookedByYou,
         TripEnquiryStatuses.ConfirmedByBoth => TripDisplayStatuses.ConfirmedByBoth,
         TripEnquiryStatuses.NotAvailable => TripDisplayStatuses.NotAvailable,
         TripEnquiryStatuses.Expired => TripDisplayStatuses.Expired,
         TripEnquiryStatuses.Declined => TripDisplayStatuses.Declined,
-        TripEnquiryStatuses.Failed when failReason is TripFailReasons.HostDenied or TripFailReasons.DriverDenied => TripDisplayStatuses.NotMe,
+        TripEnquiryStatuses.Failed when failReason is TripFailReasons.DriverDenied => TripDisplayStatuses.NotMe,
         TripEnquiryStatuses.Failed when failReason is TripFailReasons.HoldExpired => TripDisplayStatuses.HoldExpired,
         TripEnquiryStatuses.Failed => TripDisplayStatuses.NotAvailable,
         TripEnquiryStatuses.CancelledByTraveller or TripEnquiryStatuses.CancelledByOwner => TripDisplayStatuses.Cancelled,
@@ -720,21 +690,6 @@ public sealed class TripEnquiryContextDay
     public List<string> Spots { get; set; } = new();
 }
 
-// TripEnquiry.PhoneBookingJson.
-public sealed class TripPhoneBooking
-{
-    public string HostName { get; set; } = string.Empty;
-    public string HostPhone { get; set; } = string.Empty;
-    public string RoomName { get; set; } = string.Empty;
-    public int Nights { get; set; }
-    public int AgreedTotal { get; set; }
-    public bool AdvancePaid { get; set; }
-    public int? AdvanceAmount { get; set; }
-    public string? Note { get; set; }
-    public DateTime RecordedAt { get; set; }
-    public DateTime? UpdatedAt { get; set; }
-}
-
 // TripOffer.LinesJson item.
 public sealed class TripOfferLine
 {
@@ -752,7 +707,7 @@ public sealed record TripOwnerCounts(int New, int Offered, int Confirmed, int Cl
 // Input of every TripNotifications builder. ChatArgsJson = the full chat-conversation map for the recipient, null without a conversation.
 public sealed record TripPushContext(
     Guid RecipientUserId, string TravellerName, string ListingName, string? ChatArgsJson,
-    int? Total = null, bool? Confirmed = null, string? OwnerName = null, Guid? JourneyId = null,
+    int? Total = null, string? OwnerName = null, Guid? JourneyId = null,
     DateOnly? CheckIn = null, DateOnly? CheckOut = null);
 
 public static class TripTextSafety
@@ -889,7 +844,6 @@ public static class TripMessageTypes
     public const string Enquiry = "trip_enquiry";
     public const string Offer = "trip_offer";
     public const string OfferResponse = "trip_offer_response";
-    public const string PhoneBooking = "trip_phone_booking";
     public const string AdvanceRequest = "trip_advance_request";
     public const string AdvanceProofSent = "trip_advance_proof_sent";
     public const string Counter = "trip_counter";
@@ -924,8 +878,6 @@ public static class TripSystemLines
     public const string NotAvailable = "notAvailable";
     public const string Expired = "expired";
     public const string OfferExpired = "offerExpired";
-    public const string HostConfirmed = "hostConfirmed";
-    public const string HostDenied = "hostDenied";
     public const string CancelledByTraveller = "cancelledByTraveller";
     public const string CancelledByOwner = "cancelledByOwner";
     public const string ListingRemoved = "listingRemoved";
@@ -962,8 +914,6 @@ public static class TripSystemLines
         Expired => "No reply in time. This enquiry expired.",
         OfferExpired => "Offer expired.",
         ConfirmedBoth => "Confirmed by both sides.",
-        HostConfirmed => "Host confirmed the booking.",
-        HostDenied => "Host says this booking is not theirs.",
         CancelledByTraveller => "The guest cancelled this booking.",
         CancelledByOwner => "The host cancelled this booking.",
         ListingRemoved => "This stay is no longer on Bakhli.",
@@ -1014,17 +964,4 @@ public static class TripDateText
         var space = clean.IndexOf(' ');
         return space > 0 ? clean[..space] : clean;
     }
-}
-
-public static class HostConfirmTokens
-{
-    // 32 random bytes, base64url without padding = 43 chars. Only the hash is stored.
-    public static string Generate()
-    {
-        var bytes = RandomNumberGenerator.GetBytes(32);
-        return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-    }
-
-    public static string Hash(string token)
-        => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 }

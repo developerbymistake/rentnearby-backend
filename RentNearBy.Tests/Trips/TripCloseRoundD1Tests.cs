@@ -83,24 +83,6 @@ public class TripCloseRoundD1Tests
         Assert.True(past(rows[3]));
     }
 
-    [Fact]
-    public void Phone_booking_base_keeps_the_agreed_price_per_night()
-    {
-        var b = new TripPhoneBooking { RoomName = "Deluxe", Nights = 2, AgreedTotal = 5000, AdvancePaid = true, AdvanceAmount = 1000 };
-        var offer = TripEnquiryHandlers.PhoneBase(b, 1, 2);
-        var lines = TripEnquiryDtoBuilder.ReadLines(offer.LinesJson);
-        Assert.Single(lines);
-        Assert.Equal(2500, lines[0].PricePerNight);
-        Assert.Equal(5000, offer.Total);
-        Assert.Equal(1000, offer.AdvanceAmount);
-        var changed = TripOfferRules.ChangeLines(lines, 1, 2);
-        Assert.Equal(2500, changed![0].PricePerNight);
-    }
-
-    [Fact]
-    public void Phone_booking_base_without_advance_has_none()
-        => Assert.Null(TripEnquiryHandlers.PhoneBase(new TripPhoneBooking { Nights = 1, AgreedTotal = 900, AdvanceAmount = 300 }).AdvanceAmount);
-
     [Theory]
     [InlineData(23, false)]
     [InlineData(24, true)]

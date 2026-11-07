@@ -48,7 +48,6 @@ public static class TripEnquiryDtoBuilder
         var accepted = e.AcceptedOfferId is { } acceptedId ? ordered.FirstOrDefault(o => o.Id == acceptedId) : null;
 
         var context = ReadContext(e.ContextJson);
-        var phoneBooking = ReadPhoneBooking(e.PhoneBookingJson);
 
         return new TripEnquiryDto
         {
@@ -96,31 +95,6 @@ public static class TripEnquiryDtoBuilder
                 JourneyLegIndex = context.LegIndex,
             },
             IsSegment = TripSegmentRows.IsSegment(e),
-            PhoneBooking = phoneBooking == null ? null : new TripPhoneBookingDto
-            {
-                HostName = phoneBooking.HostName,
-                HostPhone = travellerViewer ? phoneBooking.HostPhone : null,
-                RoomName = phoneBooking.RoomName,
-                Nights = phoneBooking.Nights,
-                AgreedTotal = phoneBooking.AgreedTotal,
-                AdvancePaid = phoneBooking.AdvancePaid,
-                AdvanceAmount = phoneBooking.AdvanceAmount,
-                Note = phoneBooking.Note,
-                RecordedAt = phoneBooking.RecordedAt,
-                UpdatedAt = phoneBooking.UpdatedAt,
-            },
-            HostConfirm = new TripHostConfirmDto
-            {
-                LinkSent = e.HostConfirmTokenHash != null,
-                LinkCount = e.HostConfirmLinkCount,
-                CanResendAt = travellerViewer ? CanResendAt(e) : null,
-                AnsweredAt = e.HostConfirmAnsweredAt,
-                Answer = e.HostConfirmAnswer,
-                AnsweredVia = e.HostConfirmAnsweredVia,
-                CanOverrideUntil = ownerViewer && e.HostConfirmAnsweredVia == TripHostConfirmVia.Link
-                    ? e.HostConfirmAnsweredAt?.AddDays(TripExecutionRules.HostLinkOverrideDays)
-                    : null,
-            },
             Advance = new TripAdvanceDto
             {
                 Status = e.AdvanceStatus,
@@ -289,13 +263,6 @@ public static class TripEnquiryDtoBuilder
 
     public static TripEnquiryContext ReadContext(string? json) => TripEnquiryContexts.Read(json);
 
-    public static TripPhoneBooking? ReadPhoneBooking(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return null;
-        try { return JsonSerializer.Deserialize<TripPhoneBooking>(json, TripJson.Options); }
-        catch (JsonException) { return null; }
-    }
-
     public static List<TripOfferLine> ReadLines(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return new List<TripOfferLine>();
@@ -330,13 +297,6 @@ public static class TripEnquiryDtoBuilder
         };
     }
 
-    private static DateTime? CanResendAt(TripEnquiry e)
-    {
-        if (e.Status != TripEnquiryStatuses.ConfirmedByTraveller || e.HostConfirmAnsweredAt != null) return null;
-        if (e.HostConfirmTokenIssuedAt is not { } issued) return null;
-        if (e.HostConfirmLinkCount >= TripExecutionRules.HostLinkMaxCount) return null;
-        return issued.AddHours(TripExecutionRules.HostLinkResendHours);
-    }
 
     private static TripPartyInfo Party(Dictionary<Guid, TripPartyInfo> parties, Guid? id)
         => id is { } value && parties.TryGetValue(value, out var p) ? p : new TripPartyInfo(id, null, null, false, null);

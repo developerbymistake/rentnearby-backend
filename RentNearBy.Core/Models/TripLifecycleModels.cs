@@ -196,7 +196,7 @@ public static class TripTravelState
 
 public static class TripReminderRules
 {
-    public const int NoReplyHours = 24, HostNotConfirmedHours = 24, WindowHours = 48;
+    public const int NoReplyHours = 24, WindowHours = 48;
     public const int DaysBeforeStart = 3, StartsInHourIst = 9, TodayHourIst = 7, MarkCompleteHourIst = 10, AutoCompleteDays = 7;
     public const int TravelEveHourIst = 18;
 
@@ -260,7 +260,6 @@ public static class TripReminderRules
 
     public static string NoReplyKey(Guid enquiryId) => $"noreply:{enquiryId}";
     public static string NoReplySegmentKey(Guid tripId, DateOnly date) => $"noreply:seg:{tripId:N}:{date:yyyyMMdd}";
-    public static string HostNotConfirmedKey(Guid enquiryId) => $"hostnc:{enquiryId}";
     public static string StartsInKey(Guid tripId, DateOnly start) => $"d3:{tripId}:{start:yyyyMMdd}";
     public static string TodayKey(Guid tripId, DateOnly start) => $"d0:{tripId}:{start:yyyyMMdd}";
     public static string MarkCompleteKey(Guid tripId, DateOnly end) => $"done:{tripId}:{end:yyyyMMdd}";
@@ -429,7 +428,6 @@ public static class TripProblemSplit
         e.CheckOut = date;
         e.AgreedTotal = keptTotal;
         e.UpdatedAt = nowUtc;
-        ShrinkPhoneBooking(e, kept);
         RebuildContext(e, d => d >= checkIn && d < date, (ctx, a, b) => TripEnquiryText.Build(ctx, a, b, b.DayNumber - a.DayNumber > 1));
         RebuildContext(failed, d => d >= date && d < checkOut, (ctx, a, b) => TripEnquiryText.Build(ctx, a, b, b.DayNumber - a.DayNumber > 1));
         return (e, failed);
@@ -497,20 +495,6 @@ public static class TripProblemSplit
         RespondedAt = nowUtc,
         CreatedAt = nowUtc,
     };
-
-    private static void ShrinkPhoneBooking(TripEnquiry e, int keptNights)
-    {
-        if (string.IsNullOrWhiteSpace(e.PhoneBookingJson)) return;
-        try
-        {
-            var booking = JsonSerializer.Deserialize<TripPhoneBooking>(e.PhoneBookingJson, TripJson.Options);
-            if (booking == null) return;
-            booking.Nights = keptNights;
-            if (e.AgreedTotal is { } total) booking.AgreedTotal = total;
-            e.PhoneBookingJson = JsonSerializer.Serialize(booking, TripJson.Options);
-        }
-        catch (JsonException) { }
-    }
 
     // Day numbers in DaysJson are the plan's at send time; the row covers CheckIn + (d - first), so the plan day is found by date.
     private static (TripEnquiry? Kept, TripEnquiry Failed) PlanTaxi(TripEnquiry e, DateOnly start, int day, DateTime nowUtc)

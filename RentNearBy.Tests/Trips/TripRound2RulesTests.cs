@@ -112,29 +112,6 @@ public class TripRound2RulesTests
     }
 
     [Fact]
-    public void Split_rewrites_a_phone_booking_to_the_kept_nights()
-    {
-        var e = new TripEnquiry
-        {
-            Id = Guid.NewGuid(),
-            Kind = TripEnquiryKinds.Stay,
-            CheckIn = Start,
-            CheckOut = Start.AddDays(3),
-            Status = TripEnquiryStatuses.ConfirmedByTraveller,
-            AgreedTotal = 6000,
-            PhoneBookingJson = JsonSerializer.Serialize(
-                new TripPhoneBooking { HostName = "Ramesh", Nights = 3, AgreedTotal = 6000, RecordedAt = Now }, TripJson.Options),
-        };
-
-        TripProblemSplit.Plan(e, Start, 3, Now);
-
-        var booking = JsonSerializer.Deserialize<TripPhoneBooking>(e.PhoneBookingJson!, TripJson.Options)!;
-        Assert.Equal(2, booking.Nights);
-        Assert.Equal(4000, booking.AgreedTotal);
-        Assert.Equal("Ramesh", booking.HostName);
-    }
-
-    [Fact]
     public void Booking_quota_is_its_own()
     {
         Assert.Equal(20, TripLeadRules.BookingsPerHour);

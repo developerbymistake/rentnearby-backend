@@ -39,10 +39,6 @@ public static class TripReplaceSplit
             keptAfter.Status = r.Status;
             keptAfter.ConfirmedByTravellerAt = r.ConfirmedByTravellerAt;
             keptAfter.ConfirmedByOwnerAt = r.ConfirmedByOwnerAt;
-            keptAfter.HostConfirmAnswer = r.HostConfirmAnswer;
-            keptAfter.HostConfirmAnsweredAt = r.HostConfirmAnsweredAt;
-            keptAfter.HostConfirmAnsweredVia = r.HostConfirmAnsweredVia;
-            keptAfter.HostConfirmAnsweredByUserId = r.HostConfirmAnsweredByUserId;
             Move(keptAfter, r, rIn, cutOut, rOut, afterTotal);
         }
 
@@ -70,31 +66,15 @@ public static class TripReplaceSplit
         return r;
     }
 
-    // row takes [from, to) of source (whose check-in is sourceIn): day number, total, phone booking nights and context follow.
+    // row takes [from, to) of source (whose check-in is sourceIn): day number, total and context follow.
     private static void Move(TripEnquiry row, TripEnquiry source, DateOnly sourceIn, DateOnly from, DateOnly to, int? total)
     {
-        var sourcePhone = source.PhoneBookingJson;
         var sourceContext = source.ContextJson;
         row.Day = source.Day is { } d ? (short)(d + (from.DayNumber - sourceIn.DayNumber)) : null;
         row.CheckIn = from;
         row.CheckOut = to;
         row.AgreedTotal = total;
-        row.PhoneBookingJson = ShrinkPhoneBooking(sourcePhone, to.DayNumber - from.DayNumber, total);
         row.ContextJson = RebuildContext(sourceContext, from, to);
-    }
-
-    private static string? ShrinkPhoneBooking(string? json, int nights, int? total)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return json;
-        try
-        {
-            var booking = JsonSerializer.Deserialize<TripPhoneBooking>(json, TripJson.Options);
-            if (booking == null) return json;
-            booking.Nights = nights;
-            if (total is { } t) booking.AgreedTotal = t;
-            return JsonSerializer.Serialize(booking, TripJson.Options);
-        }
-        catch (JsonException) { return json; }
     }
 
     private static string RebuildContext(string json, DateOnly from, DateOnly to)

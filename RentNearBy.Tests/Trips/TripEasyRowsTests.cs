@@ -161,7 +161,6 @@ public class TripEasyRowsTests
 
     [Theory]
     [InlineData(TripEnquiryStatuses.Asked, TripRowStates.Asked, false)]
-    [InlineData(TripEnquiryStatuses.ConfirmedByTraveller, TripRowStates.Booked, false)]
     [InlineData(TripEnquiryStatuses.Offered, TripRowStates.Offer, true)]
     [InlineData(TripEnquiryStatuses.Countered, TripRowStates.Asked, false)]
     [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripRowStates.Confirmed, false)]
@@ -250,16 +249,6 @@ public class TripEasyRowsTests
         var row = Row(Rows(plan, [moved]), "stay:2");
         Assert.Equal(TripRowStates.Attention, row.State);
         Assert.True(row.NeedsYou);
-    }
-
-    [Fact]
-    public void Booked_stay_needs_you_only_when_another_row_is_offered()
-    {
-        var plan = OneCity();
-        var booked = StayRow(TripEnquiryStatuses.ConfirmedByTraveller, 1, 2);
-        var offered = StayRow(TripEnquiryStatuses.Offered, 1, 2);
-        Assert.True(Row(Rows(plan, [booked, offered]), "stay:1").NeedsYou);
-        Assert.False(Row(Rows(plan, [booked]), "stay:1").NeedsYou);
     }
 
     [Fact]

@@ -248,20 +248,6 @@ public sealed class JourneyHarness : IAsyncDisposable
             s.Uow, s.Db, s.Conversations, Chat, Notifier, RateLimit, Cache, Loggers, s.Http);
     }
 
-    public async Task<IResult> PhoneBookAsync(Guid tripId, Guid callerId, CreatePhoneBookingRequest request)
-    {
-        await using var s = NewScope();
-        return await TripEnquiryHandlers.CreatePhoneBooking(tripId, request, new CreatePhoneBookingRequestValidator(), Principal(callerId),
-            s.Uow, s.Db, Chat, Notifier, RateLimit, ExecutionOptions, Loggers, s.Http);
-    }
-
-    public async Task<IResult> EditPhoneBookingAsync(Guid enquiryId, Guid callerId, EditPhoneBookingRequest request)
-    {
-        await using var s = NewScope();
-        return await TripEnquiryHandlers.EditPhoneBooking(enquiryId, request, new EditPhoneBookingRequestValidator(), Principal(callerId),
-            s.Uow, s.Db, Chat, Notifier, ExecutionOptions, Loggers);
-    }
-
     public async Task<IResult> TaxiBookAsync(Guid tripId, Guid callerId, CreateTaxiBookingRequest request)
     {
         await using var s = NewScope();

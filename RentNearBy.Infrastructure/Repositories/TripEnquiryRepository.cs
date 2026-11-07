@@ -12,9 +12,6 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
     public async Task<TripEnquiry?> GetByIdTrackedAsync(Guid id)
         => await _dbSet.FirstOrDefaultAsync(e => e.Id == id);
 
-    public async Task<TripEnquiry?> GetByTokenHashAsync(string hash)
-        => await _dbSet.FirstOrDefaultAsync(e => e.HostConfirmTokenHash == hash);
-
     public async Task<IReadOnlyList<TripEnquiry>> GetByTripAsync(Guid tripId)
         => await _dbSet.AsNoTracking()
             .Where(e => e.TripId == tripId)
@@ -69,29 +66,6 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
         var rows = await _dbSet.AsNoTracking().Where(e => ids.Contains(e.Id)).ToListAsync();
         var order = ids.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
         return (rows.OrderBy(e => order[e.Id]).ToList(), ids.Count == size ? ids[^1] : (Guid?)null);
-    }
-
-    public async Task<(IReadOnlyList<TripEnquiry> Items, Guid? Next)> GetHostNotConfirmedDueAsync(DateTime nowUtc, Guid? after, int take)
-    {
-        var size = Math.Max(1, take);
-        var due = nowUtc.AddHours(-TripReminderRules.HostNotConfirmedHours);
-        var oldest = nowUtc.AddHours(-(TripReminderRules.HostNotConfirmedHours + TripReminderRules.WindowHours));
-        var confirmed = TripEnquiryStatuses.ConfirmedByTraveller;
-        var completed = TripStatuses.Completed;
-        var ids = await _context.Database
-            .SqlQuery<Guid>($"""
-                SELECT e."Id" AS "Value" FROM "TripEnquiries" e
-                JOIN "Trips" t ON t."Id" = e."TripId"
-                WHERE e."Status" = {confirmed} AND e."HostConfirmAnsweredAt" IS NULL
-                  AND e."HostConfirmTokenIssuedAt" <= {due} AND e."HostConfirmTokenIssuedAt" > {oldest}
-                  AND t."MutedAt" IS NULL AND t."Status" <> {completed}
-                  AND ({after}::uuid IS NULL OR e."Id" > {after}::uuid)
-                  AND NOT EXISTS (SELECT 1 FROM "TripPushLogs" p WHERE p."DedupeKey" = 'hostnc:' || e."Id"::text)
-                ORDER BY e."Id"
-                LIMIT {size}
-                """)
-            .ToListAsync();
-        return await LoadPageAsync(ids, size);
     }
 
     public async Task<IReadOnlyList<TripEnquiry>> GetOpenByTripAsync(Guid tripId, string kind)
@@ -174,12 +148,6 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
             Sum(TripOwnerBuckets.New), Sum(TripOwnerBuckets.Offered), Sum(TripOwnerBuckets.Confirmed), Sum(TripOwnerBuckets.Closed));
     }
 
-    public async Task<int> CountNotMeAsync(Guid travellerId, DateTime sinceUtc)
-        => await _dbSet.AsNoTracking().CountAsync(e =>
-            e.TravellerUserId == travellerId
-            && e.HostConfirmAnswer == TripHostConfirmAnswers.NotMe
-            && e.HostConfirmAnsweredAt >= sinceUtc);
-
     public async Task<int> TryTransitionAsync(Guid id, string[] fromStatuses, string toStatus, string? failReason, DateTime nowUtc)
         => await _dbSet
             .Where(e => e.Id == id && fromStatuses.Contains(e.Status))
@@ -215,7 +183,7 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
             u => new TripPartyInfo(u.Id, u.Name, u.PhoneNumber, u.IsContactVisible, null));
     }
 
-    public async Task<TripPushContext> LoadPushContextAsync(TripEnquiry e, Guid recipientUserId, int? total = null, bool? confirmed = null)
+    public async Task<TripPushContext> LoadPushContextAsync(TripEnquiry e, Guid recipientUserId, int? total = null)
     {
         var travellerName = ReadTravellerName(e);
         if (string.IsNullOrEmpty(travellerName) && e.TravellerUserId is { } travellerId)
@@ -268,7 +236,7 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
         if (e.TripId == null && e.Kind == TripEnquiryKinds.Taxi && e.TravellerUserId == recipientUserId)
             journeyId = await FindJourneyIdAsync(e, recipientUserId);
 
-        return new TripPushContext(recipientUserId, travellerName, e.ListingName, chatArgs, total, confirmed, ownerName, journeyId);
+        return new TripPushContext(recipientUserId, travellerName, e.ListingName, chatArgs, total, ownerName, journeyId);
     }
 
     // The journey stored in the lead's context at ask time wins; older leads fall back to the leg's LastEnquiryId,
@@ -419,20 +387,6 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
             .Select(t => new { t.Id, t.ContactPhone, t.WhatsAppNumber })
             .ToListAsync();
         return rows.ToDictionary(r => r.Id, r => (Phone: r.ContactPhone, WhatsApp: r.WhatsAppNumber));
-    }
-
-    public async Task<Dictionary<Guid, int>> CountNotMeByTravellersAsync(IReadOnlyCollection<Guid> travellerIds, DateTime sinceUtc)
-    {
-        if (travellerIds.Count == 0) return new Dictionary<Guid, int>();
-        var ids = travellerIds.Distinct().ToList();
-        var rows = await _dbSet.AsNoTracking()
-            .Where(e => e.TravellerUserId != null && ids.Contains(e.TravellerUserId.Value)
-                && e.HostConfirmAnswer == TripHostConfirmAnswers.NotMe
-                && e.HostConfirmAnsweredAt >= sinceUtc)
-            .GroupBy(e => e.TravellerUserId!.Value)
-            .Select(g => new { Id = g.Key, Count = g.Count() })
-            .ToListAsync();
-        return rows.ToDictionary(r => r.Id, r => r.Count);
     }
 
     private static string? ReadTravellerName(TripEnquiry e)

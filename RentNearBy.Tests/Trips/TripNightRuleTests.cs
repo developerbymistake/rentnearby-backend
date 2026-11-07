@@ -74,8 +74,6 @@ public class TripNightRuleTests
     [InlineData("ConfirmedByBoth", 5, "confirmed")]
     [InlineData("ConfirmedByBoth", 4, "confirmed")]
     [InlineData("ConfirmedByBoth", 3, "closed")]
-    [InlineData("ConfirmedByTraveller", 3, "closed")]
-    [InlineData("ConfirmedByTraveller", 4, "new")]
     [InlineData("Countered", 3, "new")]
     [InlineData("Asked", 3, "new")]
     [InlineData("Offered", 3, "offered")]
@@ -116,17 +114,6 @@ public class TripNightRuleTests
         Assert.Equal(D(2), split.Cancelled.CheckIn);
         Assert.Equal(D(3), split.Cancelled.CheckOut);
         Assert.Equal(4000, split.Kept.AgreedTotal + split.Cancelled.AgreedTotal);
-    }
-
-    [Fact]
-    public void Replace_a_booking_only_you_confirmed_cancels_it_whole()
-    {
-        var phone = StayRow(TripEnquiryStatuses.ConfirmedByTraveller, 2, 2, total: 1800);
-        var split = TripReplaceSplit.Plan(phone, D(2), D(3), Guid.NewGuid(), DateTime.UtcNow);
-
-        Assert.Null(split.Kept);
-        Assert.Same(phone, split.Cancelled);
-        Assert.Equal(TripEnquiryStatuses.CancelledByTraveller, phone.Status);
     }
 
     // ---- Journey rows are dated by their journey, never by the night window

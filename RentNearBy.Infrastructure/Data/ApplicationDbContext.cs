@@ -1279,11 +1279,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(x => x.Status).HasMaxLength(24).IsRequired();
             e.Property(x => x.FailReason).HasMaxLength(24);
             e.Property(x => x.IsUrgent).HasDefaultValue(false);
-            e.Property(x => x.PhoneBookingJson).HasColumnType("jsonb");
-            e.Property(x => x.HostConfirmTokenHash).HasMaxLength(64);
-            e.Property(x => x.HostConfirmLinkCount).HasDefaultValue((short)0);
-            e.Property(x => x.HostConfirmAnswer).HasMaxLength(8);
-            e.Property(x => x.HostConfirmAnsweredVia).HasMaxLength(8);
             e.Property(x => x.DriverFareEditCount).HasDefaultValue((short)0);
             e.Property(x => x.AdvanceStatus).HasMaxLength(16).HasDefaultValue(TripAdvanceStatuses.None);
             e.Property(x => x.HostReminderCount).HasDefaultValue((short)0);
@@ -1323,9 +1318,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(x => new { x.TripId, x.Kind, x.ListingId, x.CityLeg }, "ix_tripenquiries_open_taxi_unique")
              .IsUnique()
              .HasFilter(open + " AND \"Day\" IS NULL");
-            e.HasIndex(x => x.HostConfirmTokenHash, "ix_tripenquiries_host_token")
-             .IsUnique()
-             .HasFilter("\"HostConfirmTokenHash\" IS NOT NULL");
             e.HasIndex(x => new { x.OwnerUserId, x.Status, x.CreatedAt }, "ix_tripenquiries_owner_status")
              .IsDescending(false, false, true);
             e.HasIndex(x => new { x.TravellerUserId, x.CreatedAt }, "ix_tripenquiries_traveller")
@@ -1340,17 +1332,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasFilter("\"ConversationId\" IS NOT NULL");
             e.HasIndex(x => new { x.TravellerUserId, x.Kind, x.ListingId }, "ix_tripenquiries_traveller_listing")
              .HasFilter(open);
-            e.HasIndex(x => new { x.TravellerUserId, x.HostConfirmAnswer, x.HostConfirmAnsweredAt }, "ix_tripenquiries_notme");
             e.HasIndex(x => x.UpdatedAt, "ix_tripenquiries_orphan").HasFilter("\"TripId\" IS NULL");
-            // Timer predicates (TripTimerService passes 2, 3, 8, 9), each matched exactly by a partial index.
+            // Timer predicates (TripTimerService passes 2, 3, 8), each matched exactly by a partial index.
             e.HasIndex(x => x.CheckIn, "ix_tripenquiries_urgent")
              .HasFilter("NOT \"IsUrgent\" AND \"CheckIn\" IS NOT NULL AND " + open);
             e.HasIndex(x => x.CheckIn, "ix_tripenquiries_checkin_unconfirmed")
              .HasFilter("\"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered')");
             e.HasIndex(x => x.CreatedAt, "ix_tripenquiries_asked")
              .HasFilter("\"Status\" = 'Asked'");
-            e.HasIndex(x => x.HostConfirmTokenIssuedAt, "ix_tripenquiries_hostnc")
-             .HasFilter("\"Status\" = 'ConfirmedByTraveller' AND \"HostConfirmAnsweredAt\" IS NULL");
 
             e.ToTable(t =>
             {

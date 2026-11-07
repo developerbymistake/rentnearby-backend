@@ -26,14 +26,6 @@ public static class TripNotifications
         Host(e, ctx, NotificationTypes.TripOfferDeclined, "Offer declined",
             $"{Name(ctx.TravellerName, "A guest")} declined your offer.", ChatOrEnquiries(e, ctx));
 
-    public static NotificationEvent TripPhoneBookingRecorded(TripEnquiry e, TripPushContext ctx) =>
-        Host(e, ctx, NotificationTypes.TripPhoneBookingRecorded, $"Booking recorded by {Name(ctx.TravellerName, "a guest")}",
-            $"Says you booked {((ctx.Total ?? e.AgreedTotal) is > 0 ? $"at Rs {Money(ctx.Total ?? e.AgreedTotal)} " : "")}for {Dates(e)}. Confirm or say not me.", Enquiries(e, ctx));
-
-    public static NotificationEvent TripHostLinkAnswered(TripEnquiry e, TripPushContext ctx) =>
-        Host(e, ctx, NotificationTypes.TripHostLinkAnswered, $"Booking marked {(ctx.Confirmed == true ? "confirmed" : "not me")} by link",
-            $"{Name(ctx.TravellerName, "A guest")}, {Dates(e)}. Not you? Change it here.", Enquiries(e, ctx));
-
     public static NotificationEvent TripTravellerLeft(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripTravellerLeft, $"{Name(ctx.TravellerName, "A guest")} cancelled the trip",
             $"{Dates(e)} is no longer needed.", OwnerList(e, ctx));
@@ -47,14 +39,6 @@ public static class TripNotifications
     public static NotificationEvent TripOfferReceived(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripOfferReceived, $"{Listing(e, ctx)} sent an offer",
             $"Rs {Money(ctx.Total)} for {Dates(e, ctx)}. Valid {(e.IsUrgent ? "2 h" : "24 h")}.", Chat(e, ctx));
-
-    public static NotificationEvent TripHostConfirmed(TripEnquiry e, TripPushContext ctx) =>
-        Traveller(e, ctx, NotificationTypes.TripHostConfirmed, $"{Listing(e, ctx)} confirmed",
-            $"Your booking for {Dates(e)} is confirmed by both.", Plan(e, ctx));
-
-    public static NotificationEvent TripHostDenied(TripEnquiry e, TripPushContext ctx) =>
-        Traveller(e, ctx, NotificationTypes.TripHostDenied, $"{Listing(e, ctx)} says not me",
-            $"Pick another {KindWord(e)} for {Date(e)}.", Plan(e, ctx));
 
     public static NotificationEvent TripListingRemoved(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripListingRemoved, $"{Listing(e, ctx)} is no longer on Bakhli",
@@ -195,10 +179,6 @@ public static class TripNotifications
         Traveller(e, ctx, NotificationTypes.TripChangeAccepted, $"{Listing(e, ctx)} accepted your change",
             $"New total Rs {Money(ctx.Total)} for {Dates(e)}.", Chat(e, ctx));
 
-    public static NotificationEvent TripHostNotConfirmed(TripEnquiry e, TripPushContext ctx) =>
-        Traveller(e, ctx, NotificationTypes.TripHostNotConfirmed, $"{PhoneHostName(e) ?? Listing(e, ctx)} has not confirmed yet",
-            "We sent him one link. You can call him.", Plan(e, ctx));
-
     public static NotificationEvent TripNoReply(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripNoReply, $"No reply yet from {Listing(e, ctx)}",
             $"Call or WhatsApp; or ask another {AskWord(e)}.", Plan(e, ctx));
@@ -216,17 +196,6 @@ public static class TripNotifications
     public static NotificationEvent TripProblemReported(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripProblemReported, $"Problem on {Name(ctx.TravellerName, IsTaxi(e) ? "a traveller" : "a guest")}'s trip",
             IsTaxi(e) ? "The driver did not come." : "The host could not give the room.", IsTaxi(e) ? Leads(e) : Enquiries(e, ctx));
-
-    private static string? PhoneHostName(TripEnquiry e)
-    {
-        if (string.IsNullOrWhiteSpace(e.PhoneBookingJson)) return null;
-        try
-        {
-            var name = JsonSerializer.Deserialize<TripPhoneBooking>(e.PhoneBookingJson, TripJson.Options)?.HostName;
-            return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
-        }
-        catch (JsonException) { return null; }
-    }
 
     // ── formatting ───────────────────────────────────────────────────────────
 

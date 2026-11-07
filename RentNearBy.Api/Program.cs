@@ -284,10 +284,6 @@ app.MapGet("/go/{type:regex(^(s|t)$)}/{slug:regex(^[a-z0-9]+(-[a-z0-9]+)*$)}", (
     return Results.Content(html, "text/html");
 });
 
-// Host check page for a phone booking: the 43-char token is the only key, unknown/used/expired answer the same page.
-app.MapGet("/go/confirm/{token:regex(^[A-Za-z0-9_-]{{43}}$)}", TripPublicHandlers.Get).AllowAnonymous();
-app.MapPost("/go/confirm/{token:regex(^[A-Za-z0-9_-]{{43}}$)}", TripPublicHandlers.Post).AllowAnonymous().DisableAntiforgery();
-
 app.MapGet("/delete-account", () => Results.Content("""
 <!DOCTYPE html>
 <html lang="en">
