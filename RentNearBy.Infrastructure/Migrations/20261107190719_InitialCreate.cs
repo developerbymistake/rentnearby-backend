@@ -1705,15 +1705,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     AgreedTotal = table.Column<int>(type: "integer", nullable: true),
                     ConfirmedByTravellerAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     ConfirmedByOwnerAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    PhoneBookingJson = table.Column<string>(type: "jsonb", nullable: true),
-                    HostConfirmTokenHash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
-                    HostConfirmTokenIssuedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    HostConfirmTokenExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    HostConfirmLinkCount = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
-                    HostConfirmAnsweredAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    HostConfirmAnswer = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: true),
-                    HostConfirmAnsweredVia = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: true),
-                    HostConfirmAnsweredByUserId = table.Column<Guid>(type: "uuid", nullable: true),
                     DriverFareEditCount = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
                     AdvanceStatus = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "None"),
                     AdvanceAmount = table.Column<int>(type: "integer", nullable: true),
@@ -1746,7 +1737,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.CheckConstraint("ck_tripenquiries_advance_status", "\"AdvanceStatus\" IN ('None','Pending','ProofSent','Received','HoldExpired')");
                     table.CheckConstraint("ck_tripenquiries_amounts", "(\"AgreedTotal\" IS NULL OR \"AgreedTotal\" >= 0) AND (\"AdvanceAmount\" IS NULL OR \"AdvanceAmount\" >= 0) AND (\"DriverFare\" IS NULL OR \"DriverFare\" >= 0) AND (\"AgreedFare\" IS NULL OR \"AgreedFare\" >= 0) AND (\"ListedRateSnapshot\" IS NULL OR \"ListedRateSnapshot\" >= 0)");
                     table.CheckConstraint("ck_tripenquiries_kind", "\"Kind\" IN ('Stay','Taxi')");
-                    table.CheckConstraint("ck_tripenquiries_status", "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller','NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Failed','Closed')");
+                    table.CheckConstraint("ck_tripenquiries_status", "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller','NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Failed','Closed')");
                     table.ForeignKey(
                         name: "FK_TripEnquiries_Conversations_ConversationId",
                         column: x => x.ConversationId,
@@ -2749,7 +2740,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_tripenquiries_expires",
                 table: "TripEnquiries",
                 column: "ExpiresAt",
-                filter: "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller')");
+                filter: "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_hold",
@@ -2758,36 +2749,18 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"AdvanceStatus\" IN ('Pending','ProofSent')");
 
             migrationBuilder.CreateIndex(
-                name: "ix_tripenquiries_host_token",
-                table: "TripEnquiries",
-                column: "HostConfirmTokenHash",
-                unique: true,
-                filter: "\"HostConfirmTokenHash\" IS NOT NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_tripenquiries_hostnc",
-                table: "TripEnquiries",
-                column: "HostConfirmTokenIssuedAt",
-                filter: "\"Status\" = 'ConfirmedByTraveller' AND \"HostConfirmAnsweredAt\" IS NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_tripenquiries_notme",
-                table: "TripEnquiries",
-                columns: new[] { "TravellerUserId", "HostConfirmAnswer", "HostConfirmAnsweredAt" });
-
-            migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_open_taxi_unique",
                 table: "TripEnquiries",
                 columns: new[] { "TripId", "Kind", "ListingId", "CityLeg" },
                 unique: true,
-                filter: "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller') AND \"Day\" IS NULL");
+                filter: "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller') AND \"Day\" IS NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_open_unique",
                 table: "TripEnquiries",
                 columns: new[] { "TripId", "Kind", "ListingId", "Day" },
                 unique: true,
-                filter: "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller') AND \"Day\" IS NOT NULL");
+                filter: "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller') AND \"Day\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_orphan",
@@ -2817,7 +2790,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_tripenquiries_traveller_listing",
                 table: "TripEnquiries",
                 columns: new[] { "TravellerUserId", "Kind", "ListingId" },
-                filter: "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller')");
+                filter: "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_trip",
@@ -2828,7 +2801,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_tripenquiries_urgent",
                 table: "TripEnquiries",
                 column: "CheckIn",
-                filter: "NOT \"IsUrgent\" AND \"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller')");
+                filter: "NOT \"IsUrgent\" AND \"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripoffers_enquiry",
