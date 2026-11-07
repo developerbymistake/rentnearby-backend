@@ -496,6 +496,39 @@ public sealed record RoadMatrix(int[,]? Minutes, double[,]? Km, bool[,] IsEstima
 // Raw OSRM table: sources x destinations, seconds and metres; null = no route.
 public sealed record RoadTable(double?[,] Seconds, double?[,] Metres);
 
+// Road minutes between chosen spots out of the cached city matrix; null = no route or id not in the matrix.
+public static class TripSpotMinutes
+{
+    public const int MaxIds = 25;
+
+    public static int?[][] Build(CityRoadMatrix matrix, IReadOnlyList<string> spotIds)
+    {
+        var n = matrix.Ids.Count;
+        var index = new Dictionary<string, int>(n, StringComparer.Ordinal);
+        for (var i = 0; i < n; i++) index.TryAdd(matrix.Ids[i], i);
+
+        var rows = spotIds.Select(id => index.TryGetValue(id, out var r) ? r : -1).ToArray();
+        var result = new int?[spotIds.Count][];
+        for (var i = 0; i < rows.Length; i++)
+        {
+            result[i] = new int?[rows.Length];
+            for (var j = 0; j < rows.Length; j++)
+            {
+                if (rows[i] < 0 || rows[j] < 0) continue;
+                if (rows[i] == rows[j])
+                {
+                    result[i][j] = 0;
+                    continue;
+                }
+                var cell = rows[i] * n + rows[j];
+                if (matrix.Sec[cell] < 0) continue;
+                result[i][j] = RoadUnits.Minutes(matrix.Sec[cell]);
+            }
+        }
+        return result;
+    }
+}
+
 // Redis value of TripCacheKeys.Matrix: n x n row-major over Ids, -1 = no route.
 // Sec is whole seconds rounded up; Metres is kept at the 0.1 km RoadMatrix carries, so a slice equals a direct table.
 public sealed class CityRoadMatrix

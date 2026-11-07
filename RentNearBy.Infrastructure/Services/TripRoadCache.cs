@@ -62,6 +62,12 @@ public class TripRoadCache(
         return null;
     }
 
+    public async Task<CityRoadMatrix?> ReadCityMatrixAsync(long cityKey, CancellationToken ct = default)
+    {
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        return redis == null ? null : await ReadMatrixAsync(redis, cityKey);
+    }
+
     private async Task<bool> IsSkippedAsync(IConnectionMultiplexer redis, long cityKey)
         => await ReadAsync(redis, TripMatrixRules.SkipKey(cityKey)) != null;
 

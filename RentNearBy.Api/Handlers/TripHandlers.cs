@@ -31,6 +31,8 @@ public static class TripHandlers
     private static readonly TimeSpan CitiesWindow = TimeSpan.FromMinutes(1);
     private const int SupplyMaxPerWindow = 60;
     private static readonly TimeSpan SupplyWindow = TimeSpan.FromMinutes(1);
+    private const int MinutesMaxPerWindow = 60;
+    private static readonly TimeSpan MinutesWindow = TimeSpan.FromMinutes(1);
     private const int MaxCitiesPageSize = 200;
     private const int MaxCitySearchLength = 100;
     private const int MaxStateLength = 100;
@@ -153,6 +155,33 @@ public static class TripHandlers
             Total = total,
             GeneratedAt = cached.GeneratedAt,
         });
+    }
+
+    public static async Task<IResult> GetSpotMinutes(
+        long cityKey, SpotMinutesRequest request, IValidator<SpotMinutesRequest> validator, ClaimsPrincipal principal,
+        ITripCityCatalog catalog, ITripRoadCache roadCache, IRateLimitService rateLimiter, HttpContext httpContext)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+
+        var rl = await rateLimiter.CheckAsync($"trip:minutes:{userId}", MinutesMaxPerWindow, MinutesWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)(rl.RetryAfter ?? MinutesWindow).TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
+
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return Invalid(validation);
+        if (cityKey <= 0) return CityNotFound();
+
+        var (available, city) = await catalog.FindAsync(cityKey);
+        if (available && city == null) return CityNotFound();
+
+        var matrix = await roadCache.ReadCityMatrixAsync(cityKey);
+        if (matrix == null) return OkResponse(new SpotMinutesDto { Available = false });
+
+        var ids = request.SpotIds!;
+        return OkResponse(new SpotMinutesDto { Ids = ids, Minutes = TripSpotMinutes.Build(matrix, ids), Available = true });
     }
 
     // Stays accepting guests and drivers with a day rate in the city's district; counts cached per district generation

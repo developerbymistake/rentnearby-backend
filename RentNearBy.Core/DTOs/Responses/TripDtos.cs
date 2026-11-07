@@ -35,6 +35,15 @@ public class TripSpotsPageDto
     public DateTime? GeneratedAt { get; set; }
 }
 
+public class SpotMinutesDto
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Ids { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int?[][]? Minutes { get; set; }
+    public bool Available { get; set; }
+}
+
 public class TripPlanResultDto
 {
     public List<TripPlanDayDto> Days { get; set; } = new();

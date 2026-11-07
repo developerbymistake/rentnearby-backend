@@ -9,6 +9,8 @@ public interface ITripRoadCache
     Task<CityRoadMatrix?> GetCityMatrixAsync(long cityKey, CancellationToken ct = default);
     // Cached matrix or null at once; a miss starts the build in the background (single-flight).
     Task<CityRoadMatrix?> PeekCityMatrixAsync(long cityKey, CancellationToken ct = default);
+    // Cached matrix or null at once; never starts a build.
+    Task<CityRoadMatrix?> ReadCityMatrixAsync(long cityKey, CancellationToken ct = default);
     Task InvalidateAsync(long cityKey);
     // Read-through over IOsrmClient.RouteAsync keyed by the ordered stops; null = no route.
     Task<JsonElement?> GetRouteGeometryAsync(IReadOnlyList<(double Lat, double Lon)> points, CancellationToken ct = default);

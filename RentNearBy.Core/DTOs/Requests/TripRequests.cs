@@ -21,6 +21,11 @@ public class PlanTripRequest
     public double? AnchorLongitude { get; set; }
 }
 
+public class SpotMinutesRequest
+{
+    public List<string>? SpotIds { get; set; }
+}
+
 public class PlanSpotInput
 {
     public string Id { get; set; } = string.Empty;
