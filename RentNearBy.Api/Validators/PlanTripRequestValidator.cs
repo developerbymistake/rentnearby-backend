@@ -15,7 +15,11 @@ public class PlanTripRequestValidator : AbstractValidator<PlanTripRequest>
     public const string InvalidRoadTimeMessage = "Invalid road time";
     public const string InvalidCityMessage = "Invalid city";
 
+    public const string TooManyPerDayMessage = "Up to 6 places a day";
+
     public static string TooManyPlacesMessage(int max) => $"A trip can have up to {max} places";
+
+    public static string TooManyForDaysMessage(int days) => $"Up to {Math.Min(days * TripLimits.MaxSpotsPerDay, TripLimits.MaxSpots)} places for {days} days (6 a day)";
 
     public static bool IsValidStartDate(DateOnly date) => date.Year is >= 2000 and <= 2100;
 
@@ -40,7 +44,10 @@ public class PlanTripRequestValidator : AbstractValidator<PlanTripRequest>
                 .NotNull().WithMessage(NoPlacesMessage)
                 .Must(s => s!.Count >= 1).WithMessage(NoPlacesMessage)
                 .Must(s => s!.Count <= maxSpots).WithMessage(TooManyPlacesMessage(maxSpots))
-                .WithErrorCode(TripErrorTypes.TooManySpots);
+                .WithErrorCode(TripErrorTypes.TooManySpots)
+                .Must((x, s) => x.MaxDays is not { } days || s!.Count <= days * TripLimits.MaxSpotsPerDay)
+                .WithMessage(x => TooManyForDaysMessage(x.MaxDays ?? TripLimits.MaxDays))
+                .WithErrorCode(TripErrorTypes.TooManySpotsForDays);
 
             RuleFor(x => x.Days).Null().WithMessage("Days are not used when planning automatically");
 
@@ -69,6 +76,8 @@ public class PlanTripRequestValidator : AbstractValidator<PlanTripRequest>
                 RuleFor(x => x.Days)
                     .Cascade(CascadeMode.Stop)
                     .Must(d => d!.Sum(i => i.Spots.Count) >= 1).WithMessage(NoPlacesMessage)
+                    .Must(d => d!.All(i => i.Spots.Count <= TripLimits.MaxSpotsPerDay)).WithMessage(TooManyPerDayMessage)
+                    .WithErrorCode(TripErrorTypes.TooManySpotsPerDay)
                     .Must(d => d!.Sum(i => i.Spots.Count) <= maxSpots).WithMessage(TooManyPlacesMessage(maxSpots))
                     .WithErrorCode(TripErrorTypes.TooManySpots)
                     .Must(d => d!.All(i => i.Spots.All(s => s != null))).WithMessage(NoPlacesMessage);

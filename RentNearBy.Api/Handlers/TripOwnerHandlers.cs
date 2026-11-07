@@ -142,7 +142,6 @@ public static class TripOwnerHandlers
         if (request.AdvanceAmount is { } adv && (adv < 0 || adv > total))
             return BadRequestResponse("Advance must not be more than the total");
 
-        var needs = (request.NeedsEchoed ?? []).Where(n => TripNeeds.All.Contains(n)).Distinct().ToArray();
         var datesDiffer = request.CheckIn != e.CheckIn || request.CheckOut != e.CheckOut;
         var validUntil = TripExecutionRules.OfferValidUntil(start, request.CheckIn, now);
         var firstAnswer = !offers.Any(o => o.Kind == TripOfferKinds.Offer) && now - e.CreatedAt <= TimeSpan.FromHours(24);
@@ -160,7 +159,6 @@ public static class TripOwnerHandlers
             Nights = (short)nights,
             Total = total,
             Inclusions = TripTextSafety.CleanOrNull(request.Inclusions, 200),
-            NeedsEchoedJson = JsonSerializer.Serialize(needs, TripJson.Options),
             AdvanceAmount = request.AdvanceAmount,
             BalanceNote = TripTextSafety.CleanOrNull(request.BalanceNote, TripExecutionRules.BalanceNoteMax),
             CancellationText = TripTextSafety.CleanOrNull(request.CancellationText, TripExecutionRules.CancellationMax),
@@ -198,7 +196,6 @@ public static class TripOwnerHandlers
                     total,
                     listedPerNight = listed,
                     inclusions = offer.Inclusions,
-                    needsEchoed = needs,
                     advanceAmount = offer.AdvanceAmount,
                     balanceNote = offer.BalanceNote,
                     cancellationText = offer.CancellationText,
@@ -424,7 +421,6 @@ public static class TripOwnerHandlers
             Nights = (short)nights,
             Total = total,
             Inclusions = TripTextSafety.CleanOrNull(request.Inclusions, 200),
-            NeedsEchoedJson = "[]",
             AdvanceAmount = request.AdvanceAmount,
             BalanceNote = TripTextSafety.CleanOrNull(request.BalanceNote, TripExecutionRules.BalanceNoteMax),
             CancellationText = TripTextSafety.CleanOrNull(request.CancellationText, TripExecutionRules.CancellationMax),

@@ -34,7 +34,7 @@ public class TripTravelEveReminderTests
     }
 
     private static TripTravel Arrival(SavedJourney j) =>
-        new() { Mode = TripTravelModes.Journey, FromName = "Haridwar", JourneyId = j.Id, Cars = j.Legs.Count };
+        new() { FromName = "Haridwar", JourneyId = j.Id, Cars = j.Legs.Count };
 
     private static TripEnquiry Row(Guid journeyId, int car, string status, string? pickup = null) => new()
     {
@@ -81,17 +81,11 @@ public class TripTravelEveReminderTests
         => Assert.Equal("No travel planned yet. Open the trip.", Body(Plan(null), null));
 
     [Fact]
-    public void Own_travel_with_bus_and_time()
+    public void Own_travel_mark_says_you_will_arrange_it()
     {
-        var own = new TripTravel { Mode = TripTravelModes.Own, FromName = "Haridwar", How = "bus", LeavesAt = "06:00" };
-        Assert.Equal("Your own travel · Bus · 6:00 am. Open the trip.", Body(Plan(own), null));
-    }
-
-    [Fact]
-    public void Own_travel_other_and_no_time_is_plain()
-    {
-        var own = new TripTravel { Mode = TripTravelModes.Own, FromName = "Haridwar", How = TripTravelHows.Other };
-        Assert.Equal("Your own travel. Open the trip.", Body(Plan(own), null));
+        var plan = Plan(null);
+        plan.Legs![1].TravelMark = new TripRowMark { Status = TripRowMarkStatuses.Own };
+        Assert.Equal("You'll arrange your travel. Open the trip.", Body(plan, null));
     }
 
     [Fact]

@@ -96,6 +96,8 @@ public class AdminTripEnquiryDetailDto : AdminTripEnquiryDto
     public Guid? TripId { get; set; }
     public Guid? ConversationId { get; set; }
     public string? ClosedNote { get; set; }
+    public string? CancelledBy { get; set; }
+    public string? CancelReason { get; set; }
     public List<AdminTripProblemDto> Problems { get; set; } = new();
 }
 

@@ -394,13 +394,11 @@ public static class TripEnquiryErrorTypes
     public const string TripNotRunning = "TripNotRunning";
     public const string TripNotEnded = "TripNotEnded";
     public const string ProblemOutsideTrip = "ProblemOutsideTrip";
-    public const string AskAgainNothing = "AskAgainNothing";
     public const string TripNeedsUpdate = "TripNeedsUpdate";
     public const string TravelDateChanged = "TravelDateChanged";
     public const string TripCompleted = "TripCompleted";
     public const string EnquiryEnded = "EnquiryEnded";
     public const string NightFailed = "NightFailed";
-    public const string NoStayNight = "NoStayNight";
     public const string DaysAcrossCities = "DaysAcrossCities";
     public const string ConcurrentUpdate = "CONCURRENT_UPDATE";
     public const string CONCURRENT_UPDATE = ConcurrentUpdate;
@@ -593,7 +591,6 @@ public sealed class TripEnquiryContext
     public int? Adults { get; set; }
     public int? Kids { get; set; }
     public int? Rooms { get; set; }
-    public string[] Needs { get; set; } = [];
     public string? TravellerName { get; set; }
     public List<TripEnquiryContextDay> Days { get; set; } = new();
     public string? PickupTime { get; set; }
@@ -692,7 +689,6 @@ public static class TripSegmentContext
             Adults = settings.Adults ?? people,
             Kids = settings.Kids ?? 0,
             Rooms = null,
-            Needs = [],
             TravellerName = name.Length == 0 ? null : name,
             Days = [new TripEnquiryContextDay { Day = travelDay, Date = date, Minutes = 0, Spots = [] }],
             PickupTime = time,
@@ -722,46 +718,6 @@ public sealed class TripEnquiryContextDay
     public DateOnly? Date { get; set; }
     public int Minutes { get; set; }
     public List<string> Spots { get; set; } = new();
-    // Local taxi leads only: where the day started when the driver was asked (TripDayStart).
-    public string? Start { get; set; }
-    // Local taxi leads only: the name of that start (last night's stay), the default pickup.
-    public string? StartName { get; set; }
-}
-
-// The start of a day as the driver was told: arrival, last night's stay of the same city, own stay, no stay or not chosen.
-public static class TripDayStart
-{
-    public const string Arrival = "arrival";
-    public const string NotChosen = "none";
-    public const string NoStay = "skipped";
-    public const string Own = "own";
-
-    public static string Of(TripPlan plan, int day)
-    {
-        if (day <= 1 || plan.LegIndexOf(day - 1) != plan.LegIndexOf(day)) return Arrival;
-        var stay = plan.Days?.FirstOrDefault(x => x.Day == day - 1)?.Stay;
-        if (stay == null) return NotChosen;
-        if (stay.Skipped == true) return NoStay;
-        if (stay.IsOwn == true) return Own;
-        return stay.StayId is { } id && id != Guid.Empty ? $"stay:{id:D}" : NotChosen;
-    }
-
-    // Last night's stay of the same city (own or listed), or null.
-    public static string? PlaceOf(TripPlan plan, int day)
-    {
-        if (day <= 1 || plan.LegIndexOf(day - 1) != plan.LegIndexOf(day)) return null;
-        var stay = plan.Days?.FirstOrDefault(x => x.Day == day - 1)?.Stay;
-        if (stay == null || stay.Skipped == true) return null;
-        return TripTextSafety.CleanOrNull(stay.Name, TripLeadRules.PickupPlaceMax);
-    }
-
-    // A pickup the traveller left at the day's start follows the new start; a typed one stays.
-    public static string? Pickup(string? current, string? oldStart, string? newStart)
-    {
-        var cur = string.IsNullOrWhiteSpace(current) ? null : current.Trim();
-        if (cur == null) return newStart;
-        return oldStart != null && string.Equals(cur, oldStart.Trim(), StringComparison.OrdinalIgnoreCase) ? newStart : cur;
-    }
 }
 
 // TripEnquiry.PhoneBookingJson.
@@ -843,9 +799,6 @@ public static class TripEnquiryText
         if (ctx.Rooms is { } rooms) sb.Append(", ").Append(rooms).Append(rooms == 1 ? " room" : " rooms");
         sb.Append('.');
 
-        var needs = NeedsText(ctx.Needs);
-        if (needs != null) sb.Append(" We need ").Append(needs).Append('.');
-
         foreach (var day in ctx.Days.OrderBy(d => d.Day))
         {
             if (day.Spots.Count == 0) continue;
@@ -920,23 +873,6 @@ public static class TripEnquiryText
         if (kids is { } k && k > 0) text += k == 1 ? ", 1 kid" : $", {k} kids";
         return text;
     }
-
-    public static string? NeedsText(IReadOnlyList<string>? needs)
-    {
-        if (needs == null) return null;
-        var words = needs.Select(NeedWord).Where(w => w != null).Select(w => w!).Distinct().ToList();
-        if (words.Count == 0) return null;
-        if (words.Count == 1) return words[0];
-        return string.Join(", ", words.Take(words.Count - 1)) + " and " + words[^1];
-    }
-
-    private static string? NeedWord(string need) => need switch
-    {
-        TripNeeds.NoStairs => "a ground-floor room",
-        TripNeeds.KidsSafe => "a safe room for kids",
-        TripNeeds.VegFood => "vegetarian food",
-        _ => null,
-    };
 
     private static string SpotsText(IReadOnlyList<string> spots)
     {

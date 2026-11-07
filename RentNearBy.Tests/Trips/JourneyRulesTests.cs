@@ -151,7 +151,7 @@ public class JourneyRulesTests
                 new TripCityLeg
                 {
                     Index = 2, CityKey = 210000002, CityName = "Badrinath", Latitude = 30, Longitude = 79,
-                    Arrival = new TripTravel { Mode = TripTravelModes.Journey, FromName = "Haridwar", JourneyId = journey.Id, Cars = 1 },
+                    Arrival = new TripTravel { FromName = "Haridwar", JourneyId = journey.Id, Cars = 1 },
                 },
             ],
         };

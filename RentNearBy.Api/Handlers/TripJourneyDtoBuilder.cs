@@ -15,9 +15,6 @@ public static class TripJourneyDtoBuilder
     public static SavedJourney? JourneyFor(TripPlan plan, string role, IEnumerable<SavedJourney> journeys)
         => TripStepRules.StepOf(plan.Steps, role)?.JourneyId is { } id ? journeys.FirstOrDefault(j => j.Id == id) : null;
 
-    public static string? DisplayOf(TripPlan plan, string role, IEnumerable<SavedJourney> journeys)
-        => plan.Steps == null ? null : TripStepRules.Display(TripStepRules.StepOf(plan.Steps, role), JourneyFor(plan, role, journeys));
-
     public static HashSet<Guid> TaxiIds(IEnumerable<SavedJourney> journeys)
         => journeys
             .SelectMany(j => j.Legs)

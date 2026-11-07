@@ -169,32 +169,6 @@ public class TripLegRulesTests
         Assert.True(TripLegRules.DaysInOneLeg(plan, []));
     }
 
-    // ---- no stay tonight
-
-    [Fact]
-    public void IsNoStayNight_reads_the_skipped_stay()
-    {
-        var plan = TwoCity();
-        plan.Days[1].Stay = new TripStayChoice { Name = "No stay tonight", Skipped = true };
-        Assert.True(TripLegRules.IsNoStayNight(plan, 2));
-        Assert.False(TripLegRules.IsNoStayNight(plan, 1));
-        Assert.False(TripLegRules.IsNoStayNight(plan, 9));
-    }
-
-    [Fact]
-    public void FirstNoStayNight_first_and_later_night()
-    {
-        var plan = TwoCity();
-        plan.Days[1].Stay = new TripStayChoice { Name = "No stay tonight", Skipped = true };
-        Assert.Equal(2, TripLegRules.FirstNoStayNight(plan, Start, D(2), D(3)));
-        Assert.Equal(2, TripLegRules.FirstNoStayNight(plan, Start, D(1), D(3)));
-        Assert.Null(TripLegRules.FirstNoStayNight(plan, Start, D(1), D(2)));
-        Assert.Null(TripLegRules.FirstNoStayNight(plan, Start, D(3), D(5)));
-
-        plan.Days[0].Stay = new TripStayChoice { Name = "No stay tonight", Skipped = true };
-        Assert.Equal(1, TripLegRules.FirstNoStayNight(plan, Start, D(1), D(3)));
-    }
-
     // ---- home city
 
     [Fact]

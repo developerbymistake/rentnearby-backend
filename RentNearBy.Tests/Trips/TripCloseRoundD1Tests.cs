@@ -3,7 +3,7 @@ using RentNearBy.Infrastructure.Services;
 
 namespace RentNearBy.Tests.Trips;
 
-// Close round D1: phone booking change base, silence rules, journey resolve for three roles, day starts, list predicates.
+// Close round D1: phone booking change base, silence rules, journey resolve for three roles, list predicates.
 public class TripCloseRoundD1Tests
 {
     private static readonly DateOnly Start = new(2026, 11, 1);
@@ -19,7 +19,7 @@ public class TripCloseRoundD1Tests
                 new TripCityLeg
                 {
                     Index = 2, CityKey = 2, CityName = "Badrinath", Latitude = 30.7, Longitude = 79.5,
-                    Arrival = segmentJourney == null ? null : new TripTravel { Mode = TripTravelModes.Journey, JourneyId = segmentJourney },
+                    Arrival = segmentJourney == null ? null : new TripTravel { JourneyId = segmentJourney },
                 },
             ],
             Steps = new TripSteps
@@ -59,33 +59,6 @@ public class TripCloseRoundD1Tests
         plan.Settings!.StartDate = Start.AddDays(1);
         Assert.NotEqual(there, TripStepDates.Expected(TripStepRoles.GettingThere, plan, null));
         Assert.NotEqual(segment, TripStepDates.Expected(TripStepRoles.Segment, plan, 2));
-    }
-
-    [Fact]
-    public void DayStart_of_covers_every_case()
-    {
-        var plan = TwoCity();
-        var id = Guid.NewGuid();
-        Assert.Equal(TripDayStart.Arrival, TripDayStart.Of(plan, 1));
-        Assert.Equal(TripDayStart.Arrival, TripDayStart.Of(plan, 3));
-        Assert.Equal(TripDayStart.NotChosen, TripDayStart.Of(plan, 2));
-        plan.Days[0].Stay = new TripStayChoice { Skipped = true };
-        Assert.Equal(TripDayStart.NoStay, TripDayStart.Of(plan, 2));
-        plan.Days[0].Stay = new TripStayChoice { IsOwn = true, Name = "Aunt" };
-        Assert.Equal(TripDayStart.Own, TripDayStart.Of(plan, 2));
-        Assert.Equal("Aunt", TripDayStart.PlaceOf(plan, 2));
-        plan.Days[0].Stay = new TripStayChoice { StayId = id, Name = "Hill View" };
-        Assert.Equal($"stay:{id:D}", TripDayStart.Of(plan, 2));
-        Assert.Null(TripDayStart.PlaceOf(plan, 3));
-    }
-
-    [Fact]
-    public void Pickup_follows_the_start_only_while_it_still_equals_the_old_one()
-    {
-        Assert.Equal("B", TripDayStart.Pickup(null, "A", "B"));
-        Assert.Equal("B", TripDayStart.Pickup(" a ", "A", "B"));
-        Assert.Equal("Station", TripDayStart.Pickup("Station", "A", "B"));
-        Assert.Null(TripDayStart.Pickup("", "A", null));
     }
 
     [Fact]

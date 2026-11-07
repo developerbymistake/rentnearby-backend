@@ -13,9 +13,6 @@ public sealed record TripWrongCity(int Wrong, int Total, int? FirstWrongDay, str
 // Per-leg date rules of a multi-city trip. Dates are the truth: a row's day numbers drift when the start date moves.
 public static class TripLegRules
 {
-    // 409 of "I booked" when the driver's one open local row of this trip is in another city.
-    public const string DriverInOtherCity = "DriverInOtherCity";
-
     // Stay: CheckIn .. CheckOut - 1. Taxi: CheckIn + (d - min(days)) per stored day, else CheckIn .. CheckOut - 1.
     public static List<DateOnly> DatesOf(TripEnquiry e)
     {
@@ -54,20 +51,6 @@ public static class TripLegRules
 
     public static bool DaysInOneLeg(TripPlan plan, IReadOnlyList<int> days)
         => days.Count <= 1 || days.Select(plan.LegIndexOf).Distinct().Count() == 1;
-
-    public static bool IsNoStayNight(TripPlan plan, int day)
-        => plan.Days?.FirstOrDefault(d => d != null && d.Day == day)?.Stay?.Skipped == true;
-
-    public static int? FirstNoStayNight(TripPlan plan, DateOnly start, DateOnly checkIn, DateOnly checkOut)
-    {
-        var end = checkOut > checkIn ? checkOut : checkIn.AddDays(1);
-        for (var date = checkIn; date < end; date = date.AddDays(1))
-        {
-            var day = date.DayNumber - start.DayNumber + 1;
-            if (IsNoStayNight(plan, day)) return day;
-        }
-        return null;
-    }
 
     // The leg the owner was asked for: Context.City by folded name; a named city that is no leg any more (removed) is
     // unknown (0); only a row without a city falls back to the nearest leg to the listing; else null.

@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+
 namespace RentNearBy.Tests.Data;
 
 // The one fixture type tests depend on. Where the database comes from is decided only here.
@@ -11,4 +13,11 @@ public sealed class TestDatabase : DatabaseFixture
 
     protected override Task<string?> StartAsync()
         => Task.FromResult(IsAvailable ? Environment.GetEnvironmentVariable(EnvVar) : null);
+
+    // Idempotent: brings a fresh or older database to the current schema before the journeys run.
+    protected override async Task PrepareAsync()
+    {
+        await using var ctx = CreateContext();
+        await ctx.Database.MigrateAsync();
+    }
 }

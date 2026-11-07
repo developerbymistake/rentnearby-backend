@@ -470,6 +470,7 @@ public class TripTimerService(
     {
         var db = sp.GetRequiredService<ApplicationDbContext>();
         var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
+        var journeyRepo = sp.GetRequiredService<ISavedJourneyRepository>();
         var notifier = sp.GetRequiredService<ITripNotifier>();
         var now = DateTime.UtcNow;
         var today = TripExecutionRules.TodayIst(now);
@@ -483,7 +484,7 @@ public class TripTimerService(
             if (ct.IsCancellationRequested) break;
             var (trips, next) = await unitOfWork.Trips.GetDateReminderCandidatesAsync(startsIn, startsToday, markComplete, after, Batch);
             after = next;
-            done += await DateReminderPageAsync(trips, today, now, db, unitOfWork, notifier, ct);
+            done += await DateReminderPageAsync(trips, today, now, db, unitOfWork, journeyRepo, notifier, ct);
         }
         while (after != null);
         return done;
@@ -491,7 +492,7 @@ public class TripTimerService(
 
     private async Task<int> DateReminderPageAsync(
         IReadOnlyList<Trip> trips, DateOnly today, DateTime now, ApplicationDbContext db, IUnitOfWork unitOfWork,
-        ITripNotifier notifier, CancellationToken ct)
+        ISavedJourneyRepository journeyRepo, ITripNotifier notifier, CancellationToken ct)
     {
         var done = 0;
         foreach (var trip in trips)
@@ -501,18 +502,19 @@ public class TripTimerService(
             {
                 var plan = ReadPlan(trip);
                 var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
+                var linked = await journeyRepo.GetByTripAsync(trip.Id, trip.OwnerUserId);
 
                 if (trip.StartDate is { } start)
                 {
                     if (TripReminderRules.StartsInOpen(start, now)
-                        && TripReminderRules.ShouldSendStartsIn(trip, plan, enquiries, today)
+                        && TripReminderRules.ShouldSendStartsIn(trip, plan, enquiries, today, linked)
                         && await TripRemindableAsync(db, trip.Id, ct)
                         && await notifier.SendOnceAsync(
                             TripReminderNotifications.StartsIn(
                                 trip.OwnerUserId, trip.Id,
                                 plan.Legs is { Count: > 1 } ? TripReminderRules.RouteTitle(plan.LegCities) : trip.CityName,
                                 TripReminderRules.DaysLeft(start, today),
-                                TripReminderRules.StartsInBody(trip, plan, enquiries, today)),
+                                TripReminderRules.StartsInBody(trip, plan, enquiries, today, linked)),
                             TripReminderRules.StartsInKey(trip.Id, start), trip.Id, null))
                         done++;
 
@@ -589,7 +591,7 @@ public class TripTimerService(
                 var arrival = legs[k - 1]?.Arrival;
                 SavedJourney? journey = null;
                 IReadOnlyDictionary<Guid, JourneyTaxiInfo> taxis = new Dictionary<Guid, JourneyTaxiInfo>();
-                if (arrival?.Mode == TripTravelModes.Journey && arrival.JourneyId is { } journeyId)
+                if (TripTravelRules.JourneyIdOf(arrival) is { } journeyId)
                 {
                     var linked = await journeyRepo.GetByTripAsync(trip.Id, trip.OwnerUserId);
                     journey = linked.FirstOrDefault(j => j.Id == journeyId);

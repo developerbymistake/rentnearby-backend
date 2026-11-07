@@ -3,7 +3,7 @@ using RentNearBy.Core.DTOs.Requests;
 
 namespace RentNearBy.Tests.Trips;
 
-// Per-day planner points (last night's stay to tonight's), Best order, own step travel and the per-day taxi pickup.
+// Per-day planner points (last night's stay to tonight's), Best order and the own step status.
 public class TripDayAnchorsTests
 {
     private const int Limit = 450;
@@ -120,67 +120,19 @@ public class TripDayAnchorsTests
         Plan = new TripPlan
         {
             CityKey = 502141,
+            Legs = [new TripCityLeg { Index = 1, CityKey = 502141, CityName = "Nainital", Latitude = 29.38, Longitude = 79.45 }],
             Days = [new TripDay { Day = 1, Spots = [Spot("a")] }],
             Steps = new TripSteps { GettingThere = step },
         },
     };
 
     [Fact]
-    public void SaveValidator_OwnStepTravel()
+    public void SaveValidator_OwnStep_IsOnlyAStatus()
     {
         var v = new SaveTripRequestValidator();
 
-        Assert.True(v.Validate(SaveWith(new TripStep
-        {
-            Status = TripStepStatuses.Own, How = TripTravelHows.All[0], OwnName = "Volvo bus", OwnPhone = "9876543210", LeavesAt = "06:30",
-        })).IsValid);
-        Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Chosen, How = TripTravelHows.All[0] })).IsValid);
-        Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own, How = "plane" })).IsValid);
-        Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own, LeavesAt = "25:00" })).IsValid);
-        Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own, OwnPhone = "12345" })).IsValid);
         Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own })).IsValid);
+        Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Skipped })).IsValid);
+        Assert.False(v.Validate(SaveWith(new TripStep { Status = "notNeeded" })).IsValid);
     }
-
-    [Fact]
-    public void Merge_OlderApp_KeepsOwnStepTravel()
-    {
-        var stored = new TripPlan
-        {
-            Steps = new TripSteps { GettingThere = new TripStep { Status = TripStepStatuses.Own, How = "bus", OwnName = "Volvo", LeavesAt = "06:30" } },
-        };
-        var plan = new TripPlan { Steps = new TripSteps { GettingThere = new TripStep { Status = TripStepStatuses.Own } } };
-
-        TripPlanMerge.KeepStored(plan, stored, 4);
-
-        Assert.Equal("bus", plan.Steps!.GettingThere!.How);
-        Assert.Equal("Volvo", plan.Steps.GettingThere.OwnName);
-        Assert.Equal("06:30", plan.Steps.GettingThere.LeavesAt);
-    }
-
-    private static TripPlan TwoNights(string? night1 = "Deodar Homestay", bool skipped = false) => new()
-    {
-        Days =
-        [
-            new TripDay { Day = 1, Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = night1 ?? "", Skipped = skipped ? true : null } },
-            new TripDay { Day = 2 },
-        ],
-    };
-
-    [Fact]
-    public void DayStartPlace_IsLastNightsStay()
-    {
-        Assert.Null(TripDayStart.PlaceOf(TwoNights(), 1));
-        Assert.Equal("Deodar Homestay", TripDayStart.PlaceOf(TwoNights(), 2));
-        Assert.Null(TripDayStart.PlaceOf(TwoNights(skipped: true), 2));
-        Assert.Null(TripDayStart.PlaceOf(TwoNights(""), 2));
-    }
-
-    [Theory]
-    [InlineData(null, "Deodar", "Hill View", "Hill View")]
-    [InlineData("deodar", "Deodar", "Hill View", "Hill View")]
-    [InlineData("Mall Road gate", "Deodar", "Hill View", "Mall Road gate")]
-    [InlineData("Deodar", null, "Hill View", "Deodar")]
-    [InlineData("Deodar", "Deodar", null, null)]
-    public void Pickup_FollowsTheStartUnlessTyped(string? current, string? oldStart, string? newStart, string? expected)
-        => Assert.Equal(expected, TripDayStart.Pickup(current, oldStart, newStart));
 }

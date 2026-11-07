@@ -25,24 +25,25 @@ public static class TripBookingStates
 {
     public const string Draft = "draft", PlanOnly = "planOnly", Confirming = "confirming", Ready = "ready", Completed = "completed";
 
-    // Order: Completed, Draft, PlanOnly, Confirming, Ready. A red row that no settled row of the same kind replaces counts as Confirming.
-    // PlanOnly = a saved plan with spots and either no start date or no stay/taxi choice and no live enquiry on any day.
-    // Ready also needs every step of the trip counted (TripStepProgress 100%).
+    // Order: Completed, Draft, PlanOnly, Confirming, Ready, on the Make it easy rows (skipped rows leave the count).
+    // PlanOnly = a saved plan with spots and no row done, in progress or needing attention.
+    // Ready = every row that is not skipped is done and at least one row is done.
     public static string Compute(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys = null)
     {
         if (trip.Status == TripStatuses.Completed) return Completed;
-        var start = trip.StartDate ?? plan.Settings?.StartDate;
         var spots = plan.Days.Sum(d => d.Spots.Count);
         if (trip.Status != TripStatuses.Planned || spots == 0) return Draft;
-
-        var map = TripBookingMap.Build(plan, enquiries, journeys);
-        if (start == null || map.IsEmpty) return PlanOnly;
-        if (map.HasOpen || map.HasUnreplacedRed) return Confirming;
-        if (!map.StayAny.IsSubsetOf(map.StaySettled) || !map.TaxiAny.IsSubsetOf(map.TaxiSettled)
-            || !map.SegmentAny.IsSubsetOf(map.SegmentSettled)) return Confirming;
-        if (map.StaySettled.Count + map.TaxiSettled.Count + map.SegmentSettled.Count(s => s.Car > 0) == 0) return Confirming;
-        return TripStepProgress.Compute(trip, plan, enquiries, journeys ?? Array.Empty<SavedJourney>()).Percent == 100 ? Ready : Confirming;
+        return OfRows(TripEasyRows.Build(trip, plan, enquiries, journeys));
     }
+
+    public static string OfRows(IReadOnlyList<TripEasyRow> rows)
+    {
+        var counted = rows.Where(r => r.State != TripRowStates.Skipped).ToList();
+        if (!counted.Any(r => r.State != TripRowStates.Todo)) return PlanOnly;
+        if (counted.Any(r => r.State is TripRowStates.Asked or TripRowStates.Offer or TripRowStates.Attention)) return Confirming;
+        return counted.All(TripEasyRows.IsRowDone) ? Ready : Confirming;
+    }
+
 
     // An advance counts as open only while the booking is still live: cancel, problem and replace never reset AdvanceStatus.
     public static bool IsOpenForCompletion(TripEnquiry e) =>
@@ -62,186 +63,9 @@ public static class TripStatusRules
         => requested == TripStatuses.Draft && stored == TripStatuses.Planned && spots > 0 ? TripStatuses.Planned : requested;
 }
 
-// Confirmed = confirmed by both; confirmed and total exclude own and skipped nights/days (counted in StaysOwn / TaxisOwn).
-// Travel* = journey cars between cities (own travel excluded, own cars settled); taxi counts never include them, AgreedTotal does.
-public sealed record TripBookingCounts(
-    int StaysConfirmed, int StaysTotal, int TaxisConfirmed, int TaxisTotal, int AgreedTotal, int StaysOwn, int TaxisOwn,
-    int TravelConfirmed = 0, int TravelTotal = 0);
-
 // Night (stay) and day (taxi) numbers 1-based, as in the plan.
-internal sealed class TripBookingMap
+public static class TripBookingMap
 {
-    // Settled = confirmed by both, own or skipped. TaxiBookedByYou = days a live row booked by the traveller alone holds.
-    public readonly HashSet<int> StayAny = new(), StaySettled = new(), TaxiAny = new(), TaxiSettled = new(), TaxiBookedByYou = new();
-    // Plan-only nights (own stay, No stay tonight) and own taxi days; a day a live enquiry covers is not in these sets.
-    public readonly HashSet<int> StayOwn = new(), StaySkipped = new(), TaxiOwn = new(), TaxiSkipped = new();
-    // Journey cars by (role, city leg, car): Role = gettingThere | comingBack (Leg 0) | segment (Leg = city leg entered).
-    // Own travel is car 0; a car in OwnCars is settled and own.
-    public readonly HashSet<(string Role, int Leg, int Car)> SegmentAny = new(), SegmentSettled = new(), SegmentOwn = new(),
-        SegmentBookedByYou = new();
-    public bool HasOpen, HasUnreplacedRed, HasLiveEnquiry;
-    public int OpenStays, OpenTaxis;
-
-    // Own travel (car 0) says nothing about nights or days, so it never makes the plan non-empty.
-    public bool IsEmpty => StayAny.Count == 0 && TaxiAny.Count == 0 && !SegmentAny.Any(s => s.Car > 0) && !HasLiveEnquiry;
-
-    private static bool IsRed(TripEnquiry e) => e.Status is TripEnquiryStatuses.NotAvailable or TripEnquiryStatuses.Expired
-        or TripEnquiryStatuses.Declined or TripEnquiryStatuses.Failed
-        or TripEnquiryStatuses.CancelledByOwner or TripEnquiryStatuses.CancelledByTraveller;
-
-    public static TripBookingMap Build(TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys = null)
-    {
-        var map = new TripBookingMap();
-        var count = plan.Days.Count;
-        var start = plan.Settings?.StartDate;
-
-        foreach (var day in plan.Days)
-        {
-            if (day.Day >= 1 && day.Day <= count && day.Stay != null)
-            {
-                map.StayAny.Add(day.Day);
-                if (day.Stay.IsOwn == true)
-                {
-                    map.StaySettled.Add(day.Day);
-                    map.StayOwn.Add(day.Day);
-                }
-                else if (day.Stay.Skipped == true)
-                {
-                    map.StaySettled.Add(day.Day);
-                    map.StaySkipped.Add(day.Day);
-                }
-            }
-            if (day.Day >= 1 && day.Day <= count && day.Taxi != null)
-            {
-                map.TaxiAny.Add(day.Day);
-                if (day.Taxi.IsOwn == true)
-                {
-                    map.TaxiSettled.Add(day.Day);
-                    map.TaxiOwn.Add(day.Day);
-                }
-                else if (day.Taxi.Skipped == true)
-                {
-                    map.TaxiSettled.Add(day.Day);
-                    map.TaxiSkipped.Add(day.Day);
-                }
-                else if (day.Taxi.Booking != null) map.TaxiBookedByYou.Add(day.Day);
-            }
-        }
-
-        // Current journey per role and leg; a journey row of any other journey (replaced or removed) is ignored everywhere.
-        var linked = new Dictionary<Guid, (string Role, int Leg, int? LegIndex)>();
-        void AddJourney(string role, int leg, int? legIndex, Guid journeyId, int cars, IReadOnlyCollection<int>? ownCars)
-        {
-            if (linked.ContainsKey(journeyId)) return;
-            linked[journeyId] = (role, leg, legIndex);
-            for (var car = 1; car <= cars; car++)
-            {
-                map.SegmentAny.Add((role, leg, car));
-                if (ownCars?.Contains(car) != true) continue;
-                map.SegmentSettled.Add((role, leg, car));
-                map.SegmentOwn.Add((role, leg, car));
-            }
-        }
-        void AddOwn(string role, int leg)
-        {
-            map.SegmentAny.Add((role, leg, 0));
-            map.SegmentSettled.Add((role, leg, 0));
-            map.SegmentOwn.Add((role, leg, 0));
-        }
-
-        foreach (var role in TripStepRoles.All)
-        {
-            var step = TripStepRules.StepOf(plan.Steps, role);
-            var status = TripStepRules.StatusOf(step);
-            if (status is TripStepStatuses.Own or TripStepStatuses.Skipped) AddOwn(role, 0);
-            else if (TripStepRules.NeedsLink(step) && step!.JourneyId is { } stepJourney)
-                AddJourney(role, 0, null, stepJourney, StepCars(stepJourney, journeys, enquiries), step.OwnCars);
-        }
-
-        var legs = plan.Legs ?? new List<TripCityLeg>();
-        for (var i = 1; i < legs.Count; i++)
-        {
-            var arrival = legs[i]?.Arrival;
-            if (arrival == null || plan.LegStart(i + 1) < 1) continue;
-            if (arrival.Mode != TripTravelModes.Journey) AddOwn(TripStepRoles.Segment, i + 1);
-            else if (arrival.JourneyId is { } journeyId)
-                AddJourney(TripStepRoles.Segment, i + 1, i + 1, journeyId, Math.Clamp(arrival.Cars ?? 1, 1, JourneyRules.MaxLegs), arrival.OwnCars);
-        }
-
-        var live = new List<TripEnquiry>();
-        var segments = new List<(TripEnquiry Row, (string, int, int) Key, bool OnDate)>();
-        foreach (var e in enquiries.Where(e => e.Status != TripEnquiryStatuses.Closed))
-        {
-            if (!TripSegmentRows.IsSegment(e))
-            {
-                live.Add(e);
-                continue;
-            }
-            var ctx = TripEnquiryContexts.Read(e.ContextJson);
-            if (ctx.JourneyId is not { } id || !linked.TryGetValue(id, out var link) || ctx.LegIndex is not { } car) continue;
-            var key = (link.Role, link.Leg, car);
-            if (!map.SegmentAny.Contains(key)) continue;
-            var expected = TripStepDates.Expected(link.Role, plan, link.LegIndex);
-            segments.Add((e, key, start == null || expected == null || e.CheckIn == expected));
-        }
-        map.HasLiveEnquiry = live.Count > 0 || segments.Count > 0;
-
-        // A row on an old travel date (days or start changed) is never settled or open: it counts as red, like the tile.
-        foreach (var (e, key, _) in segments.Where(x => x.OnDate))
-        {
-            if (TripBookingStates.IsSettled(e)) map.SegmentSettled.Add(key);
-            else if (e.Status == TripEnquiryStatuses.BookedByTraveller) map.SegmentBookedByYou.Add(key);
-            if (TripBookingStates.IsOpenForCompletion(e)) map.HasOpen = true;
-        }
-        foreach (var (e, key, onDate) in segments)
-            if ((!onDate || IsRed(e)) && !map.SegmentSettled.Contains(key) && !map.SegmentBookedByYou.Contains(key))
-                map.HasUnreplacedRed = true;
-
-        foreach (var e in live)
-        {
-            var taxi = e.Kind == TripEnquiryKinds.Taxi;
-            var days = DaysOf(e, start, count);
-            (taxi ? map.TaxiAny : map.StayAny).UnionWith(days);
-            if (TripBookingStates.IsSettled(e))
-            {
-                if (taxi)
-                {
-                    map.TaxiOwn.ExceptWith(days);
-                    map.TaxiSkipped.ExceptWith(days);
-                }
-                else
-                {
-                    map.StayOwn.ExceptWith(days);
-                    map.StaySkipped.ExceptWith(days);
-                }
-                (taxi ? map.TaxiSettled : map.StaySettled).UnionWith(days);
-            }
-            else if (taxi && e.Status == TripEnquiryStatuses.BookedByTraveller) map.TaxiBookedByYou.UnionWith(days);
-            if (TripBookingStates.IsOpenForCompletion(e))
-            {
-                map.HasOpen = true;
-                if (taxi) map.OpenTaxis++; else map.OpenStays++;
-            }
-        }
-
-        foreach (var e in live.Where(IsRed))
-        {
-            var taxi = e.Kind == TripEnquiryKinds.Taxi;
-            var settled = taxi ? map.TaxiSettled : map.StaySettled;
-            if (!DaysOf(e, start, count).All(d => settled.Contains(d) || (taxi && map.TaxiBookedByYou.Contains(d)))) map.HasUnreplacedRed = true;
-        }
-        return map;
-    }
-
-    // Cars of a step journey: its saved cars, else the highest car its trip rows name, else one.
-    private static int StepCars(Guid journeyId, IReadOnlyList<SavedJourney>? journeys, IReadOnlyList<TripEnquiry> enquiries)
-    {
-        var journey = journeys?.FirstOrDefault(j => j.Id == journeyId && !j.IsDeleted);
-        var cars = journey?.Legs.Count
-            ?? TripSegmentRows.OfJourney(enquiries, journeyId).Select(r => TripSegmentRows.CarOf(r) ?? 1).DefaultIfEmpty(1).Max();
-        return Math.Clamp(cars, 1, JourneyRules.MaxLegs);
-    }
-
     // Every day of a trip has a night, so both kinds run to dayCount. A taxi row covers dates, not plan day numbers:
     // CheckIn + (d - first day), so a start-date change never re-maps a booking.
     public static List<int> DaysOf(TripEnquiry e, DateOnly? start, int dayCount)
@@ -269,27 +93,6 @@ internal sealed class TripBookingMap
     }
 }
 
-public static class TripBookingSummary
-{
-    public static TripBookingCounts Count(TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys = null)
-    {
-        var map = TripBookingMap.Build(plan, enquiries, journeys);
-        var total = enquiries
-            .Where(e => TripEnquiryStatuses.IsBooked(e.Status))
-            .GroupBy(e => e.Id)
-            .Select(g => g.First())
-            .Sum(e => (e.Kind == TripEnquiryKinds.Taxi ? e.AgreedFare : e.AgreedTotal) ?? 0);
-        var plainStays = map.StayOwn.Count + map.StaySkipped.Count;
-        var plainTaxis = map.TaxiOwn.Count + map.TaxiSkipped.Count;
-        return new TripBookingCounts(
-            map.StaySettled.Count - plainStays, map.StayAny.Count - plainStays,
-            map.TaxiSettled.Count - plainTaxis, map.TaxiAny.Count - plainTaxis,
-            total, map.StayOwn.Count, map.TaxiOwn.Count,
-            map.SegmentSettled.Count(s => s.Role == TripStepRoles.Segment && s.Car > 0),
-            map.SegmentAny.Count(s => s.Role == TripStepRoles.Segment && s.Car > 0));
-    }
-}
-
 public static class TripTravelStates
 {
     public const string NotPlanned = "notPlanned", Own = "own", Saved = "saved", Asked = "asked", Free = "free",
@@ -306,8 +109,7 @@ public static class TripTravelState
     public static string Of(TripTravel? arrival, SavedJourney? journey, IReadOnlyList<TripEnquiry> journeyRows, DateOnly? travelDate)
     {
         if (arrival == null) return TripTravelStates.NotPlanned;
-        if (arrival.Mode != TripTravelModes.Journey) return TripTravelStates.Own;
-        return OfJourney(arrival.JourneyId, journey, journeyRows, travelDate, arrival.OwnCars);
+        return OfJourney(TripTravelRules.JourneyIdOf(arrival), journey, journeyRows, travelDate, arrival.OwnCars);
     }
 
     // Getting there / Coming back: own (or the legacy skipped) is own; a chosen or booked step reads its journey.
@@ -431,24 +233,28 @@ public static class TripReminderRules
 
     // The 3-day push: a live Planned trip with something left to settle. A plan with no choice at all is nagged only
     // when its city has supply to act on (DistrictId set).
-    public static bool ShouldRemindStartsIn(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst)
+    public static bool ShouldRemindStartsIn(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst,
+        IReadOnlyList<SavedJourney>? journeys = null)
     {
         if (trip.StartDate is not { } start || DaysLeft(start, todayIst) <= 0) return false;
-        return TripBookingStates.Compute(trip, plan, enquiries) switch
+        var rows = TripEasyRows.Build(trip, plan, enquiries, journeys);
+        return TripBookingStates.Compute(trip, plan, enquiries, journeys) switch
         {
             TripBookingStates.PlanOnly => trip.DistrictId != null,
-            TripBookingStates.Confirming => !AllSettled(plan, enquiries),
+            TripBookingStates.Confirming => !AllSettled(rows),
             _ => false,
         };
     }
 
     // The 3-day push also goes out when Getting there is the only thing left to sort.
-    public static bool ShouldSendStartsIn(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst)
+    public static bool ShouldSendStartsIn(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst,
+        IReadOnlyList<SavedJourney>? journeys = null)
         => trip.StartDate is { } start && DaysLeft(start, todayIst) > 0
-           && (ShouldRemindStartsIn(trip, plan, enquiries, todayIst) || TripStepRules.NeedsNudge(plan.Steps));
+           && (ShouldRemindStartsIn(trip, plan, enquiries, todayIst, journeys) || NeedsGettingThereNudge(plan, TripEasyRows.Build(trip, plan, enquiries, journeys)));
 
-    public static string StartsInBody(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst)
-        => ShouldRemindStartsIn(trip, plan, enquiries, todayIst) ? StartsInSummary(plan, enquiries) : GettingThereNudge;
+    public static string StartsInBody(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst,
+        IReadOnlyList<SavedJourney>? journeys = null)
+        => ShouldRemindStartsIn(trip, plan, enquiries, todayIst, journeys) ? StartsInSummary(trip, plan, enquiries, journeys) : GettingThereNudge;
 
     public static bool ProblemAllowed(Trip t, DateOnly todayIst) => t.StartDate is { } s && t.EndDate is { } e && s <= todayIst && todayIst <= e.AddDays(1);
 
@@ -470,33 +276,40 @@ public static class TripReminderRules
 
     public const string GettingThereNudge = "Getting there not sorted.";
 
-    // "Stay confirmed. Taxi is booked by you." | "1 stay enquiry waiting. No taxi yet." (+ " Travel booked.") (+ " Getting there not sorted.")
-    public static string StartsInSummary(TripPlan plan, IReadOnlyList<TripEnquiry> enquiries)
+    // Only when we know he starts elsewhere and Getting there still has nothing; every other state silences it.
+    public static bool NeedsGettingThereNudge(TripPlan plan, IReadOnlyList<TripEasyRow> rows)
+        => plan.Steps?.StartFrom != null
+           && rows.FirstOrDefault(r => r.Key.Kind == TripRowKinds.GettingThere)?.State == TripRowStates.Todo;
+
+    // "Stay confirmed. No taxi yet." | "1 stay enquiry waiting. Taxi confirmed." (+ " Travel booked.") (+ " Getting there not sorted.")
+    // A skipped row says nothing.
+    public static string StartsInSummary(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys = null)
     {
-        var text = BookingSummary(plan, enquiries);
-        var travel = TripSummaryLegs.TravelSentence(plan, enquiries);
-        text = travel == null ? text : $"{text} {travel}";
-        return TripStepRules.NeedsNudge(plan.Steps) ? $"{text} {GettingThereNudge}" : text;
+        var rows = TripEasyRows.Build(trip, plan, enquiries, journeys);
+        var parts = new List<string>();
+        if (KindSentence(rows, TripRowKinds.Stay, "stay", "No stay yet.", "Stay confirmed.") is { } stay) parts.Add(stay);
+        if (KindSentence(rows, TripRowKinds.Taxi, "taxi", "No taxi yet.", "Taxi confirmed.") is { } taxi) parts.Add(taxi);
+        if (TravelSentence(rows) is { } travel) parts.Add(travel);
+        if (NeedsGettingThereNudge(plan, rows)) parts.Add(GettingThereNudge);
+        return string.Join(' ', parts);
     }
 
-    private static string BookingSummary(TripPlan plan, IReadOnlyList<TripEnquiry> enquiries)
+    private static string? KindSentence(IReadOnlyList<TripEasyRow> rows, string kind, string noun, string none, string done)
     {
-        var map = TripBookingMap.Build(plan, enquiries);
-        string stay;
-        if (map.OpenStays > 0) stay = $"{map.OpenStays} stay {(map.OpenStays == 1 ? "enquiry" : "enquiries")} waiting.";
-        else if (map.StayAny.Count > 0 && map.StayAny.IsSubsetOf(map.StaySettled)) stay = "Stay confirmed.";
-        else stay = "No stay yet.";
+        var mine = rows.Where(r => r.Key.Kind == kind && r.State != TripRowStates.Skipped).ToList();
+        if (mine.Count == 0) return null;
+        var open = mine.Where(r => TripRowStates.IsInProgress(r.State)).Sum(r => Math.Max(1, r.AskedCount));
+        if (open > 0) return $"{open} {noun} {(open == 1 ? "enquiry" : "enquiries")} waiting.";
+        return mine.All(TripEasyRows.IsRowDone) ? done : none;
+    }
 
-        // A "No taxi this day" day is settled but is not a taxi.
-        var taxiDays = new HashSet<int>(map.TaxiAny);
-        taxiDays.ExceptWith(map.TaxiSkipped);
-        string taxi;
-        if (map.OpenTaxis > 0) taxi = $"{map.OpenTaxis} taxi {(map.OpenTaxis == 1 ? "enquiry" : "enquiries")} waiting.";
-        else if (taxiDays.Count > 0 && taxiDays.IsSubsetOf(map.TaxiSettled)) taxi = "Taxi confirmed.";
-        else if (taxiDays.Count > 0 && taxiDays.All(d => map.TaxiSettled.Contains(d) || map.TaxiBookedByYou.Contains(d)))
-            taxi = "Taxi is booked by you.";
-        else taxi = "No taxi yet.";
-        return $"{stay} {taxi}";
+    // "Travel booked." | "1 travel not booked." | null (one city, or no travel chosen yet).
+    private static string? TravelSentence(IReadOnlyList<TripEasyRow> rows)
+    {
+        var planned = rows.Where(r => r.Key.Kind == TripRowKinds.Between && r.State is not (TripRowStates.Todo or TripRowStates.Skipped)).ToList();
+        if (planned.Count == 0) return null;
+        var open = planned.Count(r => !TripRowStates.IsDone(r.State));
+        return open == 0 ? "Travel booked." : $"{open} travel not booked.";
     }
 
     // "Pickup 8:30 am. Tap for the driver's number." when a booked local taxi of day 1 has a pickup time, else
@@ -512,15 +325,9 @@ public static class TripReminderRules
         return time != null ? $"Pickup {time}. Tap for the driver's number." : "Tap for your bookings.";
     }
 
-    // Same rule as Compute's Ready: every night or day with a choice or enquiry is settled (own and skipped included);
-    // a day with no choice at all counts as settled; nothing open or unreplaced red.
-    public static bool AllSettled(TripPlan plan, IReadOnlyList<TripEnquiry> enquiries)
-    {
-        var map = TripBookingMap.Build(plan, enquiries);
-        if (map.HasOpen || map.HasUnreplacedRed) return false;
-        return map.StayAny.IsSubsetOf(map.StaySettled) && map.TaxiAny.IsSubsetOf(map.TaxiSettled)
-            && map.SegmentAny.IsSubsetOf(map.SegmentSettled);
-    }
+    // Every row that is not skipped is done.
+    public static bool AllSettled(IReadOnlyList<TripEasyRow> rows)
+        => rows.Where(r => r.State != TripRowStates.Skipped).All(TripEasyRows.IsRowDone);
 }
 
 // The 18:00 IST push the evening before a travel day between two cities (legIndex >= 2).
@@ -543,23 +350,17 @@ public static class TripTravelEveReminder
         var title = $"Tomorrow: {from} → {to}";
         if (title.Length > TitleMax) title = title[..(TitleMax - 1)].TrimEnd() + "…";
 
-        return (title, Body(arrival, travelDate, enquiries, journey, taxis));
+        return (title, Body(arrival, leg?.TravelMark?.Status == TripRowMarkStatuses.Own, travelDate, enquiries, journey, taxis));
     }
 
     private static string Body(
-        TripTravel? arrival, DateOnly travelDate, IReadOnlyList<TripEnquiry> enquiries,
+        TripTravel? arrival, bool own, DateOnly travelDate, IReadOnlyList<TripEnquiry> enquiries,
         SavedJourney? journey, IReadOnlyDictionary<Guid, JourneyTaxiInfo> taxis)
     {
+        if (own) return "You'll arrange your travel. Open the trip.";
         if (arrival == null) return "No travel planned yet. Open the trip.";
 
-        if (arrival.Mode != TripTravelModes.Journey)
-        {
-            var how = HowText(arrival.How);
-            var leaves = TripEnquiryText.TimeText(arrival.LeavesAt);
-            return $"Your own travel{(how == null ? "" : " · " + how)}{(leaves == null ? "" : " · " + leaves)}. Open the trip.";
-        }
-
-        if (journey == null || journey.IsDeleted || arrival.JourneyId != journey.Id || journey.TravelDate != travelDate)
+        if (journey == null || journey.IsDeleted || TripTravelRules.JourneyIdOf(arrival) != journey.Id || journey.TravelDate != travelDate)
             return "Travel date changed. Check your drivers.";
 
         var booked = TripSegmentRows.OfJourney(enquiries, journey.Id)
@@ -586,14 +387,6 @@ public static class TripTravelEveReminder
         return missing <= 0
             ? $"{lead}. Tap for the drivers' numbers."
             : $"{lead}. {missing} {(missing == 1 ? "car" : "cars")} not booked yet.";
-    }
-
-    // "bus" -> "Bus"; "other" and unknown blanks are omitted.
-    private static string? HowText(string? how)
-    {
-        var text = how?.Trim();
-        if (string.IsNullOrEmpty(text) || string.Equals(text, TripTravelHows.Other, StringComparison.OrdinalIgnoreCase)) return null;
-        return char.ToUpperInvariant(text[0]) + text[1..].ToLowerInvariant();
     }
 }
 
@@ -691,7 +484,6 @@ public static class TripProblemSplit
         Nights = (short)TripExecutionRules.Nights(kept.CheckIn, kept.CheckOut),
         Total = kept.AgreedTotal ?? accepted.Total,
         Inclusions = accepted.Inclusions,
-        NeedsEchoedJson = accepted.NeedsEchoedJson,
         AdvanceAmount = TripAdvanceSplit.ForTerms(
             accepted.AdvanceAmount, accepted.Total, kept.AgreedTotal ?? accepted.Total, kept.AdvanceStatus, kept.AdvanceAmount),
         BalanceNote = accepted.BalanceNote,

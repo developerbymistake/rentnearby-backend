@@ -43,6 +43,7 @@ public class TripRequestValidatorsTests
         Plan = new TripPlan
         {
             CityKey = CityKey,
+            Legs = [new TripCityLeg { Index = 1, CityKey = CityKey, CityName = "Nainital", Latitude = 29.38, Longitude = 79.45 }],
             Days = (spotsPerDay.Length == 0 ? new[] { 1 } : spotsPerDay).Select((count, d) => new TripDay
             {
                 Day = d + 1,
@@ -189,7 +190,7 @@ public class TripRequestValidatorsTests
 
     [Fact]
     public void Plan_RecalculateSixtyOneSpots_TooManySpots()
-        => ValidationAssert.HasMessage(PlanValidator.Validate(Recalc(30, 31)), "A trip can have up to 60 places");
+        => ValidationAssert.HasMessage(PlanValidator.Validate(Recalc(Enumerable.Repeat(6, 11).ToArray())), "A trip can have up to 60 places");
 
     [Theory]
     [InlineData(91, 79.45)]
@@ -336,7 +337,7 @@ public class TripRequestValidatorsTests
     public void Save_ZeroCityKey_Invalid()
     {
         var request = Save();
-        request.Plan.CityKey = 0;
+        request.Plan.Legs![0].CityKey = 0;
 
         var result = SaveValidator.Validate(request);
 
@@ -381,7 +382,7 @@ public class TripRequestValidatorsTests
     [Fact]
     public void Save_SixtyOneSpots_TooManySpots()
     {
-        var result = SaveValidator.Validate(Save(null, 30, 31));
+        var result = SaveValidator.Validate(Save(null, Enumerable.Repeat(6, 11).ToArray()));
 
         ValidationAssert.HasMessage(result, "A trip can have up to 60 places");
         Assert.Contains(result.Errors, e => e.ErrorCode == TripErrorTypes.TooManySpots);
@@ -417,107 +418,6 @@ public class TripRequestValidatorsTests
         ValidationAssert.HasMessage(SaveValidator.Validate(request), "Plan settings are required");
     }
 
-    [Theory]
-    [InlineData(0, true)]
-    [InlineData(9_900_000, true)]
-    [InlineData(-1, false)]
-    [InlineData(9_900_001, false)]
-    public void Save_TaxiFare(int fare, bool valid)
-    {
-        var request = Save();
-        request.Plan.Days[0].Taxi = new TripTaxiChoice { TaxiId = Guid.NewGuid(), Name = "Ramesh", Fare = fare };
-
-        Assert.Equal(valid, SaveValidator.Validate(request).IsValid);
-    }
-
-    [Fact]
-    public void Save_TaxiNameTooLong_Clipped()
-    {
-        var request = Save();
-        request.Plan.Days[0].Taxi = new TripTaxiChoice { TaxiId = Guid.NewGuid(), Name = new string('n', 121) };
-
-        Assert.True(SaveValidator.Validate(request).IsValid);
-        Assert.Equal(120, request.Plan.Days[0].Taxi!.Name!.Length);
-    }
-
-    [Theory]
-    [InlineData(-1, false)]
-    [InlineData(2500, true)]
-    [InlineData(9_900_001, false)]
-    public void Save_StayPrice(int price, bool valid)
-    {
-        var request = Save();
-        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", PricePerNight = price };
-
-        Assert.Equal(valid, SaveValidator.Validate(request).IsValid);
-    }
-
-    [Theory]
-    [InlineData(1, true)]
-    [InlineData(2, false)]
-    [InlineData(3, false)]
-    [InlineData(0, false)]
-    public void Save_SameAsDay_MustPointBack(int sameAsDay, bool valid)
-    {
-        var request = Save(null, 1, 1);
-        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", PricePerNight = 1600 };
-        request.Plan.Days[1].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", SameAsDay = sameAsDay };
-
-        Assert.Equal(valid, SaveValidator.Validate(request).IsValid);
-    }
-
-    // ---- SaveTripRequestValidator, plan v3 ----
-
-    private static TripTaxiBooking Booking(params int[] days) => new()
-    {
-        AgreedFare = 3800, TollExtra = true, PickupTime = "08:30", PickupPlace = "Mallital", Days = days,
-    };
-
-    private static SaveTripRequest Booked(int dayCount, int[] bookingDays, params int[] onDays)
-    {
-        var request = Save(null, Enumerable.Repeat(1, dayCount).ToArray());
-        var taxiId = Guid.NewGuid();
-        foreach (var d in onDays)
-            request.Plan.Days[d - 1].Taxi = new TripTaxiChoice { TaxiId = taxiId, Name = "Ramesh", Fare = 1900, Booking = Booking(bookingDays) };
-        return request;
-    }
-
-    [Fact]
-    public void Save_Version2_Valid()
-    {
-        var request = Save();
-        request.Plan.Version = 2;
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_Version3_Valid()
-    {
-        var request = Save();
-        request.Plan.Version = 3;
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_Version5_Valid()
-    {
-        var request = Save();
-        request.Plan.Version = 5;
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_Version6_Invalid()
-    {
-        var request = Save();
-        request.Plan.Version = 6;
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Unsupported plan version");
-    }
-
     [Fact]
     public void Save_FullSettings_Valid()
     {
@@ -527,10 +427,6 @@ public class TripRequestValidatorsTests
         s.StartDate = new DateOnly(2026, 11, 1);
         s.Adults = 2;
         s.Kids = 0;
-        s.Rooms = 1;
-        s.Needs = [TripNeeds.NoStairs, TripNeeds.KidsSafe, TripNeeds.VegFood];
-        s.PickupTime = "23:59";
-        s.PickupPlace = "Mallital";
 
         SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
     }
@@ -575,370 +471,6 @@ public class TripRequestValidatorsTests
         var result = SaveValidator.Validate(request);
         Assert.Equal(valid, result.IsValid);
         if (!valid) ValidationAssert.HasMessage(result, "Kids must be 0 to 20");
-    }
-
-    [Theory]
-    [InlineData(0, false)]
-    [InlineData(1, true)]
-    [InlineData(15, true)]
-    [InlineData(16, false)]
-    public void Save_Rooms(int rooms, bool valid)
-    {
-        var request = Save();
-        request.Plan.Settings.Rooms = rooms;
-
-        var result = SaveValidator.Validate(request);
-        Assert.Equal(valid, result.IsValid);
-        if (!valid) ValidationAssert.HasMessage(result, "Rooms must be 1 to 15");
-    }
-
-    [Fact]
-    public void Save_NeedsUnknownKey_Invalid()
-    {
-        var request = Save();
-        request.Plan.Settings.Needs = ["pets"];
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid needs");
-    }
-
-    [Fact]
-    public void Save_NeedsDuplicate_Invalid()
-    {
-        var request = Save();
-        request.Plan.Settings.Needs = [TripNeeds.VegFood, TripNeeds.VegFood];
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid needs");
-    }
-
-    [Fact]
-    public void Save_NeedsEmpty_Valid()
-    {
-        var request = Save();
-        request.Plan.Settings.Needs = [];
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Theory]
-    [InlineData("25:00")]
-    [InlineData("12:61")]
-    [InlineData("8:30")]
-    [InlineData("08:30 am")]
-    [InlineData("")]
-    public void Save_PickupTime_Invalid(string time)
-    {
-        var request = Save();
-        request.Plan.Settings.PickupTime = time;
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid pickup time");
-    }
-
-    [Fact]
-    public void Save_PickupTime_25_61_Invalid()
-    {
-        var request = Booked(1, [1], 1);
-        request.Plan.Days[0].Taxi!.Booking!.PickupTime = "25:61";
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid pickup time");
-    }
-
-    [Theory]
-    [InlineData("   ")]
-    [InlineData("")]
-    public void Save_PickupPlaceBlank_Valid(string place)
-    {
-        var request = Save();
-        request.Plan.Settings.PickupPlace = place;
-
-        Assert.True(SaveValidator.Validate(request).IsValid);
-        Assert.Null(request.Plan.Settings.PickupPlace);
-    }
-
-    [Fact]
-    public void Save_PickupPlaceTooLong_Clipped()
-    {
-        var request = Booked(1, [1], 1);
-        request.Plan.Days[0].Taxi!.Booking!.PickupPlace = new string('p', 81);
-
-        Assert.True(SaveValidator.Validate(request).IsValid);
-        Assert.Equal(80, request.Plan.Days[0].Taxi!.Booking!.PickupPlace!.Length);
-    }
-
-    [Fact]
-    public void Save_BookingTwoDays_Valid()
-        => SaveValidator.TestValidate(Booked(3, [1, 2], 1, 2)).ShouldNotHaveAnyValidationErrors();
-
-    [Fact]
-    public void Save_BookingDaysOutsidePlan_Invalid()
-        => ValidationAssert.HasMessage(SaveValidator.Validate(Booked(2, [1, 3], 1)), "Invalid booking days");
-
-    [Fact]
-    public void Save_BookingDaysMissingOwnDay_Invalid()
-        => ValidationAssert.HasMessage(SaveValidator.Validate(Booked(2, [1], 2)), "Invalid booking days");
-
-    [Fact]
-    public void Save_BookingDaysEmpty_Invalid()
-        => ValidationAssert.HasMessage(SaveValidator.Validate(Booked(1, [], 1)), "Invalid booking days");
-
-    [Fact]
-    public void Save_BookingDaysDuplicate_Invalid()
-        => ValidationAssert.HasMessage(SaveValidator.Validate(Booked(2, [1, 1], 1)), "Invalid booking days");
-
-    [Theory]
-    [InlineData(0, false)]
-    [InlineData(1, true)]
-    [InlineData(9_900_000, true)]
-    [InlineData(9_900_001, false)]
-    public void Save_BookingAgreedFare(int fare, bool valid)
-    {
-        var request = Booked(1, [1], 1);
-        request.Plan.Days[0].Taxi!.Booking!.AgreedFare = fare;
-
-        var result = SaveValidator.Validate(request);
-        Assert.Equal(valid, result.IsValid);
-        if (!valid) ValidationAssert.HasMessage(result, "Invalid fare");
-    }
-
-    [Fact]
-    public void Save_BookingNoteTooLong_Clipped()
-    {
-        var request = Booked(1, [1], 1);
-        request.Plan.Days[0].Taxi!.Booking!.Note = new string('n', 301);
-
-        Assert.True(SaveValidator.Validate(request).IsValid);
-        Assert.Equal(300, request.Plan.Days[0].Taxi!.Booking!.Note!.Length);
-    }
-
-    [Fact]
-    public void Save_TaxiWithoutId_Invalid()
-    {
-        var request = Save();
-        request.Plan.Steps = new TripSteps();
-        request.Plan.Days[0].Taxi = new TripTaxiChoice { TaxiId = null, Name = "Ramesh" };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
-    }
-
-    [Fact]
-    public void Save_TaxiEmptyId_Invalid()
-    {
-        var request = Save();
-        request.Plan.Days[0].Taxi = new TripTaxiChoice { TaxiId = Guid.Empty, Name = "Ramesh" };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
-    }
-
-    [Fact]
-    public void Save_OwnTaxiWithoutId_Valid()
-    {
-        var request = Save();
-        request.Plan.Days[0].Taxi = new TripTaxiChoice { IsOwn = true, Name = "My driver", OwnPhone = "9876543210", Note = "Booked by phone" };
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Theory]
-    [InlineData("5876543210", null)]
-    [InlineData("987654321", null)]
-    [InlineData("+919876543210", "9876543210")]
-    [InlineData("98765 43210", "9876543210")]
-    public void Save_OwnPhone_NormalisedOrDropped(string phone, string? expected)
-    {
-        var request = Save();
-        request.Plan.Days[0].Stay = new TripStayChoice { IsOwn = true, Name = "My stay", OwnPhone = phone };
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-        Assert.Equal(expected, request.Plan.Days[0].Stay!.OwnPhone);
-    }
-
-    [Fact]
-    public void Save_StayWithoutId_Invalid()
-    {
-        var request = Save();
-        request.Plan.Steps = new TripSteps();
-        request.Plan.Days[0].Stay = new TripStayChoice { StayId = null, Name = "Lake View" };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Stay is required");
-    }
-
-    [Fact]
-    public void Save_StayCoordinates_Valid()
-    {
-        var request = Save();
-        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", Latitude = 29.38, Longitude = 79.46 };
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_StayLatWithoutLon_Invalid()
-    {
-        var request = Save();
-        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", Latitude = 29.38 };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), PlanTripRequestValidator.InvalidCoordinatesMessage);
-    }
-
-    [Fact]
-    public void Save_StayLatOutOfRange_Invalid()
-    {
-        var request = Save();
-        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", Latitude = 95, Longitude = 79.46 };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), PlanTripRequestValidator.InvalidCoordinatesMessage);
-    }
-
-    [Fact]
-    public void Save_StayNoteTooLong_Clipped()
-    {
-        var request = Save();
-        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", Note = new string('n', 301) };
-
-        Assert.True(SaveValidator.Validate(request).IsValid);
-        Assert.Equal(300, request.Plan.Days[0].Stay!.Note!.Length);
-    }
-
-    [Fact]
-    public void Save_ThreeShortlisted_Valid()
-    {
-        var request = Save();
-        request.Plan.Days[0].StayShortlist = Enumerable.Range(0, 3)
-            .Select(i => new TripStayShortlistItem { StayId = Guid.NewGuid(), Name = $"Stay {i}", PricePerNight = 2000, Latitude = 29.38, Longitude = 79.46, DistanceKm = 1.4 })
-            .ToList();
-        request.Plan.Days[0].TaxiShortlist = Enumerable.Range(0, 3)
-            .Select(i => new TripTaxiShortlistItem { TaxiId = Guid.NewGuid(), Name = $"Driver {i}", Seats = 6, LocalDayRate = 2400, WholeTrip = true })
-            .ToList();
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_FourShortlisted_Invalid()
-    {
-        var request = Save();
-        request.Plan.Days[0].StayShortlist = Enumerable.Range(0, 4)
-            .Select(i => new TripStayShortlistItem { StayId = Guid.NewGuid(), Name = $"Stay {i}" })
-            .ToList();
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Up to 3 shortlisted per day");
-    }
-
-    [Fact]
-    public void Save_FourTaxisShortlisted_Invalid()
-    {
-        var request = Save();
-        request.Plan.Days[0].TaxiShortlist = Enumerable.Range(0, 4)
-            .Select(i => new TripTaxiShortlistItem { TaxiId = Guid.NewGuid(), Name = $"Driver {i}" })
-            .ToList();
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Up to 3 shortlisted per day");
-    }
-
-    [Fact]
-    public void Save_ShortlistSeatsUnknown_Invalid()
-    {
-        var request = Save();
-        request.Plan.Days[0].TaxiShortlist = [new TripTaxiShortlistItem { TaxiId = Guid.NewGuid(), Name = "Driver", Seats = 5 }];
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid seats");
-    }
-
-    [Fact]
-    public void Save_ShortlistSameAsDayForward_Invalid()
-    {
-        var request = Save(null, 1, 1);
-        request.Plan.Days[0].StayShortlist = [new TripStayShortlistItem { StayId = Guid.NewGuid(), Name = "Stay", SameAsDay = 1 }];
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Same stay must point to an earlier day");
-    }
-
-    // ---- own stay / own taxi / no stay tonight / day count (D5, D6, D17) ----
-
-    private static SaveTripRequest FromJson(string dayJson)
-    {
-        var json = "{\"status\":\"Planned\",\"plan\":{\"version\":3,\"cityKey\":502141,\"settings\":{\"dayLimitMinutes\":450},"
-                   + "\"days\":[{\"day\":1,\"spots\":[{\"id\":\"osm:N1\",\"name\":\"Mall Road\",\"latitude\":29.39,\"longitude\":79.45,"
-                   + "\"category\":\"attraction\",\"visitMinutes\":60}]," + dayJson + "}]}}";
-        return System.Text.Json.JsonSerializer.Deserialize<SaveTripRequest>(json, TripJson.Options)!;
-    }
-
-    [Fact]
-    public void Save_OwnStayWithEmptyStringId_ReadsAsNull_Valid()
-    {
-        var request = FromJson("\"stay\":{\"stayId\":\"\",\"name\":\"Hotel Alka\",\"isOwn\":true}");
-
-        Assert.Null(request.Plan.Days[0].Stay!.StayId);
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_OwnStayAndTaxiWithoutIdKey_Valid()
-    {
-        var request = FromJson("\"stay\":{\"name\":\"Hotel Alka\",\"isOwn\":true,\"ownPhone\":\"9876543210\"},"
-                               + "\"taxi\":{\"taxiId\":\" \",\"name\":\"Mohan\",\"isOwn\":true,\"fare\":1800}");
-
-        Assert.Null(request.Plan.Days[0].Taxi!.TaxiId);
-        Assert.Equal(1800, request.Plan.Days[0].Taxi!.Fare);
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_NonOwnStayWithEmptyStringId_Invalid()
-    {
-        var request = FromJson("\"stay\":{\"stayId\":\"\",\"name\":\"Lake View\"}");
-        request.Plan.Steps = new TripSteps();
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Stay is required");
-    }
-
-    [Fact]
-    public void Save_NonOwnTaxiWithoutId_Invalid()
-    {
-        var request = FromJson("\"taxi\":{\"name\":\"Ramesh\"}");
-        request.Plan.Steps = new TripSteps();
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
-    }
-
-    [Fact]
-    public void Save_NotAGuidId_FailsToRead()
-        => Assert.Throws<System.Text.Json.JsonException>(() => FromJson("\"stay\":{\"stayId\":\"abc\",\"name\":\"Lake View\"}"));
-
-    [Fact]
-    public void Save_OwnStayNameMissing_Valid()
-    {
-        var request = Save();
-        request.Plan.Days[0].Stay = new TripStayChoice { IsOwn = true, Name = "  " };
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_OwnTaxiName81_Truncated()
-    {
-        var request = Save();
-        request.Plan.Days[0].Taxi = new TripTaxiChoice { IsOwn = true, Name = new string('a', 81) };
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-        Assert.Equal(80, request.Plan.Days[0].Taxi!.Name.Length);
-    }
-
-    [Fact]
-    public void Save_SkippedNightWithoutId_Valid()
-    {
-        var request = FromJson("\"stay\":{\"name\":\"No stay tonight\",\"skipped\":true}");
-
-        Assert.True(request.Plan.Days[0].Stay!.Skipped);
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_SkippedAndOwn_Invalid()
-    {
-        var request = Save();
-        request.Plan.Days[0].Stay = new TripStayChoice { IsOwn = true, Skipped = true, Name = "My stay" };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "A night is either your own stay or no stay");
     }
 
     [Theory]
@@ -995,7 +527,7 @@ public class TripRequestValidatorsTests
         {
             StartFrom = new TripStartFrom { Name = "Delhi", Lat = 28.61, Lon = 77.21 },
             GettingThere = new TripStep { Status = TripStepStatuses.Chosen, JourneyId = Guid.NewGuid(), Date = new DateOnly(2026, 11, 1) },
-            ComingBack = new TripStep { Status = TripStepStatuses.Own, Note = "Own car, leaving 6 am" },
+            ComingBack = new TripStep { Status = TripStepStatuses.Own },
         });
 
         SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
@@ -1011,25 +543,6 @@ public class TripRequestValidatorsTests
         var request = WithSteps(new TripSteps { GettingThere = new TripStep { Status = "asked" } });
 
         ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid step status");
-    }
-
-    [Fact]
-    public void Save_StepNote301_Clipped()
-    {
-        var request = WithSteps(new TripSteps { ComingBack = new TripStep { Status = TripStepStatuses.Skipped, Note = new string('a', 301) } });
-
-        Assert.True(SaveValidator.Validate(request).IsValid);
-        Assert.Equal(300, request.Plan.Steps!.ComingBack!.Note!.Length);
-    }
-
-    [Fact]
-    public void Save_OwnStepNote301_Truncated()
-    {
-        var step = new TripStep { Status = TripStepStatuses.Own, Note = new string('a', 301) };
-        var request = WithSteps(new TripSteps { ComingBack = step });
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-        Assert.Equal(300, step.Note!.Length);
     }
 
     [Fact]
@@ -1072,7 +585,8 @@ public class TripRequestValidatorsTests
     [Fact]
     public void Save_StepsFromJson_EmptyJourneyIdReadsNull()
     {
-        var json = "{\"status\":\"Draft\",\"plan\":{\"version\":3,\"cityKey\":502141,\"settings\":{\"dayLimitMinutes\":450},"
+        var json = "{\"status\":\"Draft\",\"plan\":{\"version\":6,\"cityKey\":502141,\"settings\":{\"dayLimitMinutes\":450},"
+                   + "\"legs\":[{\"index\":1,\"cityKey\":502141,\"cityName\":\"Nainital\",\"latitude\":29.38,\"longitude\":79.45}],"
                    + "\"days\":[{\"day\":1,\"spots\":[]}],"
                    + "\"steps\":{\"gettingThere\":{\"status\":\"notStarted\",\"journeyId\":\"\"}}}}";
         var request = System.Text.Json.JsonSerializer.Deserialize<SaveTripRequest>(json, TripJson.Options)!;
@@ -1081,152 +595,7 @@ public class TripRequestValidatorsTests
         SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
     }
 
-    [Fact]
-    public void Save_SkippedTaxiDayWithoutId_Valid()
-    {
-        var request = FromJson("\"taxi\":{\"name\":\"No taxi this day\",\"skipped\":true}");
-
-        Assert.True(request.Plan.Days[0].Taxi!.Skipped);
-        Assert.Null(request.Plan.Days[0].Taxi!.TaxiId);
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_PlainTaxiWithoutId_StillInvalid()
-    {
-        var request = Save();
-        request.Plan.Steps = new TripSteps();
-        request.Plan.Days[0].Taxi = new TripTaxiChoice { Name = "Ramesh", Skipped = false };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
-    }
-
-    // ---- steps-unaware app writing back a "No taxi this day" day (build 57)
-
-    [Fact]
-    public void Save_OldAppTaxiEmptyStringId_WithoutSteps_Valid()
-    {
-        var request = FromJson("\"taxi\":{\"taxiId\":\"\",\"name\":\"No taxi this day\",\"isOwn\":false}");
-
-        Assert.Null(request.Plan.Steps);
-        Assert.Null(request.Plan.Days[0].Taxi!.TaxiId);
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_OldAppTaxiEmptyStringId_WithSteps_Invalid()
-    {
-        var request = FromJson("\"taxi\":{\"taxiId\":\"\",\"name\":\"No taxi this day\",\"isOwn\":false}");
-        request.Plan.Steps = new TripSteps();
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Taxi is required");
-    }
-
-    [Fact]
-    public void Save_SkippedTaxiEmptyStringId_WithSteps_Valid()
-    {
-        var request = FromJson("\"taxi\":{\"taxiId\":\"\",\"name\":\"No taxi this day\",\"skipped\":true}");
-        request.Plan.Steps = new TripSteps();
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void KeepSkippedTaxiDays_StoredSkippedDay_StaysSkipped()
-    {
-        var stored = Save(null, 1, 1).Plan;
-        stored.Days[1].Taxi = new TripTaxiChoice { Name = "No taxi this day", Skipped = true };
-        var plan = Save(null, 1, 1).Plan;
-        plan.Days[0].Taxi = new TripTaxiChoice { Name = "Old", TaxiId = null };
-        plan.Days[1].Taxi = new TripTaxiChoice { Name = "No taxi this day", TaxiId = null };
-
-        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedTaxiDays(plan, stored);
-
-        Assert.Null(plan.Days[0].Taxi);
-        Assert.True(plan.Days[1].Taxi!.Skipped);
-    }
-
-    [Fact]
-    public void KeepSkippedTaxiDays_StepsAwareRequest_Untouched()
-    {
-        var plan = Save().Plan;
-        plan.Steps = new TripSteps();
-        plan.Days[0].Taxi = new TripTaxiChoice { Name = "Ramesh", TaxiId = null };
-
-        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedTaxiDays(plan, null);
-
-        Assert.NotNull(plan.Days[0].Taxi);
-    }
-
-    [Fact]
-    public void KeepSkippedTaxiDays_OwnAndPickedTaxis_Untouched()
-    {
-        var plan = Save(null, 1, 1).Plan;
-        var taxiId = Guid.NewGuid();
-        plan.Days[0].Taxi = new TripTaxiChoice { Name = "Mohan", IsOwn = true };
-        plan.Days[1].Taxi = new TripTaxiChoice { Name = "Ramesh", TaxiId = taxiId };
-
-        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedTaxiDays(plan, null);
-
-        Assert.True(plan.Days[0].Taxi!.IsOwn);
-        Assert.Equal(taxiId, plan.Days[1].Taxi!.TaxiId);
-        Assert.Null(plan.Days[1].Taxi!.Skipped);
-    }
-
-    [Fact]
-    public void Save_OldAppStayEmptyStringId_WithoutSteps_Valid()
-    {
-        var request = FromJson("\"stay\":{\"stayId\":\"\",\"name\":\"No stay tonight\",\"isOwn\":false}");
-
-        Assert.Null(request.Plan.Steps);
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void KeepSkippedNights_StoredSkippedNight_StaysSkipped()
-    {
-        var stored = Save(null, 1, 1).Plan;
-        stored.Days[1].Stay = new TripStayChoice { Name = "No stay tonight", Skipped = true };
-        var plan = Save(null, 1, 1).Plan;
-        plan.Days[0].Stay = new TripStayChoice { Name = "Old", StayId = null };
-        plan.Days[1].Stay = new TripStayChoice { Name = "No stay tonight", StayId = null };
-
-        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedNights(plan, stored);
-
-        Assert.Null(plan.Days[0].Stay);
-        Assert.True(plan.Days[1].Stay!.Skipped);
-    }
-
-    [Fact]
-    public void KeepSkippedNights_StepsAwareOwnAndPicked_Untouched()
-    {
-        var plan = Save(null, 1, 1).Plan;
-        var stayId = Guid.NewGuid();
-        plan.Days[0].Stay = new TripStayChoice { Name = "Hotel Alka", IsOwn = true };
-        plan.Days[1].Stay = new TripStayChoice { Name = "Lake View", StayId = stayId };
-
-        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedNights(plan, null);
-
-        Assert.True(plan.Days[0].Stay!.IsOwn);
-        Assert.Equal(stayId, plan.Days[1].Stay!.StayId);
-
-        var aware = Save().Plan;
-        aware.Steps = new TripSteps();
-        aware.Days[0].Stay = new TripStayChoice { Name = "Lake View", StayId = null };
-        RentNearBy.Api.Handlers.TripHandlers.KeepSkippedNights(aware, null);
-        Assert.NotNull(aware.Days[0].Stay);
-    }
-
-    [Fact]
-    public void Save_SkippedAndOwnTaxi_Invalid()
-    {
-        var request = Save();
-        request.Plan.Days[0].Taxi = new TripTaxiChoice { IsOwn = true, Skipped = true, Name = "Mohan" };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "A day is either your own taxi or no taxi");
-    }
-
-    // ---- SaveTripRequestValidator, plan v4 legs ----
+    // ---- SaveTripRequestValidator, legs ----
 
     private const long SecondCity = 210000456;
 
@@ -1239,7 +608,6 @@ public class TripRequestValidatorsTests
     private static SaveTripRequest MultiCity(int[] dayLegs, params long[] cityKeys)
     {
         var request = Save(null, Enumerable.Repeat(1, dayLegs.Length).ToArray());
-        request.Plan.Version = 4;
         request.Plan.Legs = cityKeys.Select((k, i) => Leg(i + 1, k)).ToList();
         for (var i = 0; i < dayLegs.Length; i++) request.Plan.Days[i].Leg = dayLegs[i];
         return request;
@@ -1248,18 +616,6 @@ public class TripRequestValidatorsTests
     [Fact]
     public void Save_TwoLegs_Valid()
         => SaveValidator.TestValidate(MultiCity([1, 2, 2], CityKey, SecondCity)).ShouldNotHaveAnyValidationErrors();
-
-    [Fact]
-    public void Save_LeglessBody_PassesAfterNormalise()
-    {
-        var request = Save(null, 1, 1);
-        request.Plan.Version = 3;
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-        var leg = Assert.Single(request.Plan.Legs!);
-        Assert.Equal(CityKey, leg.CityKey);
-        Assert.All(request.Plan.Days, d => Assert.Equal((int?)1, d.Leg));
-    }
 
     [Fact]
     public void Save_FifthLeg_Invalid()
@@ -1312,32 +668,6 @@ public class TripRequestValidatorsTests
         ValidationAssert.HasMessage(SaveValidator.Validate(request), SaveTripRequestValidator.FirstArrivalMessage);
     }
 
-    [Fact]
-    public void Save_OwnArrivalOnLegTwo_Valid()
-    {
-        var request = MultiCity([1, 2], CityKey, SecondCity);
-        request.Plan.Legs![1].Arrival = new TripTravel
-        {
-            FromName = "Haridwar", How = TripTravelHows.Train, OwnName = "Shatabdi 12017", OwnPhone = "9876543210",
-            LeavesAt = "06:45", RoadMinutes = TripTravelRoad.HalfDay, Note = "Window seats",
-        };
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Theory]
-    [InlineData("journey", null, null, SaveTripRequestValidator.TravelMessage)]
-    [InlineData("own", "bus", 901, SaveTripRequestValidator.RoadTimeMessage)]
-    [InlineData("own", "bus", -1, SaveTripRequestValidator.RoadTimeMessage)]
-    [InlineData("train", null, null, SaveTripRequestValidator.TravelMessage)]
-    public void Save_BadArrival_Invalid(string mode, string? how, int? roadMinutes, string message)
-    {
-        var request = MultiCity([1, 2], CityKey, SecondCity);
-        request.Plan.Legs![1].Arrival = new TripTravel { Mode = mode, FromName = "Haridwar", How = how, RoadMinutes = roadMinutes };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), message);
-    }
-
     // ---- travel between cities by a saved journey (CONTRACT_MCB D3)
 
     private static SaveTripRequest WithArrival(TripTravel arrival)
@@ -1349,17 +679,9 @@ public class TripRequestValidatorsTests
 
     private static TripTravel JourneyTravel(Guid? id = null) => new()
     {
-        Mode = TripTravelModes.Journey, FromName = "Haridwar", JourneyId = id ?? Guid.NewGuid(),
+        FromName = "Haridwar", JourneyId = id ?? Guid.NewGuid(),
         PlanKey = null, Cars = 2, ListedTotal = 14000, RoadMinutes = 600,
     };
-
-    [Fact]
-    public void TravelModes_HasOwnAndJourney()
-    {
-        Assert.Equal(2, TripTravelModes.All.Length);
-        Assert.Contains(TripTravelModes.Own, TripTravelModes.All);
-        Assert.Contains(TripTravelModes.Journey, TripTravelModes.All);
-    }
 
     [Fact]
     public void Save_JourneyArrival_Valid()
@@ -1398,42 +720,6 @@ public class TripRequestValidatorsTests
             SaveValidator.Validate(WithArrival(JourneyTravel(Guid.Empty))), SaveTripRequestValidator.TravelMessage);
 
     [Theory]
-    [InlineData("how")]
-    [InlineData("ownName")]
-    [InlineData("ownPhone")]
-    [InlineData("leavesAt")]
-    public void Save_JourneyArrivalWithOwnFields_Invalid(string field)
-    {
-        var travel = JourneyTravel();
-        switch (field)
-        {
-            case "how": travel.How = TripTravelHows.Train; break;
-            case "ownName": travel.OwnName = "Shatabdi"; break;
-            case "ownPhone": travel.OwnPhone = "9876543210"; break;
-            default: travel.LeavesAt = "06:45"; break;
-        }
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(WithArrival(travel)), SaveTripRequestValidator.TravelMessage);
-    }
-
-    [Fact]
-    public void Save_OwnArrivalWithJourneyId_Invalid()
-        => ValidationAssert.HasMessage(
-            SaveValidator.Validate(WithArrival(new TripTravel
-            {
-                Mode = TripTravelModes.Own, FromName = "Haridwar", How = TripTravelHows.Train, JourneyId = Guid.NewGuid(),
-            })),
-            SaveTripRequestValidator.TravelMessage);
-
-    [Fact]
-    public void Save_OwnArrivalWithHub_Valid()
-        => SaveValidator.TestValidate(WithArrival(new TripTravel
-            {
-                Mode = TripTravelModes.Own, FromName = "Haridwar", How = TripTravelHows.Train, HubName = "Rishikesh",
-            }))
-            .ShouldNotHaveAnyValidationErrors();
-
-    [Theory]
     [InlineData(0)]
     [InlineData(4)]
     public void Save_JourneyArrivalCarsOutOfRange_Invalid(int cars)
@@ -1454,90 +740,8 @@ public class TripRequestValidatorsTests
     }
 
     [Fact]
-    public void Save_OwnArrivalBadHowAndTime_Dropped()
-    {
-        var request = MultiCity([1, 2], CityKey, SecondCity);
-        var arrival = new TripTravel { FromName = "Haridwar", How = "plane", LeavesAt = "25:00" };
-        request.Plan.Legs![1].Arrival = arrival;
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-        Assert.Null(arrival.How);
-        Assert.Null(arrival.LeavesAt);
-    }
-
-    [Fact]
-    public void Save_OwnArrivalFlightAndBlankFields_Valid()
-    {
-        var request = MultiCity([1, 2], CityKey, SecondCity);
-        request.Plan.Legs![1].Arrival = new TripTravel { FromName = "Haridwar", How = TripTravelHows.Flight, OwnName = " ", OwnPhone = "" };
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-        Assert.Null(request.Plan.Legs[1].Arrival!.OwnName);
-    }
-
-    [Fact]
-    public void Save_SameAsDayAcrossLegs_Invalid()
-    {
-        var request = MultiCity([1, 2], CityKey, SecondCity);
-        request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Ganga View" };
-        request.Plan.Days[1].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Ganga View", SameAsDay = 1 };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), SaveTripRequestValidator.SameCityStayMessage);
-    }
-
-    [Fact]
-    public void Save_SameAsDayInsideOneLeg_Valid()
-    {
-        var request = MultiCity([1, 2, 2], CityKey, SecondCity);
-        request.Plan.Days[1].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Alka" };
-        request.Plan.Days[2].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Alka", SameAsDay = 2 };
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_ShortlistSameAsDayAcrossLegs_Invalid()
-    {
-        var request = MultiCity([1, 2], CityKey, SecondCity);
-        request.Plan.Days[1].StayShortlist = [new TripStayShortlistItem { StayId = Guid.NewGuid(), Name = "Ganga View", SameAsDay = 1 }];
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), SaveTripRequestValidator.SameCityStayMessage);
-    }
-
-    [Fact]
-    public void Save_ShortlistSameAsDayInsideOneLeg_Valid()
-    {
-        var request = MultiCity([1, 2, 2], CityKey, SecondCity);
-        request.Plan.Days[2].StayShortlist = [new TripStayShortlistItem { StayId = Guid.NewGuid(), Name = "Alka", SameAsDay = 2 }];
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
-    public void Save_BookingDaysAcrossLegs_Invalid()
-    {
-        var request = MultiCity([1, 2], CityKey, SecondCity);
-        var taxiId = Guid.NewGuid();
-        foreach (var day in request.Plan.Days)
-            day.Taxi = new TripTaxiChoice { TaxiId = taxiId, Name = "Ramesh", Fare = 1900, Booking = Booking(1, 2) };
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid booking days");
-    }
-
-    [Fact]
-    public void Save_BookingDaysInsideOneLeg_Valid()
-    {
-        var request = MultiCity([1, 2, 2], CityKey, SecondCity);
-        var taxiId = Guid.NewGuid();
-        foreach (var day in request.Plan.Days.Skip(1))
-            day.Taxi = new TripTaxiChoice { TaxiId = taxiId, Name = "Ramesh", Fare = 1900, Booking = Booking(2, 3) };
-
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
     public void Save_SixtySpots_Valid()
-        => SaveValidator.TestValidate(Save(null, 30, 30)).ShouldNotHaveAnyValidationErrors();
+        => SaveValidator.TestValidate(Save(null, Enumerable.Repeat(6, 10).ToArray())).ShouldNotHaveAnyValidationErrors();
 
     [Fact]
     public void Save_NotReadyLegWithOneEmptyDay_Valid()
@@ -1549,12 +753,202 @@ public class TripRequestValidatorsTests
         SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
     }
 
+    // ---- plan v6: caps, marks, optional dates and people ----
+
     [Fact]
-    public void Save_Version4_Valid()
+    public void Save_VersionSix_Valid()
+        => SaveValidator.TestValidate(Save()).ShouldNotHaveAnyValidationErrors();
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(7)]
+    public void Save_AnyOtherVersion_Invalid(int version)
     {
         var request = Save();
-        request.Plan.Version = 4;
+        request.Plan.Version = version;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), SaveTripRequestValidator.VersionMessage);
+    }
+
+    [Fact]
+    public void Save_WithoutLegs_CityRequired()
+    {
+        var request = Save();
+        request.Plan.Legs = null;
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "City is required");
+
+        request.Plan.Legs = [];
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "City is required");
+    }
+
+    [Fact]
+    public void Save_SixPlacesADay_Valid()
+        => SaveValidator.TestValidate(Save(null, 6, 6)).ShouldNotHaveAnyValidationErrors();
+
+    [Fact]
+    public void Save_SevenPlacesOnADay_TooManySpotsPerDay()
+    {
+        var result = SaveValidator.Validate(Save(null, 3, 7));
+
+        ValidationAssert.HasMessage(result, "Up to 6 places a day");
+        Assert.Contains(result.Errors, e => e.ErrorCode == TripErrorTypes.TooManySpotsPerDay);
+    }
+
+    [Fact]
+    public void Save_NoDatesAndNoPeople_Valid()
+    {
+        var request = Save(TripStatuses.Planned, 2);
+        request.Plan.Settings.StartDate = null;
+        request.Plan.Settings.Adults = null;
+        request.Plan.Settings.Kids = null;
 
         SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_DefaultPaceIsRelaxed()
+        => Assert.Equal(TripPace.Relaxed, Save().Plan.Settings.DayLimitMinutes);
+
+    [Theory]
+    [InlineData("own", true)]
+    [InlineData("skipped", true)]
+    [InlineData("done", false)]
+    [InlineData("", false)]
+    public void Save_TaxiMark_Status(string status, bool valid)
+    {
+        var request = Save();
+        request.Plan.TaxiMark = new TripRowMark { Status = status };
+
+        var result = SaveValidator.Validate(request);
+        Assert.Equal(valid, result.IsValid);
+        if (!valid) ValidationAssert.HasMessage(result, SaveTripRequestValidator.MarkMessage);
+    }
+
+    [Fact]
+    public void Save_StayMarkOnAnyLeg_Valid()
+    {
+        var request = MultiCity([1, 2], CityKey, SecondCity);
+        request.Plan.Legs![0].StayMark = new TripRowMark { Status = TripRowMarkStatuses.Own };
+        request.Plan.Legs[1].StayMark = new TripRowMark { Status = TripRowMarkStatuses.Skipped };
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_BadStayMark_Invalid()
+    {
+        var request = Save();
+        request.Plan.Legs![0].StayMark = new TripRowMark { Status = "booked" };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), SaveTripRequestValidator.MarkMessage);
+    }
+
+    [Fact]
+    public void Save_TravelMarkOnLegTwo_Valid()
+    {
+        var request = MultiCity([1, 2], CityKey, SecondCity);
+        request.Plan.Legs![1].TravelMark = new TripRowMark { Status = TripRowMarkStatuses.Own };
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_TravelMarkOnTheFirstLeg_Invalid()
+    {
+        var request = Save();
+        request.Plan.Legs![0].TravelMark = new TripRowMark { Status = TripRowMarkStatuses.Own };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), SaveTripRequestValidator.TravelMessage);
+    }
+
+    [Fact]
+    public void Save_TravelMarkWithArrival_Invalid()
+    {
+        var request = WithArrival(JourneyTravel());
+        request.Plan.Legs![1].TravelMark = new TripRowMark { Status = TripRowMarkStatuses.Skipped };
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), SaveTripRequestValidator.TravelMessage);
+    }
+
+    [Fact]
+    public void Save_NotNeededStep_Invalid()
+    {
+        var request = WithSteps(new TripSteps { ComingBack = new TripStep { Status = "notNeeded" } });
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Invalid step status");
+    }
+
+    [Fact]
+    public void Save_OwnAndSkippedSteps_Valid()
+        => SaveValidator.TestValidate(WithSteps(new TripSteps
+        {
+            GettingThere = new TripStep { Status = TripStepStatuses.Own },
+            ComingBack = new TripStep { Status = TripStepStatuses.Skipped },
+        })).ShouldNotHaveAnyValidationErrors();
+
+    [Fact]
+    public void Plan_RecalculateSevenOnADay_TooManySpotsPerDay()
+    {
+        var result = PlanValidator.Validate(Recalc(3, 7));
+
+        ValidationAssert.HasMessage(result, PlanTripRequestValidator.TooManyPerDayMessage);
+        Assert.Contains(result.Errors, e => e.ErrorCode == TripErrorTypes.TooManySpotsPerDay);
+    }
+
+    [Fact]
+    public void Plan_RecalculateSixOnEveryDay_Valid()
+        => PlanValidator.TestValidate(Recalc(6, 6, 6)).ShouldNotHaveAnyValidationErrors();
+
+    [Fact]
+    public void Plan_AutoMoreThanDaysTimesSix_TooManySpotsForDays()
+    {
+        var request = Auto(13);
+        request.MaxDays = 2;
+
+        var result = PlanValidator.Validate(request);
+
+        ValidationAssert.HasMessage(result, "Up to 12 places for 2 days (6 a day)");
+        Assert.Contains(result.Errors, e => e.ErrorCode == TripErrorTypes.TooManySpotsForDays);
+        Assert.Equal("Up to 12 places for 2 days (6 a day)", PlanTripRequestValidator.TooManyForDaysMessage(2));
+    }
+
+    [Theory]
+    [InlineData(2, 12)]
+    [InlineData(10, 60)]
+    [InlineData(14, 60)]
+    public void Plan_TooManyForDaysMessage_NeverAboveTripCap(int days, int shown)
+        => Assert.Equal($"Up to {shown} places for {days} days (6 a day)", PlanTripRequestValidator.TooManyForDaysMessage(days));
+
+    [Theory]
+    [InlineData(1, 6, true)]
+    [InlineData(1, 7, false)]
+    [InlineData(2, 12, true)]
+    [InlineData(3, 18, true)]
+    [InlineData(3, 19, false)]
+    public void Plan_AutoMaxDaysCap(int days, int spots, bool valid)
+    {
+        var request = Auto(spots);
+        request.MaxDays = days;
+
+        Assert.Equal(valid, PlanValidator.Validate(request).IsValid);
+    }
+
+    [Fact]
+    public void Plan_AutoWithoutMaxDays_OnlyTheTripCapApplies()
+        => PlanValidator.TestValidate(Auto(40)).ShouldNotHaveAnyValidationErrors();
+
+    [Fact]
+    public void Plan_AutoWithoutStartDate_Valid()
+    {
+        var request = Auto();
+        request.StartDate = null;
+
+        PlanValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
     }
 }

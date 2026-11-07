@@ -61,6 +61,7 @@ public static class TripEnquiryDtoBuilder
             ListingLongitude = e.ListingLongitude,
             Day = e.Day,
             Days = days,
+            CityLeg = e.CityLeg,
             CheckIn = e.CheckIn,
             CheckOut = e.CheckOut,
             Nights = TripExecutionRules.Nights(e.CheckIn, e.CheckOut),
@@ -85,7 +86,6 @@ public static class TripEnquiryDtoBuilder
                 Adults = context.Adults,
                 Kids = context.Kids,
                 Rooms = context.Rooms,
-                Needs = context.Needs ?? [],
                 Days = context.Days ?? new(),
                 PickupTime = context.PickupTime,
                 PickupPlace = context.PickupPlace,
@@ -265,7 +265,6 @@ public static class TripEnquiryDtoBuilder
         ProposedPerNight = ProposedPerNight(o, lines),
         Total = o.Total,
         Inclusions = o.Inclusions,
-        NeedsEchoed = ReadStrings(o.NeedsEchoedJson),
         AdvanceAmount = o.AdvanceAmount,
         BalanceNote = o.BalanceNote,
         CancellationText = o.CancellationText,
@@ -302,13 +301,6 @@ public static class TripEnquiryDtoBuilder
         if (string.IsNullOrWhiteSpace(json)) return new List<TripOfferLine>();
         try { return JsonSerializer.Deserialize<List<TripOfferLine>>(json, TripJson.Options) ?? new List<TripOfferLine>(); }
         catch (JsonException) { return new List<TripOfferLine>(); }
-    }
-
-    private static string[] ReadStrings(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return [];
-        try { return JsonSerializer.Deserialize<string[]>(json, TripJson.Options) ?? []; }
-        catch (JsonException) { return []; }
     }
 
     public static int[]? ReadDays(string? json)

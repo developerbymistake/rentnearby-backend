@@ -11,20 +11,20 @@ public class AtlasClientParseTests
     private const string SpotsBody = """
         {"status":"200","code":200,"timestamp":1793613600,"error":null,
          "data":{"cityKey":210000001,"cityName":"Nainital","districtName":"Nainital","stateName":"Uttarakhand",
-          "latitude":29.3919,"longitude":79.4542,"imageUrl":null,"imageCredit":null,"imageLicense":null,
+          "latitude":29.3919,"longitude":79.4542,"imageUrl":null,
           "tripEnabled":true,"isPopularDestination":true,"status":"Ready",
           "generatedAt":"2026-11-02T10:00:00Z","spotCount":1,
           "spots":[{"id":"osm:N123","source":"seed","name":"Naini Lake","displayName":"Naini Lake",
             "altNames":["Naini Tal","Nainī Tāl"],"description":"Lake",
             "latitude":29.39,"longitude":79.45,"category":"lake","area":"Mall Road","visitMinutes":60,"isFeatured":true,
-            "rank":1,"imageUrl":"https://img/x.jpg","imageCredit":"A","imageLicense":"CC BY-SA 4.0"}]}}
+            "rank":1,"imageUrl":"https://img/x.jpg","images":["https://img/x.jpg","https://img/y.jpg"]}]}}
         """;
 
     private const string CityPageBody = """
         {"status":"200","code":200,"timestamp":1793613600,"error":null,
          "data":{"items":[{"cityKey":210000002,"name":"Rishikesh","districtId":"5c1f0e3a-1b2c-4d5e-8f60-123456789abc",
            "districtName":"Dehradun","stateName":"Uttarakhand",
-           "latitude":30.1,"longitude":78.3,"imageUrl":null,"imageCredit":null,"imageLicense":null,
+           "latitude":30.1,"longitude":78.3,"imageUrl":null,
            "isTripEnabled":true,"isPopularDestination":true,"status":"Ready","spotCount":37,"updatedAt":"2026-11-03T08:00:00Z"}],
           "hasMore":false,"catalogUpdatedAt":"2026-11-03T08:00:00Z","catalogCount":42}}
         """;
@@ -69,7 +69,7 @@ public class AtlasClientParseTests
         Assert.Equal("Mall Road", spot.Area);
         Assert.Equal(60, spot.VisitMinutes);
         Assert.True(spot.IsFeatured);
-        Assert.Equal("CC BY-SA 4.0", spot.ImageLicense);
+        Assert.Equal(new[] { "https://img/x.jpg", "https://img/y.jpg" }, spot.Images);
     }
 
     [Theory]

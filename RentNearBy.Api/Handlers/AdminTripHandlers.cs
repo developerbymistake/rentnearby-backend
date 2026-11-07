@@ -284,7 +284,6 @@ public static class AdminTripHandlers
             Adults = context.Adults,
             Kids = context.Kids,
             Rooms = context.Rooms,
-            Needs = context.Needs ?? [],
             Days = context.Days ?? new(),
             PickupTime = context.PickupTime,
             PickupPlace = context.PickupPlace,
@@ -339,6 +338,8 @@ public static class AdminTripHandlers
         detail.TripId = e.TripId;
         detail.ConversationId = e.ConversationId;
         detail.ClosedNote = e.FailReason == TripCloseReasons.AdminClosed ? e.CancelReason : null;
+        detail.CancelledBy = CancelledByOf(e);
+        detail.CancelReason = e.FailReason == TripCloseReasons.AdminClosed ? null : e.CancelReason;
 
         var logs = await db.TripProblemLogs.AsNoTracking()
             .Where(p => p.TripEnquiryId == e.Id)
@@ -347,6 +348,14 @@ public static class AdminTripHandlers
         detail.Problems = await BuildProblemsAsync(db, unitOfWork, logs);
         return detail;
     }
+
+    public static string? CancelledByOf(TripEnquiry e) => e.Status switch
+    {
+        TripEnquiryStatuses.CancelledByTraveller => "traveller",
+        TripEnquiryStatuses.CancelledByOwner => "owner",
+        TripEnquiryStatuses.Closed when e.FailReason == TripCloseReasons.AdminClosed => "admin",
+        _ => null,
+    };
 
     private static async Task<List<AdminTripProblemDto>> BuildProblemsAsync(
         ApplicationDbContext db, IUnitOfWork unitOfWork, IReadOnlyList<TripProblemLog> logs)

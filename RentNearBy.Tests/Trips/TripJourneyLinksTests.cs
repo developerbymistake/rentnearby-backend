@@ -27,9 +27,7 @@ public class TripJourneyLinksTests
         return plan;
     }
 
-    private static TripTravel Journey(Guid id) => new() { Mode = TripTravelModes.Journey, FromName = "Haridwar", JourneyId = id, Cars = 2 };
-
-    private static TripTravel Own() => new() { Mode = TripTravelModes.Own, FromName = "Haridwar", How = TripTravelHows.Train };
+    private static TripTravel Journey(Guid id) => new() { FromName = "Haridwar", JourneyId = id, Cars = 2 };
 
     [Fact]
     public void Step_journey_has_a_role_without_a_leg()
@@ -70,10 +68,6 @@ public class TripJourneyLinksTests
         Assert.Null(TripJourneyLinks.Resolve(Plan(Journey(LegTwoId)), Guid.NewGuid()));
         Assert.Null(TripJourneyLinks.Resolve(Plan(Journey(LegTwoId)), Guid.Empty));
     }
-
-    [Fact]
-    public void Own_arrival_is_never_a_segment_journey()
-        => Assert.Empty(TripTravelRules.ArrivalIds(Plan(Own())));
 
     [Fact]
     public void Referenced_ids_are_steps_then_arrivals_without_duplicates()
@@ -139,25 +133,12 @@ public class TripJourneyLinksTests
     public void Sanitise_drops_a_journey_arrival_without_an_id()
     {
         var travel = Journey(LegTwoId);
-        travel.JourneyId = null;
+        travel.JourneyId = Guid.Empty;
         var plan = Plan(travel);
 
         TripTravelRules.SanitiseArrivals(plan, new HashSet<Guid>(), new List<Guid>());
 
         Assert.Null(plan.Legs![1].Arrival);
-    }
-
-    [Fact]
-    public void Sanitise_leaves_own_arrivals_untouched()
-    {
-        var own = Own();
-        var plan = Plan(own);
-        var keep = new List<Guid>();
-
-        TripTravelRules.SanitiseArrivals(plan, new HashSet<Guid>(), keep);
-
-        Assert.Same(own, plan.Legs![1].Arrival);
-        Assert.Empty(keep);
     }
 
     [Fact]

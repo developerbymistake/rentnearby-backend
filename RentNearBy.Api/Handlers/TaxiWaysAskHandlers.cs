@@ -196,7 +196,6 @@ public static class TaxiWaysAskHandlers
                     Adults = request.People,
                     Kids = 0,
                     Rooms = null,
-                    Needs = [],
                     TravellerName = travellerName.Length == 0 ? null : travellerName,
                     Days = [new TripEnquiryContextDay { Day = 1, Date = date, Minutes = 0, Spots = [] }],
                     PickupTime = null,
@@ -258,6 +257,7 @@ public static class TaxiWaysAskHandlers
             journey.Status = JourneyRules.JourneyStatusOf(journey.Legs);
             journey.UpdatedAt = now;
             await db.SaveChangesAsync();
+            if (segment != null && items.Count > 0) await TripEnquiryHandlers.PromoteToPlannedAsync(db, segment.Trip.Id);
 
             await unitOfWork.CommitTransactionAsync();
         }

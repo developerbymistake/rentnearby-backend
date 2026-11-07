@@ -14,6 +14,8 @@ public interface ITripEnquiryRepository : IRepository<TripEnquiry>
     Task<IReadOnlyList<TripEnquiry>> GetOpenByTripAsync(Guid tripId, string kind);
     // Tracked.
     Task<TripEnquiry?> FindOpenAsync(Guid tripId, string kind, Guid listingId, short? day);
+    // Tracked; the driver's open local row of this trip and city leg.
+    Task<TripEnquiry?> FindOpenTaxiAsync(Guid tripId, Guid listingId, short cityLeg);
     // AsNoTracking; open rows of this traveller for the listing across every trip.
     Task<IReadOnlyList<TripEnquiry>> GetOpenByTravellerListingAsync(Guid travellerId, string kind, Guid listingId);
     // AsNoTracking; open first, else newest.

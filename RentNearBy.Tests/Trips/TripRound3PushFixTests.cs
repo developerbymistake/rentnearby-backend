@@ -86,7 +86,7 @@ public class TripRound3PushFixTests
         var t = TripNotifications.TripFareCleared(e, Ctx(Traveller));
         Assert.Equal(Traveller, t.TargetUserId);
         using var doc = JsonDocument.Parse(t.ActionArgumentsJson!);
-        Assert.Equal("2026-11-06", doc.RootElement.GetProperty("date").GetString());
+        Assert.Equal("taxi", doc.RootElement.GetProperty("row").GetString());
     }
 
     // Finding 10: a counter's proposed price is the guest's per-room price, not the first rescaled line.

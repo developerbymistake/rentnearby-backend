@@ -52,7 +52,9 @@ public static class DaySplitter
     {
         var spots = input.Spots;
         var n = spots.Count;
-        var maxDays = Math.Max(1, input.MaxDays);
+        var perDay = Math.Max(1, input.MaxSpotsPerDay);
+        var askedDays = Math.Max(1, input.MaxDays);
+        var maxDays = Math.Max(askedDays, (n + perDay - 1) / perDay);
         var warnings = new List<SplitWarning>();
         if (n == 0) return new SplitResult(new List<SplitDay>(), warnings);
 
@@ -63,7 +65,7 @@ public static class DaySplitter
             : RoutePath.Order(minutes, spots, anchor.Latitude, anchor.Longitude);
         var reserved = Math.Max(0, input.FirstDayUsedMinutes);
         var plan = DaySplit.Solve(new DaySplitInput(order, spots.Select(s => s.VisitMinutes).ToArray(), minutes, input.DayLimitMinutes, maxDays,
-            reserved, anchorIndex, ClosedTable(spots, input.StartDate, maxDays)));
+            reserved, anchorIndex, ClosedTable(spots, input.StartDate, maxDays), perDay));
 
         var builders = new List<DayBuilder>(plan.Days.Length);
         for (var d = 0; d < plan.Days.Length; d++)
@@ -78,12 +80,14 @@ public static class DaySplitter
             builders.Add(builder);
         }
 
-        if (plan.Overflow > 0)
+        if (maxDays > askedDays)
+            warnings.Insert(0, new SplitWarning(TripWarningCodes.TooManyDays, $"Places do not fit in {askedDays} days", null, builders.Count));
+        else if (plan.Overflow > 0)
         {
             var worst = builders.MaxBy(b => b.Visit + b.Drive + b.Reserved)!.Day;
             warnings.Insert(0, plan.OpenOverflow == 0
                 ? new SplitWarning(TripWarningCodes.ClosedDaysCrowd, $"Closed days make Day {worst} long", null, worst)
-                : new SplitWarning(TripWarningCodes.TooManyDays, $"Places do not fit in {maxDays} days", null, worst));
+                : new SplitWarning(TripWarningCodes.TooManyDays, $"Places do not fit in {askedDays} days", null, worst));
         }
 
         return Finish(builders, spots, input.DayLimitMinutes, warnings);
@@ -92,7 +96,7 @@ public static class DaySplitter
     // The user's order always wins: only times, flags and the closed-day warning are computed.
     // anchor != null: matrix is (n + 1) x (n + 1) over allSpots and its last row/column is the anchor.
     public static SplitResult Recalculate(IReadOnlyList<(int Day, List<TripSpot> Spots)> days, int dayLimitMinutes, DateOnly? startDate, RoadMatrix matrix, IReadOnlyList<TripSpot> allSpots,
-        int firstDayUsedMinutes = 0, TripSpot? anchor = null, IReadOnlyList<DayEnds>? ends = null)
+        int firstDayUsedMinutes = 0, TripSpot? anchor = null, IReadOnlyList<DayEnds>? ends = null, int maxSpotsPerDay = TripLimits.MaxSpotsPerDay)
     {
         var anchorIndex = anchor == null ? -1 : allSpots.Count;
         var index = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -103,14 +107,17 @@ public static class DaySplitter
         var reserved = Math.Max(0, firstDayUsedMinutes);
         var warnings = new List<SplitWarning>();
         var builders = new List<DayBuilder>();
+        var perDay = days.Select(d => new List<int>()).ToList();
+        for (var k = 0; k < days.Count; k++)
+            foreach (var spot in days[k].Spots)
+                if (index.TryGetValue(spot.Id, out var i) && !perDay[k].Contains(i)) perDay[k].Add(i);
+        MoveOverCap(perDay, maxSpotsPerDay);
         for (var k = 0; k < days.Count; k++)
         {
-            var (day, daySpots) = days[k];
+            var (day, _) = days[k];
             var end = ends != null && k < ends.Count ? ends[k] : new DayEnds(anchorIndex, anchorIndex);
             var builder = new DayBuilder(day, day == 1 ? reserved : 0);
-            var picked = new List<int>(daySpots.Count);
-            foreach (var spot in daySpots)
-                if (index.TryGetValue(spot.Id, out var i) && !picked.Contains(i)) picked.Add(i);
+            var picked = perDay[k];
             if (end.BestOrder) picked = RoutePath.Between(matrix.Minutes!, picked, end.Start, end.End).ToList();
             foreach (var i in picked)
             {
@@ -122,6 +129,23 @@ public static class DaySplitter
         }
 
         return Finish(builders, allSpots, dayLimitMinutes, warnings);
+    }
+
+    // A day never keeps more than cap places: the extra ones (the end of the day) go to the day with the fewest places that has room.
+    private static void MoveOverCap(List<List<int>> perDay, int cap)
+    {
+        cap = Math.Max(1, cap);
+        if (perDay.Count * cap < perDay.Sum(p => p.Count)) return;
+        for (var k = 0; k < perDay.Count; k++)
+            while (perDay[k].Count > cap)
+            {
+                var target = -1;
+                for (var t = 0; t < perDay.Count; t++)
+                    if (t != k && perDay[t].Count < cap && (target < 0 || perDay[t].Count < perDay[target].Count)) target = t;
+                if (target < 0) return;
+                perDay[target].Add(perDay[k][^1]);
+                perDay[k].RemoveAt(perDay[k].Count - 1);
+            }
     }
 
     public static RoadMatrix FillEstimates(IReadOnlyList<TripSpot> spots, RoadMatrix? matrix, double fallbackSpeedKmh, double estimateFactor)

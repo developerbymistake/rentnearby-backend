@@ -13,6 +13,7 @@ public class TripEnquiryDto
     public double? ListingLongitude { get; set; }
     public int? Day { get; set; }
     public int[]? Days { get; set; }
+    public int? CityLeg { get; set; }
     public DateOnly? CheckIn { get; set; }
     public DateOnly? CheckOut { get; set; }
     public int Nights { get; set; }
@@ -63,7 +64,6 @@ public class TripEnquiryContextDto
     public int? Adults { get; set; }
     public int? Kids { get; set; }
     public int? Rooms { get; set; }
-    public string[] Needs { get; set; } = [];
     public List<TripEnquiryContextDay> Days { get; set; } = new();
     public string? PickupTime { get; set; }
     public string? PickupPlace { get; set; }
@@ -173,7 +173,6 @@ public class TripOfferDto
     public List<TripOfferLine> Lines { get; set; } = new();
     public int Total { get; set; }
     public string? Inclusions { get; set; }
-    public string[] NeedsEchoed { get; set; } = [];
     public int? AdvanceAmount { get; set; }
     public string? BalanceNote { get; set; }
     public string? CancellationText { get; set; }

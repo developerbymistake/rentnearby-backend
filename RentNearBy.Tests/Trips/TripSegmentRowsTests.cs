@@ -15,7 +15,7 @@ public class TripSegmentRowsTests
                 new TripCityLeg
                 {
                     Index = 2, CityName = "Badrinath",
-                    Arrival = new TripTravel { Mode = TripTravelModes.Journey, FromName = "Haridwar", JourneyId = journeyId, Cars = 2 },
+                    Arrival = new TripTravel { FromName = "Haridwar", JourneyId = journeyId, Cars = 2 },
                 },
             ],
         };

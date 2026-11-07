@@ -1292,6 +1292,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(x => x.PickupTime).HasMaxLength(5);
             e.Property(x => x.PickupPlace).HasMaxLength(80);
             e.Property(x => x.CancelReason).HasMaxLength(300);
+            e.Property(x => x.CityLeg).HasColumnType("smallint");
 
             e.HasOne<Trip>()
              .WithMany()
@@ -1318,7 +1319,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(x => new { x.TripId, x.Kind, x.ListingId, x.Day }, "ix_tripenquiries_open_unique")
              .IsUnique()
              .HasFilter(open + " AND \"Day\" IS NOT NULL");
-            e.HasIndex(x => new { x.TripId, x.Kind, x.ListingId }, "ix_tripenquiries_open_taxi_unique")
+            // One open local row per (trip, driver, city leg); every local lead writes CityLeg (NULL is distinct in Postgres).
+            e.HasIndex(x => new { x.TripId, x.Kind, x.ListingId, x.CityLeg }, "ix_tripenquiries_open_taxi_unique")
              .IsUnique()
              .HasFilter(open + " AND \"Day\" IS NULL");
             e.HasIndex(x => x.HostConfirmTokenHash, "ix_tripenquiries_host_token")
@@ -1374,7 +1376,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(x => x.CheckOut).HasColumnType("date");
             e.Property(x => x.LinesJson).HasColumnType("jsonb").IsRequired();
             e.Property(x => x.Inclusions).HasMaxLength(200);
-            e.Property(x => x.NeedsEchoedJson).HasColumnType("jsonb");
             e.Property(x => x.BalanceNote).HasMaxLength(120);
             e.Property(x => x.CancellationText).HasMaxLength(300);
             e.Property(x => x.Note).HasMaxLength(300);

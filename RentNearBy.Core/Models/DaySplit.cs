@@ -46,8 +46,9 @@ public static class TripAnchor
 }
 
 // Tour = place indices in RoutePath order. Visit and Minutes are indexed by place (Minutes may carry the anchor row).
-// Closed[place, day - 1] = closed on that trip day; null = no start date.
-public sealed record DaySplitInput(int[] Tour, int[] Visit, int[,] Minutes, int Limit, int MaxDays, int Reserved = 0, int Anchor = -1, bool[,]? Closed = null);
+// Closed[place, day - 1] = closed on that trip day; null = no start date. MaxPerDay = hard cap of places on one day
+// (the caller keeps MaxDays * MaxPerDay >= places, else no split exists).
+public sealed record DaySplitInput(int[] Tour, int[] Visit, int[,] Minutes, int Limit, int MaxDays, int Reserved = 0, int Anchor = -1, bool[,]? Closed = null, int MaxPerDay = int.MaxValue);
 
 // Days[d - 1] = places of day d in visiting order (an empty day is a free day). Overflow = minutes the fullest
 // multi-place day runs over the limit, above 0 only when MaxDays is too few. OpenOverflow = the same for the input tour
@@ -244,6 +245,7 @@ public static class DaySplit
 
             var input = _input;
             var maxDays = _maxDays;
+            var maxPer = Math.Max(1, input.MaxPerDay);
             long limit = input.Limit;
             long reserved = Math.Max(0, input.Reserved);
             var m = input.Minutes;
@@ -293,6 +295,7 @@ public static class DaySplit
                 for (var i = 0; i <= j; i++)
                 {
                     if (v1[d - 1, i] == int.MaxValue) continue;
+                    if (j - i > maxPer) continue;
                     if (i < j && d == 1 && blocked) continue;
                     var viol = v1[d - 1, i];
                     var over = o1[d - 1, i];
@@ -379,6 +382,7 @@ public static class DaySplit
                 if (d == 1 && dayOneBlocked) continue;
                 for (var i = j - 1; i >= 0; i--)
                 {
+                    if (j - i > maxPer) break;
                     // Visits and inner legs only grow as the day starts earlier on the tour.
                     var core = visitSum[j] - visitSum[i] + innerSum[j] - innerSum[i + 1] + Reserve(d);
                     var exempt = Exempt(i, j, d);

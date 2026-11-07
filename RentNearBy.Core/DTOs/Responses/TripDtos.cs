@@ -19,8 +19,8 @@ public class TripSpotDto
     public bool IsFeatured { get; set; }
     public int Rank { get; set; }
     public string? ImageUrl { get; set; }
-    public string? ImageCredit { get; set; }
-    public string? ImageLicense { get; set; }
+    // Cover first; the cover is also ImageUrl.
+    public List<string> Images { get; set; } = new();
 }
 
 public class TripSpotsPageDto
@@ -100,7 +100,7 @@ public class TripDto
     // The caller's live journeys linked to this trip (at most two); role null = linked but no step uses it.
     public List<TripJourneyDto> Journeys { get; set; } = new();
     public string BookingState { get; set; } = TripBookingStates.Draft;
-    // Confirm-based step progress (TripStepProgress).
+    // The Make it easy rows and their counts (TripEasyRows).
     public TripProgress Progress { get; set; } = new();
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
@@ -172,9 +172,6 @@ public class TripSummaryDto
     public List<string> LegCities { get; set; } = new();
     public int DayCount { get; set; }
     public int SpotCount { get; set; }
-    public int TaxiDays { get; set; }
-    public int StayDays { get; set; }
-    public string? StayName { get; set; }
     public DateOnly? StartDate { get; set; }
     public DateOnly? EndDate { get; set; }
     public int? Adults { get; set; }
@@ -183,32 +180,10 @@ public class TripSummaryDto
     public string Category { get; set; } = "attraction";
     public string BookingState { get; set; } = TripBookingStates.Draft;
     public TripProgress Progress { get; set; } = new();
-    public int StaysConfirmed { get; set; }
-    public int StaysTotal { get; set; }
-    public int TaxisConfirmed { get; set; }
-    public int TaxisTotal { get; set; }
-    public int StaysOwn { get; set; }
-    public int TaxisOwn { get; set; }
     public int AgreedTotal { get; set; }
-    // City changes (legs - 1) and how many of them have own travel or every journey car settled.
-    public int TravelSegments { get; set; }
-    public int TravelSettled { get; set; }
-    public List<TripSummaryLegStateDto> Legs { get; set; } = new();
-    // Derived step display (TripStepDisplays); null when the plan has no steps.
-    public string? GettingThere { get; set; }
-    public string? ComingBack { get; set; }
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-}
-
-public class TripSummaryLegStateDto
-{
-    public int Index { get; set; }
-    public string CityName { get; set; } = string.Empty;
-    public int StartDay { get; set; }
-    public int EndDay { get; set; }
-    public string State { get; set; } = TripBookingStates.Draft;
 }
 
 public class TripCitySupplyDto

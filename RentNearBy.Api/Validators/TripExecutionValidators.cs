@@ -190,9 +190,6 @@ public class SendTripOfferRequestValidator : TripOfferFieldsValidator<SendTripOf
 {
     public SendTripOfferRequestValidator()
     {
-        RuleFor(x => x.NeedsEchoed)
-            .Must(n => n == null || n.All(TripNeeds.All.Contains))
-            .WithMessage("Needs must be no_stairs, kids_safe or veg_food");
         RuleFor(x => x.CounterOfferId)
             .Must(id => id == null || id != Guid.Empty)
             .WithMessage("Counter id must not be empty");
@@ -241,19 +238,6 @@ public class ChangeRequestRequestValidator : AbstractValidator<ChangeRequestRequ
         RuleFor(x => x.Note)
             .Must(v => v == null || v.Length <= TripExecutionRules.NoteMax)
             .WithMessage($"Note must be at most {TripExecutionRules.NoteMax} characters");
-    }
-}
-
-public class AskAgainRequestValidator : AbstractValidator<AskAgainRequest>
-{
-    public AskAgainRequestValidator()
-    {
-        RuleFor(x => x.Kind)
-            .Must(k => TripEnquiryKinds.All.Contains(k))
-            .WithMessage("Kind must be Stay or Taxi");
-        RuleFor(x => x.Day)
-            .InclusiveBetween(1, TripLimits.MaxDays)
-            .WithMessage($"Day must be 1 to {TripLimits.MaxDays}");
     }
 }
 

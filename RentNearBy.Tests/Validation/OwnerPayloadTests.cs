@@ -269,10 +269,12 @@ public class OwnerPayloadTests
 
     private const string Spot = "{\"id\":\"osm:N1\",\"name\":\"Mall Road\",\"latitude\":29.39,\"longitude\":79.45,\"category\":\"attraction\",\"visitMinutes\":60}";
 
-    private static SaveTripRequest Trip(string settings, string steps, string days, string? legs = null)
+    private const string OneCity = "[{\"index\":1,\"cityKey\":502141,\"cityName\":\"Nainital\",\"latitude\":29.38,\"longitude\":79.46}]";
+
+    private static SaveTripRequest Trip(string settings, string steps, string days, string? legs = null, string? extra = null)
     {
-        var json = "{\"status\":\"Planned\",\"plan\":{\"version\":5,\"cityKey\":502141,\"cityName\":\"Nainital\",\"settings\":" + settings
-                   + (steps.Length > 0 ? ",\"steps\":" + steps : "") + (legs != null ? ",\"legs\":" + legs : "")
+        var json = "{\"status\":\"Planned\",\"plan\":{\"version\":6,\"cityKey\":502141,\"cityName\":\"Nainital\",\"settings\":" + settings
+                   + (steps.Length > 0 ? ",\"steps\":" + steps : "") + ",\"legs\":" + (legs ?? OneCity) + (extra ?? "")
                    + ",\"days\":" + days + "}}";
         return JsonSerializer.Deserialize<SaveTripRequest>(json, TripJson.Options)!;
     }
@@ -285,122 +287,32 @@ public class OwnerPayloadTests
     }
 
     [Fact]
-    public void Trip_OwnEverythingBlank_Valid_AndFallbacksApplied()
+    public void Trip_MarksAndNoDatesOrPeople_Valid()
     {
         var request = Trip(
-            "{\"dayLimitMinutes\":450,\"adults\":2,\"pickupPlace\":\"  \"}",
-            "{\"startFrom\":{\"name\":\"\",\"lat\":29.2,\"lon\":79.5},\"goingHomeTo\":{\"name\":\"   \",\"lat\":29.2,\"lon\":79.5},"
-            + "\"gettingThere\":{\"status\":\"own\",\"how\":\"\",\"ownName\":\"\",\"ownPhone\":\"\",\"note\":\"\"},"
-            + "\"comingBack\":{\"status\":\"own\"}}",
-            "[{\"day\":1,\"spots\":[" + Spot + "],\"taxi\":{\"isOwn\":true,\"name\":\"\",\"ownPhone\":\"\",\"note\":\"\"},"
-            + "\"stay\":{\"isOwn\":true,\"name\":\"  \",\"ownPhone\":\"98\",\"note\":\"\"}}]");
+            "{\"dayLimitMinutes\":300}",
+            "{\"gettingThere\":{\"status\":\"own\"},\"comingBack\":{\"status\":\"skipped\"}}",
+            "[{\"day\":1,\"spots\":[" + Spot + "]}]",
+            "[{\"index\":1,\"cityKey\":502141,\"cityName\":\"Nainital\",\"latitude\":29.38,\"longitude\":79.46,\"stayMark\":{\"status\":\"own\"}}]",
+            ",\"taxiMark\":{\"status\":\"skipped\"}");
 
         ValidationAssert.Valid(Validate(request));
-
-        var steps = request.Plan.Steps!;
-        Assert.Equal("My location", steps.StartFrom!.Name);
-        Assert.Equal("Drop point", steps.GoingHomeTo!.Name);
-        Assert.Null(steps.GettingThere!.How);
-        Assert.Null(steps.GettingThere.OwnName);
-        Assert.Null(steps.GettingThere.OwnPhone);
-        Assert.Null(request.Plan.Settings.PickupPlace);
-        Assert.Equal(string.Empty, request.Plan.Days[0].Taxi!.Name);
-        Assert.Null(request.Plan.Days[0].Stay!.OwnPhone);
-    }
-
-    [Theory]
-    [InlineData("flight")]
-    [InlineData("car")]
-    [InlineData("bus")]
-    [InlineData("train")]
-    [InlineData("other")]
-    public void Trip_OwnTravelModes_Valid_AndKept(string how)
-    {
-        var request = Trip("{\"dayLimitMinutes\":450}",
-            "{\"gettingThere\":{\"status\":\"own\",\"how\":\"" + how + "\",\"ownName\":\"IndiGo 6E-123\",\"ownPhone\":\"+91 98765 43210\"}}",
-            "[{\"day\":1,\"spots\":[" + Spot + "]}]");
-
-        ValidationAssert.Valid(Validate(request));
-        Assert.Equal(how, request.Plan.Steps!.GettingThere!.How);
-        Assert.Equal("9876543210", request.Plan.Steps.GettingThere.OwnPhone);
+        Assert.Null(request.Plan.Settings.StartDate);
+        Assert.Null(request.Plan.Settings.Adults);
+        Assert.Equal(TripRowMarkStatuses.Own, request.Plan.Legs![0].StayMark!.Status);
+        Assert.Equal(TripRowMarkStatuses.Skipped, request.Plan.TaxiMark!.Status);
     }
 
     [Fact]
-    public void Trip_UnknownHowAndBadPhoneAndTime_DroppedNotRefused()
+    public void Trip_SixPlacesADay_Valid_SevenGetTheTypedError()
     {
-        var request = Trip("{\"dayLimitMinutes\":450}",
-            "{\"comingBack\":{\"status\":\"own\",\"how\":\"teleport\",\"ownPhone\":\"12345\",\"leavesAt\":\"99:99\"}}",
-            "[{\"day\":1,\"spots\":[" + Spot + "]}]");
+        string Day(int count) => "[{\"day\":1,\"spots\":[" + string.Join(",", Enumerable.Range(1, count).Select(i => Spot.Replace("N1", "N" + i))) + "]}]";
 
-        ValidationAssert.Valid(Validate(request));
-        var back = request.Plan.Steps!.ComingBack!;
-        Assert.Null(back.How);
-        Assert.Null(back.OwnPhone);
-        Assert.Null(back.LeavesAt);
-    }
+        ValidationAssert.Valid(Validate(Trip("{\"dayLimitMinutes\":300}", "", Day(6))));
 
-    [Fact]
-    public void Trip_NonOwnStepWithOwnFields_FieldsClearedNotRefused()
-    {
-        var request = Trip("{\"dayLimitMinutes\":450}",
-            "{\"gettingThere\":{\"status\":\"notStarted\",\"how\":\"bus\",\"ownName\":\"x\",\"ownPhone\":\"abc\"}}",
-            "[{\"day\":1,\"spots\":[" + Spot + "]}]");
-
-        ValidationAssert.Valid(Validate(request));
-        Assert.Null(request.Plan.Steps!.GettingThere!.OwnPhone);
-    }
-
-    [Fact]
-    public void Trip_LongOwnNamesAndNotes_CutNotRefused()
-    {
-        var name = new string('n', 500);
-        var note = new string('t', 900);
-        var request = Trip(
-            "{\"dayLimitMinutes\":450,\"pickupPlace\":\"" + new string('p', 200) + "\"}",
-            "{\"startFrom\":{\"name\":\"" + name + "\",\"lat\":29.2,\"lon\":79.5},"
-            + "\"gettingThere\":{\"status\":\"own\",\"ownName\":\"" + name + "\",\"note\":\"" + note + "\"}}",
-            "[{\"day\":1,\"spots\":[" + Spot + "],\"taxi\":{\"isOwn\":true,\"name\":\"" + name + "\",\"vehicleTypeName\":\"" + name
-            + "\",\"note\":\"" + note + "\"},\"stay\":{\"isOwn\":true,\"name\":\"" + name + "\",\"note\":\"" + note + "\"}}]");
-
-        ValidationAssert.Valid(Validate(request));
-        var day = request.Plan.Days[0];
-        Assert.Equal(80, day.Taxi!.Name.Length);
-        Assert.Equal(80, day.Stay!.Name.Length);
-        Assert.Equal(300, day.Stay.Note!.Length);
-        Assert.Equal(80, request.Plan.Steps!.StartFrom!.Name.Length);
-        Assert.Equal(80, request.Plan.Settings.PickupPlace!.Length);
-        Assert.Equal(300, request.Plan.Steps.GettingThere!.Note!.Length);
-    }
-
-    [Fact]
-    public void Trip_NonOwnStayLongNameAndShortlistNames_CutNotRefused()
-    {
-        var name = new string('s', 400);
-        var id = Guid.NewGuid();
-        var request = Trip("{\"dayLimitMinutes\":450}", "",
-            "[{\"day\":1,\"spots\":[" + Spot + "],\"stay\":{\"stayId\":\"" + id + "\",\"name\":\"" + name + "\"},"
-            + "\"stayShortlist\":[{\"stayId\":\"" + id + "\",\"name\":\"" + name + "\"}]}]");
-
-        ValidationAssert.Valid(Validate(request));
-        Assert.Equal(120, request.Plan.Days[0].Stay!.Name.Length);
-        Assert.Equal(120, request.Plan.Days[0].StayShortlist![0].Name.Length);
-    }
-
-    [Fact]
-    public void Trip_TwoCities_OwnArrivalBlank_Flight_BadPhone_Valid()
-    {
-        var request = Trip("{\"dayLimitMinutes\":450}", "",
-            "[{\"day\":1,\"leg\":1,\"spots\":[" + Spot + "]},{\"day\":2,\"leg\":2,\"spots\":[" + Spot.Replace("N1", "N2") + "],"
-            + "\"stay\":{\"isOwn\":true,\"name\":\"\"}}]",
-            "[{\"index\":1,\"cityKey\":502141,\"cityName\":\"Nainital\",\"latitude\":29.38,\"longitude\":79.46},"
-            + "{\"index\":2,\"cityKey\":502142,\"cityName\":\"Almora\",\"latitude\":29.59,\"longitude\":79.65,"
-            + "\"arrival\":{\"mode\":\"own\",\"fromName\":\"\",\"how\":\"flight\",\"ownName\":\"\",\"ownPhone\":\"12\",\"note\":\"\"}}]");
-
-        ValidationAssert.Valid(Validate(request));
-        var arrival = request.Plan.Legs![1].Arrival!;
-        Assert.Equal("flight", arrival.How);
-        Assert.Null(arrival.OwnPhone);
-        Assert.Null(arrival.OwnName);
+        var result = Validate(Trip("{\"dayLimitMinutes\":300}", "", Day(7)));
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.ErrorCode == TripErrorTypes.TooManySpotsPerDay);
     }
 
     [Fact]

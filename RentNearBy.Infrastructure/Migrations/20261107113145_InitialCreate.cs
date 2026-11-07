@@ -1691,10 +1691,12 @@ namespace RentNearBy.Infrastructure.Migrations
                     ListingLongitude = table.Column<double>(type: "double precision", nullable: true),
                     Day = table.Column<short>(type: "smallint", nullable: true),
                     DaysJson = table.Column<string>(type: "jsonb", nullable: true),
+                    CityLeg = table.Column<short>(type: "smallint", nullable: true),
                     CheckIn = table.Column<DateOnly>(type: "date", nullable: true),
                     CheckOut = table.Column<DateOnly>(type: "date", nullable: true),
                     ConversationId = table.Column<Guid>(type: "uuid", nullable: true),
                     ContextJson = table.Column<string>(type: "jsonb", nullable: false, defaultValueSql: "'{}'::jsonb"),
+                    ContextRefreshCount = table.Column<short>(type: "smallint", nullable: false),
                     Status = table.Column<string>(type: "character varying(24)", maxLength: 24, nullable: false),
                     FailReason = table.Column<string>(type: "character varying(24)", maxLength: 24, nullable: true),
                     ExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
@@ -1785,7 +1787,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     Nights = table.Column<short>(type: "smallint", nullable: false),
                     Total = table.Column<int>(type: "integer", nullable: false),
                     Inclusions = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
-                    NeedsEchoedJson = table.Column<string>(type: "jsonb", nullable: true),
                     AdvanceAmount = table.Column<int>(type: "integer", nullable: true),
                     BalanceNote = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: true),
                     CancellationText = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
@@ -2777,7 +2778,7 @@ namespace RentNearBy.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_open_taxi_unique",
                 table: "TripEnquiries",
-                columns: new[] { "TripId", "Kind", "ListingId" },
+                columns: new[] { "TripId", "Kind", "ListingId", "CityLeg" },
                 unique: true,
                 filter: "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller') AND \"Day\" IS NULL");
 

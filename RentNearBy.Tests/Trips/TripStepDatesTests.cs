@@ -84,15 +84,4 @@ public class TripStepDatesTests
         Assert.Equal("Almora", TripStepDates.LegFor(TripStepRoles.Segment, plan, 2)!.CityName);
         Assert.Null(TripStepDates.LegFor(TripStepRoles.Segment, plan, 5));
     }
-
-    [Fact]
-    public void Stored_not_needed_reads_as_not_started()
-    {
-        var plan = Plan(Start);
-        plan.Steps!.ComingBack!.Status = TripStepStatuses.NotNeeded;
-        plan.Steps.GettingThere!.Status = TripStepStatuses.NotNeeded;
-        plan.Normalize();
-        Assert.Equal(TripStepStatuses.NotStarted, plan.Steps.ComingBack.Status);
-        Assert.Equal(TripStepStatuses.NotStarted, plan.Steps.GettingThere.Status);
-    }
 }

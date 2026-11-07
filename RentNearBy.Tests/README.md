@@ -162,3 +162,12 @@ If one of them is `private` again, the build fails in the matching test class.
 - Handlers/endpoints (`GetStats` query, auth, tab gate filter): need the host and PostgreSQL; `WebApplicationFactory` +
   PostgreSQL is the planned integration route.
 - Anything in `Migrations/`.
+
+## Journeys
+
+`Integration/Journeys` holds five traveller journeys (T1 solo stay ask, T2 family phone booking, T3 own car and taxi booked,
+T4 everything outside the app, T5 two cities with per-city taxi leads and a partial stay cover). They run the real handlers
+(`TripEnquiryHandlers`, `TripOwnerHandlers`, `TripHandlers`, `TripLifecycleHandlers`) on a real PostgreSQL database; only the push
+notifier and the chat writer are recorded fakes. Rows are hand-inserted with fresh ids (never `DataSeeder.SeedAsync`) and deleted
+by id after each test. They need `RENTNEARBY_TEST_DB` (a PostGIS database; the fixture runs `MigrateAsync` once) and every test is
+`[IntegrationFact]`, so without the variable they are skipped, like `DatabaseSmokeTests`.

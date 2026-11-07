@@ -311,8 +311,7 @@ public class TripNotificationsTests
             Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
             using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
             Assert.Equal(TripId.ToString(), doc.RootElement.GetProperty("tripId").GetString());
-            Assert.Equal(TripStepKinds.Taxi, doc.RootElement.GetProperty("step").GetString());
-            Assert.Equal(2, doc.RootElement.GetProperty("day").GetInt32());
+            Assert.Equal(TripRowKinds.Taxi, doc.RootElement.GetProperty("row").GetString());
         }
     }
 
@@ -419,26 +418,26 @@ public class TripNotificationsTests
     }
 
     [Fact]
-    public void Stay_plan_push_carries_the_night_and_date()
+    public void Stay_plan_push_carries_the_stay_row()
     {
         var e = StayRow();
         e.Day = 5;
         var n = TripNotifications.TripHostDenied(e, Ctx(Traveller));
         Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
         using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
-        Assert.Equal(5, doc.RootElement.GetProperty("day").GetInt32());
-        Assert.Equal("2026-11-01", doc.RootElement.GetProperty("date").GetString());
+        Assert.Equal("stay:1", doc.RootElement.GetProperty("row").GetString());
+        Assert.False(doc.RootElement.TryGetProperty("day", out _));
     }
 
     [Fact]
-    public void Taxi_replies_args_always_carry_the_first_date()
+    public void Taxi_replies_args_open_the_taxi_row()
     {
         var e = TaxiRow();
         e.DaysJson = "[3,2]";
         e.CheckIn = new DateOnly(2026, 11, 6);
         var n = TripNotifications.TripDriverFare(e, Ctx(Traveller));
         using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
-        Assert.Equal("2026-11-06", doc.RootElement.GetProperty("date").GetString());
+        Assert.Equal("taxi", doc.RootElement.GetProperty("row").GetString());
     }
 
     [Fact]
@@ -813,42 +812,40 @@ public class TripNotificationsTests
         Assert.Equal(Traveller, n.TargetUserId);
     }
 
-    // ---- step arguments of the plan route (CONTRACT_WIZARD 8.5)
+    // ---- row argument of the plan route (CONTRACT_V2 1.10)
 
     [Fact]
-    public void Stay_push_opens_the_stay_step_of_its_night()
+    public void Stay_push_opens_the_stay_row_of_its_city()
     {
         var e = StayRow();
         e.Day = 2;
+        e.ContextJson = """{"city":"Badrinath","cityIndex":2,"cityCount":2}""";
         using var doc = JsonDocument.Parse(TripNotifications.TripHostConfirmed(e, Ctx(Traveller)).ActionArgumentsJson!);
-        Assert.Equal("stay", doc.RootElement.GetProperty("step").GetString());
-        Assert.Equal(2, doc.RootElement.GetProperty("day").GetInt32());
-        Assert.True(doc.RootElement.TryGetProperty("date", out _));
+        Assert.Equal("stay:2", doc.RootElement.GetProperty("row").GetString());
     }
 
     [Fact]
-    public void City_change_push_opens_the_travel_step_of_its_leg()
+    public void City_change_push_opens_the_between_row_of_its_leg()
     {
         var e = SegmentRow();
         e.ContextJson = """{"city":"Badrinath","journeyId":"dddddddd-0000-0000-0000-000000000001","legIndex":2,"cityIndex":2,"cityCount":2,"role":"segment"}""";
         var n = TripNotifications.TripDriverConfirmed(e, Ctx(Traveller));
         Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
         using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
-        Assert.Equal("travel", doc.RootElement.GetProperty("step").GetString());
-        Assert.Equal(2, doc.RootElement.GetProperty("legIndex").GetInt32());
+        Assert.Equal("between:2", doc.RootElement.GetProperty("row").GetString());
     }
 
     [Fact]
     public void Segment_row_without_a_stored_role_is_the_city_change()
     {
         using var doc = JsonDocument.Parse(TripNotifications.TripNotAvailable(SegmentRow(), Ctx(Traveller)).ActionArgumentsJson!);
-        Assert.Equal("travel", doc.RootElement.GetProperty("step").GetString());
+        Assert.StartsWith("between:", doc.RootElement.GetProperty("row").GetString());
     }
 
     [Theory]
     [InlineData("gettingThere")]
     [InlineData("comingBack")]
-    public void Getting_there_and_coming_back_pushes_carry_the_step_only(string role)
+    public void Getting_there_and_coming_back_pushes_carry_the_row_only(string role)
     {
         var e = SegmentRow();
         e.Day = 0;
@@ -858,7 +855,7 @@ public class TripNotificationsTests
             Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
             using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
             Assert.Equal(TripId, doc.RootElement.GetProperty("tripId").GetGuid());
-            Assert.Equal(role, doc.RootElement.GetProperty("step").GetString());
+            Assert.Equal(role, doc.RootElement.GetProperty("row").GetString());
             Assert.False(doc.RootElement.TryGetProperty("day", out _));
             Assert.False(doc.RootElement.TryGetProperty("date", out _));
             Assert.False(doc.RootElement.TryGetProperty("legIndex", out _));

@@ -3,7 +3,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using RentNearBy.Core.DTOs.Responses;
 
 namespace RentNearBy.Core.Models;
@@ -41,6 +40,8 @@ public static class TripErrorTypes
     public const string TripPlannerDisabled = "TripPlannerDisabled";
     public const string CityNotFound = "CityNotFound";
     public const string TooManySpots = "TooManySpots";
+    public const string TooManySpotsPerDay = "TooManySpotsPerDay";
+    public const string TooManySpotsForDays = "TooManySpotsForDays";
     public const string CitiesUnavailable = "TripCitiesUnavailable";
 }
 
@@ -50,13 +51,14 @@ public static class TripLimits
     public const int MaxSpots = 60;
     public const int MaxDays = 14;
     public const int MaxLegs = 4;
+    public const int MaxSpotsPerDay = 6;
 }
 
 public static class TripCacheKeys
 {
-    public static string Spots(long key) => $"trip:spots:{key}";
-    public static string Stale(long key) => $"trip:spots:{key}:stale";
-    public static string Lock(long key) => $"trip:spots:{key}:lock";
+    public static string Spots(long key) => $"trip:spots2:{key}";
+    public static string Stale(long key) => $"trip:spots2:{key}:stale";
+    public static string Lock(long key) => $"trip:spots2:{key}:lock";
     public static string Matrix(long key) => $"trip:matrix:{key}";
     public static string MatrixLock(long key) => $"trip:matrix:{key}:lock";
     public static string Supply(long key) => $"trip:supply:{key}";
@@ -99,7 +101,7 @@ public static class TripJson
     };
 }
 
-// Reads "" or whitespace as null (an own stay or taxi may carry an empty id); any other text must be a Guid.
+// Reads "" or whitespace as null (an empty id string is no id); any other text must be a Guid.
 public sealed class EmptyStringNullableGuidConverter : JsonConverter<Guid?>
 {
     public override bool HandleNull => true;
@@ -123,27 +125,17 @@ public sealed class EmptyStringNullableGuidConverter : JsonConverter<Guid?>
 
 public sealed class AtlasUnavailableException(string message) : Exception(message);
 
-public static class TripNeeds
-{
-    public const string NoStairs = "no_stairs";
-    public const string KidsSafe = "kids_safe";
-    public const string VegFood = "veg_food";
-
-    public static readonly string[] All = [NoStairs, KidsSafe, VegFood];
-}
-
 public static class TripPace
 {
     public const int Relaxed = 300;
     public const int Normal = 450;
 }
 
-// PlanJson v5 (Trip.PlanJson, serialized with TripJson.Options); v2/v3/v4 documents read with the new fields null
-// and become one leg through Normalize.
+// PlanJson v6 (Trip.PlanJson, serialized with TripJson.Options): places per day, cities, settings, steps and row marks.
 public sealed class TripPlan
 {
-    public const int CurrentVersion = 5;
-    public static readonly int[] SupportedVersions = [2, 3, 4, 5];
+    public const int CurrentVersion = 6;
+    public static readonly int[] SupportedVersions = [6];
     public int Version { get; set; } = CurrentVersion;
     // The five city fields always equal Legs[0] after Normalize.
     public long CityKey { get; set; }
@@ -151,12 +143,13 @@ public sealed class TripPlan
     public string CityName { get; set; } = string.Empty;
     public double? CentreLatitude { get; set; }
     public double? CentreLongitude { get; set; }
-    // Null = a v3 document or an app that does not know cities; Normalize makes it one leg.
+    // Required on save (1..4); a stored document without legs reads as one leg through Normalize.
     public List<TripCityLeg>? Legs { get; set; }
     public List<TripDay> Days { get; set; } = new();
     public TripSettings Settings { get; set; } = new();
-    // Null = written by an app that does not know steps: the server keeps the stored copy (TripStepsMerge).
     public TripSteps? Steps { get; set; }
+    // The one Local taxi row of the trip: own or skipped.
+    public TripRowMark? TaxiMark { get; set; }
     // Problem rows the traveller dismissed (a red night or day reads "not sorted"). Null on a request keeps the stored list.
     public List<Guid>? DismissedEnquiryIds { get; set; }
 
@@ -205,7 +198,7 @@ public sealed class TripPlan
         return leg >= 2 && LegStart(leg) == day;
     }
 
-    // Pure and idempotent: legs 1..n, every day on a leg (non-decreasing), the five city fields = Legs[0].
+    // Pure and idempotent: legs 1..n, every day on a leg (non-decreasing), the five city fields = Legs[0], steps never null.
     public void Normalize(long cityKey = 0, string? cityName = null, double lat = 0, double lon = 0, Guid? districtId = null)
     {
         Legs?.RemoveAll(l => l == null);
@@ -247,36 +240,19 @@ public sealed class TripPlan
         CentreLatitude = first.Latitude;
         CentreLongitude = first.Longitude;
 
-        // The app never decides a step is not needed: an old auto value is a step not started.
-        foreach (var step in new[] { Steps?.GettingThere, Steps?.ComingBack })
-        {
-            if (step == null) continue;
-            if (step.Status == TripStepStatuses.NotNeeded) step.Status = TripStepStatuses.NotStarted;
-            TripOwnRules.Clean(step);
-        }
-
+        Steps ??= new TripSteps();
         // A place name is a label, never a blocker: a blank one falls back, a long one is cut.
-        if (Steps?.StartFrom is { } start) start.Name = TripOwnRules.Text(start.Name, TripOwnRules.NameMax) ?? "My location";
-        if (Steps?.GoingHomeTo is { } home) home.Name = TripOwnRules.Text(home.Name, TripOwnRules.NameMax) ?? "Drop point";
+        if (Steps.StartFrom is { } start) start.Name = Label(start.Name, TripStepRules.NameMax) ?? "My location";
+        if (Steps.GoingHomeTo is { } home) home.Name = Label(home.Name, TripStepRules.NameMax) ?? "Drop point";
+        foreach (var leg in Legs)
+            if (leg.Arrival is { } arrival) arrival.FromName = Label(arrival.FromName, 120) ?? string.Empty;
+    }
 
-        foreach (var leg in Legs)
-            if (leg.Arrival != null) TripOwnRules.Clean(leg.Arrival);
-        foreach (var day in Days)
-        {
-            if (day?.Taxi != null) TripOwnRules.Clean(day.Taxi);
-            if (day?.Stay != null) TripOwnRules.Clean(day.Stay);
-            if (day != null) TripOwnRules.CleanLabels(day);
-        }
-        if (Settings != null) Settings.PickupPlace = TripOwnRules.Text(Settings.PickupPlace, TripOwnRules.PlaceMax);
-        foreach (var step in new[] { Steps?.GettingThere, Steps?.ComingBack })
-            if (step != null) step.Note = TripOwnRules.Text(step.Note, TripOwnRules.NoteMax);
-        foreach (var leg in Legs)
-            if (leg.Arrival is { } a)
-            {
-                a.FromName = TripOwnRules.Text(a.FromName, TripOwnRules.LabelMax) ?? string.Empty;
-                a.HubName = TripOwnRules.Text(a.HubName, TripOwnRules.LabelMax);
-                a.Note = TripOwnRules.Text(a.Note, TripOwnRules.NoteMax);
-            }
+    private static string? Label(string? raw, int max)
+    {
+        var text = raw?.Trim();
+        if (string.IsNullOrEmpty(text)) return null;
+        return text.Length > max ? text[..max].TrimEnd() : text;
     }
 }
 
@@ -286,48 +262,6 @@ public static class TripLeaveOn
     public const string LastDayEvening = "lastDayEvening";
 
     public static readonly string[] All = [CheckOut, LastDayEvening];
-}
-
-// What an app older than PlanJson v5 cannot send: it keeps the stored rest days, leave-on, own cars, own step travel and going-home place.
-public static class TripPlanMerge
-{
-    public static void KeepStored(TripPlan plan, TripPlan? stored, int requestVersion)
-    {
-        plan.DismissedEnquiryIds ??= stored?.DismissedEnquiryIds;
-        if (stored == null || requestVersion >= 5) return;
-
-        if (plan.Steps != null && stored.Steps?.GoingHomeTo != null) plan.Steps.GoingHomeTo ??= stored.Steps.GoingHomeTo;
-
-        foreach (var day in plan.Days)
-            if (day != null && day.RestDay == null)
-                day.RestDay = stored.Days.FirstOrDefault(d => d != null && d.Day == day.Day)?.RestDay;
-
-        KeepStep(plan.Steps?.GettingThere, stored.Steps?.GettingThere);
-        KeepStep(plan.Steps?.ComingBack, stored.Steps?.ComingBack);
-        if (plan.Steps?.ComingBack is { } back && stored.Steps?.ComingBack is { } storedBack) back.LeaveOn ??= storedBack.LeaveOn;
-
-        var storedLegs = stored.Legs ?? new List<TripCityLeg>();
-        foreach (var leg in plan.Legs ?? new List<TripCityLeg>())
-        {
-            if (leg?.Arrival is not { JourneyId: { } id } arrival || arrival.OwnCars != null) continue;
-            arrival.OwnCars = storedLegs.FirstOrDefault(l => l?.Arrival?.JourneyId == id)?.Arrival?.OwnCars;
-        }
-    }
-
-    private static void KeepStep(TripStep? step, TripStep? stored)
-    {
-        if (step == null || stored == null) return;
-        if (step.Status == TripStepStatuses.Own && stored.Status == TripStepStatuses.Own
-            && step.How == null && step.OwnName == null && step.OwnPhone == null && step.LeavesAt == null)
-        {
-            step.How = stored.How;
-            step.OwnName = stored.OwnName;
-            step.OwnPhone = stored.OwnPhone;
-            step.LeavesAt = stored.LeavesAt;
-        }
-        if (step.OwnCars != null || step.JourneyId == null || step.JourneyId != stored.JourneyId) return;
-        step.OwnCars = stored.OwnCars;
-    }
 }
 
 // One city of a trip. Index is 1-based and follows the list order.
@@ -343,158 +277,35 @@ public sealed class TripCityLeg
     public bool? NotReady { get; set; }
     // Travel from the previous city; never on leg 1 (that is the trip step Getting there).
     public TripTravel? Arrival { get; set; }
+    public TripRowMark? StayMark { get; set; }
+    // Legs 2+ only, and only without an Arrival.
+    public TripRowMark? TravelMark { get; set; }
 }
 
+public sealed class TripRowMark
+{
+    public string Status { get; set; } = TripRowMarkStatuses.Own;
+}
+
+public static class TripRowMarkStatuses
+{
+    public const string Own = "own";
+    public const string Skipped = "skipped";
+
+    public static readonly string[] All = [Own, Skipped];
+}
+
+// Journey travel from the previous city: the saved taxi journey that carries him.
 public sealed class TripTravel
 {
-    public string Mode { get; set; } = TripTravelModes.Own;
     public string FromName { get; set; } = string.Empty;
-    public string? How { get; set; }
-    public string? OwnName { get; set; }
-    public string? OwnPhone { get; set; }
-    // "HH:mm", 24 h.
-    public string? LeavesAt { get; set; }
-    public int? RoadMinutes { get; set; }
-    public string? Note { get; set; }
-    // Journey mode only: the saved taxi journey that carries him from the previous city.
     public Guid? JourneyId { get; set; }
     public string? PlanKey { get; set; }
     public int? Cars { get; set; }
     public int? ListedTotal { get; set; }
-    // Own mode: the train/bus hub he reaches when no driver goes the whole road.
-    public string? HubName { get; set; }
-    // Journey mode: car numbers (1-based) he arranges himself; each counts as settled.
+    public int? RoadMinutes { get; set; }
+    // Car numbers (1-based) he arranges himself; each counts as settled.
     public List<int>? OwnCars { get; set; }
-}
-
-public static class TripTravelModes
-{
-    public const string Own = "own";
-    public const string Journey = "journey";
-
-    public static readonly string[] All = [Own, Journey];
-}
-
-public static class TripTravelHows
-{
-    public const string Car = "car";
-    public const string Bus = "bus";
-    public const string Train = "train";
-    public const string Flight = "flight";
-    public const string Other = "other";
-
-    public static readonly string[] All = [Car, Bus, Train, Flight, Other];
-}
-
-// Own arrangements are the traveller's own people outside the app: every field is optional and a bad value is dropped, never refused.
-public static class TripOwnRules
-{
-    public const int NameMax = 80;
-    public const int NoteMax = 300;
-
-    public static string? Phone(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return null;
-        var digits = new string(raw.Where(char.IsAsciiDigit).ToArray());
-        if (digits.Length == 12 && digits.StartsWith("91", StringComparison.Ordinal)) digits = digits[2..];
-        else if (digits.Length == 11 && digits[0] == '0') digits = digits[1..];
-        return digits.Length == 10 && digits[0] is >= '6' and <= '9' ? digits : null;
-    }
-
-    public static string? Text(string? raw, int max)
-    {
-        var t = raw?.Trim();
-        if (string.IsNullOrEmpty(t)) return null;
-        return t.Length > max ? t[..max].TrimEnd() : t;
-    }
-
-    public static string? How(string? raw) => raw != null && TripTravelHows.All.Contains(raw) ? raw : null;
-
-    public static string? LeavesAt(string? raw) => raw != null && Regex.IsMatch(raw, @"^([01]\d|2[0-3]):[0-5]\d$") ? raw : null;
-
-    public static void Clean(TripTravel t)
-    {
-        if (t.Mode == TripTravelModes.Own)
-        {
-            t.How = How(t.How);
-            t.OwnName = Text(t.OwnName, NameMax);
-            t.OwnPhone = Phone(t.OwnPhone);
-            t.LeavesAt = LeavesAt(t.LeavesAt);
-            t.Note = Text(t.Note, NoteMax);
-        }
-    }
-
-    public static void Clean(TripStep s)
-    {
-        if (s.Status == TripStepStatuses.Own)
-        {
-            s.How = How(s.How);
-            s.OwnName = Text(s.OwnName, NameMax);
-            s.OwnPhone = Phone(s.OwnPhone);
-            s.LeavesAt = LeavesAt(s.LeavesAt);
-            s.Note = Text(s.Note, NoteMax);
-        }
-        else
-        {
-            s.How = null;
-            s.OwnName = null;
-            s.OwnPhone = null;
-            s.LeavesAt = null;
-        }
-    }
-
-    public const int LabelMax = 120;
-    public const int PlaceMax = 80;
-
-    // Texts the app prefills from other data are cut to the server limit, never refused.
-    public static void CleanLabels(TripDay day)
-    {
-        if (day.Stay is { IsOwn: not true } stay) stay.Name = Text(stay.Name, LabelMax) ?? string.Empty;
-        if (day.Stay != null) day.Stay.Note = Text(day.Stay.Note, NoteMax);
-        if (day.Taxi is { } taxi)
-        {
-            if (taxi.IsOwn != true) taxi.Name = Text(taxi.Name, LabelMax) ?? string.Empty;
-            taxi.VehicleTypeName = Text(taxi.VehicleTypeName, LabelMax);
-            taxi.Note = Text(taxi.Note, NoteMax);
-            if (taxi.Booking is { } b)
-            {
-                b.PickupPlace = Text(b.PickupPlace, PlaceMax);
-                b.Note = Text(b.Note, NoteMax);
-            }
-        }
-        if (day.StayShortlist != null)
-            foreach (var i in day.StayShortlist) i.Name = Text(i.Name, LabelMax) ?? string.Empty;
-        if (day.TaxiShortlist != null)
-            foreach (var i in day.TaxiShortlist)
-            {
-                i.Name = Text(i.Name, LabelMax) ?? string.Empty;
-                i.VehicleTypeName = Text(i.VehicleTypeName, LabelMax);
-            }
-    }
-
-    public static void Clean(TripTaxiChoice t)
-    {
-        if (t.IsOwn != true) return;
-        t.Name = Text(t.Name, NameMax) ?? string.Empty;
-        t.OwnPhone = Phone(t.OwnPhone);
-        t.Note = Text(t.Note, NoteMax);
-    }
-
-    public static void Clean(TripStayChoice s)
-    {
-        if (s.IsOwn != true) return;
-        s.Name = Text(s.Name, NameMax) ?? string.Empty;
-        s.OwnPhone = Phone(s.OwnPhone);
-        s.Note = Text(s.Note, NoteMax);
-    }
-}
-
-public static class TripTravelRoad
-{
-    public const int HalfDay = 240;
-    public const int WholeDay = 450;
-
-    public static readonly int[] All = [HalfDay, WholeDay];
 }
 
 public sealed class TripDay
@@ -505,10 +316,6 @@ public sealed class TripDay
     // True = no places this day, the traveller's choice.
     public bool? RestDay { get; set; }
     public List<TripSpot> Spots { get; set; } = new();
-    public TripTaxiChoice? Taxi { get; set; }
-    public TripStayChoice? Stay { get; set; }
-    public List<TripStayShortlistItem>? StayShortlist { get; set; }
-    public List<TripTaxiShortlistItem>? TaxiShortlist { get; set; }
 }
 
 public sealed class TripSpot
@@ -522,23 +329,6 @@ public sealed class TripSpot
     public string? ImageUrl { get; set; }
     // ISO weekdays 1..7 (Mon=1); null = open daily.
     public int[]? ClosedDays { get; set; }
-}
-
-public sealed class TripTaxiChoice
-{
-    // Null only for an own booking (IsOwn) or a day without taxi (Skipped).
-    public Guid? TaxiId { get; set; }
-    public string Name { get; set; } = "";
-    // Per-day rupees: the day rate when selected, the booked share round(Booking.AgreedFare / Booking.Days.Length), or the own taxi fare.
-    public int? Fare { get; set; }
-    public string? VehicleTypeName { get; set; }
-    public bool? IsOwn { get; set; }
-    public string? OwnPhone { get; set; }
-    public string? Note { get; set; }
-    public bool? WholeTrip { get; set; }
-    public TripTaxiBooking? Booking { get; set; }
-    // No taxi this day.
-    public bool? Skipped { get; set; }
 }
 
 public sealed class TripSteps
@@ -562,17 +352,11 @@ public sealed class TripStep
 {
     public string? Status { get; set; }
     public Guid? JourneyId { get; set; }
-    public string? Note { get; set; }
     public DateOnly? Date { get; set; }
     // Coming back only (TripLeaveOn); null = check-out morning.
     public string? LeaveOn { get; set; }
     // Car numbers (1-based) of the step journey he arranges himself.
     public List<int>? OwnCars { get; set; }
-    // Own travel (Status own only), same shape as TripTravel: TripTravelHows, name or number, phone, "HH:mm".
-    public string? How { get; set; }
-    public string? OwnName { get; set; }
-    public string? OwnPhone { get; set; }
-    public string? LeavesAt { get; set; }
 }
 
 public static class TripStepStatuses
@@ -582,9 +366,8 @@ public static class TripStepStatuses
     public const string Booked = "booked";
     public const string Own = "own";
     public const string Skipped = "skipped";
-    public const string NotNeeded = "notNeeded";
 
-    public static readonly string[] All = [NotStarted, Chosen, Booked, Own, Skipped, NotNeeded];
+    public static readonly string[] All = [NotStarted, Chosen, Booked, Own, Skipped];
 }
 
 public static class TripStepRoles
@@ -597,89 +380,13 @@ public static class TripStepRoles
     public static readonly string[] All = [GettingThere, ComingBack];
 }
 
-public static class TripStepDisplays
-{
-    public const string NotStarted = TripStepStatuses.NotStarted;
-    public const string Asked = "asked";
-    public const string Chosen = TripStepStatuses.Chosen;
-    public const string Booked = TripStepStatuses.Booked;
-    public const string Own = TripStepStatuses.Own;
-    public const string Skipped = TripStepStatuses.Skipped;
-    public const string NotNeeded = TripStepStatuses.NotNeeded;
-
-    public static readonly string[] All = [NotStarted, Asked, Chosen, Booked, Own, Skipped, NotNeeded];
-}
-
-public static class TripStepsMerge
-{
-    // Requested null (an older app) keeps the stored steps; any object, {} included, is authoritative.
-    public static TripSteps? Resolve(TripSteps? stored, TripSteps? requested) => requested ?? stored;
-}
-
-// "I booked": the same copy sits on every day listed in Days.
-public sealed class TripTaxiBooking
-{
-    // Total for all booked days, rupees.
-    public int AgreedFare { get; set; }
-    public bool TollExtra { get; set; }
-    public string? PickupTime { get; set; }
-    public string? PickupPlace { get; set; }
-    public int[] Days { get; set; } = [];
-    public string? Note { get; set; }
-    public DateTime? BookedAt { get; set; }
-}
-
-public sealed class TripStayChoice
-{
-    // Null only for an own booking (IsOwn) or a skipped night (Skipped).
-    public Guid? StayId { get; set; }
-    public string Name { get; set; } = "";
-    public int? PricePerNight { get; set; }
-    public int? SameAsDay { get; set; }
-    // Both or neither.
-    public double? Latitude { get; set; }
-    public double? Longitude { get; set; }
-    public bool? IsOwn { get; set; }
-    public string? OwnPhone { get; set; }
-    public string? Note { get; set; }
-    // No stay tonight (travelling).
-    public bool? Skipped { get; set; }
-    // Skipped night that moved Coming back to the last evening; Undo restores check-out.
-    public bool? LeaveMoved { get; set; }
-}
-
-public sealed class TripStayShortlistItem
-{
-    public Guid StayId { get; set; }
-    public string Name { get; set; } = "";
-    public int? PricePerNight { get; set; }
-    public double? Latitude { get; set; }
-    public double? Longitude { get; set; }
-    public double? DistanceKm { get; set; }
-    public int? SameAsDay { get; set; }
-}
-
-public sealed class TripTaxiShortlistItem
-{
-    public Guid TaxiId { get; set; }
-    public string Name { get; set; } = "";
-    public string? VehicleTypeName { get; set; }
-    public short? Seats { get; set; }
-    public int? LocalDayRate { get; set; }
-    public bool? WholeTrip { get; set; }
-}
-
 public sealed class TripSettings
 {
-    public int DayLimitMinutes { get; set; } = TripPace.Normal;
+    public int DayLimitMinutes { get; set; } = TripPace.Relaxed;
+    // Dates and people are optional: a plan works with a day count only.
     public DateOnly? StartDate { get; set; }
     public int? Adults { get; set; }
     public int? Kids { get; set; }
-    public int? Rooms { get; set; }
-    public string[]? Needs { get; set; }
-    // "HH:mm", 24 h.
-    public string? PickupTime { get; set; }
-    public string? PickupPlace { get; set; }
     // 1..TripLimits.MaxDays; null = auto split.
     public int? MaxDays { get; set; }
 }
@@ -725,8 +432,6 @@ public sealed class AtlasCity
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public string? ImageUrl { get; set; }
-    public string? ImageCredit { get; set; }
-    public string? ImageLicense { get; set; }
     public bool IsTripEnabled { get; set; }
     public bool IsPopularDestination { get; set; }
     public string Status { get; set; } = string.Empty;
@@ -846,7 +551,7 @@ public sealed class CityRoadMatrix
 public sealed record RoadRoute(int Minutes, double Km, JsonElement Geometry);
 
 // FirstDayUsedMinutes: road time already spent on day 1 (a travel day into the city).
-public sealed record SplitInput(IReadOnlyList<TripSpot> Spots, double CentreLat, double CentreLon, int DayLimitMinutes, DateOnly? StartDate, int MaxDays, int FirstDayUsedMinutes = 0);
+public sealed record SplitInput(IReadOnlyList<TripSpot> Spots, double CentreLat, double CentreLon, int DayLimitMinutes, DateOnly? StartDate, int MaxDays, int FirstDayUsedMinutes = 0, int MaxSpotsPerDay = TripLimits.MaxSpotsPerDay);
 
 public sealed record SplitLeg(string FromId, string ToId, int Minutes, double Km, bool IsEstimate);
 

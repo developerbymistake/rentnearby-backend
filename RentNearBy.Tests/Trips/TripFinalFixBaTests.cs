@@ -23,9 +23,4 @@ public class TripFinalFixBaTests
     [InlineData(TripEnquiryStatuses.Failed, TripOwnerBuckets.Closed)]
     public void Owner_bucket_puts_a_phone_booking_waiting_for_the_host_in_new(string status, string bucket)
         => Assert.Equal(bucket, TripOwnerBuckets.Of(status));
-
-    [Fact]
-    public void Needs_text_asks_for_a_ground_floor_room()
-        => Assert.Equal("a ground-floor room and vegetarian food",
-            TripEnquiryText.NeedsText([TripNeeds.NoStairs, TripNeeds.VegFood]));
 }

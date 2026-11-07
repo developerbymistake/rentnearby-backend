@@ -48,7 +48,9 @@ public static class TripHandlers
     {
         var error = validation.Errors[0];
         return BadRequestResponse(error.ErrorMessage,
-            error.ErrorCode == TripErrorTypes.TooManySpots ? TripErrorTypes.TooManySpots : "BadRequest");
+            error.ErrorCode is TripErrorTypes.TooManySpots or TripErrorTypes.TooManySpotsPerDay or TripErrorTypes.TooManySpotsForDays
+                ? error.ErrorCode
+                : "BadRequest");
     }
 
     public static async Task<IResult> GetCities(
@@ -370,8 +372,6 @@ public static class TripHandlers
         var plan = request.Plan;
         plan.Normalize();
         if (await ResolveLegsAsync(plan, null, catalog, unitOfWork, create: true) is { } legError) return legError;
-        KeepSkippedTaxiDays(plan, null);
-        KeepSkippedNights(plan, null);
         var linkIds = await SanitiseLinksAsync(plan, journeys, userId, null);
 
         var now = DateTime.UtcNow;
@@ -475,14 +475,13 @@ public static class TripHandlers
     }
 
     // Steps and city arrivals are trusted only for the caller's live journeys; returns the ids to link to the trip.
-    // carriedForTrip: the steps were kept from the stored plan, so a journey since linked to another trip stays there.
     // An arrival never takes a journey from another trip (tripId = this trip, null on create).
     private static async Task<List<Guid>> SanitiseLinksAsync(
-        TripPlan plan, ISavedJourneyRepository journeys, Guid userId, Guid? tripId, Guid? carriedForTrip = null)
+        TripPlan plan, ISavedJourneyRepository journeys, Guid userId, Guid? tripId)
     {
         var referenced = TripJourneyLinks.ReferencedIds(plan);
         var loaded = referenced.Count == 0 ? new List<SavedJourney>() : await journeys.GetOwnedByIdsAsync(referenced, userId);
-        var keep = TripStepRules.Sanitise(plan.Steps, LinkableIds(loaded, carriedForTrip));
+        var keep = TripStepRules.Sanitise(plan.Steps, LinkableIds(loaded, null));
         TripTravelRules.SanitiseArrivals(plan, SegmentLinkableIds(loaded, tripId), keep);
         return keep;
     }
@@ -499,33 +498,6 @@ public static class TripHandlers
             .Select(j => j.Id)
             .ToHashSet();
 
-    // A steps-unaware app writes a "No taxi this day" day back as a plain taxi with no id: it stays skipped when the
-    // stored day was skipped, otherwise the day has no taxi.
-    public static void KeepSkippedTaxiDays(TripPlan plan, TripPlan? stored)
-    {
-        if (plan.Steps != null) return;
-        foreach (var day in plan.Days)
-        {
-            if (day.Taxi is not { TaxiId: null } taxi || taxi.IsOwn == true || taxi.Skipped == true) continue;
-            var storedTaxi = stored?.Days.FirstOrDefault(d => d.Day == day.Day)?.Taxi;
-            if (storedTaxi?.Skipped == true) taxi.Skipped = true;
-            else day.Taxi = null;
-        }
-    }
-
-    // Same for a "No stay tonight" night: it stays skipped when the stored night was skipped, otherwise the night has no stay.
-    public static void KeepSkippedNights(TripPlan plan, TripPlan? stored)
-    {
-        if (plan.Steps != null) return;
-        foreach (var day in plan.Days)
-        {
-            if (day.Stay is not { StayId: null } stay || stay.IsOwn == true || stay.Skipped == true) continue;
-            var storedStay = stored?.Days.FirstOrDefault(d => d.Day == day.Day)?.Stay;
-            if (storedStay?.Skipped == true) stay.Skipped = true;
-            else day.Stay = null;
-        }
-    }
-
     public static async Task<IResult> Update(
         Guid id, SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
         ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier, ILoggerFactory loggers,
@@ -533,18 +505,14 @@ public static class TripHandlers
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
-        // Read before validation: the validator normalises the plan, which synthesises legs.
-        var legless = request.Plan?.Legs is not { Count: > 0 };
-
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return Invalid(validation);
 
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
         if (trip == null) return TripNotFound();
 
-        // An app that does not know cities would drop the other legs of a multi-city trip.
         var stored = ReadPlan(trip);
-        if (TripPlanCompat.NeedsUpdate(stored, legless, StoredPlanVersion(trip)))
+        if (TripPlanCompat.NeedsUpdate(StoredPlanVersion(trip)))
             return ConflictResponse("Update the app to edit this trip.", TripEnquiryErrorTypes.TripNeedsUpdate);
         if (trip.Status == TripStatuses.Completed)
             return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
@@ -554,23 +522,12 @@ public static class TripHandlers
         if (status == TripStatuses.Planned && request.Plan!.Days.Sum(d => d.Spots.Count) == 0)
             return BadRequestResponse(PlanTripRequestValidator.NoPlacesMessage);
 
-        // Stored legs keep their snapshot (no Atlas call); only a new leg is looked up. A legless body edits the one stored city.
+        // Stored legs keep their snapshot (no Atlas call); only a new leg is looked up.
         var plan = request.Plan!;
         plan.Normalize();
-        if (legless) plan.Legs![0].CityKey = stored.Legs![0].CityKey;
         if (await ResolveLegsAsync(plan, stored, catalog, unitOfWork, create: false) is { } legError) return legError;
 
-        // An app that does not know steps sends none: the stored ones stay; on its date change their own dates go.
-        KeepSkippedTaxiDays(plan, stored);
-        KeepSkippedNights(plan, stored);
-        var requestedSteps = plan.Steps;
-        plan.Steps = TripStepsMerge.Resolve(stored.Steps, requestedSteps);
-        TripPlanMerge.KeepStored(plan, stored, request.Plan!.Version);
-        if (requestedSteps == null
-            && (TripDateRules.StartMoved(trip.StartDate, plan.Settings.StartDate)
-                || (trip.EndDate is { } storedEnd && plan.EndDate is { } nextEnd && nextEnd < storedEnd)))
-            TripStepRules.ClearDates(plan.Steps);
-        var linkIds = await SanitiseLinksAsync(plan, journeys, userId, trip.Id, requestedSteps == null ? trip.Id : null);
+        var linkIds = await SanitiseLinksAsync(plan, journeys, userId, trip.Id);
 
         // A title the traveller typed is never touched; the default follows the cities.
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, plan.LegCities);
@@ -875,7 +832,7 @@ public static class TripHandlers
             EndDate = trip.EndDate,
             Plan = plan,
             BookingState = TripBookingStates.Compute(trip, plan, rows, linked),
-            Progress = TripStepProgress.Compute(trip, plan, rows, linked, revisedPending),
+            Progress = TripEasyRows.Compute(trip, plan, rows, linked, revisedPending),
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,
             CreatedAt = trip.CreatedAt,
@@ -916,13 +873,7 @@ public static class TripHandlers
         Trip trip, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney> journeys, IReadOnlySet<Guid>? revisedPending = null)
     {
         var plan = ReadPlan(trip);
-        var counts = TripBookingSummary.Count(plan, enquiries, journeys);
-        var bookingState = TripBookingStates.Compute(trip, plan, enquiries, journeys);
-        var travel = TripSummaryLegs.Counters(plan, enquiries);
-        var cityLegs = plan.Legs is { Count: > 0 } planLegs
-            ? planLegs
-            : new List<TripCityLeg> { new() { Index = 1, CityName = trip.CityName } };
-        var perLeg = cityLegs.Count > 1 && bookingState is not (TripBookingStates.Draft or TripBookingStates.Completed);
+        var rows = TripEasyRows.Build(trip, plan, enquiries, journeys, revisedPending);
         return new TripSummaryDto
         {
             Id = trip.Id,
@@ -933,35 +884,16 @@ public static class TripHandlers
             LegCities = plan.LegCities,
             DayCount = trip.DayCount,
             SpotCount = trip.SpotCount,
-            TaxiDays = plan.Days.Count(d => d.Taxi != null && d.Taxi.Skipped != true),
-            StayDays = plan.Days.Count(d => d.Stay != null),
-            StayName = plan.Days.Select(d => d.Stay?.Name).FirstOrDefault(n => !string.IsNullOrEmpty(n)),
             StartDate = trip.StartDate,
             EndDate = trip.EndDate,
             Adults = plan.Settings?.Adults,
             Kids = plan.Settings?.Kids,
             Category = plan.Days.SelectMany(d => d.Spots).Select(s => s.Category).FirstOrDefault() ?? "attraction",
-            BookingState = bookingState,
-            Progress = TripStepProgress.Compute(trip, plan, enquiries, journeys, revisedPending),
-            StaysConfirmed = counts.StaysConfirmed,
-            StaysTotal = counts.StaysTotal,
-            TaxisConfirmed = counts.TaxisConfirmed,
-            TaxisTotal = counts.TaxisTotal,
-            StaysOwn = counts.StaysOwn,
-            TaxisOwn = counts.TaxisOwn,
-            AgreedTotal = counts.AgreedTotal,
-            TravelSegments = travel.Segments,
-            TravelSettled = travel.Settled,
-            Legs = cityLegs.Select((leg, i) => new TripSummaryLegStateDto
-            {
-                Index = i + 1,
-                CityName = leg.CityName,
-                StartDay = plan.LegStart(i + 1),
-                EndDay = plan.LegEnd(i + 1),
-                State = perLeg ? TripSummaryLegs.StateOf(plan, enquiries, i + 1) : bookingState,
-            }).ToList(),
-            GettingThere = TripJourneyDtoBuilder.DisplayOf(plan, TripStepRoles.GettingThere, journeys),
-            ComingBack = TripJourneyDtoBuilder.DisplayOf(plan, TripStepRoles.ComingBack, journeys),
+            BookingState = trip.Status == TripStatuses.Completed ? TripBookingStates.Completed
+                : trip.Status != TripStatuses.Planned || trip.SpotCount == 0 ? TripBookingStates.Draft
+                : TripBookingStates.OfRows(rows),
+            Progress = TripEasyRows.Progress(rows, enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt)),
+            AgreedTotal = TripEasyRows.AgreedTotal(enquiries),
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,
             UpdatedAt = trip.UpdatedAt,

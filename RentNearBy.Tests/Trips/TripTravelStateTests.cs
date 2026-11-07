@@ -16,7 +16,6 @@ public class TripTravelStateTests
 
     private static TripTravel Arrival(SavedJourney j) => new()
     {
-        Mode = TripTravelModes.Journey,
         FromName = "Haridwar",
         JourneyId = j.Id,
         Cars = j.Legs.Count,
@@ -58,12 +57,6 @@ public class TripTravelStateTests
     // Row 2
     [Fact]
     public void No_arrival_is_not_planned() => Assert.Equal(TripTravelStates.NotPlanned, TripTravelState.Of(null, null, [], TravelDate));
-
-    // Row 3
-    [Fact]
-    public void Own_travel_is_own()
-        => Assert.Equal(TripTravelStates.Own,
-            TripTravelState.Of(new TripTravel { Mode = TripTravelModes.Own, FromName = "Haridwar", How = "bus" }, null, [], TravelDate));
 
     // Row 4
     [Fact]

@@ -170,6 +170,5 @@ public class TripOfferRulesTests
         Assert.Equal("TripNotRunning", TripEnquiryErrorTypes.TripNotRunning);
         Assert.Equal("TripNotEnded", TripEnquiryErrorTypes.TripNotEnded);
         Assert.Equal("ProblemOutsideTrip", TripEnquiryErrorTypes.ProblemOutsideTrip);
-        Assert.Equal("AskAgainNothing", TripEnquiryErrorTypes.AskAgainNothing);
     }
 }

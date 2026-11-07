@@ -15,7 +15,6 @@ public class TripOffer
     public short Nights { get; set; }
     public int Total { get; set; }
     public string? Inclusions { get; set; }
-    public string? NeedsEchoedJson { get; set; }
     public int? AdvanceAmount { get; set; }
     public string? BalanceNote { get; set; }
     public string? CancellationText { get; set; }

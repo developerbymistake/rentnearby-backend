@@ -104,6 +104,11 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
             e.TripId == tripId && e.Kind == kind && e.ListingId == listingId && e.Day == day
             && TripEnquiryStatuses.Open.Contains(e.Status));
 
+    public async Task<TripEnquiry?> FindOpenTaxiAsync(Guid tripId, Guid listingId, short cityLeg)
+        => await _dbSet.FirstOrDefaultAsync(e =>
+            e.TripId == tripId && e.Kind == TripEnquiryKinds.Taxi && e.ListingId == listingId && e.Day == null
+            && e.CityLeg == cityLeg && TripEnquiryStatuses.Open.Contains(e.Status));
+
     public async Task<IReadOnlyList<TripEnquiry>> GetOpenByTravellerListingAsync(Guid travellerId, string kind, Guid listingId)
         => await _dbSet.AsNoTracking()
             .Where(e => e.TravellerUserId == travellerId && e.Kind == kind && e.ListingId == listingId

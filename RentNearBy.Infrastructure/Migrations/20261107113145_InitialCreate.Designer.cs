@@ -13,8 +13,8 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261106103314_TripEnquiryContextRefreshCount")]
-    partial class TripEnquiryContextRefreshCount
+    [Migration("20261107113145_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -3350,6 +3350,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateOnly?>("CheckOut")
                         .HasColumnType("date");
 
+                    b.Property<short?>("CityLeg")
+                        .HasColumnType("smallint");
+
                     b.Property<DateTime?>("ConfirmedByOwnerAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -3540,7 +3543,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "TravellerUserId", "HostConfirmAnswer", "HostConfirmAnsweredAt" }, "ix_tripenquiries_notme");
 
-                    b.HasIndex(new[] { "TripId", "Kind", "ListingId" }, "ix_tripenquiries_open_taxi_unique")
+                    b.HasIndex(new[] { "TripId", "Kind", "ListingId", "CityLeg" }, "ix_tripenquiries_open_taxi_unique")
                         .IsUnique()
                         .HasFilter("\"Status\" IN ('Asked','Offered','Countered','ConfirmedByTraveller','ConfirmedByBoth','FareSent','BookedByTraveller') AND \"Day\" IS NULL");
 
@@ -3633,9 +3636,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Guid?>("MessageId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("NeedsEchoedJson")
-                        .HasColumnType("jsonb");
 
                     b.Property<short>("Nights")
                         .HasColumnType("smallint");

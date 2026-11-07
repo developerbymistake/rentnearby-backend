@@ -40,7 +40,6 @@ public static class TripLifecycleHandlers
         total = shrunk.Total,
         listedPerNight = (int?)null,
         inclusions = shrunk.Inclusions,
-        needsEchoed = JsonSerializer.Deserialize<string[]>(shrunk.NeedsEchoedJson ?? "[]", TripJson.Options) ?? [],
         advanceAmount = shrunk.AdvanceAmount,
         balanceNote = shrunk.BalanceNote,
         cancellationText = shrunk.CancellationText,
@@ -292,6 +291,9 @@ public static class TripLifecycleHandlers
         var dtos = await TripEnquiryDtoBuilder.BuildManyAsync(unitOfWork, raw, userId, now);
         var linked = await journeys.GetByTripAsync(trip.Id, userId);
         var taxis = await TripJourneyDtoBuilder.LoadTaxisAsync(journeys, linked);
+        var local = raw.Where(e => e.Kind == TripEnquiryKinds.Taxi && !TripSegmentRows.IsSegment(e) && !taxis.ContainsKey(e.ListingId))
+            .Select(e => e.ListingId).Distinct().ToList();
+        foreach (var (id, info) in await journeys.LoadTaxisAsync(local)) taxis[id] = info;
         return OkResponse(TripSummaryRecordBuilder.Build(trip, TripHandlers.ReadPlan(trip), dtos, raw, now, linked, taxis));
     }
 
@@ -391,7 +393,7 @@ public static class TripSummaryRecordBuilder
             Adults = plan.Settings?.Adults,
             Kids = plan.Settings?.Kids,
             BookingState = TripBookingStates.Compute(trip, plan, raw, journeys),
-            AgreedTotal = TripBookingSummary.Count(plan, raw, journeys).AgreedTotal,
+            AgreedTotal = TripEasyRows.AgreedTotal(raw),
             GeneratedAt = nowUtc,
         };
 
@@ -400,6 +402,7 @@ public static class TripSummaryRecordBuilder
             {
                 Day = day.Day,
                 Date = start?.AddDays(day.Day - 1),
+                City = plan.Legs is { Count: > 1 } ? plan.LegOf(day.Day)?.CityName : null,
                 Spots = day.Spots.Select(s => s.Name).ToList(),
                 Minutes = day.Spots.Sum(s => s.VisitMinutes),
             });
@@ -411,34 +414,10 @@ public static class TripSummaryRecordBuilder
         {
             var date = start?.AddDays(day.Day - 1);
             var match = Pick(stays.Where(d => Covers(d, day.Day, date)).ToList());
-            // A recorded own stay or skipped night wins over a cancelled booking; only a live booking beats it.
-            var settled = day.Stay?.IsOwn == true || day.Stay?.Skipped == true;
-            if (match != null && (TripEnquiryStatuses.IsBooked(match.Status) || !settled))
+            if (match != null)
             {
                 rawById.TryGetValue(match.Id, out var row);
                 record.Nights.Add(NightFrom(match, row, day.Day, date, firstNight: shown.Add(match.Id)));
-            }
-            else if (day.Stay?.IsOwn == true)
-            {
-                record.Nights.Add(new TripSummaryNightDto
-                {
-                    Night = day.Day,
-                    Date = date,
-                    ListingName = string.IsNullOrWhiteSpace(day.Stay.Name) ? OwnStayLabel : day.Stay.Name,
-                    IsOwn = true,
-                    OwnPhone = day.Stay.OwnPhone,
-                    DisplayStatus = TripOwnDisplay,
-                });
-            }
-            else if (day.Stay?.Skipped == true)
-            {
-                record.Nights.Add(new TripSummaryNightDto
-                {
-                    Night = day.Day,
-                    Date = date,
-                    ListingName = NoStayTonight,
-                    DisplayStatus = SkippedDisplay,
-                });
             }
             else if (failedStays.Where(d => Covers(d, day.Day, date)).OrderByDescending(d => d.UpdatedAt).FirstOrDefault() is { } failed)
             {
@@ -461,14 +440,14 @@ public static class TripSummaryRecordBuilder
         foreach (var d in taxiDtos)
         {
             rawById.TryGetValue(d.Id, out var row);
-            record.Taxis.Add(TaxiFrom(d, row, plan));
+            record.Taxis.Add(TaxiFrom(d, row, taxis));
         }
-        record.Taxis.AddRange(OwnTaxis(plan));
 
         record.Steps = plan.Steps;
         record.GettingThere = StepJourney(plan, TripStepRoles.GettingThere, journeys, taxis);
         record.ComingBack = StepJourney(plan, TripStepRoles.ComingBack, journeys, taxis);
         record.Legs = BuildLegs(trip, plan, start, record, dtos, raw, rawById, journeys, taxis);
+        record.Arrangements = Arrangements(TripEasyRows.Build(trip, plan, raw, journeys), plan);
         return record;
     }
 
@@ -502,6 +481,8 @@ public static class TripSummaryRecordBuilder
     }
 
     private const string NotAskedDisplay = "none";
+    private const string ModeOwn = "own";
+    private const string ModeJourney = "journey";
 
     private static TripSummaryTravelDto? Travel(
         TripPlan plan, int k, DateOnly? start, List<TripCityLeg> cityLegs, IReadOnlyList<TripEnquiryDto> dtos,
@@ -509,40 +490,40 @@ public static class TripSummaryRecordBuilder
         Dictionary<Guid, JourneyTaxiInfo> taxis)
     {
         var arrival = cityLegs[k - 1].Arrival;
-        if (arrival == null) return null;
+        var own = cityLegs[k - 1].TravelMark?.Status == TripRowMarkStatuses.Own;
+        if (arrival == null && !own) return null;
 
         var from = cityLegs[k - 2].CityName;
-        if (string.IsNullOrWhiteSpace(from)) from = arrival.FromName;
+        if (string.IsNullOrWhiteSpace(from)) from = arrival?.FromName ?? string.Empty;
         var day = plan.LegStart(k);
         var date = start is { } s && day >= 1 ? TripExecutionRules.NightDate(s, day) : (DateOnly?)null;
-        var isJourney = arrival.Mode == TripTravelModes.Journey;
-        var journey = isJourney && arrival.JourneyId is { } id
-            ? journeys.FirstOrDefault(j => j.Id == id && !j.IsDeleted)
-            : null;
+        if (arrival == null)
+            return new TripSummaryTravelDto
+            {
+                Mode = ModeOwn, FromName = from, ToName = cityLegs[k - 1].CityName, Day = day, Date = date, State = TripTravelStates.Own,
+            };
+
+        var journeyId = TripTravelRules.JourneyIdOf(arrival);
+        var journey = journeyId is { } id ? journeys.FirstOrDefault(j => j.Id == id && !j.IsDeleted) : null;
 
         var travel = new TripSummaryTravelDto
         {
-            Mode = isJourney ? TripTravelModes.Journey : TripTravelModes.Own,
+            Mode = ModeJourney,
             FromName = from,
             ToName = cityLegs[k - 1].CityName,
             Day = day,
             Date = date,
             State = TripTravelState.Of(arrival, journey,
                 journey == null ? new List<TripEnquiry>() : TripSegmentRows.OfJourney(raw, journey.Id), date),
-            CarCount = isJourney ? arrival.Cars ?? journey?.Legs.Count ?? 0 : 0,
-            ListedTotal = isJourney ? arrival.ListedTotal ?? journey?.ListedTotal : null,
-            How = arrival.How,
-            OwnName = arrival.OwnName,
-            OwnPhone = arrival.OwnPhone,
-            LeavesAt = arrival.LeavesAt,
-            HubName = arrival.HubName,
+            CarCount = arrival.Cars ?? journey?.Legs.Count ?? 0,
+            ListedTotal = arrival.ListedTotal ?? journey?.ListedTotal,
             RoadMinutes = arrival.RoadMinutes,
-            JourneyId = isJourney ? arrival.JourneyId : null,
+            JourneyId = journeyId,
         };
-        if (!isJourney || arrival.JourneyId is not { } journeyId) return travel;
+        if (journeyId is not { } journeyKey) return travel;
 
         var rows = dtos
-            .Where(d => d.IsSegment && d.Context.JourneyId == journeyId && (IsListed(d.Status) || IsProblemFailed(d)))
+            .Where(d => d.IsSegment && d.Context.JourneyId == journeyKey && (IsListed(d.Status) || IsProblemFailed(d)))
             .GroupBy(d => d.Id).Select(g => g.First())
             .ToList();
 
@@ -560,7 +541,7 @@ public static class TripSummaryRecordBuilder
                     group.Key == 1 ? travel.FromName : string.Empty, group.Key == lastCar ? travel.ToName : string.Empty,
                     null, null, row.ListingId));
             }
-            travel.State = TripTravelState.OfRows(TripSegmentRows.OfJourney(raw, journeyId), cars, date);
+            travel.State = TripTravelState.OfRows(TripSegmentRows.OfJourney(raw, journeyKey), cars, date);
             return travel;
         }
 
@@ -634,10 +615,6 @@ public static class TripSummaryRecordBuilder
         return journey == null ? null : TripJourneyDtoBuilder.Build(journey, role, plan, taxis);
     }
 
-    private const string TripOwnDisplay = "own";
-    private const string SkippedDisplay = "skipped";
-    private const string NoStayTonight = "No stay tonight";
-
     // Booked or cancelled rows only; Closed, Expired, Not available and the like stay out of the record.
     private static bool IsListed(string status)
         => TripEnquiryStatuses.IsBooked(status)
@@ -689,16 +666,15 @@ public static class TripSummaryRecordBuilder
         };
     }
 
-    private static TripSummaryTaxiDto TaxiFrom(TripEnquiryDto d, TripEnquiry? row, TripPlan plan)
+    private static TripSummaryTaxiDto TaxiFrom(TripEnquiryDto d, TripEnquiry? row, Dictionary<Guid, JourneyTaxiInfo> taxis)
     {
         var days = d.Days is { Length: > 0 } list ? list.ToList() : d.Day is { } one ? new List<int> { one } : new List<int>();
-        var vehicle = plan.Days.Select(x => x.Taxi).FirstOrDefault(t => t != null && t.TaxiId == d.ListingId)?.VehicleTypeName;
         var (by, _) = ConfirmedOf(row);
         return new TripSummaryTaxiDto
         {
             EnquiryId = d.Id,
             ListingName = string.IsNullOrWhiteSpace(d.Owner.Name) ? d.ListingName : d.Owner.Name,
-            VehicleTypeName = vehicle,
+            VehicleTypeName = taxis.TryGetValue(d.ListingId, out var info) ? info.VehicleTypeName : null,
             Days = days,
             CheckIn = d.CheckIn,
             CheckOut = d.CheckOut,
@@ -712,23 +688,61 @@ public static class TripSummaryRecordBuilder
         };
     }
 
-    private const string OwnStayLabel = "Own stay";
-    private const string OwnTaxiLabel = "Own taxi";
-
-    // One entry per own taxi (name + phone), listing every plan day it covers.
-    private static IEnumerable<TripSummaryTaxiDto> OwnTaxis(TripPlan plan)
-        => plan.Days
-            .Where(d => d.Taxi?.IsOwn == true)
-            .GroupBy(d => (Name: (d.Taxi!.Name ?? string.Empty).Trim(), OwnPhone: d.Taxi.OwnPhone))
-            .Select(g => new TripSummaryTaxiDto
+    // The Make it easy rows the traveller is working on; skipped rows are not on the record.
+    private static List<TripSummaryArrangementDto> Arrangements(IReadOnlyList<TripEasyRow> rows, TripPlan plan)
+        => rows
+            .Where(r => r.State != TripRowStates.Skipped)
+            .Select(r => new TripSummaryArrangementDto
             {
-                ListingName = string.IsNullOrWhiteSpace(g.Key.Name) ? OwnTaxiLabel : g.Key.Name,
-                VehicleTypeName = g.First().Taxi!.VehicleTypeName,
-                Days = g.Select(d => d.Day).OrderBy(d => d).ToList(),
-                IsOwn = true,
-                OwnPhone = g.Key.OwnPhone,
-                DisplayStatus = TripOwnDisplay,
-            });
+                Key = r.Key.Id,
+                Kind = r.Key.Kind,
+                LegIndex = r.Key.LegIndex,
+                Title = TripEasyRows.Title(r, plan),
+                State = r.State,
+                Detail = DetailOf(r, plan),
+            })
+            .ToList();
+
+    private static string? DetailOf(TripEasyRow row, TripPlan plan)
+    {
+        switch (row.State)
+        {
+            case TripRowStates.Todo:
+                return null;
+            case TripRowStates.Own:
+                return row.Key.Kind == TripRowKinds.Taxi && plan.Days.Count > 0
+                    ? (plan.Days.Count == 1 ? "Day 1" : $"Day 1 to Day {plan.Days.Count}")
+                    : null;
+        }
+
+        var names = row.Enquiries
+            .Where(e => TripEnquiryStatuses.IsOpen(e.Status))
+            .OrderByDescending(e => e.Status == TripEnquiryStatuses.ConfirmedByBoth)
+            .Select(e => TripTextSafety.Clean(e.ListingName, 120))
+            .Where(n => n.Length > 0)
+            .Distinct()
+            .Take(3)
+            .ToList();
+        var parts = new List<string>();
+        if (row.Journey is { } journey)
+        {
+            if (!string.IsNullOrWhiteSpace(journey.FromName) && !string.IsNullOrWhiteSpace(journey.ToName))
+                parts.Add($"{journey.FromName} → {journey.ToName}");
+            if (journey.Legs.Count > 1) parts.Add($"{journey.Legs.Count} cars");
+        }
+        else if (names.Count > 0) parts.Add(string.Join(", ", names));
+
+        var status = row.State switch
+        {
+            TripRowStates.Asked => "waiting for reply",
+            TripRowStates.Offer => "reply received",
+            TripRowStates.Attention => "needs attention",
+            _ => null,
+        };
+        if (status != null) parts.Add(status);
+        if (row.Partial) parts.Add($"{row.NightsCovered} of {row.NightsTotal} nights");
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
+    }
 
     private static (string? By, DateTime? At) ConfirmedOf(TripEnquiry? e)
     {

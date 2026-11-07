@@ -9,7 +9,6 @@ public static class TripExecutionEndpoints
 {
     public static RouteGroupBuilder MapTripExecutionEndpoints(this RouteGroupBuilder group)
     {
-        group.MapPost("/{tripId:guid}/enquiries/ask-again", TripEnquiryHandlers.AskAgain).Gated();
         group.MapPost("/{tripId:guid}/enquiries", TripEnquiryHandlers.Create).Gated();
         group.MapPost("/{tripId:guid}/phone-bookings", TripEnquiryHandlers.CreatePhoneBooking).Gated();
 

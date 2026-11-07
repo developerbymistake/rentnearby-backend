@@ -244,7 +244,7 @@ public class TripExecutionValidatorsTests
     {
         ["checkIn"] = "2026-11-01", ["checkOut"] = "2026-11-02", ["lines"] = new[] { Line() }, ["advanceAmount"] = 500,
         ["balanceNote"] = "at check-in", ["cancellationText"] = "Free till 24 h before", ["gstInvoice"] = false,
-        ["inclusions"] = "Breakfast", ["needsEchoed"] = new[] { "no_stairs" },
+        ["inclusions"] = "Breakfast",
     };
 
     [Fact]
@@ -322,12 +322,8 @@ public class TripExecutionValidatorsTests
     public void Offer_inclusions_201_fails() => Fails(Offer, Req<SendTripOfferRequest>(OfferBody(), ("inclusions", new string('a', 201))), "Inclusions");
 
     [Fact]
-    public void Offer_unknown_need_fails() =>
-        Fails(Offer, Req<SendTripOfferRequest>(OfferBody(), ("needsEchoed", new[] { "no_stairs", "bogus" })), "NeedsEchoed");
-
-    [Fact]
-    public void Offer_all_known_needs_pass() =>
-        Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("needsEchoed", TripNeeds.All)));
+    public void Offer_ignores_a_legacy_needs_field() =>
+        Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("needsEchoed", new[] { "bogus" })));
 
     // TripOwnerListQuery
     private static readonly TripOwnerListQueryValidator OwnerList = new();
@@ -716,11 +712,10 @@ public class TripExecutionValidatorsTests
         Fails(AdminClose, Req<AdminCloseTripEnquiryRequest>(new() { ["note"] = "          " }), "Note");
     }
 
-    // Phase 2: counter, change request, revised offer, ask again, counterOfferId
+    // Phase 2: counter, change request, revised offer, counterOfferId
     private static readonly CounterRequestValidator Counter = new();
     private static readonly ChangeRequestRequestValidator Change = new();
     private static readonly RevisedOfferRequestValidator Revised = new();
-    private static readonly AskAgainRequestValidator AskAgain = new();
 
     [Theory]
     [InlineData(100)]
@@ -852,19 +847,5 @@ public class TripExecutionValidatorsTests
         Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("counterOfferId", Guid.NewGuid())));
         Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("counterOfferId", null)));
         Fails(Offer, Req<SendTripOfferRequest>(OfferBody(), ("counterOfferId", Guid.Empty)), "CounterOfferId");
-    }
-
-    [Theory]
-    [InlineData("Stay", 1, true)]
-    [InlineData("Taxi", 14, true)]
-    [InlineData("Stay", 0, false)]
-    [InlineData("Taxi", 15, false)]
-    [InlineData("Room", 1, false)]
-    [InlineData("", 1, false)]
-    public void AskAgain_kind_and_day(string kind, int day, bool ok)
-    {
-        var req = Req<AskAgainRequest>(new() { ["kind"] = kind, ["day"] = day });
-        if (ok) Passes(AskAgain, req);
-        else Assert.False(Run(AskAgain, req).IsValid);
     }
 }

@@ -4,15 +4,15 @@ public class TripCacheKeysTests
 {
     [Fact]
     public void Spots_Key()
-        => Assert.Equal("trip:spots:110000001", TripCacheKeys.Spots(110000001L));
+        => Assert.Equal("trip:spots2:110000001", TripCacheKeys.Spots(110000001L));
 
     [Fact]
     public void Stale_Key()
-        => Assert.Equal("trip:spots:110000001:stale", TripCacheKeys.Stale(110000001L));
+        => Assert.Equal("trip:spots2:110000001:stale", TripCacheKeys.Stale(110000001L));
 
     [Fact]
     public void Lock_Key()
-        => Assert.Equal("trip:spots:110000001:lock", TripCacheKeys.Lock(110000001L));
+        => Assert.Equal("trip:spots2:110000001:lock", TripCacheKeys.Lock(110000001L));
 
     [Fact]
     public void Matrix_Keys()

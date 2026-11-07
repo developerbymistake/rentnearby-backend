@@ -274,7 +274,7 @@ public class DaySplitTests
         var spots = Enumerable.Range(0, 10).Select(i => Spot($"s{i}", 29.39 + i * 0.001, 79.45)).ToArray();
         var matrix = new RoadMatrix(Line(10, 10), new double[10, 10], new bool[10, 10]);
 
-        var result = DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, null, 2, 400), matrix);
+        var result = DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, null, 2, 400, 99), matrix);
 
         Assert.Equal(new[] { 2, 8 }, result.Days.Select(d => d.Spots.Count).ToArray());
         Assert.Contains(result.Warnings, w => w.Code == TripWarningCodes.TooManyDays);
@@ -381,7 +381,7 @@ public class DaySplitTests
         var minutes = Line(14, 10);
         var matrix = new RoadMatrix(minutes, new double[14, 14], new bool[14, 14]);
 
-        var result = DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, null, 2), matrix);
+        var result = DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, null, 2, 0, 99), matrix);
 
         Assert.Equal(new[] { 480, 480 }, result.Days.Select(d => d.TotalMinutes).ToArray());
         Assert.All(result.Days, d => Assert.True(d.OverLimit));
@@ -405,5 +405,79 @@ public class DaySplitTests
         Assert.Equal(10, plain.Days[0].DriveMinutes);
         Assert.Equal(20, anchored.Days[0].DriveMinutes);
         Assert.Equal(new[] { "anchor>n2", "n2>n1", "n1>anchor" }, anchored.Days[0].Legs.Select(l => $"{l.FromId}>{l.ToId}").ToArray());
+    }
+
+    // ---- hard cap of places a day ----
+
+    [Fact]
+    public void Cap_SolveNeverPutsMoreThanTheCapOnADay()
+    {
+        var result = DaySplit.Solve(new DaySplitInput(Enumerable.Range(0, 14).ToArray(), Visits(14, 10), Line(14, 2), Limit, 14, MaxPerDay: 6));
+
+        Assert.All(result.Days, d => Assert.True(d.Count <= 6));
+        Assert.Equal(14, result.Days.Sum(d => d.Count));
+        Assert.True(result.Days.Length >= 3);
+    }
+
+    [Fact]
+    public void Cap_SolveFillsExactlyDaysTimesCap()
+    {
+        var result = DaySplit.Solve(new DaySplitInput(Enumerable.Range(0, 12).ToArray(), Visits(12, 10), Line(12, 2), Limit, 2, MaxPerDay: 6));
+
+        Assert.Equal(new[] { 6, 6 }, result.Days.Select(d => d.Count).ToArray());
+    }
+
+    [Fact]
+    public void Cap_SplitterKeepsSixAdayEvenWhenTimeAllowsMore()
+    {
+        var spots = Enumerable.Range(0, 12).Select(i => Spot($"s{i}", 29.39 + i * 0.001, 79.45)).ToArray();
+        var matrix = new RoadMatrix(Line(12, 2), new double[12, 12], new bool[12, 12]);
+
+        var result = DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, null, 2), matrix);
+
+        Assert.Equal(new[] { 6, 6 }, result.Days.Select(d => d.Spots.Count).ToArray());
+        Assert.DoesNotContain(result.Warnings, w => w.Code == TripWarningCodes.TooManyDays);
+    }
+
+    [Fact]
+    public void Cap_SplitterAddsDaysAndWarnsWhenPlacesDoNotFit()
+    {
+        var spots = Enumerable.Range(0, 13).Select(i => Spot($"s{i}", 29.39 + i * 0.001, 79.45)).ToArray();
+        var matrix = new RoadMatrix(Line(13, 2), new double[13, 13], new bool[13, 13]);
+
+        var result = DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, null, 2), matrix);
+
+        Assert.Equal(13, result.Days.Sum(d => d.Spots.Count));
+        Assert.All(result.Days, d => Assert.True(d.Spots.Count <= 6));
+        Assert.Contains(result.Warnings, w => w.Code == TripWarningCodes.TooManyDays && w.Message == "Places do not fit in 2 days");
+    }
+
+    [Fact]
+    public void Cap_RecalculateMovesTheOverflowToTheEmptiestDayWithRoom()
+    {
+        var spots = Enumerable.Range(0, 9).Select(i => Spot($"s{i}", 29.39 + i * 0.001, 79.45)).ToList();
+        var matrix = new RoadMatrix(Line(9, 2), new double[9, 9], new bool[9, 9]);
+        var days = new List<(int Day, List<TripSpot> Spots)>
+        {
+            (1, spots.Take(8).ToList()),
+            (2, spots.Skip(8).ToList()),
+        };
+
+        var result = DaySplitter.Recalculate(days, Limit, null, matrix, spots);
+
+        Assert.Equal(new[] { 6, 3 }, result.Days.Select(d => d.Spots.Count).ToArray());
+        Assert.Equal(new[] { "s0", "s1", "s2", "s3", "s4", "s5" }, result.Days[0].Spots.Select(s => s.Id).ToArray());
+    }
+
+    [Fact]
+    public void Cap_RecalculateKeepsTheUsersOrderWhenWithinTheCap()
+    {
+        var spots = Enumerable.Range(0, 6).Select(i => Spot($"s{i}", 29.39 + i * 0.001, 79.45)).ToList();
+        var matrix = new RoadMatrix(Line(6, 2), new double[6, 6], new bool[6, 6]);
+        var order = spots.AsEnumerable().Reverse().ToList();
+
+        var result = DaySplitter.Recalculate([(1, order)], Limit, null, matrix, spots);
+
+        Assert.Equal(order.Select(s => s.Id).ToArray(), result.Days[0].Spots.Select(s => s.Id).ToArray());
     }
 }

@@ -20,6 +20,7 @@ public class TripSummaryDayDto
 {
     public int Day { get; set; }
     public DateOnly? Date { get; set; }
+    public string? City { get; set; }
     public List<string> Spots { get; set; } = new();
     public int Minutes { get; set; }
 }
@@ -37,8 +38,6 @@ public class TripSummaryNightDto
     public DateOnly? Date { get; set; }
     public string ListingName { get; set; } = string.Empty;
     public Guid? EnquiryId { get; set; }
-    public bool IsOwn { get; set; }
-    public string? OwnPhone { get; set; }
     public string DisplayStatus { get; set; } = string.Empty;
     public List<TripSummaryRoomLineDto> RoomLines { get; set; } = new();
     public int? AgreedTotal { get; set; }
@@ -61,8 +60,6 @@ public class TripSummaryTaxiDto
     public List<int> Days { get; set; } = new();
     public DateOnly? CheckIn { get; set; }
     public DateOnly? CheckOut { get; set; }
-    public bool IsOwn { get; set; }
-    public string? OwnPhone { get; set; }
     public string DisplayStatus { get; set; } = string.Empty;
     public int? AgreedFare { get; set; }
     public bool TollExtra { get; set; }
@@ -94,6 +91,18 @@ public class TripSummaryRecordDto
     public TripJourneyDto? ComingBack { get; set; }
     // One entry per city (one on a one-city trip); journey cars live only under Legs[].Travel.Cars.
     public List<TripSummaryLegDto> Legs { get; set; } = new();
+    // Make it easy rows without the skipped ones, in row order.
+    public List<TripSummaryArrangementDto> Arrangements { get; set; } = new();
+}
+
+public class TripSummaryArrangementDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string Kind { get; set; } = string.Empty;
+    public int? LegIndex { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string State { get; set; } = string.Empty;
+    public string? Detail { get; set; }
 }
 
 public class TripSummaryLegDto
@@ -123,11 +132,6 @@ public class TripSummaryTravelDto
     public int CarCount { get; set; }
     public int? ListedTotal { get; set; }
     public List<TripSummaryTravelCarDto> Cars { get; set; } = new();
-    public string? How { get; set; }
-    public string? OwnName { get; set; }
-    public string? OwnPhone { get; set; }
-    public string? LeavesAt { get; set; }
-    public string? HubName { get; set; }
     public int? RoadMinutes { get; set; }
     public Guid? JourneyId { get; set; }
 }

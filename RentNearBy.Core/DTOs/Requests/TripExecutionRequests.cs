@@ -136,7 +136,6 @@ public class SendTripOfferRequest : ITripOfferFields
     public string? CancellationText { get; set; }
     public bool? GstInvoice { get; set; }
     public string? Inclusions { get; set; }
-    public List<string>? NeedsEchoed { get; set; }
     // Set when the host answers a counter with "Accept price".
     public Guid? CounterOfferId { get; set; }
 }
@@ -172,13 +171,6 @@ public class ChangeRequestRequest
     public int Kids { get; set; }
     public int Rooms { get; set; }
     public string? Note { get; set; }
-}
-
-// POST /trips/{tripId}/enquiries/ask-again (traveller).
-public class AskAgainRequest
-{
-    public string Kind { get; set; } = TripEnquiryKinds.Stay;
-    public int Day { get; set; }
 }
 
 public class HostConfirmRequest

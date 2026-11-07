@@ -71,12 +71,11 @@ public class TripStepsRulesTests
     [Fact]
     public void Wire_values_match_the_contract()
     {
-        Assert.Equal(new[] { "notStarted", "chosen", "booked", "own", "skipped", "notNeeded" }, TripStepStatuses.All);
-        Assert.Equal("asked", TripStepDisplays.Asked);
+        Assert.Equal(new[] { "notStarted", "chosen", "booked", "own", "skipped" }, TripStepStatuses.All);
         Assert.Equal("gettingThere", TripStepRoles.GettingThere);
         Assert.Equal("comingBack", TripStepRoles.ComingBack);
         Assert.Equal(5000.0, TripStepRules.SameCityMetres);
-        Assert.Equal(5, TripPlan.CurrentVersion);
+        Assert.Equal(6, TripPlan.CurrentVersion);
     }
 
     [Fact]
@@ -169,54 +168,16 @@ public class TripStepsRulesTests
         Assert.Null(TripStepRules.EndOf(TripStepRoles.ComingBack, null));
     }
 
-    // ---- display
+    // ---- status
 
     [Fact]
-    public void Display_matrix()
+    public void StatusOf_unknown_or_missing_reads_not_started()
     {
-        var j = Journey();
-        var asked = Journey(asked: true);
-
-        Assert.Equal("notStarted", TripStepRules.Display(null, null));
-        Assert.Equal("notStarted", TripStepRules.Display(new TripStep(), null));
-        Assert.Equal("notStarted", TripStepRules.Display(new TripStep { Status = "notStarted" }, j));
-        Assert.Equal("chosen", TripStepRules.Display(new TripStep { Status = "chosen", JourneyId = j.Id }, j));
-        Assert.Equal("asked", TripStepRules.Display(new TripStep { Status = "chosen", JourneyId = asked.Id }, asked));
-        Assert.Equal("booked", TripStepRules.Display(new TripStep { Status = "booked", JourneyId = asked.Id }, asked));
-        Assert.Equal("own", TripStepRules.Display(new TripStep { Status = "own", Note = "Own car" }, null));
-        Assert.Equal("skipped", TripStepRules.Display(new TripStep { Status = "skipped" }, null));
-        Assert.Equal("notNeeded", TripStepRules.Display(new TripStep { Status = "notNeeded" }, null));
-    }
-
-    [Fact]
-    public void Display_chosen_or_booked_without_its_journey_reads_not_started()
-    {
-        var j = Journey();
-        Assert.Equal("notStarted", TripStepRules.Display(new TripStep { Status = "chosen", JourneyId = j.Id }, null));
-        Assert.Equal("notStarted", TripStepRules.Display(new TripStep { Status = "booked", JourneyId = Guid.NewGuid() }, j));
-        var gone = Journey(deleted: true);
-        Assert.Equal("notStarted", TripStepRules.Display(new TripStep { Status = "chosen", JourneyId = gone.Id }, gone));
-    }
-
-    [Fact]
-    public void IsSorted_everything_but_not_started()
-    {
-        Assert.False(TripStepRules.IsSorted("notStarted"));
-        foreach (var d in new[] { "asked", "chosen", "booked", "own", "skipped", "notNeeded" })
-            Assert.True(TripStepRules.IsSorted(d));
-    }
-
-    // ---- nudge
-
-    [Fact]
-    public void NeedsNudge_only_not_started_with_a_start()
-    {
-        Assert.False(TripStepRules.NeedsNudge(null));
-        Assert.False(TripStepRules.NeedsNudge(new TripSteps()));
-        Assert.True(TripStepRules.NeedsNudge(new TripSteps { StartFrom = Delhi }));
-        Assert.True(TripStepRules.NeedsNudge(new TripSteps { StartFrom = Delhi, GettingThere = new TripStep { Status = "notStarted" } }));
-        foreach (var s in new[] { "chosen", "booked", "own", "skipped", "notNeeded" })
-            Assert.False(TripStepRules.NeedsNudge(new TripSteps { StartFrom = Delhi, GettingThere = new TripStep { Status = s } }));
+        Assert.Equal("notStarted", TripStepRules.StatusOf(null));
+        Assert.Equal("notStarted", TripStepRules.StatusOf(new TripStep()));
+        Assert.Equal("notStarted", TripStepRules.StatusOf(new TripStep { Status = "notNeeded" }));
+        Assert.Equal("own", TripStepRules.StatusOf(new TripStep { Status = "own" }));
+        Assert.Equal("skipped", TripStepRules.StatusOf(new TripStep { Status = "skipped" }));
     }
 
     // ---- sanitise
@@ -274,14 +235,13 @@ public class TripStepsRulesTests
     public void Sanitise_drops_a_journey_on_an_own_step_but_keeps_its_status()
     {
         var id = Guid.NewGuid();
-        var steps = new TripSteps { ComingBack = new TripStep { Status = "own", JourneyId = id, Note = "Train" } };
+        var steps = new TripSteps { ComingBack = new TripStep { Status = "own", JourneyId = id } };
 
         var keep = TripStepRules.Sanitise(steps, new HashSet<Guid> { id });
 
         Assert.Empty(keep);
         Assert.Null(steps.ComingBack.JourneyId);
         Assert.Equal("own", steps.ComingBack.Status);
-        Assert.Equal("Train", steps.ComingBack.Note);
     }
 
     [Fact]
@@ -304,44 +264,4 @@ public class TripStepsRulesTests
         Assert.Equal(new[] { id }, TripStepRules.ReferencedIds(steps));
         Assert.Empty(TripStepRules.ReferencedIds(null));
     }
-
-    [Fact]
-    public void ClearDates_clears_both_step_dates()
-    {
-        var steps = new TripSteps
-        {
-            StartFrom = Delhi,
-            GettingThere = new TripStep { Status = "chosen", JourneyId = Guid.NewGuid(), Date = Start },
-            ComingBack = new TripStep { Date = Start.AddDays(3) },
-        };
-        TripStepRules.ClearDates(steps);
-        Assert.Null(steps.GettingThere.Date);
-        Assert.Null(steps.ComingBack.Date);
-        Assert.NotNull(steps.GettingThere.JourneyId);
-        TripStepRules.ClearDates(null);
-    }
-
-    // ---- merge (D1)
-
-    [Fact]
-    public void Merge_null_request_keeps_the_stored_steps()
-    {
-        var stored = new TripSteps { StartFrom = Delhi };
-        Assert.Same(stored, TripStepsMerge.Resolve(stored, null));
-    }
-
-    [Fact]
-    public void Merge_empty_object_clears_the_stored_steps()
-    {
-        var stored = new TripSteps { StartFrom = Delhi, GettingThere = new TripStep { Status = "own" } };
-        var requested = new TripSteps();
-        var result = TripStepsMerge.Resolve(stored, requested);
-        Assert.Same(requested, result);
-        Assert.Null(result!.StartFrom);
-        Assert.Null(result.GettingThere);
-    }
-
-    [Fact]
-    public void Merge_nothing_stored_nothing_sent_is_null()
-        => Assert.Null(TripStepsMerge.Resolve(null, null));
 }

@@ -27,8 +27,8 @@ public class DaySplitterTests
     private static int Iso(DateOnly date) => date.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)date.DayOfWeek;
 
     private static SplitResult Split(IReadOnlyList<TripSpot> spots, RoadMatrix matrix, double centreLat = 29.39, double centreLon = 79.45,
-        DateOnly? start = null, int maxDays = 14)
-        => DaySplitter.Split(new SplitInput(spots, centreLat, centreLon, Limit, start, maxDays), matrix);
+        DateOnly? start = null, int maxDays = 14, int perDay = 99)
+        => DaySplitter.Split(new SplitInput(spots, centreLat, centreLon, Limit, start, maxDays, 0, perDay), matrix);
 
     private static string[] Ids(SplitDay day) => day.Spots.Select(s => s.Id).ToArray();
 
@@ -320,7 +320,7 @@ public class DaySplitterTests
 
     // MC-A D7: a travel day starts with used minutes.
     private static SplitResult SplitReserved(IReadOnlyList<TripSpot> spots, RoadMatrix matrix, int reserved, DateOnly? start = null, int maxDays = 14)
-        => DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, start, maxDays, reserved), matrix);
+        => DaySplitter.Split(new SplitInput(spots, 29.39, 79.45, Limit, start, maxDays, reserved, 99), matrix);
 
     private static TripSpot[] Row(int count, int visit) => Enumerable.Range(0, count).Select(i => Spot($"s{i}", visit, 29.39 + i * 0.001, 79.45)).ToArray();
 

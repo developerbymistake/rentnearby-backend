@@ -16,6 +16,8 @@ public class TripEnquiry
     public double? ListingLongitude { get; set; }
     public short? Day { get; set; }
     public string? DaysJson { get; set; }
+    // 1-based city leg of a local taxi row (Kind Taxi, Day null); null for stays and journey cars.
+    public short? CityLeg { get; set; }
     public DateOnly? CheckIn { get; set; }
     public DateOnly? CheckOut { get; set; }
     public Guid? ConversationId { get; set; }

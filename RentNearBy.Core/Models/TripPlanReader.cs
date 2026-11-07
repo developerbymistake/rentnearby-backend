@@ -28,18 +28,10 @@ public static class TripPlanReader
     }
 }
 
-// An app that does not know cities would drop the other legs; one written by a newer server is never overwritten.
+// A document written by a newer server is never overwritten.
 public static class TripPlanCompat
 {
-    public static bool HasMultiCityData(TripPlan plan)
-        => plan.Legs is { Count: > 1 } || plan.Legs?.Any(l => l?.Arrival != null) == true;
-
-    // Run on the RAW request, before Normalize synthesises legs.
-    public static bool NeedsUpdate(TripPlan stored, TripPlan request, int storedVersion)
-        => NeedsUpdate(stored, request.Legs is not { Count: > 0 }, storedVersion);
-
-    public static bool NeedsUpdate(TripPlan stored, bool requestLegless, int storedVersion)
-        => storedVersion > TripPlan.CurrentVersion || (requestLegless && HasMultiCityData(stored));
+    public static bool NeedsUpdate(int storedVersion) => storedVersion > TripPlan.CurrentVersion;
 }
 
 public static class TripTitles
