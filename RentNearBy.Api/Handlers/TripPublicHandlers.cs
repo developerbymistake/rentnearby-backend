@@ -32,7 +32,8 @@ public static class TripPublicHandlers
         body.Append("<div class=\"card\">");
         body.Append(Row("Stay", e.ListingName));
         body.Append(Row("Dates", Dates(e)));
-        body.Append(Row("Price", $"Rs {(e.AgreedTotal ?? booking?.AgreedTotal ?? 0):N0}"));
+        var agreed = e.AgreedTotal is > 0 ? e.AgreedTotal : booking?.AgreedTotal;
+        body.Append(Row("Price", agreed is > 0 ? $"Rs {agreed:N0}" : "Not set"));
         if (!string.IsNullOrWhiteSpace(booking?.RoomName)) body.Append(Row("Room", booking!.RoomName));
         body.Append("</div>");
         body.Append("<form method=\"post\">");

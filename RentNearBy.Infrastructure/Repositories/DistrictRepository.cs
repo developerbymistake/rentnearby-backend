@@ -17,9 +17,19 @@ public class DistrictRepository(ApplicationDbContext context) : Repository<Distr
     public async Task<Guid?> FindActiveContainingAsync(double latitude, double longitude)
     {
         var point = new Point(longitude, latitude) { SRID = 4326 };
-        return await _dbSet.AsNoTracking()
+        var inside = await _dbSet.AsNoTracking()
             .Where(d => d.IsActive && d.Boundary != null && d.Boundary.Contains(point))
             .Select(d => (Guid?)d.Id)
             .FirstOrDefaultAsync();
+        if (inside != null) return inside;
+
+        // A city centre can sit just outside a simplified border: take the nearest active district within about 5 km.
+        return await _dbSet.AsNoTracking()
+            .Where(d => d.IsActive && d.Boundary != null && d.Boundary.IsWithinDistance(point, NearDegrees))
+            .OrderBy(d => d.Boundary!.Distance(point))
+            .Select(d => (Guid?)d.Id)
+            .FirstOrDefaultAsync();
     }
+
+    private const double NearDegrees = 0.05;
 }

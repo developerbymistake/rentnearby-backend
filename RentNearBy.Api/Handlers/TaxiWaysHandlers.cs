@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Claims;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -39,8 +40,8 @@ public static class TaxiWaysHandlers
 
     private static string? CleanName(string? name)
     {
-        var trimmed = name?.Trim();
-        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+        var clean = TripTextSafety.Clean(name, TaxiLimits.PlaceNameMax);
+        return clean.Length == 0 ? null : clean;
     }
 
     public static async Task<IResult> GetWays(
@@ -60,8 +61,6 @@ public static class TaxiWaysHandlers
         if (!PeopleValid(people, options.Value, out var count)) return BadRequestResponse("Invalid number of people");
         var from = CleanName(fromName);
         var to = CleanName(toName);
-        if (from?.Length > TaxiLimits.PlaceNameMax || to?.Length > TaxiLimits.PlaceNameMax)
-            return BadRequestResponse("Place name is too long");
 
         var result = await search.SearchAsync(
             new TaxiWaysQuery(fromLat.Value, fromLng.Value, toLat.Value, toLng.Value, count, fromMyLocation, from, to), ct);
@@ -69,7 +68,7 @@ public static class TaxiWaysHandlers
     }
 
     public static async Task<IResult> GetPlan(
-        string planKey, int? people, string? date,
+        string planKey, int? people, string? date, string? fromName, string? toName,
         ITaxiWaysSearch search, IRateLimitService rateLimiter, ClaimsPrincipal principal, HttpContext httpContext,
         Microsoft.Extensions.Options.IOptions<TaxiWaysOptions> options, CancellationToken ct)
     {
@@ -84,7 +83,15 @@ public static class TaxiWaysHandlers
         try
         {
             var plan = await search.PlanAsync(planKey, count, ct);
-            return plan == null ? PlanNotFound() : OkResponse(plan);
+            if (plan == null) return PlanNotFound();
+            if (TaxiWaysKeys.TryParsePlanKey(planKey, out var keys, options.Value.MaxCars))
+            {
+                var typedFrom = CleanName(fromName);
+                var typedTo = CleanName(toName);
+                if (typedFrom != null || typedTo != null)
+                    TaxiWaysNameOverlay.ApplyTo(plan, keys[0], typedFrom, keys[^1], typedTo);
+            }
+            return OkResponse(plan);
         }
         catch (TaxiWaysUnavailableException)
         {

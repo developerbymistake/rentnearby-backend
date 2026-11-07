@@ -431,12 +431,13 @@ public class TripRequestValidatorsTests
     }
 
     [Fact]
-    public void Save_TaxiNameTooLong_Invalid()
+    public void Save_TaxiNameTooLong_Clipped()
     {
         var request = Save();
         request.Plan.Days[0].Taxi = new TripTaxiChoice { TaxiId = Guid.NewGuid(), Name = new string('n', 121) };
 
-        Assert.False(SaveValidator.Validate(request).IsValid);
+        Assert.True(SaveValidator.Validate(request).IsValid);
+        Assert.Equal(120, request.Plan.Days[0].Taxi!.Name!.Length);
     }
 
     [Theory]
@@ -644,21 +645,23 @@ public class TripRequestValidatorsTests
     [Theory]
     [InlineData("   ")]
     [InlineData("")]
-    public void Save_PickupPlaceBlank_Invalid(string place)
+    public void Save_PickupPlaceBlank_Valid(string place)
     {
         var request = Save();
         request.Plan.Settings.PickupPlace = place;
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Pickup place can be up to 80 characters");
+        Assert.True(SaveValidator.Validate(request).IsValid);
+        Assert.Null(request.Plan.Settings.PickupPlace);
     }
 
     [Fact]
-    public void Save_PickupPlaceTooLong_Invalid()
+    public void Save_PickupPlaceTooLong_Clipped()
     {
         var request = Booked(1, [1], 1);
         request.Plan.Days[0].Taxi!.Booking!.PickupPlace = new string('p', 81);
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Pickup place can be up to 80 characters");
+        Assert.True(SaveValidator.Validate(request).IsValid);
+        Assert.Equal(80, request.Plan.Days[0].Taxi!.Booking!.PickupPlace!.Length);
     }
 
     [Fact]
@@ -697,12 +700,13 @@ public class TripRequestValidatorsTests
     }
 
     [Fact]
-    public void Save_BookingNoteTooLong_Invalid()
+    public void Save_BookingNoteTooLong_Clipped()
     {
         var request = Booked(1, [1], 1);
         request.Plan.Days[0].Taxi!.Booking!.Note = new string('n', 301);
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Note can be up to 300 characters");
+        Assert.True(SaveValidator.Validate(request).IsValid);
+        Assert.Equal(300, request.Plan.Days[0].Taxi!.Booking!.Note!.Length);
     }
 
     [Fact]
@@ -734,15 +738,17 @@ public class TripRequestValidatorsTests
     }
 
     [Theory]
-    [InlineData("5876543210")]
-    [InlineData("987654321")]
-    [InlineData("+919876543210")]
-    public void Save_OwnPhone_Invalid(string phone)
+    [InlineData("5876543210", null)]
+    [InlineData("987654321", null)]
+    [InlineData("+919876543210", "9876543210")]
+    [InlineData("98765 43210", "9876543210")]
+    public void Save_OwnPhone_NormalisedOrDropped(string phone, string? expected)
     {
         var request = Save();
         request.Plan.Days[0].Stay = new TripStayChoice { IsOwn = true, Name = "My stay", OwnPhone = phone };
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Enter a 10 digit phone");
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+        Assert.Equal(expected, request.Plan.Days[0].Stay!.OwnPhone);
     }
 
     [Fact]
@@ -783,12 +789,13 @@ public class TripRequestValidatorsTests
     }
 
     [Fact]
-    public void Save_StayNoteTooLong_Invalid()
+    public void Save_StayNoteTooLong_Clipped()
     {
         var request = Save();
         request.Plan.Days[0].Stay = new TripStayChoice { StayId = Guid.NewGuid(), Name = "Lake View", Note = new string('n', 301) };
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Note can be up to 300 characters");
+        Assert.True(SaveValidator.Validate(request).IsValid);
+        Assert.Equal(300, request.Plan.Days[0].Stay!.Note!.Length);
     }
 
     [Fact]
@@ -907,12 +914,13 @@ public class TripRequestValidatorsTests
     }
 
     [Fact]
-    public void Save_OwnTaxiName81_Invalid()
+    public void Save_OwnTaxiName81_Truncated()
     {
         var request = Save();
         request.Plan.Days[0].Taxi = new TripTaxiChoice { IsOwn = true, Name = new string('a', 81) };
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Name can be up to 80 characters");
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+        Assert.Equal(80, request.Plan.Days[0].Taxi!.Name.Length);
     }
 
     [Fact]
@@ -1006,11 +1014,22 @@ public class TripRequestValidatorsTests
     }
 
     [Fact]
-    public void Save_StepNote301_Invalid()
+    public void Save_StepNote301_Clipped()
     {
-        var request = WithSteps(new TripSteps { ComingBack = new TripStep { Status = TripStepStatuses.Own, Note = new string('a', 301) } });
+        var request = WithSteps(new TripSteps { ComingBack = new TripStep { Status = TripStepStatuses.Skipped, Note = new string('a', 301) } });
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Note can be up to 300 characters");
+        Assert.True(SaveValidator.Validate(request).IsValid);
+        Assert.Equal(300, request.Plan.Steps!.ComingBack!.Note!.Length);
+    }
+
+    [Fact]
+    public void Save_OwnStepNote301_Truncated()
+    {
+        var step = new TripStep { Status = TripStepStatuses.Own, Note = new string('a', 301) };
+        var request = WithSteps(new TripSteps { ComingBack = step });
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+        Assert.Equal(300, step.Note!.Length);
     }
 
     [Fact]
@@ -1024,19 +1043,22 @@ public class TripRequestValidatorsTests
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    public void Save_StartFromBlankName_Invalid(string name)
+    public void Save_StartFromBlankName_FallsBack(string name)
     {
-        var request = WithSteps(new TripSteps { StartFrom = new TripStartFrom { Name = name, Lat = 28.61, Lon = 77.21 } });
+        var start = new TripStartFrom { Name = name, Lat = 28.61, Lon = 77.21 };
+        var request = WithSteps(new TripSteps { StartFrom = start });
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Starting from must be 1 to 80 characters");
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+        Assert.Equal("My location", start.Name);
     }
 
     [Fact]
-    public void Save_StartFromName81_Invalid()
+    public void Save_StartFromName81_Truncated()
     {
-        var request = WithSteps(new TripSteps { StartFrom = new TripStartFrom { Name = new string('a', 81), Lat = 28.61, Lon = 77.21 } });
+        var start = new TripStartFrom { Name = new string('a', 81), Lat = 28.61, Lon = 77.21 };
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Starting from must be 1 to 80 characters");
+        SaveValidator.TestValidate(WithSteps(new TripSteps { StartFrom = start })).ShouldNotHaveAnyValidationErrors();
+        Assert.Equal(80, start.Name.Length);
     }
 
     [Fact]
@@ -1305,7 +1327,6 @@ public class TripRequestValidatorsTests
 
     [Theory]
     [InlineData("journey", null, null, SaveTripRequestValidator.TravelMessage)]
-    [InlineData("own", "plane", null, SaveTripRequestValidator.TravelMessage)]
     [InlineData("own", "bus", 901, SaveTripRequestValidator.RoadTimeMessage)]
     [InlineData("own", "bus", -1, SaveTripRequestValidator.RoadTimeMessage)]
     [InlineData("train", null, null, SaveTripRequestValidator.TravelMessage)]
@@ -1433,12 +1454,25 @@ public class TripRequestValidatorsTests
     }
 
     [Fact]
-    public void Save_BadArrivalTime_Invalid()
+    public void Save_OwnArrivalBadHowAndTime_Dropped()
     {
         var request = MultiCity([1, 2], CityKey, SecondCity);
-        request.Plan.Legs![1].Arrival = new TripTravel { FromName = "Haridwar", LeavesAt = "25:00" };
+        var arrival = new TripTravel { FromName = "Haridwar", How = "plane", LeavesAt = "25:00" };
+        request.Plan.Legs![1].Arrival = arrival;
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), SaveTripRequestValidator.TimeMessage);
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+        Assert.Null(arrival.How);
+        Assert.Null(arrival.LeavesAt);
+    }
+
+    [Fact]
+    public void Save_OwnArrivalFlightAndBlankFields_Valid()
+    {
+        var request = MultiCity([1, 2], CityKey, SecondCity);
+        request.Plan.Legs![1].Arrival = new TripTravel { FromName = "Haridwar", How = TripTravelHows.Flight, OwnName = " ", OwnPhone = "" };
+
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+        Assert.Null(request.Plan.Legs[1].Arrival!.OwnName);
     }
 
     [Fact]

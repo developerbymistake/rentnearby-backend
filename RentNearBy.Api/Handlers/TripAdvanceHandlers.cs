@@ -46,7 +46,7 @@ public static class TripAdvanceHandlers
         var cap = TripAdvanceRules.HoldCap(checkIn, now);
         if (cap <= now.AddHours(TripAdvanceRules.HoldMinHours)) return NotAllowed("Too late to hold.");
 
-        var maxAmount = e.AgreedTotal ?? TripExecutionRules.MaxAmount;
+        var maxAmount = e.AgreedTotal is > 0 ? e.AgreedTotal.Value : TripExecutionRules.MaxAmount;
         if (request.Amount > maxAmount) return BadRequestResponse($"Advance must be at most Rs {maxAmount}");
 
         var holdUntil = request.HoldUntil.Kind == DateTimeKind.Utc ? request.HoldUntil : request.HoldUntil.ToUniversalTime();

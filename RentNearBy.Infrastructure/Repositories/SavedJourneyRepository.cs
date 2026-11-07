@@ -250,10 +250,11 @@ public class SavedJourneyRepository(ApplicationDbContext context) : ISavedJourne
     // Tracked: the caller may close them in the same unit of work.
     public async Task<List<TripEnquiry>> GetSegmentRowsAsync(Guid journeyId)
     {
-        // ContextJson is jsonb: containment, not LIKE.
+        // ContextJson is jsonb: containment, not LIKE. SELECT * has no system columns and the entity maps xmin as its row
+        // version, so xmin is selected by name or the materialiser fails with a missing column.
         var probe = $"{{\"journeyId\":\"{journeyId}\"}}";
         var rows = await context.TripEnquiries
-            .FromSqlInterpolated($"""SELECT * FROM "TripEnquiries" WHERE "ContextJson" @> {probe}::jsonb""")
+            .FromSqlInterpolated($"""SELECT *, xmin FROM "TripEnquiries" WHERE "ContextJson" @> {probe}::jsonb""")
             .Where(e => e.TripId != null && e.Kind == TripEnquiryKinds.Taxi && e.Day != null)
             .ToListAsync();
         return rows.Where(e => TripEnquiryContexts.Read(e.ContextJson).JourneyId == journeyId).ToList();

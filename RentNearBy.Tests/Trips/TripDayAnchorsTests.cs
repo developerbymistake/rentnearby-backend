@@ -134,10 +134,11 @@ public class TripDayAnchorsTests
         {
             Status = TripStepStatuses.Own, How = TripTravelHows.All[0], OwnName = "Volvo bus", OwnPhone = "9876543210", LeavesAt = "06:30",
         })).IsValid);
-        Assert.False(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Chosen, How = TripTravelHows.All[0] })).IsValid);
-        Assert.False(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own, How = "plane" })).IsValid);
-        Assert.False(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own, LeavesAt = "25:00" })).IsValid);
-        Assert.False(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own, OwnPhone = "12345" })).IsValid);
+        Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Chosen, How = TripTravelHows.All[0] })).IsValid);
+        Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own, How = "plane" })).IsValid);
+        Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own, LeavesAt = "25:00" })).IsValid);
+        Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own, OwnPhone = "12345" })).IsValid);
+        Assert.True(v.Validate(SaveWith(new TripStep { Status = TripStepStatuses.Own })).IsValid);
     }
 
     [Fact]

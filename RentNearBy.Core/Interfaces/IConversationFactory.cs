@@ -15,5 +15,6 @@ public interface IConversationFactory
     // insert with race re-read. requireActive: a listing that is not live answers 409 ListingNotAvailable instead of creating
     // a ListingInactive conversation.
     Task<ConversationFactoryResult> GetOrCreateAsync(
-        Guid callerId, string listingType, Guid listingId, bool skipRateLimit = false, bool requireActive = true);
+        Guid callerId, string listingType, Guid listingId, bool skipRateLimit = false, bool requireActive = true,
+        bool skipNewAccountCooldown = false);
 }

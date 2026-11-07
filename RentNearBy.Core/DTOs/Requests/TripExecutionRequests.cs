@@ -23,10 +23,10 @@ public class CreateTaxiBookingRequest
 {
     public Guid TaxiId { get; set; }
     public List<int> Days { get; set; } = new();
-    public int AgreedFare { get; set; }
+    public int? AgreedFare { get; set; }
     public bool TollExtra { get; set; }
     public string PickupTime { get; set; } = string.Empty;
-    public string PickupPlace { get; set; } = string.Empty;
+    public string? PickupPlace { get; set; }
     public string? Note { get; set; }
     public bool CloseOthers { get; set; } = true;
     public Guid? ReplaceEnquiryId { get; set; }
@@ -62,9 +62,9 @@ public class TripDriverListQuery
 // Shared by the create and edit phone-booking bodies (one validator base).
 public interface IPhoneBookingFields
 {
-    string HostName { get; }
-    string HostPhone { get; }
-    string RoomName { get; }
+    string? HostName { get; }
+    string? HostPhone { get; }
+    string? RoomName { get; }
     int AgreedTotal { get; }
     bool AdvancePaid { get; }
     int? AdvanceAmount { get; }
@@ -78,9 +78,9 @@ public class CreatePhoneBookingRequest : IPhoneBookingFields
     public bool AllNights { get; set; }
     // Explicit nights from Day (capped at the trip's last night); when set, AllNights is ignored.
     public int? Nights { get; set; }
-    public string HostName { get; set; } = string.Empty;
-    public string HostPhone { get; set; } = string.Empty;
-    public string RoomName { get; set; } = string.Empty;
+    public string? HostName { get; set; }
+    public string? HostPhone { get; set; }
+    public string? RoomName { get; set; }
     public int AgreedTotal { get; set; }
     public bool AdvancePaid { get; set; }
     public int? AdvanceAmount { get; set; }
@@ -93,9 +93,9 @@ public class EditPhoneBookingRequest : IPhoneBookingFields
 {
     public bool AllNights { get; set; }
     public int? Nights { get; set; }
-    public string HostName { get; set; } = string.Empty;
-    public string HostPhone { get; set; } = string.Empty;
-    public string RoomName { get; set; } = string.Empty;
+    public string? HostName { get; set; }
+    public string? HostPhone { get; set; }
+    public string? RoomName { get; set; }
     public int AgreedTotal { get; set; }
     public bool AdvancePaid { get; set; }
     public int? AdvanceAmount { get; set; }

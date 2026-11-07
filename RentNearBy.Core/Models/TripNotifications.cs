@@ -20,7 +20,7 @@ public static class TripNotifications
 
     public static NotificationEvent TripOfferAccepted(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripOfferAccepted, "Offer accepted",
-            $"{Name(ctx.TravellerName, "A guest")} accepted Rs {Money(ctx.Total ?? e.AgreedTotal)} for {Dates(e)}.", ChatOrEnquiries(e, ctx));
+            $"{Name(ctx.TravellerName, "A guest")} accepted {((ctx.Total ?? e.AgreedTotal) is > 0 ? $"Rs {Money(ctx.Total ?? e.AgreedTotal)}" : "your offer")} for {Dates(e)}.", ChatOrEnquiries(e, ctx));
 
     public static NotificationEvent TripOfferDeclined(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripOfferDeclined, "Offer declined",
@@ -28,7 +28,7 @@ public static class TripNotifications
 
     public static NotificationEvent TripPhoneBookingRecorded(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripPhoneBookingRecorded, $"Booking recorded by {Name(ctx.TravellerName, "a guest")}",
-            $"Says you agreed Rs {Money(ctx.Total ?? e.AgreedTotal)} for {Dates(e)}. Confirm or say not me.", Enquiries(e, ctx));
+            $"Says you booked {((ctx.Total ?? e.AgreedTotal) is > 0 ? $"at Rs {Money(ctx.Total ?? e.AgreedTotal)} " : "")}for {Dates(e)}. Confirm or say not me.", Enquiries(e, ctx));
 
     public static NotificationEvent TripHostLinkAnswered(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripHostLinkAnswered, $"Booking marked {(ctx.Confirmed == true ? "confirmed" : "not me")} by link",
@@ -119,11 +119,11 @@ public static class TripNotifications
 
     public static NotificationEvent TripTaxiBookedByTraveller(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripTaxiBookedByTraveller, $"{Name(ctx.TravellerName, "A traveller")} booked you",
-            $"{Dates(e)}, Rs {Money(e.AgreedFare)}. Confirm in Trip leads.", Leads(e));
+            $"{Dates(e)}{FareSuffix(e.AgreedFare)}. Confirm in Trip leads.", Leads(e));
 
     public static NotificationEvent TripBookingChanged(TripEnquiry e, TripPushContext ctx) =>
         Host(e, ctx, NotificationTypes.TripBookingChanged, $"Booking changed by {Name(ctx.TravellerName, "a traveller")}",
-            $"{Dates(e)}, Rs {Money(e.AgreedFare)}. Confirm again in Trip leads.", Leads(e));
+            $"{Dates(e)}{FareSuffix(e.AgreedFare)}. Confirm again in Trip leads.", Leads(e));
 
     public static NotificationEvent TripDriverConfirmed(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripDriverConfirmed, $"{Listing(e, ctx)} confirmed",
@@ -152,7 +152,7 @@ public static class TripNotifications
 
     public static NotificationEvent TripRevisedOffer(TripEnquiry e, TripPushContext ctx) =>
         Traveller(e, ctx, NotificationTypes.TripRevisedOffer, $"{Listing(e, ctx)} revised the price",
-            $"Rs {Money(e.AgreedTotal)} to Rs {Money(ctx.Total)}{NewDates(e, ctx)}. Your price stays until you accept.", Chat(e, ctx));
+            $"{(e.AgreedTotal is > 0 ? $"Rs {Money(e.AgreedTotal)} to " : "New price ")}Rs {Money(ctx.Total)}{NewDates(e, ctx)}. Your price stays until you accept.", Chat(e, ctx));
 
     private static string NewDates(TripEnquiry e, TripPushContext ctx) =>
         ctx.CheckIn is { } a && (a != e.CheckIn || (ctx.CheckOut ?? e.CheckOut) != e.CheckOut) ? $" for {Dates(e, ctx)}" : string.Empty;
@@ -214,7 +214,7 @@ public static class TripNotifications
     }
 
     public static NotificationEvent TripProblemReported(TripEnquiry e, TripPushContext ctx) =>
-        Host(e, ctx, NotificationTypes.TripProblemReported, $"Problem on {Name(ctx.TravellerName, "a guest")}'s trip",
+        Host(e, ctx, NotificationTypes.TripProblemReported, $"Problem on {Name(ctx.TravellerName, IsTaxi(e) ? "a traveller" : "a guest")}'s trip",
             IsTaxi(e) ? "The driver did not come." : "The host could not give the room.", IsTaxi(e) ? Leads(e) : Enquiries(e, ctx));
 
     private static string? PhoneHostName(TripEnquiry e)
@@ -314,6 +314,8 @@ public static class TripNotifications
             return (null, null);
         }
     }
+
+    public static string FareSuffix(int? fare) => fare is > 0 ? $", Rs {Money(fare)}" : string.Empty;
 
     private static string Money(int? amount) => (amount ?? 0).ToString("N0", Inv);
     private static string Name(string? name, string fallback) => string.IsNullOrWhiteSpace(name) ? fallback : name.Trim();

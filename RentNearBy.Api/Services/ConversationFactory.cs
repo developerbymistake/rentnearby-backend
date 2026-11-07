@@ -18,7 +18,8 @@ public sealed class ConversationFactory(
     private static readonly TimeSpan NewAccountCooldown = TimeSpan.FromMinutes(5);
 
     public async Task<ConversationFactoryResult> GetOrCreateAsync(
-        Guid callerId, string listingType, Guid listingId, bool skipRateLimit = false, bool requireActive = true)
+        Guid callerId, string listingType, Guid listingId, bool skipRateLimit = false, bool requireActive = true,
+        bool skipNewAccountCooldown = false)
     {
         // Existing conversations stay readable; only starting one from an off tab's listing is refused.
         if (!TabState.IsKindActive(await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache), listingType))
@@ -28,7 +29,7 @@ public sealed class ConversationFactory(
         if (caller == null) return Fail(404, "User not found", "NotFound");
 
         var accountAge = DateTime.UtcNow - caller.CreatedAt;
-        if (accountAge < NewAccountCooldown)
+        if (!skipNewAccountCooldown && accountAge < NewAccountCooldown)
         {
             var remainingMinutes = Math.Max(1, (int)Math.Ceiling((NewAccountCooldown - accountAge).TotalMinutes));
             return Fail(403, $"You have a new account, so you can't chat yet. Try again in {remainingMinutes} min.", "Forbidden");

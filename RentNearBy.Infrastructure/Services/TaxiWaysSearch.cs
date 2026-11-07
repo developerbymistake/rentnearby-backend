@@ -37,8 +37,8 @@ public class TaxiWaysSearch(
         var snapshot = await network.GetAsync(ct);
         if (snapshot == null) return null;
 
-        var from = TaxiWaysSearchEngine.Resolve(snapshot, q.FromLat, q.FromLng, q.FromMyLocation, o, q.FromName);
-        var to = TaxiWaysSearchEngine.Resolve(snapshot, q.ToLat, q.ToLng, false, o, q.ToName);
+        var from = TaxiWaysSearchEngine.Resolve(snapshot, q.FromLat, q.FromLng, q.FromMyLocation, o);
+        var to = TaxiWaysSearchEngine.Resolve(snapshot, q.ToLat, q.ToLng, false, o, TaxiWaysLabels.Drop);
         var people = Math.Clamp(q.People, 1, o.MaxPeople);
         var redis = sp.GetService<IConnectionMultiplexer>();
         var memoryTtl = TimeSpan.FromSeconds(o.MemoryCacheSeconds);
@@ -55,15 +55,17 @@ public class TaxiWaysSearch(
 
         if (core == null) return null;
 
+        var fromName = from.Resolved ? from.Name : TaxiWaysLabels.Of(q.FromName, from.Key, true, false);
+        var toName = to.Resolved ? to.Name : TaxiWaysLabels.Of(q.ToName, to.Key, false, true);
         var result = new TaxiWaysResultDto
         {
             Version = core.Version,
-            From = new WayPlaceDto { Key = from.Key, Name = from.Name, Lat = from.Lat, Lng = from.Lng, Resolved = from.Resolved },
-            To = new WayPlaceDto { Key = to.Key, Name = to.Name, Lat = to.Lat, Lng = to.Lng, Resolved = to.Resolved, DistrictId = dest?.DistrictId },
+            From = new WayPlaceDto { Key = from.Key, Name = fromName, Lat = from.Lat, Lng = from.Lng, Resolved = from.Resolved },
+            To = new WayPlaceDto { Key = to.Key, Name = toName, Lat = to.Lat, Lng = to.Lng, Resolved = to.Resolved, DistrictId = dest?.DistrictId },
             BestWay = core.BestWay,
             AllTheWay = core.AllTheWay,
             AllTheWayHasMore = core.AllTheWayHasMore,
-            Plans = core.Plans,
+            Plans = TaxiWaysNameOverlay.Apply(core.Plans, from.Key, from.Resolved ? null : fromName, to.Key, to.Resolved ? null : toName),
             Truncated = core.Truncated,
             LocalTaxis = dest?.LocalTaxis ?? new(),
             Stays = dest?.Stays ?? new(),
@@ -84,9 +86,10 @@ public class TaxiWaysSearch(
         if (!TaxiWaysKeys.TryParsePlanKey(planKey, out var keys, o.MaxCars)) return null;
 
         var anchors = new List<TaxiWaysAnchor>();
-        foreach (var key in keys)
+        for (var i = 0; i < keys.Count; i++)
         {
-            var anchor = TaxiWaysSearchEngine.AnchorFromKey(snapshot, key, o);
+            var key = keys[i];
+            var anchor = TaxiWaysSearchEngine.AnchorFromKey(snapshot, key, o, i == keys.Count - 1);
             if (anchor == null) return null;
             anchors.Add(anchor);
         }
@@ -117,7 +120,7 @@ public class TaxiWaysSearch(
         var snapshot = await network.GetAsync(ct) ?? throw new TaxiWaysUnavailableException();
         if (!TaxiWaysKeys.TryParseLegKey(legKey, out var fromKey, out var toKey)) return null;
         var a = TaxiWaysSearchEngine.AnchorFromKey(snapshot, fromKey, o);
-        var b = TaxiWaysSearchEngine.AnchorFromKey(snapshot, toKey, o);
+        var b = TaxiWaysSearchEngine.AnchorFromKey(snapshot, toKey, o, true);
         if (a == null || b == null) return null;
 
         var people = Math.Clamp(q.People, 1, o.MaxPeople);
@@ -162,7 +165,7 @@ public class TaxiWaysSearch(
         }
         if (snapshot == null) return fares;
         var a = TaxiWaysSearchEngine.AnchorFromKey(snapshot, fromKey, o);
-        var b = TaxiWaysSearchEngine.AnchorFromKey(snapshot, toKey, o);
+        var b = TaxiWaysSearchEngine.AnchorFromKey(snapshot, toKey, o, true);
         if (a == null || b == null) return fares;
 
         var wanted = taxiIds.ToHashSet();
@@ -285,6 +288,27 @@ public class TaxiWaysSearch(
         }
         if (districtId == null) logger.LogInformation("taxi.ways.district none {Lat} {Lng}", lat, lng);
         return districtId;
+    }
+}
+
+// Typed names are per request and never live in the cached plan list: the cached copy is cloned before a name is set.
+public static class TaxiWaysNameOverlay
+{
+    public static List<WayPlanDto> Apply(List<WayPlanDto> plans, string fromKey, string? fromName, string toKey, string? toName)
+    {
+        if (plans.Count == 0 || (fromName == null && toName == null)) return plans;
+        var copy = JsonSerializer.Deserialize<List<WayPlanDto>>(JsonSerializer.Serialize(plans, TripJson.Options), TripJson.Options) ?? plans;
+        foreach (var plan in copy) ApplyTo(plan, fromKey, fromName, toKey, toName);
+        return copy;
+    }
+
+    public static void ApplyTo(WayPlanDto plan, string fromKey, string? fromName, string toKey, string? toName)
+    {
+        if (plan.Legs.Count == 0) return;
+        var first = plan.Legs[0].From;
+        var last = plan.Legs[^1].To;
+        if (fromName != null && first.Key == fromKey && TaxiWaysKeys.IsVirtual(fromKey)) first.Name = fromName;
+        if (toName != null && last.Key == toKey && TaxiWaysKeys.IsVirtual(toKey)) last.Name = toName;
     }
 }
 

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using RentNearBy.Core.DTOs.Responses;
 
 namespace RentNearBy.Core.Models;
@@ -248,7 +249,34 @@ public sealed class TripPlan
 
         // The app never decides a step is not needed: an old auto value is a step not started.
         foreach (var step in new[] { Steps?.GettingThere, Steps?.ComingBack })
-            if (step?.Status == TripStepStatuses.NotNeeded) step.Status = TripStepStatuses.NotStarted;
+        {
+            if (step == null) continue;
+            if (step.Status == TripStepStatuses.NotNeeded) step.Status = TripStepStatuses.NotStarted;
+            TripOwnRules.Clean(step);
+        }
+
+        // A place name is a label, never a blocker: a blank one falls back, a long one is cut.
+        if (Steps?.StartFrom is { } start) start.Name = TripOwnRules.Text(start.Name, TripOwnRules.NameMax) ?? "My location";
+        if (Steps?.GoingHomeTo is { } home) home.Name = TripOwnRules.Text(home.Name, TripOwnRules.NameMax) ?? "Drop point";
+
+        foreach (var leg in Legs)
+            if (leg.Arrival != null) TripOwnRules.Clean(leg.Arrival);
+        foreach (var day in Days)
+        {
+            if (day?.Taxi != null) TripOwnRules.Clean(day.Taxi);
+            if (day?.Stay != null) TripOwnRules.Clean(day.Stay);
+            if (day != null) TripOwnRules.CleanLabels(day);
+        }
+        if (Settings != null) Settings.PickupPlace = TripOwnRules.Text(Settings.PickupPlace, TripOwnRules.PlaceMax);
+        foreach (var step in new[] { Steps?.GettingThere, Steps?.ComingBack })
+            if (step != null) step.Note = TripOwnRules.Text(step.Note, TripOwnRules.NoteMax);
+        foreach (var leg in Legs)
+            if (leg.Arrival is { } a)
+            {
+                a.FromName = TripOwnRules.Text(a.FromName, TripOwnRules.LabelMax) ?? string.Empty;
+                a.HubName = TripOwnRules.Text(a.HubName, TripOwnRules.LabelMax);
+                a.Note = TripOwnRules.Text(a.Note, TripOwnRules.NoteMax);
+            }
     }
 }
 
@@ -352,9 +380,113 @@ public static class TripTravelHows
     public const string Car = "car";
     public const string Bus = "bus";
     public const string Train = "train";
+    public const string Flight = "flight";
     public const string Other = "other";
 
-    public static readonly string[] All = [Car, Bus, Train, Other];
+    public static readonly string[] All = [Car, Bus, Train, Flight, Other];
+}
+
+// Own arrangements are the traveller's own people outside the app: every field is optional and a bad value is dropped, never refused.
+public static class TripOwnRules
+{
+    public const int NameMax = 80;
+    public const int NoteMax = 300;
+
+    public static string? Phone(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var digits = new string(raw.Where(char.IsAsciiDigit).ToArray());
+        if (digits.Length == 12 && digits.StartsWith("91", StringComparison.Ordinal)) digits = digits[2..];
+        else if (digits.Length == 11 && digits[0] == '0') digits = digits[1..];
+        return digits.Length == 10 && digits[0] is >= '6' and <= '9' ? digits : null;
+    }
+
+    public static string? Text(string? raw, int max)
+    {
+        var t = raw?.Trim();
+        if (string.IsNullOrEmpty(t)) return null;
+        return t.Length > max ? t[..max].TrimEnd() : t;
+    }
+
+    public static string? How(string? raw) => raw != null && TripTravelHows.All.Contains(raw) ? raw : null;
+
+    public static string? LeavesAt(string? raw) => raw != null && Regex.IsMatch(raw, @"^([01]\d|2[0-3]):[0-5]\d$") ? raw : null;
+
+    public static void Clean(TripTravel t)
+    {
+        if (t.Mode == TripTravelModes.Own)
+        {
+            t.How = How(t.How);
+            t.OwnName = Text(t.OwnName, NameMax);
+            t.OwnPhone = Phone(t.OwnPhone);
+            t.LeavesAt = LeavesAt(t.LeavesAt);
+            t.Note = Text(t.Note, NoteMax);
+        }
+    }
+
+    public static void Clean(TripStep s)
+    {
+        if (s.Status == TripStepStatuses.Own)
+        {
+            s.How = How(s.How);
+            s.OwnName = Text(s.OwnName, NameMax);
+            s.OwnPhone = Phone(s.OwnPhone);
+            s.LeavesAt = LeavesAt(s.LeavesAt);
+            s.Note = Text(s.Note, NoteMax);
+        }
+        else
+        {
+            s.How = null;
+            s.OwnName = null;
+            s.OwnPhone = null;
+            s.LeavesAt = null;
+        }
+    }
+
+    public const int LabelMax = 120;
+    public const int PlaceMax = 80;
+
+    // Texts the app prefills from other data are cut to the server limit, never refused.
+    public static void CleanLabels(TripDay day)
+    {
+        if (day.Stay is { IsOwn: not true } stay) stay.Name = Text(stay.Name, LabelMax) ?? string.Empty;
+        if (day.Stay != null) day.Stay.Note = Text(day.Stay.Note, NoteMax);
+        if (day.Taxi is { } taxi)
+        {
+            if (taxi.IsOwn != true) taxi.Name = Text(taxi.Name, LabelMax) ?? string.Empty;
+            taxi.VehicleTypeName = Text(taxi.VehicleTypeName, LabelMax);
+            taxi.Note = Text(taxi.Note, NoteMax);
+            if (taxi.Booking is { } b)
+            {
+                b.PickupPlace = Text(b.PickupPlace, PlaceMax);
+                b.Note = Text(b.Note, NoteMax);
+            }
+        }
+        if (day.StayShortlist != null)
+            foreach (var i in day.StayShortlist) i.Name = Text(i.Name, LabelMax) ?? string.Empty;
+        if (day.TaxiShortlist != null)
+            foreach (var i in day.TaxiShortlist)
+            {
+                i.Name = Text(i.Name, LabelMax) ?? string.Empty;
+                i.VehicleTypeName = Text(i.VehicleTypeName, LabelMax);
+            }
+    }
+
+    public static void Clean(TripTaxiChoice t)
+    {
+        if (t.IsOwn != true) return;
+        t.Name = Text(t.Name, NameMax) ?? string.Empty;
+        t.OwnPhone = Phone(t.OwnPhone);
+        t.Note = Text(t.Note, NoteMax);
+    }
+
+    public static void Clean(TripStayChoice s)
+    {
+        if (s.IsOwn != true) return;
+        s.Name = Text(s.Name, NameMax) ?? string.Empty;
+        s.OwnPhone = Phone(s.OwnPhone);
+        s.Note = Text(s.Note, NoteMax);
+    }
 }
 
 public static class TripTravelRoad

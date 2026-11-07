@@ -539,7 +539,8 @@ public static class TripOwnerHandlers
             .Select(t => new { t.StartDate, t.EndDate }).FirstOrDefaultAsync();
         if (trip?.StartDate is not { } start || trip.EndDate is not { } end || !TripDateRules.InsideTrip(start, end, checkIn, checkOut))
             return ErrorResponse(422, TripDateRules.OutsideTripMessage, TripEnquiryErrorTypes.OfferOutsideTrip);
-        if (checkIn < TripExecutionRules.TodayIst(now))
+        var todayIst = TripExecutionRules.TodayIst(now);
+        if ((checkIn != e.CheckIn && checkIn < todayIst) || checkOut <= todayIst)
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
         if (await TripEnquiryHandlers.FailedNightsBlockAsync(db, e, checkIn, checkOut) is { } failedNights)
             return failedNights;

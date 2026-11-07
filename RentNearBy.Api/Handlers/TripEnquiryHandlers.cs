@@ -98,6 +98,9 @@ public static class TripEnquiryHandlers
         IUnitOfWork unitOfWork, ApplicationDbContext db, IConversationFactory conversations, ITripChatService chat,
         ITripNotifier notifier, IRateLimitService rateLimiter, IMemoryCache cache, ILoggerFactory loggers, HttpContext http)
     {
+        if (trip.Status == TripStatuses.Completed)
+            return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
+
         if (request.Kind == TripEnquiryKinds.Taxi)
             return await CreateLeadsAsync(trip, request, callerId, preSkipped, unitOfWork, db, notifier, chat, rateLimiter, cache, loggers, http);
 
@@ -237,7 +240,7 @@ public static class TripEnquiryHandlers
 
                 foreach (var stay in candidatesNow)
                 {
-                    var conv = await conversations.GetOrCreateAsync(callerId, ListingKinds.Stay, stay.Id, skipRateLimit: true);
+                    var conv = await conversations.GetOrCreateAsync(callerId, ListingKinds.Stay, stay.Id, skipRateLimit: true, skipNewAccountCooldown: true);
                     if (conv.Conversation == null || conv.Status is not (200 or 201))
                     {
                         if (conv.Status is 400 or 404 or 409)
@@ -662,7 +665,7 @@ public static class TripEnquiryHandlers
     {
         var n = TripNotifications.TripBookingChanged(e, ctx);
         n.Title = (e.IsUrgent ? "Urgent · " : string.Empty) + $"{TripDateText.FirstName(ctx.TravellerName)} booked another taxi for {removed}";
-        n.Body = $"You keep {TripNotifications.Dates(e)}, Rs {(e.AgreedFare ?? 0).ToString("N0", System.Globalization.CultureInfo.InvariantCulture)}.";
+        n.Body = $"You keep {TripNotifications.Dates(e)}{TripNotifications.FareSuffix(e.AgreedFare)}.";
         return n;
     };
 
@@ -727,7 +730,7 @@ public static class TripEnquiryHandlers
         var travellerName = TripTextSafety.Clean(
             await db.Users.AsNoTracking().Where(u => u.Id == callerId).Select(u => u.Name).FirstOrDefaultAsync());
         var pickupTime = request.PickupTime.Trim();
-        var pickupPlace = TripTextSafety.Clean(request.PickupPlace, TripLeadRules.PickupPlaceMax);
+        var pickupPlace = TripTextSafety.CleanOrNull(request.PickupPlace, TripLeadRules.PickupPlaceMax);
         var pushes = new List<TripPendingPush>();
         var replaceIds = (request.ReplaceEnquiryIds ?? new List<Guid>())
             .Take(TripLeadRules.MaxReplaceIds)
@@ -945,7 +948,7 @@ public static class TripEnquiryHandlers
             await db.Users.AsNoTracking().Where(u => u.Id == callerId).Select(u => u.Name).FirstOrDefaultAsync());
         var seats = await db.TaxiListings.AsNoTracking().Where(t => t.Id == taxi.Id).Select(t => t.Seats).FirstOrDefaultAsync();
         var pickupTime = request.PickupTime.Trim();
-        var pickupPlace = TripTextSafety.Clean(request.PickupPlace, TripLeadRules.PickupPlaceMax);
+        var pickupPlace = TripTextSafety.CleanOrNull(request.PickupPlace, TripLeadRules.PickupPlaceMax);
         var comesFrom = journey.Legs.FirstOrDefault(l => l.LegIndex == carIndex - 1)?.FromName;
         var context = TripSegmentContext.Build(
             trip, plan, cityLeg, travelDay, date, journey.Id, carIndex, journey.Legs.Count,
@@ -1965,7 +1968,9 @@ public static class TripEnquiryHandlers
         var trip = await db.Trips.AsNoTracking().Where(t => t.Id == tripId)
             .Select(t => new { t.StartDate, t.EndDate }).FirstOrDefaultAsync();
         if (trip?.StartDate is not { } start || trip.EndDate is not { } end) return Closed("This enquiry is closed.");
-        if (request.CheckIn < TripExecutionRules.TodayIst(now))
+        // A stay already running keeps its past check-in; only a moved check-in or a check-out in the past is refused.
+        var todayIst = TripExecutionRules.TodayIst(now);
+        if ((request.CheckIn != e.CheckIn && request.CheckIn < todayIst) || request.CheckOut <= todayIst)
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
         if (!TripDateRules.InsideTrip(start, end, request.CheckIn, request.CheckOut))
             return ErrorResponse(422, TripDateRules.OutsideTripMessage, TripEnquiryErrorTypes.OfferOutsideTrip);
@@ -2895,7 +2900,7 @@ public static class TripEnquiryHandlers
 
     private static PhoneFields Fields(IPhoneBookingFields r) => new(
         TripTextSafety.Clean(r.HostName, TripExecutionRules.HostNameMax),
-        r.HostPhone.Trim(),
+        (r.HostPhone ?? string.Empty).Trim(),
         TripTextSafety.Clean(r.RoomName, TripExecutionRules.RoomNameMax),
         r.AgreedTotal,
         r.AdvancePaid,
@@ -2907,7 +2912,7 @@ public static class TripEnquiryHandlers
         var previous = keepRecordedAt ? ReadBooking(e) : null;
         e.CheckIn = checkIn;
         e.CheckOut = checkOut;
-        e.AgreedTotal = f.AgreedTotal;
+        e.AgreedTotal = f.AgreedTotal > 0 ? f.AgreedTotal : null;
         e.UpdatedAt = now;
         e.PhoneBookingJson = JsonSerializer.Serialize(new TripPhoneBooking
         {
@@ -2996,8 +3001,9 @@ public static class TripEnquiryHandlers
 
         var link = $"{options.PublicBaseUrl.TrimEnd('/')}/go/confirm/{token}";
         var booking = ReadBooking(e);
-        var text = $"Namaste {booking?.HostName} ji. {TripDateText.FirstName(travellerName)} recorded a stay booking with you on Bakhli: "
-            + $"{e.ListingName}, {TripDateText.Range(e.CheckIn, e.CheckOut)}, Rs {e.AgreedTotal ?? 0}. Is this correct? Tap: {link}";
+        var host = string.IsNullOrWhiteSpace(booking?.HostName) ? "Namaste." : $"Namaste {booking!.HostName} ji.";
+        var text = $"{host} {TripDateText.FirstName(travellerName)} recorded a stay booking with you on Bakhli: "
+            + $"{e.ListingName}, {TripDateText.Range(e.CheckIn, e.CheckOut)}, {(e.AgreedTotal is > 0 ? $"Rs {e.AgreedTotal}" : "price not set")}. Is this correct? Tap: {link}";
         return new TripPhoneBookingResultDto { Enquiry = dto, ConfirmLink = link, WhatsAppText = text };
     }
 }

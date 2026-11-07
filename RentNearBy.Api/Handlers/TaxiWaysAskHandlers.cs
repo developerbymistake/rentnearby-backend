@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Api.Validators;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -35,7 +36,10 @@ public static class TaxiWaysAskHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
         var validation = await validator.ValidateAsync(request);
-        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+        if (!validation.IsValid)
+            return validation.Errors[0].ErrorMessage == TaxiWaysRules.DateMessage
+                ? BadRequestResponse(TaxiWaysRules.DateMessage, TaxiWaysErrorTypes.InvalidDate)
+                : BadRequestResponse(validation.Errors[0].ErrorMessage);
 
         var journey = await journeys.GetOwnedAsync(request.JourneyId, callerId, tracked: true);
         if (journey == null) return JourneyHandlers.NotFound();
@@ -56,7 +60,9 @@ public static class TaxiWaysAskHandlers
         var checkOut = date.AddDays(1);
         var travellerName = TripTextSafety.Clean(
             await db.Users.AsNoTracking().Where(u => u.Id == callerId).Select(u => u.Name).FirstOrDefaultAsync());
-        var toName = TripTextSafety.Clean(request.ToName);
+        var lastLeg = journey.Legs.OrderBy(l => l.LegIndex).LastOrDefault();
+        var toName = TaxiWaysLabels.Of(
+            string.IsNullOrWhiteSpace(request.ToName) ? lastLeg?.ToName : request.ToName, null, false, true);
 
         var items = new List<(int LegIndex, TripEnquiry Enquiry)>();
         var skipped = new List<AskSkippedDto>();
@@ -162,8 +168,11 @@ public static class TaxiWaysAskHandlers
 
             foreach (var (leg, taxi) in candidates)
             {
-                var fromName = TripTextSafety.Clean(leg.FromName);
-                var legTo = TripTextSafety.Clean(leg.ToName);
+                var saved = journey.Legs.FirstOrDefault(x => x.LegIndex == leg.LegIndex);
+                var fromName = TaxiWaysLabels.Of(
+                    string.IsNullOrWhiteSpace(leg.FromName) ? saved?.FromName : leg.FromName, null, leg.LegIndex == 1, false);
+                var legTo = TaxiWaysLabels.Of(
+                    string.IsNullOrWhiteSpace(leg.ToName) ? saved?.ToName : leg.ToName, null, false, true);
                 var pickup = JourneyLeadText.PickupPlace(fromName, leg.LegIndex, leg.CarOf);
                 var comesFrom = string.IsNullOrWhiteSpace(leg.ComesFrom) ? null : TripTextSafety.Clean(leg.ComesFrom);
                 var price = leadPrices[(leg.LegIndex, taxi.Id)];

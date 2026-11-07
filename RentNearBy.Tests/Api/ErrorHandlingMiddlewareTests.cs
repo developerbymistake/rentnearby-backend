@@ -47,7 +47,15 @@ public class ErrorHandlingMiddlewareTests
         Assert.Equal(status, body.Code);
         Assert.NotNull(body.Error);
         Assert.Equal(type, body.Error.Type);
-        Assert.Equal(message, body.Error.Message);
+        if (status == 500)
+        {
+            Assert.StartsWith(message + " Ref ", body.Error.Message);
+            Assert.DoesNotContain("secret", body.Error.Message);
+        }
+        else
+        {
+            Assert.Equal(message, body.Error.Message);
+        }
         Assert.Null(body.Data);
         Assert.True(body.Timestamp > 0);
     }

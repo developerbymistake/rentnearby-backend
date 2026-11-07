@@ -424,7 +424,7 @@ public static class TripSummaryRecordBuilder
                 {
                     Night = day.Day,
                     Date = date,
-                    ListingName = day.Stay.Name,
+                    ListingName = string.IsNullOrWhiteSpace(day.Stay.Name) ? OwnStayLabel : day.Stay.Name,
                     IsOwn = true,
                     OwnPhone = day.Stay.OwnPhone,
                     DisplayStatus = TripOwnDisplay,
@@ -712,14 +712,17 @@ public static class TripSummaryRecordBuilder
         };
     }
 
+    private const string OwnStayLabel = "Own stay";
+    private const string OwnTaxiLabel = "Own taxi";
+
     // One entry per own taxi (name + phone), listing every plan day it covers.
     private static IEnumerable<TripSummaryTaxiDto> OwnTaxis(TripPlan plan)
         => plan.Days
             .Where(d => d.Taxi?.IsOwn == true)
-            .GroupBy(d => (d.Taxi!.Name, d.Taxi.OwnPhone))
+            .GroupBy(d => (Name: (d.Taxi!.Name ?? string.Empty).Trim(), OwnPhone: d.Taxi.OwnPhone))
             .Select(g => new TripSummaryTaxiDto
             {
-                ListingName = g.Key.Name,
+                ListingName = string.IsNullOrWhiteSpace(g.Key.Name) ? OwnTaxiLabel : g.Key.Name,
                 VehicleTypeName = g.First().Taxi!.VehicleTypeName,
                 Days = g.Select(d => d.Day).OrderBy(d => d).ToList(),
                 IsOwn = true,

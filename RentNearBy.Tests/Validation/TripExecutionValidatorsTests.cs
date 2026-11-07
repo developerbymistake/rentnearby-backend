@@ -106,7 +106,7 @@ public class TripExecutionValidatorsTests
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    public void Phone_host_name_required(string name) => Fails(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("hostName", name)), "HostName");
+    public void Phone_host_name_optional(string name) => Passes(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("hostName", name)));
 
     [Fact]
     public void Phone_host_name_61_fails() => Fails(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("hostName", new string('a', 61))), "HostName");
@@ -119,12 +119,16 @@ public class TripExecutionValidatorsTests
     [InlineData("5876543210")]
     [InlineData("98765432101")]
     [InlineData("98765abcde")]
-    [InlineData("")]
     public void Phone_bad_host_phone_fails(string phone)
     {
         var result = Run(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("hostPhone", phone)));
         Assert.Contains(result.Errors, e => e.PropertyName == "HostPhone");
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Phone_host_phone_optional(string? phone) => Passes(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("hostPhone", phone)));
 
     [Fact]
     public void Phone_bad_host_phone_message()
@@ -136,18 +140,18 @@ public class TripExecutionValidatorsTests
     [Theory]
     [InlineData("")]
     [InlineData(null)]
-    public void Phone_room_required(string? room) => Fails(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("roomName", room)), "RoomName");
+    public void Phone_room_optional(string? room) => Passes(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("roomName", room)));
 
     [Fact]
     public void Phone_room_41_fails() => Fails(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("roomName", new string('a', 41))), "RoomName");
 
     [Theory]
-    [InlineData(0)]
     [InlineData(9_900_001)]
     [InlineData(-5)]
     public void Phone_total_out_of_range_fails(int total) => Fails(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("agreedTotal", total)), "AgreedTotal");
 
     [Theory]
+    [InlineData(0)]
     [InlineData(1)]
     [InlineData(9_900_000)]
     public void Phone_total_edges_pass(int total) => Passes(Phone, Req<CreatePhoneBookingRequest>(PhoneBody(), ("agreedTotal", total)));
@@ -193,7 +197,7 @@ public class TripExecutionValidatorsTests
     public void Edit_bad_phone_fails() => Fails(Edit, Req<EditPhoneBookingRequest>(EditBody(), ("hostPhone", "123")), "HostPhone");
 
     [Fact]
-    public void Edit_total_zero_fails() => Fails(Edit, Req<EditPhoneBookingRequest>(EditBody(), ("agreedTotal", 0)), "AgreedTotal");
+    public void Edit_total_zero_means_not_set() => Passes(Edit, Req<EditPhoneBookingRequest>(EditBody(), ("agreedTotal", 0)));
 
     [Fact]
     public void Edit_advance_above_total_fails() =>
@@ -484,8 +488,23 @@ public class TripExecutionValidatorsTests
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    public void TaxiBooking_pickup_place_required(string place) =>
-        Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("pickupPlace", place)), "PickupPlace");
+    [InlineData(null)]
+    public void TaxiBooking_pickup_place_optional(string? place) =>
+        Passes(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("pickupPlace", place)));
+
+    [Fact]
+    public void TaxiBooking_fare_optional() =>
+        Passes(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("agreedFare", null)));
+
+    [Fact]
+    public void TaxiBooking_replace_ids_rules()
+    {
+        var a = Guid.NewGuid();
+        Passes(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("replaceEnquiryIds", new[] { a })));
+        Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("replaceEnquiryIds", Array.Empty<Guid>())), "ReplaceEnquiryIds");
+        Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("replaceEnquiryIds", new[] { a, a })), "ReplaceEnquiryIds");
+        Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("replaceEnquiryIds", Enumerable.Range(0, 7).Select(_ => Guid.NewGuid()).ToArray())), "ReplaceEnquiryIds");
+    }
 
     [Fact]
     public void TaxiBooking_note_length() =>

@@ -216,7 +216,7 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
         if (string.IsNullOrEmpty(travellerName) && e.TravellerUserId is { } travellerId)
             travellerName = TripTextSafety.Clean(await _context.Users.AsNoTracking()
                 .Where(u => u.Id == travellerId).Select(u => u.Name).FirstOrDefaultAsync());
-        if (string.IsNullOrEmpty(travellerName)) travellerName = "A guest";
+        travellerName ??= string.Empty;
 
         string? chatArgs = null;
         if (e.ConversationId is { } conversationId)

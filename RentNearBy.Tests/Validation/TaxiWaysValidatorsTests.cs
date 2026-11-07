@@ -58,4 +58,36 @@ public class TaxiWaysValidatorsTests
     [Fact]
     public void Save_EmptyTripId_Invalid()
         => ValidationAssert.HasMessage(Validator.Validate(Journey(Guid.Empty, 2)), "Invalid trip");
+
+    [Fact]
+    public void Save_BlankNamesAndZeroFare_Valid()
+    {
+        var request = Journey();
+        request.FromName = "";
+        request.ToName = "  ";
+        request.Legs[0].FromName = "";
+        request.Legs[0].ToName = "";
+        request.Legs[0].ListedFare = 0;
+        Validator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Save_TooLongName_Invalid()
+    {
+        var request = Journey();
+        request.FromName = new string('a', JourneyRules.NameMax + 1);
+        ValidationAssert.HasMessage(Validator.Validate(request), "Place name is up to 80 characters");
+    }
+
+    [Theory]
+    [InlineData("m:29.946:78.164", true, false, "My location")]
+    [InlineData("v:29.946:78.164", true, false, "Pickup point")]
+    [InlineData("v:29.946:78.164", false, true, "Drop point")]
+    [InlineData("a110000001", false, false, "Stop")]
+    public void Labels_FallBackByKey(string key, bool start, bool end, string expected)
+        => Assert.Equal(expected, TaxiWaysLabels.Of("  ", key, start, end));
+
+    [Fact]
+    public void Labels_KeepTypedName()
+        => Assert.Equal("Home", TaxiWaysLabels.Of(" Home ", "v:1:2", true, false));
 }

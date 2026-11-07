@@ -146,51 +146,76 @@ public class TripPlanV5Tests
     }
 
     [Fact]
-    public void Save_OwnFieldsOnNonOwnStep_Invalid()
+    public void Save_OwnFieldsOnNonOwnStep_ClearedNotRefused()
     {
         var step = Own();
         step.Status = TripStepStatuses.Chosen;
+        var request = Save(new TripSteps { ComingBack = step });
 
-        ValidationAssert.HasErrorOn(Validator.Validate(Save(new TripSteps { ComingBack = step })), "Plan.Steps.ComingBack");
+        ValidationAssert.Valid(Validator.Validate(request));
+        Assert.Equal((null, null, null, null), (step.How, step.OwnName, step.OwnPhone, step.LeavesAt));
     }
 
     [Theory]
     [InlineData("plane")]
     [InlineData("")]
-    public void Save_BadHow_Invalid(string how)
+    public void Save_BadHow_DroppedNotRefused(string how)
     {
         var step = Own();
         step.How = how;
 
-        ValidationAssert.HasErrorOn(Validator.Validate(Save(new TripSteps { GettingThere = step })), "Plan.Steps.GettingThere");
+        ValidationAssert.Valid(Validator.Validate(Save(new TripSteps { GettingThere = step })));
+        Assert.Null(step.How);
+    }
+
+    [Fact]
+    public void Save_FlightHow_Valid()
+    {
+        var step = Own();
+        step.How = TripTravelHows.Flight;
+
+        ValidationAssert.Valid(Validator.Validate(Save(new TripSteps { GettingThere = step })));
+        Assert.Equal(TripTravelHows.Flight, step.How);
     }
 
     [Theory]
-    [InlineData("12345")]
-    [InlineData("5876543210")]
-    public void Save_BadOwnPhone_Invalid(string phone)
+    [InlineData("12345", null)]
+    [InlineData("5876543210", null)]
+    [InlineData("+91 98765 43210", "9876543210")]
+    [InlineData("09876543210", "9876543210")]
+    public void Save_OwnPhone_NormalisedOrDropped(string phone, string? expected)
     {
         var step = Own();
         step.OwnPhone = phone;
 
-        ValidationAssert.HasErrorOn(Validator.Validate(Save(new TripSteps { GettingThere = step })), "Plan.Steps.GettingThere");
+        ValidationAssert.Valid(Validator.Validate(Save(new TripSteps { GettingThere = step })));
+        Assert.Equal(expected, step.OwnPhone);
     }
 
     [Fact]
-    public void Save_BadLeavesAtAndLongName_Invalid()
+    public void Save_BadLeavesAtAndLongName_DroppedAndTruncated()
     {
         var time = Own();
         time.LeavesAt = "25:00";
         var name = Own();
         name.OwnName = new string('a', 81);
 
-        ValidationAssert.HasErrorOn(Validator.Validate(Save(new TripSteps { GettingThere = time })), "Plan.Steps.GettingThere");
-        ValidationAssert.HasErrorOn(Validator.Validate(Save(new TripSteps { ComingBack = name })), "Plan.Steps.ComingBack");
+        ValidationAssert.Valid(Validator.Validate(Save(new TripSteps { GettingThere = time, ComingBack = name })));
+        Assert.Null(time.LeavesAt);
+        Assert.Equal(80, name.OwnName!.Length);
+    }
+
+    [Fact]
+    public void Save_BlankOwnStep_Valid()
+    {
+        var step = new TripStep { Status = TripStepStatuses.Own, OwnName = "  ", OwnPhone = " ", Note = "" };
+
+        ValidationAssert.Valid(Validator.Validate(Save(new TripSteps { GettingThere = step })));
+        Assert.Null(step.OwnName);
+        Assert.Null(step.Note);
     }
 
     [Theory]
-    [InlineData("", 26.91, 75.79)]
-    [InlineData("  ", 26.91, 75.79)]
     [InlineData("Jaipur", 91, 75.79)]
     [InlineData("Jaipur", 26.91, 181)]
     public void Save_BadGoingHomeTo_Invalid(string name, double lat, double lon)
@@ -201,11 +226,23 @@ public class TripPlanV5Tests
     }
 
     [Fact]
-    public void Save_GoingHomeToName81_Invalid()
+    public void Save_GoingHomeToName81_Truncated()
     {
-        var request = Save(new TripSteps { GoingHomeTo = new TripStartFrom { Name = new string('a', 81), Lat = 26.91, Lon = 75.79 } });
+        var home = new TripStartFrom { Name = new string('a', 81), Lat = 26.91, Lon = 75.79 };
 
-        ValidationAssert.HasMessage(Validator.Validate(request), "Going home to must be 1 to 80 characters");
+        ValidationAssert.Valid(Validator.Validate(Save(new TripSteps { GoingHomeTo = home })));
+        Assert.Equal(80, home.Name.Length);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void Save_GoingHomeToBlankName_FallsBack(string name)
+    {
+        var home = new TripStartFrom { Name = name, Lat = 26.91, Lon = 75.79 };
+
+        ValidationAssert.Valid(Validator.Validate(Save(new TripSteps { GoingHomeTo = home })));
+        Assert.Equal("Drop point", home.Name);
     }
 
     [Fact]

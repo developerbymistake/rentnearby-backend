@@ -64,24 +64,24 @@ public abstract class PhoneBookingFieldsValidator<T> : AbstractValidator<T> wher
     protected PhoneBookingFieldsValidator()
     {
         RuleFor(x => x.HostName)
-            .Must(v => !string.IsNullOrWhiteSpace(v) && v.Trim().Length <= TripExecutionRules.HostNameMax)
-            .WithMessage($"Host name must be 1 to {TripExecutionRules.HostNameMax} characters");
+            .Must(v => string.IsNullOrWhiteSpace(v) || v.Trim().Length <= TripExecutionRules.HostNameMax)
+            .WithMessage($"Host name must be at most {TripExecutionRules.HostNameMax} characters");
 
         RuleFor(x => x.HostPhone)
-            .NotNull()
             .Matches(TripExecutionValidation.PhonePattern)
+            .When(x => !string.IsNullOrWhiteSpace(x.HostPhone))
             .WithMessage(TripExecutionValidation.PhoneMessage);
 
         RuleFor(x => x.RoomName)
-            .Must(v => !string.IsNullOrWhiteSpace(v) && v.Trim().Length <= TripExecutionRules.RoomNameMax)
-            .WithMessage($"Room must be 1 to {TripExecutionRules.RoomNameMax} characters");
+            .Must(v => string.IsNullOrWhiteSpace(v) || v.Trim().Length <= TripExecutionRules.RoomNameMax)
+            .WithMessage($"Room must be at most {TripExecutionRules.RoomNameMax} characters");
 
         RuleFor(x => x.AgreedTotal)
-            .InclusiveBetween(TripExecutionRules.MinAmount, TripExecutionRules.MaxAmount)
+            .Must(v => v == 0 || (v >= TripExecutionRules.MinAmount && v <= TripExecutionRules.MaxAmount))
             .WithMessage($"Agreed price must be 1 to {TripExecutionRules.MaxAmount}");
 
         RuleFor(x => x.AdvanceAmount)
-            .Must((x, amount) => amount == null || (amount >= 0 && amount <= x.AgreedTotal))
+            .Must((x, amount) => amount == null || (amount >= 0 && (x.AgreedTotal == 0 || amount <= x.AgreedTotal)))
             .WithMessage("Advance must be 0 to the agreed price");
 
         RuleFor(x => x.AdvanceAmount)
@@ -281,7 +281,8 @@ public class CreateTaxiBookingRequestValidator : AbstractValidator<CreateTaxiBoo
             .WithMessage($"Day must be 1 to {TripLimits.MaxDays}");
 
         RuleFor(x => x.AgreedFare)
-            .InclusiveBetween(TaxiLimits.MinFare, TaxiLimits.MaxFare)
+            .Must(f => f is >= TaxiLimits.MinFare and <= TaxiLimits.MaxFare)
+            .When(x => x.AgreedFare != null)
             .WithMessage("Fare must be between Rs 100 and Rs 99,00,000");
 
         RuleFor(x => x.PickupTime)
@@ -290,8 +291,8 @@ public class CreateTaxiBookingRequestValidator : AbstractValidator<CreateTaxiBoo
             .WithMessage("Pickup time must be HH:mm");
 
         RuleFor(x => x.PickupPlace)
-            .Must(v => !string.IsNullOrWhiteSpace(v) && v.Trim().Length <= TripLeadRules.PickupPlaceMax)
-            .WithMessage($"Pickup place must be 1 to {TripLeadRules.PickupPlaceMax} characters");
+            .Must(v => v == null || v.Trim().Length <= TripLeadRules.PickupPlaceMax)
+            .WithMessage($"Pickup place must be at most {TripLeadRules.PickupPlaceMax} characters");
 
         RuleFor(x => x.Note)
             .Must(v => v == null || v.Length <= TripExecutionRules.NoteMax)
@@ -300,6 +301,14 @@ public class CreateTaxiBookingRequestValidator : AbstractValidator<CreateTaxiBoo
         RuleFor(x => x.ReplaceEnquiryId)
             .Must(id => id == null || id != Guid.Empty)
             .WithMessage("Replace id must not be empty");
+
+        RuleFor(x => x.ReplaceEnquiryIds)
+            .Must(ids => ids == null || (ids.Count is >= 1 and <= TripExecutionRules.MaxOpenPerNight * 2))
+            .WithMessage("Pick 1 to 6 drivers to replace")
+            .Must(ids => ids == null || ids.All(id => id != Guid.Empty))
+            .WithMessage("Replace id must not be empty")
+            .Must(ids => ids == null || ids.Distinct().Count() == ids.Count)
+            .WithMessage("Replace ids must be different");
     }
 }
 

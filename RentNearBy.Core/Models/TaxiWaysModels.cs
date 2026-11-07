@@ -707,7 +707,7 @@ public static class TaxiWaysClustering
             var key = TaxiWaysKeys.PlaceKeyCluster(name, centre.Lat, centre.Lng);
             var unique = key; var n = 2;
             while (!usedKeys.Add(unique)) unique = $"{key}-{n++}";
-            places[unique] = new TaxiWaysPlace { Key = unique, Name = name.Length == 0 ? unique : name, Lat = centre.Lat, Lng = centre.Lng };
+            places[unique] = new TaxiWaysPlace { Key = unique, Name = name.Length == 0 ? TaxiWaysLabels.Stop : name, Lat = centre.Lat, Lng = centre.Lng };
             foreach (var m in members)
                 if (m.IsFrom) fromPlaceOf[m.Row] = unique; else toPlaceOf[m.Row] = unique;
         }
@@ -887,6 +887,24 @@ public static class TaxiWaysClustering
     }
 }
 
+public static class TaxiWaysLabels
+{
+    public const string MyLocation = "My location", Pickup = "Pickup point", Drop = "Drop point", Stop = "Stop";
+
+    // A place name is a label, never a blocker: a blank name falls back to a fixed label by the key and the end it sits at.
+    public static string Fallback(string? key, bool start, bool end)
+    {
+        if (key != null && key.StartsWith("m:", StringComparison.Ordinal)) return MyLocation;
+        return start ? Pickup : end ? Drop : Stop;
+    }
+
+    public static string Of(string? typed, string? key, bool start, bool end)
+    {
+        var name = TripTextSafety.Clean(typed, JourneyRules.NameMax);
+        return name.Length > 0 ? name : Fallback(key, start, end);
+    }
+}
+
 public static class TaxiWaysSearchEngine
 {
     // Nearest place within SamePlaceMeters; otherwise a virtual point at the 3-decimal coordinates.
@@ -900,11 +918,11 @@ public static class TaxiWaysSearchEngine
     }
 
     // Rebuilds an anchor from a key of a plan or leg key; null when the key is a place no longer in the snapshot.
-    public static TaxiWaysAnchor? AnchorFromKey(TaxiWaysNetworkSnapshot s, string key, TaxiWaysOptions o)
+    public static TaxiWaysAnchor? AnchorFromKey(TaxiWaysNetworkSnapshot s, string key, TaxiWaysOptions o, bool isEnd = false)
     {
         if (s.Places.TryGetValue(key, out var place)) return AnchorOf(place);
         if (!TaxiWaysKeys.TryParseVirtual(key, out var lat, out var lng, out var my)) return null;
-        return Virtual(s, key, lat, lng, my, o, null);
+        return Virtual(s, key, lat, lng, my, o, TaxiWaysLabels.Fallback(key, !isEnd, isEnd));
     }
 
     public static TaxiWaysAnchor AnchorOf(TaxiWaysPlace place) =>
@@ -931,7 +949,7 @@ public static class TaxiWaysSearchEngine
 
     private static TaxiWaysAnchor Virtual(TaxiWaysNetworkSnapshot s, string key, double lat, double lng, bool myLocation, TaxiWaysOptions o, string? name)
     {
-        var anchor = new TaxiWaysAnchor { Key = key, Name = name ?? string.Empty, Lat = lat, Lng = lng, MyLocation = myLocation };
+        var anchor = new TaxiWaysAnchor { Key = key, Name = string.IsNullOrWhiteSpace(name) ? TaxiWaysLabels.Fallback(key, true, false) : name, Lat = lat, Lng = lng, MyLocation = myLocation };
         var point = new TaxiWaysPoint(lat, lng);
         var cell = TaxiWaysGeo.Cell(TaxiWaysGeo.CellOf(lat), TaxiWaysGeo.CellOf(lng));
         var seen = new HashSet<string>(StringComparer.Ordinal);

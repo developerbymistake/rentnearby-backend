@@ -14,20 +14,31 @@ public class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorHandling
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unhandled exception");
-            await HandleExceptionAsync(context, ex);
+            var id = ShortId(context);
+            logger.LogError(ex, "Unhandled exception {CorrelationId} {Method} {Route}", id, context.Request.Method,
+                context.Request.Path.Value);
+            if (context.Response.HasStarted) throw;
+            await HandleExceptionAsync(context, ex, id);
         }
     }
 
-    private static Task HandleExceptionAsync(HttpContext context, Exception exception)
+    private static string ShortId(HttpContext context)
+    {
+        var id = context.TraceIdentifier ?? string.Empty;
+        return id.Length > 8 ? id[^8..] : id;
+    }
+
+    private static Task HandleExceptionAsync(HttpContext context, Exception exception, string id)
     {
         var (code, type, message) = exception switch
         {
             ArgumentNullException or ArgumentException => (HttpStatusCode.BadRequest, "ValidationException", exception.Message),
             UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "UnauthorizedException", exception.Message),
             KeyNotFoundException or FileNotFoundException => (HttpStatusCode.NotFound, "NotFoundException", exception.Message),
-            _ => (HttpStatusCode.InternalServerError, "InternalServerError", "An error occurred while processing your request.")
+            _ => (HttpStatusCode.InternalServerError, "InternalServerError",
+                $"An error occurred while processing your request. Ref {id}")
         };
+        context.Response.Headers["X-Correlation-Id"] = id;
 
         var response = new ApiResponse<object>
         {

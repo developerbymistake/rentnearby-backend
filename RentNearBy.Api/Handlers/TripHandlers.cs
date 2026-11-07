@@ -759,7 +759,7 @@ public static class TripHandlers
 
     private static string TitleOrDefault(string? title, IReadOnlyList<string> cityNames)
     {
-        var trimmed = title?.Trim();
+        var trimmed = TripTextSafety.Clean(title, 80);
         return !string.IsNullOrEmpty(trimmed) ? trimmed : TripTitles.Default(cityNames);
     }
 

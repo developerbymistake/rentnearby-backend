@@ -18,7 +18,10 @@ public static class JourneyHandlers
     private static readonly TimeSpan SaveWindow = TimeSpan.FromMinutes(10);
     private const int SavePerWindow = 20;
 
-    private static IResult Invalid(FluentValidation.Results.ValidationResult v) => BadRequestResponse(v.Errors[0].ErrorMessage);
+    private static IResult Invalid(FluentValidation.Results.ValidationResult v)
+        => v.Errors[0].ErrorMessage == TaxiWaysRules.DateMessage
+            ? BadRequestResponse(TaxiWaysRules.DateMessage, TaxiWaysErrorTypes.InvalidDate)
+            : BadRequestResponse(v.Errors[0].ErrorMessage);
 
     internal static IResult NotFound()
         => ErrorResponse(404, "Journey not found", JourneyErrorTypes.JourneyNotFound);
@@ -30,8 +33,10 @@ public static class JourneyHandlers
 
     public static async Task<IResult> Save(
         SaveJourneyRequest request, IValidator<SaveJourneyRequest> validator, ClaimsPrincipal principal,
-        ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, IRateLimitService rateLimiter, ITaxiWaysSearch ways, HttpContext http)
+        ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, IRateLimitService rateLimiter, ITaxiWaysSearch ways, HttpContext http,
+        ILoggerFactory loggers)
     {
+        var log = loggers.CreateLogger("Journeys");
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return Invalid(validation);
@@ -53,6 +58,25 @@ public static class JourneyHandlers
             target = resolved;
         }
 
+        // A double tap runs find-then-insert twice; one save per user at a time makes the second one find the first.
+        var gate = SaveGates[(userId.GetHashCode() & int.MaxValue) % SaveGates.Length];
+        await gate.WaitAsync();
+        try
+        {
+            return await SaveLockedAsync(request, userId, journeys, unitOfWork, ways, log, target);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private static readonly SemaphoreSlim[] SaveGates = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+
+    private static async Task<IResult> SaveLockedAsync(
+        SaveJourneyRequest request, Guid userId, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, ITaxiWaysSearch ways,
+        ILogger log, TripLinkTarget? target)
+    {
         // Same plan, date and people = the same journey; a people change is a new journey (D24). A completed one is never reused.
         var existing = await journeys.FindByPlanAsync(userId, request.PlanKey, request.Date);
         if (existing != null && existing.People != request.People)
@@ -74,7 +98,7 @@ public static class JourneyHandlers
                     && (link.Role != TripStepRoles.Segment || link.LegIndex != target.LegIndex))
                     return ErrorResponse(409, "This journey is already in your trip", JourneyErrorTypes.JourneyInTrip);
             }
-            return OkResponse(await BuildAsync(journeys, unitOfWork, userId, existing, new HashSet<int>(), target));
+            return OkResponse(await BuildSavedAsync(journeys, unitOfWork, userId, existing, log, target));
         }
 
         if (await journeys.CountLiveAsync(userId) >= JourneyRules.MaxLive)
@@ -87,15 +111,19 @@ public static class JourneyHandlers
             .ToHashSet();
         var taxis = await journeys.LoadTaxisAsync(ids);
 
+        var planKeys = TaxiWaysKeys.TryParsePlanKey(request.PlanKey, out var parsedKeys) ? parsedKeys : new List<string>();
+        var firstKey = planKeys.Count > 0 ? planKeys[0] : null;
+        var lastKey = planKeys.Count > 0 ? planKeys[^1] : null;
+
         var now = DateTime.UtcNow;
         var journey = new SavedJourney
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            FromName = TripTextSafety.Clean(request.FromName),
+            FromName = TaxiWaysLabels.Of(request.FromName, firstKey, true, false),
             FromLatitude = (decimal)request.FromLat,
             FromLongitude = (decimal)request.FromLng,
-            ToName = TripTextSafety.Clean(request.ToName),
+            ToName = TaxiWaysLabels.Of(request.ToName, lastKey, false, true),
             ToLatitude = (decimal)request.ToLat,
             ToLongitude = (decimal)request.ToLng,
             TravelDate = request.Date,
@@ -106,6 +134,66 @@ public static class JourneyHandlers
             UpdatedAt = now,
         };
 
+        IResult? legError;
+        try
+        {
+            legError = await BuildLegsAsync(journey, legs, request, taxis, userId, now, ways, journeys);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log.LogError(ex, "journey.save.legs.failed {UserId} {PlanKey} {Legs}", userId, request.PlanKey, legs.Count);
+            return ErrorResponse(409, "Could not price this journey. Please try again.", JourneyErrorTypes.DriverNotOnLeg);
+        }
+        if (legError != null) return legError;
+
+        journey.ListedTotal = Total(journey.Legs);
+        journey.Status = JourneyRules.JourneyStatusOf(journey.Legs);
+
+        await journeys.AddAsync(journey);
+        try
+        {
+            await journeys.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Concurrent();
+        }
+        catch (DbUpdateException ex)
+        {
+            log.LogError(ex, "journey.save.failed {UserId} {PlanKey} {Date} {Legs}", userId, request.PlanKey, request.Date, legs.Count);
+            return ErrorResponse(409, "Could not save this journey. Please try again.", JourneyErrorTypes.ConcurrentUpdate);
+        }
+        return CreatedResponse(await BuildSavedAsync(journeys, unitOfWork, userId, journey, log, target), $"/api/v1/taxis/journeys/{journey.Id}");
+    }
+
+    // The journey is committed: a failed read model never turns the save into a 500; the plain journey answers.
+    private static async Task<JourneyDto> BuildSavedAsync(
+        ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, Guid userId, SavedJourney journey, ILogger log, TripLinkTarget? target)
+    {
+        try
+        {
+            return await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>(), log, target);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log.LogError(ex, "journey.save.build.failed {JourneyId}", journey.Id);
+            var dto = Map(journey, new Dictionary<Guid, JourneyTaxiInfo>(), new HashSet<int>());
+            if (target != null)
+            {
+                dto.TripId = target.Trip.Id;
+                dto.TripTitle = target.Trip.Title;
+                dto.TripRole = TripStepRoles.Segment;
+                dto.TripLegIndex = target.LegIndex;
+                dto.TripTravelDay = target.TravelDay;
+            }
+            return dto;
+        }
+    }
+
+    private static async Task<IResult?> BuildLegsAsync(
+        SavedJourney journey, List<SaveJourneyLegRequest> legs, SaveJourneyRequest request, Dictionary<Guid, JourneyTaxiInfo> taxis,
+        Guid userId, DateTime now, ITaxiWaysSearch ways, ISavedJourneyRepository journeys)
+    {
         Guid? previousRoute = null;
         foreach (var l in legs)
         {
@@ -131,16 +219,17 @@ public static class JourneyHandlers
             var driverFare = fares[l.DriverTaxiId];
             previousRoute = driverFare.RouteId;
 
+            TaxiWaysKeys.TryParseLegKey(l.LegKey, out var legFrom, out var legTo);
             journey.Legs.Add(new SavedJourneyLeg
             {
                 Id = Guid.NewGuid(),
                 JourneyId = journey.Id,
                 LegIndex = (short)l.LegIndex,
                 LegKey = l.LegKey,
-                FromName = TripTextSafety.Clean(l.FromName),
+                FromName = TaxiWaysLabels.Of(l.FromName, legFrom, l.LegIndex == 1, false),
                 FromLatitude = (decimal)l.FromLat,
                 FromLongitude = (decimal)l.FromLng,
-                ToName = TripTextSafety.Clean(l.ToName),
+                ToName = TaxiWaysLabels.Of(l.ToName, legTo, false, l.LegIndex == legs.Count),
                 ToLatitude = (decimal)l.ToLat,
                 ToLongitude = (decimal)l.ToLng,
                 MeetingPlace = string.IsNullOrWhiteSpace(l.MeetingPlace) ? null : TripTextSafety.Clean(l.MeetingPlace),
@@ -157,13 +246,7 @@ public static class JourneyHandlers
             });
         }
 
-        journey.ListedTotal = Total(journey.Legs);
-        journey.Status = JourneyRules.JourneyStatusOf(journey.Legs);
-
-        await journeys.AddAsync(journey);
-        await journeys.SaveChangesAsync();
-        return CreatedResponse(
-            await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>(), target), $"/api/v1/taxis/journeys/{journey.Id}");
+        return null;
     }
 
     private sealed record TripLinkTarget(Trip Trip, TripPlan Plan, int LegIndex, int? TravelDay);
@@ -221,12 +304,13 @@ public static class JourneyHandlers
 
     // ---------- GET /taxis/journeys/{id} ----------
 
-    public static async Task<IResult> Get(Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork)
+    public static async Task<IResult> Get(
+        Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, ILoggerFactory loggers)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var journey = await journeys.GetOwnedAsync(id, userId, tracked: false);
         if (journey == null) return NotFound();
-        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>()));
+        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>(), loggers.CreateLogger("Journeys")));
     }
 
     // ---------- DELETE /taxis/journeys/{id} ----------
@@ -277,7 +361,7 @@ public static class JourneyHandlers
 
     public static async Task<IResult> Refresh(
         Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, IRateLimitService rateLimiter,
-        ITaxiWaysSearch ways, HttpContext http)
+        ITaxiWaysSearch ways, HttpContext http, ILoggerFactory loggers)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -327,7 +411,7 @@ public static class JourneyHandlers
         {
             return Concurrent();
         }
-        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, fareChanged));
+        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, fareChanged, loggers.CreateLogger("Journeys")));
     }
 
     // Every taxi a saved leg names: driver, backups and the other cars of its seat cover.
@@ -388,7 +472,7 @@ public static class JourneyHandlers
 
     public static async Task<IResult> ReplaceDriver(
         Guid id, int legIndex, ReplaceJourneyDriverRequest request, IValidator<ReplaceJourneyDriverRequest> validator,
-        ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, ITaxiWaysSearch ways)
+        ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, ITaxiWaysSearch ways, ILoggerFactory loggers)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request);
@@ -451,8 +535,13 @@ public static class JourneyHandlers
             {
                 return Concurrent();
             }
+            catch (DbUpdateException ex)
+            {
+                loggers.CreateLogger("Journeys").LogError(ex, "journey.replacedriver.failed {JourneyId} {LegIndex}", id, legIndex);
+                return ErrorResponse(409, "Could not change the driver. Please try again.", JourneyErrorTypes.ConcurrentUpdate);
+            }
         }
-        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>()));
+        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>(), loggers.CreateLogger("Journeys")));
     }
 
     // Cars of this journey booked in a trip: their driver is never swapped and a pause never makes the journey DriverUnavailable.
@@ -468,7 +557,7 @@ public static class JourneyHandlers
 
     public static async Task<IResult> SetStatus(
         Guid id, JourneyStatusRequest request, IValidator<JourneyStatusRequest> validator, ClaimsPrincipal principal,
-        ISavedJourneyRepository journeys, IUnitOfWork unitOfWork)
+        ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, ILoggerFactory loggers)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request);
@@ -489,7 +578,7 @@ public static class JourneyHandlers
                 return Concurrent();
             }
         }
-        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>()));
+        return OkResponse(await BuildAsync(journeys, unitOfWork, userId, journey, new HashSet<int>(), loggers.CreateLogger("Journeys")));
     }
 
     // ---------- mapping ----------
@@ -511,9 +600,19 @@ public static class JourneyHandlers
 
     private static async Task<JourneyDto> BuildAsync(
         ISavedJourneyRepository journeys, IUnitOfWork unitOfWork, Guid userId, SavedJourney journey, HashSet<int> fareChanged,
-        TripLinkTarget? target = null)
+        ILogger log, TripLinkTarget? target = null)
     {
-        var dto = Map(journey, await LoadTaxisAsync(journeys, [journey]), fareChanged, await journeys.GetSegmentRowsAsync(journey.Id));
+        // The journey is already saved when this runs: a failed read of the trip rows only drops the booking status.
+        IReadOnlyList<TripEnquiry>? segmentRows = null;
+        try
+        {
+            segmentRows = await journeys.GetSegmentRowsAsync(journey.Id);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log.LogError(ex, "journey.build.segmentrows.failed {JourneyId}", journey.Id);
+        }
+        var dto = Map(journey, await LoadTaxisAsync(journeys, [journey]), fareChanged, segmentRows);
         var trips = target != null
             ? new Dictionary<Guid, (Trip Trip, TripPlan Plan)> { [target.Trip.Id] = (target.Trip, target.Plan) }
             : await LoadTripsAsync(unitOfWork, [journey], userId);
