@@ -237,7 +237,7 @@ public static class TaxiFeedHandlers
 
     public static async Task<IResult> GetRouteFeed(
         double? fromLat, double? fromLng, double? toLat, double? toLng, string? category, int? pageSize, string? tier, string? pageToken,
-        INearbyFeedQuery query, INearbyContext context, ITaxiListingRepository taxis, ITaxiWaysSearch waysSearch,
+        INearbyFeedQuery query, INearbyContext context, IUnitOfWork uow, ITaxiWaysSearch waysSearch,
         ApplicationDbContext db, IRateLimitService limiter, IOptions<TaxiWaysOptions> options,
         ClaimsPrincipal principal, HttpContext http, CancellationToken ct)
     {
@@ -261,7 +261,7 @@ public static class TaxiFeedHandlers
         var args = new TaxiRouteFeedArgs(fromLat!.Value, fromLng!.Value, toLat!.Value, toLng!.Value, cat, size, tier, pageToken);
         var dto = await TaxiFeedComposer.RouteAsync(
             args,
-            (pageNo, take) => taxis.SearchByRoutePagedAsync(args.FromLat, args.FromLng, args.ToLat, args.ToLng, cat, pageNo, take),
+            (pageNo, take) => uow.Taxis.SearchByRoutePagedAsync(args.FromLat, args.FromLng, args.ToLat, args.ToLng, cat, pageNo, take),
             () => waysSearch.SearchAsync(
                 new TaxiWaysQuery(args.FromLat, args.FromLng, args.ToLat, args.ToLng, options.Value.DefaultPeople, false, null, null), ct),
             query, context, rows => TaxiFeedHydrator.LoadAsync(db, rows), ct);
