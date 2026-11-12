@@ -1001,6 +1001,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .IsDescending(false, true)
              .HasDatabaseName("ix_stayjobs_status_created");
             e.HasIndex(j => j.ClosedAt, "ix_stayjobs_closed").HasFilter("\"Status\" = 'Closed'");
+            e.HasIndex(j => j.StayListingId, "ix_stayjobs_active_stay").HasFilter("\"Status\" = 'Active'");
 
             e.ToTable(t =>
             {
@@ -1107,6 +1108,19 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex("Location")
              .HasMethod("gist")
              .HasDatabaseName("ix_taxilistings_location_gist");
+
+            // Base pin on a 2 km grid (lat 0.018 deg, lng widened by cos(lat)); the taxi feed measures from this, never the exact pin.
+            e.Property<NetTopologySuite.Geometries.Point?>("LocationCoarse")
+             .HasColumnType("geography(Point, 4326)")
+             .HasComputedColumnSql(
+                 "ST_SetSRID(ST_MakePoint(" +
+                 "round(\"Longitude\"::float8 / (0.018 / greatest(cos(radians(round(\"Latitude\"::float8 / 0.018) * 0.018)), 0.01)))" +
+                 " * (0.018 / greatest(cos(radians(round(\"Latitude\"::float8 / 0.018) * 0.018)), 0.01)), " +
+                 "round(\"Latitude\"::float8 / 0.018) * 0.018), 4326)::geography",
+                 stored: true);
+            e.HasIndex("LocationCoarse")
+             .HasMethod("gist")
+             .HasDatabaseName("ix_taxilistings_location_coarse_gist");
 
             // Partial: local view (paid rank first, then cheapest) and the route-search join; public = Approved + available.
             e.HasIndex(t => new { t.DistrictId, t.PriorityRank, t.MinFare }, "ix_taxilistings_browse_district_fare")

@@ -15,6 +15,7 @@ public static class StayJobEndpoints
         group.MapPut("/me/{id:guid}", StayJobHandlers.Update).RequireAuthorization("CanListStays");
         group.MapPut("/me/{id:guid}/close", StayJobHandlers.Close).RequireAuthorization("CanListStays");
 
+        group.MapGet("/feed", StayJobFeedHandlers.GetFeed);
         group.MapGet("/{id:guid}", StayJobHandlers.GetById);
 
         return group;

@@ -11,6 +11,7 @@ public static class StayEndpoints
         group.MapGet("/browse", StayHandlers.GetBrowse);
         group.MapGet("/nearby", StayHandlers.GetNearby);
         group.MapGet("/nearest", StayHandlers.GetNearest);
+        group.MapGet("/feed", StayFeedHandlers.GetFeed);
         group.MapGet("/by-slug/{slug}", StayHandlers.GetBySlug);
 
         group.MapGet("/me", StayHandlers.GetMine).RequireAuthorization("CanListStays");

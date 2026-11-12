@@ -90,6 +90,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITripSpotCache, TripSpotCache>();
         services.AddSingleton<ITripCityCatalog, TripCityCatalog>();
         services.AddSingleton<ICityResolver, CityResolver>();
+        services.AddSingleton<INearbyContext, NearbyContext>();
+        services.AddScoped<INearbyFeedQuery, NearbyFeedQuery>();
         services.AddSingleton<ITripRoadCache, TripRoadCache>();
         services.AddScoped<ITripPlannerService, TripPlannerService>();
         // Consumes the atlas.city.changed fanout on queue atlas.city.changed.rentnearby.

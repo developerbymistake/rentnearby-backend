@@ -721,6 +721,7 @@ public static class TaxiHandlers
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
+        if (TaxiRateRules.Error(request) is { } rateError) return BadRequestResponse(rateError);
 
         var taxi = await unitOfWork.Taxis.GetLiveByUserAsync(userId);
         if (taxi == null) return NotFoundResponse(TaxiNotFound);
@@ -771,6 +772,7 @@ public static class TaxiHandlers
             return ConflictResponse("Your taxi is already live.", TaxiErrorTypes.TaxiLocked);
         if (!TaxiSetupRules.Step1Done(taxi)) return StepLocked(1);
         if (!TaxiSetupRules.RoutesDone(taxi)) return StepLocked(2);
+        if (!TaxiRateRules.Done(taxi)) return BadRequestResponse(TaxiRateRules.SubmitMessage);
 
         var check = BusinessOnboardingRules.NeedsFlagCheckAtSubmit(taxi.EverApproved)
             ? await BusinessOnboardingGate.CheckAsync(db, taxi.DistrictId!.Value, taxi.Latitude!.Value, taxi.Longitude!.Value)

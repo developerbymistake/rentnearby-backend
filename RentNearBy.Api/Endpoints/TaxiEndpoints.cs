@@ -9,6 +9,8 @@ public static class TaxiEndpoints
         group.MapGet("/vehicle-types", AdminTaxiHandlers.GetVehicleTypes);
         group.MapGet("/browse", TaxiHandlers.GetBrowse);
         group.MapGet("/search", TaxiHandlers.GetSearch);
+        group.MapGet("/feed", TaxiFeedHandlers.GetFeed);
+        group.MapGet("/route-feed", TaxiFeedHandlers.GetRouteFeed).RequireAuthorization();
         group.MapGet("/by-slug/{slug}", TaxiHandlers.GetBySlug);
         group.MapTaxiWaysEndpoints();
 
