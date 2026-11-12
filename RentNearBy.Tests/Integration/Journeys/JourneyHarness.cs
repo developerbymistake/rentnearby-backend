@@ -289,7 +289,7 @@ public sealed class JourneyHarness : IAsyncDisposable
     public async Task<IResult> CompleteAsync(Guid tripId, Guid callerId)
     {
         await using var s = NewScope();
-        return await TripLifecycleHandlers.Complete(tripId, Principal(callerId), s.Uow, s.Db, Chat, Loggers, s.Journeys);
+        return await TripLifecycleHandlers.Complete(tripId, Principal(callerId), s.Uow, s.Db, Chat, Loggers, s.Journeys, Notifier);
     }
 
     public async Task<IResult> SummaryAsync(Guid tripId, Guid callerId)

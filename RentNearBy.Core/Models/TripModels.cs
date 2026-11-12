@@ -44,6 +44,8 @@ public static class TripErrorTypes
     public const string TooManySpotsPerDay = "TooManySpotsPerDay";
     public const string TooManySpotsForDays = "TooManySpotsForDays";
     public const string CitiesUnavailable = "TripCitiesUnavailable";
+    public const string TripNotPlanned = "TripNotPlanned";
+    public const string TripHasLiveEnquiries = "TripHasLiveEnquiries";
 }
 
 // Hard caps; TripPlannerOptions can only lower them.

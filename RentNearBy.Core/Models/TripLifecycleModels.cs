@@ -39,7 +39,7 @@ public static class TripBookingStates
     public static string OfRows(IReadOnlyList<TripEasyRow> rows)
     {
         var counted = rows.Where(r => r.State != TripRowStates.Skipped).ToList();
-        if (!counted.Any(r => r.State != TripRowStates.Todo)) return PlanOnly;
+        if (counted.All(r => r.State is TripRowStates.Todo or TripRowStates.Saved)) return PlanOnly;
         if (counted.Any(r => r.State is TripRowStates.Asked or TripRowStates.Offer or TripRowStates.Attention)) return Confirming;
         return counted.All(TripEasyRows.IsRowDone) ? Ready : Confirming;
     }
@@ -59,8 +59,109 @@ public static class TripStatusRules
 {
     // The status a PUT /trips/{id} writes: null keeps the stored one; Draft over a stored Planned keeps Planned
     // while the plan still has spots (a Planned trip needs spots).
-    public static string? OnSave(string stored, string? requested, int spots)
-        => requested == TripStatuses.Draft && stored == TripStatuses.Planned && spots > 0 ? TripStatuses.Planned : requested;
+    // A live enquiry keeps a Planned trip Planned (Draft has no reminders and no auto-complete).
+    public static string? OnSave(string stored, string? requested, int spots, bool hasLiveEnquiry = false)
+        => requested == TripStatuses.Draft && stored == TripStatuses.Planned && (spots > 0 || hasLiveEnquiry) ? TripStatuses.Planned : requested;
+
+    public const string ZeroSpotsLiveMessage = "This trip has live enquiries. Keep at least one place, or withdraw them first.";
+
+    // Removing every place under a live enquiry is refused.
+    public static bool RejectsZeroSpots(string stored, int spots, bool hasLiveEnquiry)
+        => stored == TripStatuses.Planned && spots == 0 && hasLiveEnquiry;
+}
+
+public enum TripCompleteVerdict { Ok, NotPlanned, NotEnded, DatesRequired }
+
+// Complete: Planned only; from the last day, or earlier only when every step is settled and at least one is done.
+public static class TripCompleteRules
+{
+    public const string ClosedReason = "TripCompleted";
+
+    public static TripCompleteVerdict Check(Trip trip, IReadOnlyList<TripEasyRow> rows, DateOnly todayIst)
+    {
+        if (trip.Status != TripStatuses.Planned) return TripCompleteVerdict.NotPlanned;
+        var settled = rows.Any(TripEasyRows.IsRowDone) && TripReminderRules.AllSettled(rows);
+        if (trip.StartDate is not { } start) return settled ? TripCompleteVerdict.Ok : TripCompleteVerdict.DatesRequired;
+        if (todayIst >= (trip.EndDate ?? start)) return TripCompleteVerdict.Ok;
+        return settled ? TripCompleteVerdict.Ok : TripCompleteVerdict.NotEnded;
+    }
+
+    // A trip nobody touched (every row still todo or saved) is left for the traveller; the timer never completes it.
+    public static bool IsUntouched(IReadOnlyList<TripEasyRow> rows)
+        => rows.All(r => r.State is TripRowStates.Todo or TripRowStates.Saved);
+}
+
+// plan.guide the server accepts: steps of the plan only, none beyond the first unresolved row, no choice without evidence.
+public static class TripGuideGate
+{
+    public const string StepAhead = "GuideStepAhead";
+    public const string UnknownStep = "GuideUnknownStep";
+
+    public sealed record Result(TripGuide? Guide, string? Error);
+
+    private static bool Resolved(string state) => state is TripRowStates.Asked or TripRowStates.Offer or TripRowStates.Confirmed
+        or TripRowStates.Booked or TripRowStates.Own or TripRowStates.Skipped;
+
+    // rows = the Make it easy rows of the incoming plan, in guide order.
+    public static Result Apply(TripGuide? incoming, TripGuide? stored, IReadOnlyList<TripEasyRow> rows)
+    {
+        if (incoming == null) return new Result(null, null);
+        var order = rows.Select(r => r.Key.Id).ToList();
+
+        if (incoming.Step != null)
+        {
+            var at = order.IndexOf(incoming.Step);
+            if (at < 0) return new Result(null, UnknownStep);
+            var firstOpen = rows.ToList().FindIndex(r => !Resolved(r.State));
+            if (firstOpen >= 0 && at > firstOpen && incoming.Step != stored?.Step) return new Result(null, StepAhead);
+        }
+
+        var states = rows.ToDictionary(r => r.Key.Id, r => r.State);
+        var choices = incoming.Choices?
+            .Where(c => states.TryGetValue(c.Key, out var state) && Evidenced(c.Value, state))
+            .ToDictionary(c => c.Key, c => c.Value);
+        return new Result(TripGuideRules.Sanitize(new TripGuide { Step = incoming.Step, Choices = choices, Overview = incoming.Overview }), null);
+    }
+
+    private static bool Evidenced(string choice, string state) => choice == TripGuideChoices.Find
+        ? state is TripRowStates.Asked or TripRowStates.Offer or TripRowStates.Confirmed or TripRowStates.Booked or TripRowStates.Attention
+        : state is TripRowStates.Own or TripRowStates.Skipped;
+}
+
+// A new Own or Skip mark over a row the traveller has live work on is refused (a stored mark is never "new").
+public static class TripMarkGuard
+{
+    public const string Code = "MARK_BLOCKED";
+
+    public static string? BlockedKey(IReadOnlyList<TripEasyRow> stored, IReadOnlyList<TripEasyRow> incoming)
+    {
+        foreach (var row in incoming.Where(r => r.State is TripRowStates.Own or TripRowStates.Skipped))
+        {
+            var before = stored.FirstOrDefault(r => r.Key.Id == row.Key.Id);
+            if (before != null && before.State is TripRowStates.Asked or TripRowStates.Offer or TripRowStates.Confirmed or TripRowStates.Booked)
+                return row.Key.Id;
+        }
+        return null;
+    }
+}
+
+// A plan edit that cuts a day or moves the start across a confirmed or booked night or taxi day is refused.
+public static class TripBookedRange
+{
+    public const string Code = "BOOKED_IN_RANGE";
+
+    public static bool Strands(DateOnly? oldStart, int oldDays, DateOnly? newStart, int newDays, IEnumerable<TripEnquiry> enquiries)
+    {
+        if (oldStart is not { } from || newStart is not { } to) return false;
+        var last = to.AddDays(newDays - 1);
+        foreach (var e in enquiries.Where(e => TripEnquiryStatuses.IsBooked(e.Status) && !TripSegmentRows.IsSegment(e)))
+            foreach (var d in TripBookingMap.DaysOf(e, from, oldDays))
+            {
+                var date = from.AddDays(d - 1);
+                if (date < to || date > last) return true;
+            }
+        return false;
+    }
 }
 
 // Night (stay) and day (taxi) numbers 1-based, as in the plan.

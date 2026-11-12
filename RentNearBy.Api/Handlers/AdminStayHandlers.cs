@@ -252,9 +252,13 @@ public static class AdminStayHandlers
                 "Your stay was taken down", $"Your stay was taken down: {reason}");
             db.NotificationEvents.Add(notification);
 
+            var tripChat = sp.GetRequiredService<ITripChatService>();
+            var tripPosts = new List<TripChatPost>();
+            IReadOnlyList<TripClosurePush> tripPushes;
             try
             {
                 await unitOfWork.SaveChangesAsync();
+                tripPushes = await TripHostGuards.CloseOnTakeDownAsync(db, tripChat, unitOfWork.TripEnquiries, ListingKinds.Stay, stay.Id, tripPosts);
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -267,6 +271,8 @@ public static class AdminStayHandlers
 
             await unitOfWork.CommitTransactionAsync();
 
+            await TripHostGuards.AfterTakeDownAsync(tripChat, sp.GetRequiredService<ITripNotifier>(),
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger("TripTakeDown"), tripPosts, tripPushes);
             await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
 
             await AdminHandlers.SendGoLiveNotificationAsync(hubContext, publisher, notification);

@@ -181,7 +181,7 @@ public static class TripLifecycleHandlers
 
     public static async Task<IResult> Complete(
         Guid tripId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, ITripChatService chat,
-        ILoggerFactory loggers, ISavedJourneyRepository journeys)
+        ILoggerFactory loggers, ISavedJourneyRepository journeys, ITripNotifier notifier)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -191,25 +191,85 @@ public static class TripLifecycleHandlers
         var now = DateTime.UtcNow;
         if (trip.Status != TripStatuses.Completed)
         {
-            if (!TripReminderRules.CanComplete(trip, TripExecutionRules.TodayIst(now)))
-                return ConflictResponse("The trip has not started yet.", TripEnquiryErrorTypes.TripNotEnded);
+            var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
+            var linked = await journeys.GetByTripAsync(trip.Id, userId);
+            IResult? Verdict(IReadOnlyList<TripEnquiry> list) => TripCompleteRules.Check(
+                trip, TripEasyRows.Build(trip, TripHandlers.ReadPlan(trip), list, linked), TripExecutionRules.TodayIst(now)) switch
+            {
+                TripCompleteVerdict.NotPlanned => ConflictResponse("Only a planned trip can be completed.", TripErrorTypes.TripNotPlanned),
+                TripCompleteVerdict.NotEnded => ConflictResponse("The trip has not ended and some steps are still open.", TripEnquiryErrorTypes.TripNotEnded),
+                TripCompleteVerdict.DatesRequired => ErrorResponse(422, "Add your trip dates or settle every step first.", TripEnquiryErrorTypes.TripDatesRequired),
+                _ => null,
+            };
+            if (Verdict(enquiries) is { } early) return early;
 
-            trip.Status = TripStatuses.Completed;
-            trip.CompletedAt = now;
-            trip.UpdatedAt = now;
+            var posts = new List<TripChatPost>();
+            var pushes = new List<TripPendingPush>();
+            await unitOfWork.BeginTransactionAsync();
             try
             {
+                // The trip row lock orders Complete against accepts and sends: re-read the trip and its rows after it.
+                await TripGuards.LockTripAsync(db, trip.Id);
+                await db.Entry(trip).ReloadAsync();
+                if (trip.Status == TripStatuses.Completed)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, journeys, trip, userId, DateTime.UtcNow));
+                }
+                var fresh = await db.TripEnquiries.AsNoTracking().Where(x => x.TripId == trip.Id).ToListAsync();
+                if (Verdict(fresh) is { } late)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return late;
+                }
+                // Open asks, offers and fares end with the trip; confirmed bookings stay as they are.
+                var open = await db.TripEnquiries.Where(x => x.TripId == trip.Id && TripEnquiryStatuses.Withdrawable.Contains(x.Status)).ToListAsync();
+                foreach (var x in open)
+                {
+                    x.Status = TripEnquiryStatuses.Closed;
+                    x.FailReason = TripCompleteRules.ClosedReason;
+                    x.UpdatedAt = now;
+                    await TripEnquiryOps.CloseOpenOfferAsync(db, chat, x, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
+                    await TripEnquiryOps.PostSystemAsync(db, chat, x, userId, TripSystemLines.TripCompleted, posts);
+                    pushes.Add(new TripPendingPush(x, x.OwnerUserId, EnquiryClosedByCompletion));
+                }
+                await db.TripShortlistItems
+                    .Where(i => i.TripId == trip.Id && i.State == TripShortlistStates.Active)
+                    .ExecuteUpdateAsync(set => set
+                        .SetProperty(i => i.State, TripShortlistStates.Closed)
+                        .SetProperty(i => i.ClosedReason, TripShortlistClosedReasons.TripClosed)
+                        .SetProperty(i => i.ClosedAt, now));
+                trip.Status = TripStatuses.Completed;
+                trip.CompletedAt = now;
+                trip.UpdatedAt = now;
                 await unitOfWork.SaveChangesAsync();
+                await unitOfWork.CommitTransactionAsync();
             }
             catch (DbUpdateConcurrencyException)
             {
+                await unitOfWork.RollbackTransactionAsync();
                 return Concurrent();
             }
+            catch
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
             loggers.CreateLogger("TripLifecycle").LogInformation("trip.completed {TripId} manual", tripId);
+            await TripEnquiryHandlers.AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
             await PostCompletedLinesAsync(unitOfWork, db, chat, loggers, trip, userId);
         }
 
         return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, journeys, trip, userId, DateTime.UtcNow));
+    }
+
+    private static NotificationEvent EnquiryClosedByCompletion(TripEnquiry e, TripPushContext ctx)
+    {
+        var n = TripNotifications.TripTravellerCancelled(e, ctx);
+        var who = string.IsNullOrWhiteSpace(ctx.TravellerName) ? "The guest" : ctx.TravellerName.Trim();
+        n.Title = (e.IsUrgent ? "Urgent · " : string.Empty) + "Enquiry closed";
+        n.Body = $"{who} finished the trip. {TripNotifications.Dates(e)} is no longer needed.";
+        return n;
     }
 
     // Best effort: the hosts of confirmed stays see that the trip ended; a failure never undoes the completion.

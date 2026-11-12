@@ -504,11 +504,11 @@ public class TripEasyRowsTests
 
         Assert.Equal(new[] { "saved", "asked", "own", "todo", "todo", "skipped" }, rows.Select(r => r.State).ToArray());
         Assert.Equal(5, progress.Total);
-        Assert.Equal(2, progress.Done);
+        Assert.Equal(1, progress.Done);
         Assert.Equal(1, progress.InProgress);
-        Assert.Equal(40, progress.Percent);
-        Assert.Equal("stay:2", progress.Next!.Key);
-        Assert.Equal(2, progress.Next.LegIndex);
+        Assert.Equal(20, progress.Percent);
+        Assert.Equal("gettingThere", progress.Next!.Key);
+        Assert.Null(progress.Next.LegIndex);
         Assert.Equal(new DateTime(2026, 11, 7, 10, 0, 0, DateTimeKind.Utc), progress.LastEventAt);
         Assert.Equal("asked", progress.Rows.Single(r => r.Key == "stay:1").State);
         Assert.Equal(1, progress.Rows.Single(r => r.Key == "stay:1").AskedCount);
@@ -531,7 +531,7 @@ public class TripEasyRowsTests
     }
 
     [Fact]
-    public void Everything_skipped_is_a_hundred_percent_of_nothing()
+    public void Everything_skipped_is_zero_percent_of_nothing()
     {
         var plan = OneCity();
         plan.Steps = new TripSteps { GettingThere = new TripStep { Status = TripStepStatuses.Skipped }, ComingBack = new TripStep { Status = TripStepStatuses.Skipped } };
@@ -539,7 +539,7 @@ public class TripEasyRowsTests
         plan.Legs![0].StayMark = Skipped;
         var progress = TripEasyRows.Progress(Rows(plan));
         Assert.Equal(0, progress.Total);
-        Assert.Equal(100, progress.Percent);
+        Assert.Equal(0, progress.Percent);
         Assert.Null(progress.Next);
     }
 
@@ -628,7 +628,8 @@ public class TripEasyRowsTests
         Assert.Equal(TripBookingStates.PlanOnly, TripBookingStates.OfRows([R("todo"), R("skipped")]));
         Assert.Equal(TripBookingStates.Confirming, TripBookingStates.OfRows([R("todo"), R("own")]));
         Assert.Equal(TripBookingStates.Confirming, TripBookingStates.OfRows([R("attention"), R("own")]));
-        Assert.Equal(TripBookingStates.Ready, TripBookingStates.OfRows([R("saved"), R("own"), R("confirmed"), R("skipped")]));
+        Assert.Equal(TripBookingStates.Confirming, TripBookingStates.OfRows([R("saved"), R("own"), R("confirmed"), R("skipped")]));
+        Assert.Equal(TripBookingStates.Ready, TripBookingStates.OfRows([R("own"), R("confirmed"), R("skipped")]));
     }
 
     // ---- agreed total and titles

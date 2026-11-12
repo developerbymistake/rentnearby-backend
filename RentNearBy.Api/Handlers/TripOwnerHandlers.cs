@@ -107,8 +107,10 @@ public static class TripOwnerHandlers
         if (e.Kind != TripEnquiryKinds.Stay || e.TripId is not { } tripId) return Closed();
 
         var now = DateTime.UtcNow;
-        // An unanswered enquiry is over when its window ends, even before the timer sweeps it.
-        if (TripBulkRules.WindowEnded(e.Status, e.ExpiresAt, now)) return Closed();
+        // An enquiry is over when its window ends or its check-in day passed, even before the timer sweeps it.
+        if (TripHostGuards.EnquiryOver(e.Status, e.ExpiresAt, e.CheckIn, now, TripExecutionRules.TodayIst(now))) return Closed();
+        if (await TripGuards.TripNotCompletedAsync(db, tripId) is { } completed) return completed;
+        if (await TripGuards.ListingApprovedAsync(db, e.Kind, e.ListingId) is { } gone) return gone;
         var trip = await db.Trips.AsNoTracking().Where(t => t.Id == tripId)
             .Select(t => new { t.StartDate, t.EndDate }).FirstOrDefaultAsync();
         if (trip?.StartDate is not { } start || trip.EndDate is not { } end) return Closed();
@@ -117,6 +119,7 @@ public static class TripOwnerHandlers
             return ErrorResponse(422, TripDateRules.OutsideTripMessage, TripEnquiryErrorTypes.OfferOutsideTrip);
         if (request.CheckIn < TripExecutionRules.TodayIst(now))
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
+        if (await OfferShapeErrorAsync(db, e, start, request.CheckIn, request.CheckOut, request.Lines) is { } shape) return shape;
 
         var offers = await unitOfWork.TripOffers.GetByEnquiryAsync(e.Id);
 
@@ -190,7 +193,8 @@ public static class TripOwnerHandlers
         {
             foreach (var old in offers.Where(o => o.Status == TripOfferStatuses.Pending))
             {
-                var acceptsCounter = counter != null && old.Id == counter.Id;
+                var acceptsCounter = counter != null && old.Id == counter.Id
+                    && TripHostGuards.CounterMatches(counter, request.CheckIn, request.CheckOut, total, lines);
                 old.Status = acceptsCounter ? TripOfferStatuses.Accepted : TripOfferStatuses.Superseded;
                 if (acceptsCounter) old.RespondedAt = now;
                 var card = acceptsCounter ? TripCardStatuses.Accepted : TripCardStatuses.Superseded;
@@ -341,6 +345,8 @@ public static class TripOwnerHandlers
             || e.CheckIn is not { } bookedIn || bookedIn < today)
             return RevisedNotAllowed();
 
+        if (await TripGuards.TripNotCompletedAsync(db, tripId) is { } completed) return completed;
+        if (await TripGuards.ListingApprovedAsync(db, e.Kind, e.ListingId) is { } gone) return gone;
         var trip = await db.Trips.AsNoTracking().Where(t => t.Id == tripId)
             .Select(t => new { t.StartDate, t.EndDate }).FirstOrDefaultAsync();
         if (trip?.StartDate is not { } start || trip.EndDate is not { } end) return RevisedNotAllowed();
@@ -350,6 +356,7 @@ public static class TripOwnerHandlers
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
         if (await TripEnquiryHandlers.FailedNightsBlockAsync(db, e, request.CheckIn, request.CheckOut) is { } failedNights)
             return failedNights;
+        if (await OfferShapeErrorAsync(db, e, start, request.CheckIn, request.CheckOut, request.Lines) is { } shape) return shape;
 
         var offers = await unitOfWork.TripOffers.GetByEnquiryAsync(e.Id);
         if (offers.Count(o => o.Kind == TripOfferKinds.Revised) >= TripOfferRules.MaxRevised)
@@ -498,6 +505,8 @@ public static class TripOwnerHandlers
             || change.CheckIn is not { } checkIn || change.CheckOut is not { } checkOut || e.TripId is not { } tripId)
             return ChangeNotPending();
 
+        if (await TripGuards.TripNotCompletedAsync(db, tripId) is { } completed) return completed;
+        if (await TripGuards.ListingApprovedAsync(db, e.Kind, e.ListingId) is { } gone) return gone;
         var trip = await db.Trips.AsNoTracking().Where(t => t.Id == tripId)
             .Select(t => new { t.StartDate, t.EndDate }).FirstOrDefaultAsync();
         if (trip?.StartDate is not { } start || trip.EndDate is not { } end || !TripDateRules.InsideTrip(start, end, checkIn, checkOut))
@@ -523,6 +532,7 @@ public static class TripOwnerHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            await TripGuards.LockTripAsync(db, tripId);
             // One stay per night, as on accept: other hosts' asks on the new nights close, a racing booking answers 409.
             if (await TripEnquiryHandlers.ApplyNightRulesAsync(db, chat, e, checkIn, checkOut, closeOthers: true, replaceId: null,
                     guestId, posts, pushes, now) is { } conflict)
@@ -612,6 +622,21 @@ public static class TripOwnerHandlers
 
         var denied = await TripEnquiryAuth.RequireOwnerAsync(e, callerId, db);
         return denied != null ? (denied, null, callerId) : (null, e, callerId);
+    }
+
+    // 422 PartyDoesNotFit / OfferOutsideLeg: the offer seats the whole party and stays in the city of the enquiry.
+    private static async Task<IResult?> OfferShapeErrorAsync(
+        ApplicationDbContext db, TripEnquiry e, DateOnly start, DateOnly checkIn, DateOnly checkOut, IEnumerable<TripOfferLine> requested)
+    {
+        var lines = CleanLines(requested);
+        var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
+        var party = (context.Adults ?? 0) + (context.Kids ?? 0);
+        if (!TripHostGuards.PartyFits(lines, party, await TripHostGuards.RoomCapsAsync(db, e.ListingId)))
+            return ErrorResponse(422, "These rooms cannot seat everyone. Add a room.", TripEnquiryErrorTypes.PartyDoesNotFit);
+        var plan = await TripEnquiryHandlers.LoadPlanAsync(db, e.TripId);
+        if (!TripHostGuards.OfferInsideLeg(plan, start, e.Day, checkIn, checkOut))
+            return ErrorResponse(422, "These nights are in another city of the trip.", TripHostGuards.OfferOutsideLegType);
+        return null;
     }
 
     private static IResult Closed() =>

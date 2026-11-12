@@ -58,19 +58,12 @@ public static class TripLeadHandlers
 
         var now = DateTime.UtcNow;
         var fromAsked = e.Status == TripEnquiryStatuses.Asked;
-        if (fromAsked)
-        {
-            if (e.ExpiresAt <= now) return Closed();
-        }
-        else if (e.Status == TripEnquiryStatuses.FareSent)
-        {
-            if (e.DriverFareEditCount >= TripLeadRules.MaxFareEdits)
-                return ErrorResponse(409, "You can change the fare 3 times.", TripEnquiryErrorTypes.FareEditLimit);
-        }
-        else
-        {
-            return Closed();
-        }
+        // An expired lead takes no fare, new or edited.
+        if (!JourneyGuards.FareAllowed(e.Status, e.ExpiresAt, now)) return Closed();
+        if (await TripGuards.TripNotCompletedAsync(db, e.TripId) is { } completed) return completed;
+        if (await TripGuards.ListingApprovedAsync(db, e.Kind, e.ListingId) is { } gone) return gone;
+        if (!fromAsked && e.DriverFareEditCount >= TripLeadRules.MaxFareEdits)
+            return ErrorResponse(409, "You can change the fare 3 times.", TripEnquiryErrorTypes.FareEditLimit);
 
         var firstAnswer = fromAsked && now - e.CreatedAt <= TimeSpan.FromHours(TripLeadRules.AnsweredWithinHours);
         await unitOfWork.BeginTransactionAsync();

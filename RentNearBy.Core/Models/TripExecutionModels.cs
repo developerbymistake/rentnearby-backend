@@ -122,6 +122,9 @@ public static class TripSendStatuses
     public const string Blocked = "Blocked";
     public const string LimitReached = "LimitReached";
     public const string Failed = "Failed";
+    // An open row of this host covers only some of the requested nights/days: nothing was sent for the rest.
+    public const string OpenForOtherNights = "OpenForOtherNights";
+    public const string AlreadyBooked = "AlreadyBooked";
 
     // Skip reason -> per-recipient status.
     public static string FromSkip(string reason) => reason switch
@@ -130,6 +133,8 @@ public static class TripSendStatuses
         TripSkipReasons.Blocked => Blocked,
         TripSkipReasons.LimitReached => LimitReached,
         TripSkipReasons.OpenInAnotherTrip => OpenInAnotherTrip,
+        TripSkipReasons.OpenForOtherNights => OpenForOtherNights,
+        TripSkipReasons.AlreadyBooked => AlreadyBooked,
         _ => AlreadyOpen,
     };
 }
@@ -144,6 +149,8 @@ public static class TripSkipReasons
     public const string OpenInAnotherTrip = "OpenInAnotherTrip";
     // A booked lead with this driver already exists for other days.
     public const string AlreadyBooked = "AlreadyBooked";
+    // An open row of this host covers only some of the requested nights.
+    public const string OpenForOtherNights = "OpenForOtherNights";
 }
 
 public static class TripDisplayStatuses
@@ -405,6 +412,11 @@ public static class TripEnquiryErrorTypes
     public const string ShortlistFull = "ShortlistFull";
     public const string StepFull = "StepFull";
     public const string InvalidStepKey = "InvalidStepKey";
+    public const string StepMismatch = "StepMismatch";
+    public const string StepClosed = "StepClosed";
+    public const string NotShortlisted = "NotShortlisted";
+    public const string StepHasOpenEnquiries = "StepHasOpenEnquiries";
+    public const string AlreadyAsked = "AlreadyAsked";
     public const string TravelDateChanged = "TravelDateChanged";
     public const string TripCompleted = "TripCompleted";
     public const string EnquiryEnded = "EnquiryEnded";

@@ -81,7 +81,7 @@ public class TripBulkEnquiryRulesTests
 
     [Theory]
     [InlineData(TripSkipReasons.AlreadyOpen, TripSendStatuses.AlreadyOpen)]
-    [InlineData(TripSkipReasons.AlreadyBooked, TripSendStatuses.AlreadyOpen)]
+    [InlineData(TripSkipReasons.AlreadyBooked, TripSendStatuses.AlreadyBooked)]
     [InlineData(TripSkipReasons.NotAvailable, TripSendStatuses.NotAvailable)]
     [InlineData(TripSkipReasons.Blocked, TripSendStatuses.Blocked)]
     [InlineData(TripSkipReasons.LimitReached, TripSendStatuses.LimitReached)]

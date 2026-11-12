@@ -78,9 +78,10 @@ public class TripShortlistRepository(ApplicationDbContext context) : ITripShortl
         return closed;
     }
 
+    // A send without a step marks nothing: it must never flip the Active rows of other steps.
     public async Task<int> MarkSentAsync(Guid tripId, string? stepKey, IReadOnlyCollection<Guid> listingIds, DateTime nowUtc)
-        => await context.TripShortlistItems
-            .Where(x => x.TripId == tripId && (stepKey == null || x.StepKey == stepKey)
+        => stepKey == null ? 0 : await context.TripShortlistItems
+            .Where(x => x.TripId == tripId && x.StepKey == stepKey
                 && listingIds.Contains(x.ListingId) && x.State == TripShortlistStates.Active)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(x => x.State, TripShortlistStates.Sent)

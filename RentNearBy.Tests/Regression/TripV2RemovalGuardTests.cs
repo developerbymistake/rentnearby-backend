@@ -76,7 +76,7 @@ public class TripV2RemovalGuardTests
             root.EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal(new[] { "kind", "legIndex", "key" }, root.GetProperty("next").EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal(
-            new[] { "key", "kind", "legIndex", "state", "needsYou", "askedCount", "nightsTotal", "nightsCovered" },
+            new[] { "key", "kind", "legIndex", "state", "needsYou", "askedCount", "nightsTotal", "nightsCovered", "nightsBooked", "daysTotal", "daysCovered", "advanceOpen" },
             root.GetProperty("rows")[0].EnumerateObject().Select(p => p.Name).ToArray());
     }
 

@@ -55,6 +55,11 @@ public static class TaxiWaysAskHandlers
             segment = resolved;
         }
 
+        // A trip-less ask keeps the journey's own date and people; a changed date is searched again.
+        if (segment == null && !JourneyGuards.AskDateMatches(journey.TravelDate, request.Date))
+            return ErrorResponse(409, "Your journey date changed. Search again.", TripEnquiryErrorTypes.TravelDateChanged);
+        int people = journey.People;
+
         var now = DateTime.UtcNow;
         var date = segment?.Date ?? request.Date;
         var checkOut = date.AddDays(1);
@@ -83,6 +88,7 @@ public static class TaxiWaysAskHandlers
             }
         }
         var toProcess = requested.Where(id => !replayed.Contains(id)).ToList();
+        if (segment != null && await StepGateAsync(db, segment, request.StepKey, callerId, toProcess) is { } stepError) return stepError;
         // One query each for the taxis, the blocks and the traveller's own open rows (no per-driver lookups).
         var taxisById = await LoadTaxisAsync(db, toProcess);
         var blockedOwners = await TripBulk.BlockedOwnersAsync(db, callerId, taxisById.Values.Select(x => x.UserId).Distinct().ToList());
@@ -104,6 +110,19 @@ public static class TaxiWaysAskHandlers
                         && TripEnquiryStatuses.Open.Contains(x.Status))
                     .ToListAsync(),
                 journey.Id);
+
+        // Open leads of this journey per leg (trip-less path): three per leg on every ask path.
+        var openOnLeg = segment != null
+            ? openSegmentRows.Select(x => TripEnquiryDtoBuilder.ReadContext(x.ContextJson))
+                .Where(c => c.LegIndex != null).GroupBy(c => c.LegIndex!.Value).ToDictionary(g => g.Key, g => g.Count())
+            : (await db.TripEnquiries.AsNoTracking()
+                    .Where(x => x.TravellerUserId == callerId && x.TripId == null && x.Kind == TripEnquiryKinds.Taxi
+                        && TripEnquiryStatuses.Open.Contains(x.Status))
+                    .ToListAsync())
+                .Select(x => TripEnquiryDtoBuilder.ReadContext(x.ContextJson))
+                .Where(c => c.JourneyId == journey.Id && c.LegIndex != null)
+                .GroupBy(c => c.LegIndex!.Value)
+                .ToDictionary(g => g.Key, g => g.Count());
 
         // A driver is on a leg only when the ways network or his stored route serves its stretch: his fare comes from there.
         // Loaded once per leg before any lead is planned, so a driver who is not on the leg never replaces an older lead.
@@ -136,6 +155,8 @@ public static class TaxiWaysAskHandlers
                     if (pick.Same != null) items.Add((leg.LegIndex, pick.Same));
                     else if (pick.Skip != null) skipped.Add(Skip(leg.LegIndex, taxiId, pick.Skip));
                     else if (!fareByLeg[leg.LegIndex].ContainsKey(taxiId)) skipped.Add(Skip(leg.LegIndex, taxiId, TripSkipReasons.NotAvailable));
+                    else if (!JourneyGuards.LegHasRoom(openOnLeg.GetValueOrDefault(leg.LegIndex), candidates.Count(c => c.Leg.LegIndex == leg.LegIndex)))
+                        skipped.Add(Skip(leg.LegIndex, taxiId, TripSkipReasons.LimitReached));
                     else
                     {
                         replacedLeadIds.UnionWith(pick.Replaced);
@@ -158,6 +179,11 @@ public static class TaxiWaysAskHandlers
                     skipped.Add(Skip(leg.LegIndex, taxiId, TripSkipReasons.NotAvailable));
                     continue;
                 }
+                if (!JourneyGuards.LegHasRoom(openOnLeg.GetValueOrDefault(leg.LegIndex), candidates.Count(c => c.Leg.LegIndex == leg.LegIndex)))
+                {
+                    skipped.Add(Skip(leg.LegIndex, taxiId, TripSkipReasons.LimitReached));
+                    continue;
+                }
                 foreach (var old in mine.Where(x => x.TripId == null && TripEnquiryStatuses.IsWithdrawable(x.Status)
                     && x.CheckIn is { } a && x.CheckOut is { } b && TripExecutionRules.NightsOverlap(a, b, date, checkOut)
                     && IsLeadOfAny(x, siblingIds, leg.LegIndex)))
@@ -178,11 +204,19 @@ public static class TaxiWaysAskHandlers
 
         var (expiresAt, veryShortNotice) = TripExecutionRules.EnquiryExpiry(date, date, now);
         var isUrgent = TripExecutionRules.IsUrgent(date, now);
-        var leadPrices = LeadPrices(journey, candidates.Select(c => (c.Leg.LegIndex, c.Taxi.Id, c.Taxi.Seats)).ToList(), request.People, fareByLeg);
+        var leadPrices = LeadPrices(journey, candidates.Select(c => (c.Leg.LegIndex, c.Taxi.Id, c.Taxi.Seats)).ToList(), people, fareByLeg);
 
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            // A trip-linked send runs under the trip lock: Complete and parallel sends cannot slip past the gates below.
+            if (segment != null)
+                await TripGuards.LockTripAsync(db, segment.Trip.Id);
+            if (segment != null && await TripGuards.TripNotCompletedAsync(db, segment.Trip.Id) is { } tripDone)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return tripDone;
+            }
             if (replacedLeadIds.Count > 0)
             {
                 var ids = replacedLeadIds.ToList();
@@ -200,6 +234,17 @@ public static class TaxiWaysAskHandlers
                 await db.SaveChangesAsync();
             }
 
+            if (segment != null && request.StepKey is { } capStep && candidates.Count > 0)
+            {
+                var openInStep = await db.TripEnquiries.CountAsync(x => x.TripId == segment.Trip.Id && x.StepKey == capStep
+                    && TripEnquiryStatuses.Open.Contains(x.Status));
+                if (!TripGuards.StepHasRoomFor(openInStep, candidates.Count))
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return TripGuards.StepFullError();
+                }
+            }
+
             foreach (var (leg, taxi) in candidates)
             {
                 var saved = journey.Legs.FirstOrDefault(x => x.LegIndex == leg.LegIndex);
@@ -213,7 +258,7 @@ public static class TaxiWaysAskHandlers
                 if (segment != null)
                 {
                     var (row, isNew) = await InsertSegmentRowAsync(
-                        unitOfWork, db, segment, journey, leg, taxi, fromName, legTo, comesFrom, request.People,
+                        unitOfWork, db, segment, journey, leg, taxi, fromName, legTo, comesFrom, people,
                         travellerName.Length == 0 ? null : travellerName, expiresAt, isUrgent, now, price,
                         stamped.Add(taxi.Id) ? clientRequestId : null, request.StepKey);
                     if (row == null)
@@ -232,7 +277,7 @@ public static class TaxiWaysAskHandlers
                 var context = new TripEnquiryContext
                 {
                     City = toName,
-                    Adults = request.People,
+                    Adults = people,
                     Kids = 0,
                     Rooms = null,
                     TravellerName = travellerName.Length == 0 ? null : travellerName,
@@ -240,7 +285,7 @@ public static class TaxiWaysAskHandlers
                     PickupTime = null,
                     PickupPlace = pickup,
                     Text = JourneyLeadText.Build(
-                        fromName, legTo, date, request.People, leg.LegIndex, leg.CarOf, comesFrom, price.Cars),
+                        fromName, legTo, date, people, leg.LegIndex, leg.CarOf, comesFrom, price.Cars),
                     JourneyId = journey.Id,
                     LegIndex = leg.LegIndex,
                 };
@@ -361,11 +406,29 @@ public static class TaxiWaysAskHandlers
         return CreatedResponse(result, $"/api/v1/taxis/journeys/{journey.Id}");
     }
 
+    // Trip-linked send: the step must be in the plan, fit a car, be open, and every new driver must be on the step's shortlist.
+    private static async Task<IResult?> StepGateAsync(
+        ApplicationDbContext db, SegmentAsk segment, string? stepKey, Guid callerId, IReadOnlyCollection<Guid> toProcess)
+    {
+        if (stepKey != null
+            && TripGuards.StepMismatch(segment.Plan, stepKey, TripShortlistKinds.Car) is { } mismatch
+            && TripGuards.StepMismatch(segment.Plan, stepKey, TripShortlistKinds.Taxi) != null)
+            return TripGuards.StepMismatchError(mismatch);
+        var step = stepKey ?? TripGuards.DerivedJourneyStep(segment.Role, segment.LegIndex ?? 0);
+        if (step != null && TripGuards.StepClosed(segment.Plan, step)) return TripGuards.StepClosedError();
+        if (stepKey == null || toProcess.Count == 0) return null;
+        var open = (await db.TripEnquiries.AsNoTracking()
+            .Where(x => x.TripId == segment.Trip.Id && x.StepKey == stepKey && TripEnquiryStatuses.Open.Contains(x.Status))
+            .Select(x => x.ListingId).ToListAsync()).ToHashSet();
+        return (await TripGuards.NotShortlistedAsync(db, segment.Trip.Id, callerId, stepKey, toProcess, open)).Count > 0
+            ? TripGuards.NotShortlistedError() : null;
+    }
+
     private static TripPushContext LeadPushContext(TaxiRow taxi, TripEnquiry row, string travellerName)
         => new(taxi.UserId, travellerName, row.ListingName, null);
 
     // Role = gettingThere | comingBack | segment; TravelDay = DayOf(start, Date), informational for the step roles (0 or N + 1 allowed).
-    internal sealed record SegmentAsk(Trip Trip, TripPlan Plan, TripCityLeg Leg, int TravelDay, DateOnly Date, string Role = TripStepRoles.Segment);
+    internal sealed record SegmentAsk(Trip Trip, TripPlan Plan, TripCityLeg Leg, int TravelDay, DateOnly Date, string Role = TripStepRoles.Segment, int? LegIndex = null);
 
     internal sealed record SegmentPickResult(TripEnquiry? Same, string? Skip, IReadOnlyList<Guid> Replaced);
 
@@ -397,7 +460,7 @@ public static class TaxiWaysAskHandlers
         if (journey.TravelDate != date)
             return (null, ErrorResponse(409, "Your trip date changed. Search again.", TripEnquiryErrorTypes.TravelDateChanged));
         if (trip.Status == TripStatuses.Completed) return (null, BadRequestResponse("This trip is completed"));
-        return (new SegmentAsk(trip, plan, leg, TripExecutionRules.DayOf(start, date), date, link.Role), null);
+        return (new SegmentAsk(trip, plan, leg, TripExecutionRules.DayOf(start, date), date, link.Role, link.LegIndex), null);
     }
 
     // Dedupe inside the journey only: a local lead of the trip (Day null) is never adopted or replaced.
@@ -536,7 +599,7 @@ public static class TaxiWaysAskHandlers
         return prices;
     }
 
-    private static bool IsLeadOf(TripEnquiry e, Guid journeyId, int legIndex)
+    internal static bool IsLeadOf(TripEnquiry e, Guid journeyId, int legIndex)
     {
         var context = TripEnquiryDtoBuilder.ReadContext(e.ContextJson);
         return context.JourneyId == journeyId && context.LegIndex == legIndex;

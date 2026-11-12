@@ -43,10 +43,15 @@ public static class TripAdvanceHandlers
             || e.CheckIn is not { } checkIn || checkIn < TripExecutionRules.TodayIst(now))
             return NotAllowed();
 
+        if (await TripGuards.TripNotCompletedAsync(db, e.TripId) is { } completed) return completed;
+        if (await TripGuards.ListingApprovedAsync(db, e.Kind, e.ListingId) is { } gone) return gone;
+
         var cap = TripAdvanceRules.HoldCap(checkIn, now);
         if (cap <= now.AddHours(TripAdvanceRules.HoldMinHours)) return NotAllowed("Too late to hold.");
 
-        var maxAmount = e.AgreedTotal is > 0 ? e.AgreedTotal.Value : TripExecutionRules.MaxAmount;
+        var acceptedAdvance = e.AcceptedOfferId is { } acceptedId
+            ? (await unitOfWork.TripOffers.GetByEnquiryAsync(e.Id)).FirstOrDefault(o => o.Id == acceptedId)?.AdvanceAmount : null;
+        var maxAmount = TripHostGuards.MaxAdvance(e.AgreedTotal, acceptedAdvance);
         if (request.Amount > maxAmount) return BadRequestResponse($"Advance must be at most Rs {maxAmount}");
 
         var holdUntil = request.HoldUntil.Kind == DateTimeKind.Utc ? request.HoldUntil : request.HoldUntil.ToUniversalTime();
@@ -129,6 +134,7 @@ public static class TripAdvanceHandlers
         if (e.AdvanceStatus is TripAdvanceStatuses.ProofSent or TripAdvanceStatuses.Received)
             return OkResponse(await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, callerId, now));
         if (e.AdvanceStatus == TripAdvanceStatuses.HoldExpired) return NotAllowed("The hold has ended.");
+        if (await TripGuards.TripNotCompletedAsync(db, e.TripId) is { } completed) return completed;
         if (e.Status != TripEnquiryStatuses.ConfirmedByBoth || e.AdvanceStatus != TripAdvanceStatuses.Pending)
             return NotAllowed();
         if (e.HoldUntil is not { } hold || hold <= now)

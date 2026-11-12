@@ -7,6 +7,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Api.Validators;
+using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -105,6 +106,11 @@ public static class JourneyHandlers
             return ConflictResponse("Up to 20 saved journeys.", JourneyErrorTypes.JourneyLimitReached);
 
         var legs = request.Legs.OrderBy(l => l.LegIndex).ToList();
+        var requestedKeys = TaxiWaysKeys.TryParsePlanKey(request.PlanKey, out var planKeyList) ? planKeyList : new List<string>();
+        if (!JourneyGuards.LegKeysChain(legs.Select(l => (l.LegIndex, l.LegKey)).ToList(), requestedKeys))
+            return ErrorResponse(400, "These cars do not make one journey.", JourneyGuardErrors.LegsDoNotChain);
+        if (JourneyGuards.SameDriverOnNeighbours(legs.Select(l => (l.LegIndex, l.DriverTaxiId)).ToList()))
+            return ErrorResponse(409, "One driver is one car. Pick another driver for this stretch.", JourneyGuardErrors.SameDriverConsecutive);
         var ids = legs
             .SelectMany(l => new[] { l.DriverTaxiId, l.Backup1TaxiId ?? Guid.Empty, l.Backup2TaxiId ?? Guid.Empty }.Concat(l.CoverTaxiIds ?? []))
             .Where(id => id != Guid.Empty)
@@ -318,7 +324,7 @@ public static class JourneyHandlers
     // A journey with booked cars in a trip stays until they are cancelled; open asks of its trip travel are withdrawn.
     public static async Task<IResult> Delete(
         Guid id, ClaimsPrincipal principal, ISavedJourneyRepository journeys, IUnitOfWork unitOfWork,
-        ITripNotifier notifier, ILoggerFactory loggers)
+        ITripNotifier notifier, ILoggerFactory loggers, ApplicationDbContext db)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var journey = await journeys.GetOwnedAsync(id, userId, tracked: true);
@@ -326,6 +332,23 @@ public static class JourneyHandlers
 
         var now = DateTime.UtcNow;
         var pushes = new List<TripPendingPush>();
+        if (journey.TripId == null)
+        {
+            // A trip-less journey's open leads are withdrawn with it (the driver would still see a live ask).
+            var taxiIds = journey.Legs.SelectMany(LegTaxiIds).ToHashSet();
+            var open = await db.TripEnquiries
+                .Where(e => e.TravellerUserId == userId && e.Kind == TripEnquiryKinds.Taxi && e.TripId == null
+                    && taxiIds.Contains(e.ListingId) && TripEnquiryStatuses.Open.Contains(e.Status))
+                .ToListAsync();
+            foreach (var row in open.Where(r => TripEnquiryStatuses.IsWithdrawable(r.Status)
+                && TripEnquiryDtoBuilder.ReadContext(r.ContextJson).JourneyId == journey.Id))
+            {
+                row.Status = TripEnquiryStatuses.Closed;
+                row.FailReason = TripCloseReasons.Withdrawn;
+                row.UpdatedAt = now;
+                pushes.Add(new TripPendingPush(row, row.OwnerUserId, TripEnquiryHandlers.EnquiryWithdrawn));
+            }
+        }
         if (journey.TripId != null)
         {
             var rows = await journeys.GetSegmentRowsAsync(journey.Id);
@@ -486,6 +509,8 @@ public static class JourneyHandlers
 
         if (leg.DriverTaxiId != request.TaxiId)
         {
+            if (JourneyGuards.ClashesWithNeighbour(legIndex, request.TaxiId, journey.Legs.Select(l => ((int)l.LegIndex, l.DriverTaxiId))))
+                return ErrorResponse(409, "One driver is one car. Pick another driver for this stretch.", JourneyGuardErrors.SameDriverConsecutive);
             var bookedLegs = await BookedLegsAsync(journeys, journey.Id);
             if (bookedLegs.Contains(legIndex))
                 return ErrorResponse(409, "Cancel this booked car in your trip first", JourneyErrorTypes.JourneyInTrip);
@@ -523,6 +548,16 @@ public static class JourneyHandlers
             leg.LastKnownAt = null;
             leg.DriverAvailable = true;
             leg.UpdatedAt = now;
+            // The new driver's own open lead for this leg (asked as a backup) becomes the leg's answer; nothing is lost.
+            var existingLead = (await unitOfWork.TripEnquiries.GetOpenByTravellerListingsAsync(userId, TripEnquiryKinds.Taxi, [request.TaxiId]))
+                .Where(e => TaxiWaysAskHandlers.IsLeadOf(e, journey.Id, legIndex))
+                .OrderByDescending(e => e.CreatedAt)
+                .FirstOrDefault();
+            if (existingLead != null)
+            {
+                leg.LastEnquiryId = existingLead.Id;
+                JourneyLegState.Of(existingLead).ApplyTo(leg);
+            }
 
             journey.ListedTotal = Total(journey.Legs);
             journey.Status = JourneyRules.JourneyStatusOf(journey.Legs, bookedLegs);
@@ -567,6 +602,17 @@ public static class JourneyHandlers
         if (journey == null) return NotFound();
         if (journey.Status != JourneyStatuses.Completed)
         {
+            var block = JourneyGuards.CompleteBlock(
+                journey.TravelDate, JourneyRules.TodayIst(DateTime.UtcNow), journey.TripId != null,
+                journey.Legs.Select(l => (l.LastEnquiryId != null, l.LastKnownStatus)));
+            if (block != null)
+                return ErrorResponse(409, block switch
+                {
+                    JourneyGuardErrors.TravelDateNotReached => "You can mark this done on the travel day.",
+                    JourneyGuardErrors.JourneyNotAsked => "Ask a driver first.",
+                    JourneyGuardErrors.JourneyInTrip => "This journey completes with your trip.",
+                    _ => "Every car needs a driver who gave a fare.",
+                }, block);
             journey.Status = JourneyStatuses.Completed;
             journey.UpdatedAt = DateTime.UtcNow;
             try

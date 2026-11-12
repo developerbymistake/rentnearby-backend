@@ -207,6 +207,8 @@ public class TaxiWaysSearchEngineTests
 
         var r = TaxiWaysFixture.Search(s, Delhi, Badrinath);
 
-        Assert.Single(r.Plans);
+        // One driver on consecutive stretches is one car (B1): offered all the way, fares added, never as two cars.
+        Assert.Empty(r.Plans);
+        Assert.Equal(14000, Assert.Single(r.AllTheWay).Link.EstimatedFare);
     }
 }

@@ -85,6 +85,10 @@ public static class TripShortlistHandlers
         if (trip!.Status == TripStatuses.Completed)
             return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
 
+        // The step must be in the plan and fit the kind (stay under stay:k, taxi under taxi, car under a travel step).
+        if (TripGuards.StepMismatch(TripPlanReader.Read(trip), stepKey, request.Kind) is { } mismatch)
+            return TripGuards.StepMismatchError(mismatch);
+
         // The listing is read from the server: it must exist as this kind, be open for asks and not be the caller's own.
         var listing = await LoadListingAsync(db, request.Kind, listingId);
         if (listing == null)
@@ -106,6 +110,14 @@ public static class TripShortlistHandlers
                 {
                     await unitOfWork.RollbackTransactionAsync();
                     return ConflictResponse("Your shortlist is full. Remove one to add another.", TripEnquiryErrorTypes.ShortlistFull);
+                }
+
+                // A host already asked in this step is not added again.
+                if (await db.TripEnquiries.AnyAsync(x => x.TripId == trip.Id && x.StepKey == stepKey && x.ListingId == listingId
+                    && TripEnquiryStatuses.Open.Contains(x.Status)))
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return ConflictResponse("You already asked this one.", TripEnquiryErrorTypes.AlreadyAsked);
                 }
 
                 // Open enquiries of the step use the same three places as the shortlist (a second round is refused up front).
@@ -202,10 +214,31 @@ public static class TripShortlistHandlers
         var (trip, error) = await LoadTripAsync(tripId, callerId, unitOfWork, db);
         if (error != null) return error;
 
+        if (TripGuards.TripNotCompleted(trip!) is { } completed) return completed;
+        if (!TripEasyRows.StepKeysOf(TripPlanReader.Read(trip!)).Contains(stepKey)) return BadStep();
+
         var now = DateTime.UtcNow;
-        await unitOfWork.TripShortlist.CloseStepAsync(trip!.Id, stepKey, request.Reason, now);
-        // The step is settled by the traveller: no "final" push for its expired enquiries either.
-        await TripBulk.StampFinalAsync(db, trip.Id, stepKey, now);
+        // The open-row check and the close run under the trip lock, so a parallel send cannot slip in between.
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await TripGuards.LockTripAsync(db, trip!.Id);
+            // Own and Skip settle the step: not while an enquiry or a booking of it is open.
+            if (await db.TripEnquiries.AnyAsync(x => x.TripId == trip.Id && x.StepKey == stepKey && TripEnquiryStatuses.Open.Contains(x.Status)))
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ConflictResponse("This step has open enquiries. Withdraw them first.", TripEnquiryErrorTypes.StepHasOpenEnquiries);
+            }
+            await unitOfWork.TripShortlist.CloseStepAsync(trip.Id, stepKey, request.Reason, now);
+            // The step is settled by the traveller: no "final" push for its expired enquiries either.
+            await TripBulk.StampFinalAsync(db, trip.Id, stepKey, now);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
         return NoContentResponse();
     }
 
@@ -222,6 +255,8 @@ public static class TripShortlistHandlers
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
         var (trip, error) = await LoadTripAsync(tripId, callerId, unitOfWork, db);
         if (error != null) return error;
+        if (TripGuards.TripNotCompleted(trip!) is { } completed) return completed;
+        if (!TripEasyRows.StepKeysOf(TripPlanReader.Read(trip!)).Contains(stepKey)) return BadStep();
 
         var now = DateTime.UtcNow;
         var result = new MarkBookedResultDto();
@@ -231,7 +266,8 @@ public static class TripShortlistHandlers
         {
             var tripKey = trip!.Id;
             var open = await db.TripEnquiries
-                .Where(x => x.TripId == tripKey && x.StepKey == stepKey && TripEnquiryStatuses.Withdrawable.Contains(x.Status))
+                .Where(x => x.TripId == tripKey && x.StepKey == stepKey && TripEnquiryStatuses.Withdrawable.Contains(x.Status)
+                    && (request.ListingId == null || x.ListingId != request.ListingId))
                 .ToListAsync();
             foreach (var e in open)
             {

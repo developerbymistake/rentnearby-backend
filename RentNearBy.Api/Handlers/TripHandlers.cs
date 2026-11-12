@@ -414,6 +414,14 @@ public static class TripHandlers
         if (await ResolveLegsAsync(plan, null, catalog, unitOfWork, create: true) is { } legError) return legError;
         var linkIds = await SanitiseLinksAsync(plan, journeys, userId, null);
 
+        // A new trip has no enquiries yet, so a guide claiming progress is forged.
+        var refs = TripJourneyLinks.ReferencedIds(plan);
+        var owned = refs.Count == 0 ? new List<SavedJourney>() : (await journeys.GetOwnedByIdsAsync(refs, userId)).ToList();
+        var newRows = TripEasyRows.Build(new Trip { Id = Guid.NewGuid(), StartDate = plan.Settings.StartDate, EndDate = plan.EndDate }, plan, [], owned);
+        var gate = TripGuideGate.Apply(plan.Guide, null, newRows);
+        if (gate.Error != null) return BadRequestResponse("This step is not open yet.", gate.Error);
+        plan.Guide = gate.Guide;
+
         var now = DateTime.UtcNow;
         var trip = new Trip
         {
@@ -557,9 +565,14 @@ public static class TripHandlers
         if (trip.Status == TripStatuses.Completed)
             return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
 
-        var effectiveStatus = TripStatusRules.OnSave(trip.Status, request.Status, request.Plan!.Days.Sum(d => d.Spots.Count));
+        var enquiries0 = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
+        var hasLive = enquiries0.Any(x => TripEnquiryStatuses.IsOpen(x.Status));
+        var spotCount = request.Plan!.Days.Sum(d => d.Spots.Count);
+        if (TripStatusRules.RejectsZeroSpots(trip.Status, spotCount, hasLive))
+            return BadRequestResponse(TripStatusRules.ZeroSpotsLiveMessage, TripErrorTypes.TripHasLiveEnquiries);
+        var effectiveStatus = TripStatusRules.OnSave(trip.Status, request.Status, spotCount, hasLive);
         var status = effectiveStatus ?? trip.Status;
-        if (status == TripStatuses.Planned && request.Plan!.Days.Sum(d => d.Spots.Count) == 0)
+        if (status == TripStatuses.Planned && spotCount == 0)
             return BadRequestResponse(PlanTripRequestValidator.NoPlacesMessage);
 
         // Stored legs keep their snapshot (no Atlas call); only a new leg is looked up.
@@ -568,6 +581,21 @@ public static class TripHandlers
         if (await ResolveLegsAsync(plan, stored, catalog, unitOfWork, create: false) is { } legError) return legError;
 
         var linkIds = await SanitiseLinksAsync(plan, journeys, userId, trip.Id);
+
+        // The server is the gate: marks, booked days and the guide are checked against the real rows, not the app's word.
+        var linked0 = (await LinkedJourneysAsync(journeys, trip, userId)).ToList();
+        var extraIds = TripJourneyLinks.ReferencedIds(plan).Where(j => linked0.All(l => l.Id != j)).ToList();
+        var known = extraIds.Count == 0 ? linked0 : linked0.Concat(await journeys.GetOwnedByIdsAsync(extraIds, userId)).ToList();
+        var storedRows = TripEasyRows.Build(trip, stored, enquiries0, linked0);
+        var incomingTrip = new Trip { Id = trip.Id, Status = trip.Status, StartDate = plan.Settings.StartDate, EndDate = plan.EndDate };
+        var incomingRows = TripEasyRows.Build(incomingTrip, plan, enquiries0, known);
+        if (TripMarkGuard.BlockedKey(storedRows, incomingRows) != null)
+            return ConflictResponse("This step has live enquiries or a booking. Withdraw or cancel them first.", TripMarkGuard.Code);
+        if (TripBookedRange.Strands(trip.StartDate ?? stored.Settings?.StartDate, stored.Days.Count, plan.Settings.StartDate, plan.Days.Count, enquiries0))
+            return ConflictResponse("A confirmed booking falls on a day you are removing. Cancel it first.", TripBookedRange.Code);
+        var gate = TripGuideGate.Apply(plan.Guide, stored.Guide, incomingRows);
+        if (gate.Error != null) return BadRequestResponse("This step is not open yet.", gate.Error);
+        plan.Guide = gate.Guide;
 
         // A title the traveller typed is never touched; the default follows the cities.
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, plan.LegCities);
@@ -586,6 +614,7 @@ public static class TripHandlers
         var startMoved = TripDateRules.StartMoved(oldStart, trip.StartDate);
         var endCut = !startMoved && oldEnd is { } previousEnd && trip.EndDate is { } newEnd && newEnd < previousEnd;
         var closing = new List<TripEnquiry>();
+        var legGone = new List<TripEnquiry>();
         var staleOffers = new List<TripOffer>();
         var reopened = new List<TripEnquiry>();
         var reopenedOffers = new List<TripOffer>();
@@ -628,12 +657,29 @@ public static class TripHandlers
                         && TripDateRules.OutsideWindow(trip.StartDate, trip.EndDate, o.CheckIn, o.CheckOut))
                     .ToList();
         }
+        // An open ask or offer for a city that is no longer a leg can never be answered: it closes.
+        var goneIds = enquiries0
+            .Where(x => TripEnquiryStatuses.Withdrawable.Contains(x.Status) && x.Kind == TripEnquiryKinds.Stay && !TripSegmentRows.IsSegment(x)
+                && TripLegRules.HomeLegIndex(x, plan) == TripLegRules.RemovedCityLeg && TripLegRules.HomeLegIndex(x, stored) != TripLegRules.RemovedCityLeg
+                && !closing.Any(c => c.Id == x.Id))
+            .Select(x => x.Id)
+            .ToList();
+        legGone = goneIds.Count == 0 ? new List<TripEnquiry>() : await db.TripEnquiries.Where(x => goneIds.Contains(x.Id)).ToListAsync();
         var posts = new List<TripChatPost>();
         var pushes = new List<TripPendingPush>();
 
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            foreach (var x in legGone)
+            {
+                x.Status = TripEnquiryStatuses.Closed;
+                x.FailReason = TripLegGoneReason;
+                x.UpdatedAt = now;
+                await TripEnquiryOps.CloseOpenOfferAsync(db, chat, x, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
+                await TripEnquiryOps.PostSystemAsync(db, chat, x, userId, TripSystemLines.TripDatesChanged, posts);
+                pushes.Add(new TripPendingPush(x, x.OwnerUserId, EnquiryClosedByCityRemoved));
+            }
             foreach (var x in closing)
             {
                 x.Status = TripEnquiryStatuses.Closed;
@@ -698,6 +744,17 @@ public static class TripHandlers
         var dto = ToDto(trip, plan, tripEnquiries, linked, await RevisedPendingAsync(unitOfWork, tripEnquiries));
         dto.Journeys = await JourneyDtosAsync(journeys, linked, plan, tripEnquiries);
         return OkResponse(dto);
+    }
+
+    private const string TripLegGoneReason = "LegRemoved";
+
+    private static NotificationEvent EnquiryClosedByCityRemoved(TripEnquiry e, TripPushContext ctx)
+    {
+        var n = TripNotifications.TripTravellerCancelled(e, ctx);
+        var who = string.IsNullOrWhiteSpace(ctx.TravellerName) ? "The guest" : ctx.TravellerName.Trim();
+        n.Title = (e.IsUrgent ? "Urgent · " : string.Empty) + "Enquiry closed";
+        n.Body = $"{who} changed the route. {TripNotifications.Dates(e)} is no longer needed.";
+        return n;
     }
 
     // The host's offer (or the guest's counter) no longer fits the trip: the enquiry is back to Asked.

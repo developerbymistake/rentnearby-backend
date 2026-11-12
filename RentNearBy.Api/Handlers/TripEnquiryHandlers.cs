@@ -113,6 +113,10 @@ public static class TripEnquiryHandlers
         var now = DateTime.UtcNow;
         if (CheckNight(trip, request.Day, now) is { } nightError) return nightError;
         var plan = ReadPlan(trip);
+        if (request.StepKey is { } sendStep
+            && TripGuards.StepMismatch(plan, sendStep, TripShortlistKinds.Stay, request.Day) is { } mismatch) return TripGuards.StepMismatchError(mismatch);
+        // No stepKey: the step is derived from the nights, so a settled step stays closed to a forged send.
+        if (TripGuards.StepClosed(plan, request.StepKey ?? TripGuards.DerivedStayStep(plan, request.Day))) return TripGuards.StepClosedError();
         var (checkIn, checkOut) = Nights(trip, plan, request.Day, request.AllNights, request.Nights);
         var multiNight = request.Nights != null ? TripExecutionRules.Nights(checkIn, checkOut) > 1 : request.AllNights;
 
@@ -137,12 +141,24 @@ public static class TripEnquiryHandlers
         // Duplicates dropped; a retry of the same clientRequestId never sends again (its rows come back as Replayed).
         var requested = request.ListingIds.Distinct().ToList();
         var toProcess = requested;
+        var staleIds = new HashSet<Guid>();
         if (request.ClientRequestId is { } requestId)
         {
-            var replay = await unitOfWork.TripEnquiries.GetByClientRequestAsync(callerId, requestId, requested);
+            // Only an open row of this trip, step and kind is a replay; any other row holding the id is sent as new without the id.
+            var (replay, stale) = TripGuards.SplitReplay(
+                await unitOfWork.TripEnquiries.GetByClientRequestAsync(callerId, requestId, requested), trip.Id, TripEnquiryKinds.Stay, request.StepKey, now);
+            staleIds = stale;
             items.AddRange(replay);
             var replayed = replay.Select(r => r.ListingId).ToHashSet();
             toProcess = requested.Where(id => !replayed.Contains(id)).ToList();
+        }
+
+        // A step send is for shortlisted hosts only (hosts already open in the step are handled below as open rows).
+        if (request.StepKey is { } shortStep && toProcess.Count > 0)
+        {
+            var open = tripOpen.Where(x => x.StepKey == shortStep).Select(x => x.ListingId).ToHashSet();
+            if ((await TripGuards.NotShortlistedAsync(db, trip.Id, callerId, shortStep, toProcess, open)).Count > 0)
+                return TripGuards.NotShortlistedError();
         }
 
         // One query each for the stays, the blocks and the traveller's own open rows (no per-listing lookups).
@@ -196,7 +212,8 @@ public static class TripEnquiryHandlers
                 if (joinable && TripExecutionRules.FitsNightCap(tripOpen, listingId, candidates.Count + stayMerges.Count, checkIn, checkOut))
                     stayMerges.Add(unconfirmed);
                 else
-                    skipped.Add(Skip(listingId, TripSkipReasons.AlreadyOpen));
+                    // The open row does not hold all the requested nights: nothing was sent for the rest.
+                    skipped.Add(Skip(listingId, joinable ? TripSkipReasons.LimitReached : TripSkipReasons.OpenForOtherNights));
                 continue;
             }
 
@@ -239,6 +256,17 @@ public static class TripEnquiryHandlers
                     await unitOfWork.RollbackTransactionAsync();
                     await asks.ReleaseAllAsync();
                     return Concurrent();
+                }
+                if (request.StepKey is { } capStep && candidatesNow.Count > 0)
+                {
+                    var openInStep = await db.TripEnquiries.CountAsync(x => x.TripId == trip.Id && x.StepKey == capStep
+                        && TripEnquiryStatuses.Open.Contains(x.Status));
+                    if (!TripGuards.StepHasRoomFor(openInStep, candidatesNow.Count))
+                    {
+                        await unitOfWork.RollbackTransactionAsync();
+                        await asks.ReleaseAllAsync();
+                        return TripGuards.StepFullError();
+                    }
                 }
 
                 // Next to an Asked row of the same stay: the row takes the joined nights and the host is told again.
@@ -312,7 +340,7 @@ public static class TripEnquiryHandlers
                         IsUrgent = isUrgent,
                         AdvanceStatus = TripAdvanceStatuses.None,
                         StepKey = request.StepKey,
-                        ClientRequestId = request.ClientRequestId,
+                        ClientRequestId = staleIds.Contains(stay.Id) ? null : request.ClientRequestId,
                         CreatedAt = now,
                         UpdatedAt = now,
                     }, stay, conv.Conversation));
@@ -325,8 +353,8 @@ public static class TripEnquiryHandlers
                     if (lost.Contains(e))
                     {
                         var winner = await unitOfWork.TripEnquiries.FindOpenAsync(trip.Id, TripEnquiryKinds.Stay, stay.Id, day);
-                        if (winner != null) items.Add(winner);
-                        else skipped.Add(Skip(stay.Id, TripSkipReasons.AlreadyOpen));
+                        if (winner != null && TripGuards.CoversNights(winner, checkIn, checkOut)) items.Add(winner);
+                        else skipped.Add(Skip(stay.Id, winner != null ? TripSkipReasons.OpenForOtherNights : TripSkipReasons.AlreadyOpen));
                         continue;
                     }
 
@@ -444,7 +472,7 @@ public static class TripEnquiryHandlers
             }
             if (mine.Any(x => TripEnquiryStatuses.IsUnconfirmed(x.Status) || Overlaps(x, checkIn, checkOut)))
             {
-                skipped.Add(Skip(stay.Id, TripSkipReasons.AlreadyOpen));
+                skipped.Add(Skip(stay.Id, TripSkipReasons.OpenForOtherNights));
                 continue;
             }
             if (!TripExecutionRules.FitsNightCap(fresh, stay.Id, added, checkIn, checkOut))
@@ -495,6 +523,9 @@ public static class TripEnquiryHandlers
         var plan = ReadPlan(trip);
         if (CheckDaysInOneLeg(trip, plan, days) is { } legError) return legError;
         var leg = (short)plan.LegIndexOf(days[0]);
+        if (request.StepKey is { } sendStep
+            && TripGuards.StepMismatch(plan, sendStep, TripShortlistKinds.Taxi) is { } mismatch) return TripGuards.StepMismatchError(mismatch);
+        if (TripGuards.StepClosed(plan, request.StepKey ?? TripRowKinds.Taxi)) return TripGuards.StepClosedError();
         var (checkIn, checkOut) = TaxiSpan(trip, days);
 
         var tabs = await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache);
@@ -519,12 +550,22 @@ public static class TripEnquiryHandlers
         // Duplicates dropped; a retry of the same clientRequestId never sends again (its rows come back as Replayed).
         var requested = request.ListingIds.Distinct().ToList();
         var toProcess = requested;
+        var staleIds = new HashSet<Guid>();
         if (request.ClientRequestId is { } requestId)
         {
-            var replay = await unitOfWork.TripEnquiries.GetByClientRequestAsync(callerId, requestId, requested);
+            var (replay, stale) = TripGuards.SplitReplay(
+                await unitOfWork.TripEnquiries.GetByClientRequestAsync(callerId, requestId, requested), trip.Id, TripEnquiryKinds.Taxi, request.StepKey, now);
+            staleIds = stale;
             items.AddRange(replay);
             var replayed = replay.Select(r => r.ListingId).ToHashSet();
             toProcess = requested.Where(id => !replayed.Contains(id)).ToList();
+        }
+
+        if (request.StepKey is { } shortStep && toProcess.Count > 0)
+        {
+            var open = tripOpen.Where(x => x.StepKey == shortStep).Select(x => x.ListingId).ToHashSet();
+            if ((await TripGuards.NotShortlistedAsync(db, trip.Id, callerId, shortStep, toProcess, open)).Count > 0)
+                return TripGuards.NotShortlistedError();
         }
 
         // One query each for the taxis, the blocks and the traveller's own open rows (no per-listing lookups).
@@ -627,6 +668,56 @@ public static class TripEnquiryHandlers
             await unitOfWork.BeginTransactionAsync();
             try
             {
+                // Parallel sends on one trip run one after the other; the per-day and per-step caps are re-checked on fresh rows.
+                await TripGuards.LockTripAsync(db, trip.Id);
+                var fresh = (await db.TripEnquiries.AsNoTracking()
+                    .Where(x => x.TripId == trip.Id && x.Kind == TripEnquiryKinds.Taxi && TripEnquiryStatuses.Open.Contains(x.Status))
+                    .ToListAsync()).Where(x => !TripSegmentRows.IsSegment(x)).ToList();
+                var added = 0;
+                var mergesNow = new List<(TripEnquiry Row, List<int> Days)>();
+                foreach (var m in merges)
+                {
+                    var rowNow = fresh.FirstOrDefault(x => x.Id == m.Row.Id);
+                    if (rowNow == null || rowNow.Status != m.Row.Status)
+                    {
+                        await unitOfWork.RollbackTransactionAsync();
+                        await quotas.ReleaseAllAsync();
+                        return Concurrent();
+                    }
+                    var heldNow = CurrentTaxiDays(m.Row, trip.StartDate!.Value);
+                    if (!FitsLeadCap(fresh, m.Row.ListingId, added, DatesOf(trip.StartDate!.Value, m.Days.Except(heldNow))))
+                    {
+                        skipped.Add(Skip(m.Row.ListingId, TripSkipReasons.LimitReached));
+                        continue;
+                    }
+                    mergesNow.Add(m);
+                    added++;
+                }
+                var candidatesNow = new List<TaxiSnapshot>();
+                foreach (var taxi in candidates)
+                {
+                    if (!FitsLeadCap(fresh, taxi.Id, added, DatesOf(trip.StartDate!.Value, days)))
+                    {
+                        skipped.Add(Skip(taxi.Id, TripSkipReasons.LimitReached));
+                        continue;
+                    }
+                    candidatesNow.Add(taxi);
+                    added++;
+                }
+                merges = mergesNow;
+                candidates = candidatesNow;
+                if (request.StepKey is { } capStep && candidates.Count > 0)
+                {
+                    var openInStep = await db.TripEnquiries.CountAsync(x => x.TripId == trip.Id && x.StepKey == capStep
+                        && TripEnquiryStatuses.Open.Contains(x.Status));
+                    if (!TripGuards.StepHasRoomFor(openInStep, candidates.Count))
+                    {
+                        await unitOfWork.RollbackTransactionAsync();
+                        await quotas.ReleaseAllAsync();
+                        return TripGuards.StepFullError();
+                    }
+                }
+
                 // Same driver, more days: the open lead takes the union in place and the driver is told again.
                 foreach (var (row, mergedDays) in merges)
                 {
@@ -679,7 +770,7 @@ public static class TripEnquiryHandlers
                     PickupTime = context.PickupTime,
                     PickupPlace = context.PickupPlace,
                     StepKey = request.StepKey,
-                    ClientRequestId = request.ClientRequestId,
+                    ClientRequestId = staleIds.Contains(taxi.Id) ? null : request.ClientRequestId,
                     CreatedAt = now,
                     UpdatedAt = now,
                 })).ToList();
@@ -795,6 +886,7 @@ public static class TripEnquiryHandlers
 
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(tripId, callerId);
         if (trip == null) return TripNotFound();
+        if (TripGuards.TripNotCompleted(trip) is { } tripDone) return tripDone;
 
         if (trip.StartDate is not { } tripStart)
             return ErrorResponse(422, "Add your trip dates first.", TripEnquiryErrorTypes.TripDatesRequired);
@@ -805,15 +897,19 @@ public static class TripEnquiryHandlers
         var now = DateTime.UtcNow;
         var requested = request.Days.Distinct().OrderBy(d => d).ToList();
 
-        // Approval, availability and rate are not required: the deal was made by phone.
+        // Availability and rate are not required (the deal was made by phone); the taxi must still be approved and on this leg.
         var taxi = await LoadTaxiAsync(db, request.TaxiId);
         if (taxi == null || taxi.IsDeleted) return NotFoundResponse("Taxi not found");
         if (taxi.UserId == callerId) return BadRequestResponse("This is your own taxi.");
+        if (taxi.Status != TaxiStatuses.Approved)
+            return ConflictResponse("This listing is not available any more.", TripEnquiryErrorTypes.ListingNotAvailable);
         if (await IsBlockedAsync(unitOfWork, callerId, taxi.UserId))
             return ForbiddenResponse("You can't book this driver", TripSkipReasons.Blocked);
 
         var plan = ReadPlan(trip);
         if (requested.Count > 0 && CheckDaysInOneLeg(trip, plan, requested) is { } requestedLegError) return requestedLegError;
+        if (!TripBulkRules.HostInLegArea(taxi.DistrictId, LegDistrict(trip, plan, requested.Count > 0 ? requested[0] : 1)))
+            return ConflictResponse("This taxi is not in the area of these days.", TripEnquiryErrorTypes.ListingNotAvailable);
         var leg = (short)plan.LegIndexOf(requested.Count > 0 ? requested[0] : 1);
         var existing = await unitOfWork.TripEnquiries.FindOpenTaxiAsync(trip.Id, taxi.Id, leg);
         var created = existing == null;
@@ -1030,6 +1126,8 @@ public static class TripEnquiryHandlers
         var taxi = await LoadTaxiAsync(db, request.TaxiId);
         if (taxi == null || taxi.IsDeleted) return NotFoundResponse("Taxi not found");
         if (taxi.UserId == callerId) return BadRequestResponse("This is your own taxi.");
+        if (taxi.Status != TaxiStatuses.Approved)
+            return ConflictResponse("This listing is not available any more.", TripEnquiryErrorTypes.ListingNotAvailable);
         if (await IsBlockedAsync(unitOfWork, callerId, taxi.UserId))
             return ForbiddenResponse("You can't book this driver", TripSkipReasons.Blocked);
 
@@ -1229,6 +1327,7 @@ public static class TripEnquiryHandlers
             return Closed("This lead is closed.");
 
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(tripId, callerId);
+        if (trip != null && TripGuards.TripNotCompleted(trip) is { } tripDone) return tripDone;
         if (trip?.StartDate is not { } start) return Closed("This lead is closed.");
         var days = CurrentTaxiDays(e, start).Where(d => d >= 1).ToList();
         if (days.Count == 0) return Closed("This lead is closed.");
@@ -1272,6 +1371,7 @@ public static class TripEnquiryHandlers
             return Closed("This enquiry is closed.");
 
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(tripId, callerId);
+        if (trip != null && TripGuards.TripNotCompleted(trip) is { } tripDone) return tripDone;
         if (trip?.StartDate is not { } start) return Closed("This enquiry is closed.");
 
         var now = DateTime.UtcNow;
@@ -1350,6 +1450,7 @@ public static class TripEnquiryHandlers
             await TripEnquiryOps.CloseOpenOfferAsync(db, chat, e, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
             await db.SaveChangesAsync();
             await TripEnquiryOps.PostSystemAsync(db, chat, e, callerId, TripSystemLines.Withdrawn, posts);
+            await TripBulk.CloseSentRowAsync(db, e, now);
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
@@ -1438,7 +1539,7 @@ public static class TripEnquiryHandlers
             return OkResponse(await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e, callerId, now));
         if (!TripEnquiryStatuses.IsBooked(e.Status))
             return Closed("Only a confirmed booking can be cancelled.");
-        if (byOwner && e.CheckOut is { } checkOut && checkOut <= TripExecutionRules.TodayIst(now))
+        if (e.CheckOut is { } checkOut && checkOut <= TripExecutionRules.TodayIst(now))
             return Closed(e.Kind == TripEnquiryKinds.Taxi ? "This trip has already ended." : "This stay has already ended.");
 
         var posts = new List<TripChatPost>();
@@ -1493,6 +1594,11 @@ public static class TripEnquiryHandlers
         var offer = await db.TripOffers.FirstOrDefaultAsync(o => o.Id == offerId && o.TripEnquiryId == id);
         if (offer == null) return ErrorResponse(404, "Offer not found", TripEnquiryErrorTypes.TripEnquiryNotFound);
         if (NotTravellerAnswerable(offer) is { } wrongKind) return wrongKind;
+        if (!(offer.Status == TripOfferStatuses.Accepted && e!.AcceptedOfferId == offer.Id))
+        {
+            if (await TripGuards.TripNotCompletedAsync(db, e!.TripId) is { } completed) return completed;
+            if (await TripGuards.ListingApprovedAsync(db, e.Kind, e.ListingId) is { } gone) return gone;
+        }
         if (offer.Kind == TripOfferKinds.Revised)
             return await AcceptRevisedAsync(e!, offer, request, callerId, unitOfWork, db, chat, notifier, loggers);
 
@@ -1647,6 +1753,8 @@ public static class TripEnquiryHandlers
         var found = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(id);
         if (TripEnquiryAuth.RequireTraveller(found, callerId) is { } denied) return denied;
         var e = found!;
+        if (await TripGuards.TripNotCompletedAsync(db, e.TripId) is { } completed) return completed;
+        if (await TripGuards.ListingApprovedAsync(db, e.Kind, e.ListingId) is { } gone) return gone;
 
         if (e.Kind != TripEnquiryKinds.Stay || !TripEnquiryStatuses.IsUnconfirmed(e.Status) || e.TripId == null
             || e.ConversationId is not { } conversationId)
@@ -1783,6 +1891,8 @@ public static class TripEnquiryHandlers
         var found = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(id);
         if (TripEnquiryAuth.RequireTraveller(found, callerId) is { } denied) return denied;
         var e = found!;
+        if (await TripGuards.TripNotCompletedAsync(db, e.TripId) is { } completed) return completed;
+        if (await TripGuards.ListingApprovedAsync(db, e.Kind, e.ListingId) is { } gone) return gone;
 
         if (e.Kind != TripEnquiryKinds.Stay || e.Status != TripEnquiryStatuses.ConfirmedByBoth
             || e.AcceptedOfferId == null
@@ -2157,6 +2267,11 @@ public static class TripEnquiryHandlers
         bool closeOthers, Guid? replaceId, Guid callerId, List<TripChatPost> posts, List<TripPendingPush> pushes, DateTime now)
     {
         if (target.TripId is not { } tripId) return null;
+        // Parallel accepts on one trip run one after the other; the night rows are read after the lock.
+        await TripGuards.LockTripAsync(db, tripId);
+        // Complete and a take-down commit under the same lock or just before it: re-check after the lock.
+        if (await TripGuards.TripNotCompletedAsync(db, tripId) is { } completed) return completed;
+        if (await TripGuards.ListingApprovedAsync(db, target.Kind, target.ListingId) is { } gone) return gone;
         var others = await db.TripEnquiries
             .Where(x => x.TripId == tripId && x.Kind == TripEnquiryKinds.Stay && x.Id != target.Id
                 && TripEnquiryStatuses.Open.Contains(x.Status))

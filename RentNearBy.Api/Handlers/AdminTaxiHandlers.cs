@@ -263,9 +263,13 @@ public static class AdminTaxiHandlers
                 "Your taxi was taken down", $"Your taxi was taken down: {reason}");
             db.NotificationEvents.Add(notification);
 
+            var tripChat = sp.GetRequiredService<ITripChatService>();
+            var tripPosts = new List<TripChatPost>();
+            IReadOnlyList<TripClosurePush> tripPushes;
             try
             {
                 await unitOfWork.SaveChangesAsync();
+                tripPushes = await TripHostGuards.CloseOnTakeDownAsync(db, tripChat, unitOfWork.TripEnquiries, ListingKinds.Taxi, taxi.Id, tripPosts);
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -278,6 +282,8 @@ public static class AdminTaxiHandlers
 
             await unitOfWork.CommitTransactionAsync();
 
+            await TripHostGuards.AfterTakeDownAsync(tripChat, sp.GetRequiredService<ITripNotifier>(),
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger("TripTakeDown"), tripPosts, tripPushes);
             await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
 
             await AdminHandlers.SendGoLiveNotificationAsync(hubContext, publisher, notification);

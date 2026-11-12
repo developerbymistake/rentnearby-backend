@@ -567,6 +567,7 @@ public class TripTimerService(
     private async Task<int> AutoCompletePassAsync(IServiceProvider sp, CancellationToken ct)
     {
         var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
+        var journeyRepo = sp.GetRequiredService<ISavedJourneyRepository>();
         var now = DateTime.UtcNow;
         var endBefore = TripExecutionRules.TodayIst(now).AddDays(-TripReminderRules.AutoCompleteDays);
         var done = 0;
@@ -583,6 +584,9 @@ public class TripTimerService(
                 {
                     var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
                     if (enquiries.Any(TripBookingStates.IsOpenForCompletion)) continue;
+                    var linked = await journeyRepo.GetByTripAsync(trip.Id, trip.OwnerUserId);
+                    // A trip nobody worked on is left for the traveller (no enquiry, no mark, no journey ask).
+                    if (TripCompleteRules.IsUntouched(TripEasyRows.Build(trip, ReadPlan(trip), enquiries, linked))) continue;
                     if (await unitOfWork.Trips.TryCompleteAsync(trip.Id, now) == 0) continue;
                     logger.LogInformation("trip.completed {TripId} auto", trip.Id);
                     done++;

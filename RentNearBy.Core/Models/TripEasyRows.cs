@@ -7,13 +7,13 @@ public static class TripRowKinds
     public const string GettingThere = "gettingThere", Stay = "stay", Between = "between", Taxi = "taxi", ComingBack = "comingBack";
 }
 
-// done = own, saved, confirmed, booked (the traveller's word); in progress = asked, offer; skipped rows leave the total.
+// done = own, confirmed, booked (the traveller's word); a saved plan is not done; in progress = asked, offer; skipped rows leave the total.
 public static class TripRowStates
 {
     public const string Todo = "todo", Asked = "asked", Offer = "offer", Confirmed = "confirmed", Own = "own",
         Saved = "saved", Booked = "booked", Skipped = "skipped", Attention = "attention";
 
-    public static bool IsDone(string state) => state is Own or Saved or Confirmed or Booked;
+    public static bool IsDone(string state) => state is Own or Confirmed or Booked;
     public static bool IsInProgress(string state) => state is Asked or Offer;
 }
 
@@ -51,7 +51,16 @@ public sealed class TripEasyRow
     // Stay rows only (asked, offer, booked, confirmed): nights of the leg and how many a live row covers.
     public int NightsTotal { get; init; }
     public int NightsCovered { get; init; }
+    // Nights a confirmed or booked row holds (NightsCovered also counts asks, for display).
+    public int NightsBooked { get; init; }
+    // Taxi rows only: plan days and how many a booked or confirmed row covers.
+    public int DaysTotal { get; init; }
+    public int DaysCovered { get; init; }
+    // A confirmed booking whose advance is still asked or waiting for the host.
+    public bool AdvanceOpen { get; init; }
     public bool Partial => NightsTotal > 0 && NightsCovered < NightsTotal;
+    // Done needs every night and every day held by a confirmed or booked row.
+    public bool ShortOfCover => (NightsTotal > 0 && NightsBooked < NightsTotal) || (DaysTotal > 0 && DaysCovered < DaysTotal);
     // The rows and journey behind the state (summary detail); empty for a mark or a todo row.
     public IReadOnlyList<TripEnquiry> Enquiries { get; init; } = Array.Empty<TripEnquiry>();
     public SavedJourney? Journey { get; init; }
@@ -67,6 +76,10 @@ public sealed class TripEasyRowDto
     public int AskedCount { get; set; }
     public int? NightsTotal { get; set; }
     public int? NightsCovered { get; set; }
+    public int? NightsBooked { get; set; }
+    public int? DaysTotal { get; set; }
+    public int? DaysCovered { get; set; }
+    public bool AdvanceOpen { get; set; }
 }
 
 public sealed class TripNextRow
@@ -120,7 +133,7 @@ public static class TripEasyRows
         return rows;
     }
 
-    public static bool IsRowDone(TripEasyRow r) => TripRowStates.IsDone(r.State) && !r.Partial;
+    public static bool IsRowDone(TripEasyRow r) => TripRowStates.IsDone(r.State) && !r.Partial && !r.ShortOfCover && !r.AdvanceOpen;
 
     // Every step key a plan has: gettingThere, comingBack, taxi, stay:k for each city, between:k from city 2.
     public static HashSet<string> StepKeysOf(TripPlan plan)
@@ -152,7 +165,7 @@ public static class TripEasyRows
             Done = done,
             InProgress = counted.Count(r => TripRowStates.IsInProgress(r.State)),
             Attention = counted.Count(r => r.State == TripRowStates.Attention),
-            Percent = counted.Count == 0 ? 100 : done * 100 / counted.Count,
+            Percent = counted.Count == 0 ? 0 : done * 100 / counted.Count,
             NeedsYou = rows.Any(r => r.NeedsYou),
             Next = next == null ? null : new TripNextRow { Kind = next.Key.Kind, LegIndex = next.Key.LegIndex, Key = next.Key.Id },
             LastEventAt = lastEventAt,
@@ -175,6 +188,10 @@ public static class TripEasyRows
         AskedCount = row.AskedCount,
         NightsTotal = row.NightsTotal > 0 ? row.NightsTotal : null,
         NightsCovered = row.NightsTotal > 0 ? row.NightsCovered : null,
+        NightsBooked = row.NightsTotal > 0 ? row.NightsBooked : null,
+        DaysTotal = row.DaysTotal > 0 ? row.DaysTotal : null,
+        DaysCovered = row.DaysTotal > 0 ? row.DaysCovered : null,
+        AdvanceOpen = row.AdvanceOpen,
     };
 
     // The booked rows' money, each row once.
@@ -218,7 +235,8 @@ public static class TripEasyRows
     private static bool Marked(TripRowMark? mark, string status) => mark?.Status == status;
 
     private static TripEasyRow Row(string kind, int? leg, string state, bool needsYou = false, int asked = 0,
-        IEnumerable<TripEnquiry>? rows = null, SavedJourney? journey = null, int nightsTotal = 0, int nightsCovered = 0)
+        IEnumerable<TripEnquiry>? rows = null, SavedJourney? journey = null, int nightsTotal = 0, int nightsCovered = 0,
+        int daysTotal = 0, int daysCovered = 0, bool advanceOpen = false, int nightsBooked = 0)
         => new()
         {
             Key = new TripRowKey(kind, leg),
@@ -229,6 +247,10 @@ public static class TripEasyRows
             Journey = journey,
             NightsTotal = nightsTotal,
             NightsCovered = nightsCovered,
+            NightsBooked = nightsBooked,
+            DaysTotal = daysTotal,
+            DaysCovered = daysCovered,
+            AdvanceOpen = advanceOpen,
         };
 
     private static List<TripEnquiry> Newest(IEnumerable<TripEnquiry> rows) => rows.OrderByDescending(e => e.UpdatedAt).ToList();
@@ -268,8 +290,13 @@ public static class TripEasyRows
         var live = covering.Where(e => TripEnquiryStatuses.Open.Contains(e.Status)).ToList();
         bool Has(params string[] statuses) => live.Any(e => statuses.Contains(e.Status));
         var asked = AskedOf(live);
+        // A night is held only by a confirmed or booked row; an ask never holds one.
         var covered = live.SelectMany(e => TripBookingMap.DaysOf(e, ctx.Start, ctx.DayCount)).Where(days.Contains).Distinct().Count();
-        TripEasyRow Cover(string state, bool needsYou) => Row(TripRowKinds.Stay, k, state, needsYou, asked, live, null, days.Count, covered);
+        var booked = live.Where(e => TripEnquiryStatuses.IsBooked(e.Status))
+            .SelectMany(e => TripBookingMap.DaysOf(e, ctx.Start, ctx.DayCount)).Where(days.Contains).Distinct().Count();
+        var advanceOpen = live.Any(e => e.Status == TripEnquiryStatuses.ConfirmedByBoth && AdvanceIsOpen(e));
+        TripEasyRow Cover(string state, bool needsYou)
+            => Row(TripRowKinds.Stay, k, state, needsYou, asked, live, null, days.Count, covered, advanceOpen: advanceOpen, nightsBooked: booked);
 
         var both = live.FirstOrDefault(e => e.Status == TripEnquiryStatuses.ConfirmedByBoth);
         if (both == null && moved.Any(e => e.Status == TripEnquiryStatuses.ConfirmedByBoth))
@@ -280,13 +307,23 @@ public static class TripEasyRows
             var needsYou = both.AdvanceStatus == TripAdvanceStatuses.Pending || ctx.RevisedPending.Contains(both.Id) || replace;
             return Cover(TripRowStates.Confirmed, needsYou);
         }
+        if (Has(TripEnquiryStatuses.BookedByTraveller))
+            return Cover(TripRowStates.Booked, Has(TripEnquiryStatuses.Offered));
         if (Has(TripEnquiryStatuses.Offered))
             return Cover(TripRowStates.Offer, true);
         if (Has(TripEnquiryStatuses.Asked, TripEnquiryStatuses.Countered))
             return Cover(TripRowStates.Asked, false);
         if (LastClosedIsProblem(ctx, covering)) return Row(TripRowKinds.Stay, k, TripRowStates.Attention, false, 0, covering);
+        // A booking outside every leg's days (days cut, start moved) is never a Todo: it needs the traveller.
+        var orphans = ctx.Local.Where(e => e.Kind == TripEnquiryKinds.Stay && TripEnquiryStatuses.IsBooked(e.Status)
+            && TripBookingMap.DaysOf(e, ctx.Start, ctx.DayCount).Count == 0 && OrphanLeg(e, ctx.Plan) == k).ToList();
+        if (orphans.Count > 0) return Row(TripRowKinds.Stay, k, TripRowStates.Attention, true, 0, orphans);
         return Row(TripRowKinds.Stay, k, TripRowStates.Todo);
     }
+
+    private static bool AdvanceIsOpen(TripEnquiry e) => e.AdvanceStatus is TripAdvanceStatuses.Pending or TripAdvanceStatuses.ProofSent;
+
+    private static int OrphanLeg(TripEnquiry e, TripPlan plan) => TripLegRules.HomeLegIndex(e, plan) is { } home && home >= 1 ? home : 1;
 
     private static TripEasyRow TaxiRow(Context ctx)
     {
@@ -299,14 +336,22 @@ public static class TripEasyRows
         bool Has(params string[] statuses) => live.Any(e => statuses.Contains(e.Status));
         var asked = AskedOf(live);
 
+        // Every plan day needs a confirmed or booked car; an ask covers nothing.
+        var required = ctx.Plan.Days.Select(d => d.Day).ToHashSet();
+        var covered = live.Where(e => TripEnquiryStatuses.IsBooked(e.Status))
+            .SelectMany(e => TripBookingMap.DaysOf(e, ctx.Start, ctx.DayCount)).Where(required.Contains).Distinct().Count();
+        var advanceOpen = live.Any(e => e.Status == TripEnquiryStatuses.ConfirmedByBoth && AdvanceIsOpen(e));
+        TripEasyRow Cover(string state, bool needsYou)
+            => Row(TripRowKinds.Taxi, null, state, needsYou, asked, live, null, 0, 0, required.Count, covered, advanceOpen);
+
         var both = live.FirstOrDefault(e => e.Status == TripEnquiryStatuses.ConfirmedByBoth);
         if (both != null)
-            return Row(TripRowKinds.Taxi, null, TripRowStates.Confirmed, live.Any(e => e.Id != both.Id && e.Status == TripEnquiryStatuses.FareSent), asked, live);
+            return Cover(TripRowStates.Confirmed, live.Any(e => e.Id != both.Id && e.Status == TripEnquiryStatuses.FareSent));
         if (Has(TripEnquiryStatuses.BookedByTraveller))
-            return Row(TripRowKinds.Taxi, null, TripRowStates.Booked, Has(TripEnquiryStatuses.FareSent), asked, live);
-        if (Has(TripEnquiryStatuses.FareSent)) return Row(TripRowKinds.Taxi, null, TripRowStates.Offer, true, asked, live);
+            return Cover(TripRowStates.Booked, Has(TripEnquiryStatuses.FareSent));
+        if (Has(TripEnquiryStatuses.FareSent)) return Cover(TripRowStates.Offer, true);
         if (Has(TripEnquiryStatuses.Asked))
-            return Row(TripRowKinds.Taxi, null, TripRowStates.Asked, false, asked, live);
+            return Cover(TripRowStates.Asked, false);
         if (LastClosedIsProblem(ctx, covering)) return Row(TripRowKinds.Taxi, null, TripRowStates.Attention, false, 0, covering);
         return Row(TripRowKinds.Taxi, null, TripRowStates.Todo);
     }
@@ -398,7 +443,7 @@ public static class TripEasyRows
     {
         TripTravelStates.Own => (TripRowStates.Own, false),
         TripTravelStates.Confirmed => (TripRowStates.Confirmed, false),
-        TripTravelStates.Saved => (TripRowStates.Saved, false),
+        TripTravelStates.Saved => (TripRowStates.Saved, true),
         TripTravelStates.Free => (TripRowStates.Offer, true),
         TripTravelStates.Booked => (TripRowStates.Booked, false),
         TripTravelStates.Asked or TripTravelStates.PartlyBooked => (TripRowStates.Asked, carNeedsYou),

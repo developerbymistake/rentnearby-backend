@@ -146,7 +146,8 @@ public static class TaxiWaysChainSearch
             var stops = label.Places().Select(AnchorFor).OfType<TaxiWaysAnchor>().ToList();
             if (stops.Count != label.Cars + 1) continue;
             var plan = TaxiWaysSearchEngine.BuildPlan(s, stops, people, o);
-            if (plan != null) plans.Add(plan);
+            // A plan that merged (one driver on consecutive stretches) is the all-the-way car, listed elsewhere.
+            if (plan != null && plan.Cars == label.Cars) plans.Add(plan);
         }
         return (plans, relaxed);
     }
