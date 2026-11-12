@@ -766,7 +766,7 @@ public class TripRequestValidatorsTests
     [InlineData(3)]
     [InlineData(4)]
     [InlineData(5)]
-    [InlineData(7)]
+    [InlineData(8)]
     public void Save_AnyOtherVersion_Invalid(int version)
     {
         var request = Save();

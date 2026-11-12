@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261107190719_InitialCreate")]
+    [Migration("20261112055217_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -1196,6 +1196,65 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("NotificationId");
 
                     b.ToTable("NotificationReads");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.OutboxMessage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<short>("Attempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0);
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Exchange")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RoutingKey")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "NextAttemptAt", "Id" }, "ix_outbox_due")
+                        .HasFilter("\"PublishedAt\" IS NULL");
+
+                    b.HasIndex(new[] { "PublishedAt" }, "ix_outbox_published")
+                        .HasFilter("\"PublishedAt\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "Key" }, "ux_outbox_key")
+                        .IsUnique();
+
+                    b.ToTable("OutboxMessages");
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.PaymentEvent", b =>
@@ -3353,6 +3412,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<short?>("CityLeg")
                         .HasColumnType("smallint");
 
+                    b.Property<Guid?>("ClientRequestId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("ConfirmedByOwnerAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -3403,6 +3465,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<string>("FailReason")
                         .HasMaxLength(24)
                         .HasColumnType("character varying(24)");
+
+                    b.Property<DateTime?>("FinalPushedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("HoldUntil")
                         .HasColumnType("timestamp with time zone");
@@ -3456,8 +3521,15 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateTime?>("ProofSentAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateOnly?>("RemindedOn")
+                        .HasColumnType("date");
+
                     b.Property<string>("Status")
                         .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("StepKey")
                         .HasMaxLength(24)
                         .HasColumnType("character varying(24)");
 
@@ -3497,10 +3569,18 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasFilter("\"ConversationId\" IS NOT NULL");
 
                     b.HasIndex(new[] { "ExpiresAt" }, "ix_tripenquiries_expires")
-                        .HasFilter("\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')");
+                        .HasFilter("\"Status\" IN ('Asked','Offered','Countered')");
+
+                    b.HasIndex(new[] { "TravellerUserId" }, "ix_tripenquiries_final")
+                        .HasFilter("\"Status\" = 'Expired' AND \"FinalPushedAt\" IS NULL");
 
                     b.HasIndex(new[] { "HoldUntil" }, "ix_tripenquiries_hold")
                         .HasFilter("\"AdvanceStatus\" IN ('Pending','ProofSent')");
+
+                    b.HasIndex(new[] { "OwnerUserId" }, "ix_tripenquiries_hostreminder")
+                        .HasFilter("\"Status\" IN ('Asked','Countered')");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "OwnerUserId" }, "ix_tripenquiries_hostreminder"), new[] { "RemindedOn", "ExpiresAt" });
 
                     b.HasIndex(new[] { "TripId", "Kind", "ListingId", "CityLeg" }, "ix_tripenquiries_open_taxi_unique")
                         .IsUnique()
@@ -3519,6 +3599,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "ProofSentAt" }, "ix_tripenquiries_proof")
                         .HasFilter("\"AdvanceStatus\" = 'ProofSent'");
 
+                    b.HasIndex(new[] { "TripId", "StepKey" }, "ix_tripenquiries_settled")
+                        .HasFilter("\"Status\" IN ('ConfirmedByBoth','BookedByTraveller')");
+
                     b.HasIndex(new[] { "TravellerUserId", "CreatedAt" }, "ix_tripenquiries_traveller")
                         .IsDescending(false, true);
 
@@ -3530,6 +3613,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "CheckIn" }, "ix_tripenquiries_urgent")
                         .HasFilter("NOT \"IsUrgent\" AND \"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')");
 
+                    b.HasIndex(new[] { "TravellerUserId", "ClientRequestId", "ListingId" }, "ux_tripenquiries_client_request")
+                        .IsUnique()
+                        .HasFilter("\"ClientRequestId\" IS NOT NULL");
+
                     b.ToTable("TripEnquiries", t =>
                         {
                             t.HasCheckConstraint("ck_tripenquiries_advance_status", "\"AdvanceStatus\" IN ('None','Pending','ProofSent','Received','HoldExpired')");
@@ -3540,6 +3627,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_tripenquiries_status", "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller','NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Failed','Closed')");
                         });
+
+                    b.HasAnnotation("Npgsql:StorageParameter:fillfactor", 85);
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.TripOffer", b =>
@@ -3721,6 +3810,115 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "SentAt" }, "ix_trippushlogs_sent");
 
                     b.ToTable("TripPushLogs");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.TripReminderRun", b =>
+                {
+                    b.Property<DateOnly>("RunDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Sent")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("RunDate");
+
+                    b.ToTable("TripReminderRuns");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.TripShortlistItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ClosedReason")
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)");
+
+                    b.Property<DateTime>("ClosesAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("FinalPushedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("JourneyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<short?>("LegIndex")
+                        .HasColumnType("smallint");
+
+                    b.Property<Guid>("ListingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ListingName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateOnly?>("RemindedOn")
+                        .HasColumnType("date");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("StepKey")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<Guid>("TravellerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TripId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "TravellerUserId" }, "ix_shortlist_active_user")
+                        .HasFilter("\"State\" = 'Active'");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "TravellerUserId" }, "ix_shortlist_active_user"), new[] { "RemindedOn", "ClosesAt", "TripId" });
+
+                    b.HasIndex(new[] { "ClosesAt" }, "ix_shortlist_closes")
+                        .HasFilter("\"State\" IN ('Active','Sent')");
+
+                    b.HasIndex(new[] { "TravellerUserId" }, "ix_shortlist_final")
+                        .HasFilter("\"State\" = 'Closed' AND \"ClosedReason\" = 'NoReply' AND \"FinalPushedAt\" IS NULL");
+
+                    b.HasIndex(new[] { "TripId", "StepKey" }, "ix_shortlist_trip_step");
+
+                    b.HasIndex(new[] { "TripId", "StepKey", "ListingId" }, "ux_shortlist_active_listing")
+                        .IsUnique()
+                        .HasFilter("\"State\" = 'Active'");
+
+                    b.ToTable("TripShortlistItems", t =>
+                        {
+                            t.HasCheckConstraint("ck_shortlist_kind", "\"Kind\" IN ('Stay','Taxi','Car')");
+
+                            t.HasCheckConstraint("ck_shortlist_state", "\"State\" IN ('Active','Sent','Closed','Booked')");
+                        });
+
+                    b.HasAnnotation("Npgsql:StorageParameter:fillfactor", 85);
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>
@@ -4551,6 +4749,15 @@ namespace RentNearBy.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("TripId")
                         .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.TripShortlistItem", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Trip", null)
+                        .WithMany()
+                        .HasForeignKey("TripId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.User", b =>

@@ -21,6 +21,8 @@ public class AskDriversRequest
     public string FromName { get; set; } = string.Empty;
     public string ToName { get; set; } = string.Empty;
     public List<AskLegRequest> Legs { get; set; } = new();
+    public Guid? ClientRequestId { get; set; }
+    public string? StepKey { get; set; }
 }
 
 public class SaveJourneyLegRequest

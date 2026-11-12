@@ -58,7 +58,7 @@ public class TripV2RemovalGuardTests
         foreach (var gone in new[] { "How", "OwnName", "OwnPhone", "LeavesAt", "HubName" })
             Assert.DoesNotContain(gone, Names(typeof(TripSummaryTravelDto)));
         Assert.Contains("Arrangements", Names(typeof(TripSummaryRecordDto)));
-        Assert.Equal(new[] { "Key", "Kind", "LegIndex", "Title", "State", "Detail" }, Names(typeof(TripSummaryArrangementDto)));
+        Assert.Equal(new[] { "Key", "Kind", "LegIndex", "Title", "State", "Detail", "Partial", "NightsCovered", "NightsTotal" }, Names(typeof(TripSummaryArrangementDto)));
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class TripV2RemovalGuardTests
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(progress, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
         var root = doc.RootElement;
         Assert.Equal(
-            new[] { "total", "done", "inProgress", "attention", "percent", "needsYou", "next", "lastEventAt", "rows" },
+            new[] { "total", "done", "inProgress", "attention", "percent", "needsYou", "next", "lastEventAt", "guideStep", "rows" },
             root.EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal(new[] { "kind", "legIndex", "key" }, root.GetProperty("next").EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal(
@@ -106,6 +106,6 @@ public class TripV2RemovalGuardTests
         Assert.Contains("StayMark", Names(typeof(TripCityLeg)));
         Assert.Contains("TravelMark", Names(typeof(TripCityLeg)));
         Assert.Contains("TaxiMark", Names(typeof(TripPlan)));
-        Assert.Equal([6], TripPlan.SupportedVersions);
+        Assert.Equal([6, 7], TripPlan.SupportedVersions);
     }
 }

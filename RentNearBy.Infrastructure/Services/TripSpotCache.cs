@@ -9,12 +9,18 @@ using StackExchange.Redis;
 
 namespace RentNearBy.Infrastructure.Services;
 
+// Cache-only read: never calls Atlas and never starts a load. Null = nothing cached (or no Redis).
+public interface ITripSpotPeek
+{
+    Task<CachedCitySpots?> PeekAsync(long cityKey, CancellationToken ct = default);
+}
+
 // Every Redis call is guarded: a Redis failure degrades to a direct Atlas call.
 // IAtlasClient is resolved per fetch so the typed client's handler keeps rotating.
 public class TripSpotCache(
     IOptions<TripPlannerOptions> options,
     IServiceProvider sp,
-    ILogger<TripSpotCache> logger) : ITripSpotCache
+    ILogger<TripSpotCache> logger) : ITripSpotCache, ITripSpotPeek
 {
     private const int LockWaitRounds = 10;
     private static readonly TimeSpan LockWaitDelay = TimeSpan.FromMilliseconds(300);
@@ -30,6 +36,13 @@ public class TripSpotCache(
 
         var lazy = _inflight.GetOrAdd(cityKey, key => new Lazy<Task<CachedCitySpots?>>(() => LoadOnceAsync(redis, key)));
         return await lazy.Value.WaitAsync(ct);
+    }
+
+    // Fresh copy first, then the 7-day stale copy; used by the city catalog so a cold city list never waits on Atlas.
+    public async Task<CachedCitySpots?> PeekAsync(long cityKey, CancellationToken ct = default)
+    {
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        return await ReadAsync(redis, TripCacheKeys.Spots(cityKey)) ?? await ReadAsync(redis, TripCacheKeys.Stale(cityKey));
     }
 
     public async Task InvalidateAsync(long cityKey)

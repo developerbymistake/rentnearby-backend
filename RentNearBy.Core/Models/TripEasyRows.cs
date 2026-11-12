@@ -87,6 +87,8 @@ public sealed class TripProgress
     public bool NeedsYou { get; set; }
     public TripNextRow? Next { get; set; }
     public DateTime? LastEventAt { get; set; }
+    // Where the traveller left the guided flow (plan.guide.step), only a step the plan really has; null = never started.
+    public string? GuideStep { get; set; }
     public List<TripEasyRowDto> Rows { get; set; } = new();
 }
 
@@ -120,7 +122,24 @@ public static class TripEasyRows
 
     public static bool IsRowDone(TripEasyRow r) => TripRowStates.IsDone(r.State) && !r.Partial;
 
-    public static TripProgress Progress(IReadOnlyList<TripEasyRow> rows, DateTime? lastEventAt = null)
+    // Every step key a plan has: gettingThere, comingBack, taxi, stay:k for each city, between:k from city 2.
+    public static HashSet<string> StepKeysOf(TripPlan plan)
+    {
+        var legCount = Math.Max(1, plan.Legs?.Count ?? 1);
+        var keys = new HashSet<string> { TripRowKinds.GettingThere, TripRowKinds.ComingBack, TripRowKinds.Taxi };
+        for (var k = 1; k <= legCount; k++)
+        {
+            keys.Add($"stay:{k}");
+            if (k >= 2) keys.Add($"between:{k}");
+        }
+        return keys;
+    }
+
+    // The saved guide step when it is a valid key of this plan, else null.
+    public static string? GuideStepOf(TripPlan plan)
+        => plan.Guide?.Step is { } step && TripStepKeys.IsValid(step) && StepKeysOf(plan).Contains(step) ? step : null;
+
+    public static TripProgress Progress(IReadOnlyList<TripEasyRow> rows, DateTime? lastEventAt = null, string? guideStep = null)
     {
         var counted = rows.Where(r => r.State != TripRowStates.Skipped).ToList();
         var done = counted.Count(IsRowDone);
@@ -137,13 +156,14 @@ public static class TripEasyRows
             NeedsYou = rows.Any(r => r.NeedsYou),
             Next = next == null ? null : new TripNextRow { Kind = next.Key.Kind, LegIndex = next.Key.LegIndex, Key = next.Key.Id },
             LastEventAt = lastEventAt,
+            GuideStep = guideStep,
             Rows = rows.Select(ToDto).ToList(),
         };
     }
 
     public static TripProgress Compute(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys,
         IReadOnlySet<Guid>? revisedPending = null)
-        => Progress(Build(trip, plan, enquiries, journeys, revisedPending), enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt));
+        => Progress(Build(trip, plan, enquiries, journeys, revisedPending), enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt), GuideStepOf(plan));
 
     public static TripEasyRowDto ToDto(TripEasyRow row) => new()
     {
@@ -385,4 +405,12 @@ public static class TripEasyRows
         TripTravelStates.CarMissing or TripTravelStates.DriverUnavailable or TripTravelStates.DateChanged => (TripRowStates.Attention, false),
         _ => (TripRowStates.Todo, false),
     };
+}
+
+public static class TripCreateRules
+{
+    // Trips a traveller may keep in Draft at once (TripHandlers.MaxOpenDrafts).
+    public const int MaxOpenDrafts = 30;
+
+    public static bool DraftCapReached(int openDrafts) => openDrafts >= MaxOpenDrafts;
 }

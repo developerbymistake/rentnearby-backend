@@ -419,3 +419,73 @@ public static class TripReminderNotifications
         CreatedAt = DateTime.UtcNow,
     };
 }
+
+public sealed record TripReminderCopy(string Title, string Body);
+
+// Morning pushes of the 3-day clock (push-only, one per person per day). Copy per IMPL_PLAN_TRIPFLOW 2.2.
+public static class TripReminderPush
+{
+    public const int NameMax = 40;
+
+    public static TripReminderCopy ShortlistWaiting(string? name, int count)
+    {
+        var n = Short(name);
+        var body = count <= 1
+            ? $"Send your enquiry to {n} today. Did you already book {n}? Mark it as booked."
+            : $"Send your enquiry to {n} and {count - 1} more today. Did you already book? Mark it as booked.";
+        return new("Your shortlist is waiting", body);
+    }
+
+    public static TripReminderCopy NoReplyYet(string? name, int count)
+    {
+        var n = Short(name);
+        var body = count <= 1
+            ? $"{n} has not replied. Did you already book {n}? Mark it as booked."
+            : $"{n} and {count - 1} more have not replied. Did you already book? Mark it as booked.";
+        return new("No reply yet", body);
+    }
+
+    // The host answered in chat but never sent an offer: the traveller is not told "no reply".
+    public static TripReminderCopy HostChatted(string? name, int count)
+    {
+        var n = Short(name);
+        var body = count <= 1
+            ? $"{n} has written to you in chat. Open the chat to continue."
+            : $"{n} and {count - 1} more have written to you in chat. Open your trip to continue.";
+        return new("You have a reply", body);
+    }
+
+    // An offer was sent, nobody answered it in time and the enquiry ran out.
+    public static TripReminderCopy OfferEnded(string? name) => new("Your offer has ended",
+        $"The offer from {Short(name)} ended. Choose again to complete your trip.");
+
+    // An enquiry that ended with no reply and is not tied to a step: opens the trip plan.
+    public static TripReminderCopy EnquiryEnded(string? name) => new("Your enquiry has ended",
+        $"{Short(name)} did not reply in time. Open your trip to choose again.");
+
+    public static TripReminderCopy ShortlistEnded() => new("Your shortlist has ended",
+        "Your shortlist has ended without a reply. Choose new options to complete your trip.");
+
+    public static TripReminderCopy HostWaiting(int count, string? travellerName, DateOnly? on)
+    {
+        if (count > 1) return new($"{count} travellers waiting", $"{count} travellers are waiting for your reply.");
+        var who = string.IsNullOrWhiteSpace(travellerName) ? "a traveller's" : Short(travellerName) + "'s";
+        var when = on is { } d ? $" for {d.ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture)}" : string.Empty;
+        return new("1 traveller waiting", $"Please reply to {who} enquiry{when}.");
+    }
+
+    // Opens the guided flow at step; nudge asks "Did you book {name}?", reopen shows the reopened card.
+    public static string TravellerArgs(Guid tripId, string? step, bool nudge, bool reopen, string? name)
+    {
+        var node = new JsonObject { ["tripId"] = tripId.ToString(), ["nudge"] = nudge, ["reopen"] = reopen };
+        if (!string.IsNullOrEmpty(step)) node["step"] = step;
+        if (!string.IsNullOrWhiteSpace(name)) node["name"] = Short(name);
+        return node.ToJsonString();
+    }
+
+    public static string Short(string? name)
+    {
+        var t = string.IsNullOrWhiteSpace(name) ? "your pick" : name.Trim();
+        return t.Length <= NameMax ? t : t[..(NameMax - 1)].TrimEnd() + "…";
+    }
+}

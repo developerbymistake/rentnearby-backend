@@ -107,6 +107,8 @@ public static class TripOwnerHandlers
         if (e.Kind != TripEnquiryKinds.Stay || e.TripId is not { } tripId) return Closed();
 
         var now = DateTime.UtcNow;
+        // An unanswered enquiry is over when its window ends, even before the timer sweeps it.
+        if (TripBulkRules.WindowEnded(e.Status, e.ExpiresAt, now)) return Closed();
         var trip = await db.Trips.AsNoTracking().Where(t => t.Id == tripId)
             .Select(t => new { t.StartDate, t.EndDate }).FirstOrDefaultAsync();
         if (trip?.StartDate is not { } start || trip.EndDate is not { } end) return Closed();
@@ -117,6 +119,20 @@ public static class TripOwnerHandlers
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
 
         var offers = await unitOfWork.TripOffers.GetByEnquiryAsync(e.Id);
+
+        // A retry of the same tap (same dates, total and lines from the same host within two minutes) answers with the offer
+        // already sent: no second card, no second push, and the offer cap and counter checks do not see it.
+        var replayLines = CleanLines(request.Lines);
+        var replayTotal = TripExecutionRules.ComputeTotal(replayLines, request.CheckOut.DayNumber - request.CheckIn.DayNumber);
+        var replayJson = JsonSerializer.Serialize(replayLines, TripJson.Options);
+        var sent = offers.FirstOrDefault(o => TripBulkRules.IsOfferReplay(o, callerId, request.CheckIn, request.CheckOut, replayTotal, replayJson, now));
+        if (sent != null)
+        {
+            httpContext.Response.Headers[TripBulk.ReplayHeader] = "true";
+            var replayDto = await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId);
+            return OkResponse(new TripOfferResultDto { Enquiry = replayDto, Offer = replayDto.OpenOffer ?? new TripOfferDto { Id = sent.Id } });
+        }
+
         if (offers.Count(o => o.Kind == TripOfferKinds.Offer) >= TripExecutionRules.MaxOffersPerEnquiry)
             return ErrorResponse(409, "Offer limit reached for this enquiry.", TripEnquiryErrorTypes.OfferLimit);
 
@@ -260,6 +276,7 @@ public static class TripOwnerHandlers
         if (!TripEnquiryStatuses.IsUnconfirmed(e.Status)) return Closed();
 
         var now = DateTime.UtcNow;
+        if (TripBulkRules.WindowEnded(e.Status, e.ExpiresAt, now)) return Closed();
         var posts = new List<TripChatPost>();
         await unitOfWork.BeginTransactionAsync();
         try
@@ -281,6 +298,7 @@ public static class TripOwnerHandlers
                 posts.Add(await chat.PostSystemAsync(conversation, callerId, "notAvailable", "This stay is no longer available."));
 
             await unitOfWork.SaveChangesAsync();
+            await TripBulk.CloseSentRowAsync(db, e, now);
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)

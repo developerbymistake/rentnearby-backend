@@ -179,6 +179,48 @@ public class TripEnquiryBatchDto
     // Open leads whose days were merged with this request; they are in Items too.
     public List<Guid> Updated { get; set; } = new();
     public bool VeryShortNotice { get; set; }
+    // One entry per requested listing, in request order.
+    public List<TripSendResultDto> Results { get; set; } = new();
+}
+
+public class TripSendResultDto
+{
+    public Guid ListingId { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public Guid? EnquiryId { get; set; }
+    public string? Reason { get; set; }
+}
+
+public class ShortlistItemDto
+{
+    public string StepKey { get; set; } = string.Empty;
+    public string Kind { get; set; } = string.Empty;
+    public Guid ListingId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public Guid? JourneyId { get; set; }
+    public int? LegIndex { get; set; }
+    public string State { get; set; } = string.Empty;
+    public string? ClosedReason { get; set; }
+    public DateTime AddedAt { get; set; }
+    public DateTime ClosesAt { get; set; }
+}
+
+public class TripShortlistDto
+{
+    public int Max { get; set; }
+    public List<ShortlistItemDto> Items { get; set; } = new();
+}
+
+public class StepShortlistDto
+{
+    public string StepKey { get; set; } = string.Empty;
+    public List<ShortlistItemDto> Items { get; set; } = new();
+}
+
+public class MarkBookedResultDto
+{
+    public int ClosedEnquiries { get; set; }
+    public int ClosedShortlist { get; set; }
 }
 
 public class TripOwnerCountsDto

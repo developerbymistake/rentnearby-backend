@@ -57,6 +57,15 @@ public class TripEnquiry
     public Guid? CancelledByUserId { get; set; }
     public string? CancelReason { get; set; }
 
+    // Guided-flow step this enquiry belongs to (stay:1, taxi, gettingThere...); null for enquiries sent outside the flow.
+    public string? StepKey { get; set; }
+    // Idempotency key of the bulk request that created the row; unique per (traveller, key, listing).
+    public Guid? ClientRequestId { get; set; }
+    // IST date of the last morning reminder pushed to the host for this row.
+    public DateOnly? RemindedOn { get; set; }
+    // The one final no-reply push to the traveller was queued at this time.
+    public DateTime? FinalPushedAt { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

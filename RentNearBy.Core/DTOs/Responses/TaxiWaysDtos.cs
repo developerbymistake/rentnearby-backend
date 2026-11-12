@@ -65,6 +65,9 @@ public class WayDriverDto
     public bool HasRoadLine { get; set; }
     // Partial stretch: fare estimated from the road span (null for a whole-route fare).
     public int? EstimatedFare { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    // Door to door: the place where the traveller meets this driver when it is not the start of the journey.
+    public string? MeetAtName { get; set; }
 
     // Detail and change-driver endpoints only.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

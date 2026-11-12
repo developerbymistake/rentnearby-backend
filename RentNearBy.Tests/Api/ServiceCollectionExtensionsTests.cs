@@ -29,6 +29,10 @@ public class ServiceCollectionExtensionsTests
     [InlineData(typeof(TripTimerService))]
     [InlineData(typeof(JourneyWatchService))]
     [InlineData(typeof(PlanLifecycleService))]
+    [InlineData(typeof(OutboxRelayService))]
+    [InlineData(typeof(PushDeliveryWorkerService))]
+    [InlineData(typeof(TripReminderService))]
+    [InlineData(typeof(NotificationPushWorkerService))]
     public void TimedJob_IsRegisteredAsHostedService(Type worker)
     {
         var hosted = Registered()

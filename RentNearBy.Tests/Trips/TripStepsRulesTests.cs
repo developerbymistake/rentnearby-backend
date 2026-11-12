@@ -75,7 +75,7 @@ public class TripStepsRulesTests
         Assert.Equal("gettingThere", TripStepRoles.GettingThere);
         Assert.Equal("comingBack", TripStepRoles.ComingBack);
         Assert.Equal(5000.0, TripStepRules.SameCityMetres);
-        Assert.Equal(6, TripPlan.CurrentVersion);
+        Assert.Equal(7, TripPlan.CurrentVersion);
     }
 
     [Fact]

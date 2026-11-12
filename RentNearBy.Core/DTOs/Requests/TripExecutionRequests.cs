@@ -16,6 +16,31 @@ public class CreateTripEnquiryRequest
     // Taxi only, "HH:mm"; null = from the trip settings.
     public string? PickupTime { get; set; }
     public string? PickupPlace { get; set; }
+    // Stable per tap; a retry with the same key replays instead of sending again (the Idempotency-Key header is the same key).
+    public Guid? ClientRequestId { get; set; }
+    // Guided-flow step (stay:1, taxi ...) the enquiry belongs to; ties the reminder clock and the shortlist to it.
+    public string? StepKey { get; set; }
+}
+
+// PUT /trips/{tripId}/steps/{stepKey}/shortlist/{listingId}
+public class AddShortlistRequest
+{
+    public string Kind { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public Guid? JourneyId { get; set; }
+    public int? LegIndex { get; set; }
+}
+
+// POST /trips/{tripId}/steps/{stepKey}/shortlist/close
+public class CloseShortlistRequest
+{
+    public string Reason { get; set; } = string.Empty;
+}
+
+// POST /trips/{tripId}/steps/{stepKey}/mark-booked
+public class MarkBookedRequest
+{
+    public Guid? ListingId { get; set; }
 }
 
 // POST /trips/{tripId}/taxi-bookings ("I booked"). The traveller's note stays in the plan, never sent.

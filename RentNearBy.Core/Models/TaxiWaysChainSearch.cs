@@ -5,6 +5,9 @@ namespace RentNearBy.Core.Models;
 // it can still reach `to` with the cars left (backward hop distances), so the work is bounded by the links around both
 // ends: no name order and no expansion cap decide what is found. Ways that use the same vehicles in the same order collapse
 // to the cheapest change place. A plan with more cars is kept only when no plan with fewer cars is as cheap and as quick.
+// Door to door: the first car may start at any place within BasedHereMeters of the traveller and the last car may end at any
+// place within BasedHereMeters of the destination; every car hop must be longer than MinLegMeters and either bring the traveller
+// closer to the destination or keep the whole way within DetourFactor times the straight line.
 public static class TaxiWaysChainSearch
 {
     private sealed class Label
@@ -17,6 +20,8 @@ public static class TaxiWaysChainSearch
         public Guid? Route { get; init; }
         public required string Path { get; init; }
         public required string Routes { get; init; }
+        // Straight-line metres of the hops so far.
+        public double Meters { get; init; }
 
         public bool Visits(string key)
         {
@@ -37,7 +42,8 @@ public static class TaxiWaysChainSearch
     public static int LabelsPerPlace(TaxiWaysOptions o) => Math.Max(1, o.MaxPlans) * 4;
 
     public static (List<TaxiWaysPlan> Plans, int Relaxed) Plans(
-        TaxiWaysNetworkSnapshot s, TaxiWaysAnchor from, TaxiWaysAnchor to, int people, TaxiWaysOptions o)
+        TaxiWaysNetworkSnapshot s, TaxiWaysAnchor from, TaxiWaysAnchor to, int people, TaxiWaysOptions o,
+        int? directFare = null, int? directMinutes = null)
     {
         var maxCars = o.MaxCars;
         if (maxCars < 2 || from.Key == to.Key) return (new List<TaxiWaysPlan>(), 0);
@@ -50,16 +56,35 @@ public static class TaxiWaysChainSearch
             return s.Places.TryGetValue(key, out var p) ? anchors[key] = TaxiWaysSearchEngine.AnchorOf(p) : null;
         }
 
-        var toNeighbours = TaxiWaysSearchEngine.Neighbours(s, to).Where(k => k != from.Key).ToHashSet(StringComparer.Ordinal);
+        var toNeighbours = ReachingPlaces(s, from, to, o);
         var hops = HopsTo(s, to.Key, from.Key, toNeighbours, maxCars - 1);
+        var areaStart = TaxiWaysSearchEngine.AreaNeighbours(s, from, o);
+        var straight = TaxiGeo.DistanceMeters(from.Lat, from.Lng, to.Lat, to.Lng);
 
         IEnumerable<string> Next(string u)
         {
             IEnumerable<string> keys = u == from.Key
-                ? TaxiWaysSearchEngine.Neighbours(s, from)
+                ? TaxiWaysSearchEngine.Neighbours(s, from).Concat(areaStart)
                 : s.LinksAt(u).Select(l => l.OtherEnd(u));
-            if (u != from.Key && !to.Resolved && toNeighbours.Contains(u)) keys = keys.Append(to.Key);
+            if (u != from.Key && toNeighbours.Contains(u)) keys = keys.Append(to.Key);
             return keys.Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal);
+        }
+
+        (double Lat, double Lng)? PointOf(string key) =>
+            key == from.Key ? (from.Lat, from.Lng)
+            : key == to.Key ? (to.Lat, to.Lng)
+            : s.Places.TryGetValue(key, out var p) ? (p.Lat, p.Lng) : null;
+
+        // A car hop must be long, and must bring the traveller closer or keep the whole way near the straight line.
+        bool HopAllowed(string u, string v, Label label)
+        {
+            if (PointOf(u) is not { } a || PointOf(v) is not { } b) return false;
+            var hop = TaxiGeo.DistanceMeters(a.Lat, a.Lng, b.Lat, b.Lng);
+            if (hop <= o.MinLegMeters) return false;
+            if (v == to.Key) return true;
+            var left = TaxiGeo.DistanceMeters(b.Lat, b.Lng, to.Lat, to.Lng);
+            if (left < TaxiGeo.DistanceMeters(a.Lat, a.Lng, to.Lat, to.Lng)) return true;
+            return label.Meters + hop + left <= o.DetourFactor * straight;
         }
 
         var legs = new Dictionary<(string, string, Guid?), TaxiWaysLegResult?>();
@@ -69,7 +94,8 @@ public static class TaxiWaysChainSearch
             var a = AnchorFor(u);
             var b = AnchorFor(v);
             var leg = a == null || b == null ? null
-                : TaxiWaysSearchEngine.BuildLeg(s, a, b, 0, people, o, basedHereFirst: u == from.Key && from.MyLocation, excludeRoute: exclude);
+                : TaxiWaysSearchEngine.BuildLeg(s, a, b, 0, people, o, basedHereFirst: u == from.Key, excludeRoute: exclude,
+                    area: u == from.Key, endArea: v == to.Key);
             return legs[(u, v, exclude)] = leg;
         }
 
@@ -90,7 +116,7 @@ public static class TaxiWaysChainSearch
                     if (v == to.Key && k == 1) continue;
                     foreach (var label in labels)
                     {
-                        if (label.Visits(v)) continue;
+                        if (label.Visits(v) || !HopAllowed(u, v, label)) continue;
                         relaxed++;
                         var leg = Leg(u, v, label.Route);
                         if (leg == null) continue;
@@ -100,6 +126,7 @@ public static class TaxiWaysChainSearch
                             Place = v, Cars = k, Fare = label.Fare + leg.ListedFare,
                             Minutes = label.Minutes is { } m && leg.Minutes is { } lm ? m + lm : null,
                             Parent = label, Route = route, Path = label.Path + "~" + v,
+                            Meters = label.Meters + HopMeters(PointOf(u), PointOf(v)),
                             Routes = label.Routes + ">" + route.ToString("N"),
                         };
                         if (v == to.Key) arrivals.Add(arrived);
@@ -115,7 +142,7 @@ public static class TaxiWaysChainSearch
             current = next;
         }
 
-        var chosen = Front(Best(arrivals, int.MaxValue)).Take(o.MaxPlans).ToList();
+        var chosen = Front(Best(arrivals, int.MaxValue), directFare, directMinutes).Take(o.MaxPlans).ToList();
         var plans = new List<TaxiWaysPlan>();
         foreach (var label in chosen)
         {
@@ -125,6 +152,25 @@ public static class TaxiWaysChainSearch
             if (plan != null) plans.Add(plan);
         }
         return (plans, relaxed);
+    }
+
+    private static double HopMeters((double Lat, double Lng)? a, (double Lat, double Lng)? b) =>
+        a is { } x && b is { } y ? TaxiGeo.DistanceMeters(x.Lat, x.Lng, y.Lat, y.Lng) : 0;
+
+    // Places from which `to` is one car away: those linked to it, and those linked to a place within BasedHereMeters of it
+    // (the last car may end in the destination's area). `from` is never a middle place.
+    private static HashSet<string> ReachingPlaces(
+        TaxiWaysNetworkSnapshot s, TaxiWaysAnchor from, TaxiWaysAnchor to, TaxiWaysOptions o)
+    {
+        var keys = TaxiWaysSearchEngine.Neighbours(s, to).ToHashSet(StringComparer.Ordinal);
+        foreach (var end in TaxiWaysSearchEngine.PlacesNear(s, to.Lat, to.Lng, o.BasedHereMeters))
+        {
+            if (end.Key == to.Key) continue;
+            foreach (var l in s.LinksAt(end.Key)) keys.Add(l.OtherEnd(end.Key));
+        }
+        keys.Remove(from.Key);
+        keys.Remove(to.Key);
+        return keys;
     }
 
     // Fewest cars from each place to `to` (0 at `to`), up to maxHops; `from` is never a middle place.
@@ -158,8 +204,8 @@ public static class TaxiWaysChainSearch
             .ToList();
 
     // Ordered by cars, fare, minutes, path; a way with more cars stays only when every way with fewer cars costs more,
-    // or is slower (minutes compared only when both are known).
-    private static IEnumerable<Label> Front(List<Label> arrivals)
+    // or is slower (minutes compared only when both are known). A direct all-the-way taxi dominates in the same way.
+    private static IEnumerable<Label> Front(List<Label> arrivals, int? directFare, int? directMinutes)
     {
         var ordered = arrivals
             .OrderBy(l => l.Cars).ThenBy(l => l.Fare).ThenBy(l => l.Minutes ?? int.MaxValue).ThenBy(l => l.Path, StringComparer.Ordinal)
@@ -167,7 +213,8 @@ public static class TaxiWaysChainSearch
         foreach (var p in ordered)
         {
             var dominated = ordered.Any(q => q.Cars < p.Cars && q.Fare <= p.Fare
-                && (q.Minutes == null || p.Minutes == null || q.Minutes <= p.Minutes));
+                && (q.Minutes == null || p.Minutes == null || q.Minutes <= p.Minutes))
+                || (directFare is { } df && df <= p.Fare && (directMinutes == null || p.Minutes == null || directMinutes <= p.Minutes));
             if (!dominated) yield return p;
         }
     }

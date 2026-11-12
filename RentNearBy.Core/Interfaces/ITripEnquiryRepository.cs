@@ -17,6 +17,10 @@ public interface ITripEnquiryRepository : IRepository<TripEnquiry>
     Task<TripEnquiry?> FindOpenTaxiAsync(Guid tripId, Guid listingId, short cityLeg);
     // AsNoTracking; open rows of this traveller for the listing across every trip.
     Task<IReadOnlyList<TripEnquiry>> GetOpenByTravellerListingAsync(Guid travellerId, string kind, Guid listingId);
+    // AsNoTracking; open rows of this traveller for any of the listings, one query.
+    Task<IReadOnlyList<TripEnquiry>> GetOpenByTravellerListingsAsync(Guid travellerId, string kind, IReadOnlyCollection<Guid> listingIds);
+    // AsNoTracking; rows this request key already created for the listings (any status).
+    Task<IReadOnlyList<TripEnquiry>> GetByClientRequestAsync(Guid travellerId, Guid clientRequestId, IReadOnlyCollection<Guid> listingIds);
     // AsNoTracking; open first, else newest.
     Task<TripEnquiry?> GetLatestByConversationAsync(Guid conversationId);
     Task<Dictionary<Guid, TripEnquiry>> GetLatestByConversationsAsync(IReadOnlyCollection<Guid> conversationIds);

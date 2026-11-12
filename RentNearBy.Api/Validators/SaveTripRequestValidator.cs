@@ -12,6 +12,7 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
 
     public const int MaxDismissed = 100;
     public const string DismissedMessage = "Invalid dismissed list";
+    public const string GuideMessage = "Invalid guide";
     public const string LeaveOnMessage = "Invalid leave-on";
     public const string OwnCarsMessage = "Invalid own cars";
 
@@ -71,6 +72,7 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
             RuleFor(x => x.Plan.CityKey).GreaterThan(0).WithMessage(CityRequiredMessage);
             RuleFor(x => x.Plan.TaxiMark!).SetValidator(new TripRowMarkValidator()).When(x => x.Plan.TaxiMark != null);
             RuleFor(x => x.Plan.DismissedEnquiryIds).Must(IsValidDismissed).WithMessage(DismissedMessage);
+            RuleFor(x => x.Plan.Guide!).Must(TripGuideRules.IsValid).WithMessage(GuideMessage).When(x => x.Plan.Guide != null);
 
             RuleFor(x => x.Plan.Settings).NotNull().WithMessage("Plan settings are required");
             RuleFor(x => x.Plan.Settings.DayLimitMinutes)

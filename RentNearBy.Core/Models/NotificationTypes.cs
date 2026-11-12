@@ -59,6 +59,8 @@ public static class NotificationTypes
     public const string TripStartsToday = "TripStartsToday";
     public const string TripMarkComplete = "TripMarkComplete";
     public const string TripTravelEve = "TripTravelEve";
+    // Push-only morning reminders (rnb.push outbox), no NotificationEvent row.
+    public const string TripReminder = "TripReminder";
 
     // The lowercase-snake value sent as the FCM data payload's "notification_type" key — kept
     // paired here (not derived by naive case-conversion) so the PascalCase DB value and the wire
@@ -116,6 +118,7 @@ public static class NotificationTypes
         [TripStartsToday] = "trip_starts_today",
         [TripMarkComplete] = "trip_mark_complete",
         [TripTravelEve] = "trip_travel_eve",
+        [TripReminder] = "trip_reminder",
     };
 
     public static string ToWireValue(string type) => WireValues.TryGetValue(type, out var wire) ? wire : type;

@@ -111,12 +111,37 @@ public static class TripOfferStatuses
     public const string Superseded = "Superseded";
 }
 
+public static class TripSendStatuses
+{
+    public const string Sent = "Sent";
+    public const string AlreadyOpen = "AlreadyOpen";
+    // An open enquiry to the same host for overlapping dates exists, but in ANOTHER trip: nothing was sent for this trip.
+    public const string OpenInAnotherTrip = "OpenInAnotherTrip";
+    public const string Replayed = "Replayed";
+    public const string NotAvailable = "NotAvailable";
+    public const string Blocked = "Blocked";
+    public const string LimitReached = "LimitReached";
+    public const string Failed = "Failed";
+
+    // Skip reason -> per-recipient status.
+    public static string FromSkip(string reason) => reason switch
+    {
+        TripSkipReasons.NotAvailable => NotAvailable,
+        TripSkipReasons.Blocked => Blocked,
+        TripSkipReasons.LimitReached => LimitReached,
+        TripSkipReasons.OpenInAnotherTrip => OpenInAnotherTrip,
+        _ => AlreadyOpen,
+    };
+}
+
 public static class TripSkipReasons
 {
     public const string AlreadyOpen = "AlreadyOpen";
     public const string NotAvailable = "NotAvailable";
     public const string Blocked = "Blocked";
     public const string LimitReached = "LimitReached";
+    // Open enquiry to this host for overlapping dates in another trip (rows of this trip stay AlreadyOpen).
+    public const string OpenInAnotherTrip = "OpenInAnotherTrip";
     // A booked lead with this driver already exists for other days.
     public const string AlreadyBooked = "AlreadyBooked";
 }
@@ -376,6 +401,10 @@ public static class TripEnquiryErrorTypes
     public const string TripNotEnded = "TripNotEnded";
     public const string ProblemOutsideTrip = "ProblemOutsideTrip";
     public const string TripNeedsUpdate = "TripNeedsUpdate";
+    public const string TooManyRecipients = "TooManyRecipients";
+    public const string ShortlistFull = "ShortlistFull";
+    public const string StepFull = "StepFull";
+    public const string InvalidStepKey = "InvalidStepKey";
     public const string TravelDateChanged = "TravelDateChanged";
     public const string TripCompleted = "TripCompleted";
     public const string EnquiryEnded = "EnquiryEnded";
@@ -465,8 +494,14 @@ public sealed class TripExecutionOptions
 
 public static class TripExecutionRules
 {
-    public const int MaxShortlistPerNight = 3, MaxOpenPerNight = 3, MaxOffersPerEnquiry = 5, MaxLinesPerOffer = 5;
-    public const int EnquiryHours = 48, ReplyBeforeHours = 12, FloorHours = 2;
+    // Every per-request, per-step and per-enquiry cap is 3: one rule for the traveller and the host.
+    public const int MaxRecipientsPerEnquiry = 3, MaxShortlistPerStep = 3, MaxOpenPerNight = 3, MaxOffersPerEnquiry = 3, MaxLinesPerOffer = 5;
+    // The one enquiry window (3 days). The shortlist clock uses the same value.
+    public const int EnquiryHours = 72, ReplyBeforeHours = 12, FloorHours = 2;
+    public const int ShortlistHours = EnquiryHours;
+    // Booked drivers one Book request may replace (not a recipient list).
+    public const int MaxReplaceDrivers = 6;
+    public const string PickMessage = "Pick 1 to 3.";
     public const int OfferHours = 24, OfferUrgentHours = 2, OfferFloorHours = 1, UrgentHours = 72;
     public const int EnquiriesPerHour = 20, EnquiriesPerDay = 60, OwnerActionsPerHour = 60;
     public const int MaxTextLen = 80, MaxSpotsInText = 8, NoteMax = 300, CancellationMax = 300, BalanceNoteMax = 120, HostNameMax = 60, RoomNameMax = 40;
@@ -490,7 +525,7 @@ public static class TripExecutionRules
     public static bool IsUrgent(DateOnly startDate, DateTime nowUtc)
         => IstMidnightUtc(startDate) - nowUtc < TimeSpan.FromHours(UrgentHours);
 
-    // ref = trip start 00:00 IST before the trip, else check-in 00:00 IST; min(now + 48 h, ref - 12 h), floor now + 2 h.
+    // ref = trip start 00:00 IST before the trip, else check-in 00:00 IST; min(now + EnquiryHours, ref - 12 h), floor now + 2 h.
     public static (DateTime ExpiresAt, bool VeryShortNotice) EnquiryExpiry(DateOnly startDate, DateOnly checkIn, DateTime nowUtc)
     {
         var reference = TodayIst(nowUtc) < startDate ? IstMidnightUtc(startDate) : IstMidnightUtc(checkIn);
@@ -894,9 +929,12 @@ public static class TripSystemLines
     public const string ProblemHostNoRoom = "problemHostNoRoom";
     public const string TripCompleted = "tripCompleted";
     public const string TripDatesChanged = "tripDatesChanged";
+    // Mark as booked: neutral for stays and taxis, the host is not pushed.
+    public const string GuestBookedElsewhere = "guestBookedElsewhere";
 
     public static string Text(string kind) => kind switch
     {
+        GuestBookedElsewhere => "The guest booked this elsewhere.",
         TripDatesChanged => "The guest changed the trip dates. This enquiry is closed.",
         RevisedAccepted => "The guest accepted the new price.",
         RevisedKept => "The guest kept the earlier price.",
@@ -964,4 +1002,49 @@ public static class TripDateText
         var space = clean.IndexOf(' ');
         return space > 0 ? clean[..space] : clean;
     }
+}
+
+
+// Pure decisions of the bulk enquiry and shortlist paths (kept apart from the handlers so they can be tested without a database).
+public static class TripBulkRules
+{
+    public const string StepFullMessage = "You already have 3 open enquiries here. Wait for a reply or withdraw one.";
+    public static readonly TimeSpan OfferReplayWindow = TimeSpan.FromMinutes(2);
+
+    // Skip reason for a send that meets overlapping open rows of the same traveller and host: a row of THIS trip is
+    // AlreadyOpen (the host knows); rows of other trips (or no trip) mean nothing was sent for this trip.
+    public static string OverlapSkipReason(IEnumerable<TripEnquiry> overlapping, Guid tripId)
+        => overlapping.Any(x => x.TripId == tripId) ? TripSkipReasons.AlreadyOpen : TripSkipReasons.OpenInAnotherTrip;
+
+    // A new Active row needs a free place after the step's open enquiries and its Active rows are counted together.
+    public static bool StepHasRoom(int openEnquiries, int activeRows)
+        => openEnquiries + activeRows < TripExecutionRules.MaxShortlistPerStep;
+
+    // The send result statuses that close the shortlist row for good (the listing cannot be asked).
+    public static bool ClosesShortlistRow(string reason)
+        => reason is TripSkipReasons.NotAvailable or TripSkipReasons.Blocked;
+
+    // The host's own listing area must be the trip leg's area; an unknown area on either side is never a reason to refuse.
+    public static bool HostInLegArea(Guid? listingDistrictId, Guid? legDistrictId)
+        => listingDistrictId == null || legDistrictId == null || listingDistrictId == legDistrictId;
+
+    // An unanswered enquiry is closed by the clock the moment its window ends, even before the timer sweeps it.
+    public static bool WindowEnded(string status, DateTime expiresAt, DateTime nowUtc)
+        => status == TripEnquiryStatuses.Asked && expiresAt <= nowUtc;
+
+    // Same sender, same dates, same total and lines, still Pending, within two minutes: a retry of the same tap.
+    public static bool IsOfferReplay(
+        TripOffer existing, Guid senderId, DateOnly checkIn, DateOnly checkOut, int total, string linesJson, DateTime nowUtc)
+        => existing.Kind == TripOfferKinds.Offer && existing.Status == TripOfferStatuses.Pending
+            && existing.SenderUserId == senderId && existing.CheckIn == checkIn && existing.CheckOut == checkOut
+            && existing.Total == total && existing.LinesJson == linesJson
+            && nowUtc - existing.CreatedAt <= OfferReplayWindow;
+
+    // Serialises parallel asks of one journey car for one driver on the trip-less path (no unique index covers rows without a trip).
+    public static string JourneyLeadLockKey(Guid journeyId, int legIndex, Guid taxiId)
+        => $"journeylead:{journeyId:N}:{legIndex}:{taxiId:N}";
+
+    // Outbox key of a push to a host about a row that already exists: unique per change (the new-row key is enq:{id}:new).
+    public static string UpdateKey(Guid enquiryId, string kind, DateTime updatedAt)
+        => $"enq:{enquiryId:N}:{kind}:{updatedAt.Ticks}";
 }

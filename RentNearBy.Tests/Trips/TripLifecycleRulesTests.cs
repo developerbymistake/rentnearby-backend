@@ -139,7 +139,7 @@ public class TripLifecycleRulesTests
     public void Dedupe_keys_are_unique_per_case_and_date()
     {
         var id = Guid.Parse("11111111-2222-3333-4444-555555555555");
-        Assert.Equal($"noreply:{id}", TripReminderRules.NoReplyKey(id));
+        Assert.Equal($"rem:t:{id:N}:20261104", TripReminderRules.TravellerKey(id, new DateOnly(2026, 11, 4)));
         Assert.Equal($"d3:{id}:20261104", TripReminderRules.StartsInKey(id, new DateOnly(2026, 11, 4)));
         Assert.Equal($"d0:{id}:20261104", TripReminderRules.TodayKey(id, new DateOnly(2026, 11, 4)));
         Assert.Equal($"done:{id}:20261103", TripReminderRules.MarkCompleteKey(id, new DateOnly(2026, 11, 3)));
@@ -321,15 +321,15 @@ public class TripLifecycleRulesTests
     private static SavedJourney SavedA(int cars = 2) => Saved(JourneyA, cars);
 
     [Fact]
-    public void NoReplySegmentKey_is_short_and_keyed_by_trip_and_date()
+    public void Morning_reminder_keys_are_short_and_keyed_by_person_and_date()
     {
-        var trip = Guid.NewGuid();
-        var key = TripReminderRules.NoReplySegmentKey(trip, new DateOnly(2026, 11, 3));
-        Assert.StartsWith("noreply:seg:", key);
+        var user = Guid.NewGuid();
+        var key = TripReminderRules.TravellerKey(user, new DateOnly(2026, 11, 3));
+        Assert.StartsWith("rem:t:", key);
         Assert.EndsWith(":20261103", key);
-        Assert.Contains(trip.ToString("N"), key);
+        Assert.Contains(user.ToString("N"), key);
         Assert.True(key.Length <= 80);
-        Assert.NotEqual(TripReminderRules.NoReplyKey(trip), key);
+        Assert.NotEqual(TripReminderRules.HostKey(user, new DateOnly(2026, 11, 3)), key);
     }
 
     // ---- travel-eve reminder and route titles (CONTRACT_MCD D3, D4)

@@ -17,6 +17,10 @@ public sealed class TaxiWaysOptions
     public double GeometryEndToleranceMeters { get; set; } = 5000;
     public double MyLocationNearEndMeters { get; set; } = 15000;
     public double BasedHereMeters { get; set; } = 15000;
+    // A car hop (first, middle or last) must be longer than this; a shorter one is the same area, not a car.
+    public double MinLegMeters { get; set; } = 15000;
+    // A hop that does not bring the traveller closer is kept only while the whole way stays within this times the straight line.
+    public double DetourFactor { get; set; } = 1.5;
 
     public int MaxCars { get; set; } = 3;
     public int MaxPlans { get; set; } = 5;
@@ -33,7 +37,6 @@ public sealed class TaxiWaysOptions
 
     public int SearchPerMinute { get; set; } = 60;
     public double ReachMaxKm { get; set; } = 400;
-    public double StayRadiusKm { get; set; } = 15;
     public int MaxStays { get; set; } = 6;
     public int MaxLocalTaxis { get; set; } = 10;
     public int MaxDaysAhead { get; set; } = 365;
@@ -71,9 +74,13 @@ public sealed record TaxiWaysQuery(
     double FromLat, double FromLng, double ToLat, double ToLng, int People,
     bool FromMyLocation = false, string? FromName = null, string? ToName = null);
 
+// Area / EndArea / ExcludeRoute tell which stretch of a journey the leg is (the plan's own rule): the first car may start in the
+// traveller's area, the last may end in the destination's area, later cars never widen. Null = the first stretch when no previous
+// route is given, a later one otherwise.
 public sealed record LegDriverQuery(
     int People, short? MinSeats = null, string? Category = null, bool RepliesInApp = false,
-    string Sort = TaxiWaysSorts.BestFit, int Page = 1, int PageSize = 8);
+    string Sort = TaxiWaysSorts.BestFit, int Page = 1, int PageSize = 8,
+    bool? Area = null, bool? EndArea = null, Guid? ExcludeRoute = null);
 
 public readonly record struct TaxiWaysPoint(double Lat, double Lng);
 
@@ -1056,19 +1063,103 @@ public static class TaxiWaysSearchEngine
     public static IEnumerable<string> Neighbours(TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a) =>
         (a.Resolved ? s.LinksAt(a.Key) : a.Links).Select(l => l.OtherEnd(a.Key)).Distinct(StringComparer.Ordinal);
 
+    public static IEnumerable<TaxiWaysPlace> PlacesNear(TaxiWaysNetworkSnapshot s, double lat, double lng, double meters)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var cell in TaxiWaysGeo.CellsAround(lat, lng, meters))
+        {
+            if (!s.PlaceGrid.TryGetValue(cell, out var keys)) continue;
+            foreach (var k in keys)
+            {
+                if (!seen.Add(k)) continue;
+                var p = s.Places[k];
+                if (TaxiGeo.DistanceMeters(lat, lng, p.Lat, p.Lng) <= meters) yield return p;
+            }
+        }
+    }
+
+    // Places a car of the traveller's area (a driver whose route starts within BasedHereMeters) reaches in one hop.
+    public static HashSet<string> AreaNeighbours(TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysOptions o)
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var start in PlacesNear(s, a.Lat, a.Lng, o.BasedHereMeters))
+        {
+            if (start.Key == a.Key) continue;
+            foreach (var l in s.LinksAt(start.Key))
+            {
+                var other = l.OtherEnd(start.Key);
+                if (other != a.Key) keys.Add(other);
+            }
+        }
+        return keys;
+    }
+
+    // Door to door at the far end: drivers from `a` to a place within BasedHereMeters of the destination `b`. A car that ends
+    // within MinLegMeters of `a` is the same area, not a ride.
+    public static IEnumerable<(TaxiWaysLink Link, string Start)> EndAreaCandidates(
+        TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysAnchor b, TaxiWaysOptions o)
+    {
+        foreach (var end in PlacesNear(s, b.Lat, b.Lng, o.BasedHereMeters)
+                     .OrderBy(p => TaxiGeo.DistanceMeters(b.Lat, b.Lng, p.Lat, p.Lng)).ThenBy(p => p.Key, StringComparer.Ordinal))
+        {
+            if (end.Key == a.Key || end.Key == b.Key) continue;
+            if (TaxiGeo.DistanceMeters(a.Lat, a.Lng, end.Lat, end.Lng) <= o.MinLegMeters) continue;
+            foreach (var l in LinksBetween(s, a, AnchorOf(end))) yield return (l, a.Key);
+        }
+    }
+
+    // Door to door: drivers whose route starts at a place within BasedHereMeters of the origin and links to `b`.
+    // The copy carries MeetAtPlace = that start place (never a place the traveller already stands at).
+    public static IEnumerable<(TaxiWaysLink Link, string Start)> AreaCandidates(
+        TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysAnchor b, TaxiWaysOptions o)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var places = new List<(double D, TaxiWaysPlace P)>();
+        foreach (var cell in TaxiWaysGeo.CellsAround(a.Lat, a.Lng, o.BasedHereMeters))
+        {
+            if (!s.PlaceGrid.TryGetValue(cell, out var keys)) continue;
+            foreach (var k in keys)
+            {
+                if (k == a.Key || k == b.Key || !seen.Add(k)) continue;
+                var p = s.Places[k];
+                var d = TaxiGeo.DistanceMeters(a.Lat, a.Lng, p.Lat, p.Lng);
+                if (d <= o.BasedHereMeters) places.Add((d, p));
+            }
+        }
+        foreach (var (_, place) in places.OrderBy(x => x.D).ThenBy(x => x.P.Key, StringComparer.Ordinal))
+        {
+            var start = TaxiWaysSearchEngine.AnchorOf(place);
+            foreach (var l in LinksBetween(s, start, b))
+            {
+                yield return (new TaxiWaysLink
+                {
+                    RouteId = l.RouteId, TaxiId = l.TaxiId, FromPlace = l.FromPlace, ToPlace = l.ToPlace,
+                    Fare = l.Fare, TripType = l.TripType, Partial = l.Partial,
+                    FromFraction = l.FromFraction, ToFraction = l.ToFraction, Via = l.Via,
+                    MeetAtPlace = place.Key,
+                }, place.Key);
+            }
+        }
+    }
+
     // One row per taxi on the stretch a -> b, ranked. excludeRoute: the previous leg's route is never split into a second car.
+    // area: also the taxis of the traveller's area (door to door), only for the first car of a journey.
+    // endArea: also the taxis that end in the destination's area, only for the last car of a journey.
     public static List<TaxiWaysCandidate> Candidates(
         TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysAnchor b, int people, TaxiWaysOptions o,
-        bool basedHereFirst = false, Guid? excludeRoute = null)
+        bool basedHereFirst = false, Guid? excludeRoute = null, bool area = false, bool endArea = false)
     {
         var comparer = TaxiWaysRanking.Compare(people, basedHereFirst);
         var best = new Dictionary<Guid, TaxiWaysCandidate>();
-        foreach (var link in LinksBetween(s, a, b))
+        var links = LinksBetween(s, a, b).Select(l => (Link: l, Start: a.Key));
+        if (area) links = links.Concat(AreaCandidates(s, a, b, o));
+        if (endArea) links = links.Concat(EndAreaCandidates(s, a, b, o));
+        foreach (var (link, start) in links)
         {
             if (link.RouteId == excludeRoute || !s.Drivers.TryGetValue(link.TaxiId, out var driver)) continue;
             var basedHere = driver.BaseLat.HasValue && driver.BaseLng.HasValue
                 && TaxiGeo.DistanceMeters(a.Lat, a.Lng, driver.BaseLat.Value, driver.BaseLng.Value) <= o.BasedHereMeters;
-            var candidate = new TaxiWaysCandidate(driver, link, link.FromPlace != a.Key, basedHere);
+            var candidate = new TaxiWaysCandidate(driver, link, link.FromPlace != start, basedHere);
             if (!best.TryGetValue(link.TaxiId, out var current) || comparer.Compare(candidate, current) < 0)
                 best[link.TaxiId] = candidate;
         }
@@ -1087,9 +1178,10 @@ public static class TaxiWaysSearchEngine
         for (var i = 0; i < stops.Count - 1; i++)
         {
             var a = stops[i]; var b = stops[i + 1];
-            var leg = BuildLeg(s, a, b, i + 1, people, o, basedHereFirst: i == 0 && a.MyLocation, excludeRoute: previousRoute);
+            var leg = BuildLeg(s, a, b, i + 1, people, o, basedHereFirst: i == 0, excludeRoute: previousRoute,
+                area: i == 0, endArea: i == stops.Count - 2);
             if (leg == null) return null;
-            if (i == 0 && !a.Resolved && leg.Top.Link.MeetAtPlace is { } meet && s.Places.TryGetValue(meet, out var meetPlace))
+            if (i == 0 && leg.Top.Link.MeetAtPlace is { } meet && meet != a.Key && s.Places.TryGetValue(meet, out var meetPlace))
                 leg.MeetingPlace = meetPlace.Name;
             if (i > 0)
             {
@@ -1106,9 +1198,9 @@ public static class TaxiWaysSearchEngine
     // One stretch a -> b: every taxi on it ranked, the group's seat cover and the top driver's road minutes; null = nobody.
     public static TaxiWaysLegResult? BuildLeg(
         TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysAnchor b, int index, int people, TaxiWaysOptions o,
-        bool basedHereFirst, Guid? excludeRoute)
+        bool basedHereFirst, Guid? excludeRoute, bool area = false, bool endArea = false)
     {
-        var drivers = Candidates(s, a, b, people, o, basedHereFirst, excludeRoute);
+        var drivers = Candidates(s, a, b, people, o, basedHereFirst, excludeRoute, area, endArea);
         if (drivers.Count == 0) return null;
         return new TaxiWaysLegResult
         {
@@ -1131,9 +1223,21 @@ public static class TaxiWaysSearchEngine
         var result = new TaxiWaysSearchResult { From = from, To = to };
         if (from.Key == to.Key) return result;
 
-        result.AllTheWay.AddRange(Candidates(s, from, to, people, o, basedHereFirst: from.MyLocation));
+        result.AllTheWay.AddRange(Candidates(s, from, to, people, o, basedHereFirst: true, area: true, endArea: true));
 
-        var (plans, relaxed) = TaxiWaysChainSearch.Plans(s, from, to, people, o);
+        int? cheapFare = null, cheapMinutes = null;
+        foreach (var c in result.AllTheWay)
+        {
+            var fare = (int)Math.Min(int.MaxValue, (long)c.Link.EstimatedFare * TaxiWaysRanking.CarsNeeded(people, c.Driver.Seats));
+            var minutes = MinutesOf(s, c.Link);
+            if (cheapFare == null || fare < cheapFare || (fare == cheapFare && minutes is { } m && (cheapMinutes == null || m < cheapMinutes)))
+            {
+                cheapFare = fare;
+                cheapMinutes = minutes;
+            }
+        }
+
+        var (plans, relaxed) = TaxiWaysChainSearch.Plans(s, from, to, people, o, cheapFare, cheapMinutes);
         result.Plans.AddRange(plans);
         if (DirectCoverPlan(s, from, to, result.AllTheWay, people, o) is { } direct)
         {

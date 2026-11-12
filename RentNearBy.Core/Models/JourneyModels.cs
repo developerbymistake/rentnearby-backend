@@ -41,7 +41,7 @@ public static class JourneyErrorTypes
 
 public static class JourneyRules
 {
-    public const int MaxLive = 20, MaxLegs = 3, Backups = 2, MaxAskTaxis = 6, MaxAskPerLeg = 3;
+    public const int MaxLive = 20, MaxLegs = 3, Backups = 2, MaxAskTaxis = 3, MaxAskPerLeg = 3;
     public const int RefreshPerWindow = 30, MaxDaysAhead = 365, MaxPeople = 12, NameMax = 80;
     public static readonly TimeSpan RefreshWindow = TimeSpan.FromMinutes(10);
 

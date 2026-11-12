@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Utils;
@@ -249,6 +250,7 @@ public class TripCityCatalog(
                 _copy = entry;
             }
             await StoreFreshAsync(redis, snapshot, gen, writeStale: true);
+            StartCoverWarm(redis, entry, gen);
             return entry;
         }
         finally
@@ -301,7 +303,13 @@ public class TripCityCatalog(
                 }
             }
 
-            if (!restart) return Build(first!, items);
+            if (!restart)
+            {
+                var snapshot = Build(first!, items);
+                var uncached = await ApplyCoversAsync(snapshot.Cities);
+                _pendingCovers = uncached;
+                return snapshot;
+            }
         }
     }
 
@@ -332,6 +340,102 @@ public class TripCityCatalog(
             .ThenBy(c => c.CityKey)
             .ToList(),
     };
+
+    internal const int CoverParallelism = 8;
+    internal const int WarmParallelism = 4;
+
+    private List<TripCityInfo> _pendingCovers = new();
+
+    // Cities that still need a cover and whose spot set is not cached yet.
+    private static bool NeedsCover(TripCityInfo c)
+        => string.IsNullOrWhiteSpace(c.ImageUrl) && c.SpotCount > 0
+           && string.Equals(c.Status, TripSpotStatuses.Ready, StringComparison.OrdinalIgnoreCase);
+
+    // The city image wins. With the real spot cache the cover comes from cached spot sets only (no Atlas call), so a cold
+    // list never waits on one fetch per city; the cities left over are warmed in the background. Any other cache keeps the
+    // read-through behaviour. Returns the cities still waiting for their spot set.
+    private async Task<List<TripCityInfo>> ApplyCoversAsync(List<TripCityInfo> cities)
+    {
+        foreach (var c in cities) c.CoverUrl = CloudinaryThumb.Apply(c.ImageUrl);
+
+        var spots = sp.GetService<ITripSpotCache>();
+        if (spots == null) return new List<TripCityInfo>();
+
+        var missing = cities.Where(NeedsCover).ToList();
+        if (missing.Count == 0) return new List<TripCityInfo>();
+
+        var peek = spots as ITripSpotPeek;
+        var uncached = new System.Collections.Concurrent.ConcurrentBag<TripCityInfo>();
+        await Parallel.ForEachAsync(missing, new ParallelOptions { MaxDegreeOfParallelism = CoverParallelism }, async (city, ct) =>
+        {
+            try
+            {
+                var cached = peek != null ? await peek.PeekAsync(city.CityKey, ct) : await spots.GetAsync(city.CityKey, ct);
+                if (cached == null && peek != null) uncached.Add(city);
+                else city.CoverUrl = CloudinaryThumb.Apply(BestSpotImage(cached?.Spots));
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("TripCityCatalog: cover of {CityKey} failed: {Error}", city.CityKey, ex.Message);
+            }
+        });
+        return uncached.OrderBy(c => c.CityKey).ToList();
+    }
+
+    // Background: loads the missing spot sets with low parallelism, sets the covers in place and republishes the copy.
+    // The list endpoint's ETag carries the cover count, so clients see the change on their next revalidation.
+    private void StartCoverWarm(IConnectionMultiplexer? redis, Entry entry, int gen)
+    {
+        List<TripCityInfo> work;
+        lock (_gate)
+        {
+            work = _pendingCovers;
+            _pendingCovers = new List<TripCityInfo>();
+        }
+        if (work.Count == 0) return;
+        _ = Task.Run(() => WarmCoversAsync(redis, entry, work, gen));
+    }
+
+    private async Task WarmCoversAsync(IConnectionMultiplexer? redis, Entry entry, List<TripCityInfo> work, int gen)
+    {
+        try
+        {
+            var spots = sp.GetService<ITripSpotCache>();
+            if (spots == null) return;
+            var changed = 0;
+            await Parallel.ForEachAsync(work, new ParallelOptions { MaxDegreeOfParallelism = WarmParallelism }, async (city, ct) =>
+            {
+                try
+                {
+                    var cached = await spots.GetAsync(city.CityKey, ct);
+                    var cover = CloudinaryThumb.Apply(BestSpotImage(cached?.Spots));
+                    if (cover == null) return;
+                    city.CoverUrl = cover;
+                    Interlocked.Increment(ref changed);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning("TripCityCatalog: warm cover of {CityKey} failed: {Error}", city.CityKey, ex.Message);
+                }
+            });
+            if (changed == 0) return;
+            bool current;
+            lock (_gate) current = _generation == gen && ReferenceEquals(_copy, entry);
+            if (current) await StoreFreshAsync(redis, entry.Snapshot, gen, writeStale: false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("TripCityCatalog: cover warm failed: {Error}", ex.Message);
+        }
+    }
+
+    // Featured spot with an image first, else the first spot with an image in cached order.
+    internal static string? BestSpotImage(IReadOnlyList<TripSpotDto>? spots)
+    {
+        if (spots == null) return null;
+        var withImage = spots.Where(s => !string.IsNullOrWhiteSpace(s.ImageUrl)).ToList();
+        return (withImage.FirstOrDefault(s => s.IsFeatured) ?? withImage.FirstOrDefault())?.ImageUrl;
+    }
 
     // The in-process copy wins; the Redis stale copy is served but never adopted, so the next call retries Atlas.
     private async Task<Entry?> FallbackAsync(IConnectionMultiplexer? redis)

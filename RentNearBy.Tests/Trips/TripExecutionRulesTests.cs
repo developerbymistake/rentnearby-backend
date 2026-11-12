@@ -11,10 +11,14 @@ public class TripExecutionRulesTests
     [Fact]
     public void Constants_match_the_contract()
     {
-        Assert.Equal(3, TripExecutionRules.MaxShortlistPerNight);
+        Assert.Equal(3, TripExecutionRules.MaxShortlistPerStep);
+        Assert.Equal(3, TripExecutionRules.MaxRecipientsPerEnquiry);
+        Assert.Equal(3, JourneyRules.MaxAskPerLeg);
+        Assert.Equal(3, JourneyRules.MaxAskTaxis);
         Assert.Equal(3, TripExecutionRules.MaxOpenPerNight);
-        Assert.Equal(5, TripExecutionRules.MaxOffersPerEnquiry);
-        Assert.Equal(48, TripExecutionRules.EnquiryHours);
+        Assert.Equal(3, TripExecutionRules.MaxOffersPerEnquiry);
+        Assert.Equal(72, TripExecutionRules.EnquiryHours);
+        Assert.Equal(TripExecutionRules.EnquiryHours, TripExecutionRules.ShortlistHours);
         Assert.Equal(12, TripExecutionRules.ReplyBeforeHours);
         Assert.Equal(2, TripExecutionRules.FloorHours);
         Assert.Equal(24, TripExecutionRules.OfferHours);
@@ -69,10 +73,10 @@ public class TripExecutionRulesTests
     }
 
     [Fact]
-    public void EnquiryExpiry_far_before_trip_is_48_hours()
+    public void EnquiryExpiry_far_before_trip_is_72_hours()
     {
         var (expiresAt, veryShort) = TripExecutionRules.EnquiryExpiry(Start, Start, Utc(2026, 10, 20, 6, 30));
-        Assert.Equal(Utc(2026, 10, 22, 6, 30), expiresAt);
+        Assert.Equal(Utc(2026, 10, 23, 6, 30), expiresAt);
         Assert.False(veryShort);
     }
 

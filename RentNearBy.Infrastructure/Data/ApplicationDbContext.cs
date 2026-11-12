@@ -59,6 +59,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<TripOffer> TripOffers { get; set; }
     public DbSet<TripPushLog> TripPushLogs { get; set; }
     public DbSet<TripProblemLog> TripProblemLogs { get; set; }
+    public DbSet<TripShortlistItem> TripShortlistItems { get; set; }
+    public DbSet<OutboxMessage> OutboxMessages { get; set; }
+    public DbSet<TripReminderRun> TripReminderRuns { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -1288,6 +1291,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(x => x.PickupPlace).HasMaxLength(80);
             e.Property(x => x.CancelReason).HasMaxLength(300);
             e.Property(x => x.CityLeg).HasColumnType("smallint");
+            e.Property(x => x.StepKey).HasMaxLength(24);
+            e.Property(x => x.RemindedOn).HasColumnType("date");
+            // Hot rows are updated in place (status, reminder date): leave room on the page so the updates stay HOT.
+            e.HasAnnotation("Npgsql:StorageParameter:fillfactor", 85);
 
             e.HasOne<Trip>()
              .WithMany()
@@ -1323,7 +1330,21 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(x => new { x.TravellerUserId, x.CreatedAt }, "ix_tripenquiries_traveller")
              .IsDescending(false, true);
             e.HasIndex(x => x.TripId, "ix_tripenquiries_trip");
-            e.HasIndex(x => x.ExpiresAt, "ix_tripenquiries_expires").HasFilter(open);
+            e.HasIndex(x => x.ExpiresAt, "ix_tripenquiries_expires").HasFilter("\"Status\" IN ('Asked','Offered','Countered')");
+            // Idempotent bulk send: one row per (traveller, request key, listing).
+            e.HasIndex(x => new { x.TravellerUserId, x.ClientRequestId, x.ListingId }, "ux_tripenquiries_client_request")
+             .IsUnique()
+             .HasFilter("\"ClientRequestId\" IS NOT NULL");
+            // Morning host reminder: unanswered rows of one host.
+            e.HasIndex(x => x.OwnerUserId, "ix_tripenquiries_hostreminder")
+             .IncludeProperties(x => new { x.RemindedOn, x.ExpiresAt })
+             .HasFilter("\"Status\" IN ('Asked','Countered')");
+            // Final no-reply push: expired rows not yet announced to the traveller (a row without a StepKey gets the generic line).
+            e.HasIndex(x => x.TravellerUserId, "ix_tripenquiries_final")
+             .HasFilter("\"Status\" = 'Expired' AND \"FinalPushedAt\" IS NULL");
+            // Reminder run: "step already settled" probe per shortlist or enquiry row; without it the planner hashes a full scan of the table per chunk.
+            e.HasIndex(x => new { x.TripId, x.StepKey }, "ix_tripenquiries_settled")
+             .HasFilter("\"Status\" IN ('ConfirmedByBoth','BookedByTraveller')");
             e.HasIndex(x => x.HoldUntil, "ix_tripenquiries_hold")
              .HasFilter("\"AdvanceStatus\" IN ('Pending','ProofSent')");
             e.HasIndex(x => x.ProofSentAt, "ix_tripenquiries_proof")
@@ -1352,6 +1373,63 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                     + " AND (\"DriverFare\" IS NULL OR \"DriverFare\" >= 0) AND (\"AgreedFare\" IS NULL OR \"AgreedFare\" >= 0)"
                     + " AND (\"ListedRateSnapshot\" IS NULL OR \"ListedRateSnapshot\" >= 0)");
             });
+        });
+
+        modelBuilder.Entity<TripShortlistItem>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(x => x.StepKey).HasMaxLength(24).IsRequired();
+            e.Property(x => x.Kind).HasMaxLength(8).IsRequired();
+            e.Property(x => x.ListingName).HasMaxLength(120).IsRequired();
+            e.Property(x => x.LegIndex).HasColumnType("smallint");
+            e.Property(x => x.State).HasMaxLength(10).IsRequired();
+            e.Property(x => x.ClosedReason).HasMaxLength(12);
+            e.Property(x => x.RemindedOn).HasColumnType("date");
+            e.HasAnnotation("Npgsql:StorageParameter:fillfactor", 85);
+
+            e.HasOne<Trip>()
+             .WithMany()
+             .HasForeignKey(x => x.TripId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasIndex(x => new { x.TripId, x.StepKey, x.ListingId }, "ux_shortlist_active_listing")
+             .IsUnique()
+             .HasFilter("\"State\" = 'Active'");
+            e.HasIndex(x => x.TravellerUserId, "ix_shortlist_active_user")
+             .IncludeProperties(x => new { x.RemindedOn, x.ClosesAt, x.TripId })
+             .HasFilter("\"State\" = 'Active'");
+            e.HasIndex(x => x.ClosesAt, "ix_shortlist_closes").HasFilter("\"State\" IN ('Active','Sent')");
+            e.HasIndex(x => new { x.TripId, x.StepKey }, "ix_shortlist_trip_step");
+            e.HasIndex(x => x.TravellerUserId, "ix_shortlist_final")
+             .HasFilter("\"State\" = 'Closed' AND \"ClosedReason\" = 'NoReply' AND \"FinalPushedAt\" IS NULL");
+
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_shortlist_kind", "\"Kind\" IN ('Stay','Taxi','Car')");
+                t.HasCheckConstraint("ck_shortlist_state", "\"State\" IN ('Active','Sent','Closed','Booked')");
+            });
+        });
+
+        modelBuilder.Entity<OutboxMessage>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.Key).HasMaxLength(120).IsRequired();
+            e.Property(x => x.Exchange).HasMaxLength(40).IsRequired();
+            e.Property(x => x.RoutingKey).HasMaxLength(40).IsRequired();
+            e.Property(x => x.Payload).HasColumnType("text").IsRequired();
+            e.Property(x => x.LastError).HasMaxLength(300);
+            e.Property(x => x.Attempts).HasDefaultValue((short)0);
+            e.HasIndex(x => x.Key, "ux_outbox_key").IsUnique();
+            e.HasIndex(x => new { x.NextAttemptAt, x.Id }, "ix_outbox_due").HasFilter("\"PublishedAt\" IS NULL");
+            e.HasIndex(x => x.PublishedAt, "ix_outbox_published").HasFilter("\"PublishedAt\" IS NOT NULL");
+        });
+
+        modelBuilder.Entity<TripReminderRun>(e =>
+        {
+            e.HasKey(x => x.RunDate);
+            e.Property(x => x.RunDate).HasColumnType("date").ValueGeneratedNever();
         });
 
         modelBuilder.Entity<TripOffer>(e =>

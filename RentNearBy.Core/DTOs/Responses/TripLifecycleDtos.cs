@@ -103,6 +103,10 @@ public class TripSummaryArrangementDto
     public string Title { get; set; } = string.Empty;
     public string State { get; set; } = string.Empty;
     public string? Detail { get; set; }
+    // A stay row that covers only some nights; never counted as done.
+    public bool Partial { get; set; }
+    public int? NightsCovered { get; set; }
+    public int? NightsTotal { get; set; }
 }
 
 public class TripSummaryLegDto

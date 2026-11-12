@@ -99,4 +99,6 @@ public class AskDriversResultDto
     public List<AskItemDto> Items { get; set; } = new();
     public List<AskSkippedDto> Skipped { get; set; } = new();
     public bool VeryShortNotice { get; set; }
+    // One entry per requested taxi of the request (ListingId = taxi id).
+    public List<TripSendResultDto> Results { get; set; } = new();
 }

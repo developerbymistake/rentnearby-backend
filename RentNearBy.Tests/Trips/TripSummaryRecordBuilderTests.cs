@@ -311,6 +311,29 @@ public class TripSummaryRecordBuilderTests
     }
 
     [Fact]
+    public void Arrangements_flag_a_partial_stay_with_its_nights_and_a_full_stay_has_no_partial_flag()
+    {
+        var plan = Plan(1, 1, 1);
+        var record = Build(NewTrip(3), plan, [StayRow(1, 2, "Ganga View Inn", TripEnquiryStatuses.Asked)], []);
+
+        var stay = record.Arrangements.Single(a => a.Key == "stay:1");
+        Assert.True(stay.Partial);
+        Assert.Equal(2, stay.NightsCovered);
+        Assert.Equal(3, stay.NightsTotal);
+        Assert.Contains("2 of 3 nights", stay.Detail);
+
+        var whole = Build(NewTrip(3), plan, [StayRow(1, 3)], []).Arrangements.Single(a => a.Key == "stay:1");
+        Assert.False(whole.Partial);
+        Assert.Equal(3, whole.NightsCovered);
+        Assert.Equal(3, whole.NightsTotal);
+
+        var other = record.Arrangements.Single(a => a.Key == "taxi");
+        Assert.False(other.Partial);
+        Assert.Null(other.NightsTotal);
+        Assert.Null(other.NightsCovered);
+    }
+
+    [Fact]
     public void Arrangements_own_taxi_names_the_trip_days_and_a_confirmed_stay_names_the_host()
     {
         var plan = Plan(1, 1, 1);

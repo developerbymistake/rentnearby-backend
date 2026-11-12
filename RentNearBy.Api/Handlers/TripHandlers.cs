@@ -26,6 +26,10 @@ public static class TripHandlers
     private const int MaxPageSize = 30;
     private const int MaxPage = 1000;
     private const int PlanMaxPerWindow = 30;
+    private const int CreateMaxPerWindow = 30;
+    private static readonly TimeSpan CreateWindow = TimeSpan.FromMinutes(1);
+    // Trips still in Draft per traveller; a replayed create never counts against it.
+    public const string DraftLimitType = "TripDraftLimit";
     private static readonly TimeSpan PlanWindow = TimeSpan.FromMinutes(1);
     private const int CitiesMaxPerWindow = 60;
     private static readonly TimeSpan CitiesWindow = TimeSpan.FromMinutes(1);
@@ -72,9 +76,15 @@ public static class TripHandlers
         var snapshot = await catalog.GetAsync();
         if (snapshot == null) return CitiesUnavailable();
 
-        var etag = $"W/\"{snapshot.Version}:{pageNo}:{size}\"";
+        // The cover count follows the background cover fill, so a client revalidating after it gets the new covers.
+        var covers = snapshot.Cities.Count(c => c.CoverUrl != null);
+        var etag = $"W/\"{snapshot.Version}.{snapshot.Format}.{covers}:{pageNo}:{size}\"";
         var unfiltered = string.IsNullOrEmpty(text) && !popular && string.IsNullOrEmpty(stateText);
-        if (unfiltered) httpContext.Response.Headers.ETag = etag;
+        if (unfiltered)
+        {
+            httpContext.Response.Headers.ETag = etag;
+            httpContext.Response.Headers.CacheControl = "private, max-age=60";
+        }
         if (unfiltered && httpContext.Request.Headers.IfNoneMatch.ToString() == etag)
             return Results.StatusCode(StatusCodes.Status304NotModified);
 
@@ -385,9 +395,17 @@ public static class TripHandlers
 
     public static async Task<IResult> Create(
         SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
-        ITripCityCatalog catalog, ISavedJourneyRepository journeys, ILoggerFactory loggers)
+        ITripCityCatalog catalog, ISavedJourneyRepository journeys, ILoggerFactory loggers,
+        IRateLimitService rateLimiter, HttpContext httpContext, ApplicationDbContext db)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+
+        var rl = await rateLimiter.CheckAsync($"trip:create:{userId}", CreateMaxPerWindow, CreateWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)(rl.RetryAfter ?? CreateWindow).TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
 
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return Invalid(validation);
@@ -396,6 +414,11 @@ public static class TripHandlers
         if (request.ClientTripId is { } clientId
             && await unitOfWork.Trips.FindByClientIdAsync(userId, clientId) is { } existing)
             return OkResponse(ToDto(existing, ReadPlan(existing)));
+
+        // Only a Draft counts; saving a trip as Planned frees the slot.
+        if ((request.Status ?? TripStatuses.Draft) == TripStatuses.Draft
+            && TripCreateRules.DraftCapReached(await db.Trips.CountAsync(t => t.OwnerUserId == userId && t.Status == TripStatuses.Draft)))
+            return ConflictResponse("You have too many unfinished trips. Finish or delete one first.", DraftLimitType);
 
         // A new trip needs live cities; the server snapshot wins over the client copy.
         var plan = request.Plan;
@@ -659,6 +682,15 @@ public static class TripHandlers
             }
             await journeys.RelinkTripAsync(trip.Id, userId, linkIds);
             await unitOfWork.SaveChangesAsync();
+            // A removed or replaced city leaves shortlist rows under stay:k / between:k keys the plan no longer has;
+            // they close here so no morning reminder goes out for them. Same transaction as the plan save.
+            var planKeys = TripEasyRows.StepKeysOf(plan);
+            await db.TripShortlistItems
+                .Where(i => i.TripId == trip.Id && i.State == TripShortlistStates.Active && !planKeys.Contains(i.StepKey))
+                .ExecuteUpdateAsync(set => set
+                    .SetProperty(i => i.State, TripShortlistStates.Closed)
+                    .SetProperty(i => i.ClosedReason, TripShortlistClosedReasons.LegRemoved)
+                    .SetProperty(i => i.ClosedAt, now));
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
@@ -878,6 +910,7 @@ public static class TripHandlers
         Latitude = c.Latitude,
         Longitude = c.Longitude,
         ImageUrl = c.ImageUrl,
+        CoverUrl = c.CoverUrl ?? c.ImageUrl,
         IsPopularDestination = c.IsPopularDestination,
         Status = c.Status,
         SpotCount = c.SpotCount,
@@ -921,7 +954,7 @@ public static class TripHandlers
             BookingState = trip.Status == TripStatuses.Completed ? TripBookingStates.Completed
                 : trip.Status != TripStatuses.Planned || trip.SpotCount == 0 ? TripBookingStates.Draft
                 : TripBookingStates.OfRows(rows),
-            Progress = TripEasyRows.Progress(rows, enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt)),
+            Progress = TripEasyRows.Progress(rows, enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt), TripEasyRows.GuideStepOf(plan)),
             AgreedTotal = TripEasyRows.AgreedTotal(enquiries),
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,

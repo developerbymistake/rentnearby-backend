@@ -12,28 +12,31 @@ namespace RentNearBy.Infrastructure.Services;
 
 // Every 5 min (first pass at startup), one scope per pass, one transaction per row:
 //   1. Pending offers past ValidUntil -> Expired; the enquiry goes back to Asked (or Expired when its own window is over); push to both sides (offerexp:{offerId}:t|o).
-//   2. Unconfirmed enquiries past ExpiresAt or whose check-in day has passed -> Expired; push once (exp:{id}).
+//   2. Unconfirmed enquiries past ExpiresAt or whose check-in day has passed -> Expired, silently (the one final push is the morning reminder run);
+//      the shortlist row of that listing closes as NoReply so it joins the "No reply" list.
 //   3. IsUrgent refresh for open rows whose check-in is now within 72 h.
-//   4. Purges: push logs after 90 days, trip-less enquiries after 180 days.
+//   4. Purges: push logs after 90 days, trip-less enquiries after 180 days, published outbox rows after 3 days,
+//      closed shortlist rows after 30 days, reminder runs after 30 days.
 //   5. Advance holds past HoldUntil -> Failed/HoldExpired; cards rewritten; push to both sides (hold:{id}:t|o).
 //   6. Host reminder while the proof is sent and the hold runs, on HostReminderSchedule slots (proof:{id}:{proofSentAt}:{slot});
 //      the host keeps one inbox row per enquiry.
-//   7. Taxi FareSent leads past ExpiresAt -> Expired; push once (exp:{id}).
-//   8. Asked enquiries 24 h old with no reply -> one traveller reminder (noreply:{id}; a journey car between cities:
-//      one per travel segment, noreply:seg:{tripId}:{date}); muted trips skipped.
+//   7. Taxi FareSent leads past ExpiresAt -> Expired, silently.
+//   8. Shortlist items past ClosesAt (72 h) -> Closed/NoReply, silently; the morning run sends the one final push.
 //   9. Trip date reminders: 3 days before (d3, 48 h window), start day (d0, until that day ends), day after the last day
 //      (done, until that day ends); keyed by date, muted trips skipped.
 //  10. Planned trips 7 days past the last day with nothing open -> Completed (no push, runs even when muted).
 //  11. Travel-eve: 18:00 IST the evening before a travel day between two cities, once (trv:{tripId}:{date}); muted trips skipped.
-// Passes 6, 8, 9, 10 and 11 read keyset pages of only un-done work (key not logged / nothing open) until exhausted.
+// Passes 6, 9, 10 and 11 read keyset pages of only un-done work (key not logged / nothing open) until exhausted.
 // Order: 1, 2, 7, 5, 6, 8, 9, 11, 10, 3, 4. Skipped while TripExecution:Enabled is false.
 public class TripTimerService(
     IServiceScopeFactory scopeFactory, IOptionsMonitor<TripExecutionOptions> options, ILogger<TripTimerService> logger)
     : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
-    private const int Batch = 200;
+    private const int Batch = 200, ShortlistCloseBatch = 2000;
     private bool _loggedDisabled;
+    private DateOnly _lastDailyStamp;
+    public const int OutboxRetentionDays = 3, ClosedShortlistRetentionDays = 30, ReminderRunRetentionDays = 30;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -70,17 +73,23 @@ public class TripTimerService(
             var leads = await FareSentExpiryPassAsync(sp, ct);
             var hold = await HoldExpiryPassAsync(sp, ct);
             var reminders = await HostReminderPassAsync(sp, ct);
-            var noReply = await NoReplyPassAsync(sp, ct);
+            var closed = await ShortlistClosePassAsync(sp, ct);
             var bookedSilence = await BookedSilencePassAsync(sp, ct);
             var dates = await DateReminderPassAsync(sp, ct);
             var travelEve = await TravelEvePassAsync(sp, ct);
             var completed = await AutoCompletePassAsync(sp, ct);
             var urgent = await UrgentPassAsync(sp);
             var purged = await PurgePassAsync(sp);
-            if (offers + enquiries + leads + hold + reminders + noReply + bookedSilence + dates + travelEve + completed + urgent + purged > 0)
+            var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
+            if (_lastDailyStamp != today)
+            {
+                purged += await DailyFinalStampPassAsync(sp, DateTime.UtcNow);
+                _lastDailyStamp = today;
+            }
+            if (offers + enquiries + leads + hold + reminders + closed + bookedSilence + dates + travelEve + completed + urgent + purged > 0)
                 logger.LogInformation(
-                    "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} noreply={NoReply} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
-                    offers, enquiries, urgent, purged, hold, reminders, leads, noReply, bookedSilence, dates, travelEve, completed);
+                    "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} closed={Closed} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
+                    offers, enquiries, urgent, purged, hold, reminders, leads, closed, bookedSilence, dates, travelEve, completed);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -170,7 +179,6 @@ public class TripTimerService(
         var db = sp.GetRequiredService<ApplicationDbContext>();
         var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
         var chat = sp.GetRequiredService<ITripChatService>();
-        var notifier = sp.GetRequiredService<ITripNotifier>();
         var now = DateTime.UtcNow;
         var today = TripExecutionRules.TodayIst(now);
         var due = await unitOfWork.TripEnquiries.GetExpiredUnconfirmedAsync(now, today, Batch);
@@ -180,7 +188,6 @@ public class TripTimerService(
         {
             if (ct.IsCancellationRequested) break;
             var posts = new List<TripChatPost>();
-            TripEnquiry? expired = null;
             await unitOfWork.BeginTransactionAsync();
             try
             {
@@ -197,8 +204,8 @@ public class TripTimerService(
                 row.Status = TripEnquiryStatuses.Expired;
                 row.UpdatedAt = now;
                 await JourneyLegSync.SyncAsync(db, row, now);
+                await CloseShortlistOfAsync(db, row, now, ct);
                 await unitOfWork.CommitTransactionAsync();
-                expired = row;
                 done++;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -213,10 +220,6 @@ public class TripTimerService(
             }
 
             await chat.AfterCommitAsync(posts);
-            if (expired != null)
-                await TripPushSender.SendAsync(
-                    [new TripPendingPush(expired, expired.TravellerUserId, TripNotifications.TripEnquiryExpired, DedupeKey: $"exp:{expired.Id}")],
-                    unitOfWork.TripEnquiries, notifier, logger);
         }
         return done;
     }
@@ -225,7 +228,6 @@ public class TripTimerService(
     {
         var db = sp.GetRequiredService<ApplicationDbContext>();
         var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
-        var notifier = sp.GetRequiredService<ITripNotifier>();
         var now = DateTime.UtcNow;
         var due = await unitOfWork.TripEnquiries.GetExpiredFareSentAsync(now, Batch);
         var done = 0;
@@ -256,9 +258,6 @@ public class TripTimerService(
             }
 
             done++;
-            await TripPushSender.SendAsync(
-                [new TripPendingPush(row, row.TravellerUserId, TripNotifications.TripDriverFareLapsed, DedupeKey: $"exp:{row.Id}")],
-                unitOfWork.TripEnquiries, notifier, logger);
         }
         return done;
     }
@@ -369,50 +368,43 @@ public class TripTimerService(
         return done;
     }
 
-    // Re-reads the row and its trip before sending; a case that moved on since the query is skipped.
-    private async Task<int> NoReplyPassAsync(IServiceProvider sp, CancellationToken ct)
+    // Exact and silent: items whose 72 h clock ended become Closed/NoReply (status only; the morning run sends the one final push).
+    // Batched by id with SKIP LOCKED, so any number of instances can run it.
+    private async Task<int> ShortlistClosePassAsync(IServiceProvider sp, CancellationToken ct)
     {
         var db = sp.GetRequiredService<ApplicationDbContext>();
-        var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
-        var notifier = sp.GetRequiredService<ITripNotifier>();
         var now = DateTime.UtcNow;
         var done = 0;
-        Guid? after = null;
-        do
+        // A step that already has a confirmed or booked enquiry is settled, not unanswered: it ends as Booked, never NoReply.
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE "TripShortlistItems" s SET "State" = 'Booked', "ClosedReason" = 'Booked', "ClosedAt" = {now}
+            WHERE s."State" IN ('Active', 'Sent') AND s."ClosesAt" <= {now}
+              AND EXISTS (SELECT 1 FROM "TripEnquiries" c WHERE c."TripId" = s."TripId" AND c."StepKey" = s."StepKey"
+                          AND c."Status" IN ('ConfirmedByBoth', 'BookedByTraveller'))
+            """, ct);
+        while (!ct.IsCancellationRequested)
         {
-            if (ct.IsCancellationRequested) break;
-            var (due, next) = await unitOfWork.TripEnquiries.GetNoReplyDueAsync(now, after, Batch);
-            after = next;
-            foreach (var row in due)
-            {
-                if (ct.IsCancellationRequested) break;
-                try
-                {
-                    var e = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(row.Id);
-                    if (e == null || e.Status != TripEnquiryStatuses.Asked || e.ExpiresAt <= now
-                        || e.TripId is not { } tripId || e.TravellerUserId is not { } travellerId
-                        || !await TripRemindableAsync(db, tripId, ct))
-                        continue;
-                    var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(e, travellerId);
-                    var segment = TripSegmentRows.IsSegment(e) && e.CheckIn != null;
-                    var push = segment ? TripNotifications.TripNoReplySegment(e, ctx) : TripNotifications.TripNoReply(e, ctx);
-                    var key = segment ? TripReminderRules.NoReplySegmentKey(tripId, e.CheckIn!.Value) : TripReminderRules.NoReplyKey(e.Id);
-                    if (await notifier.SendOnceAsync(push, key, tripId, e.Id))
-                        done++;
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    logger.LogError(ex, "Trip timer: no-reply reminder failed for {EnquiryId}", row.Id);
-                }
-                finally
-                {
-                    db.ChangeTracker.Clear();
-                }
-            }
+            var rows = await db.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE "TripShortlistItems" SET "State" = 'Closed', "ClosedReason" = 'NoReply', "ClosedAt" = {now}
+                WHERE "Id" IN (SELECT "Id" FROM "TripShortlistItems" WHERE "State" = 'Active' AND "ClosesAt" <= {now}
+                               ORDER BY "ClosesAt" LIMIT {ShortlistCloseBatch} FOR UPDATE SKIP LOCKED)
+                """, ct);
+            done += rows;
+            if (rows < ShortlistCloseBatch) break;
         }
-        while (after != null);
         return done;
     }
+
+    // The enquiry that expired closes its shortlist row too (State Sent -> Closed/NoReply), so it leaves the active shortlist.
+    private static Task<int> CloseShortlistOfAsync(ApplicationDbContext db, TripEnquiry e, DateTime now, CancellationToken ct)
+        => e.TripId is { } tripId && e.StepKey is { } step
+            ? db.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE "TripShortlistItems" SET "State" = 'Closed', "ClosedReason" = 'NoReply', "ClosedAt" = {now}
+                WHERE "TripId" = {tripId} AND "StepKey" = {step} AND "ListingId" = {e.ListingId} AND "State" IN ('Active', 'Sent')
+                  AND NOT EXISTS (SELECT 1 FROM "TripEnquiries" c WHERE c."TripId" = {tripId} AND c."StepKey" = {step}
+                                  AND c."Status" IN ('ConfirmedByBoth', 'BookedByTraveller'))
+                """, ct)
+            : Task.FromResult(0);
 
     private async Task<int> BookedSilencePassAsync(IServiceProvider sp, CancellationToken ct)
     {
@@ -643,6 +635,34 @@ public class TripTimerService(
         var orphans = await db.TripEnquiries
             .Where(e => e.TripId == null && e.UpdatedAt < orphanCutoff)
             .ExecuteDeleteAsync();
-        return logs + orphans;
+        var outbox = await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""DELETE FROM "OutboxMessages" WHERE "Id" IN (SELECT "Id" FROM "OutboxMessages" WHERE "PublishedAt" < {now.AddDays(-OutboxRetentionDays)} LIMIT 5000)""");
+        var shortlist = await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""DELETE FROM "TripShortlistItems" WHERE "Id" IN (SELECT "Id" FROM "TripShortlistItems" WHERE "State" IN ('Closed', 'Booked') AND "ClosedAt" < {now.AddDays(-ClosedShortlistRetentionDays)} LIMIT 5000)""");
+        // A Sent row (its enquiry went out) has no ClosedAt; ClosesAt is its last meaningful date.
+        var sent = await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""DELETE FROM "TripShortlistItems" WHERE "Id" IN (SELECT "Id" FROM "TripShortlistItems" WHERE "State" = 'Sent' AND "ClosesAt" < {now.AddDays(-TripReminderRules.SentShortlistRetentionDays)} LIMIT 5000)""");
+        var runs = await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""DELETE FROM "TripReminderRuns" WHERE "RunDate" < {TripExecutionRules.TodayIst(now).AddDays(-ReminderRunRetentionDays)}""");
+        return logs + orphans + outbox + shortlist + sent + runs;
+    }
+
+    // Once per IST day: rows that ended more than FinalWindowDays ago and were never announced are stamped, so the morning run
+    // (which only looks at the last FinalWindowDays) and its indexes never carry them. Stamping is not a push.
+    private static async Task<int> DailyFinalStampPassAsync(IServiceProvider sp, DateTime now)
+    {
+        var db = sp.GetRequiredService<ApplicationDbContext>();
+        var cutoff = now.AddDays(-TripReminderRules.FinalWindowDays);
+        var shortlist = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE "TripShortlistItems" SET "FinalPushedAt" = {now} WHERE "Id" IN (
+              SELECT "Id" FROM "TripShortlistItems"
+              WHERE "State" = 'Closed' AND "ClosedReason" = 'NoReply' AND "FinalPushedAt" IS NULL AND "ClosedAt" < {cutoff} LIMIT 20000)
+            """);
+        var enquiries = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE "TripEnquiries" SET "FinalPushedAt" = {now} WHERE "Id" IN (
+              SELECT "Id" FROM "TripEnquiries"
+              WHERE "Status" = 'Expired' AND "FinalPushedAt" IS NULL AND "UpdatedAt" < {cutoff} LIMIT 20000)
+            """);
+        return shortlist + enquiries;
     }
 }

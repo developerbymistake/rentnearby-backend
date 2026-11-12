@@ -98,6 +98,9 @@ public class TripEnquiryClosure(
     {
         if (listingIds.Count == 0) return [];
         var ids = listingIds.Distinct().ToList();
+        // A removed listing leaves the traveller's shortlist and the morning reminders (same transaction as the removal).
+        var shortlistKinds = kind == ListingKinds.Stay ? new[] { TripShortlistKinds.Stay } : new[] { TripShortlistKinds.Taxi, TripShortlistKinds.Car };
+        await CloseShortlistAsync(i => shortlistKinds.Contains(i.Kind) && ids.Contains(i.ListingId));
         var rows = await db.TripEnquiries
             .Where(e => e.Kind == kind && ids.Contains(e.ListingId) && TripEnquiryStatuses.Open.Contains(e.Status))
             .ToListAsync();
@@ -185,6 +188,7 @@ public class TripEnquiryClosure(
     // Local sightseeing leads only (trip row, no travel day): journey cars and trip-less journey leads ride a route, not the day rate.
     public async Task<IReadOnlyList<TripClosurePush>> OnTaxiRateClearedAsync(Guid taxiId)
     {
+        await CloseShortlistAsync(i => i.Kind == TripShortlistKinds.Taxi && i.ListingId == taxiId);
         var rows = await db.TripEnquiries
             .Where(TripSegmentRows.LocalTaxi)
             .Where(e => e.ListingId == taxiId && (e.Status == TripEnquiryStatuses.Asked || e.Status == TripEnquiryStatuses.FareSent))
@@ -204,6 +208,18 @@ public class TripEnquiryClosure(
         }
         await db.SaveChangesAsync();
         return pushes;
+    }
+
+    private async Task CloseShortlistAsync(System.Linq.Expressions.Expression<Func<TripShortlistItem, bool>> match)
+    {
+        var now = DateTime.UtcNow;
+        await db.TripShortlistItems
+            .Where(i => i.State == TripShortlistStates.Active)
+            .Where(match)
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(i => i.State, TripShortlistStates.Closed)
+                .SetProperty(i => i.ClosedReason, TripShortlistClosedReasons.Unavailable)
+                .SetProperty(i => i.ClosedAt, now));
     }
 
     public async Task AfterCommitAsync(IReadOnlyList<TripClosurePush> pushes)

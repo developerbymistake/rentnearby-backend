@@ -33,7 +33,7 @@ public class TripPlanJsonTests
 
         var plan = JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options)!;
 
-        Assert.Equal(6, plan.Version);
+        Assert.Equal(7, plan.Version);
         Assert.Null(plan.DistrictId);
         Assert.Equal(502141L, plan.CityKey);
         Assert.Equal("Nainital", plan.CityName);
@@ -230,7 +230,7 @@ public class TripPlanJsonTests
 
         var back = JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options)!;
         Assert.Equal(TripPlan.CurrentVersion, back.Version);
-        Assert.Equal(6, back.Version);
+        Assert.Equal(7, back.Version);
         Assert.Equal("Delhi", back.Steps!.StartFrom!.Name);
         Assert.Equal(journeyId, back.Steps.GettingThere!.JourneyId);
         Assert.Equal(new DateOnly(2026, 11, 1), back.Steps.GettingThere.Date);
@@ -361,7 +361,7 @@ public class TripPlanJsonTests
         var back = TripPlanReader.Parse(json);
         back.Normalize();
 
-        Assert.Equal(6, back.Version);
+        Assert.Equal(7, back.Version);
         Assert.Equal(2, back.Legs!.Count);
         Assert.Equal(new[] { 1, 2, 2 }, back.Days.Select(d => d.Leg!.Value));
         var arrival = back.Legs[1].Arrival!;

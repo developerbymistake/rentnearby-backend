@@ -55,11 +55,11 @@ public class TripPlanV6Tests
     };
 
     [Fact]
-    public void Version_IsSix_AndOnlySixIsSupported()
+    public void Version_IsSeven_AndSixStaysReadable()
     {
-        Assert.Equal(6, TripPlan.CurrentVersion);
-        Assert.Equal(new[] { 6 }, TripPlan.SupportedVersions);
-        Assert.Equal(6, new TripPlan().Version);
+        Assert.Equal(7, TripPlan.CurrentVersion);
+        Assert.Equal(new[] { 6, 7 }, TripPlan.SupportedVersions);
+        Assert.Equal(7, new TripPlan().Version);
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public class TripPlanV6Tests
 
     [Theory]
     [InlineData(5)]
-    [InlineData(7)]
+    [InlineData(8)]
     public void OtherVersions_AreRefused(int version)
     {
         var request = Parse(Body);
@@ -240,8 +240,8 @@ public class TripPlanV6Tests
     [Fact]
     public void CompatNeedsUpdate_OnlyForANewerDocument()
     {
-        Assert.False(TripPlanCompat.NeedsUpdate(6));
-        Assert.True(TripPlanCompat.NeedsUpdate(7));
+        Assert.False(TripPlanCompat.NeedsUpdate(7));
+        Assert.True(TripPlanCompat.NeedsUpdate(8));
     }
 
     [Fact]

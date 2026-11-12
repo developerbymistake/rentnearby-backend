@@ -41,6 +41,7 @@ public interface IUnitOfWork : IDisposable
     ITripEnquiryRepository TripEnquiries { get; }
     ITripOfferRepository TripOffers { get; }
     ITripPushLogRepository TripPushLogs { get; }
+    ITripShortlistRepository TripShortlist { get; }
     Task<int> SaveChangesAsync();
 
     // Canonical transaction-control surface for handler/service-level code that needs multiple

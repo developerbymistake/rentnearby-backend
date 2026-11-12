@@ -50,12 +50,20 @@ public class CreateTripEnquiryRequestValidator : AbstractValidator<CreateTripEnq
 
         RuleFor(x => x.ListingIds)
             .NotNull()
-            .Must(ids => ids.Count is >= 1 and <= TripExecutionRules.MaxOpenPerNight)
-            .WithMessage($"Pick 1 to {TripExecutionRules.MaxOpenPerNight}")
+            .Must(ids => ids.Distinct().Count() is >= 1 and <= TripExecutionRules.MaxRecipientsPerEnquiry)
+            .WithMessage(TripExecutionRules.PickMessage)
             .Must(ids => ids.All(id => id != Guid.Empty))
-            .WithMessage("Listing id must not be empty")
-            .Must(ids => ids.Distinct().Count() == ids.Count)
-            .WithMessage("Listing ids must be different");
+            .WithMessage("Listing id must not be empty");
+
+        RuleFor(x => x.StepKey)
+            .Must(TripStepKeys.IsValid)
+            .When(x => x.StepKey != null)
+            .WithMessage("Invalid step");
+
+        RuleFor(x => x.ClientRequestId)
+            .Must(id => id != Guid.Empty)
+            .When(x => x.ClientRequestId != null)
+            .WithMessage("Invalid request id");
     }
 }
 
@@ -222,7 +230,7 @@ public class CreateTaxiBookingRequestValidator : AbstractValidator<CreateTaxiBoo
             .WithMessage("Replace id must not be empty");
 
         RuleFor(x => x.ReplaceEnquiryIds)
-            .Must(ids => ids == null || (ids.Count is >= 1 and <= TripExecutionRules.MaxOpenPerNight * 2))
+            .Must(ids => ids == null || (ids.Count is >= 1 and <= TripExecutionRules.MaxReplaceDrivers))
             .WithMessage("Pick 1 to 6 drivers to replace")
             .Must(ids => ids == null || ids.All(id => id != Guid.Empty))
             .WithMessage("Replace id must not be empty")

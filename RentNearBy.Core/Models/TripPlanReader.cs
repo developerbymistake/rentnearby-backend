@@ -19,7 +19,10 @@ public static class TripPlanReader
         if (string.IsNullOrWhiteSpace(json)) return new TripPlan();
         try
         {
-            return JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options) ?? new TripPlan();
+            var plan = JsonSerializer.Deserialize<TripPlan>(json, TripJson.Options) ?? new TripPlan();
+            // A stored guide with an unknown step or choice keeps what is valid; the validator is what refuses it on save.
+            plan.Guide = TripGuideRules.Sanitize(plan.Guide);
+            return plan;
         }
         catch (JsonException)
         {

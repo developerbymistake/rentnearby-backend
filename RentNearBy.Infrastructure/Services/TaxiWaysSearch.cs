@@ -124,7 +124,9 @@ public class TaxiWaysSearch(
         if (a == null || b == null) return null;
 
         var people = Math.Clamp(q.People, 1, o.MaxPeople);
-        var all = TaxiWaysSearchEngine.Candidates(snapshot, a, b, people, o, basedHereFirst: a.MyLocation);
+        var area = q.Area ?? q.ExcludeRoute == null;
+        var endArea = q.EndArea ?? (area || !b.Resolved);
+        var all = TaxiWaysSearchEngine.Candidates(snapshot, a, b, people, o, basedHereFirst: area, excludeRoute: q.ExcludeRoute, area: area, endArea: endArea);
         if (all.Count == 0) return null;
 
         IEnumerable<TaxiWaysCandidate> filtered = all;
@@ -148,7 +150,8 @@ public class TaxiWaysSearch(
     }
 
     public async Task<Dictionary<Guid, LegTaxiFare>> LegFaresAsync(
-        string legKey, IReadOnlyCollection<Guid> taxiIds, Guid? excludeRoute = null, CancellationToken ct = default)
+        string legKey, IReadOnlyCollection<Guid> taxiIds, Guid? excludeRoute = null, CancellationToken ct = default,
+        bool? area = null, bool? endArea = null)
     {
         var fares = new Dictionary<Guid, LegTaxiFare>();
         if (taxiIds.Count == 0 || !TaxiWaysKeys.TryParseLegKey(legKey, out var fromKey, out var toKey)) return fares;
@@ -169,7 +172,9 @@ public class TaxiWaysSearch(
         if (a == null || b == null) return fares;
 
         var wanted = taxiIds.ToHashSet();
-        foreach (var c in TaxiWaysSearchEngine.Candidates(snapshot, a, b, 1, o, basedHereFirst: a.MyLocation, excludeRoute: excludeRoute))
+        var isFirst = area ?? excludeRoute == null;
+        var reachesEnd = endArea ?? (isFirst || !b.Resolved);
+        foreach (var c in TaxiWaysSearchEngine.Candidates(snapshot, a, b, 1, o, basedHereFirst: isFirst, excludeRoute: excludeRoute, area: isFirst, endArea: reachesEnd))
             if (wanted.Contains(c.Driver.TaxiId))
                 fares[c.Driver.TaxiId] = new LegTaxiFare(c.Driver.TaxiId, c.Link.RouteId, c.Driver.Seats, c.Link.EstimatedFare, c.Link.Partial);
         return fares;
@@ -214,27 +219,12 @@ public class TaxiWaysSearch(
                 Reason = $"{changes} change{(changes == 1 ? "" : "s")}, about Rs {TaxiWaysMapper.Inr(dto.Plans[0].Total)}",
             };
         }
-        else if (await IsUncoveredAsync(from))
+        else
         {
             var reach = TaxiWaysSearchEngine.NearestReachingPlace(snapshot, from, to, o);
             if (reach != null) dto.ReachFirstPlace = new WayPlaceDto { Key = reach.Key, Name = reach.Name, Lat = reach.Lat, Lng = reach.Lng };
         }
         return dto;
-    }
-
-    private async Task<bool> IsUncoveredAsync(TaxiWaysAnchor from)
-    {
-        try
-        {
-            using var scope = scopeFactory.CreateScope();
-            var (_, state) = await scope.ServiceProvider.GetRequiredService<ITaxiWaysNetworkSource>().FindDistrictAsync(from.Lat, from.Lng);
-            return !OnboardingLaunchStates.Contains(state);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning("taxi.ways.coverage lookup failed: {Error}", ex.Message);
-            return false;
-        }
     }
 
     private async Task<DestBlock?> ComputeDestAsync(TaxiWaysAnchor to, TaxiWaysOptions o)
@@ -247,7 +237,7 @@ public class TaxiWaysSearch(
         var uow = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
         var (taxis, _) = await uow.Taxis.BrowseLocalPagedAsync(districtId.Value, null, null, 1, o.MaxLocalTaxis, cityOnly: false, localRateOnly: true);
         block.LocalTaxis = taxis.ToList();
-        var stays = await uow.Stays.GetNearbyAsync(to.Lat, to.Lng, o.StayRadiusKm, districtId.Value, null);
+        var stays = await uow.Stays.GetNearbyAsync(to.Lat, to.Lng, o.BasedHereMeters / 1000, districtId.Value, null);
         block.Stays = stays.Take(o.MaxStays).ToList();
         return block;
     }
@@ -345,6 +335,7 @@ internal static class TaxiWaysMapper
             DistanceKm = route?.DistanceKm is { } km ? Math.Round(km * span, 1) : null,
             Minutes = route?.Minutes is { } min ? (int)Math.Ceiling(min * span) : null,
             HasRoadLine = route?.HasLine == true,
+            MeetAtName = c.Link.MeetAtPlace is { } meet ? snapshot.Places.GetValueOrDefault(meet)?.Name : null,
         };
     }
 

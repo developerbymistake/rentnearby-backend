@@ -213,7 +213,8 @@ public static class JourneyHandlers
                 .Distinct()
                 .ToList();
             var fares = await JourneyLegFares.LoadAsync(
-                ways, journeys, l.LegKey, l.FromLat, l.FromLng, l.ToLat, l.ToLng, coverIds.Prepend(l.DriverTaxiId), taxis, previousRoute);
+                ways, journeys, l.LegKey, l.FromLat, l.FromLng, l.ToLat, l.ToLng, coverIds.Prepend(l.DriverTaxiId), taxis, previousRoute,
+                l.LegIndex == legs[0].LegIndex, l.LegIndex == legs[^1].LegIndex);
             if (JourneyLegFares.Quote(l.DriverTaxiId, coverIds, fares, request.People) is not { } quote)
                 return ErrorResponse(409, "This driver does not go on this stretch.", JourneyErrorTypes.DriverNotOnLeg);
             var driverFare = fares[l.DriverTaxiId];
@@ -388,7 +389,7 @@ public static class JourneyHandlers
             Guid? previousRoute = null;
             foreach (var leg in journey.Legs.OrderBy(l => l.LegIndex))
             {
-                await RefreshLegAsync(ways, journeys, leg, taxis, enquiries, fareChanged, journey.People, previousRoute);
+                await RefreshLegAsync(ways, journeys, leg, taxis, enquiries, fareChanged, journey.People, previousRoute, journey.Legs);
                 previousRoute = leg.DriverRouteId;
                 leg.UpdatedAt = now;
             }
@@ -423,13 +424,14 @@ public static class JourneyHandlers
     // The cover is re-solved over the driver and the cover cars still listed on the stretch, with live server fares.
     private static async Task RefreshLegAsync(
         ITaxiWaysSearch ways, ISavedJourneyRepository journeys, SavedJourneyLeg leg, Dictionary<Guid, JourneyTaxiInfo> taxis,
-        Dictionary<Guid, TripEnquiry> enquiries, HashSet<int> fareChanged, int people, Guid? previousRoute)
+        Dictionary<Guid, TripEnquiry> enquiries, HashSet<int> fareChanged, int people, Guid? previousRoute,
+        IEnumerable<SavedJourneyLeg> journeyLegs)
     {
         var driverLive = taxis.TryGetValue(leg.DriverTaxiId, out var driver) && driver.IsPublic;
         if (driverLive)
         {
             var cover = leg.CoverTaxiIds.Where(c => c != leg.DriverTaxiId && taxis.TryGetValue(c, out var t) && t.IsPublic).ToList();
-            var fares = await JourneyLegFares.LoadAsync(ways, journeys, leg, cover.Prepend(leg.DriverTaxiId), taxis, previousRoute);
+            var fares = await JourneyLegFares.LoadAsync(ways, journeys, leg, cover.Prepend(leg.DriverTaxiId), taxis, journeyLegs, previousRoute);
             if (JourneyLegFares.Quote(leg.DriverTaxiId, cover, fares, people) is { } quote)
             {
                 if (leg.ListedFare != quote.Fare)
@@ -499,7 +501,7 @@ public static class JourneyHandlers
                 .Where(c => c != request.TaxiId && c != leg.DriverTaxiId && taxis.TryGetValue(c, out var t) && t.IsPublic)
                 .ToList();
             var previousRoute = journey.Legs.FirstOrDefault(l => l.LegIndex == legIndex - 1)?.DriverRouteId;
-            var fares = await JourneyLegFares.LoadAsync(ways, journeys, leg, cover.Prepend(request.TaxiId), taxis, previousRoute);
+            var fares = await JourneyLegFares.LoadAsync(ways, journeys, leg, cover.Prepend(request.TaxiId), taxis, journey.Legs, previousRoute);
             if (JourneyLegFares.Quote(request.TaxiId, cover, fares, journey.People) is not { } quote)
                 return ErrorResponse(409, "This driver does not go on this stretch.", JourneyErrorTypes.DriverNotOnLeg);
 

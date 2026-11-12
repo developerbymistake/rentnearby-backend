@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
-using RentNearBy.Api.Handlers;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
@@ -11,8 +11,44 @@ namespace RentNearBy.Api.Services;
 
 public sealed class TripNotifier(
     IUnitOfWork unitOfWork, ApplicationDbContext db, IHubContext<NotificationHub> hub,
-    IRabbitMqPublisher publisher, ILogger<TripNotifier> logger) : ITripNotifier
+    IOutboxWriter outbox, ILogger<TripNotifier> logger) : ITripNotifier
 {
+    // The push is an outbox row written with the inbox row (one SaveChanges), so a crash or a broker outage never loses it.
+    private void QueuePush(NotificationEvent n)
+        => outbox.AddPush(new OutboxPushPayload(
+            $"ev:{n.Id:N}", n.TargetUserId!.Value, n.Id, n.Title, n.Body, n.ActionRoute, n.ActionArgumentsJson, $"n:{n.Id:N}"), DateTime.UtcNow);
+
+    private async Task AfterCommitAsync(NotificationEvent n)
+    {
+        outbox.Wake();
+        await HubAsync(n);
+    }
+
+    public async Task PublishLiveAsync(IEnumerable<NotificationEvent> events)
+    {
+        foreach (var n in events) await HubAsync(n);
+    }
+
+    private async Task HubAsync(NotificationEvent n)
+    {
+        try
+        {
+            await hub.Clients.Group($"user_{n.TargetUserId}").SendAsync("NotificationReceived", new
+            {
+                id = n.Id,
+                type = n.Type,
+                title = n.Title,
+                body = n.Body,
+                actionRoute = n.ActionRoute,
+                actionArguments = NotificationDto.ParseArguments(n.ActionArgumentsJson),
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "notify.hub_failed {NotificationId} {Type}", n.Id, n.Type);
+        }
+    }
+
     public async Task SendAsync(NotificationEvent n)
     {
         if (n.TargetUserId is null) return;
@@ -20,6 +56,7 @@ public sealed class TripNotifier(
         try
         {
             await unitOfWork.Notifications.AddAsync(n);
+            QueuePush(n);
             await unitOfWork.SaveChangesAsync();
         }
         catch (Exception ex)
@@ -29,7 +66,7 @@ public sealed class TripNotifier(
             return;
         }
 
-        await AdminHandlers.SendGoLiveNotificationAsync(hub, publisher, n, logger);
+        await AfterCommitAsync(n);
     }
 
     public async Task<bool> SendOnceAsync(NotificationEvent n, string dedupeKey, Guid? tripId, Guid? enquiryId)
@@ -59,6 +96,7 @@ public sealed class TripNotifier(
             if (n.TargetUserId != null)
             {
                 await unitOfWork.Notifications.AddAsync(n);
+                QueuePush(n);
                 await unitOfWork.SaveChangesAsync();
             }
             if (tx != null) await tx.CommitAsync();
@@ -78,7 +116,7 @@ public sealed class TripNotifier(
             if (tx != null) await tx.DisposeAsync();
         }
 
-        if (n.TargetUserId != null) await AdminHandlers.SendGoLiveNotificationAsync(hub, publisher, n, logger);
+        if (n.TargetUserId != null) await AfterCommitAsync(n);
         return TripSendOutcome.Sent;
     }
 }

@@ -72,11 +72,15 @@ public class TripExecutionValidatorsTests
         Passes(Create, Req<CreateTripEnquiryRequest>(CreateBody(), ("listingIds", Enumerable.Range(0, 3).Select(_ => Guid.NewGuid()).ToArray())));
 
     [Fact]
-    public void Create_duplicate_listings_fail()
+    public void Create_duplicate_listings_are_removed_not_refused()
     {
         var id = Guid.NewGuid();
-        Fails(Create, Req<CreateTripEnquiryRequest>(CreateBody(), ("listingIds", new[] { id, id })), "ListingIds");
+        Passes(Create, Req<CreateTripEnquiryRequest>(CreateBody(), ("listingIds", new[] { id, id })));
     }
+
+    [Fact]
+    public void Create_four_distinct_listings_fail() =>
+        Fails(Create, Req<CreateTripEnquiryRequest>(CreateBody(), ("listingIds", Enumerable.Range(0, 4).Select(_ => Guid.NewGuid()).ToArray())), "ListingIds");
 
     [Fact]
     public void Create_empty_guid_fails() =>

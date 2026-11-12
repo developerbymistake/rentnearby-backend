@@ -47,6 +47,7 @@ public class UnitOfWork : IUnitOfWork
     private ITripEnquiryRepository? _tripEnquiries;
     private ITripOfferRepository? _tripOffers;
     private ITripPushLogRepository? _tripPushLogs;
+    private ITripShortlistRepository? _tripShortlist;
 
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -92,6 +93,7 @@ public class UnitOfWork : IUnitOfWork
     public ITripEnquiryRepository TripEnquiries => _tripEnquiries ??= new TripEnquiryRepository(_context);
     public ITripOfferRepository TripOffers => _tripOffers ??= new TripOfferRepository(_context);
     public ITripPushLogRepository TripPushLogs => _tripPushLogs ??= new TripPushLogRepository(_context);
+    public ITripShortlistRepository TripShortlist => _tripShortlist ??= new TripShortlistRepository(_context);
 
     public async Task<int> SaveChangesAsync()
         => await _context.SaveChangesAsync();

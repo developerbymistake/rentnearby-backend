@@ -101,8 +101,9 @@ public static class TaxiWaysHandlers
 
     public static async Task<IResult> GetLegDrivers(
         string legKey, int? people, short? minSeats, string? category, bool? repliesInApp, string? sort,
-        ITaxiWaysSearch search, IRateLimitService rateLimiter, ClaimsPrincipal principal, HttpContext httpContext,
-        Microsoft.Extensions.Options.IOptions<TaxiWaysOptions> options, CancellationToken ct, int page = 1, int pageSize = 0)
+        ITaxiWaysSearch search, ISavedJourneyRepository journeys, IRateLimitService rateLimiter, ClaimsPrincipal principal, HttpContext httpContext,
+        Microsoft.Extensions.Options.IOptions<TaxiWaysOptions> options, CancellationToken ct, int page = 1, int pageSize = 0,
+        Guid? journeyId = null, int? legIndex = null, Guid? afterRoute = null, bool? lastLeg = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var o = options.Value;
@@ -119,10 +120,30 @@ public static class TaxiWaysHandlers
         if (size < 1 || size > o.LegPageSizeMax) return BadRequestResponse("Invalid page size");
         if (!TaxiWaysKeys.IsValidKey(legKey)) return LegNotFound();
 
+        // Which stretch of the journey this leg is, so Change driver lists exactly the plan's drivers: a saved journey (journeyId and
+        // legIndex) gives it from the server; an unsaved plan sends afterRoute (the previous car's route) and lastLeg.
+        Guid? exclude = afterRoute;
+        bool? area = null, endArea = null;
+        if (journeyId != null)
+        {
+            if (legIndex == null) return BadRequestResponse("Invalid leg");
+            var journey = await journeys.GetOwnedAsync(journeyId.Value, userId, false);
+            var leg = journey?.Legs.FirstOrDefault(l => l.LegIndex == legIndex);
+            if (journey == null || leg == null || leg.LegKey != legKey) return LegNotFound();
+            exclude = journey.Legs.FirstOrDefault(l => l.LegIndex == legIndex - 1)?.DriverRouteId;
+            area = leg.LegIndex == journey.Legs.Min(l => l.LegIndex);
+            endArea = leg.LegIndex == journey.Legs.Max(l => l.LegIndex);
+        }
+        else if (afterRoute != null || lastLeg != null)
+        {
+            area = afterRoute == null;
+            endArea = lastLeg ?? area;
+        }
+
         try
         {
             var result = await search.LegDriversAsync(
-                legKey, new LegDriverQuery(count, minSeats, category, repliesInApp == true, sortValue, page, size), ct);
+                legKey, new LegDriverQuery(count, minSeats, category, repliesInApp == true, sortValue, page, size, area, endArea, exclude), ct);
             return result == null ? LegNotFound() : OkResponse(result);
         }
         catch (TaxiWaysUnavailableException)

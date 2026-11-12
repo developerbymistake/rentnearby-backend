@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 using RentNearBy.Core.DTOs.Responses;
 
@@ -131,11 +132,12 @@ public static class TripPace
     public const int Normal = 450;
 }
 
-// PlanJson v6 (Trip.PlanJson, serialized with TripJson.Options): places per day, cities, settings, steps and row marks.
+// PlanJson v7 (Trip.PlanJson, serialized with TripJson.Options): places per day, cities, settings, steps and row marks.
 public sealed class TripPlan
 {
-    public const int CurrentVersion = 6;
-    public static readonly int[] SupportedVersions = [6];
+    public const int CurrentVersion = 7;
+    // A v6 document stays readable (no guide); the first save by a v7 app writes 7.
+    public static readonly int[] SupportedVersions = [6, 7];
     public int Version { get; set; } = CurrentVersion;
     // The five city fields always equal Legs[0] after Normalize.
     public long CityKey { get; set; }
@@ -152,6 +154,8 @@ public sealed class TripPlan
     public TripRowMark? TaxiMark { get; set; }
     // Problem rows the traveller dismissed (a red night or day reads "not sorted"). Null on a request keeps the stored list.
     public List<Guid>? DismissedEnquiryIds { get; set; }
+    // Cursor and answers of the guided Make it easy flow (v7). The shortlist is never stored here (TripShortlistItems).
+    public TripGuide? Guide { get; set; }
 
     // Last DAY of the trip (drives Trips.EndDate, reminders and the list).
     [JsonIgnore]
@@ -254,6 +258,54 @@ public sealed class TripPlan
         if (string.IsNullOrEmpty(text)) return null;
         return text.Length > max ? text[..max].TrimEnd() : text;
     }
+}
+
+// Guided flow state. Step is a step key (TripStepKeys); Choices maps a step key to find | own | skip.
+public sealed class TripGuide
+{
+    public string? Step { get; set; }
+    public Dictionary<string, string>? Choices { get; set; }
+    public bool? Overview { get; set; }
+}
+
+public static class TripGuideChoices
+{
+    public const string Find = "find";
+    public const string Own = "own";
+    public const string Skip = "skip";
+
+    public static readonly string[] All = [Find, Own, Skip];
+}
+
+public static class TripStepKeys
+{
+    public const int MaxChoices = 30;
+    public static readonly Regex Pattern = new(@"^(gettingThere|comingBack|taxi|stay:[1-9][0-9]?|between:[2-9][0-9]?)$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    public static bool IsValid(string? key) => key != null && Pattern.IsMatch(key);
+}
+
+public static class TripGuideRules
+{
+    // Unknown step or choice values are dropped on read; an empty guide is no guide (toJson writes it only when non-default).
+    public static TripGuide? Sanitize(TripGuide? guide)
+    {
+        if (guide == null) return null;
+        var step = TripStepKeys.IsValid(guide.Step) ? guide.Step : null;
+        var choices = guide.Choices?
+            .Where(c => TripStepKeys.IsValid(c.Key) && Array.IndexOf(TripGuideChoices.All, c.Value) >= 0)
+            .Take(TripStepKeys.MaxChoices)
+            .ToDictionary(c => c.Key, c => c.Value);
+        if (choices is { Count: 0 }) choices = null;
+        var overview = guide.Overview == true ? true : (bool?)null;
+        if (step == null && choices == null && overview == null) return null;
+        return new TripGuide { Step = step, Choices = choices, Overview = overview };
+    }
+
+    public static bool IsValid(TripGuide guide)
+        => (guide.Step == null || TripStepKeys.IsValid(guide.Step))
+           && (guide.Choices == null || (guide.Choices.Count <= TripStepKeys.MaxChoices
+               && guide.Choices.All(c => TripStepKeys.IsValid(c.Key) && Array.IndexOf(TripGuideChoices.All, c.Value) >= 0)));
 }
 
 public static class TripLeaveOn
@@ -458,9 +510,9 @@ public sealed class AtlasCatalogVersion
 // Redis value of TripCacheKeys.CityCatalog / CityCatalogStale, and the in-process copy.
 public sealed class TripCityCatalogSnapshot
 {
-    // Stored copies with another format (0 = no key, 1 = before the popular flag) are ignored.
+    // Stored copies with another format (0 = no key, 1 = before the popular flag, 2 = before the cover url) are ignored.
     // The default stays 0 so an old Redis value deserializes as 0; Build stamps CurrentFormat.
-    public const int CurrentFormat = 2;
+    public const int CurrentFormat = 3;
     public int Format { get; set; }
     public string Version { get; set; } = string.Empty;
     public DateTime UpdatedAt { get; set; }
@@ -485,6 +537,8 @@ public sealed class TripCityInfo
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public string? ImageUrl { get; set; }
+    // Cloudinary thumbnail of ImageUrl, else of the best spot image; null when the city has none. Filled by the catalog.
+    public string? CoverUrl { get; set; }
     public bool IsPopularDestination { get; set; }
     public string Status { get; set; } = TripSpotStatuses.NotReady;
     public int SpotCount { get; set; }

@@ -82,6 +82,10 @@ public class TripNotificationsTests
     }
 
     [Fact]
+    public void Push_only_reminder_type_has_its_wire_value_and_no_inbox_builder()
+        => Assert.Equal("trip_reminder", NotificationTypes.ToWireValue(NotificationTypes.TripReminder));
+
+    [Fact]
     public void Every_row_has_a_builder()
     {
         var builders = Builders();

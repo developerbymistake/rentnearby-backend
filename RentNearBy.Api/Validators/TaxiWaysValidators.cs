@@ -102,9 +102,9 @@ public class AskLegRequestValidator : AbstractValidator<AskLegRequest>
         RuleFor(x => x.ToName).Must(TaxiWaysRules.IsName).WithMessage(TaxiWaysRules.NameMessage);
         RuleFor(x => x.ComesFrom).Must(s => s == null || s.Trim().Length <= JourneyRules.NameMax).WithMessage(TaxiWaysRules.NameMessage);
         RuleFor(x => x.CarOf).InclusiveBetween(1, JourneyRules.MaxLegs).WithMessage("Invalid cars");
-        RuleFor(x => x.TaxiIds).NotNull().Must(ids => ids != null && ids.Count is >= 1 and <= JourneyRules.MaxAskPerLeg)
-            .WithMessage("Ask 1 to 3 drivers per car");
-        RuleFor(x => x.TaxiIds).Must(ids => ids.Distinct().Count() == ids.Count && ids.All(i => i != Guid.Empty))
+        RuleFor(x => x.TaxiIds).NotNull().Must(ids => ids != null && ids.Distinct().Count() is >= 1 and <= JourneyRules.MaxAskPerLeg)
+            .WithMessage(TripExecutionRules.PickMessage);
+        RuleFor(x => x.TaxiIds).Must(ids => ids.All(i => i != Guid.Empty))
             .When(x => x.TaxiIds != null)
             .WithMessage("Invalid drivers");
     }
@@ -115,6 +115,8 @@ public class AskDriversRequestValidator : AbstractValidator<AskDriversRequest>
     public AskDriversRequestValidator()
     {
         RuleFor(x => x.JourneyId).NotEmpty().WithMessage("Journey is required");
+        RuleFor(x => x.StepKey).Must(TripStepKeys.IsValid).When(x => x.StepKey != null).WithMessage("Invalid step");
+        RuleFor(x => x.ClientRequestId).Must(id => id != Guid.Empty).When(x => x.ClientRequestId != null).WithMessage("Invalid request id");
         RuleFor(x => x.Date).Must(TaxiWaysRules.IsDate).WithMessage(TaxiWaysRules.DateMessage);
         RuleFor(x => x.People).InclusiveBetween(1, JourneyRules.MaxPeople).WithMessage(TaxiWaysRules.PeopleMessage);
         RuleFor(x => x.FromName).Must(TaxiWaysRules.IsName).WithMessage(TaxiWaysRules.NameMessage);
@@ -127,9 +129,9 @@ public class AskDriversRequestValidator : AbstractValidator<AskDriversRequest>
         RuleFor(x => x.Legs).Must(l => l.Select(x => x.LegIndex).Distinct().Count() == l.Count)
             .When(x => x.Legs != null && x.Legs.All(l => l != null))
             .WithMessage("Unknown leg");
-        RuleFor(x => x.Legs).Must(l => l.Sum(x => x.TaxiIds?.Count ?? 0) <= JourneyRules.MaxAskTaxis)
+        RuleFor(x => x.Legs).Must(l => l.Sum(x => x.TaxiIds?.Distinct().Count() ?? 0) <= JourneyRules.MaxAskTaxis)
             .When(x => x.Legs != null && x.Legs.All(l => l != null))
-            .WithMessage("Ask up to 6 drivers at once");
+            .WithMessage(TripExecutionRules.PickMessage);
         RuleForEach(x => x.Legs).SetValidator(new AskLegRequestValidator())
             .When(x => x.Legs != null && x.Legs.All(l => l != null));
     }

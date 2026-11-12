@@ -693,6 +693,9 @@ public static class TripSummaryRecordBuilder
                 Title = TripEasyRows.Title(r, plan),
                 State = r.State,
                 Detail = DetailOf(r, plan),
+                Partial = r.Partial,
+                NightsCovered = r.NightsTotal > 0 ? r.NightsCovered : null,
+                NightsTotal = r.NightsTotal > 0 ? r.NightsTotal : null,
             })
             .ToList();
 

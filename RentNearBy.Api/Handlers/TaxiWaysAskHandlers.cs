@@ -31,7 +31,7 @@ public static class TaxiWaysAskHandlers
     public static async Task<IResult> AskDrivers(
         AskDriversRequest request, IValidator<AskDriversRequest> validator, ClaimsPrincipal principal,
         IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, ApplicationDbContext db, ITripNotifier notifier,
-        IRateLimitService rateLimiter, ITaxiWaysSearch ways, ILoggerFactory loggers, HttpContext http)
+        IRateLimitService rateLimiter, ITaxiWaysSearch ways, ILoggerFactory loggers, HttpContext http, IOutboxWriter outbox)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
@@ -67,6 +67,28 @@ public static class TaxiWaysAskHandlers
         var items = new List<(int LegIndex, TripEnquiry Enquiry)>();
         var skipped = new List<AskSkippedDto>();
         var candidates = new List<(AskLegRequest Leg, TaxiRow Taxi)>();
+        var created = new HashSet<Guid>();
+        var live = new List<NotificationEvent>();
+
+        // Distinct drivers of the request in leg order; a retry of the same clientRequestId never sends again.
+        var requested = request.Legs.OrderBy(l => l.LegIndex).SelectMany(l => l.TaxiIds).Distinct().ToList();
+        var clientRequestId = TripBulk.RequestId(request.ClientRequestId, http);
+        var replayed = new HashSet<Guid>();
+        if (clientRequestId is { } requestId)
+        {
+            foreach (var row in await unitOfWork.TripEnquiries.GetByClientRequestAsync(callerId, requestId, requested))
+            {
+                replayed.Add(row.ListingId);
+                items.Add((TripEnquiryDtoBuilder.ReadContext(row.ContextJson).LegIndex ?? 1, row));
+            }
+        }
+        var toProcess = requested.Where(id => !replayed.Contains(id)).ToList();
+        // One query each for the taxis, the blocks and the traveller's own open rows (no per-driver lookups).
+        var taxisById = await LoadTaxisAsync(db, toProcess);
+        var blockedOwners = await TripBulk.BlockedOwnersAsync(db, callerId, taxisById.Values.Select(x => x.UserId).Distinct().ToList());
+        var mineByTaxi = (await unitOfWork.TripEnquiries.GetOpenByTravellerListingsAsync(callerId, TripEnquiryKinds.Taxi, toProcess))
+            .ToLookup(x => x.ListingId);
+        var stamped = new HashSet<Guid>();
         // A people change makes a new journey for the same plan and date (D24): its open leads replace the old journey's.
         var siblingIds = await db.Set<SavedJourney>().AsNoTracking()
             .Where(j => j.UserId == callerId && !j.IsDeleted && j.Id != journey.Id
@@ -83,32 +105,37 @@ public static class TaxiWaysAskHandlers
                     .ToListAsync(),
                 journey.Id);
 
+        // A driver is on a leg only when the ways network or his stored route serves its stretch: his fare comes from there.
+        // Loaded once per leg before any lead is planned, so a driver who is not on the leg never replaces an older lead.
+        var fareByLeg = await LoadLegFaresAsync(ways, journeys, journey, request.Legs, taxisById, replayed);
+
         foreach (var leg in request.Legs.OrderBy(l => l.LegIndex))
         {
-            foreach (var taxiId in leg.TaxiIds)
+            foreach (var taxiId in leg.TaxiIds.Where(id => !replayed.Contains(id)))
             {
                 // One lead per leg and driver: the same driver on two legs gets a lead for each, with that leg's route.
                 if (candidates.Any(c => c.Leg.LegIndex == leg.LegIndex && c.Taxi.Id == taxiId)
                     || items.Any(i => i.LegIndex == leg.LegIndex && i.Enquiry.ListingId == taxiId)) continue;
-                var taxi = await LoadTaxiAsync(db, taxiId);
+                taxisById.TryGetValue(taxiId, out var taxi);
                 if (taxi == null || taxi.IsDeleted || taxi.Status != TaxiStatuses.Approved || !taxi.IsAvailable || taxi.UserId == callerId)
                 {
                     skipped.Add(Skip(leg.LegIndex, taxiId, TripSkipReasons.NotAvailable));
                     continue;
                 }
-                if (await unitOfWork.UserBlocks.ExistsAsync(callerId, taxi.UserId) || await unitOfWork.UserBlocks.ExistsAsync(taxi.UserId, callerId))
+                if (blockedOwners.Contains(taxi.UserId))
                 {
                     skipped.Add(Skip(leg.LegIndex, taxiId, TripSkipReasons.Blocked));
                     continue;
                 }
 
-                var mine = await unitOfWork.TripEnquiries.GetOpenByTravellerListingAsync(callerId, TripEnquiryKinds.Taxi, taxiId);
+                var mine = mineByTaxi[taxiId].ToList();
                 if (segment != null)
                 {
                     var pick = SegmentPick(segment, journey.Id, siblingIds, leg.LegIndex, taxiId, mine, openSegmentRows,
                         candidates.Select(c => (c.Leg.LegIndex, c.Taxi.Id)).ToList());
                     if (pick.Same != null) items.Add((leg.LegIndex, pick.Same));
                     else if (pick.Skip != null) skipped.Add(Skip(leg.LegIndex, taxiId, pick.Skip));
+                    else if (!fareByLeg[leg.LegIndex].ContainsKey(taxiId)) skipped.Add(Skip(leg.LegIndex, taxiId, TripSkipReasons.NotAvailable));
                     else
                     {
                         replacedLeadIds.UnionWith(pick.Replaced);
@@ -124,6 +151,11 @@ public static class TaxiWaysAskHandlers
                 if (same != null)
                 {
                     items.Add((leg.LegIndex, same));
+                    continue;
+                }
+                if (!fareByLeg[leg.LegIndex].ContainsKey(taxiId))
+                {
+                    skipped.Add(Skip(leg.LegIndex, taxiId, TripSkipReasons.NotAvailable));
                     continue;
                 }
                 foreach (var old in mine.Where(x => x.TripId == null && TripEnquiryStatuses.IsWithdrawable(x.Status)
@@ -146,8 +178,7 @@ public static class TaxiWaysAskHandlers
 
         var (expiresAt, veryShortNotice) = TripExecutionRules.EnquiryExpiry(date, date, now);
         var isUrgent = TripExecutionRules.IsUrgent(date, now);
-        var pushes = new List<TripPendingPush>();
-        var leadPrices = await LeadPricesAsync(ways, journeys, journey, candidates.Select(c => (c.Leg.LegIndex, c.Taxi.Id, c.Taxi.Seats)).ToList(), request.People);
+        var leadPrices = LeadPrices(journey, candidates.Select(c => (c.Leg.LegIndex, c.Taxi.Id, c.Taxi.Seats)).ToList(), request.People, fareByLeg);
 
         await unitOfWork.BeginTransactionAsync();
         try
@@ -161,7 +192,10 @@ public static class TaxiWaysAskHandlers
                     old.Status = TripEnquiryStatuses.Closed;
                     old.FailReason = TripCloseReasons.Withdrawn;
                     old.UpdatedAt = now;
-                    pushes.Add(new TripPendingPush(old, old.OwnerUserId, TripEnquiryHandlers.EnquiryWithdrawn));
+                    // The "withdrawn" push is an outbox row of this transaction (durable), one unique key per change.
+                    TripBulk.StagePush(db, outbox,
+                        TripEnquiryHandlers.EnquiryWithdrawn(old, new TripPushContext(old.OwnerUserId ?? Guid.Empty, travellerName, old.ListingName, null)),
+                        old.Id, now, live, TripBulkRules.UpdateKey(old.Id, "wd", now));
                 }
                 await db.SaveChangesAsync();
             }
@@ -178,16 +212,21 @@ public static class TaxiWaysAskHandlers
                 var price = leadPrices[(leg.LegIndex, taxi.Id)];
                 if (segment != null)
                 {
-                    var (row, created) = await InsertSegmentRowAsync(
+                    var (row, isNew) = await InsertSegmentRowAsync(
                         unitOfWork, db, segment, journey, leg, taxi, fromName, legTo, comesFrom, request.People,
-                        travellerName.Length == 0 ? null : travellerName, expiresAt, isUrgent, now, price);
+                        travellerName.Length == 0 ? null : travellerName, expiresAt, isUrgent, now, price,
+                        stamped.Add(taxi.Id) ? clientRequestId : null, request.StepKey);
                     if (row == null)
                     {
                         skipped.Add(Skip(leg.LegIndex, taxi.Id, TripSkipReasons.AlreadyOpen));
                         continue;
                     }
                     items.Add((leg.LegIndex, row));
-                    if (created) pushes.Add(new TripPendingPush(row, row.OwnerUserId, TripNotifications.TripLeadReceived));
+                    if (isNew)
+                    {
+                        created.Add(row.Id);
+                        TripBulk.StagePush(db, outbox, TripNotifications.TripLeadReceived(row, LeadPushContext(taxi, row, travellerName)), row.Id, now, live);
+                    }
                     continue;
                 }
                 var context = new TripEnquiryContext
@@ -230,9 +269,26 @@ public static class TaxiWaysAskHandlers
                     ListedRateSnapshot = price.Fare,
                     PickupTime = null,
                     PickupPlace = pickup,
+                    StepKey = request.StepKey,
+                    ClientRequestId = stamped.Add(taxi.Id) ? clientRequestId : null,
                     CreatedAt = now,
                     UpdatedAt = now,
                 };
+                // No unique index covers a row without a trip (NULL is distinct), so parallel asks of the same car are serialised by an
+                // advisory lock held to the end of the transaction, and the winner's row is read again before a second one is written.
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock(hashtextextended({TripBulkRules.JourneyLeadLockKey(journey.Id, leg.LegIndex, taxi.Id)}, 0))");
+                var racing = (await db.TripEnquiries.AsNoTracking()
+                        .Where(x => x.TravellerUserId == callerId && x.ListingId == taxi.Id && x.Kind == TripEnquiryKinds.Taxi
+                            && x.TripId == null && TripEnquiryStatuses.Open.Contains(x.Status)
+                            && x.CheckIn < checkOut && x.CheckOut > date)
+                        .ToListAsync())
+                    .FirstOrDefault(x => IsLeadOf(x, journey.Id, leg.LegIndex));
+                if (racing != null)
+                {
+                    items.Add((leg.LegIndex, racing));
+                    continue;
+                }
                 db.TripEnquiries.Add(e);
                 await db.SaveChangesAsync();
 
@@ -240,7 +296,8 @@ public static class TaxiWaysAskHandlers
                     .ExecuteUpdateAsync(s => s.SetProperty(x => x.TripLeadsReceived, x => x.TripLeadsReceived + 1));
 
                 items.Add((leg.LegIndex, e));
-                pushes.Add(new TripPendingPush(e, e.OwnerUserId, TripNotifications.TripLeadReceived));
+                created.Add(e.Id);
+                TripBulk.StagePush(db, outbox, TripNotifications.TripLeadReceived(e, LeadPushContext(taxi, e, travellerName)), e.Id, now, live);
             }
 
             // The chosen driver's lead is the leg's current answer; the others are backups' leads.
@@ -258,6 +315,10 @@ public static class TaxiWaysAskHandlers
             journey.UpdatedAt = now;
             await db.SaveChangesAsync();
             if (segment != null && items.Count > 0) await TripEnquiryHandlers.PromoteToPlannedAsync(db, segment.Trip.Id);
+            if (segment != null && created.Count > 0)
+                await unitOfWork.TripShortlist.MarkSentAsync(
+                    segment.Trip.Id, request.StepKey, items.Where(i => created.Contains(i.Enquiry.Id)).Select(i => i.Enquiry.ListingId).ToList(), now);
+            await db.SaveChangesAsync();
 
             await unitOfWork.CommitTransactionAsync();
         }
@@ -272,9 +333,13 @@ public static class TaxiWaysAskHandlers
             throw;
         }
 
-        await TripPushSender.SendAsync(pushes, unitOfWork.TripEnquiries, notifier, loggers.CreateLogger("TaxiWaysAsk"));
+        outbox.Wake();
+        await notifier.PublishLiveAsync(live);
+        if (segment != null)
+            await TripBulk.CloseUnavailableAsync(
+                db, segment.Trip.Id, request.StepKey, skipped.Select(x => (x.TaxiId, x.Reason)), now, loggers.CreateLogger("TripBulk"));
 
-        return CreatedResponse(new AskDriversResultDto
+        var result = new AskDriversResultDto
         {
             Items = items.Select(i => new AskItemDto
             {
@@ -285,8 +350,19 @@ public static class TaxiWaysAskHandlers
             }).ToList(),
             Skipped = skipped,
             VeryShortNotice = veryShortNotice,
-        }, $"/api/v1/taxis/journeys/{journey.Id}");
+            Results = TripBulk.BuildResults(
+                requested, created, [], skipped.Select(x => (x.TaxiId, x.Reason)), items.Select(i => i.Enquiry), clientRequestId),
+        };
+        if (clientRequestId != null && created.Count == 0 && toProcess.Count == 0 && items.Count > 0)
+        {
+            http.Response.Headers[TripBulk.ReplayHeader] = "true";
+            return OkResponse(result);
+        }
+        return CreatedResponse(result, $"/api/v1/taxis/journeys/{journey.Id}");
     }
+
+    private static TripPushContext LeadPushContext(TaxiRow taxi, TripEnquiry row, string travellerName)
+        => new(taxi.UserId, travellerName, row.ListingName, null);
 
     // Role = gettingThere | comingBack | segment; TravelDay = DayOf(start, Date), informational for the step roles (0 or N + 1 allowed).
     internal sealed record SegmentAsk(Trip Trip, TripPlan Plan, TripCityLeg Leg, int TravelDay, DateOnly Date, string Role = TripStepRoles.Segment);
@@ -367,7 +443,7 @@ public static class TaxiWaysAskHandlers
     private static async Task<(TripEnquiry? Row, bool Created)> InsertSegmentRowAsync(
         IUnitOfWork unitOfWork, ApplicationDbContext db, SegmentAsk segment, SavedJourney journey, AskLegRequest leg, TaxiRow taxi,
         string fromName, string toName, string? comesFrom, int people, string? travellerName, DateTime expiresAt, bool isUrgent,
-        DateTime now, LeadPrice price)
+        DateTime now, LeadPrice price, Guid? clientRequestId = null, string? stepKey = null)
     {
         var day = (short)segment.TravelDay;
         var context = TripSegmentContext.Build(
@@ -397,6 +473,8 @@ public static class TaxiWaysAskHandlers
             ListedRateSnapshot = price.Fare,
             PickupTime = null,
             PickupPlace = context.PickupPlace,
+            StepKey = stepKey,
+            ClientRequestId = clientRequestId,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -420,26 +498,40 @@ public static class TaxiWaysAskHandlers
     // Cars this driver brings and his listed rate for them; Fare null when the server cannot price him on the stretch.
     internal readonly record struct LeadPrice(int Cars, int? Fare);
 
+    // Server fares of the requested drivers per leg (JourneyLegFares); a driver without an entry is not on the leg. Only drivers that
+    // can be asked at all are priced, the rest are skipped before.
+    private static async Task<Dictionary<int, Dictionary<Guid, LegTaxiFare>>> LoadLegFaresAsync(
+        ITaxiWaysSearch ways, ISavedJourneyRepository journeys, SavedJourney journey, IEnumerable<AskLegRequest> legs,
+        IReadOnlyDictionary<Guid, TaxiRow> taxisById, IReadOnlySet<Guid> replayed)
+    {
+        var noTaxis = new Dictionary<Guid, JourneyTaxiInfo>();
+        var result = new Dictionary<int, Dictionary<Guid, LegTaxiFare>>();
+        foreach (var leg in legs)
+        {
+            var saved = journey.Legs.First(l => l.LegIndex == leg.LegIndex);
+            var previousRoute = journey.Legs.FirstOrDefault(l => l.LegIndex == leg.LegIndex - 1)?.DriverRouteId;
+            var ids = leg.TaxiIds.Where(id => !replayed.Contains(id) && taxisById.TryGetValue(id, out var t)
+                && !t.IsDeleted && t.Status == TaxiStatuses.Approved && t.IsAvailable).Distinct().ToList();
+            result[leg.LegIndex] = ids.Count == 0
+                ? []
+                : await JourneyLegFares.LoadAsync(ways, journeys, saved, ids, noTaxis, journey.Legs, previousRoute);
+        }
+        return result;
+    }
+
     // Per (leg, taxi) of the new leads: cars from the saved leg's seat cover (JourneyLegPricing.CarsFor) and the server fare of
-    // the stretch (JourneyLegFares). The app's listedFare is never used.
-    private static async Task<Dictionary<(int LegIndex, Guid TaxiId), LeadPrice>> LeadPricesAsync(
-        ITaxiWaysSearch ways, ISavedJourneyRepository journeys, SavedJourney journey,
-        IReadOnlyList<(int LegIndex, Guid TaxiId, short? Seats)> asks, int people)
+    // the stretch. The app's listedFare is never used.
+    private static Dictionary<(int LegIndex, Guid TaxiId), LeadPrice> LeadPrices(
+        SavedJourney journey, IReadOnlyList<(int LegIndex, Guid TaxiId, short? Seats)> asks, int people,
+        IReadOnlyDictionary<int, Dictionary<Guid, LegTaxiFare>> fareByLeg)
     {
         var prices = new Dictionary<(int, Guid), LeadPrice>();
-        if (asks.Count == 0) return prices;
-        var noTaxis = new Dictionary<Guid, JourneyTaxiInfo>();
-        foreach (var group in asks.GroupBy(a => a.LegIndex))
+        foreach (var (legIndex, taxiId, seats) in asks)
         {
-            var leg = journey.Legs.First(l => l.LegIndex == group.Key);
-            var previousRoute = journey.Legs.FirstOrDefault(l => l.LegIndex == group.Key - 1)?.DriverRouteId;
-            var fares = await JourneyLegFares.LoadAsync(ways, journeys, leg, group.Select(a => a.TaxiId), noTaxis, previousRoute);
-            foreach (var (legIndex, taxiId, seats) in group)
-            {
-                var cars = JourneyLegPricing.CarsFor(taxiId, seats, people, leg.DriverTaxiId, leg.CoverTaxiIds);
-                prices[(legIndex, taxiId)] = new LeadPrice(
-                    cars, fares.TryGetValue(taxiId, out var f) ? JourneyLegPricing.LeadFare(f.PerCarFare, cars) : null);
-            }
+            var leg = journey.Legs.First(l => l.LegIndex == legIndex);
+            var cars = JourneyLegPricing.CarsFor(taxiId, seats, people, leg.DriverTaxiId, leg.CoverTaxiIds);
+            prices[(legIndex, taxiId)] = new LeadPrice(
+                cars, fareByLeg[legIndex].TryGetValue(taxiId, out var f) ? JourneyLegPricing.LeadFare(f.PerCarFare, cars) : null);
         }
         return prices;
     }
@@ -460,13 +552,16 @@ public static class TaxiWaysAskHandlers
     private static AskSkippedDto Skip(int legIndex, Guid taxiId, string reason)
         => new() { LegIndex = legIndex, TaxiId = taxiId, Reason = reason };
 
-    private static async Task<TaxiRow?> LoadTaxiAsync(ApplicationDbContext db, Guid taxiId)
-        => await db.TaxiListings.AsNoTracking()
-            .Where(t => t.Id == taxiId)
-            .Select(t => new TaxiRow(
-                t.Id, t.UserId, t.User.Name, t.VehicleType != null ? t.VehicleType.Name : null, t.Status, t.IsAvailable, t.IsDeleted,
-                t.Latitude == null ? null : (double?)t.Latitude, t.Longitude == null ? null : (double?)t.Longitude, t.Seats))
-            .FirstOrDefaultAsync();
+    // One query for every requested driver.
+    private static async Task<Dictionary<Guid, TaxiRow>> LoadTaxisAsync(ApplicationDbContext db, IReadOnlyCollection<Guid> taxiIds)
+        => taxiIds.Count == 0
+            ? []
+            : (await db.TaxiListings.AsNoTracking()
+                .Where(t => taxiIds.Contains(t.Id))
+                .Select(t => new TaxiRow(
+                    t.Id, t.UserId, t.User.Name, t.VehicleType != null ? t.VehicleType.Name : null, t.Status, t.IsAvailable, t.IsDeleted,
+                    t.Latitude == null ? null : (double?)t.Latitude, t.Longitude == null ? null : (double?)t.Longitude, t.Seats))
+                .ToListAsync()).ToDictionary(x => x.Id);
 
     // "Driver · Vehicle", at most 120 characters.
     private static string TaxiName(TaxiRow taxi)

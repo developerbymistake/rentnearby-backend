@@ -99,4 +99,28 @@ public class DeviceTokenRepository(ApplicationDbContext context) : IDeviceTokenR
 
         return rows.Select(r => (r.Id, r.Token)).ToList();
     }
+
+    // Batch push delivery: every valid token of many users in one query (UserId = ANY).
+    public async Task<IReadOnlyList<(Guid UserId, string Token)>> GetValidByUserIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken ct = default)
+    {
+        if (userIds.Count == 0) return [];
+        var ids = userIds as Guid[] ?? userIds.ToArray();
+        var rows = await context.DeviceTokens
+            .AsNoTracking()
+            .Where(d => d.IsValid && ids.Contains(d.UserId))
+            .Select(d => new { d.UserId, d.Token })
+            .ToListAsync(ct);
+        return rows.Select(r => (r.UserId, r.Token)).ToList();
+    }
+
+    // One UPDATE for every dead token of a delivery batch.
+    public async Task<int> MarkInvalidManyAsync(IReadOnlyCollection<string> tokens, CancellationToken ct = default)
+    {
+        if (tokens.Count == 0) return 0;
+        var list = tokens as string[] ?? tokens.ToArray();
+        var now = DateTime.UtcNow;
+        return await context.DeviceTokens
+            .Where(d => d.IsValid && list.Contains(d.Token))
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsValid, false).SetProperty(d => d.UpdatedAt, now), ct);
+    }
 }

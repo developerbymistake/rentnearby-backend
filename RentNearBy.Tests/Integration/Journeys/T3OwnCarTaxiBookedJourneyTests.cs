@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Tests.Data;
 using static RentNearBy.Tests.Integration.Journeys.JourneyHarness;
@@ -48,5 +49,29 @@ public class T3OwnCarTaxiBookedJourneyTests(TestDatabase db) : IntegrationTestBa
         var complete = await h.CompleteAsync(tripId, seeker);
         Assert.Equal(409, StatusOf(complete));
         Assert.Equal(TripStatuses.Planned, (await h.LoadAsync(tripId)).Trip.Status);
+    }
+
+    // The driver's "booked" and "withdrawn" pushes are outbox rows written in the booking transaction, not post-commit sends.
+    [IntegrationFact]
+    public async Task Booking_writes_the_drivers_push_to_the_outbox_in_the_same_transaction()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seeker = await h.AddSeekerAsync();
+        var driver = await h.AddTaxiDriverAsync();
+        var taxi = await h.AddTaxiAsync(driver);
+        var tripId = await h.AddTripAsync(seeker, h.BuildPlan(("Nainital", 210000001, 2)));
+
+        var booked = await h.TaxiBookAsync(tripId, seeker, new CreateTaxiBookingRequest
+        {
+            TaxiId = taxi, Days = [1, 2], AgreedFare = 6000, PickupTime = "08:30",
+        });
+        Assert.InRange(StatusOf(booked), 200, 201);
+
+        var enquiry = Assert.Single((await h.LoadAsync(tripId)).Enquiries);
+        await using var ctx = CreateContext();
+        var keys = await ctx.OutboxMessages.AsNoTracking().Where(o => o.Key.StartsWith($"enq:{enquiry.Id:N}:")).Select(o => o.Key).ToListAsync();
+        Assert.Single(keys, k => k.StartsWith($"enq:{enquiry.Id:N}:booked:"));
+        Assert.Equal(keys.Count, keys.Distinct().Count());
+        Assert.Equal(1, await ctx.NotificationEvents.AsNoTracking().CountAsync(n => n.TargetUserId == driver));
     }
 }

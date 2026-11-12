@@ -11,6 +11,13 @@ public static class TripExecutionEndpoints
     {
         group.MapPost("/{tripId:guid}/enquiries", TripEnquiryHandlers.Create).Gated();
 
+        // Guided-flow shortlist (server-owned, max 3 per step) and the phone-booking close.
+        group.MapGet("/{tripId:guid}/shortlist", TripShortlistHandlers.Get).RequireAuthorization();
+        group.MapPut("/{tripId:guid}/steps/{stepKey}/shortlist/{listingId:guid}", TripShortlistHandlers.Add).RequireAuthorization();
+        group.MapDelete("/{tripId:guid}/steps/{stepKey}/shortlist/{listingId:guid}", TripShortlistHandlers.Remove).RequireAuthorization();
+        group.MapPost("/{tripId:guid}/steps/{stepKey}/shortlist/close", TripShortlistHandlers.Close).RequireAuthorization();
+        group.MapPost("/{tripId:guid}/steps/{stepKey}/mark-booked", TripShortlistHandlers.MarkBooked).RequireAuthorization();
+
         group.MapGet("/enquiries/owner", TripOwnerHandlers.GetMine).Gated("CanListStays").WithMetadata(new SkipTripPlannerGateAttribute());
         // Get one, withdraw and cancel serve journey leads too (no planner gate, party checked in the handlers).
         group.MapGet("/enquiries/by-conversation/{conversationId:guid}", TripEnquiryHandlers.GetByConversation).Gated().WithMetadata(new SkipTripPlannerGateAttribute());

@@ -226,21 +226,21 @@ public class OwnerPayloadTests
     public void Ask_DuplicateAndEmptyDrivers_TypedError()
     {
         var one = Guid.NewGuid();
-        ValidationAssert.HasMessage(AskDrivers.Validate(Ask("", "", [one, one])), "Invalid drivers");
+        Assert.True(AskDrivers.Validate(Ask("", "", [one, one])).IsValid);
         ValidationAssert.HasMessage(AskDrivers.Validate(Ask("", "", [Guid.Empty])), "Invalid drivers");
     }
 
     [Fact]
     public void Ask_NoDriversOrTooMany_TypedError()
     {
-        ValidationAssert.HasMessage(AskDrivers.Validate(Ask("", "", Array.Empty<Guid>())), "Ask 1 to 3 drivers per car");
+        ValidationAssert.HasMessage(AskDrivers.Validate(Ask("", "", Array.Empty<Guid>())), "Pick 1 to 3.");
         ValidationAssert.HasMessage(
             AskDrivers.Validate(Ask("", "", [Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()])),
-            "Ask 1 to 3 drivers per car");
+            "Pick 1 to 3.");
         ValidationAssert.HasMessage(
             AskDrivers.Validate(Ask("", "",
                 [Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()], [Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()], [Guid.NewGuid()])),
-            "Ask up to 6 drivers at once");
+            "Pick 1 to 3.");
     }
 
     [Fact]

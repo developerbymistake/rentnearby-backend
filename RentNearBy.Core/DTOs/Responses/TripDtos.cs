@@ -218,6 +218,7 @@ public class TripCityDto
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public string? ImageUrl { get; set; }
+    public string? CoverUrl { get; set; }
     public bool IsPopularDestination { get; set; }
     public string Status { get; set; } = TripSpotStatuses.NotReady;
     public int SpotCount { get; set; }

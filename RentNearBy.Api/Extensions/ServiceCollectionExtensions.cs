@@ -175,6 +175,18 @@ public static class ServiceCollectionExtensions
         // RabbitMQ publisher — Singleton: IConnection is long-lived and expensive
         services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 
+        // Trip push pipeline: transactional outbox -> confirmed publisher -> rnb.push/push.send -> batched FCM, plus the 3-day morning reminder run.
+        // Additive: the old notification.push queue and its worker are untouched.
+        services.AddScoped<IOutboxWriter, OutboxWriter>();
+        services.AddSingleton<OutboxSignal>();
+        services.AddSingleton<IOutboxSignal>(sp => sp.GetRequiredService<OutboxSignal>());
+        services.AddSingleton<IConfirmedPublisher, ConfirmedRabbitPublisher>();
+        services.AddSingleton<IPushDeliveryStore, PushDeliveryStore>();
+        services.AddScoped<DeviceTokenRepository>();
+        services.AddHostedService<OutboxRelayService>();
+        services.AddHostedService<PushDeliveryWorkerService>();
+        services.AddHostedService<TripReminderService>();
+
         // Broadcast worker — consumes broadcast.notification queue and sends FCM to all users
         services.AddHostedService<BroadcastWorkerService>();
 

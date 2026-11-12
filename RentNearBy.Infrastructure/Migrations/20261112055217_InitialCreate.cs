@@ -1,6 +1,7 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 using NetTopologySuite.Geometries;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
@@ -160,6 +161,27 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "OutboxMessages",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityAlwaysColumn),
+                    Key = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
+                    Exchange = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    RoutingKey = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    Payload = table.Column<string>(type: "text", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    NextAttemptAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Attempts = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
+                    PublishedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LastError = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_OutboxMessages", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "PaymentEvents",
                 columns: table => new
                 {
@@ -285,6 +307,20 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_TaxiVehicleTypes", x => x.Id);
                     table.CheckConstraint("ck_taxivehicletypes_category", "\"Category\" IN ('Hatchback', 'Sedan', 'SUV', 'MUV', 'TempoTraveller', 'Bus')");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TripReminderRuns",
+                columns: table => new
+                {
+                    RunDate = table.Column<DateOnly>(type: "date", nullable: false),
+                    StartedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    FinishedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    Sent = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TripReminderRuns", x => x.RunDate);
                 });
 
             migrationBuilder.CreateTable(
@@ -1449,6 +1485,41 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "TripShortlistItems",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    TripId = table.Column<Guid>(type: "uuid", nullable: false),
+                    TravellerUserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    StepKey = table.Column<string>(type: "character varying(24)", maxLength: 24, nullable: false),
+                    Kind = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: false),
+                    ListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ListingName = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
+                    JourneyId = table.Column<Guid>(type: "uuid", nullable: true),
+                    LegIndex = table.Column<short>(type: "smallint", nullable: true),
+                    AddedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    ClosesAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    State = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
+                    ClosedReason = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: true),
+                    ClosedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    RemindedOn = table.Column<DateOnly>(type: "date", nullable: true),
+                    FinalPushedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TripShortlistItems", x => x.Id);
+                    table.CheckConstraint("ck_shortlist_kind", "\"Kind\" IN ('Stay','Taxi','Car')");
+                    table.CheckConstraint("ck_shortlist_state", "\"State\" IN ('Active','Sent','Closed','Booked')");
+                    table.ForeignKey(
+                        name: "FK_TripShortlistItems_Trips_TripId",
+                        column: x => x.TripId,
+                        principalTable: "Trips",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                })
+                .Annotation("Npgsql:StorageParameter:fillfactor", 85);
+
+            migrationBuilder.CreateTable(
                 name: "PlanPurchases",
                 columns: table => new
                 {
@@ -1727,6 +1798,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     CancelledAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     CancelledByUserId = table.Column<Guid>(type: "uuid", nullable: true),
                     CancelReason = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    StepKey = table.Column<string>(type: "character varying(24)", maxLength: 24, nullable: true),
+                    ClientRequestId = table.Column<Guid>(type: "uuid", nullable: true),
+                    RemindedOn = table.Column<DateOnly>(type: "date", nullable: true),
+                    FinalPushedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
@@ -1762,7 +1837,8 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
-                });
+                })
+                .Annotation("Npgsql:StorageParameter:fillfactor", 85);
 
             migrationBuilder.CreateTable(
                 name: "TripOffers",
@@ -2146,6 +2222,24 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_NotificationReads_NotificationId",
                 table: "NotificationReads",
                 column: "NotificationId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_outbox_due",
+                table: "OutboxMessages",
+                columns: new[] { "NextAttemptAt", "Id" },
+                filter: "\"PublishedAt\" IS NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_outbox_published",
+                table: "OutboxMessages",
+                column: "PublishedAt",
+                filter: "\"PublishedAt\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ux_outbox_key",
+                table: "OutboxMessages",
+                column: "Key",
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_PaymentEvents_EventId",
@@ -2740,13 +2834,26 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_tripenquiries_expires",
                 table: "TripEnquiries",
                 column: "ExpiresAt",
-                filter: "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')");
+                filter: "\"Status\" IN ('Asked','Offered','Countered')");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_tripenquiries_final",
+                table: "TripEnquiries",
+                column: "TravellerUserId",
+                filter: "\"Status\" = 'Expired' AND \"FinalPushedAt\" IS NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_hold",
                 table: "TripEnquiries",
                 column: "HoldUntil",
                 filter: "\"AdvanceStatus\" IN ('Pending','ProofSent')");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_tripenquiries_hostreminder",
+                table: "TripEnquiries",
+                column: "OwnerUserId",
+                filter: "\"Status\" IN ('Asked','Countered')")
+                .Annotation("Npgsql:IndexInclude", new[] { "RemindedOn", "ExpiresAt" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_open_taxi_unique",
@@ -2781,6 +2888,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"AdvanceStatus\" = 'ProofSent'");
 
             migrationBuilder.CreateIndex(
+                name: "ix_tripenquiries_settled",
+                table: "TripEnquiries",
+                columns: new[] { "TripId", "StepKey" },
+                filter: "\"Status\" IN ('ConfirmedByBoth','BookedByTraveller')");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_traveller",
                 table: "TripEnquiries",
                 columns: new[] { "TravellerUserId", "CreatedAt" },
@@ -2802,6 +2915,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "TripEnquiries",
                 column: "CheckIn",
                 filter: "NOT \"IsUrgent\" AND \"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller')");
+
+            migrationBuilder.CreateIndex(
+                name: "ux_tripenquiries_client_request",
+                table: "TripEnquiries",
+                columns: new[] { "TravellerUserId", "ClientRequestId", "ListingId" },
+                unique: true,
+                filter: "\"ClientRequestId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripoffers_enquiry",
@@ -2864,6 +2984,37 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "Trips",
                 column: "StartDate",
                 filter: "\"StartDate\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_shortlist_active_user",
+                table: "TripShortlistItems",
+                column: "TravellerUserId",
+                filter: "\"State\" = 'Active'")
+                .Annotation("Npgsql:IndexInclude", new[] { "RemindedOn", "ClosesAt", "TripId" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_shortlist_closes",
+                table: "TripShortlistItems",
+                column: "ClosesAt",
+                filter: "\"State\" IN ('Active','Sent')");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_shortlist_final",
+                table: "TripShortlistItems",
+                column: "TravellerUserId",
+                filter: "\"State\" = 'Closed' AND \"ClosedReason\" = 'NoReply' AND \"FinalPushedAt\" IS NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_shortlist_trip_step",
+                table: "TripShortlistItems",
+                columns: new[] { "TripId", "StepKey" });
+
+            migrationBuilder.CreateIndex(
+                name: "ux_shortlist_active_listing",
+                table: "TripShortlistItems",
+                columns: new[] { "TripId", "StepKey", "ListingId" },
+                unique: true,
+                filter: "\"State\" = 'Active'");
 
             migrationBuilder.CreateIndex(
                 name: "IX_UserBlocks_BlockerId_BlockedId",
@@ -3027,6 +3178,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "NotificationReads");
 
             migrationBuilder.DropTable(
+                name: "OutboxMessages");
+
+            migrationBuilder.DropTable(
                 name: "PaymentEvents");
 
             migrationBuilder.DropTable(
@@ -3061,6 +3215,12 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "TripPushLogs");
+
+            migrationBuilder.DropTable(
+                name: "TripReminderRuns");
+
+            migrationBuilder.DropTable(
+                name: "TripShortlistItems");
 
             migrationBuilder.DropTable(
                 name: "UserBlocks");

@@ -124,6 +124,9 @@ public class TaxiWaysSearchEngineTests
         Assert.Equal(21300, plan.Total);
     }
 
+    // On the Delhi to Badrinath road; every hop is over 15 km, brings the traveller closer, and the way stays within 1.5 times the straight line.
+    private static readonly (double Lat, double Lng) SrinagarGarhwal = (30.2230, 78.7830);
+
     [Fact]
     public void A_three_car_plan_cheaper_than_every_two_car_plan_is_kept()
     {
@@ -131,8 +134,8 @@ public class TaxiWaysSearchEngineTests
             TaxiWaysFixture.Row("Delhi", Delhi, "Haridwar", Haridwar, 4200),
             TaxiWaysFixture.Row("Haridwar", Haridwar, "Badrinath", Badrinath, 9800),
             TaxiWaysFixture.Row("Delhi", Delhi, "Rishikesh", Rishikesh, 3000),
-            TaxiWaysFixture.Row("Rishikesh", Rishikesh, "Kathgodam", Kathgodam, 3000),
-            TaxiWaysFixture.Row("Kathgodam", Kathgodam, "Badrinath", Badrinath, 3000));
+            TaxiWaysFixture.Row("Rishikesh", Rishikesh, "Srinagar Garhwal", SrinagarGarhwal, 3000),
+            TaxiWaysFixture.Row("Srinagar Garhwal", SrinagarGarhwal, "Badrinath", Badrinath, 3000));
 
         var r = TaxiWaysFixture.Search(s, Delhi, Badrinath);
 

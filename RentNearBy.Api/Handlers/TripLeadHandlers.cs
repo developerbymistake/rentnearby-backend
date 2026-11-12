@@ -127,6 +127,7 @@ public static class TripLeadHandlers
         if (e.Status is not (TripEnquiryStatuses.Asked or TripEnquiryStatuses.FareSent)) return Closed();
 
         var now = DateTime.UtcNow;
+        if (TripBulkRules.WindowEnded(e.Status, e.ExpiresAt, now)) return Closed();
         var firstAnswer = e.Status == TripEnquiryStatuses.Asked && now - e.CreatedAt <= TimeSpan.FromHours(TripLeadRules.AnsweredWithinHours);
         await unitOfWork.BeginTransactionAsync();
         try
@@ -139,6 +140,7 @@ public static class TripLeadHandlers
 
             if (firstAnswer) await CountAnsweredAsync(db, e.ListingId);
             await JourneyLegSync.SyncAsync(db, e, now);
+            await TripBulk.CloseSentRowAsync(db, e, now);
 
             await unitOfWork.CommitTransactionAsync();
         }

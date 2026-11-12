@@ -200,6 +200,41 @@ public static class TripReminderRules
     public const int DaysBeforeStart = 3, StartsInHourIst = 9, TodayHourIst = 7, MarkCompleteHourIst = 10, AutoCompleteDays = 7;
     public const int TravelEveHourIst = 18;
 
+    // The one clock: every shortlist and enquiry reminder goes out once a morning at this IST time (08:00 = change the hour here).
+    public const int MorningHourIst = 5, MorningMinuteIst = 0, CatchUpEndHourIst = 12;
+
+    // A host is reminded only when the enquiry is at least this old at run time (the traveller side has no such wait).
+    public const int HostMinAgeHours = 12;
+    // The final push is only for rows that ended in the last days; older unannounced rows are stamped by the daily purge.
+    public const int FinalWindowDays = 2;
+    public const int SentShortlistRetentionDays = 30;
+
+    // No finished run for today and the catch-up window (until 12:00 IST) is over: ops must be alerted.
+    public static bool RunMissed(DateTime nowUtc, bool todayFinished)
+        => !todayFinished && nowUtc >= IstTime.AtUtc(IstTime.TodayIst(nowUtc), CatchUpEndHourIst);
+
+    public static DateTime MorningDueUtc(DateOnly dateIst) => MorningDueUtc(dateIst, MorningHourIst, MorningMinuteIst);
+    public static DateTime MorningDueUtc(DateOnly dateIst, int hour, int minute) => IstTime.AtUtc(dateIst, hour, minute);
+
+    public static DateTime NextMorningUtc(DateTime nowUtc) => NextMorningUtc(nowUtc, MorningHourIst, MorningMinuteIst);
+    public static DateTime NextMorningUtc(DateTime nowUtc, int hour, int minute)
+    {
+        var today = IstTime.TodayIst(nowUtc);
+        var due = MorningDueUtc(today, hour, minute);
+        return due > nowUtc ? due : MorningDueUtc(today.AddDays(1), hour, minute);
+    }
+
+    // Run (or catch up after a restart) only from the morning time until 12:00 IST, and only once per IST date: never in the afternoon.
+    public static bool ShouldRunMorning(DateTime nowUtc, bool todayFinished) => ShouldRunMorning(nowUtc, todayFinished, MorningHourIst, MorningMinuteIst);
+    public static bool ShouldRunMorning(DateTime nowUtc, bool todayFinished, int hour, int minute)
+    {
+        var today = IstTime.TodayIst(nowUtc);
+        return !todayFinished && nowUtc >= MorningDueUtc(today, hour, minute) && nowUtc < IstTime.AtUtc(today, CatchUpEndHourIst);
+    }
+
+    public static string TravellerKey(Guid userId, DateOnly dayIst) => $"rem:t:{userId:N}:{dayIst:yyyyMMdd}";
+    public static string HostKey(Guid userId, DateOnly dayIst) => $"rem:h:{userId:N}:{dayIst:yyyyMMdd}";
+
     public static DateTime StartsInDueUtc(DateOnly start) => TripExecutionRules.IstMidnightUtc(start.AddDays(-DaysBeforeStart)).AddHours(StartsInHourIst);
     public static DateTime TravelEveDueUtc(DateOnly travelDate) => TripExecutionRules.IstMidnightUtc(travelDate.AddDays(-1)).AddHours(TravelEveHourIst);
 
@@ -258,8 +293,6 @@ public static class TripReminderRules
 
     public static bool ProblemAllowed(Trip t, DateOnly todayIst) => t.StartDate is { } s && t.EndDate is { } e && s <= todayIst && todayIst <= e.AddDays(1);
 
-    public static string NoReplyKey(Guid enquiryId) => $"noreply:{enquiryId}";
-    public static string NoReplySegmentKey(Guid tripId, DateOnly date) => $"noreply:seg:{tripId:N}:{date:yyyyMMdd}";
     public static string StartsInKey(Guid tripId, DateOnly start) => $"d3:{tripId}:{start:yyyyMMdd}";
     public static string TodayKey(Guid tripId, DateOnly start) => $"d0:{tripId}:{start:yyyyMMdd}";
     public static string MarkCompleteKey(Guid tripId, DateOnly end) => $"done:{tripId}:{end:yyyyMMdd}";

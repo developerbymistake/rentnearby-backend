@@ -117,4 +117,53 @@ public class FcmService : IFcmService
             return false;
         }
     }
+
+    public const int BatchSize = 500;
+
+    public async Task<IReadOnlyList<FcmSendOutcome>> SendEachAsync(IReadOnlyList<FcmMessageSpec> messages, CancellationToken ct = default)
+    {
+        var outcomes = new FcmSendOutcome[messages.Count];
+        for (var from = 0; from < messages.Count; from += BatchSize)
+        {
+            var take = Math.Min(BatchSize, messages.Count - from);
+            var chunk = new List<Message>(take);
+            for (var i = 0; i < take; i++) chunk.Add(ToMessage(messages[from + i]));
+            try
+            {
+                var response = await FirebaseMessaging.DefaultInstance.SendEachAsync(chunk, ct);
+                for (var i = 0; i < take; i++)
+                    outcomes[from + i] = Classify(response.Responses[i]);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "FCM batch of {Count} failed", take);
+                for (var i = 0; i < take; i++) outcomes[from + i] = FcmSendOutcome.Failed;
+            }
+        }
+        return outcomes;
+    }
+
+    // Only Unregistered proves the token is dead; everything else is retried.
+    public static FcmSendOutcome Classify(SendResponse response)
+        => response.IsSuccess ? FcmSendOutcome.Sent
+            : response.Exception?.MessagingErrorCode == MessagingErrorCode.Unregistered ? FcmSendOutcome.InvalidToken
+            : FcmSendOutcome.Failed;
+
+    public static Message ToMessage(FcmMessageSpec spec) => new()
+    {
+        Token = spec.Token,
+        Notification = new Notification { Title = spec.Title, Body = spec.Body },
+        Data = spec.Data.ToDictionary(kv => kv.Key, kv => kv.Value),
+        Android = new AndroidConfig
+        {
+            Priority = Priority.High,
+            Notification = new AndroidNotification
+            {
+                Sound = "default",
+                ClickAction = "FLUTTER_NOTIFICATION_CLICK",
+                ChannelId = GeneralChannelId,
+                Tag = spec.Tag,
+            }
+        }
+    };
 }

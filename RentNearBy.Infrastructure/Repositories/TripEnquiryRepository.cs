@@ -89,6 +89,17 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
                 && TripEnquiryStatuses.Open.Contains(e.Status))
             .ToListAsync();
 
+    public async Task<IReadOnlyList<TripEnquiry>> GetOpenByTravellerListingsAsync(Guid travellerId, string kind, IReadOnlyCollection<Guid> listingIds)
+        => await _dbSet.AsNoTracking()
+            .Where(e => e.TravellerUserId == travellerId && e.Kind == kind && listingIds.Contains(e.ListingId)
+                && TripEnquiryStatuses.Open.Contains(e.Status))
+            .ToListAsync();
+
+    public async Task<IReadOnlyList<TripEnquiry>> GetByClientRequestAsync(Guid travellerId, Guid clientRequestId, IReadOnlyCollection<Guid> listingIds)
+        => await _dbSet.AsNoTracking()
+            .Where(e => e.TravellerUserId == travellerId && e.ClientRequestId == clientRequestId && listingIds.Contains(e.ListingId))
+            .ToListAsync();
+
     public async Task<TripEnquiry?> GetLatestByConversationAsync(Guid conversationId)
         => await _dbSet.AsNoTracking()
             .Where(e => e.ConversationId == conversationId)

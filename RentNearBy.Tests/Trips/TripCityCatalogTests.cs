@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using RentNearBy.Core.DTOs.Responses;
+using RentNearBy.Core.Utils;
 using Microsoft.Extensions.Options;
 using RentNearBy.Infrastructure.Services;
 
@@ -10,10 +12,39 @@ public class TripCityCatalogTests
     private static readonly DateTime V1 = new(2026, 11, 3, 8, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime V2 = new(2026, 11, 3, 9, 0, 0, DateTimeKind.Utc);
 
-    private sealed class AtlasOnly(IAtlasClient atlas) : IServiceProvider
+    private sealed class AtlasOnly(IAtlasClient atlas, ITripSpotCache? spots = null) : IServiceProvider
     {
-        public object? GetService(Type serviceType) => serviceType == typeof(IAtlasClient) ? atlas : null;
+        public object? GetService(Type serviceType)
+            => serviceType == typeof(IAtlasClient) ? atlas : serviceType == typeof(ITripSpotCache) ? spots : null;
     }
+
+    private sealed class FakeSpots : ITripSpotCache
+    {
+        public int Calls;
+        public int Active;
+        public int MaxActive;
+        public Func<long, Task<CachedCitySpots?>> Get = _ => Task.FromResult<CachedCitySpots?>(null);
+
+        public async Task<CachedCitySpots?> GetAsync(long cityKey, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref Calls);
+            var now = Interlocked.Increment(ref Active);
+            int max;
+            while ((max = MaxActive) < now && Interlocked.CompareExchange(ref MaxActive, now, max) != max) { }
+            try { return await Get(cityKey); }
+            finally { Interlocked.Decrement(ref Active); }
+        }
+
+        public Task InvalidateAsync(long cityKey) => Task.CompletedTask;
+    }
+
+    private static CachedCitySpots Spots(params TripSpotDto[] spots) => new() { Spots = spots.ToList() };
+
+    private static TripSpotDto Spot(string id, string? image, bool featured = false)
+        => new() { Id = id, Name = id, ImageUrl = image, IsFeatured = featured };
+
+    private const string Raw = "https://res.cloudinary.com/demo/image/upload/v1/a.jpg";
+    private const string Thumb = "https://res.cloudinary.com/demo/image/upload/" + CloudinaryThumb.CityCover + "/v1/a.jpg";
 
     private sealed class FakeAtlas : IAtlasClient
     {
@@ -44,11 +75,11 @@ public class TripCityCatalogTests
         => new(Options.Create(new TripPlannerOptions { CityCatalogRevalidateSeconds = revalidateSeconds }),
             new AtlasOnly(atlas), NullLogger<TripCityCatalog>.Instance);
 
-    private static AtlasCity City(long key, string name, string district = "Dehradun", bool popular = false) => new()
+    private static AtlasCity City(long key, string name, string district = "Dehradun", bool popular = false, string? image = null) => new()
     {
         CityKey = key, Name = name, DistrictId = Guid.NewGuid(), DistrictName = district, StateName = "Uttarakhand",
         Latitude = 30.1, Longitude = 78.3, Status = "Ready", SpotCount = 5, IsTripEnabled = true,
-        IsPopularDestination = popular, UpdatedAt = V1,
+        IsPopularDestination = popular, UpdatedAt = V1, ImageUrl = image,
     };
 
     private static AtlasCityPage Page(DateTime updatedAt, int count, bool hasMore, params AtlasCity[] items) => new()
@@ -305,7 +336,7 @@ public class TripCityCatalogTests
         var snapshot = TripCityCatalog.Build(Page(V1, 2, false), [City(1, "Almora"), City(2, "Nainital", popular: true)]);
 
         Assert.Equal(TripCityCatalogSnapshot.CurrentFormat, snapshot.Format);
-        Assert.Equal(2, snapshot.Format);
+        Assert.True(snapshot.Format >= 3);
         Assert.False(snapshot.Cities.Single(c => c.CityKey == 1).IsPopularDestination);
         Assert.True(snapshot.Cities.Single(c => c.CityKey == 2).IsPopularDestination);
         Assert.Equal(TripCityCatalogSnapshot.VersionOf(V1, 2), snapshot.Version);
@@ -337,4 +368,110 @@ public class TripCityCatalogTests
     public void VersionOf_Format()
         => Assert.Equal("1793613600000-42",
             TripCityCatalogSnapshot.VersionOf(new DateTime(2026, 11, 2, 10, 0, 0, DateTimeKind.Utc), 42));
+
+    private static TripCityCatalog CatalogWith(IAtlasClient atlas, ITripSpotCache spots)
+        => new(Options.Create(new TripPlannerOptions { CityCatalogRevalidateSeconds = 300 }),
+            new AtlasOnly(atlas, spots), NullLogger<TripCityCatalog>.Instance);
+
+    [Fact]
+    public async Task Cover_CityImageWinsAndSkipsSpotCache()
+    {
+        var spots = new FakeSpots();
+        var snapshot = await CatalogWith(OnePage(V1, City(1, "Almora", image: Raw)), spots).GetAsync();
+
+        var c = Assert.Single(snapshot!.Cities);
+        Assert.Equal(Thumb, c.CoverUrl);
+        Assert.Equal(Raw, c.ImageUrl);
+        Assert.Equal(0, spots.Calls);
+    }
+
+    [Fact]
+    public async Task Cover_NoCityImage_UsesFeaturedSpotThenFirstWithImage()
+    {
+        var spots = new FakeSpots
+        {
+            Get = key => Task.FromResult<CachedCitySpots?>(key == 1
+                ? Spots(Spot("a", null), Spot("b", Raw), Spot("c", "https://x.test/c.jpg", featured: true))
+                : Spots(Spot("a", null), Spot("b", Raw), Spot("c", "https://x.test/c.jpg"))),
+        };
+        var snapshot = await CatalogWith(OnePage(V1, City(1, "Almora"), City(2, "Nainital")), spots).GetAsync();
+
+        Assert.Equal("https://x.test/c.jpg", snapshot!.Cities.Single(c => c.CityKey == 1).CoverUrl);
+        Assert.Equal(Thumb, snapshot.Cities.Single(c => c.CityKey == 2).CoverUrl);
+        Assert.Null(snapshot.Cities.Single(c => c.CityKey == 1).ImageUrl);
+    }
+
+    [Fact]
+    public async Task Cover_NoImageAnywhere_IsNull()
+    {
+        var spots = new FakeSpots { Get = _ => Task.FromResult<CachedCitySpots?>(Spots(Spot("a", null), Spot("b", " "))) };
+        var snapshot = await CatalogWith(OnePage(V1, City(1, "Almora"), City(2, "Nainital")), spots).GetAsync();
+
+        Assert.All(snapshot!.Cities, c => Assert.Null(c.CoverUrl));
+    }
+
+    [Fact]
+    public async Task Cover_SpotCacheFailureOrMissingCache_IsToleratedPerCity()
+    {
+        var spots = new FakeSpots
+        {
+            Get = key => key == 1 ? throw new InvalidOperationException("boom") : Task.FromResult<CachedCitySpots?>(Spots(Spot("a", Raw))),
+        };
+        var snapshot = await CatalogWith(OnePage(V1, City(1, "Almora"), City(2, "Nainital")), spots).GetAsync();
+
+        Assert.Null(snapshot!.Cities.Single(c => c.CityKey == 1).CoverUrl);
+        Assert.Equal(Thumb, snapshot.Cities.Single(c => c.CityKey == 2).CoverUrl);
+
+        var noCache = await Catalog(OnePage(V1, City(3, "Haridwar"))).GetAsync();
+        Assert.Null(Assert.Single(noCache!.Cities).CoverUrl);
+    }
+
+    [Fact]
+    public async Task Cover_NotReadyOrEmptyCities_DoNotHitSpotCache()
+    {
+        var spots = new FakeSpots();
+        var notReady = City(1, "Almora");
+        notReady.Status = "NotReady";
+        var empty = City(2, "Nainital");
+        empty.SpotCount = 0;
+        await CatalogWith(OnePage(V1, notReady, empty), spots).GetAsync();
+
+        Assert.Equal(0, spots.Calls);
+    }
+
+    [Fact]
+    public async Task Cover_ParallelismIsBounded_AndCallersShareOneReload()
+    {
+        var spots = new FakeSpots
+        {
+            Get = async _ => { await Task.Delay(20); return Spots(Spot("a", Raw)); },
+        };
+        var cities = Enumerable.Range(1, 40).Select(i => City(i, "City" + i)).ToArray();
+        var atlas = OnePage(V1, cities);
+        var catalog = CatalogWith(atlas, spots);
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => catalog.GetAsync()));
+
+        Assert.All(results, r => Assert.Same(results[0], r));
+        Assert.Equal(40, spots.Calls);
+        Assert.InRange(spots.MaxActive, 2, TripCityCatalog.CoverParallelism);
+        Assert.Equal(1, atlas.SearchCalls);
+    }
+
+    [Fact]
+    public void StoredCopyOfOlderFormat_IsRejected()
+    {
+        var older = TripCityCatalogSnapshot.CurrentFormat - 1;
+        Assert.True(older < TripCityCatalogSnapshot.CurrentFormat);
+        Assert.True(TripCityCatalogSnapshot.CurrentFormat >= 3);
+    }
+
+    [Fact]
+    public void BestSpotImage_PrefersFeatured_ElseFirst_ElseNull()
+    {
+        Assert.Null(TripCityCatalog.BestSpotImage(null));
+        Assert.Null(TripCityCatalog.BestSpotImage([]));
+        Assert.Equal("f", TripCityCatalog.BestSpotImage([Spot("a", "a"), Spot("b", "f", true)]));
+        Assert.Equal("a", TripCityCatalog.BestSpotImage([Spot("n", null), Spot("a", "a"), Spot("b", "b")]));
+    }
 }

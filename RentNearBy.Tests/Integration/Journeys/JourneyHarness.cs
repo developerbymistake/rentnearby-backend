@@ -245,14 +245,14 @@ public sealed class JourneyHarness : IAsyncDisposable
     {
         await using var s = NewScope();
         return await TripEnquiryHandlers.Create(tripId, request, new CreateTripEnquiryRequestValidator(), Principal(callerId),
-            s.Uow, s.Db, s.Conversations, Chat, Notifier, RateLimit, Cache, Loggers, s.Http);
+            s.Uow, s.Db, s.Conversations, Chat, Notifier, RateLimit, Cache, Loggers, s.Http, new RentNearBy.Infrastructure.Repositories.OutboxWriter(s.Db));
     }
 
     public async Task<IResult> TaxiBookAsync(Guid tripId, Guid callerId, CreateTaxiBookingRequest request)
     {
         await using var s = NewScope();
         return await TripEnquiryHandlers.CreateTaxiBooking(tripId, request, new CreateTaxiBookingRequestValidator(), Principal(callerId),
-            s.Uow, s.Db, s.Journeys, Chat, Notifier, RateLimit, Loggers, s.Http);
+            s.Uow, s.Db, s.Journeys, Chat, Notifier, RateLimit, Loggers, s.Http, new RentNearBy.Infrastructure.Repositories.OutboxWriter(s.Db));
     }
 
     public async Task<IResult> CancelAsync(Guid enquiryId, Guid callerId, string? reason = null)
@@ -345,6 +345,8 @@ public sealed class RecordingTripNotifier : ITripNotifier
         Events.Add(n);
         return Task.CompletedTask;
     }
+
+    public Task PublishLiveAsync(IEnumerable<NotificationEvent> events) => Task.CompletedTask;
 
     public Task<bool> SendOnceAsync(NotificationEvent n, string dedupeKey, Guid? tripId, Guid? enquiryId)
     {
