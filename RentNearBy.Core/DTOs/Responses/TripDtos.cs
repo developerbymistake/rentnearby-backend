@@ -202,6 +202,16 @@ public class TripCitySupplyDto
     public int Drivers { get; set; }
 }
 
+public class TripNearestCityDto
+{
+    public bool Available { get; set; }
+    public long? CityKey { get; set; }
+    public string? Name { get; set; }
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public bool WithinGuard { get; set; }
+}
+
 public class TripListDto
 {
     public List<TripSummaryDto> Items { get; set; } = new();

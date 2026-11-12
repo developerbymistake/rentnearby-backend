@@ -1910,6 +1910,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "Token");
 
             migrationBuilder.CreateIndex(
+                name: "ix_admindevicetokens_updated",
+                table: "AdminDeviceTokens",
+                column: "UpdatedAt");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Admins_PhoneNumber",
                 table: "Admins",
                 column: "PhoneNumber",
@@ -1924,6 +1929,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_AdminSessions_ExpiresAt",
                 table: "AdminSessions",
                 column: "ExpiresAt");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_adminsessions_loggedout",
+                table: "AdminSessions",
+                column: "LoggedOutAt",
+                filter: "\"IsActive\" = false");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AppFeatureFlags_FeatureKey",
@@ -1964,6 +1975,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "BannerId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_BannerDismissals_DismissedAt",
+                table: "BannerDismissals",
+                column: "DismissedAt");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_cities_citykey_unique",
                 table: "Cities",
                 column: "CityKey",
@@ -1986,6 +2002,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_Cities_DistrictId",
                 table: "Cities",
                 column: "DistrictId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_conversations_last_message",
+                table: "Conversations",
+                column: "LastMessageAt");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Conversations_OwnerId_LastMessageAt_Id",
@@ -2060,6 +2081,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_DeviceTokens_Token",
                 table: "DeviceTokens",
                 column: "Token");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_devicetokens_updated",
+                table: "DeviceTokens",
+                column: "UpdatedAt");
 
             migrationBuilder.CreateIndex(
                 name: "IX_DeviceTokens_UserId",
@@ -2207,6 +2233,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "NotificationEvents",
                 columns: new[] { "TargetUserId", "CreatedAt", "Id" },
                 descending: new[] { false, true, true });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_notificationlogs_sent",
+                table: "NotificationLogs",
+                column: "SentAt");
 
             migrationBuilder.CreateIndex(
                 name: "IX_NotificationLogs_UserId",
@@ -2539,9 +2570,21 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "ExpiresAt");
 
             migrationBuilder.CreateIndex(
+                name: "ix_sessions_loggedout",
+                table: "Sessions",
+                column: "LoggedOutAt",
+                filter: "\"IsActive\" = false");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Sessions_UserId",
                 table: "Sessions",
                 column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_stayjobs_closed",
+                table: "StayJobs",
+                column: "ClosedAt",
+                filter: "\"Status\" = 'Closed'");
 
             migrationBuilder.CreateIndex(
                 name: "IX_StayJobs_JobDepartmentId",
@@ -2825,6 +2868,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered')");
 
             migrationBuilder.CreateIndex(
+                name: "ix_tripenquiries_closed_updated",
+                table: "TripEnquiries",
+                column: "UpdatedAt",
+                filter: "(\"Status\" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') OR (\"Status\" = 'Failed' AND \"FailReason\" IN ('DriverDenied','HoldExpired','ListingRemoved')))");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_conversation",
                 table: "TripEnquiries",
                 column: "ConversationId",
@@ -2924,6 +2973,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"ClientRequestId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
+                name: "ix_tripoffers_closed",
+                table: "TripOffers",
+                column: "CreatedAt",
+                filter: "\"Status\" IN ('Expired','Declined','Superseded')");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_tripoffers_enquiry",
                 table: "TripOffers",
                 columns: new[] { "TripEnquiryId", "CreatedAt" },
@@ -2934,6 +2989,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "TripOffers",
                 column: "ValidUntil",
                 filter: "\"Status\" = 'Pending'");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_tripproblemlogs_enquiry",
+                table: "TripProblemLogs",
+                column: "TripEnquiryId",
+                filter: "\"TripEnquiryId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripproblemlogs_trip",
@@ -2991,6 +3052,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "TravellerUserId",
                 filter: "\"State\" = 'Active'")
                 .Annotation("Npgsql:IndexInclude", new[] { "RemindedOn", "ClosesAt", "TripId" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_shortlist_closed_at",
+                table: "TripShortlistItems",
+                column: "ClosedAt",
+                filter: "\"State\" IN ('Closed','Booked')");
 
             migrationBuilder.CreateIndex(
                 name: "ix_shortlist_closes",

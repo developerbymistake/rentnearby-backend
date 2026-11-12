@@ -54,6 +54,9 @@ public class TripCityCatalog(
         }
 
         var redis = sp.GetService<IConnectionMultiplexer>();
+        // City change: taxi ways grid and city supply lists must rebuild too.
+        await TaxiWaysVersion.BumpAsync(redis);
+        await TripSupplyCache.BumpAsync(redis, null);
         if (redis == null) return;
         try
         {

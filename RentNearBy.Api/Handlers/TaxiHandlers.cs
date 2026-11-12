@@ -29,6 +29,10 @@ public static class TaxiCache
         TaxiLocalNeed? need = null)
         => $"taxis:local:{districtId:N}:{cityId:N}:{category}:{pageSize}{(cityOnly ? ":city" : "")}{(localRate ? ":rate" : "")}{NeedPart(need)}";
 
+    // One entry per city (every taxi of the city, ranked per caller); the version moves on any stay or taxi change.
+    public static string CityKey(long cityKey, bool localRate) => $"taxis:city:{cityKey}{(localRate ? ":rate" : "")}";
+    public static readonly TimeSpan CityTtl = TimeSpan.FromSeconds(60);
+
     // Pickup km and its tie-break come from the exact start point, so the point is keyed exactly, never rounded.
     public static string NeedPart(TaxiLocalNeed? need)
     {
@@ -150,29 +154,64 @@ public static class TaxiHandlers
     // ---- Public ----
 
     // Local view: approved, available taxis whose base is in the district, city rows first, cheapest first.
+    // With cityKey: the taxis whose own nearest city is that city (any district); districtId, cityId, cityOnly and radiusKm are
+    // ignored, lat/lng only rank by pickup distance.
     public static async Task<IResult> GetBrowse(
-        Guid districtId, Guid? cityId, string? category,
-        IUnitOfWork unitOfWork, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize, bool cityOnly = false, bool localRate = false,
-        int? people = null, int? dayKm = null, double? lat = null, double? lng = null, double? radiusKm = null)
+        Guid? districtId, Guid? cityId, string? category, long? cityKey,
+        IUnitOfWork unitOfWork, ICityResolver resolver, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize, bool cityOnly = false,
+        bool localRate = false, int? people = null, int? dayKm = null, double? lat = null, double? lng = null, double? radiusKm = null)
     {
-        if (districtId == Guid.Empty) return BadRequestResponse("District is required");
-        if (TaxiLocalNeedRules.Error(people, dayKm, lat, lng, radiusKm) is { } needError) return BadRequestResponse(needError);
-        var need = TaxiLocalNeedRules.Build(people, dayKm, lat, lng, radiusKm);
+        if (cityKey == null && (districtId is null || districtId == Guid.Empty)) return BadRequestResponse("District is required");
+        if (TaxiLocalNeedRules.Error(people, dayKm, lat, lng, cityKey != null ? null : radiusKm) is { } needError)
+            return BadRequestResponse(needError);
+        var need = TaxiLocalNeedRules.Build(people, dayKm, lat, lng, cityKey != null ? null : radiusKm);
         var (pageNo, size) = ClampPaging(page, pageSize);
+        if (cityKey != null) return await BrowseCityAsync(cityKey.Value, category, localRate, need, pageNo, size, unitOfWork, resolver, sp);
+        var districtGuid = districtId!.Value;
         var categoryFilter = NormalizeCategory(category);
         var cityOnlyFilter = cityOnly && cityId.HasValue;
         var redis = pageNo == 1 ? sp.GetService<IConnectionMultiplexer>() : null;
-        var cacheKey = TaxiCache.LocalKey(districtId, cityId, categoryFilter, size, cityOnlyFilter, localRate, need);
+        var cacheKey = TaxiCache.LocalKey(districtGuid, cityId, categoryFilter, size, cityOnlyFilter, localRate, need);
 
-        var (result, generation) = await ReadPageCacheAsync(redis, cacheKey, TaxiCache.GenKey(districtId));
+        var (result, generation) = await ReadPageCacheAsync(redis, cacheKey, TaxiCache.GenKey(districtGuid));
         if (result == null)
         {
-            var (items, hasMore) = await unitOfWork.Taxis.BrowseLocalPagedAsync(districtId, cityId, categoryFilter, pageNo, size, cityOnlyFilter, localRate, need);
+            var (items, hasMore) = await unitOfWork.Taxis.BrowseLocalPagedAsync(districtGuid, cityId, categoryFilter, pageNo, size, cityOnlyFilter, localRate, need);
             result = new TaxiPage(items.ToList(), hasMore);
             await WritePageCacheAsync(redis, cacheKey, generation, result, TaxiCache.LocalTtl);
         }
 
         return OkResponse(new { items = result.Items, hasMore = result.HasMore });
+    }
+
+    private static async Task<IResult> BrowseCityAsync(
+        long cityKey, string? category, bool localRate, TaxiLocalNeed? need, int pageNo, int size,
+        IUnitOfWork unitOfWork, ICityResolver resolver, IServiceProvider sp)
+    {
+        var pin = await resolver.FindAsync(cityKey);
+        if (!pin.Available) return ErrorResponse(503, "Cities are not available right now", TripErrorTypes.CitiesUnavailable);
+        if (pin.City is not { } city) return OkResponse(new { items = new List<TaxiBrowseDto>(), hasMore = false });
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var cacheKey = TaxiCache.CityKey(cityKey, localRate);
+        var (cached, generation) = await FeedCache.ReadAsync(redis, cacheKey, RentNearBy.Infrastructure.Services.TripSupplyCache.AllGenKey);
+        List<TaxiAt>? all = null;
+        if (cached != null)
+        {
+            try { all = JsonSerializer.Deserialize<List<TaxiAt>>(cached); }
+            catch (JsonException) { all = null; }
+        }
+        if (all == null)
+        {
+            var fetch = await CityListings.TaxisAsync(unitOfWork.Taxis, resolver, city, localRate);
+            if (fetch.Capped)
+                sp.GetService<ILoggerFactory>()?.CreateLogger("TaxiCity").LogWarning("taxis.city.capped {CityKey} {Max}", cityKey, CityListings.MaxCityFetch);
+            all = fetch.Items.ToList();
+            await FeedCache.WriteAsync(redis, cacheKey, generation, JsonSerializer.Serialize(all), TaxiCache.CityTtl);
+        }
+
+        var (items, hasMore) = TaxiCityList.Page(all, NormalizeCategory(category), need, pageNo, size);
+        return OkResponse(new { items, hasMore });
     }
 
     // Route search: both ends within TaxiLimits.MatchRadiusMeters of a stored route (either direction).

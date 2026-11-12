@@ -11,11 +11,10 @@ internal static class JourneyLegFares
     public static async Task<Dictionary<Guid, LegTaxiFare>> LoadAsync(
         ITaxiWaysSearch ways, ISavedJourneyRepository journeys, string legKey,
         double fromLat, double fromLng, double toLat, double toLng,
-        IEnumerable<Guid> taxiIds, IReadOnlyDictionary<Guid, JourneyTaxiInfo> taxis, Guid? excludeRoute = null,
-        bool? area = null, bool? endArea = null)
+        IEnumerable<Guid> taxiIds, IReadOnlyDictionary<Guid, JourneyTaxiInfo> taxis, Guid? excludeRoute = null)
     {
         var ids = taxiIds.Where(id => id != Guid.Empty).Distinct().ToList();
-        var fares = await ways.LegFaresAsync(legKey, ids, excludeRoute, default, area, endArea);
+        var fares = await ways.LegFaresAsync(legKey, ids, excludeRoute, default);
         foreach (var id in ids.Where(i => !fares.ContainsKey(i)))
         {
             var match = await journeys.FindOnLegAsync(id, fromLat, fromLng, toLat, toLng);
@@ -29,11 +28,9 @@ internal static class JourneyLegFares
 
     public static Task<Dictionary<Guid, LegTaxiFare>> LoadAsync(
         ITaxiWaysSearch ways, ISavedJourneyRepository journeys, SavedJourneyLeg leg,
-        IEnumerable<Guid> taxiIds, IReadOnlyDictionary<Guid, JourneyTaxiInfo> taxis, IEnumerable<SavedJourneyLeg> journeyLegs,
-        Guid? excludeRoute = null)
+        IEnumerable<Guid> taxiIds, IReadOnlyDictionary<Guid, JourneyTaxiInfo> taxis, Guid? excludeRoute = null)
         => LoadAsync(ways, journeys, leg.LegKey, (double)leg.FromLatitude, (double)leg.FromLongitude,
-            (double)leg.ToLatitude, (double)leg.ToLongitude, taxiIds, taxis, excludeRoute,
-            leg.LegIndex == journeyLegs.Min(l => l.LegIndex), leg.LegIndex == journeyLegs.Max(l => l.LegIndex));
+            (double)leg.ToLatitude, (double)leg.ToLongitude, taxiIds, taxis, excludeRoute);
 
     // The leg's cover over its driver and the cover cars still on the stretch; null when the driver has no server fare.
     public static JourneyLegQuote? Quote(Guid driverId, IEnumerable<Guid> coverOthers, Dictionary<Guid, LegTaxiFare> fares, int people)

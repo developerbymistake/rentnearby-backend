@@ -5,8 +5,7 @@ namespace RentNearBy.Tests.Journeys;
 
 // Replay of the taxi-area simulator (UI_Template_resume/journeys/taxi-area.md) on the real engine, with its own names and numbers.
 // Network: D1 Haldwani-Kathgodam 400, D2 Kathgodam-Nainital 900, D3 Haldwani-Nainital 1500, D4 Delhi-Haldwani 6000, D5 Haldwani-Almora 3500.
-// Expected values are literals from the owner's rule (area 15 km, a car is door to door), not read back from constants.
-// These pass on arrival (the engine fix came first); failing-first against the old engine was not measured.
+// Expected values are literals from the owner's rule (a traveller sees only the taxis of his own place or route, no km sweep).
 public class J1TaxiAreaJourneyTests
 {
     private static readonly (double Lat, double Lng) Haldwani = (29.2183, 79.5130);
@@ -59,14 +58,13 @@ public class J1TaxiAreaJourneyTests
     private static double Km(TaxiWaysStop a, TaxiWaysStop b) => TaxiGeo.DistanceMeters(a.Lat, a.Lng, b.Lat, b.Lng) / 1000;
 
     [Fact]
-    public void Dev_in_Kusumkhera_to_Nainital_sees_D2_and_D3_never_D1_and_no_plan()
+    public void Dev_in_Kusumkhera_to_Nainital_sees_only_D3_the_Haldwani_taxi()
     {
         var n = Build();
         var r = Search(n, Kusumkhera, Nainital);
-        Assert.Equal(new HashSet<Guid> { n.D2, n.D3 }, Ids(r));
-        Assert.Empty(r.Plans);
+        Assert.Equal(new HashSet<Guid> { n.D3 }, Ids(r));
+        Assert.DoesNotContain(r.Plans, p => p.Legs.Any(l => l.Drivers.Any(c => c.Driver.TaxiId == n.D3)));
     }
-
     [Fact]
     public void Dev_to_Almora_sees_only_D5()
     {
@@ -77,58 +75,60 @@ public class J1TaxiAreaJourneyTests
     }
 
     [Fact]
-    public void Asha_in_Katghariya_gets_the_cars_of_her_area_to_Nainital_Almora_and_Delhi()
+    public void A_traveller_in_Haldwani_gets_the_Haldwani_cars_to_Nainital_Almora_and_Delhi()
     {
         var n = Build();
-        Assert.Equal(new HashSet<Guid> { n.D2, n.D3 }, Ids(Search(n, Katghariya, Nainital)));
-        Assert.Equal(new HashSet<Guid> { n.D5 }, Ids(Search(n, Katghariya, Almora)));
-        Assert.Equal(new HashSet<Guid> { n.D4 }, Ids(Search(n, Katghariya, Delhi)));
-        Assert.Empty(Search(n, Katghariya, Delhi).Plans);
+        Assert.Equal(new HashSet<Guid> { n.D3 }, Ids(Search(n, Kusumkhera, Nainital)));
+        Assert.Equal(new HashSet<Guid> { n.D5 }, Ids(Search(n, Kusumkhera, Almora)));
+        Assert.Equal(new HashSet<Guid> { n.D4 }, Ids(Search(n, Kusumkhera, Delhi)));
+        Assert.Empty(Search(n, Kusumkhera, Delhi).Plans);
     }
 
     [Fact]
-    public void Asha_with_My_location_to_Almora_gets_D5_and_no_three_car_plan_dearer_than_it()
+    public void Asha_in_Katghariya_outside_every_place_and_route_sees_nobody()
     {
         var n = Build();
-        var r = Search(n, Katghariya, Almora, myLocation: true);
+        Assert.Empty(Ids(Search(n, Katghariya, Nainital)));
+        Assert.Empty(Ids(Search(n, Katghariya, Almora, myLocation: true)));
+    }
+    [Fact]
+    public void My_location_in_Haldwani_to_Almora_gets_D5_and_no_three_car_plan_dearer_than_it()
+    {
+        var n = Build();
+        var r = Search(n, Kusumkhera, Almora, myLocation: true);
         Assert.Contains(n.D5, Ids(r));
         Assert.DoesNotContain(r.Plans, p => p.Cars >= 3);
         Assert.DoesNotContain(r.Plans, p => p.Total >= 3500);
     }
-
     [Fact]
-    public void Dev_to_Almora_with_a_Kathgodam_Almora_driver_gets_both_cars_direct_and_no_dearer_chain()
+    public void Dev_to_Almora_with_a_Kathgodam_Almora_driver_sees_only_D5_direct_and_the_Kathgodam_one_in_a_chain()
     {
         var n = Build(Row(P("Kathgodam", Kathgodam), P("Almora", Almora), 2500));
         var r = Search(n, Kusumkhera, Almora);
-        Assert.Equal(2, r.AllTheWay.Count);
-        Assert.DoesNotContain(r.Plans, p => p.Total >= 2500);
+        Assert.Equal(new HashSet<Guid> { n.D5 }, Ids(r));
+        Assert.DoesNotContain(r.Plans, p => p.Total >= 3500);
         Assert.DoesNotContain(r.Plans, p => p.Cars >= 3);
     }
-
     [Fact]
-    public void Meera_in_Mallital_to_Haldwani_sees_D3_and_no_plan_with_a_short_last_car()
+    public void Meera_in_Mallital_to_Haldwani_sees_D3_and_every_hop_of_a_plan_leaves_the_place()
     {
         var n = Build();
         var r = Search(n, Mallital, Haldwani);
-        Assert.Contains(n.D3, Ids(r));
+        Assert.Equal(new HashSet<Guid> { n.D3 }, Ids(r));
         foreach (var plan in r.Plans)
             foreach (var leg in plan.Legs)
-                Assert.True(Km(leg.From, leg.To) > 15, $"{leg.From.Name} to {leg.To.Name} is a short hop");
+                Assert.True(Km(leg.From, leg.To) > 5, $"{leg.From.Name} to {leg.To.Name} stays in one place");
     }
-
     [Fact]
-    public void Meera_to_Delhi_needs_two_cars_and_no_hop_of_the_plan_is_short()
+    public void Meera_to_Delhi_needs_two_cars_for_Rs_7500_and_no_hop_stays_in_one_place()
     {
         var n = Build();
         var r = Search(n, Mallital, Delhi);
         Assert.Empty(r.AllTheWay);
-        var plan = Assert.Single(r.Plans);
-        Assert.Equal(2, plan.Cars);
+        var plan = r.Plans.Single(p => p.Cars == 2);
         Assert.Equal(7500, plan.Total);
-        Assert.All(plan.Legs, leg => Assert.True(Km(leg.From, leg.To) > 15));
+        Assert.All(r.Plans.SelectMany(p => p.Legs), leg => Assert.True(Km(leg.From, leg.To) > 5));
     }
-
     [Fact]
     public void Delhi_to_Almora_stays_a_two_car_journey_for_Rs_9500()
     {

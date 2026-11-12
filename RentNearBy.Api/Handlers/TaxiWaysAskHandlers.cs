@@ -514,7 +514,7 @@ public static class TaxiWaysAskHandlers
                 && !t.IsDeleted && t.Status == TaxiStatuses.Approved && t.IsAvailable).Distinct().ToList();
             result[leg.LegIndex] = ids.Count == 0
                 ? []
-                : await JourneyLegFares.LoadAsync(ways, journeys, saved, ids, noTaxis, journey.Legs, previousRoute);
+                : await JourneyLegFares.LoadAsync(ways, journeys, saved, ids, noTaxis, previousRoute);
         }
         return result;
     }

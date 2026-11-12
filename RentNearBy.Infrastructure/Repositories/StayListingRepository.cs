@@ -209,8 +209,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
     }
 
     public async Task<IEnumerable<StayNearbyDto>> GetNearbyAsync(
-        double latitude, double longitude, double radiusKm, Guid districtId, Guid? stayTypeId)
+        double latitude, double longitude, double radiusKm, Guid? districtId, Guid? stayTypeId, int take = 0, int skip = 0)
     {
+        int? limit = take > 0 ? take : null;
         var (minLat, maxLat, minLng, maxLng) = GetBoundingBox(latitude, longitude, radiusKm);
 
         var box = await context.Database
@@ -261,10 +262,12 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 WHERE s."Status" = 'Approved'
                   AND s."AcceptingGuests" = TRUE
                   AND s."IsDeleted" = FALSE
-                  AND s."DistrictId" = {districtId}
+                  AND ({districtId}::uuid IS NULL OR s."DistrictId" = {districtId}::uuid)
                   AND ({stayTypeId}::uuid IS NULL OR s."StayTypeId" = {stayTypeId}::uuid)
                   AND s."Location" && ST_MakeEnvelope({minLng}::float8, {minLat}::float8,
                                                        {maxLng}::float8, {maxLat}::float8, 4326)::geography
+                ORDER BY s."PriorityRank" DESC, s."Id"
+                LIMIT {limit}::int4 OFFSET {skip}::int4
                 """)
             .ToListAsync();
 

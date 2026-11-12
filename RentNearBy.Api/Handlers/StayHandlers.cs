@@ -41,6 +41,10 @@ public static class StayCache
     public static string NearestKey(Guid districtId, Guid? stayTypeId, int count, GeoCell cell)
         => string.Create(CultureInfo.InvariantCulture, $"stays:nearest:{districtId}:{stayTypeId:N}:{count}:{cell.Key}");
 
+    // One entry per city (nearby and nearest share it); the exact order and distances are made per caller.
+    public static string CityKey(long cityKey, Guid? stayTypeId) => $"stays:city:{cityKey}:{stayTypeId:N}";
+    public static readonly TimeSpan CityTtl = TimeSpan.FromSeconds(60);
+
     public static string GenKey(Guid districtId) => ListingCacheKeys.StayGen(districtId);
 
     public static async Task InvalidateAsync(IConnectionMultiplexer? redis, Guid? districtId)
@@ -53,6 +57,17 @@ public static class StayCache
         }
         catch { /* best-effort: TTL (<= 60s) covers Redis failures */ }
         if (districtId is { } id) await FeedCache.BumpAsync(redis, new[] { GenKey(id) });
+    }
+}
+
+// Stays of one city, paid rank first then nearest to the point; distances are the caller's own.
+public static class StayCityRank
+{
+    public static List<StayNearbyDto> Order(IReadOnlyList<StayNearbyDto> stays, double lat, double lng, int? count)
+    {
+        foreach (var s in stays) s.DistanceKm = GeoMath.HaversineKm(lat, lng, (double)s.Latitude, (double)s.Longitude);
+        var ordered = stays.OrderByDescending(s => s.PriorityRank).ThenBy(s => s.DistanceKm).ThenBy(s => s.Id);
+        return (count is { } n ? ordered.Take(n) : ordered).ToList();
     }
 }
 
@@ -150,16 +165,71 @@ public static class StayHandlers
         IConnectionMultiplexer? redis, string key, long? generation, List<StayNearbyDto> items, TimeSpan ttl)
         => FeedCache.WriteAsync(redis, key, generation, JsonSerializer.Serialize(items), ttl);
 
+    // With cityKey the stays are the ones whose own nearest city is that city (any district, no radius); the pin only sorts.
     public static async Task<IResult> GetNearby(
-        double latitude, double longitude, double radius, Guid districtId, Guid? stayTypeId,
-        IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, int? guests = null, bool? groundFloor = null,
-        int? rooms = null, int? nights = null)
+        double? latitude, double? longitude, double? radius, Guid? districtId, Guid? stayTypeId, long? cityKey,
+        IUnitOfWork unitOfWork, ICityResolver resolver, ClaimsPrincipal principal, IServiceProvider sp, int? guests = null,
+        bool? groundFloor = null, int? rooms = null, int? nights = null)
     {
-        if (radius < 1 || radius > 50)
-            return BadRequestResponse("Radius must be between 1 and 50 km");
-        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
-            return BadRequestResponse("Invalid coordinates");
         if (PartyError(guests, rooms, nights) is { } partyError) return partyError;
+        if (cityKey != null)
+        {
+            if (CoordinateError(latitude, longitude)) return BadRequestResponse("Invalid coordinates");
+            return await CityStaysAsync(cityKey.Value, latitude, longitude, null, stayTypeId, unitOfWork, resolver, principal, sp,
+                guests, groundFloor, rooms, nights);
+        }
+        if (radius is not { } radiusKm || radiusKm < 1 || radiusKm > 50)
+            return BadRequestResponse("Radius must be between 1 and 50 km");
+        if (districtId is not { } district) return BadRequestResponse("District is required");
+        if (latitude is not { } lat || longitude is not { } lng || lat < -90 || lat > 90 || lng < -180 || lng > 180)
+            return BadRequestResponse("Invalid coordinates");
+        return await DistrictNearbyAsync(lat, lng, radiusKm, district, stayTypeId, unitOfWork, principal, sp, guests, groundFloor, rooms, nights);
+    }
+
+    private static bool CoordinateError(double? latitude, double? longitude)
+        => latitude.HasValue != longitude.HasValue
+           || latitude is < -90 or > 90 || longitude is < -180 or > 180
+           || (latitude is { } a && double.IsNaN(a)) || (longitude is { } b && double.IsNaN(b));
+
+    // count: nearest N (null = every stay of the city), both sorted paid rank first then nearest to the pin (or the city centre).
+    private static async Task<IResult> CityStaysAsync(
+        long cityKey, double? latitude, double? longitude, int? count, Guid? stayTypeId, IUnitOfWork unitOfWork, ICityResolver resolver,
+        ClaimsPrincipal principal, IServiceProvider sp, int? guests, bool? groundFloor, int? rooms, int? nights)
+    {
+        var pin = await resolver.FindAsync(cityKey);
+        if (!pin.Available) return ErrorResponse(503, "Cities are not available right now", TripErrorTypes.CitiesUnavailable);
+        if (pin.City is not { } city) return OkResponse(new { items = new List<StayNearbyDto>() });
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var cacheKey = StayCache.CityKey(cityKey, stayTypeId);
+        var (candidates, generation) = await ReadCityStaysAsync(redis, cacheKey);
+        if (candidates == null)
+        {
+            var fetch = await CityListings.StaysAsync(unitOfWork.Stays, resolver, city, stayTypeId);
+            if (fetch.Capped)
+                sp.GetService<ILoggerFactory>()?.CreateLogger("StayCity").LogWarning("stays.city.capped {CityKey} {Max}", cityKey, CityListings.MaxCityFetch);
+            candidates = fetch.Items.ToList();
+            await FeedCache.WriteAsync(redis, cacheKey, generation, JsonSerializer.Serialize(candidates), StayCache.CityTtl);
+        }
+
+        var items = StayCityRank.Order(candidates, latitude ?? city.Latitude, longitude ?? city.Longitude, count);
+        items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
+        if (principal.Identity?.IsAuthenticated != true) RedactForAnonymous(items);
+        return OkResponse(new { items });
+    }
+
+    private static async Task<(List<StayNearbyDto>? Items, long? Generation)> ReadCityStaysAsync(IConnectionMultiplexer? redis, string key)
+    {
+        var (cached, generation) = await FeedCache.ReadAsync(redis, key, TripSupplyCache.AllGenKey);
+        if (cached == null) return (null, generation);
+        try { return (JsonSerializer.Deserialize<List<StayNearbyDto>>(cached), generation); }
+        catch (JsonException) { return (null, generation); }
+    }
+
+    private static async Task<IResult> DistrictNearbyAsync(
+        double latitude, double longitude, double radius, Guid districtId, Guid? stayTypeId,
+        IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, int? guests, bool? groundFloor, int? rooms, int? nights)
+    {
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
@@ -190,16 +260,21 @@ public static class StayHandlers
     }
 
     public static async Task<IResult> GetNearest(
-        double latitude, double longitude, Guid districtId, Guid? stayTypeId,
-        IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp,
+        double? latitude, double? longitude, Guid? districtId, Guid? stayTypeId, long? cityKey,
+        IUnitOfWork unitOfWork, ICityResolver resolver, ClaimsPrincipal principal, IServiceProvider sp,
         IRateLimitService rateLimiter, HttpContext httpContext, int count = 5, int? guests = null, bool? groundFloor = null,
         int? rooms = null, int? nights = null)
     {
         if (count < 1 || count > 10)
             return BadRequestResponse("Count must be between 1 and 10");
-        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
-            return BadRequestResponse("Invalid coordinates");
         if (PartyError(guests, rooms, nights) is { } partyError) return partyError;
+        if (cityKey == null)
+        {
+            if (districtId is null) return BadRequestResponse("District is required");
+            if (latitude is not (>= -90 and <= 90) || longitude is not (>= -180 and <= 180))
+                return BadRequestResponse("Invalid coordinates");
+        }
+        else if (CoordinateError(latitude, longitude)) return BadRequestResponse("Invalid coordinates");
 
         var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var rl = await rateLimiter.CheckAsync($"stays:nearest:ip:{ip}", NearestRateLimitMax, NearestRateLimitWindow);
@@ -209,22 +284,29 @@ public static class StayHandlers
             return TooManyRequestsResponse();
         }
 
+        if (cityKey != null)
+            return await CityStaysAsync(cityKey.Value, latitude, longitude, count, stayTypeId, unitOfWork, resolver, principal, sp,
+                guests, groundFloor, rooms, nights);
+
         var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
-        var cell = GeoCacheKey.Cell(latitude, longitude);
-        var cacheKey = StayCache.NearestKey(districtId, stayTypeId, count, cell);
+        var districtGuid = districtId!.Value;
+        var lat = latitude!.Value;
+        var lng = longitude!.Value;
+        var cell = GeoCacheKey.Cell(lat, lng);
+        var cacheKey = StayCache.NearestKey(districtGuid, stayTypeId, count, cell);
 
-        var (candidates, generation) = await ReadNearbyCacheAsync(redis, cacheKey, districtId);
+        var (candidates, generation) = await ReadNearbyCacheAsync(redis, cacheKey, districtGuid);
         if (candidates == null)
         {
-            var knn = (await unitOfWork.Stays.GetNearestAsync(cell.CenterLat, cell.CenterLng, count, districtId, stayTypeId)).ToList();
+            var knn = (await unitOfWork.Stays.GetNearestAsync(cell.CenterLat, cell.CenterLng, count, districtGuid, stayTypeId)).ToList();
             candidates = StayGeoRefine.NearestCandidateRadiusKm(cell, knn) is { } candidateKm
-                ? (await unitOfWork.Stays.GetNearbyAsync(cell.CenterLat, cell.CenterLng, candidateKm, districtId, stayTypeId)).ToList()
+                ? (await unitOfWork.Stays.GetNearbyAsync(cell.CenterLat, cell.CenterLng, candidateKm, districtGuid, stayTypeId)).ToList()
                 : [];
             await WriteNearbyCacheAsync(redis, cacheKey, generation, candidates, StayCache.NearestTtl);
         }
 
-        var items = StayGeoRefine.Nearest(candidates, latitude, longitude, count);
+        var items = StayGeoRefine.Nearest(candidates, lat, lng, count);
         items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
         if (!isAuth) RedactForAnonymous(items);
         return OkResponse(new { items });

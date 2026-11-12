@@ -22,7 +22,8 @@ public interface IStayListingRepository : IRepository<StayListing>
     Task<BrowsePage<StayBrowseDto>> BrowsePagedAsync(Guid districtId, Guid? cityId, string? meals, Guid? stayTypeId, string sortBy, int page, int pageSize, string? cursor);
     // District-free, newest first; same live predicate as browse.
     Task<List<StayBrowseDto>> GetRecentProjectedAsync(int limit);
-    Task<IEnumerable<StayNearbyDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid districtId, Guid? stayTypeId);
+    // districtId null = no district filter (the caller cuts by its own rule).
+    Task<IEnumerable<StayNearbyDto>> GetNearbyAsync(double latitude, double longitude, double radiusKm, Guid? districtId, Guid? stayTypeId, int take = 0, int skip = 0);
     Task<IEnumerable<StayNearbyDto>> GetNearestAsync(double latitude, double longitude, int count, Guid districtId, Guid? stayTypeId);
     Task<(IReadOnlyList<StayListing> Items, bool HasMore)> GetAdminPagedAsync(string status, int page, int pageSize);
 }

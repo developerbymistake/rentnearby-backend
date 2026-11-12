@@ -121,9 +121,8 @@ public static class TaxiWaysHandlers
         if (!TaxiWaysKeys.IsValidKey(legKey)) return LegNotFound();
 
         // Which stretch of the journey this leg is, so Change driver lists exactly the plan's drivers: a saved journey (journeyId and
-        // legIndex) gives it from the server; an unsaved plan sends afterRoute (the previous car's route) and lastLeg.
+        // legIndex) gives it from the server; an unsaved plan sends afterRoute (the previous car's route). lastLeg is accepted and ignored.
         Guid? exclude = afterRoute;
-        bool? area = null, endArea = null;
         if (journeyId != null)
         {
             if (legIndex == null) return BadRequestResponse("Invalid leg");
@@ -131,19 +130,12 @@ public static class TaxiWaysHandlers
             var leg = journey?.Legs.FirstOrDefault(l => l.LegIndex == legIndex);
             if (journey == null || leg == null || leg.LegKey != legKey) return LegNotFound();
             exclude = journey.Legs.FirstOrDefault(l => l.LegIndex == legIndex - 1)?.DriverRouteId;
-            area = leg.LegIndex == journey.Legs.Min(l => l.LegIndex);
-            endArea = leg.LegIndex == journey.Legs.Max(l => l.LegIndex);
-        }
-        else if (afterRoute != null || lastLeg != null)
-        {
-            area = afterRoute == null;
-            endArea = lastLeg ?? area;
         }
 
         try
         {
             var result = await search.LegDriversAsync(
-                legKey, new LegDriverQuery(count, minSeats, category, repliesInApp == true, sortValue, page, size, area, endArea, exclude), ct);
+                legKey, new LegDriverQuery(count, minSeats, category, repliesInApp == true, sortValue, page, size, exclude), ct);
             return result == null ? LegNotFound() : OkResponse(result);
         }
         catch (TaxiWaysUnavailableException)

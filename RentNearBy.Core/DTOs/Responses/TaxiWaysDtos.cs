@@ -17,6 +17,8 @@ public class TaxiWaysResultDto
     public List<StayNearbyDto> Stays { get; set; } = new();
     public WayPlaceDto? ReachFirstPlace { get; set; }
     public bool RoadLines { get; set; }
+    // Atlas cities are not available right now: stays and local taxis are empty, the taxi routes still work.
+    public bool CitiesUnavailable { get; set; }
 }
 
 public class WayPlaceDto
@@ -94,6 +96,8 @@ public class WayLegDto
     public bool Partial { get; set; }
     public double? DistanceKm { get; set; }
     public List<string> Passes { get; set; } = new();
+    // The cities on the road in order, without the from and to cities.
+    public List<WayPassStopDto> PassStops { get; set; } = new();
     public List<WayDriverDto> TopDrivers { get; set; } = new();
     public int DriverCount { get; set; }
     public bool HasRoadLine { get; set; }
@@ -104,6 +108,14 @@ public class WayLegDto
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WayGeometryDto? Geometry { get; set; }
+}
+
+public class WayPassStopDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public double Lat { get; set; }
+    public double Lng { get; set; }
 }
 
 // GeoJSON LineString, coordinates [lon, lat].

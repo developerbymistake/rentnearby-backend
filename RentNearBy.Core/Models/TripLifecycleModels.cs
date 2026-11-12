@@ -200,11 +200,13 @@ public static class TripReminderRules
     public const int DaysBeforeStart = 3, StartsInHourIst = 9, TodayHourIst = 7, MarkCompleteHourIst = 10, AutoCompleteDays = 7;
     public const int TravelEveHourIst = 18;
 
-    // The one clock: every shortlist and enquiry reminder goes out once a morning at this IST time (08:00 = change the hour here).
-    public const int MorningHourIst = 5, MorningMinuteIst = 0, CatchUpEndHourIst = 12;
+    // The one clock: every shortlist and enquiry reminder goes out once a morning at this IST time (08:00 IST, owner decision 2026-11-12).
+    public const int MorningHourIst = 8, MorningMinuteIst = 0, CatchUpEndHourIst = 12;
 
-    // A host is reminded only when the enquiry is at least this old at run time (the traveller side has no such wait).
+    // A host is reminded only when the enquiry is at least this old at run time (the traveller side waits TravellerMinAgeHours).
     public const int HostMinAgeHours = 12;
+    // The traveller's first reminder is the next morning run that is at least this many hours after the action (add or enquiry).
+    public const int TravellerMinAgeHours = 3;
     // The final push is only for rows that ended in the last days; older unannounced rows are stamped by the daily purge.
     public const int FinalWindowDays = 2;
     public const int SentShortlistRetentionDays = 30;
@@ -215,6 +217,13 @@ public static class TripReminderRules
 
     public static DateTime MorningDueUtc(DateOnly dateIst) => MorningDueUtc(dateIst, MorningHourIst, MorningMinuteIst);
     public static DateTime MorningDueUtc(DateOnly dateIst, int hour, int minute) => IstTime.AtUtc(dateIst, hour, minute);
+
+    public static DateTime FirstTravellerMorningUtc(DateTime actionUtc)
+    {
+        var due = MorningDueUtc(IstTime.TodayIst(actionUtc));
+        while (actionUtc >= due.AddHours(-TravellerMinAgeHours)) due = due.AddDays(1);
+        return due;
+    }
 
     public static DateTime NextMorningUtc(DateTime nowUtc) => NextMorningUtc(nowUtc, MorningHourIst, MorningMinuteIst);
     public static DateTime NextMorningUtc(DateTime nowUtc, int hour, int minute)

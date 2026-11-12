@@ -36,7 +36,6 @@ public class TripTimerService(
     private const int Batch = 200, ShortlistCloseBatch = 2000;
     private bool _loggedDisabled;
     private DateOnly _lastDailyStamp;
-    public const int OutboxRetentionDays = 3, ClosedShortlistRetentionDays = 30, ReminderRunRetentionDays = 30;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -79,7 +78,7 @@ public class TripTimerService(
             var travelEve = await TravelEvePassAsync(sp, ct);
             var completed = await AutoCompletePassAsync(sp, ct);
             var urgent = await UrgentPassAsync(sp);
-            var purged = await PurgePassAsync(sp);
+            var purged = 0;
             var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
             if (_lastDailyStamp != today)
             {
@@ -623,28 +622,6 @@ public class TripTimerService(
         return await db.TripEnquiries
             .Where(e => !e.IsUrgent && e.CheckIn != null && e.CheckIn <= cutoff && TripEnquiryStatuses.Open.Contains(e.Status))
             .ExecuteUpdateAsync(s => s.SetProperty(e => e.IsUrgent, true).SetProperty(e => e.UpdatedAt, now));
-    }
-
-    private static async Task<int> PurgePassAsync(IServiceProvider sp)
-    {
-        var db = sp.GetRequiredService<ApplicationDbContext>();
-        var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
-        var now = DateTime.UtcNow;
-        var logs = await unitOfWork.TripPushLogs.PurgeOlderThanAsync(now.AddDays(-TripExecutionRules.PushLogRetentionDays));
-        var orphanCutoff = now.AddDays(-TripExecutionRules.OrphanRetentionDays);
-        var orphans = await db.TripEnquiries
-            .Where(e => e.TripId == null && e.UpdatedAt < orphanCutoff)
-            .ExecuteDeleteAsync();
-        var outbox = await db.Database.ExecuteSqlInterpolatedAsync(
-            $"""DELETE FROM "OutboxMessages" WHERE "Id" IN (SELECT "Id" FROM "OutboxMessages" WHERE "PublishedAt" < {now.AddDays(-OutboxRetentionDays)} LIMIT 5000)""");
-        var shortlist = await db.Database.ExecuteSqlInterpolatedAsync(
-            $"""DELETE FROM "TripShortlistItems" WHERE "Id" IN (SELECT "Id" FROM "TripShortlistItems" WHERE "State" IN ('Closed', 'Booked') AND "ClosedAt" < {now.AddDays(-ClosedShortlistRetentionDays)} LIMIT 5000)""");
-        // A Sent row (its enquiry went out) has no ClosedAt; ClosesAt is its last meaningful date.
-        var sent = await db.Database.ExecuteSqlInterpolatedAsync(
-            $"""DELETE FROM "TripShortlistItems" WHERE "Id" IN (SELECT "Id" FROM "TripShortlistItems" WHERE "State" = 'Sent' AND "ClosesAt" < {now.AddDays(-TripReminderRules.SentShortlistRetentionDays)} LIMIT 5000)""");
-        var runs = await db.Database.ExecuteSqlInterpolatedAsync(
-            $"""DELETE FROM "TripReminderRuns" WHERE "RunDate" < {TripExecutionRules.TodayIst(now).AddDays(-ReminderRunRetentionDays)}""");
-        return logs + orphans + outbox + shortlist + sent + runs;
     }
 
     // Once per IST day: rows that ended more than FinalWindowDays ago and were never announced are stamped, so the morning run

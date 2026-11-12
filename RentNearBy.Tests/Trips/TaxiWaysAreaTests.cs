@@ -42,32 +42,28 @@ public class TaxiWaysAreaTests
     }
 
     [Fact]
-    public void Virtual_start_in_area_sees_D3_and_D2_as_direct_cars_and_no_plan()
+    public void Virtual_start_off_every_route_gets_no_taxi_no_radius_sweep()
     {
-        var s = Hills(out var d1, out var d2, out var d3);
+        var s = Hills(out _, out _, out _);
 
         var r = TaxiWaysFixture.Search(s, Katghariya, Nainital);
 
-        Assert.Equal(new[] { d2, d3 }.Order(), r.AllTheWay.Select(c => c.Driver.TaxiId).Order());
-        Assert.DoesNotContain(r.AllTheWay, c => c.Driver.TaxiId == d1);
+        Assert.Empty(r.AllTheWay);
         Assert.Empty(r.Plans);
-        var d2Row = r.AllTheWay.Single(c => c.Driver.TaxiId == d2);
-        Assert.Equal(s.Places.Values.Single(p => p.Name == "Kathgodam").Key, d2Row.Link.MeetAtPlace);
     }
 
     [Fact]
-    public void Resolved_start_gets_the_same_door_to_door_list()
+    public void Resolved_start_sees_only_the_taxis_of_its_own_place()
     {
-        var s = Hills(out var d1, out var d2, out var d3);
+        var s = Hills(out _, out _, out var d3);
 
         var r = TaxiWaysFixture.Search(s, Haldwani, Nainital);
 
-        Assert.Equal(new[] { d2, d3 }.Order(), r.AllTheWay.Select(c => c.Driver.TaxiId).Order());
-        Assert.Empty(r.Plans);
+        Assert.Equal(new[] { d3 }, r.AllTheWay.Select(c => c.Driver.TaxiId));
     }
 
     [Fact]
-    public void An_in_area_first_hop_is_never_a_chain()
+    public void A_hop_to_the_next_town_is_a_chain_through_a_real_route_stop()
     {
         var s = TaxiWaysFixture.Build(
             Row("Haldwani", Haldwani, "Kathgodam", Kathgodam, 400),
@@ -77,7 +73,7 @@ public class TaxiWaysAreaTests
 
         var (plans, _) = TaxiWaysChainSearch.Plans(s, a, b, 4, TaxiWaysFixture.Options);
 
-        Assert.Empty(plans);
+        Assert.Equal(2, Assert.Single(plans).Cars);
     }
 
     [Fact]
@@ -130,14 +126,14 @@ public class TaxiWaysAreaTests
         var b = TaxiWaysSearchEngine.Resolve(s, Nainital.Lat, Nainital.Lng, false, o);
 
         var direct = TaxiWaysSearchEngine.Search(s, a, b, 4, o).AllTheWay.Select(c => c.Driver.TaxiId);
-        var leg = TaxiWaysSearchEngine.Candidates(s, a, b, 4, o, area: true).Select(c => c.Driver.TaxiId).ToList();
+        var leg = TaxiWaysSearchEngine.Candidates(s, a, b, 4, o).Select(c => c.Driver.TaxiId).ToList();
 
         Assert.Equal(direct, leg);
         Assert.Equal(leg.Count, leg.Distinct().Count());
     }
 
     [Fact]
-    public void Chain_legs_do_not_widen_to_the_area()
+    public void A_single_driver_stays_a_single_candidate()
     {
         var s = Hills(out var d1, out _, out _);
         var o = TaxiWaysFixture.Options;
@@ -145,18 +141,17 @@ public class TaxiWaysAreaTests
         var b = TaxiWaysSearchEngine.Resolve(s, Nainital.Lat, Nainital.Lng, false, o);
 
         Assert.Single(TaxiWaysSearchEngine.Candidates(s, a, b, 4, o), c => true);
-        Assert.Equal(2, TaxiWaysSearchEngine.Candidates(s, a, b, 4, o, area: true).Count);
     }
 
     [Fact]
-    public void Same_taxi_on_two_start_places_in_area_appears_once()
+    public void Same_taxi_on_two_routes_appears_once()
     {
         var taxi = Guid.NewGuid();
         var s = TaxiWaysFixture.Build(
             Row("Haldwani", Haldwani, "Nainital", Nainital, 1500, taxi),
             Row("Kathgodam", Kathgodam, "Nainital", Nainital, 900, taxi));
 
-        var r = TaxiWaysFixture.Search(s, Katghariya, Nainital);
+        var r = TaxiWaysFixture.Search(s, Haldwani, Nainital);
 
         Assert.Single(r.AllTheWay);
     }
@@ -168,7 +163,7 @@ public class TaxiWaysAreaTests
         TaxiGeo.DistanceMeters(a.Lat, a.Lng, b.Lat, b.Lng) / 1000;
 
     [Fact]
-    public void Dev_at_Haldwani_to_Almora_gets_the_area_driver_direct_and_no_dearer_chain()
+    public void Haldwani_to_Almora_does_not_see_the_Kathgodam_driver_direct_only_as_a_chain_stop()
     {
         var s = TaxiWaysFixture.Build(
             Row("Haldwani", Haldwani, "Kathgodam", Kathgodam, 400),
@@ -179,12 +174,12 @@ public class TaxiWaysAreaTests
 
         var r = TaxiWaysFixture.Search(s, Haldwani, Almora);
 
-        Assert.Contains(r.AllTheWay, c => c.Driver.TaxiId == kathgodamAlmora);
-        Assert.Empty(r.Plans);
+        Assert.Empty(r.AllTheWay);
+        Assert.Equal(2900, r.Plans[0].Total);
+        Assert.Equal(kathgodamAlmora, r.Plans[0].Legs[1].Top.Driver.TaxiId);
     }
-
     [Fact]
-    public void Dev_at_Haldwani_never_gets_a_chain_that_starts_with_the_local_Kathgodam_hop()
+    public void Haldwani_to_Almora_with_only_a_Kathgodam_driver_is_a_two_car_chain_not_a_direct_car()
     {
         var s = TaxiWaysFixture.Build(
             Row("Haldwani", Haldwani, "Kathgodam", Kathgodam, 400),
@@ -192,26 +187,23 @@ public class TaxiWaysAreaTests
 
         var r = TaxiWaysFixture.Search(s, Haldwani, Almora);
 
-        Assert.Empty(r.Plans);
-        Assert.Single(r.AllTheWay);
+        Assert.Equal(2, Assert.Single(r.Plans).Cars);
+        Assert.Empty(r.AllTheWay);
     }
-
     [Fact]
-    public void Meera_at_Nainital_to_Haldwani_sees_the_car_that_ends_in_the_area_not_a_short_last_hop()
+    public void Nainital_to_Haldwani_is_not_served_direct_by_a_car_that_ends_at_Kathgodam()
     {
         var s = TaxiWaysFixture.Build(
             Row("Nainital", Nainital, "Kathgodam", Kathgodam, 900),
             Row("Kathgodam", Kathgodam, "Haldwani", Haldwani, 400));
-        var nainitalKathgodam = Taxi(s, "Nainital", "Kathgodam");
 
         var r = TaxiWaysFixture.Search(s, Nainital, Haldwani);
 
-        Assert.Contains(r.AllTheWay, c => c.Driver.TaxiId == nainitalKathgodam);
-        Assert.Empty(r.Plans);
+        Assert.Empty(r.AllTheWay);
+        Assert.Equal(2, Assert.Single(r.Plans).Cars);
     }
-
     [Fact]
-    public void Delhi_to_Almora_with_a_Kathgodam_Almora_driver_gets_no_plan_with_a_short_hop()
+    public void Delhi_to_Almora_with_a_Kathgodam_Almora_driver_chains_three_cars_through_real_stops()
     {
         var s = TaxiWaysFixture.Build(
             Row("Delhi", Delhi, "Haldwani", Haldwani, 6000),
@@ -221,9 +213,8 @@ public class TaxiWaysAreaTests
         var r = TaxiWaysFixture.Search(s, Delhi, Almora);
 
         Assert.Empty(r.AllTheWay);
-        Assert.Empty(r.Plans);
+        Assert.Equal(3, Assert.Single(r.Plans).Cars);
     }
-
     [Fact]
     public void Delhi_to_Almora_two_long_cars_are_kept_and_every_hop_is_long()
     {
@@ -236,24 +227,22 @@ public class TaxiWaysAreaTests
         var plan = Assert.Single(r.Plans);
         Assert.Equal(2, plan.Cars);
         foreach (var leg in plan.Legs)
-            Assert.True(TaxiGeo.DistanceMeters(leg.From.Lat, leg.From.Lng, leg.To.Lat, leg.To.Lng) > TaxiWaysFixture.Options.MinLegMeters);
+            Assert.True(TaxiGeo.DistanceMeters(leg.From.Lat, leg.From.Lng, leg.To.Lat, leg.To.Lng) > TaxiWaysFixture.Options.SamePlaceMeters);
     }
 
     [Fact]
-    public void Village_8_km_from_Haldwani_to_Mukteshwar_sees_the_Haldwani_driver_direct()
+    public void Village_8_km_from_Haldwani_to_Mukteshwar_sees_nobody_without_route_geometry()
     {
         var s = TaxiWaysFixture.Build(Row("Haldwani", Haldwani, "Mukteshwar", Mukteshwar, 2500));
         Assert.InRange(Km(Village8KmWest, Haldwani), 7, 9);
 
         var r = TaxiWaysFixture.Search(s, Village8KmWest, Mukteshwar);
 
-        var car = Assert.Single(r.AllTheWay);
-        Assert.Equal(s.Places.Values.Single(p => p.Name == "Haldwani").Key, car.Link.MeetAtPlace);
+        Assert.Empty(r.AllTheWay);
         Assert.Empty(r.Plans);
     }
-
     [Fact]
-    public void Village_8_km_from_Haldwani_to_Almora_gets_a_chain_seeded_from_the_area()
+    public void Village_8_km_from_Haldwani_to_Almora_gets_no_chain_without_route_geometry()
     {
         var s = TaxiWaysFixture.Build(
             Row("Haldwani", Haldwani, "Nainital", Nainital, 1500),
@@ -262,12 +251,8 @@ public class TaxiWaysAreaTests
         var r = TaxiWaysFixture.Search(s, Village8KmWest, Almora);
 
         Assert.Empty(r.AllTheWay);
-        var plan = Assert.Single(r.Plans);
-        Assert.Equal(2, plan.Cars);
-        Assert.Equal(Taxi(s, "Haldwani", "Nainital"), plan.Legs[0].Top.Driver.TaxiId);
-        Assert.Equal(Taxi(s, "Nainital", "Almora"), plan.Legs[1].Top.Driver.TaxiId);
+        Assert.Empty(r.Plans);
     }
-
     [Fact]
     public void A_direct_all_the_way_taxi_beats_a_chain_that_costs_more()
     {
@@ -305,8 +290,6 @@ public class TaxiWaysAreaTests
     private sealed class FakeSource(string? state) : ITaxiWaysNetworkSource
     {
         public Task<IReadOnlyList<TaxiWaysSourceRow>> LoadAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<TaxiWaysSourceRow>>([]);
-        public Task<(Guid? DistrictId, string? StateName)> FindDistrictAsync(double lat, double lng, CancellationToken ct = default) =>
-            Task.FromResult<(Guid? DistrictId, string? StateName)>((null, state));
     }
 
     private static TaxiWaysSearch Searcher(TaxiWaysNetworkSnapshot s, string? state = "Uttarakhand")
@@ -336,40 +319,16 @@ public class TaxiWaysAreaTests
     }
 
     [Fact]
-    public async Task Change_driver_on_the_last_leg_keeps_the_destination_area_drivers_of_the_plan()
+    public async Task Change_driver_on_a_single_car_first_leg_lists_only_the_place_drivers()
     {
-        var kasarDevi = (29.6430, 79.6690);
-        var s = TaxiWaysFixture.Build(
-            Row("Delhi", Delhi, "Haldwani", Haldwani, 6000),
-            Row("Haldwani", Haldwani, "Almora", Almora, 3500),
-            Row("Haldwani", Haldwani, "Kasar Devi", kasarDevi, 3600));
-        var r = TaxiWaysFixture.Search(s, Delhi, Almora);
-        var plan = Assert.Single(r.Plans);
-        var last = plan.Legs[^1];
-        var kasarTaxi = Taxi(s, "Haldwani", "Kasar Devi");
-        Assert.Contains(last.Drivers, c => c.Driver.TaxiId == kasarTaxi);
-        var previousRoute = plan.Legs[0].Top.Link.RouteId;
-
-        var searcher = Searcher(s);
-        var forLastLeg = await searcher.LegFaresAsync(last.LegKey, s.Drivers.Keys.ToList(), previousRoute, default, area: false, endArea: true);
-        var guessed = await searcher.LegFaresAsync(last.LegKey, s.Drivers.Keys.ToList(), previousRoute);
-
-        Assert.Equal(last.Drivers.Select(c => c.Driver.TaxiId).Order(), forLastLeg.Keys.Order());
-        Assert.DoesNotContain(kasarTaxi, guessed.Keys);
-    }
-
-    [Fact]
-    public async Task Change_driver_on_a_single_car_first_leg_keeps_the_area_drivers()
-    {
-        var s = Hills(out _, out var d2, out var d3);
+        var s = Hills(out _, out _, out var d3);
         var r = TaxiWaysFixture.Search(s, Haldwani, Nainital);
         var key = TaxiWaysKeys.LegKey(r.From.Key, r.To.Key);
 
         var fares = await Searcher(s).LegFaresAsync(key, s.Drivers.Keys.ToList());
 
-        Assert.Equal(new[] { d2, d3 }.Order(), fares.Keys.Order());
+        Assert.Equal(new[] { d3 }, fares.Keys);
     }
-
     [Fact]
     public async Task Reach_first_place_is_given_in_a_launch_state_too_when_no_way_exists()
     {

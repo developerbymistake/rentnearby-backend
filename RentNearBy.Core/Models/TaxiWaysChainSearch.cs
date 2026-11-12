@@ -5,9 +5,9 @@ namespace RentNearBy.Core.Models;
 // it can still reach `to` with the cars left (backward hop distances), so the work is bounded by the links around both
 // ends: no name order and no expansion cap decide what is found. Ways that use the same vehicles in the same order collapse
 // to the cheapest change place. A plan with more cars is kept only when no plan with fewer cars is as cheap and as quick.
-// Door to door: the first car may start at any place within BasedHereMeters of the traveller and the last car may end at any
-// place within BasedHereMeters of the destination; every car hop must be longer than MinLegMeters and either bring the traveller
-// closer to the destination or keep the whole way within DetourFactor times the straight line.
+// No radius sweep: the first car starts at the traveller's resolved place and the last car ends at the destination's resolved
+// place; every car hop goes to another city (two places are two cities, so no car inside one city) and either brings the traveller closer to the destination or keeps the whole way within DetourFactor times
+// the straight line.
 public static class TaxiWaysChainSearch
 {
     private sealed class Label
@@ -56,15 +56,14 @@ public static class TaxiWaysChainSearch
             return s.Places.TryGetValue(key, out var p) ? anchors[key] = TaxiWaysSearchEngine.AnchorOf(p) : null;
         }
 
-        var toNeighbours = ReachingPlaces(s, from, to, o);
+        var toNeighbours = ReachingPlaces(s, from, to);
         var hops = HopsTo(s, to.Key, from.Key, toNeighbours, maxCars - 1);
-        var areaStart = TaxiWaysSearchEngine.AreaNeighbours(s, from, o);
         var straight = TaxiGeo.DistanceMeters(from.Lat, from.Lng, to.Lat, to.Lng);
 
         IEnumerable<string> Next(string u)
         {
             IEnumerable<string> keys = u == from.Key
-                ? TaxiWaysSearchEngine.Neighbours(s, from).Concat(areaStart)
+                ? TaxiWaysSearchEngine.Neighbours(s, from)
                 : s.LinksAt(u).Select(l => l.OtherEnd(u));
             if (u != from.Key && toNeighbours.Contains(u)) keys = keys.Append(to.Key);
             return keys.Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal);
@@ -80,7 +79,6 @@ public static class TaxiWaysChainSearch
         {
             if (PointOf(u) is not { } a || PointOf(v) is not { } b) return false;
             var hop = TaxiGeo.DistanceMeters(a.Lat, a.Lng, b.Lat, b.Lng);
-            if (hop <= o.MinLegMeters) return false;
             if (v == to.Key) return true;
             var left = TaxiGeo.DistanceMeters(b.Lat, b.Lng, to.Lat, to.Lng);
             if (left < TaxiGeo.DistanceMeters(a.Lat, a.Lng, to.Lat, to.Lng)) return true;
@@ -94,8 +92,7 @@ public static class TaxiWaysChainSearch
             var a = AnchorFor(u);
             var b = AnchorFor(v);
             var leg = a == null || b == null ? null
-                : TaxiWaysSearchEngine.BuildLeg(s, a, b, 0, people, o, basedHereFirst: u == from.Key, excludeRoute: exclude,
-                    area: u == from.Key, endArea: v == to.Key);
+                : TaxiWaysSearchEngine.BuildLeg(s, a, b, 0, people, o, basedHereFirst: u == from.Key, excludeRoute: exclude);
             return legs[(u, v, exclude)] = leg;
         }
 
@@ -157,17 +154,10 @@ public static class TaxiWaysChainSearch
     private static double HopMeters((double Lat, double Lng)? a, (double Lat, double Lng)? b) =>
         a is { } x && b is { } y ? TaxiGeo.DistanceMeters(x.Lat, x.Lng, y.Lat, y.Lng) : 0;
 
-    // Places from which `to` is one car away: those linked to it, and those linked to a place within BasedHereMeters of it
-    // (the last car may end in the destination's area). `from` is never a middle place.
-    private static HashSet<string> ReachingPlaces(
-        TaxiWaysNetworkSnapshot s, TaxiWaysAnchor from, TaxiWaysAnchor to, TaxiWaysOptions o)
+    // Places from which `to` is one car away: those linked to it. `from` is never a middle place.
+    private static HashSet<string> ReachingPlaces(TaxiWaysNetworkSnapshot s, TaxiWaysAnchor from, TaxiWaysAnchor to)
     {
         var keys = TaxiWaysSearchEngine.Neighbours(s, to).ToHashSet(StringComparer.Ordinal);
-        foreach (var end in TaxiWaysSearchEngine.PlacesNear(s, to.Lat, to.Lng, o.BasedHereMeters))
-        {
-            if (end.Key == to.Key) continue;
-            foreach (var l in s.LinksAt(end.Key)) keys.Add(l.OtherEnd(end.Key));
-        }
         keys.Remove(from.Key);
         keys.Remove(to.Key);
         return keys;

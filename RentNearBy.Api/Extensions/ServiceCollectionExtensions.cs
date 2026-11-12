@@ -5,6 +5,7 @@ using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.Retention;
 using StackExchange.Redis;
 
 namespace RentNearBy.Api.Extensions;
@@ -88,6 +89,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<IOsrmClient, OsrmClient>();
         services.AddSingleton<ITripSpotCache, TripSpotCache>();
         services.AddSingleton<ITripCityCatalog, TripCityCatalog>();
+        services.AddSingleton<ICityResolver, CityResolver>();
         services.AddSingleton<ITripRoadCache, TripRoadCache>();
         services.AddScoped<ITripPlannerService, TripPlannerService>();
         // Consumes the atlas.city.changed fanout on queue atlas.city.changed.rentnearby.
@@ -116,8 +118,11 @@ public static class ServiceCollectionExtensions
         // Purges DeletedAccountRecords past their 180-day retention window (runs at 5:00 AM IST daily)
         services.AddHostedService<DeletedAccountRecordPurgeService>();
 
-        // Hourly: inbox rows past NotificationInbox.RetentionDays.
-        services.AddHostedService<NotificationRetentionService>();
+        // Nightly retention (01:00-04:30 IST, one rule at a time); rules are found by assembly scan.
+        services.Configure<RetentionOptions>(configuration.GetSection(RetentionOptions.Section));
+        services.PostConfigure<RetentionOptions>(o => o.Normalize());
+        services.AddRetentionRules(typeof(RetentionRunner).Assembly);
+        services.AddHostedService<RetentionRunner>();
 
         services.AddHttpClient<IRazorpayService, RazorpayService>();
 

@@ -194,10 +194,10 @@ public static class TripHandlers
         return OkResponse(new SpotMinutesDto { Ids = ids, Minutes = TripSpotMinutes.Build(matrix, ids), Available = true });
     }
 
-    // Stays accepting guests and drivers with a day rate in the city's district; counts cached per district generation
-    // (TripSupplyCache), so a stay or taxi change shows at once.
+    // Stays accepting guests and day-rate drivers whose own nearest city is this city (same rule and same lists as the stay and taxi
+    // city browse); counts cached per city and the global supply generation, so a stay or taxi change shows at once.
     public static async Task<IResult> GetCitySupply(
-        long cityKey, ClaimsPrincipal principal, ITripCityCatalog catalog, IUnitOfWork unitOfWork, ApplicationDbContext db,
+        long cityKey, ClaimsPrincipal principal, ICityResolver resolver, IUnitOfWork unitOfWork,
         IRateLimitService rateLimiter, IMemoryCache memory, IServiceProvider sp, HttpContext httpContext)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
@@ -210,37 +210,50 @@ public static class TripHandlers
         }
         if (cityKey <= 0) return CityNotFound();
 
+        var pin = await resolver.FindAsync(cityKey);
+        if (!pin.Available) return CitiesUnavailable();
+
         var redis = sp.GetService<IConnectionMultiplexer>();
         var tabs = await AppTabCache.GetAsync(unitOfWork, memory);
+        if (pin.City is not { } city) return OkResponse(GatedSupply(new TripCitySupplyDto(), tabs));
 
-        var districtKey = TripSupplyCache.DistrictKey(cityKey);
-        var (known, districtId) = await ReadSupplyDistrictAsync(redis, memory, districtKey);
-        if (!known)
-        {
-            var (available, city) = await catalog.FindAsync(cityKey);
-            city ??= await unitOfWork.Trips.FindLegSnapshotAsync(userId, cityKey);
-            if (city == null) return available ? CityNotFound() : CitiesUnavailable();
-            districtId = await unitOfWork.Districts.FindActiveContainingAsync(city.Latitude, city.Longitude);
-            await WriteSupplyValueAsync(redis, memory, districtKey, districtId?.ToString("N") ?? TripSupplyCache.NoDistrict, TripSupplyCache.DistrictTtl);
-        }
-        if (districtId is not { } id) return OkResponse(GatedSupply(new TripCitySupplyDto(), tabs));
-
-        // The generation is read before counting: a change during the count bumps it and this entry is never read.
-        var version = await TripSupplyCache.VersionAsync(redis, id);
-        var key = version == null ? null : TripSupplyCache.CountsKey(id, version);
+        // The version is read before counting: a change during the count bumps it and this entry is never read.
+        var version = await TripSupplyCache.AllVersionAsync(redis);
+        var key = version == null ? null : TripSupplyCache.CityCountsKey(cityKey, version);
         if (key != null && await ReadSupplyAsync(redis, memory, key) is { } cached) return OkResponse(GatedSupply(cached, tabs));
 
-        var supply = new TripCitySupplyDto
-        {
-            DistrictId = id,
-            Stays = await db.StayListings.AsNoTracking().CountAsync(s =>
-                s.DistrictId == id && s.Status == StayStatuses.Approved && s.AcceptingGuests && !s.IsDeleted),
-            Drivers = await db.TaxiListings.AsNoTracking().CountAsync(t =>
-                t.DistrictId == id && t.Status == TaxiStatuses.Approved && t.IsAvailable && !t.IsDeleted && t.LocalDayRate != null),
-        };
+        var stays = await CityListings.StaysAsync(unitOfWork.Stays, resolver, city, null);
+        var taxis = await CityListings.TaxisAsync(unitOfWork.Taxis, resolver, city, true);
+        var supply = new TripCitySupplyDto { Stays = stays.Items.Count, Drivers = taxis.Items.Count };
 
         if (key != null) await WriteSupplyValueAsync(redis, memory, key, JsonSerializer.Serialize(supply, TripJson.Options), TripSupplyCache.CountsTtl, supply);
         return OkResponse(GatedSupply(supply, tabs));
+    }
+
+    // A pin resolves to exactly one city: the single nearest live city within the guard. Atlas down = available false.
+    public static async Task<IResult> GetNearestCity(
+        double? lat, double? lng, ClaimsPrincipal principal, ICityResolver resolver, IRateLimitService rateLimiter, HttpContext httpContext)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+        if (lat is not (>= -90 and <= 90) || lng is not (>= -180 and <= 180)) return BadRequestResponse("Invalid coordinates");
+
+        var rl = await rateLimiter.CheckAsync($"trip:nearest:{userId}", SupplyMaxPerWindow, SupplyWindow);
+        if (!rl.IsAllowed)
+        {
+            httpContext.Response.Headers["Retry-After"] = ((int)(rl.RetryAfter ?? SupplyWindow).TotalSeconds).ToString();
+            return TooManyRequestsResponse();
+        }
+
+        var pin = await resolver.ResolveAsync(lat.Value, lng.Value);
+        return OkResponse(new TripNearestCityDto
+        {
+            Available = pin.Available,
+            CityKey = pin.City?.CityKey,
+            Name = pin.City?.Name,
+            Latitude = pin.City?.Latitude ?? lat.Value,
+            Longitude = pin.City?.Longitude ?? lng.Value,
+            WithinGuard = pin.City != null,
+        });
     }
 
     // The cache holds raw counts; an off tab reports none, so a tab flip needs no flush.
@@ -263,31 +276,6 @@ public static class TripHandlers
         {
             return null;
         }
-    }
-
-    // (false, null) = not cached; (true, null) = the city lies in no active district.
-    private static async Task<(bool Known, Guid? DistrictId)> ReadSupplyDistrictAsync(IConnectionMultiplexer? redis, IMemoryCache memory, string key)
-    {
-        string? text;
-        if (redis == null)
-        {
-            text = memory.TryGetValue(key, out string? local) ? local : null;
-        }
-        else
-        {
-            try
-            {
-                var value = await redis.GetDatabase().StringGetAsync(key);
-                text = value.IsNullOrEmpty ? null : value.ToString();
-            }
-            catch (Exception ex) when (ex is RedisException or TimeoutException)
-            {
-                text = null;
-            }
-        }
-        if (text == null) return (false, null);
-        if (text == TripSupplyCache.NoDistrict) return (true, null);
-        return Guid.TryParseExact(text, "N", out var id) ? (true, id) : (false, null);
     }
 
     // localValue: what the in-memory fallback keeps (the text itself when null).

@@ -129,7 +129,7 @@ public class TaxiWaysPlaceTests
     }
 
     [Fact]
-    public void A_route_end_between_two_towns_serves_both()
+    public void A_route_end_between_two_towns_belongs_to_its_one_nearest_city_only()
     {
         var haldwani = new TripCityInfo { CityKey = 210000010, Name = "Haldwani", Latitude = 29.218, Longitude = 79.513 };
         var kathgodam = new TripCityInfo { CityKey = 210000011, Name = "Kathgodam", Latitude = 29.267, Longitude = 79.533 };
@@ -139,11 +139,13 @@ public class TaxiWaysPlaceTests
         var s = TaxiWaysClustering.Build([row, local], [haldwani, kathgodam], TaxiWaysFixture.Options, "t", DateTime.UtcNow);
         var from = TaxiWaysSearchEngine.Resolve(s, TaxiWaysFixture.Delhi.Lat, TaxiWaysFixture.Delhi.Lng, false, TaxiWaysFixture.Options);
         var toHaldwani = TaxiWaysSearchEngine.Resolve(s, 29.218, 79.513, false, TaxiWaysFixture.Options);
-        var r = TaxiWaysSearchEngine.Search(s, from, toHaldwani, 2, TaxiWaysFixture.Options);
+        var toKathgodam = TaxiWaysSearchEngine.Resolve(s, 29.267, 79.533, false, TaxiWaysFixture.Options);
 
         Assert.Equal(TaxiWaysKeys.PlaceKeyAtlas(210000011), s.Routes[row.RouteId].ToPlace);
+        Assert.Equal(new[] { TaxiWaysKeys.PlaceKeyAtlas(210000011) }, s.Routes[row.RouteId].ToPlaces);
         Assert.Equal(TaxiWaysKeys.PlaceKeyAtlas(210000010), toHaldwani.Key);
-        var driver = Assert.Single(r.AllTheWay);
+        Assert.Empty(TaxiWaysSearchEngine.Search(s, from, toHaldwani, 2, TaxiWaysFixture.Options).AllTheWay);
+        var driver = Assert.Single(TaxiWaysSearchEngine.Search(s, from, toKathgodam, 2, TaxiWaysFixture.Options).AllTheWay);
         Assert.False(driver.Link.Partial);
         Assert.Equal(6500, driver.Link.EstimatedFare);
     }

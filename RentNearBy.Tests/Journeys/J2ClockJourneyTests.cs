@@ -10,7 +10,7 @@ namespace RentNearBy.Tests.Journeys;
 // What is NOT proven here: the SQL that picks the rows each morning, the outbox insert, RabbitMQ and FCM (no database in this environment).
 // The rows handed to the planner on each day follow the owner's rule (mornings of day 1, 2 and 3, final push the morning after the close);
 // the count test below checks that rule against the real clock constants for every minute of the day.
-// Expected values are literals from the owner's decisions (72 h window, 24 h offer, 05:00 IST, 3 pushes, cap 3).
+// Expected values are literals from the owner's decisions (72 h window, 24 h offer, 08:00 IST, 3 pushes, cap 3).
 public class J2ClockJourneyTests
 {
     private static readonly Guid Kavita = Guid.Parse("c0000000-0000-0000-0000-00000000000a");
@@ -26,8 +26,8 @@ public class J2ClockJourneyTests
         At = Ist(Mon, 18),
     };
 
-    // Morning run instant: the real run starts within a minute after 05:00 IST.
-    private static DateTime RunAt(DateOnly day) => Ist(day, 5, 0, 30);
+    // Morning run instant: the real run starts within a minute after 08:00 IST.
+    private static DateTime RunAt(DateOnly day) => Ist(day, 8, 0, 30);
 
     [Fact]
     public void Owner_constants_are_what_the_spec_says()
@@ -35,9 +35,9 @@ public class J2ClockJourneyTests
         Assert.Equal(72, TripExecutionRules.EnquiryHours);
         Assert.Equal(72, TripExecutionRules.ShortlistHours);
         Assert.Equal(24, TripExecutionRules.OfferHours);
-        Assert.Equal(5, TripReminderRules.MorningHourIst);
+        Assert.Equal(8, TripReminderRules.MorningHourIst);
         Assert.Equal(0, TripReminderRules.MorningMinuteIst);
-        Assert.Equal(new DateTime(2026, 11, 15, 23, 30, 0, DateTimeKind.Utc), TripReminderRules.MorningDueUtc(Mon));
+        Assert.Equal(new DateTime(2026, 11, 16, 2, 30, 0, DateTimeKind.Utc), TripReminderRules.MorningDueUtc(Mon));
     }
 
     // Kavita: shortlists Monday 18:00 and never sends. Days 1, 2, 3 = one "waiting" push each, then the clock closes, then one final push.
@@ -56,7 +56,7 @@ public class J2ClockJourneyTests
             pushes.Add((day, plan));
         }
 
-        // Thursday 18:00: the 72 h clock closes the row; Friday 05:00 is the one final push.
+        // Thursday 18:00: the 72 h clock closes the row; Friday 08:00 is the one final push.
         var friday = Mon.AddDays(4);
         var final = Assert.Single(TripReminderPlanner.PlanTravellers(friday, [row], [], [], []));
         Assert.Equal(ReminderCategory.Final, final.Category);
@@ -74,10 +74,11 @@ public class J2ClockJourneyTests
         Assert.Empty(TripReminderPlanner.PlanTravellers(friday.AddDays(1), [], [], [], []));
     }
 
-    // Every possible add time: the shortlist (72 h from adding) sees the 05:00 run on exactly 3 mornings.
-    // A morning counts when added < run time and run time < close time (the SQL conditions AddedAt < runTime and ClosesAt > now).
+    // Every possible add time: the shortlist (72 h from adding) sees the 08:00 run on 2 or 3 mornings.
+    // A morning counts when run time - minimum age > added and run time < close time (the SQL conditions AddedAt < runTime - 3 h and ClosesAt > now).
+    // 3 mornings for most adds; an add from 05:01 to 08:00 is under 3 h old at the run and skips that morning, so it gets 2 and the final push comes on day 3.
     [Fact]
-    public void Shortlist_sees_exactly_three_mornings_for_every_add_minute_of_the_day()
+    public void Shortlist_sees_three_mornings_or_two_when_added_just_before_the_run()
     {
         var edges = new List<string>();
         for (var minute = 0; minute < 24 * 60; minute++)
@@ -88,24 +89,24 @@ public class J2ClockJourneyTests
             for (var d = -1; d <= 5; d++)
             {
                 var run = TripReminderRules.MorningDueUtc(Mon.AddDays(d)).AddSeconds(30);
-                if (added < run && run < closes) count++;
+                if (added < run.AddHours(-TripReminderRules.TravellerMinAgeHours) && run < closes) count++;
             }
-            if (count != 3) edges.Add($"{added:HH:mm} IST count {count}");
+            var young = minute is >= 5 * 60 + 1 and <= 8 * 60; // the run starts 30 s after 08:00
+            if (count != (young ? 2 : 3)) edges.Add($"{added:HH:mm} IST count {count}");
         }
-        // Measured: 3 for all 1440 add minutes (a run starts about 30 s after 05:00 IST, so an add at 05:00:00 still gets the same-day run).
         Assert.Empty(edges);
     }
 
-    // A shortlist added at 04:59 IST is nudged at 05:00 the same morning (the traveller side has no minimum age); pinned as the current behaviour.
+    // C-G6: an add at 07:59 is not nudged at 08:00 the same morning; the first reminder is the next 08:00 and the cap still holds.
     [Fact]
-    public void Item_added_at_04_59_is_nudged_the_same_morning_and_the_cap_still_holds()
+    public void Item_added_at_07_59_first_gets_the_next_morning_and_the_cap_still_holds()
     {
-        var added = Ist(Mon, 4, 59);
-        var run = RunAt(Mon);
-        Assert.True(added < run);
-        var mornings = Enumerable.Range(0, 5).Select(d => RunAt(Mon.AddDays(d))).Where(r => added < r && r < added.AddHours(72)).ToList();
-        Assert.Equal(3, mornings.Count);
-        Assert.Equal(Mon, DateOnly.FromDateTime(mornings[0] + IstTime.Offset));
+        var added = Ist(Mon, 7, 59);
+        Assert.Equal(Ist(Mon.AddDays(1), 8), TripReminderRules.FirstTravellerMorningUtc(added));
+        var mornings = Enumerable.Range(0, 5).Select(d => RunAt(Mon.AddDays(d)))
+            .Where(r => added < r.AddHours(-TripReminderRules.TravellerMinAgeHours) && r < added.AddHours(72)).ToList();
+        Assert.Equal(2, mornings.Count);
+        Assert.Equal(Mon.AddDays(1), DateOnly.FromDateTime(mornings[0] + IstTime.Offset));
     }
 
     // Vikram sends an enquiry Tuesday 10:00 and nobody answers: traveller "No reply yet" on Wed, Thu, Fri; host "waiting" on the same mornings; Saturday final.
@@ -189,13 +190,13 @@ public class J2ClockJourneyTests
         Assert.Equal(ReminderCategory.Final, Assert.Single(plans).Category);
     }
 
-    // Server down at 05:00: catch-up until 12:00 IST, never in the afternoon; a missed day is flagged from 12:00.
+    // Server down at 08:00: catch-up until 12:00 IST, never in the afternoon; a missed day is flagged from 12:00.
     [Fact]
     public void Restart_catch_up_window_and_missed_day()
     {
         var day = Mon.AddDays(1);
-        Assert.False(TripReminderRules.ShouldRunMorning(Ist(day, 4, 59, 59), false));
-        Assert.True(TripReminderRules.ShouldRunMorning(Ist(day, 5), false));
+        Assert.False(TripReminderRules.ShouldRunMorning(Ist(day, 7, 59, 59), false));
+        Assert.True(TripReminderRules.ShouldRunMorning(Ist(day, 8), false));
         Assert.True(TripReminderRules.ShouldRunMorning(Ist(day, 11, 59, 59), false));
         Assert.False(TripReminderRules.ShouldRunMorning(Ist(day, 12), false));
         Assert.False(TripReminderRules.ShouldRunMorning(Ist(day, 7), true));

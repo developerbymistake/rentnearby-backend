@@ -25,7 +25,6 @@ public class TaxiWaysSearch(
 {
     internal sealed class DestBlock
     {
-        public Guid? DistrictId { get; set; }
         public List<TaxiBrowseDto> LocalTaxis { get; set; } = new();
         public List<StayNearbyDto> Stays { get; set; } = new();
     }
@@ -44,14 +43,15 @@ public class TaxiWaysSearch(
         var memoryTtl = TimeSpan.FromSeconds(o.MemoryCacheSeconds);
 
         var (core, source) = await TaxiWaysPlanCache.GetAsync(
-            memory, redis, TaxiWaysKeys.Plan(snapshot.Version, from.Key, to.Key, people),
+            memory, redis, TaxiWaysKeys.Plan(snapshot.CityGrid.Count == 0 ? snapshot.Version + "~nc" : snapshot.Version, from.Ref, to.Ref, people),
             TimeSpan.FromMinutes(o.PlanCacheMinutes), memoryTtl,
             () => ComputeCoreAsync(snapshot, from, to, people, o), logger, ct);
 
+        var citiesUnavailable = snapshot.CityGrid.Count == 0;
         var (dest, _) = await TaxiWaysPlanCache.GetAsync(
             memory, redis, TaxiWaysKeys.Dest(snapshot.Version, to.Key),
             TimeSpan.FromMinutes(o.DestCacheMinutes), memoryTtl,
-            () => ComputeDestAsync(to, o), logger, ct);
+            () => ComputeDestAsync(snapshot, to, o), logger, ct);
 
         if (core == null) return null;
 
@@ -60,8 +60,8 @@ public class TaxiWaysSearch(
         var result = new TaxiWaysResultDto
         {
             Version = core.Version,
-            From = new WayPlaceDto { Key = from.Key, Name = fromName, Lat = from.Lat, Lng = from.Lng, Resolved = from.Resolved },
-            To = new WayPlaceDto { Key = to.Key, Name = toName, Lat = to.Lat, Lng = to.Lng, Resolved = to.Resolved, DistrictId = dest?.DistrictId },
+            From = new WayPlaceDto { Key = from.Ref, Name = fromName, Lat = from.Lat, Lng = from.Lng, Resolved = from.Resolved },
+            To = new WayPlaceDto { Key = to.Ref, Name = toName, Lat = to.Lat, Lng = to.Lng, Resolved = to.Resolved },
             BestWay = core.BestWay,
             AllTheWay = core.AllTheWay,
             AllTheWayHasMore = core.AllTheWayHasMore,
@@ -71,6 +71,7 @@ public class TaxiWaysSearch(
             Stays = dest?.Stays ?? new(),
             ReachFirstPlace = core.ReachFirstPlace,
             RoadLines = core.RoadLines,
+            CitiesUnavailable = citiesUnavailable,
         };
 
         logger.LogInformation("taxi.ways.search {FromKey} {ToKey} {Cars} {Plans} {Ms} {Cache}",
@@ -124,9 +125,7 @@ public class TaxiWaysSearch(
         if (a == null || b == null) return null;
 
         var people = Math.Clamp(q.People, 1, o.MaxPeople);
-        var area = q.Area ?? q.ExcludeRoute == null;
-        var endArea = q.EndArea ?? (area || !b.Resolved);
-        var all = TaxiWaysSearchEngine.Candidates(snapshot, a, b, people, o, basedHereFirst: area, excludeRoute: q.ExcludeRoute, area: area, endArea: endArea);
+        var all = TaxiWaysSearchEngine.Candidates(snapshot, a, b, people, o, basedHereFirst: q.ExcludeRoute == null, excludeRoute: q.ExcludeRoute);
         if (all.Count == 0) return null;
 
         IEnumerable<TaxiWaysCandidate> filtered = all;
@@ -150,8 +149,7 @@ public class TaxiWaysSearch(
     }
 
     public async Task<Dictionary<Guid, LegTaxiFare>> LegFaresAsync(
-        string legKey, IReadOnlyCollection<Guid> taxiIds, Guid? excludeRoute = null, CancellationToken ct = default,
-        bool? area = null, bool? endArea = null)
+        string legKey, IReadOnlyCollection<Guid> taxiIds, Guid? excludeRoute = null, CancellationToken ct = default)
     {
         var fares = new Dictionary<Guid, LegTaxiFare>();
         if (taxiIds.Count == 0 || !TaxiWaysKeys.TryParseLegKey(legKey, out var fromKey, out var toKey)) return fares;
@@ -172,9 +170,7 @@ public class TaxiWaysSearch(
         if (a == null || b == null) return fares;
 
         var wanted = taxiIds.ToHashSet();
-        var isFirst = area ?? excludeRoute == null;
-        var reachesEnd = endArea ?? (isFirst || !b.Resolved);
-        foreach (var c in TaxiWaysSearchEngine.Candidates(snapshot, a, b, 1, o, basedHereFirst: isFirst, excludeRoute: excludeRoute, area: isFirst, endArea: reachesEnd))
+        foreach (var c in TaxiWaysSearchEngine.Candidates(snapshot, a, b, 1, o, basedHereFirst: excludeRoute == null, excludeRoute: excludeRoute))
             if (wanted.Contains(c.Driver.TaxiId))
                 fares[c.Driver.TaxiId] = new LegTaxiFare(c.Driver.TaxiId, c.Link.RouteId, c.Driver.Seats, c.Link.EstimatedFare, c.Link.Partial);
         return fares;
@@ -227,57 +223,33 @@ public class TaxiWaysSearch(
         return dto;
     }
 
-    private async Task<DestBlock?> ComputeDestAsync(TaxiWaysAnchor to, TaxiWaysOptions o)
+    // The destination's local taxis and stays follow the same single-city rule as the routes: each belongs to the single nearest
+    // Atlas city of its OWN coordinates and is shown only when that city is the destination's. Fetch = paged boxes of CityResolveMeters
+    // around the destination (any district, up to CityListings.MaxCityFetch), cut by the city rule page by page; a taxi/stay
+    // without coordinates is never connected.
+    private async Task<DestBlock?> ComputeDestAsync(TaxiWaysNetworkSnapshot snapshot, TaxiWaysAnchor to, TaxiWaysOptions o)
     {
+        // No city list (Atlas never answered): nothing is connected and nothing is cached, so the next search retries.
+        if (snapshot.CityGrid.Count == 0) return null;
         using var scope = scopeFactory.CreateScope();
-        var districtId = await DistrictOfAsync(scope.ServiceProvider, to.Lat, to.Lng, o);
-        var block = new DestBlock { DistrictId = districtId };
-        if (districtId == null) return block;
+        var block = new DestBlock();
+        var cityKey = to.Place?.CityKey;
+        if (cityKey == null) return block;
 
         var uow = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-        var (taxis, _) = await uow.Taxis.BrowseLocalPagedAsync(districtId.Value, null, null, 1, o.MaxLocalTaxis, cityOnly: false, localRateOnly: true);
-        block.LocalTaxis = taxis.ToList();
-        var stays = await uow.Stays.GetNearbyAsync(to.Lat, to.Lng, o.BasedHereMeters / 1000, districtId.Value, null);
-        block.Stays = stays.Take(o.MaxStays).ToList();
+        var radiusKm = o.CityResolveMeters / 1000;
+        var taxis = await CityListings.CollectAsync<(TaxiBrowseDto Item, double Lat, double Lng)>(
+            async (take, skip) => await uow.Taxis.BrowseLocalNearAsync(to.Lat, to.Lng, radiusKm, localRateOnly: true, take, skip),
+            rows => Task.FromResult<IReadOnlyList<(TaxiBrowseDto Item, double Lat, double Lng)>>(
+                TaxiWaysSearchEngine.InCity(snapshot, rows, x => (x.Lat, x.Lng), cityKey, o)));
+        block.LocalTaxis = taxis.Items.Select(x => x.Item).Take(o.MaxLocalTaxis).ToList();
+        var stays = await CityListings.CollectAsync<StayNearbyDto>(
+            async (take, skip) => (await uow.Stays.GetNearbyAsync(to.Lat, to.Lng, radiusKm, null, null, take, skip)).ToList(),
+            rows => Task.FromResult<IReadOnlyList<StayNearbyDto>>(
+                TaxiWaysSearchEngine.InCity(snapshot, rows, st => ((double)st.Latitude, (double)st.Longitude), cityKey, o)));
+        block.Stays = stays.Items.Take(o.MaxStays).ToList();
+        if (taxis.Capped || stays.Capped) logger.LogWarning("taxi.ways.dest.capped {CityKey} {Max}", cityKey, CityListings.MaxCityFetch);
         return block;
-    }
-
-    private const string NoDistrict = "none";
-
-    private async Task<Guid?> DistrictOfAsync(IServiceProvider scoped, double lat, double lng, TaxiWaysOptions o)
-    {
-        var key = TaxiWaysKeys.District(lat, lng);
-        if (memory.TryGetValue(key, out string? known) && known != null)
-            return Guid.TryParse(known, out var g) ? g : null;
-
-        var redis = sp.GetService<IConnectionMultiplexer>();
-        if (redis != null)
-        {
-            try
-            {
-                var value = await redis.GetDatabase().StringGetAsync(key);
-                if (value.HasValue)
-                {
-                    memory.Set(key, value.ToString(), TimeSpan.FromHours(1));
-                    return Guid.TryParse(value.ToString(), out var g) ? g : null;
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning("taxi.ways.district read failed: {Error}", ex.Message);
-            }
-        }
-
-        var (districtId, _) = await scoped.GetRequiredService<ITaxiWaysNetworkSource>().FindDistrictAsync(lat, lng);
-        var text = districtId?.ToString() ?? NoDistrict;
-        memory.Set(key, text, TimeSpan.FromHours(1));
-        if (redis != null)
-        {
-            try { await redis.GetDatabase().StringSetAsync(key, text, TimeSpan.FromDays(o.DistrictCacheDays)); }
-            catch (Exception ex) { logger.LogWarning("taxi.ways.district write failed: {Error}", ex.Message); }
-        }
-        if (districtId == null) logger.LogInformation("taxi.ways.district none {Lat} {Lng}", lat, lng);
-        return districtId;
     }
 }
 
@@ -360,6 +332,9 @@ internal static class TaxiWaysMapper
             Partial = leg.Partial,
             DistanceKm = topDto.DistanceKm,
             Passes = via.Select(k => snapshot.Places.GetValueOrDefault(k)?.Name).OfType<string>().ToList(),
+            PassStops = via.Where(k => k != leg.From.Key && k != leg.To.Key && snapshot.Places.ContainsKey(k))
+                .Select(k => snapshot.Places[k])
+                .Select(p => new WayPassStopDto { Key = p.Key, Name = p.Name, Lat = p.Lat, Lng = p.Lng }).ToList(),
             TopDrivers = leg.Drivers.Take(topDrivers).Select(c => Driver(snapshot, c)).ToList(),
             DriverCount = leg.Drivers.Count,
             HasRoadLine = topDto.HasRoadLine,

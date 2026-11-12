@@ -90,14 +90,4 @@ public class TaxiWaysNetworkRepository(ApplicationDbContext context) : ITaxiWays
             Minutes = r.Minutes,
         }).ToList();
     }
-
-    public async Task<(Guid? DistrictId, string? StateName)> FindDistrictAsync(double lat, double lng, CancellationToken ct = default)
-    {
-        var point = new Point(lng, lat) { SRID = 4326 };
-        var hit = await context.Districts.AsNoTracking()
-            .Where(d => d.IsActive && d.Boundary != null && d.Boundary.Contains(point))
-            .Select(d => new { d.Id, d.StateName })
-            .FirstOrDefaultAsync(ct);
-        return hit == null ? (null, null) : (hit.Id, hit.StateName);
-    }
 }

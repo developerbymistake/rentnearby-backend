@@ -156,6 +156,49 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
         return (items, hasMore);
     }
 
+    public async Task<IReadOnlyList<(TaxiBrowseDto Item, double Lat, double Lng)>> BrowseLocalNearAsync(
+        double lat, double lng, double radiusKm, bool localRateOnly, int take, int skip = 0)
+    {
+        const double R = 6371.0;
+        var dLat = (decimal)(radiusKm / R * (180.0 / Math.PI));
+        var dLng = (decimal)(radiusKm / (R * Math.Cos(lat * Math.PI / 180.0)) * (180.0 / Math.PI));
+        var minLat = (decimal)lat - dLat; var maxLat = (decimal)lat + dLat;
+        var minLng = (decimal)lng - dLng; var maxLng = (decimal)lng + dLng;
+
+        var query = _dbSet
+            .AsNoTracking()
+            .Where(t => t.Status == TaxiStatuses.Approved && t.IsAvailable && !t.IsDeleted
+                && t.Latitude != null && t.Longitude != null
+                && t.Latitude >= minLat && t.Latitude <= maxLat && t.Longitude >= minLng && t.Longitude <= maxLng);
+        if (localRateOnly) query = query.Where(t => t.LocalDayRate != null);
+
+        var ordered = query.OrderByDescending(t => t.PriorityRank);
+        var rows = await (localRateOnly ? ordered.ThenBy(t => t.LocalDayRate) : ordered.ThenBy(t => t.MinFare))
+            .ThenBy(t => t.Id)
+            .Skip(skip)
+            .Take(take)
+            .Select(t => new
+            {
+                Row = new LocalRow(
+                    t.Id, t.User.Name, t.VehicleType != null ? t.VehicleType.Name : null, t.VehicleType != null ? t.VehicleType.Category : null,
+                    t.Seats, t.NumberPlate, t.CityId, t.City != null ? t.City.Name : null, t.District != null ? t.District.Name : null,
+                    t.MinFare, t.Routes.Count, t.CreatedAt, t.PriorityRank, t.IsFeatured, t.LocalDayRate, t.LocalDayKm,
+                    t.TripLeadsReceived, t.TripLeadsAnsweredInApp),
+                Lat = t.Latitude!.Value,
+                Lng = t.Longitude!.Value,
+            })
+            .ToListAsync();
+
+        return rows.Select(x => (new TaxiBrowseDto
+        {
+            Id = x.Row.Id, DriverName = x.Row.DriverName, VehicleTypeName = x.Row.VehicleTypeName, VehicleCategory = x.Row.VehicleCategory,
+            Seats = x.Row.Seats, PlateDisplay = TaxiPlate.Format(x.Row.NumberPlate), CityId = x.Row.CityId, CityName = x.Row.CityName,
+            DistrictName = x.Row.DistrictName, MinFare = x.Row.MinFare, LocalDayRate = x.Row.LocalDayRate, LocalDayKm = x.Row.LocalDayKm,
+            TripReplyLabel = TaxiTripReplyLabels.Of(x.Row.TripLeadsReceived, x.Row.TripLeadsAnsweredInApp),
+            RouteCount = x.Row.RouteCount, PriorityRank = x.Row.PriorityRank, IsFeatured = x.Row.IsFeatured, CreatedAt = x.Row.CreatedAt,
+        }, (double)x.Lat, (double)x.Lng)).ToList();
+    }
+
     private async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalForNeedAsync(
         IQueryable<TaxiListing> query, Guid? cityId, int page, int pageSize, bool localRateOnly, TaxiLocalNeed need)
     {

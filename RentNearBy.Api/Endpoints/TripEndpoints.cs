@@ -7,6 +7,7 @@ public static class TripEndpoints
     public static RouteGroupBuilder MapTripEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/cities", TripHandlers.GetCities).RequireAuthorization();
+        group.MapGet("/cities/nearest", TripHandlers.GetNearestCity).RequireAuthorization();
         group.MapGet("/cities/version", TripHandlers.GetCitiesVersion).RequireAuthorization();
         group.MapGet("/cities/{cityKey:long}/spots", TripHandlers.GetCitySpots).RequireAuthorization();
         group.MapPost("/cities/{cityKey:long}/spots/minutes", TripHandlers.GetSpotMinutes).RequireAuthorization();

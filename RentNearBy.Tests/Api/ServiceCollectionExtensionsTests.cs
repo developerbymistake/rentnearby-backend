@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using RentNearBy.Api.Extensions;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.Retention;
 using AppServiceRegistration = RentNearBy.Api.Extensions.ServiceCollectionExtensions;
 
 namespace RentNearBy.Tests.Api;
@@ -24,7 +25,7 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Theory]
-    [InlineData(typeof(NotificationRetentionService))]
+    [InlineData(typeof(RetentionRunner))]
     [InlineData(typeof(DeletedAccountRecordPurgeService))]
     [InlineData(typeof(TripTimerService))]
     [InlineData(typeof(JourneyWatchService))]

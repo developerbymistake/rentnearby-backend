@@ -145,11 +145,11 @@ public sealed class TripReminderRunner(ILogger logger)
     private const string OwnerChatted = """EXISTS (SELECT 1 FROM "Messages" m WHERE m."ConversationId" = e."ConversationId" AND m."SenderId" = e."OwnerUserId" AND m."Type" <> 'system' AND m."CreatedAt" > e."CreatedAt")""";
     private static readonly string FinalWindow = "interval '" + TripReminderRules.FinalWindowDays + " days'";
     private static readonly string ShortlistFinal = """s."State" = 'Closed' AND s."ClosedReason" = 'NoReply' AND s."FinalPushedAt" IS NULL AND s."ClosedAt" >= {1} - """ + FinalWindow + " AND " + ShortlistSettled + " AND " + ShortlistOpen + " AND (" + ShortlistListingLive + ")";
-    private static readonly string ShortlistActive = """s."State" = 'Active' AND s."ClosesAt" > {1} AND s."AddedAt" < {2} AND (s."RemindedOn" IS NULL OR s."RemindedOn" < {0}) AND """ + ShortlistSettled + " AND " + ShortlistOpen + " AND (" + ShortlistListingLive + ")";
+    private static readonly string ShortlistActive = """s."State" = 'Active' AND s."ClosesAt" > {1} AND s."AddedAt" < {2} - interval '""" + TripReminderRules.TravellerMinAgeHours + """ hours' AND (s."RemindedOn" IS NULL OR s."RemindedOn" < {0}) AND """ + ShortlistSettled + " AND " + ShortlistOpen + " AND (" + ShortlistListingLive + ")";
     // Only an enquiry that ran out its full clock: one cut short by the check-in day expires earlier than CreatedAt + EnquiryHours.
     // A row without a StepKey is included (generic line that opens the trip plan); ix_tripenquiries_final stays StepKey-bound, so those rows are not served by it.
     private static readonly string EnquiryFinal = """e."Status" = 'Expired' AND e."FinalPushedAt" IS NULL AND e."UpdatedAt" >= {1} - """ + FinalWindow + """ AND e."ExpiresAt" >= e."CreatedAt" + interval '""" + TripExecutionRules.EnquiryHours + """ hours' AND """ + EnquirySettled;
-    private static readonly string EnquiryOut = """e."Status" = 'Asked' AND e."ExpiresAt" > {1} AND e."CreatedAt" < {2} AND """ + NoLapsedOffer;
+    private static readonly string EnquiryOut = """e."Status" = 'Asked' AND e."ExpiresAt" > {1} AND e."CreatedAt" < {2} - interval '""" + TripReminderRules.TravellerMinAgeHours + """ hours' AND """ + NoLapsedOffer;
     private static readonly string EnquiryHostWaiting = """e."Status" IN ('Asked', 'Countered') AND e."ExpiresAt" > {1} AND e."CreatedAt" < {2} - interval '""" + TripReminderRules.HostMinAgeHours + """ hours' AND (e."RemindedOn" IS NULL OR e."RemindedOn" < {0}) AND """
         + NoLapsedOffer + " AND NOT " + OwnerChatted + " AND " + EnquirySettled;
 
@@ -214,6 +214,7 @@ public sealed class TripReminderRunner(ILogger logger)
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var inserted = await InsertOutboxAsync(db, tx, plans, json, now, ct);
         var claimed = plans.Where(p => inserted.Contains(p.Push.Key)).ToList();
+        await TripReminderInbox.InsertAsync((NpgsqlConnection)db.Database.GetDbConnection(), (NpgsqlTransaction)tx.GetDbTransaction(), TripReminderInbox.ForHosts(claimed, now), ct);
 
         var finalShortlist = Ids(claimed, ReminderCategory.Final, p => p.ShortlistIds);
         var finalEnquiries = Ids(claimed, ReminderCategory.Final, p => p.EnquiryIds);

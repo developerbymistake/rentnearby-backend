@@ -20,7 +20,7 @@ public class TripReminderIntegrationTests(TestDatabase db) : IntegrationTestBase
 
     public ValueTask DisposeAsync() => _harness.DisposeAsync();
 
-    // 07:00 IST on the run day: after the 05:00 morning time.
+    // 10:00 IST on the run day: after the 08:00 morning time.
     private static readonly DateTime RunAt = TripReminderRules.MorningDueUtc(IstTime.TodayIst(DateTime.UtcNow)).AddHours(2);
     private static readonly DateOnly Today = IstTime.TodayIst(RunAt);
 
@@ -107,6 +107,22 @@ public class TripReminderIntegrationTests(TestDatabase db) : IntegrationTestBase
             user = await UserAsync(ctx, "Asha");
             var trip = await TripAsync(ctx, user);
             ctx.TripShortlistItems.Add(Item(trip, user, addedAt: RunAt.AddMinutes(-10)));
+            await ctx.SaveChangesAsync();
+        }
+        await RunAsync();
+        Assert.Empty(await OutboxKeysAsync(user));
+    }
+
+    // C-G6: an add 2 h before the 08:00 run is under the traveller minimum age, so the first reminder is the next morning.
+    [IntegrationFact]
+    public async Task Shortlist_added_two_hours_before_the_run_is_not_nudged_that_morning()
+    {
+        Guid user;
+        await using (var ctx = CreateContext())
+        {
+            user = await UserAsync(ctx, "Asha");
+            var trip = await TripAsync(ctx, user);
+            ctx.TripShortlistItems.Add(Item(trip, user, addedAt: TripReminderRules.MorningDueUtc(Today).AddHours(-2)));
             await ctx.SaveChangesAsync();
         }
         await RunAsync();

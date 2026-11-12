@@ -88,6 +88,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(s => s.AdminId);
             e.HasIndex(s => s.ExpiresAt);
+            e.HasIndex(s => s.LoggedOutAt, "ix_adminsessions_loggedout").HasFilter("\"IsActive\" = false");
         });
 
         modelBuilder.Entity<User>(e =>
@@ -169,6 +170,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(s => s.IsActive).HasDefaultValue(true);
             e.HasIndex(s => s.UserId);
             e.HasIndex(s => s.ExpiresAt);
+            e.HasIndex(s => s.LoggedOutAt, "ix_sessions_loggedout").HasFilter("\"IsActive\" = false");
             e.HasOne(s => s.User)
              .WithMany()
              .HasForeignKey(s => s.UserId)
@@ -314,6 +316,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(c => new { c.RenterId, c.OwnerId, c.ListingType, c.ListingId })
              .IsUnique()
              .HasDatabaseName("ix_conversations_renter_owner_listing");
+            // Retention (chat) walks the oldest threads.
+            e.HasIndex(c => c.LastMessageAt, "ix_conversations_last_message");
         });
 
         modelBuilder.Entity<Message>(e =>
@@ -996,6 +1000,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(j => new { j.Status, j.CreatedAt })
              .IsDescending(false, true)
              .HasDatabaseName("ix_stayjobs_status_created");
+            e.HasIndex(j => j.ClosedAt, "ix_stayjobs_closed").HasFilter("\"Status\" = 'Closed'");
 
             e.ToTable(t =>
             {
@@ -1188,6 +1193,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(d => d.UserId);
             e.HasIndex(d => new { d.UserId, d.IsValid });
+            e.HasIndex(d => d.UpdatedAt, "ix_devicetokens_updated");
             e.HasIndex(d => d.Token);
         });
 
@@ -1203,6 +1209,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(d => d.AdminId);
             e.HasIndex(d => new { d.AdminId, d.IsValid });
+            e.HasIndex(d => d.UpdatedAt, "ix_admindevicetokens_updated");
             e.HasIndex(d => d.Token);
             e.HasIndex(d => d.IsValid);
         });
@@ -1218,6 +1225,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(n => n.UserId);
             e.HasIndex(n => new { n.UserId, n.Type, n.SentAt });
+            e.HasIndex(n => n.SentAt, "ix_notificationlogs_sent");
         });
 
         modelBuilder.Entity<DistrictBanner>(e =>
@@ -1354,6 +1362,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(x => new { x.TravellerUserId, x.Kind, x.ListingId }, "ix_tripenquiries_traveller_listing")
              .HasFilter(open);
             e.HasIndex(x => x.UpdatedAt, "ix_tripenquiries_orphan").HasFilter("\"TripId\" IS NULL");
+            e.HasIndex(x => x.UpdatedAt, "ix_tripenquiries_closed_updated").HasFilter(RetentionSql.ClosedEnquiry);
             // Timer predicates (TripTimerService passes 2, 3, 8), each matched exactly by a partial index.
             e.HasIndex(x => x.CheckIn, "ix_tripenquiries_urgent")
              .HasFilter("NOT \"IsUrgent\" AND \"CheckIn\" IS NOT NULL AND " + open);
@@ -1396,6 +1405,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(x => new { x.TripId, x.StepKey, x.ListingId }, "ux_shortlist_active_listing")
              .IsUnique()
              .HasFilter("\"State\" = 'Active'");
+            e.HasIndex(x => x.ClosedAt, "ix_shortlist_closed_at").HasFilter("\"State\" IN ('Closed','Booked')");
             e.HasIndex(x => x.TravellerUserId, "ix_shortlist_active_user")
              .IncludeProperties(x => new { x.RemindedOn, x.ClosesAt, x.TripId })
              .HasFilter("\"State\" = 'Active'");
@@ -1458,6 +1468,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(x => new { x.TripEnquiryId, x.CreatedAt }, "ix_tripoffers_enquiry")
              .IsDescending(false, true);
             e.HasIndex(x => x.ValidUntil, "ix_tripoffers_valid").HasFilter("\"Status\" = 'Pending'");
+            e.HasIndex(x => x.CreatedAt, "ix_tripoffers_closed").HasFilter("\"Status\" IN ('Expired','Declined','Superseded')");
         });
 
         // Configured after both entities exist: an enquiry points at its accepted offer.
@@ -1492,6 +1503,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(x => x.Kind).HasMaxLength(24).IsRequired();
             e.Property(x => x.Note).HasMaxLength(300);
             e.HasIndex(x => x.TripId, "ix_tripproblemlogs_trip");
+            e.HasIndex(x => x.TripEnquiryId, "ix_tripproblemlogs_enquiry").HasFilter("\"TripEnquiryId\" IS NOT NULL");
             e.HasOne<Trip>()
              .WithMany()
              .HasForeignKey(x => x.TripId)
@@ -1501,6 +1513,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         modelBuilder.Entity<BannerDismissal>(e =>
         {
             e.HasKey(d => new { d.UserId, d.BannerId });
+            e.HasIndex(d => d.DismissedAt);
             e.Property(d => d.DismissedAt).HasDefaultValueSql("now()");
             e.HasOne(d => d.Banner)
              .WithMany(b => b.Dismissals)
@@ -1529,7 +1542,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .OnDelete(DeleteBehavior.Cascade);
 
             e.HasIndex(n => new { n.TargetUserId, n.CreatedAt, n.Id }).IsDescending(false, true, true);
-            // Retention purge (NotificationRetentionService) walks the oldest rows.
+            // Retention (RetentionRunner) walks the oldest rows.
             e.HasIndex(n => n.CreatedAt, "ix_notificationevents_created");
         });
 

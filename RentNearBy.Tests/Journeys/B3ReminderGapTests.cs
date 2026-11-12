@@ -26,7 +26,7 @@ public class B3ReminderGapTests
 
     private static readonly Guid U = Guid.Parse("00000000-0000-0000-0000-0000000000a1");
 
-    // Real life: the host answered in chat at 9 pm; the 5 am push to the traveller must not say "No reply yet".
+    // Real life: the host answered in chat at 9 pm; the 8 am push to the traveller must not say "No reply yet".
     [Fact]
     public void Host_who_chatted_is_not_told_as_no_reply()
     {
@@ -80,11 +80,24 @@ public class B3ReminderGapTests
     }
 
     [Fact]
-    public void Host_minimum_age_is_twelve_hours_and_traveller_side_has_none()
+    public void Host_minimum_age_is_twelve_hours_and_traveller_minimum_age_is_three()
     {
         Assert.Equal(12, TripReminderRules.HostMinAgeHours);
+        Assert.Equal(3, TripReminderRules.TravellerMinAgeHours);
         Assert.Contains($"{{2}} - interval '{TripReminderRules.HostMinAgeHours} hours'", Sql("EnquiryHostWaiting"));
         Assert.DoesNotContain("interval '12 hours'", Sql("EnquiryOut"));
+        Assert.Contains($"\"CreatedAt\" < {{2}} - interval '{TripReminderRules.TravellerMinAgeHours} hours'", Sql("EnquiryOut"));
+        Assert.Contains($"\"AddedAt\" < {{2}} - interval '{TripReminderRules.TravellerMinAgeHours} hours'", Sql("ShortlistActive"));
+    }
+
+    // Mute silences the traveller only: the host queries never read Trips.MutedAt.
+    [Fact]
+    public void Mute_does_not_stop_host_reminders()
+    {
+        Assert.DoesNotContain("MutedAt", Sql("HostTripOk"));
+        Assert.DoesNotContain("MutedAt", Sql("HostFrom"));
+        Assert.DoesNotContain("MutedAt", Sql("EnquiryHostWaiting"));
+        Assert.Contains("\"MutedAt\" IS NULL", Sql("TripOk"));
     }
 
     [Fact]
@@ -139,7 +152,7 @@ public class B3ReminderGapTests
         Assert.Contains($"interval '{TripExecutionRules.EnquiryHours} hours'", sql);
     }
 
-    // Real life: the 05:00 run never finished (crash, lock held by a dead instance). At noon ops must hear about it.
+    // Real life: the 08:00 run never finished (crash, lock held by a dead instance). At noon ops must hear about it.
     [Theory]
     [InlineData(5, 29, false)]   // 10:59 IST, still catching up
     [InlineData(6, 30, true)]    // 12:00 IST
@@ -156,10 +169,10 @@ public class B3ReminderGapTests
         => Assert.Equal(30, TripReminderRules.SentShortlistRetentionDays);
 
     [Fact]
-    public void Timer_purge_and_daily_stamp_statements_exist()
+    public void Daily_stamp_statement_exists_and_purge_is_gone()
     {
         var timer = typeof(TripTimerService);
         Assert.NotNull(timer.GetMethod("DailyFinalStampPassAsync", BindingFlags.NonPublic | BindingFlags.Static));
-        Assert.NotNull(timer.GetMethod("PurgePassAsync", BindingFlags.NonPublic | BindingFlags.Static));
+        Assert.Null(timer.GetMethod("PurgePassAsync", BindingFlags.NonPublic | BindingFlags.Static));
     }
 }

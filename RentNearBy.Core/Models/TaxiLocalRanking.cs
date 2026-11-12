@@ -1,3 +1,5 @@
+using RentNearBy.Core.DTOs.Responses;
+
 namespace RentNearBy.Core.Models;
 
 // What a trip day asks of a local taxi: the group, the day's road km and where the day starts. 0 / null = not asked.
@@ -83,5 +85,43 @@ public static class TaxiLocalRanking
     {
         if (a is { } x && b is { } y) return x.CompareTo(y);
         return a.HasValue ? -1 : b.HasValue ? 1 : 0;
+    }
+}
+
+// A taxi card with its own base pin, for the city rule.
+public sealed record TaxiAt(TaxiBrowseDto Item, double Lat, double Lng);
+
+// One city's taxis (already cut by the single-city rule): category filter, then the plain order or the need ranking, then the page.
+// The pin only ranks (pickup km), it never cuts: a need without a radius has no pickup limit.
+public static class TaxiCityList
+{
+    public static (List<TaxiBrowseDto> Items, bool HasMore) Page(
+        IReadOnlyList<TaxiAt> all, string? category, TaxiLocalNeed? need, int page, int pageSize)
+    {
+        var rows = category == null ? all.ToList() : all.Where(t => t.Item.VehicleCategory == category).ToList();
+        List<TaxiAt> ordered;
+        Dictionary<Guid, TaxiLocalFit>? fits = null;
+        if (need is { IsEmpty: false })
+        {
+            var ranked = TaxiLocalRanking.Rank(
+                rows.Select(t => new TaxiLocalCandidate(t.Item.Id, t.Item.Seats, t.Item.LocalDayRate, t.Item.LocalDayKm, t.Item.PriorityRank, true, t.Lat, t.Lng)),
+                need);
+            var byId = rows.ToDictionary(t => t.Item.Id);
+            ordered = ranked.Select(r => byId[r.Taxi.Id]).ToList();
+            fits = ranked.ToDictionary(r => r.Taxi.Id, r => r.Fit);
+        }
+        else ordered = rows;
+
+        var skip = (Math.Max(page, 1) - 1) * pageSize;
+        var items = ordered.Skip(skip).Take(pageSize).Select(t =>
+        {
+            if (fits != null && fits.TryGetValue(t.Item.Id, out var f))
+            {
+                t.Item.TripSeatsFit = f.SeatsFit; t.Item.TripCars = f.Cars; t.Item.TripDayCost = f.DayCost;
+                t.Item.TripExtraKm = f.ExtraKm; t.Item.TripPickupKm = f.PickupKm;
+            }
+            return t.Item;
+        }).ToList();
+        return (items, ordered.Count > skip + items.Count);
     }
 }

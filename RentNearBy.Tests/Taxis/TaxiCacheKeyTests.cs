@@ -26,4 +26,13 @@ public class TaxiCacheKeyTests
         => Assert.Equal(
             $"taxis:local:{District:N}:{City:N}:Sedan:10",
             TaxiCache.LocalKey(District, City, "Sedan", 10));
+
+    [Fact]
+    public void City_key_never_holds_a_district_or_a_coordinate()
+    {
+        var key = TaxiCache.CityKey(210000002, true);
+
+        Assert.DoesNotContain(District.ToString("N"), key);
+        Assert.Equal("taxis:city:210000002:rate", key);
+    }
 }

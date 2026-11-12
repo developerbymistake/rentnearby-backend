@@ -18,9 +18,11 @@ public class TaxiWaysNetwork(
 {
     private readonly object _gate = new();
     private volatile TaxiWaysNetworkSnapshot? _current;
+    private volatile IReadOnlyList<TripCityInfo>? _lastCities;
     private Task<TaxiWaysNetworkSnapshot?>? _building;
     private DateTime _lastFailureAt = DateTime.MinValue;
     private static readonly TimeSpan FailureBackoff = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan CitiesRetry = TimeSpan.FromSeconds(60);
 
     public string? CurrentVersion => _current?.Version;
 
@@ -33,7 +35,8 @@ public class TaxiWaysNetwork(
 
         if (current != null)
         {
-            var stale = (version != null && version != current.Version) || DateTime.UtcNow - current.BuiltAt > safety;
+            var age = DateTime.UtcNow - current.BuiltAt;
+            var stale = (version != null && version != current.Version) || age > safety || (current.CitiesMissing && age > CitiesRetry);
             if (stale && DateTime.UtcNow - _lastFailureAt > FailureBackoff) _ = StartBuild(version ?? current.Version);
             return current;
         }
@@ -67,10 +70,14 @@ public class TaxiWaysNetwork(
             }
             catch (Exception ex)
             {
-                logger.LogWarning("taxi.ways.atlas unavailable, clusters only: {Error}", ex.Message);
+                logger.LogWarning("taxi.ways.atlas unavailable: {Error}", ex.Message);
             }
 
-            var snapshot = TaxiWaysClustering.Build(rows, cities, options.Value, version, DateTime.UtcNow);
+            // Atlas down: keep the last good city list so stays and local taxis never vanish; none yet = clusters only, retried soon.
+            if (cities is { Count: > 0 }) _lastCities = cities;
+            else cities = _lastCities;
+
+            var snapshot = TaxiWaysClustering.Build(rows, cities, options.Value, version, DateTime.UtcNow, citiesMissing: cities == null);
             _current = snapshot;
             logger.LogInformation("taxi.ways.rebuild {Places} {Links} {Ms}", snapshot.Places.Count, snapshot.Links.Count, watch.ElapsedMilliseconds);
             return snapshot;

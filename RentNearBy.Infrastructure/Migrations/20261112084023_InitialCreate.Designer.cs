@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261112055217_InitialCreate")]
+    [Migration("20261112084023_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -107,6 +107,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("AdminId", "IsValid");
 
+                    b.HasIndex(new[] { "UpdatedAt" }, "ix_admindevicetokens_updated");
+
                     b.ToTable("AdminDeviceTokens");
                 });
 
@@ -141,6 +143,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("AdminId");
 
                     b.HasIndex("ExpiresAt");
+
+                    b.HasIndex(new[] { "LoggedOutAt" }, "ix_adminsessions_loggedout")
+                        .HasFilter("\"IsActive\" = false");
 
                     b.ToTable("AdminSessions");
                 });
@@ -313,6 +318,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("BannerId");
 
+                    b.HasIndex("DismissedAt");
+
                     b.ToTable("BannerDismissals");
                 });
 
@@ -425,6 +432,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("RenterId", "OwnerId", "ListingType", "ListingId")
                         .IsUnique()
                         .HasDatabaseName("ix_conversations_renter_owner_listing");
+
+                    b.HasIndex(new[] { "LastMessageAt" }, "ix_conversations_last_message");
 
                     b.ToTable("Conversations");
                 });
@@ -668,6 +677,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.HasIndex("UserId", "IsValid");
+
+                    b.HasIndex(new[] { "UpdatedAt" }, "ix_devicetokens_updated");
 
                     b.ToTable("DeviceTokens");
                 });
@@ -1174,6 +1185,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.HasIndex("UserId", "Type", "SentAt");
+
+                    b.HasIndex(new[] { "SentAt" }, "ix_notificationlogs_sent");
 
                     b.ToTable("NotificationLogs");
                 });
@@ -2333,6 +2346,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex(new[] { "LoggedOutAt" }, "ix_sessions_loggedout")
+                        .HasFilter("\"IsActive\" = false");
+
                     b.ToTable("Sessions");
                 });
 
@@ -2435,6 +2451,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDatabaseName("ix_stayjobs_status_created");
 
                     b.HasIndex("UserId", "Status");
+
+                    b.HasIndex(new[] { "ClosedAt" }, "ix_stayjobs_closed")
+                        .HasFilter("\"Status\" = 'Closed'");
 
                     b.ToTable("StayJobs", t =>
                         {
@@ -3565,6 +3584,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "CheckIn" }, "ix_tripenquiries_checkin_unconfirmed")
                         .HasFilter("\"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered')");
 
+                    b.HasIndex(new[] { "UpdatedAt" }, "ix_tripenquiries_closed_updated")
+                        .HasFilter("(\"Status\" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') OR (\"Status\" = 'Failed' AND \"FailReason\" IN ('DriverDenied','HoldExpired','ListingRemoved')))");
+
                     b.HasIndex(new[] { "ConversationId" }, "ix_tripenquiries_conversation")
                         .HasFilter("\"ConversationId\" IS NOT NULL");
 
@@ -3720,6 +3742,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex(new[] { "CreatedAt" }, "ix_tripoffers_closed")
+                        .HasFilter("\"Status\" IN ('Expired','Declined','Superseded')");
+
                     b.HasIndex(new[] { "TripEnquiryId", "CreatedAt" }, "ix_tripoffers_enquiry")
                         .IsDescending(false, true);
 
@@ -3766,6 +3791,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex(new[] { "TripEnquiryId" }, "ix_tripproblemlogs_enquiry")
+                        .HasFilter("\"TripEnquiryId\" IS NOT NULL");
 
                     b.HasIndex(new[] { "TripId" }, "ix_tripproblemlogs_trip");
 
@@ -3898,6 +3926,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasFilter("\"State\" = 'Active'");
 
                     NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "TravellerUserId" }, "ix_shortlist_active_user"), new[] { "RemindedOn", "ClosesAt", "TripId" });
+
+                    b.HasIndex(new[] { "ClosedAt" }, "ix_shortlist_closed_at")
+                        .HasFilter("\"State\" IN ('Closed','Booked')");
 
                     b.HasIndex(new[] { "ClosesAt" }, "ix_shortlist_closes")
                         .HasFilter("\"State\" IN ('Active','Sent')");
