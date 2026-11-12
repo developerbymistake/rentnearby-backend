@@ -1131,6 +1131,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
                     DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     Location = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", stored: true),
+                    LocationCoarse = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(round(\"Longitude\"::float8 / (0.018 / greatest(cos(radians(round(\"Latitude\"::float8 / 0.018) * 0.018)), 0.01))) * (0.018 / greatest(cos(radians(round(\"Latitude\"::float8 / 0.018) * 0.018)), 0.01)), round(\"Latitude\"::float8 / 0.018) * 0.018), 4326)::geography", stored: true),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
@@ -2581,6 +2582,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
+                name: "ix_stayjobs_active_stay",
+                table: "StayJobs",
+                column: "StayListingId",
+                filter: "\"Status\" = 'Active'");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_stayjobs_closed",
                 table: "StayJobs",
                 column: "ClosedAt",
@@ -2761,6 +2768,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_TaxiListings_DistrictId",
                 table: "TaxiListings",
                 column: "DistrictId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxilistings_location_coarse_gist",
+                table: "TaxiListings",
+                column: "LocationCoarse")
+                .Annotation("Npgsql:IndexMethod", "gist");
 
             migrationBuilder.CreateIndex(
                 name: "ix_taxilistings_location_gist",

@@ -2449,6 +2449,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("UserId", "Status");
 
+                    b.HasIndex(new[] { "StayListingId" }, "ix_stayjobs_active_stay")
+                        .HasFilter("\"Status\" = 'Active'");
+
                     b.HasIndex(new[] { "ClosedAt" }, "ix_stayjobs_closed")
                         .HasFilter("\"Status\" = 'Closed'");
 
@@ -2944,6 +2947,11 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("geography(Point, 4326)")
                         .HasComputedColumnSql("ST_SetSRID(ST_MakePoint(\"Longitude\"::float8, \"Latitude\"::float8), 4326)::geography", true);
 
+                    b.Property<Point>("LocationCoarse")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("geography(Point, 4326)")
+                        .HasComputedColumnSql("ST_SetSRID(ST_MakePoint(round(\"Longitude\"::float8 / (0.018 / greatest(cos(radians(round(\"Latitude\"::float8 / 0.018) * 0.018)), 0.01))) * (0.018 / greatest(cos(radians(round(\"Latitude\"::float8 / 0.018) * 0.018)), 0.01)), round(\"Latitude\"::float8 / 0.018) * 0.018), 4326)::geography", true);
+
                     b.Property<decimal?>("Longitude")
                         .HasColumnType("numeric(9,6)");
 
@@ -3034,6 +3042,11 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDatabaseName("ix_taxilistings_location_gist");
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Location"), "gist");
+
+                    b.HasIndex("LocationCoarse")
+                        .HasDatabaseName("ix_taxilistings_location_coarse_gist");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("LocationCoarse"), "gist");
 
                     b.HasIndex("ReviewedByAdminId");
 
