@@ -2173,6 +2173,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "ReasonId");
 
             migrationBuilder.CreateIndex(
+                name: "ix_listingreports_reporter_created",
+                table: "ListingReports",
+                columns: new[] { "ReporterUserId", "CreatedAt" },
+                descending: new[] { false, true });
+
+            migrationBuilder.CreateIndex(
                 name: "ix_listingreports_reporter_listing_pending",
                 table: "ListingReports",
                 columns: new[] { "ReporterUserId", "ListingId" },
@@ -2875,6 +2881,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"Status\" = 'Asked'");
 
             migrationBuilder.CreateIndex(
+                name: "ix_tripenquiries_booked_silence",
+                table: "TripEnquiries",
+                column: "BookedByTravellerAt",
+                filter: "\"Status\" = 'BookedByTraveller'");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_checkin_unconfirmed",
                 table: "TripEnquiries",
                 column: "CheckIn",
@@ -2899,6 +2911,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"Status\" IN ('Asked','Offered','Countered')");
 
             migrationBuilder.CreateIndex(
+                name: "ix_tripenquiries_faresent_expires",
+                table: "TripEnquiries",
+                column: "ExpiresAt",
+                filter: "\"Status\" = 'FareSent'");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_final",
                 table: "TripEnquiries",
                 column: "TravellerUserId",
@@ -2916,6 +2934,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "OwnerUserId",
                 filter: "\"Status\" IN ('Asked','Countered')")
                 .Annotation("Npgsql:IndexInclude", new[] { "RemindedOn", "ExpiresAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_tripenquiries_listing_status",
+                table: "TripEnquiries",
+                columns: new[] { "ListingId", "Status" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_open_taxi_unique",
@@ -3083,6 +3106,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "TripShortlistItems",
                 column: "TravellerUserId",
                 filter: "\"State\" = 'Closed' AND \"ClosedReason\" = 'NoReply' AND \"FinalPushedAt\" IS NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_shortlist_listing",
+                table: "TripShortlistItems",
+                columns: new[] { "ListingId", "State" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_shortlist_trip_step",

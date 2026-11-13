@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -107,8 +108,19 @@ public static class StayJobHandlers
 
     // ---- Public ----
 
-    public static async Task<IResult> GetLookups(ApplicationDbContext db)
-        => OkResponse(await LoadLookupsAsync(db, activeOnly: true));
+    // Active lookups are the same for every caller; admin lookup writes remove the key.
+    public const string LookupsCacheKey = "stayjob_lookups";
+    private static readonly TimeSpan LookupsCacheTtl = TimeSpan.FromMinutes(10);
+
+    public static async Task<IResult> GetLookups(ApplicationDbContext db, IMemoryCache cache)
+        => OkResponse(await GetActiveLookupsCachedAsync(cache, () => LoadLookupsAsync(db, activeOnly: true)));
+
+    public static async Task<StayJobLookupsDto> GetActiveLookupsCachedAsync(IMemoryCache cache, Func<Task<StayJobLookupsDto>> load)
+        => (await cache.GetOrCreateAsync(LookupsCacheKey, entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = LookupsCacheTtl;
+            return load();
+        }))!;
 
     public static async Task<IResult> GetBrowse(
         Guid districtId, Guid? cityId, Guid? departmentId, int? minExperience, int? maxExperience, int? minSalary, int? maxSalary,

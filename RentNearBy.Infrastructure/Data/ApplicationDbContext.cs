@@ -289,6 +289,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .IsUnique()
              .HasDatabaseName("ix_listingreports_reporter_listing_pending")
              .HasFilter("\"Status\" = 'Pending'");
+            e.HasIndex(r => new { r.ReporterUserId, r.CreatedAt })
+             .IsDescending(false, true)
+             .HasDatabaseName("ix_listingreports_reporter_created");
 
             e.HasOne<TripEnquiry>()
              .WithMany()
@@ -1384,6 +1387,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasFilter("\"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered')");
             e.HasIndex(x => x.CreatedAt, "ix_tripenquiries_asked")
              .HasFilter("\"Status\" = 'Asked'");
+            e.HasIndex(x => x.BookedByTravellerAt, "ix_tripenquiries_booked_silence")
+             .HasFilter("\"Status\" = 'BookedByTraveller'");
+            e.HasIndex(x => x.ExpiresAt, "ix_tripenquiries_faresent_expires")
+             .HasFilter("\"Status\" = 'FareSent'");
+            e.HasIndex(x => new { x.ListingId, x.Status }, "ix_tripenquiries_listing_status");
 
             e.ToTable(t =>
             {
@@ -1425,6 +1433,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasFilter("\"State\" = 'Active'");
             e.HasIndex(x => x.ClosesAt, "ix_shortlist_closes").HasFilter("\"State\" IN ('Active','Sent')");
             e.HasIndex(x => new { x.TripId, x.StepKey }, "ix_shortlist_trip_step");
+            e.HasIndex(x => new { x.ListingId, x.State }, "ix_shortlist_listing");
             e.HasIndex(x => x.TravellerUserId, "ix_shortlist_final")
              .HasFilter("\"State\" = 'Closed' AND \"ClosedReason\" = 'NoReply' AND \"FinalPushedAt\" IS NULL");
 

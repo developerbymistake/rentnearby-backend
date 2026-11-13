@@ -145,12 +145,20 @@ public static class TaxiFeedComposer
         }
 
         // Every drivers-on-route id (first 40) and every passing id is hidden from the distance tiers.
+        // One ordered, offset-paged query: the first page of `size` is a prefix of the first page of ExcludeFetch.
         var skip = new HashSet<Guid>();
-        var first = tier == null ? await onRoute(1, size) : (Items: (IReadOnlyList<TaxiBrowseDto>)[], HasMore: false);
-        var onRouteItems = first.Items.Select(x => ForRoute(TaxiFeedItemDto.From(x))).ToList();
-        if (tier != null || first.HasMore)
+        (IReadOnlyList<TaxiBrowseDto> Items, bool HasMore) first = ([], false);
+        if (tier == null)
+        {
+            var r = await onRoute(1, Math.Max(size, ExcludeFetch));
+            first = (r.Items.Take(size).ToList(), r.Items.Count > size || r.HasMore);
+            foreach (var x in r.Items) skip.Add(x.Id);
+        }
+        else
+        {
             foreach (var x in (await onRoute(1, ExcludeFetch)).Items) skip.Add(x.Id);
-        foreach (var i in onRouteItems) skip.Add(i.Id);
+        }
+        var onRouteItems = first.Items.Select(x => ForRoute(TaxiFeedItemDto.From(x))).ToList();
 
         var passing = await PassingAsync(ways, a.Category, skip, 20);
         foreach (var i in passing) skip.Add(i.Id);

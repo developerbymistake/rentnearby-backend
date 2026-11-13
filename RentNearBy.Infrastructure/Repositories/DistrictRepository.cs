@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Infrastructure.Data;
@@ -12,6 +13,18 @@ public class DistrictRepository(ApplicationDbContext context) : Repository<Distr
         => await _dbSet.AsNoTracking()
             .Include(d => d.Cities.OrderBy(c => c.Name))
             .OrderBy(d => d.Name)
+            .ToListAsync();
+
+    public Task<List<DistrictDto>> GetAllDtosAsync()
+        => _dbSet.AsNoTracking()
+            .Select(d => new DistrictDto
+            {
+                Id = d.Id,
+                Name = d.Name,
+                StateName = d.StateName,
+                IsActive = d.IsActive,
+                BusinessOnboardingEnabled = d.BusinessOnboardingEnabled,
+            })
             .ToListAsync();
 
     public async Task<Guid?> FindActiveContainingAsync(double latitude, double longitude)

@@ -181,8 +181,7 @@ public static class ChatHandlers
 
         var otherPartyId = conversation.RenterId == callerId ? conversation.OwnerId : conversation.RenterId;
 
-        if (await unitOfWork.UserBlocks.ExistsAsync(otherPartyId, callerId) ||
-            await unitOfWork.UserBlocks.ExistsAsync(callerId, otherPartyId))
+        if (await unitOfWork.UserBlocks.ExistsEitherWayAsync(callerId, otherPartyId))
             return ForbiddenResponse("You can't message this user");
 
         var rl = await rateLimiter.CheckAsync($"chat:send:{callerId}", SendMessageMaxPerMinute, SendMessageWindow);
@@ -270,9 +269,9 @@ public static class ChatHandlers
 
         // Only reached once the message is durably persisted — see ApplyToConversationAsync's
         // own comment for why this ordering matters.
-        var recipientUnreadCount = await ApplyToConversationAsync(conversation, callerId, otherPartyId, message, unitOfWork, cache);
+        var (recipientUnreadCount, preview) = await ApplyToConversationAsync(conversation, callerId, otherPartyId, message, unitOfWork, cache);
         await BroadcastMessageAsync(hubContext, conversation, message, isNewMessage: true, recipientUnreadCount: recipientUnreadCount);
-        await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, message, cache);
+        await PublishPushNotificationAsync(publisher, db, conversation, callerId, otherPartyId, message, preview);
 
         return CreatedResponse(message.ToDto(isMine: true), $"/api/v1/chat/conversations/{conversationId}/messages/{message.Id}");
     }
@@ -359,8 +358,7 @@ public static class ChatHandlers
             return BadRequestResponse($"This conversation is no longer active ({conversation.Status})");
         }
 
-        if (await unitOfWork.UserBlocks.ExistsAsync(otherPartyId, callerId) ||
-            await unitOfWork.UserBlocks.ExistsAsync(callerId, otherPartyId))
+        if (await unitOfWork.UserBlocks.ExistsEitherWayAsync(callerId, otherPartyId))
             return ForbiddenResponse("You can't message this user");
 
         // Shares SendMessage's own bucket, deliberately — the abuse surface is "how much chat
@@ -408,9 +406,9 @@ public static class ChatHandlers
             throw;
         }
 
-        var recipientUnreadCount = await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
+        var (recipientUnreadCount, preview) = await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
         await BroadcastMessageAsync(hubContext, conversation, response, isNewMessage: true, recipientUnreadCount: recipientUnreadCount);
-        await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, response, cache);
+        await PublishPushNotificationAsync(publisher, db, conversation, callerId, otherPartyId, response, preview, responder.Name);
 
         return OkResponse(response.ToDto(isMine: true));
     }
@@ -447,8 +445,7 @@ public static class ChatHandlers
             return BadRequestResponse($"This conversation is no longer active ({conversation.Status})");
         }
 
-        if (await unitOfWork.UserBlocks.ExistsAsync(otherPartyId, callerId) ||
-            await unitOfWork.UserBlocks.ExistsAsync(callerId, otherPartyId))
+        if (await unitOfWork.UserBlocks.ExistsEitherWayAsync(callerId, otherPartyId))
             return ForbiddenResponse("You can't message this user");
 
         // Same shared bucket as SendMessage/RespondContact — see RespondContact's comment.
@@ -506,14 +503,14 @@ public static class ChatHandlers
                 throw;
             }
 
-            var counterRecipientUnreadCount = await ApplyToConversationAsync(conversation, callerId, otherPartyId, counter, unitOfWork, cache);
+            var (counterRecipientUnreadCount, counterPreview) = await ApplyToConversationAsync(conversation, callerId, otherPartyId, counter, unitOfWork, cache);
             await BroadcastMessageAsync(hubContext, conversation, counter, isNewMessage: true, recipientUnreadCount: counterRecipientUnreadCount);
             // The original proposal's PayloadJson was persisted as "superseded" above — without
             // this, the other party's screen kept showing it as pending/actionable until they
             // left and re-entered the conversation (forcing a REST refetch). Not a new unread
             // message, so no recipientUnreadCount needed here.
             await BroadcastMessageAsync(hubContext, conversation, original, isNewMessage: false);
-            await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, counter, cache);
+            await PublishPushNotificationAsync(publisher, db, conversation, callerId, otherPartyId, counter, counterPreview);
             return OkResponse(counter.ToDto(isMine: true));
         }
 
@@ -580,9 +577,9 @@ public static class ChatHandlers
             throw;
         }
 
-        var recipientUnreadCount = await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
+        var (recipientUnreadCount, preview) = await ApplyToConversationAsync(conversation, callerId, otherPartyId, response, unitOfWork, cache);
         await BroadcastMessageAsync(hubContext, conversation, response, isNewMessage: true, recipientUnreadCount: recipientUnreadCount);
-        await PublishPushNotificationAsync(publisher, unitOfWork, conversation, callerId, otherPartyId, response, cache);
+        await PublishPushNotificationAsync(publisher, db, conversation, callerId, otherPartyId, response, preview);
         return OkResponse(response.ToDto(isMine: true));
     }
 
@@ -953,11 +950,12 @@ public static class ChatHandlers
     // LastMessagePreview/the unread bump from ever pointing at a message that didn't actually
     // make it in, without needing a wrapping transaction. Returns the recipient's fresh unread
     // count for the caller to broadcast live.
-    private static async Task<int> ApplyToConversationAsync(Conversation conversation, Guid senderId, Guid recipientId, Message message, IUnitOfWork unitOfWork, IMemoryCache cache)
+    private static async Task<(int RecipientUnreadCount, string Preview)> ApplyToConversationAsync(Conversation conversation, Guid senderId, Guid recipientId, Message message, IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         var preview = await BuildPreviewAsync(message, unitOfWork, cache);
         var recipientIsRenter = recipientId == conversation.RenterId;
-        return await unitOfWork.Conversations.ApplyIncomingMessageAsync(conversation.Id, message.CreatedAt, preview, recipientIsRenter);
+        var unread = await unitOfWork.Conversations.ApplyIncomingMessageAsync(conversation.Id, message.CreatedAt, preview, recipientIsRenter);
+        return (unread, preview);
     }
 
     // Parses payloadJson as a JSON object and sets `key` to `value`, preserving every other
@@ -1066,7 +1064,7 @@ public static class ChatHandlers
     // Shares the same "question_templates" cache entry GetQuestionTemplates already
     // maintains (invalidated on create/update/toggle, see those handlers) — was previously an
     // uncached unitOfWork.QuestionTemplates.GetAllAsync() DB hit on every quick_reply preview
-    // build (up to twice per SendMessage: here and in PublishPushNotificationAsync).
+    // build (once per send; the same preview is reused for the push payload).
     private static async Task<List<QuestionTemplateDto>> GetCachedQuestionTemplatesAsync(IUnitOfWork unitOfWork, IMemoryCache cache)
     {
         if (!cache.TryGetValue("question_templates", out List<QuestionTemplateDto>? cached) || cached == null)
@@ -1213,18 +1211,18 @@ public static class ChatHandlers
     // sender's response. The consumer worker resolves device tokens and sends the
     // actual push independently (see ChatMessageNotificationWorkerService).
     private static async Task PublishPushNotificationAsync(
-        IRabbitMqPublisher publisher, IUnitOfWork unitOfWork, Conversation conversation,
-        Guid senderId, Guid recipientId, Message message, IMemoryCache cache)
+        IRabbitMqPublisher publisher, ApplicationDbContext db, Conversation conversation,
+        Guid senderId, Guid recipientId, Message message, string preview, string? knownSenderName = null)
     {
         try
         {
-            var sender = await unitOfWork.Users.GetByIdAsync(senderId);
-            var preview = await BuildPreviewAsync(message, unitOfWork, cache);
+            var senderName = knownSenderName
+                ?? await db.Users.AsNoTracking().Where(u => u.Id == senderId).Select(u => u.Name).FirstOrDefaultAsync();
             var payload = JsonSerializer.Serialize(new
             {
                 recipientUserId = recipientId,
                 conversationId = conversation.Id,
-                senderName = sender?.Name ?? "Someone",
+                senderName = senderName ?? "Someone",
                 preview,
                 messageId = message.Id,
                 createdAt = DateTime.SpecifyKind(message.CreatedAt, DateTimeKind.Utc),

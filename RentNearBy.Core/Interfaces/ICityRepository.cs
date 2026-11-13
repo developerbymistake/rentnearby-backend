@@ -1,3 +1,4 @@
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 
 namespace RentNearBy.Core.Interfaces;
@@ -5,4 +6,6 @@ namespace RentNearBy.Core.Interfaces;
 public interface ICityRepository : IRepository<City>
 {
     Task<IEnumerable<City>> GetByDistrictIdAsync(Guid districtId);
+    Task<List<CityDto>> GetDtosByDistrictIdAsync(Guid districtId);
+    Task<List<CityDto>> GetAllDtosAsync();
 }

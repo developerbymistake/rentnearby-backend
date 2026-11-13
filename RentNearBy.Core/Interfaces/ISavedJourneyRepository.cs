@@ -37,6 +37,8 @@ public interface ISavedJourneyRepository
     Task<List<SavedJourney>> GetOwnedByIdsAsync(IReadOnlyCollection<Guid> ids, Guid userId);
     Task<List<SavedJourney>> GetByTripAsync(Guid tripId, Guid userId);
     Task<Dictionary<Guid, List<SavedJourney>>> GetByTripsAsync(IReadOnlyCollection<Guid> tripIds, Guid userId);
+    // Background passes: live journeys of many trips, any user (callers keep the trip owner's rows), UpdatedAt desc.
+    Task<List<SavedJourney>> GetByTripIdsAsync(IReadOnlyCollection<Guid> tripIds, CancellationToken ct);
     // Links keepIds to the trip and unlinks the caller's other journeys of that trip. Set-based, untouched rows stay as they are.
     Task RelinkTripAsync(Guid tripId, Guid userId, IReadOnlyCollection<Guid> keepIds);
     Task UnlinkTripAsync(Guid tripId);

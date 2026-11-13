@@ -1042,6 +1042,10 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("TripEnquiryId");
 
+                    b.HasIndex("ReporterUserId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_listingreports_reporter_created");
+
                     b.HasIndex("ReporterUserId", "ListingId")
                         .IsUnique()
                         .HasDatabaseName("ix_listingreports_reporter_listing_pending")
@@ -3591,6 +3595,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "CreatedAt" }, "ix_tripenquiries_asked")
                         .HasFilter("\"Status\" = 'Asked'");
 
+                    b.HasIndex(new[] { "BookedByTravellerAt" }, "ix_tripenquiries_booked_silence")
+                        .HasFilter("\"Status\" = 'BookedByTraveller'");
+
                     b.HasIndex(new[] { "CheckIn" }, "ix_tripenquiries_checkin_unconfirmed")
                         .HasFilter("\"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered')");
 
@@ -3603,6 +3610,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "ExpiresAt" }, "ix_tripenquiries_expires")
                         .HasFilter("\"Status\" IN ('Asked','Offered','Countered')");
 
+                    b.HasIndex(new[] { "ExpiresAt" }, "ix_tripenquiries_faresent_expires")
+                        .HasFilter("\"Status\" = 'FareSent'");
+
                     b.HasIndex(new[] { "TravellerUserId" }, "ix_tripenquiries_final")
                         .HasFilter("\"Status\" = 'Expired' AND \"FinalPushedAt\" IS NULL");
 
@@ -3613,6 +3623,8 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasFilter("\"Status\" IN ('Asked','Countered')");
 
                     NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "OwnerUserId" }, "ix_tripenquiries_hostreminder"), new[] { "RemindedOn", "ExpiresAt" });
+
+                    b.HasIndex(new[] { "ListingId", "Status" }, "ix_tripenquiries_listing_status");
 
                     b.HasIndex(new[] { "TripId", "Kind", "ListingId", "CityLeg" }, "ix_tripenquiries_open_taxi_unique")
                         .IsUnique()
@@ -3945,6 +3957,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "TravellerUserId" }, "ix_shortlist_final")
                         .HasFilter("\"State\" = 'Closed' AND \"ClosedReason\" = 'NoReply' AND \"FinalPushedAt\" IS NULL");
+
+                    b.HasIndex(new[] { "ListingId", "State" }, "ix_shortlist_listing");
 
                     b.HasIndex(new[] { "TripId", "StepKey" }, "ix_shortlist_trip_step");
 

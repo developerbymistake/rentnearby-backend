@@ -230,6 +230,17 @@ public class SavedJourneyRepository(ApplicationDbContext context) : ISavedJourne
         return rows.GroupBy(j => j.TripId!.Value).ToDictionary(g => g.Key, g => g.ToList());
     }
 
+    public async Task<List<SavedJourney>> GetByTripIdsAsync(IReadOnlyCollection<Guid> tripIds, CancellationToken ct)
+    {
+        if (tripIds.Count == 0) return new List<SavedJourney>();
+        var ids = tripIds.Distinct().ToList();
+        return await context.Set<SavedJourney>().AsNoTracking()
+            .Include(j => j.Legs)
+            .Where(j => j.TripId != null && ids.Contains(j.TripId.Value) && !j.IsDeleted)
+            .OrderByDescending(j => j.UpdatedAt)
+            .ToListAsync(ct);
+    }
+
     public async Task RelinkTripAsync(Guid tripId, Guid userId, IReadOnlyCollection<Guid> keepIds)
     {
         var keep = keepIds.Distinct().ToList();

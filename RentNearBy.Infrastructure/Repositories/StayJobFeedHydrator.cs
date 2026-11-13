@@ -48,17 +48,47 @@ public static class StayJobFeedHydrator
                 s.Longitude,
             }).ToListAsync();
 
+        return await AssembleAsync(rows, loaded.Select(x => (x.Item, x.Latitude, x.Longitude)).ToList(), resolver, centreCityName);
+    }
+
+    // Input row order is kept; a missing id is skipped; a stay without coordinates gets no city.
+    internal static async Task<Dictionary<Guid, StayJobFeedItemDto>> AssembleAsync(
+        IReadOnlyList<NearbyRow> rows, IReadOnlyList<(StayJobFeedItemDto Item, decimal? Latitude, decimal? Longitude)> loaded,
+        ICityResolver resolver, string? centreCityName)
+    {
+        var result = new Dictionary<Guid, StayJobFeedItemDto>();
         var byId = loaded.ToDictionary(x => x.Item.Id);
+        var cities = await ResolveCitiesAsync(
+            loaded.Where(x => x.Latitude != null && x.Longitude != null).Select(x => (x.Latitude!.Value, x.Longitude!.Value)), resolver);
         foreach (var row in rows)
         {
             if (!byId.TryGetValue(row.Id, out var x) || result.ContainsKey(row.Id)) continue;
-            var city = x.Latitude is { } la && x.Longitude is { } lo
-                ? (await resolver.ResolveAsync((double)la, (double)lo)).City
-                : null;
+            var city = x.Latitude is { } la && x.Longitude is { } lo ? cities[(la, lo)] : null;
             Fill(x.Item, row.DistanceMeters, city, centreCityName);
             result[row.Id] = x.Item;
         }
         return result;
+    }
+
+    private const int ResolveParallel = 8;
+
+    // Each distinct stay point is resolved once, a few at a time; the first failure propagates.
+    internal static async Task<Dictionary<(decimal Lat, decimal Lng), TripCityInfo?>> ResolveCitiesAsync(
+        IEnumerable<(decimal Lat, decimal Lng)> points, ICityResolver resolver)
+    {
+        var distinct = points.Distinct().ToList();
+        var map = new Dictionary<(decimal Lat, decimal Lng), TripCityInfo?>(distinct.Count);
+        if (distinct.Count == 0) return map;
+
+        using var gate = new SemaphoreSlim(ResolveParallel);
+        var pins = await Task.WhenAll(distinct.Select(async p =>
+        {
+            await gate.WaitAsync();
+            try { return (await resolver.ResolveAsync((double)p.Lat, (double)p.Lng)).City; }
+            finally { gate.Release(); }
+        }));
+        for (var i = 0; i < distinct.Count; i++) map[distinct[i]] = pins[i];
+        return map;
     }
 
     // City null: no village or district-made city name, only the district shows.

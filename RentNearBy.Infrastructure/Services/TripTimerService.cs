@@ -442,14 +442,15 @@ public class TripTimerService(
         ISavedJourneyRepository journeyRepo, ITripNotifier notifier, CancellationToken ct)
     {
         var done = 0;
+        var rows = await LoadPageRowsAsync(trips, unitOfWork, journeyRepo, "date reminder", ct);
+        if (rows == null) return 0;
         foreach (var trip in trips)
         {
             if (ct.IsCancellationRequested) break;
             try
             {
                 var plan = ReadPlan(trip);
-                var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
-                var linked = await journeyRepo.GetByTripAsync(trip.Id, trip.OwnerUserId);
+                var (enquiries, linked) = rows[trip.Id];
 
                 if (trip.StartDate is { } start)
                 {
@@ -521,6 +522,8 @@ public class TripTimerService(
         ISavedJourneyRepository journeyRepo, ITripNotifier notifier, CancellationToken ct)
     {
         var done = 0;
+        // Pure plan filters first (a bad plan is logged per trip as before), then one batch load for the trips that pass.
+        var due = new List<(Trip Trip, TripPlan Plan, List<TripCityLeg> Legs, int K)>();
         foreach (var trip in trips)
         {
             if (ct.IsCancellationRequested) break;
@@ -531,16 +534,30 @@ public class TripTimerService(
                 if (plan.Legs is not { Count: > 1 } legs) continue;
                 var day = tomorrow.DayNumber - start.DayNumber + 1;
                 if (!plan.IsTravelDay(day)) continue;
-                var k = plan.LegIndexOf(day);
+                due.Add((trip, plan, legs, plan.LegIndexOf(day)));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Trip timer: travel-eve reminder failed for {TripId}", trip.Id);
+            }
+        }
+        if (due.Count == 0) return 0;
+        var rows = await LoadPageRowsAsync(due.Select(d => d.Trip).ToList(), unitOfWork, journeyRepo, "travel-eve reminder", ct);
+        if (rows == null) return 0;
+
+        foreach (var (trip, plan, legs, k) in due)
+        {
+            if (ct.IsCancellationRequested) break;
+            try
+            {
                 if (!await TripRemindableAsync(db, trip.Id, ct)) continue;
 
-                var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
+                var (enquiries, linked) = rows[trip.Id];
                 var arrival = legs[k - 1]?.Arrival;
                 SavedJourney? journey = null;
                 IReadOnlyDictionary<Guid, JourneyTaxiInfo> taxis = new Dictionary<Guid, JourneyTaxiInfo>();
                 if (TripTravelRules.JourneyIdOf(arrival) is { } journeyId)
                 {
-                    var linked = await journeyRepo.GetByTripAsync(trip.Id, trip.OwnerUserId);
                     journey = linked.FirstOrDefault(j => j.Id == journeyId);
                     if (journey != null)
                         taxis = await journeyRepo.LoadTaxisAsync(journey.Legs.Select(l => l.DriverTaxiId).ToList());
@@ -577,14 +594,15 @@ public class TripTimerService(
             if (ct.IsCancellationRequested) break;
             var (trips, next) = await unitOfWork.Trips.GetAutoCompleteCandidatesAsync(endBefore, after, Batch);
             after = next;
+            var rows = await LoadPageRowsAsync(trips, unitOfWork, journeyRepo, "auto-complete", ct);
+            if (rows == null) continue;
             foreach (var trip in trips)
             {
                 if (ct.IsCancellationRequested) break;
                 try
                 {
-                    var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
+                    var (enquiries, linked) = rows[trip.Id];
                     if (enquiries.Any(TripBookingStates.IsOpenForCompletion)) continue;
-                    var linked = await journeyRepo.GetByTripAsync(trip.Id, trip.OwnerUserId);
                     // A trip nobody worked on is left for the traveller (no enquiry, no mark, no journey ask).
                     if (TripCompleteRules.IsUntouched(TripEasyRows.Build(trip, ReadPlan(trip), enquiries, linked))) continue;
                     if (await unitOfWork.Trips.TryCompleteAsync(trip.Id, now) == 0) continue;
@@ -599,6 +617,26 @@ public class TripTimerService(
         }
         while (after != null);
         return done;
+    }
+
+    // One enquiry query and one journey query per page instead of two per trip. Null = the load failed (logged; the page
+    // is skipped, as every trip of it would have failed its own load before).
+    private async Task<Dictionary<Guid, TripTimerBatch.TripRows>?> LoadPageRowsAsync(
+        IReadOnlyList<Trip> trips, IUnitOfWork unitOfWork, ISavedJourneyRepository journeyRepo, string pass, CancellationToken ct)
+    {
+        if (trips.Count == 0) return new Dictionary<Guid, TripTimerBatch.TripRows>();
+        try
+        {
+            var ids = trips.Select(t => t.Id).ToList();
+            var enquiries = await unitOfWork.TripEnquiries.GetByTripsAsync(ids);
+            var journeys = await journeyRepo.GetByTripIdsAsync(ids, ct);
+            return TripTimerBatch.Group(enquiries, journeys, trips.Select(t => (t.Id, t.OwnerUserId)));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Trip timer: {Pass} page load failed for {Count} trips", pass, trips.Count);
+            return null;
+        }
     }
 
     // Mute silences traveller reminders only; a Completed trip gets none.
@@ -645,5 +683,29 @@ public class TripTimerService(
               WHERE "Status" = 'Expired' AND "FinalPushedAt" IS NULL AND "UpdatedAt" < {cutoff} LIMIT 20000)
             """);
         return shortlist + enquiries;
+    }
+}
+
+// Splits one page's batch rows into what GetByTripAsync (enquiries) and GetByTripAsync(tripId, ownerUserId) (journeys)
+// returned per trip: enquiries in input order (CreatedAt desc, Id desc from the query), only the owner's live journeys,
+// UpdatedAt desc (stable, so the query order of ties is kept). A trip without rows gets empty lists.
+internal static class TripTimerBatch
+{
+    internal readonly record struct TripRows(IReadOnlyList<TripEnquiry> Enquiries, List<SavedJourney> Journeys);
+
+    internal static Dictionary<Guid, TripRows> Group(
+        IEnumerable<TripEnquiry> enquiries, IEnumerable<SavedJourney> journeys, IEnumerable<(Guid TripId, Guid OwnerUserId)> trips)
+    {
+        var byTrip = enquiries.Where(e => e.TripId != null).ToLookup(e => e.TripId!.Value);
+        var journeysByTrip = journeys.Where(j => j.TripId != null && !j.IsDeleted).ToLookup(j => j.TripId!.Value);
+        var result = new Dictionary<Guid, TripRows>();
+        foreach (var (tripId, ownerUserId) in trips)
+        {
+            if (result.ContainsKey(tripId)) continue;
+            result[tripId] = new TripRows(
+                byTrip[tripId].ToList(),
+                journeysByTrip[tripId].Where(j => j.UserId == ownerUserId).OrderByDescending(j => j.UpdatedAt).ToList());
+        }
+        return result;
     }
 }

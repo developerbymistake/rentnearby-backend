@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
@@ -66,7 +67,7 @@ public static class AdminStayJobHandlers
         => OkResponse(await StayJobHandlers.LoadLookupsAsync(db, activeOnly: false));
 
     public static async Task<IResult> CreateLookup(
-        string kind, UpsertJobLookupRequest request, IValidator<UpsertJobLookupRequest> validator, ApplicationDbContext db)
+        string kind, UpsertJobLookupRequest request, IValidator<UpsertJobLookupRequest> validator, ApplicationDbContext db, IMemoryCache cache)
     {
         if (!StayJobLookupKinds.All.Contains(kind)) return BadRequestResponse(UnknownList);
 
@@ -75,16 +76,16 @@ public static class AdminStayJobHandlers
 
         return kind switch
         {
-            StayJobLookupKinds.Departments => await CreateAsync(db.JobDepartments, kind, request, db),
-            StayJobLookupKinds.Roles => await CreateAsync(db.JobRoles, kind, request, db),
-            StayJobLookupKinds.JobTypes => await CreateAsync(db.JobTypes, kind, request, db),
-            StayJobLookupKinds.ShiftTypes => await CreateAsync(db.JobShiftTypes, kind, request, db),
-            _ => await CreateAsync(db.JobSalaryTypes, kind, request, db),
+            StayJobLookupKinds.Departments => await CreateAsync(db.JobDepartments, kind, request, db, cache),
+            StayJobLookupKinds.Roles => await CreateAsync(db.JobRoles, kind, request, db, cache),
+            StayJobLookupKinds.JobTypes => await CreateAsync(db.JobTypes, kind, request, db, cache),
+            StayJobLookupKinds.ShiftTypes => await CreateAsync(db.JobShiftTypes, kind, request, db, cache),
+            _ => await CreateAsync(db.JobSalaryTypes, kind, request, db, cache),
         };
     }
 
     public static async Task<IResult> UpdateLookup(
-        string kind, Guid id, UpsertJobLookupRequest request, IValidator<UpsertJobLookupRequest> validator, ApplicationDbContext db)
+        string kind, Guid id, UpsertJobLookupRequest request, IValidator<UpsertJobLookupRequest> validator, ApplicationDbContext db, IMemoryCache cache)
     {
         if (!StayJobLookupKinds.All.Contains(kind)) return BadRequestResponse(UnknownList);
 
@@ -93,16 +94,16 @@ public static class AdminStayJobHandlers
 
         return kind switch
         {
-            StayJobLookupKinds.Departments => await UpdateAsync(db.JobDepartments, id, request, db),
-            StayJobLookupKinds.Roles => await UpdateAsync(db.JobRoles, id, request, db),
-            StayJobLookupKinds.JobTypes => await UpdateAsync(db.JobTypes, id, request, db),
-            StayJobLookupKinds.ShiftTypes => await UpdateAsync(db.JobShiftTypes, id, request, db),
-            _ => await UpdateAsync(db.JobSalaryTypes, id, request, db),
+            StayJobLookupKinds.Departments => await UpdateAsync(db.JobDepartments, id, request, db, cache),
+            StayJobLookupKinds.Roles => await UpdateAsync(db.JobRoles, id, request, db, cache),
+            StayJobLookupKinds.JobTypes => await UpdateAsync(db.JobTypes, id, request, db, cache),
+            StayJobLookupKinds.ShiftTypes => await UpdateAsync(db.JobShiftTypes, id, request, db, cache),
+            _ => await UpdateAsync(db.JobSalaryTypes, id, request, db, cache),
         };
     }
 
     // Hard delete only while unused; otherwise the admin turns it off with IsActive.
-    public static async Task<IResult> DeleteLookup(string kind, Guid id, ApplicationDbContext db)
+    public static async Task<IResult> DeleteLookup(string kind, Guid id, ApplicationDbContext db, IMemoryCache cache)
     {
         if (!StayJobLookupKinds.All.Contains(kind)) return BadRequestResponse(UnknownList);
 
@@ -118,11 +119,11 @@ public static class AdminStayJobHandlers
 
         return kind switch
         {
-            StayJobLookupKinds.Departments => await DeleteAsync(db.JobDepartments, id, inUse, db),
-            StayJobLookupKinds.Roles => await DeleteAsync(db.JobRoles, id, inUse, db),
-            StayJobLookupKinds.JobTypes => await DeleteAsync(db.JobTypes, id, inUse, db),
-            StayJobLookupKinds.ShiftTypes => await DeleteAsync(db.JobShiftTypes, id, inUse, db),
-            _ => await DeleteAsync(db.JobSalaryTypes, id, inUse, db),
+            StayJobLookupKinds.Departments => await DeleteAsync(db.JobDepartments, id, inUse, db, cache),
+            StayJobLookupKinds.Roles => await DeleteAsync(db.JobRoles, id, inUse, db, cache),
+            StayJobLookupKinds.JobTypes => await DeleteAsync(db.JobTypes, id, inUse, db, cache),
+            StayJobLookupKinds.ShiftTypes => await DeleteAsync(db.JobShiftTypes, id, inUse, db, cache),
+            _ => await DeleteAsync(db.JobSalaryTypes, id, inUse, db, cache),
         };
     }
 
@@ -148,7 +149,7 @@ public static class AdminStayJobHandlers
     }
 
     private static async Task<IResult> CreateAsync<T>(
-        DbSet<T> set, string kind, UpsertJobLookupRequest request, ApplicationDbContext db)
+        DbSet<T> set, string kind, UpsertJobLookupRequest request, ApplicationDbContext db, IMemoryCache cache)
         where T : JobLookupBase, new()
     {
         var name = request.Name.Trim();
@@ -170,12 +171,13 @@ public static class AdminStayJobHandlers
         set.Add(item);
         try { await db.SaveChangesAsync(); }
         catch (DbUpdateException) { return NameTaken(); }
+        cache.Remove(StayJobHandlers.LookupsCacheKey);
 
         return CreatedResponse(StayJobHandlers.ToItem(item), $"/api/v1/admin/stay-jobs/lookups/{kind}/{item.Id}");
     }
 
     private static async Task<IResult> UpdateAsync<T>(
-        DbSet<T> set, Guid id, UpsertJobLookupRequest request, ApplicationDbContext db)
+        DbSet<T> set, Guid id, UpsertJobLookupRequest request, ApplicationDbContext db, IMemoryCache cache)
         where T : JobLookupBase
     {
         var item = await set.FirstOrDefaultAsync(x => x.Id == id);
@@ -197,11 +199,12 @@ public static class AdminStayJobHandlers
 
         try { await db.SaveChangesAsync(); }
         catch (DbUpdateException) { return NameTaken(); }
+        cache.Remove(StayJobHandlers.LookupsCacheKey);
 
         return OkResponse(StayJobHandlers.ToItem(item));
     }
 
-    private static async Task<IResult> DeleteAsync<T>(DbSet<T> set, Guid id, bool inUse, ApplicationDbContext db)
+    private static async Task<IResult> DeleteAsync<T>(DbSet<T> set, Guid id, bool inUse, ApplicationDbContext db, IMemoryCache cache)
         where T : JobLookupBase
     {
         var item = await set.FirstOrDefaultAsync(x => x.Id == id);
@@ -212,6 +215,7 @@ public static class AdminStayJobHandlers
 
         set.Remove(item);
         await db.SaveChangesAsync();
+        cache.Remove(StayJobHandlers.LookupsCacheKey);
 
         return NoContentResponse();
     }

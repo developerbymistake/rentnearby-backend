@@ -1,9 +1,11 @@
+using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
+using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -24,13 +26,45 @@ public static class HomeNearbyHandlers
     public static Task<IResult> GetNearbyFeed(
         double? lat, double? lng, int? limit, int? recentLimit, string? sections,
         IUnitOfWork unitOfWork, IMemoryCache cache, INearbyFeedQuery query, INearbyContext ctx,
-        ApplicationDbContext db, CancellationToken ct = default)
-        => BuildAsync(lat, lng, limit, recentLimit, sections, unitOfWork, cache, query, ctx,
+        ApplicationDbContext db, IServiceProvider sp, CancellationToken ct = default)
+    {
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        return BuildAsync(lat, lng, limit, recentLimit, sections, unitOfWork, cache, query, ctx,
             new Loaders(
                 rows => StayFeedHydrator.LoadAsync(db, rows),
                 rows => TaxiFeedHydrator.LoadAsync(db, rows),
-                take => unitOfWork.Stays.GetRecentProjectedAsync(take)),
+                take => redis == null || take != StayCache.RecentMax
+                    ? unitOfWork.Stays.GetRecentProjectedAsync(take)
+                    : RecentReadThroughAsync(
+                        () => redis.GetDatabase().StringGetAsync(StayCache.RecentKey),
+                        json => redis.GetDatabase().StringSetAsync(StayCache.RecentKey, json, StayCache.RecentTtl),
+                        () => unitOfWork.Stays.GetRecentProjectedAsync(take))),
             ct);
+    }
+
+    // The global "recently added" list (no per-user or per-location data) through the same Redis key and plain
+    // JSON value HomeHandlers.GetFeed uses. Null, empty or corrupt value or a Redis error = miss; the write is best effort.
+    public static async Task<List<StayBrowseDto>> RecentReadThroughAsync(
+        Func<Task<RedisValue>> get, Func<string, Task> set, Func<Task<List<StayBrowseDto>>> load)
+    {
+        RedisValue value = RedisValue.Null;
+        try { value = await get(); }
+        catch { }
+
+        if (value.HasValue)
+        {
+            try
+            {
+                if (JsonSerializer.Deserialize<List<StayBrowseDto>>(value!) is { } hit) return hit;
+            }
+            catch (JsonException) { }
+        }
+
+        var fresh = await load();
+        try { await set(JsonSerializer.Serialize(fresh)); }
+        catch { }
+        return fresh;
+    }
 
     // Public so tests can drive the whole flow with fakes.
     public static async Task<IResult> BuildAsync(

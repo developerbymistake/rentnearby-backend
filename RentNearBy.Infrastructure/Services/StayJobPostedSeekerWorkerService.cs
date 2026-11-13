@@ -171,6 +171,7 @@ public class StayJobPostedSeekerWorkerService : BackgroundService
 
             var sent = 0;
             var failed = 0;
+            var deadTokens = new HashSet<string>();
 
             foreach (var chunk in batch.Chunk(SendConcurrency))
             {
@@ -198,12 +199,13 @@ public class StayJobPostedSeekerWorkerService : BackgroundService
                     else
                     {
                         failed++;
-                        await unitOfWork.DeviceTokens.MarkInvalidAsync(token);
+                        deadTokens.Add(token);
                     }
                 }
             }
 
-            await unitOfWork.SaveChangesAsync();
+            if (deadTokens.Count > 0)
+                await unitOfWork.DeviceTokens.MarkInvalidManyAsync(deadTokens);
 
             totalSent += sent;
             totalFailed += failed;

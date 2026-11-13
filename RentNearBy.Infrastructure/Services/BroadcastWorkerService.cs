@@ -103,50 +103,77 @@ public class BroadcastWorkerService : BackgroundService
 
     private async Task ProcessBatchAsync(BroadcastMessage msg)
     {
-        using var scope      = _serviceScopeFactory.CreateScope();
-        var unitOfWork       = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+        using var scope = _serviceScopeFactory.CreateScope();
+        var unitOfWork  = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+        await ProcessBatchAsync(msg, unitOfWork, _fcmService, _logger);
+    }
 
+    // One token query, one SendEachAsync (chunks of 500 inside), one invalidation UPDATE per batch.
+    internal static async Task ProcessBatchAsync(BroadcastMessage msg, IUnitOfWork unitOfWork, IFcmService fcmService, ILogger logger)
+    {
         var userIds = await unitOfWork.DeviceTokens.GetValidTokenUserIdsPagedAsync(msg.Offset, msg.Limit);
 
         if (userIds.Count == 0)
         {
-            _logger.LogInformation("BroadcastWorker: no users in batch offset={Offset}", msg.Offset);
+            logger.LogInformation("BroadcastWorker: no users in batch offset={Offset}", msg.Offset);
             return;
         }
 
-        var sent   = 0;
-        var failed = 0;
+        var rows = await unitOfWork.DeviceTokens.GetValidByUserIdsAsync(userIds);
+        var specs = rows
+            .Select(r => new FcmMessageSpec(r.Token, msg.Title, msg.Body,
+                new Dictionary<string, string> { ["notification_type"] = "broadcast" }, Tag: null))
+            .ToList();
 
-        foreach (var userId in userIds)
+        IReadOnlyList<FcmSendOutcome>? outcomes = null;
+        if (specs.Count > 0)
         {
-            var tokens = (await unitOfWork.DeviceTokens.GetValidByUserIdAsync(userId)).ToList();
-            foreach (var deviceToken in tokens)
+            try
             {
-                try
-                {
-                    var success = await _fcmService.SendAsync(deviceToken.Token, msg.Title, msg.Body, "broadcast");
-                    if (success)
-                    {
-                        sent++;
-                    }
-                    else
-                    {
-                        failed++;
-                        await unitOfWork.DeviceTokens.MarkInvalidAsync(deviceToken.Token);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    _logger.LogError(ex, "BroadcastWorker: FCM send failed for user {UserId}", userId);
-                }
+                outcomes = await fcmService.SendEachAsync(specs);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "BroadcastWorker: FCM batch send failed for offset {Offset}", msg.Offset);
             }
         }
 
-        await unitOfWork.SaveChangesAsync();
+        var (sent, failed, invalidTokens) = Tally(specs, outcomes);
 
-        _logger.LogInformation(
+        if (invalidTokens.Count > 0)
+            await unitOfWork.DeviceTokens.MarkInvalidManyAsync(invalidTokens);
+
+        logger.LogInformation(
             "BroadcastWorker: batch offset={Offset} done — users={Users}, sent={Sent}, failed={Failed}",
             msg.Offset, userIds.Count, sent, failed);
+    }
+
+    // outcomes null = the whole send threw: every spec failed, nothing is proof of a dead token.
+    internal static (int Sent, int Failed, IReadOnlyList<string> InvalidTokens) Tally(
+        IReadOnlyList<FcmMessageSpec> specs, IReadOnlyList<FcmSendOutcome>? outcomes)
+    {
+        if (outcomes == null) return (0, specs.Count, []);
+
+        var sent = 0;
+        var failed = 0;
+        var invalid = new List<string>();
+        var seen = new HashSet<string>();
+        for (var i = 0; i < specs.Count; i++)
+        {
+            switch (outcomes[i])
+            {
+                case FcmSendOutcome.Sent:
+                    sent++;
+                    break;
+                case FcmSendOutcome.InvalidToken:
+                    failed++;
+                    if (seen.Add(specs[i].Token)) invalid.Add(specs[i].Token);
+                    break;
+                default:
+                    failed++;
+                    break;
+            }
+        }
+        return (sent, failed, invalid);
     }
 }

@@ -30,8 +30,7 @@ public static class AdminHandlers
     {
         if (!cache.TryGetValue("districts", out List<DistrictDto>? cached) || cached == null)
         {
-            var districts = await unitOfWork.Districts.GetAllAsync();
-            cached = districts.Select(d => d.Adapt<DistrictDto>()).ToList();
+            cached = await unitOfWork.Districts.GetAllDtosAsync();
             cache.Set("districts", cached, CacheTtl);
         }
         return OkResponse(cached);
@@ -279,10 +278,9 @@ public static class AdminHandlers
         var cacheKey = districtId.HasValue ? $"cities_{districtId}" : "cities_all";
         if (!cache.TryGetValue(cacheKey, out List<CityDto>? cached) || cached == null)
         {
-            IEnumerable<City> cities = districtId.HasValue
-                ? await unitOfWork.Cities.GetByDistrictIdAsync(districtId.Value)
-                : await unitOfWork.Cities.GetAllAsync();
-            cached = cities.Select(c => c.Adapt<CityDto>()).ToList();
+            cached = districtId.HasValue
+                ? await unitOfWork.Cities.GetDtosByDistrictIdAsync(districtId.Value)
+                : await unitOfWork.Cities.GetAllDtosAsync();
             cache.Set(cacheKey, cached, CacheTtl);
         }
         return OkResponse(cached);
