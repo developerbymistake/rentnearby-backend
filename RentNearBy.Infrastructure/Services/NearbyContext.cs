@@ -14,11 +14,12 @@ public sealed class NearbyContext : INearbyContext
     private const string StatesKey = "nearby:live_states";
     private static readonly TimeSpan StatesTtl = TimeSpan.FromMinutes(5);
 
+    private readonly ICityResolver? _resolver;
     private readonly ITripCityCatalog _catalog;
     private readonly IMemoryCache _cache;
     private readonly Func<CancellationToken, Task<IReadOnlyList<string>>> _states;
 
-    public NearbyContext(ITripCityCatalog catalog, IServiceScopeFactory scopes, IMemoryCache cache, ILogger<NearbyContext> logger)
+    public NearbyContext(ITripCityCatalog catalog, IServiceScopeFactory scopes, IMemoryCache cache, ILogger<NearbyContext> logger, ICityResolver? resolver = null)
         : this(catalog, cache, async ct =>
         {
             try
@@ -33,24 +34,25 @@ public sealed class NearbyContext : INearbyContext
                 logger.LogWarning(ex, "nearby.states.failed");
                 return Array.Empty<string>();
             }
-        })
+        }, resolver)
     {
     }
 
-    internal NearbyContext(ITripCityCatalog catalog, IMemoryCache cache, Func<CancellationToken, Task<IReadOnlyList<string>>> states)
+    internal NearbyContext(ITripCityCatalog catalog, IMemoryCache cache, Func<CancellationToken, Task<IReadOnlyList<string>>> states, ICityResolver? resolver = null)
     {
+        _resolver = resolver;
         _catalog = catalog;
         _cache = cache;
         _states = states;
     }
 
     public async Task<NearbyCity?> NearestCityAsync(double lat, double lng, CancellationToken ct = default)
-        => Nearest(await _catalog.GetAsync(ct), lat, lng);
+        => await CityOfAsync(await _catalog.GetAsync(ct), lat, lng);
 
     public async Task<NearbyHeaderDto> HeaderAsync(double lat, double lng, double? nearestKm, CancellationToken ct = default)
     {
         var snapshot = await _catalog.GetAsync(ct);
-        var city = Nearest(snapshot, lat, lng);
+        var city = await CityOfAsync(snapshot, lat, lng);
         var states = await LiveStatesAsync(ct);
         return new NearbyHeaderDto
         {
@@ -70,6 +72,22 @@ public sealed class NearbyContext : INearbyContext
         var list = await _states(ct);
         if (list.Count > 0) _cache.Set(StatesKey, list, StatesTtl);
         return list;
+    }
+
+    // The one city rule: the parent city of the pin (ICityResolver); the plain nearest city only when it has no answer.
+    private async Task<NearbyCity?> CityOfAsync(TripCityCatalogSnapshot? snapshot, double lat, double lng)
+    {
+        if (_resolver != null)
+        {
+            try
+            {
+                var pin = await _resolver.ResolveAsync(lat, lng);
+                if (pin.City is { } c)
+                    return new NearbyCity(c.CityKey, c.Name, c.StateName, c.DistrictName, c.Latitude, c.Longitude, HaversineKm(lat, lng, c.Latitude, c.Longitude));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { }
+        }
+        return Nearest(snapshot, lat, lng);
     }
 
     private static NearbyCity? Nearest(TripCityCatalogSnapshot? snapshot, double lat, double lng)

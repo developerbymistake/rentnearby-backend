@@ -6,7 +6,7 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services;
 
-public sealed class CityResolver(ITaxiWaysNetwork network, IOptions<TaxiWaysOptions> options) : ICityResolver
+public sealed class CityResolver(ITaxiWaysNetwork network, IOptions<TaxiWaysOptions> options, ParentCityResolver? parent = null) : ICityResolver
 {
     private static readonly ConditionalWeakTable<TaxiWaysNetworkSnapshot, Dictionary<long, TripCityInfo>> ByKey = new();
 
@@ -20,6 +20,7 @@ public sealed class CityResolver(ITaxiWaysNetwork network, IOptions<TaxiWaysOpti
 
     public async Task<CityPin> ResolveAsync(double lat, double lng)
     {
+        if (parent != null) return await parent.ResolveAsync(lat, lng);
         if (await UsableAsync() is not { } s) return new CityPin(false, null);
         return new CityPin(true, TaxiWaysSearchEngine.NearestCity(s, lat, lng, options.Value.CityResolveMeters));
     }
@@ -33,9 +34,12 @@ public sealed class CityResolver(ITaxiWaysNetwork network, IOptions<TaxiWaysOpti
 
     public async Task<IReadOnlyList<T>> FilterAsync<T>(IEnumerable<T> items, Func<T, (double Lat, double Lng)?> point, long cityKey)
     {
+        if (parent != null) return await parent.FilterAsync(items, point, cityKey);
         if (await UsableAsync() is not { } s) return [];
         return TaxiWaysSearchEngine.InCity(s, items, point, cityKey, options.Value);
     }
+
+    public Task WarmAsync(double lat, double lng) => parent?.WarmAsync(lat, lng) ?? Task.CompletedTask;
 }
 
 public sealed record CityFetch<T>(IReadOnlyList<T> Items, bool Capped);

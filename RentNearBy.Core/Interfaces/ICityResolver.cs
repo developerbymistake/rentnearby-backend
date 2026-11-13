@@ -15,4 +15,6 @@ public interface ICityResolver
     Task<CityPin> FindAsync(long cityKey);
     // Items whose own nearest city is cityKey; empty when unavailable.
     Task<IReadOnlyList<T>> FilterAsync<T>(IEnumerable<T> items, Func<T, (double Lat, double Lng)?> point, long cityKey);
+    // Fills the parent-city cache for a pin (call when a listing is saved); never throws.
+    Task WarmAsync(double lat, double lng);
 }

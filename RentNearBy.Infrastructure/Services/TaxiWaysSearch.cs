@@ -21,7 +21,8 @@ public class TaxiWaysSearch(
     IMemoryCache memory,
     IOptions<TaxiWaysOptions> options,
     IUnitOfWork unitOfWork,
-    ILogger<TaxiWaysSearch> logger) : ITaxiWaysSearch
+    ILogger<TaxiWaysSearch> logger,
+    ICityResolver? resolver = null) : ITaxiWaysSearch
 {
     internal sealed class DestBlock
     {
@@ -36,20 +37,20 @@ public class TaxiWaysSearch(
         var snapshot = await network.GetAsync(ct);
         if (snapshot == null) return null;
 
-        var from = TaxiWaysSearchEngine.Resolve(snapshot, q.FromLat, q.FromLng, q.FromMyLocation, o);
-        var to = TaxiWaysSearchEngine.Resolve(snapshot, q.ToLat, q.ToLng, false, o, TaxiWaysLabels.Drop);
+        var from = TaxiWaysSearchEngine.Resolve(snapshot, q.FromLat, q.FromLng, q.FromMyLocation, o, null, await PinAsync(q.FromLat, q.FromLng));
+        var to = TaxiWaysSearchEngine.Resolve(snapshot, q.ToLat, q.ToLng, false, o, TaxiWaysLabels.Drop, await PinAsync(q.ToLat, q.ToLng));
         var people = Math.Clamp(q.People, 1, o.MaxPeople);
         var redis = sp.GetService<IConnectionMultiplexer>();
         var memoryTtl = TimeSpan.FromSeconds(o.MemoryCacheSeconds);
 
         var (core, source) = await TaxiWaysPlanCache.GetAsync(
-            memory, redis, TaxiWaysKeys.Plan(snapshot.CityGrid.Count == 0 ? snapshot.Version + "~nc" : snapshot.Version, from.Ref, to.Ref, people),
+            memory, redis, TaxiWaysKeys.Plan(snapshot.CityGrid.Count == 0 ? snapshot.Version + "~nc" : CacheVersion(snapshot), from.Ref, to.Ref, people),
             TimeSpan.FromMinutes(o.PlanCacheMinutes), memoryTtl,
             () => ComputeCoreAsync(snapshot, from, to, people, o), logger, ct);
 
         var citiesUnavailable = snapshot.CityGrid.Count == 0;
         var (dest, _) = await TaxiWaysPlanCache.GetAsync(
-            memory, redis, TaxiWaysKeys.Dest(snapshot.Version, to.Key),
+            memory, redis, TaxiWaysKeys.Dest(CacheVersion(snapshot), to.Key),
             TimeSpan.FromMinutes(o.DestCacheMinutes), memoryTtl,
             () => ComputeDestAsync(snapshot, to, o), logger, ct);
 
@@ -80,6 +81,21 @@ public class TaxiWaysSearch(
         return result;
     }
 
+    private static string CacheVersion(TaxiWaysNetworkSnapshot s) => s.ParentResolved ? s.Version + "~p" : s.Version;
+
+    private async Task<CityPin?> PinAsync(double lat, double lng)
+    {
+        if (resolver == null) return null;
+        try { return await resolver.ResolveAsync(lat, lng); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return null; }
+    }
+
+    private async Task<TaxiWaysAnchor?> AnchorAsync(TaxiWaysNetworkSnapshot snapshot, string key, TaxiWaysOptions o, bool isEnd = false)
+    {
+        var pin = TaxiWaysKeys.TryParsePinned(key, out _, out var lat, out var lng) ? await PinAsync(lat, lng) : null;
+        return TaxiWaysSearchEngine.AnchorFromKey(snapshot, key, o, isEnd, pin);
+    }
+
     public async Task<WayPlanDetailDto?> PlanAsync(string planKey, int people, CancellationToken ct = default)
     {
         var o = options.Value;
@@ -90,7 +106,7 @@ public class TaxiWaysSearch(
         for (var i = 0; i < keys.Count; i++)
         {
             var key = keys[i];
-            var anchor = TaxiWaysSearchEngine.AnchorFromKey(snapshot, key, o, i == keys.Count - 1);
+            var anchor = await AnchorAsync(snapshot, key, o, i == keys.Count - 1);
             if (anchor == null) return null;
             anchors.Add(anchor);
         }
@@ -120,8 +136,8 @@ public class TaxiWaysSearch(
         var o = options.Value;
         var snapshot = await network.GetAsync(ct) ?? throw new TaxiWaysUnavailableException();
         if (!TaxiWaysKeys.TryParseLegKey(legKey, out var fromKey, out var toKey)) return null;
-        var a = TaxiWaysSearchEngine.AnchorFromKey(snapshot, fromKey, o);
-        var b = TaxiWaysSearchEngine.AnchorFromKey(snapshot, toKey, o, true);
+        var a = await AnchorAsync(snapshot, fromKey, o);
+        var b = await AnchorAsync(snapshot, toKey, o, true);
         if (a == null || b == null) return null;
 
         var people = Math.Clamp(q.People, 1, o.MaxPeople);
@@ -165,8 +181,8 @@ public class TaxiWaysSearch(
             return fares;
         }
         if (snapshot == null) return fares;
-        var a = TaxiWaysSearchEngine.AnchorFromKey(snapshot, fromKey, o);
-        var b = TaxiWaysSearchEngine.AnchorFromKey(snapshot, toKey, o, true);
+        var a = await AnchorAsync(snapshot, fromKey, o);
+        var b = await AnchorAsync(snapshot, toKey, o, true);
         if (a == null || b == null) return fares;
 
         var wanted = taxiIds.ToHashSet();
@@ -227,6 +243,13 @@ public class TaxiWaysSearch(
     // Atlas city of its OWN coordinates and is shown only when that city is the destination's. Fetch = paged boxes of CityResolveMeters
     // around the destination (any district, up to CityListings.MaxCityFetch), cut by the city rule page by page; a taxi/stay
     // without coordinates is never connected.
+    private async Task<IReadOnlyList<T>> InCityAsync<T>(
+        TaxiWaysNetworkSnapshot snapshot, IReadOnlyList<T> rows, Func<T, (double Lat, double Lng)?> point, long? cityKey, TaxiWaysOptions o)
+    {
+        if (resolver == null) return TaxiWaysSearchEngine.InCity(snapshot, rows, point, cityKey, o);
+        return cityKey == null ? [] : await resolver.FilterAsync(rows, point, cityKey.Value);
+    }
+
     private async Task<DestBlock?> ComputeDestAsync(TaxiWaysNetworkSnapshot snapshot, TaxiWaysAnchor to, TaxiWaysOptions o)
     {
         // No city list (Atlas never answered): nothing is connected and nothing is cached, so the next search retries.
@@ -240,13 +263,11 @@ public class TaxiWaysSearch(
         var radiusKm = o.CityResolveMeters / 1000;
         var taxis = await CityListings.CollectAsync<(TaxiBrowseDto Item, double Lat, double Lng)>(
             async (take, skip) => await uow.Taxis.BrowseLocalNearAsync(to.Lat, to.Lng, radiusKm, localRateOnly: true, take, skip),
-            rows => Task.FromResult<IReadOnlyList<(TaxiBrowseDto Item, double Lat, double Lng)>>(
-                TaxiWaysSearchEngine.InCity(snapshot, rows, x => (x.Lat, x.Lng), cityKey, o)));
+            rows => InCityAsync(snapshot, rows, x => (x.Lat, x.Lng), cityKey, o));
         block.LocalTaxis = taxis.Items.Select(x => x.Item).Take(o.MaxLocalTaxis).ToList();
         var stays = await CityListings.CollectAsync<StayNearbyDto>(
             async (take, skip) => (await uow.Stays.GetNearbyAsync(to.Lat, to.Lng, radiusKm, null, null, take, skip)).ToList(),
-            rows => Task.FromResult<IReadOnlyList<StayNearbyDto>>(
-                TaxiWaysSearchEngine.InCity(snapshot, rows, st => ((double)st.Latitude, (double)st.Longitude), cityKey, o)));
+            rows => InCityAsync(snapshot, rows, st => ((double)st.Latitude, (double)st.Longitude), cityKey, o));
         block.Stays = stays.Items.Take(o.MaxStays).ToList();
         if (taxis.Capped || stays.Capped) logger.LogWarning("taxi.ways.dest.capped {CityKey} {Max}", cityKey, CityListings.MaxCityFetch);
         return block;

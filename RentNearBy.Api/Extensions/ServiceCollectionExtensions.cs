@@ -89,6 +89,9 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<IOsrmClient, OsrmClient>();
         services.AddSingleton<ITripSpotCache, TripSpotCache>();
         services.AddSingleton<ITripCityCatalog, TripCityCatalog>();
+        services.AddSingleton<CityResolveCache>();
+        services.AddSingleton<IAreaGeocoder>(sp => (IAreaGeocoder)sp.GetRequiredService<IGeocodingService>());
+        services.AddSingleton<ParentCityResolver>();
         services.AddSingleton<ICityResolver, CityResolver>();
         services.AddSingleton<INearbyContext, NearbyContext>();
         services.AddScoped<INearbyFeedQuery, NearbyFeedQuery>();

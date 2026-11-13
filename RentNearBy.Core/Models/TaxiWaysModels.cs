@@ -1,3 +1,4 @@
+using RentNearBy.Core.Interfaces;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -207,6 +208,8 @@ public sealed class TaxiWaysNetworkSnapshot
     public Dictionary<long, List<TripCityInfo>> CityGrid { get; init; } = new();
     // The Atlas catalog was never available when this snapshot was built (clusters only); it is retried soon.
     public bool CitiesMissing { get; init; }
+    // Route ends were placed by their parent city (not the nearest one); part of every cache key.
+    public bool ParentResolved { get; init; }
 
     public IEnumerable<TaxiWaysLink> LinksAt(string placeKey) =>
         Adjacency.TryGetValue(placeKey, out var list) ? list.Select(i => Links[i]) : [];
@@ -674,7 +677,8 @@ public static class TaxiWaysClustering
 
     public static TaxiWaysNetworkSnapshot Build(
         IReadOnlyList<TaxiWaysSourceRow> rows, IReadOnlyList<TripCityInfo>? atlasCities,
-        TaxiWaysOptions o, string version, DateTime builtAt, bool citiesMissing = false)
+        TaxiWaysOptions o, string version, DateTime builtAt, bool citiesMissing = false,
+        Func<double, double, TripCityInfo?>? endCity = null)
     {
         var places = new Dictionary<string, TaxiWaysPlace>(StringComparer.Ordinal);
         var fromPlaceOf = new string[rows.Count];
@@ -695,7 +699,7 @@ public static class TaxiWaysClustering
             var r = rows[i];
             foreach (var end in new[] { new EndPoint(i, true, r.FromName, r.FromLat, r.FromLng), new EndPoint(i, false, r.ToName, r.ToLat, r.ToLng) })
             {
-                var city = NearestAtlas(atlasGrid, end.Lat, end.Lng, o.CityResolveMeters);
+                var city = endCity?.Invoke(end.Lat, end.Lng) ?? NearestAtlas(atlasGrid, end.Lat, end.Lng, o.CityResolveMeters);
                 if (city == null) { unmatched.Add(end); continue; }
                 var key = TaxiWaysKeys.PlaceKeyAtlas(city.CityKey);
                 if (!places.ContainsKey(key))
@@ -824,7 +828,7 @@ public static class TaxiWaysClustering
         return new TaxiWaysNetworkSnapshot
         {
             Version = version, BuiltAt = builtAt, Places = places, Links = links, Adjacency = adjacency, Pairs = pairs,
-            Drivers = drivers, Routes = routes, PlaceGrid = placeGrid, RouteGrid = routeGrid, CityGrid = atlasGrid, CitiesMissing = citiesMissing,
+            Drivers = drivers, Routes = routes, PlaceGrid = placeGrid, RouteGrid = routeGrid, CityGrid = atlasGrid, CitiesMissing = citiesMissing, ParentResolved = endCity != null,
         };
     }
 
@@ -936,12 +940,14 @@ public static class TaxiWaysSearchEngine
 {
     // One city for the pin: the single nearest Atlas city (within CityResolveMeters). Without an Atlas list (clusters only) the
     // nearest place within SamePlaceMeters. The anchor keeps the exact pin, so routes passing near it are matched along the road.
-    public static TaxiWaysAnchor Resolve(TaxiWaysNetworkSnapshot s, double lat, double lng, bool myLocation, TaxiWaysOptions o, string? fallbackName = null)
+    public static TaxiWaysAnchor Resolve(TaxiWaysNetworkSnapshot s, double lat, double lng, bool myLocation, TaxiWaysOptions o, string? fallbackName = null,
+        CityPin? pin = null)
     {
         TaxiWaysPlace? place = null;
         if (s.CityGrid.Count > 0)
         {
-            if (NearestCity(s, lat, lng, o.CityResolveMeters) is { } city)
+            var found = pin is { Available: true } ? pin.City : NearestCity(s, lat, lng, o.CityResolveMeters);
+            if (found is { } city)
             {
                 var key = TaxiWaysKeys.PlaceKeyAtlas(city.CityKey);
                 place = s.Places.TryGetValue(key, out var known) ? known
@@ -993,11 +999,11 @@ public static class TaxiWaysSearchEngine
     }
 
     // Rebuilds an anchor from a key of a plan or leg key; null when the key is a place no longer in the snapshot.
-    public static TaxiWaysAnchor? AnchorFromKey(TaxiWaysNetworkSnapshot s, string key, TaxiWaysOptions o, bool isEnd = false)
+    public static TaxiWaysAnchor? AnchorFromKey(TaxiWaysNetworkSnapshot s, string key, TaxiWaysOptions o, bool isEnd = false, CityPin? pin = null)
     {
         if (TaxiWaysKeys.TryParsePinned(key, out var baseKey, out var pinLat, out var pinLng))
         {
-            var pinned = Resolve(s, pinLat, pinLng, false, o);
+            var pinned = Resolve(s, pinLat, pinLng, false, o, null, pin);
             if (pinned.Key == baseKey) return pinned;
             key = baseKey;
         }

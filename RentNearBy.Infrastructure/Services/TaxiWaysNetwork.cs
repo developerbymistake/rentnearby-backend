@@ -52,6 +52,32 @@ public class TaxiWaysNetwork(
         }
     }
 
+    // Second pass: route ends move to their parent city (Kathgodam end = Haldwani). The nearest-city snapshot serves until then;
+    // it is replaced only if no newer build took its place meanwhile.
+    private async Task RefineAsync(
+        ParentCityResolver parent, TaxiWaysNetworkSnapshot first, IReadOnlyList<TaxiWaysSourceRow> rows,
+        IReadOnlyList<TripCityInfo> cities, string version)
+    {
+        try
+        {
+            var ends = rows.SelectMany(r => new[] { (r.FromLat, r.FromLng), (r.ToLat, r.ToLng) }).Distinct().ToList();
+            var parents = new System.Collections.Concurrent.ConcurrentDictionary<(double, double), TripCityInfo?>();
+            await Parallel.ForEachAsync(ends, new ParallelOptions { MaxDegreeOfParallelism = 8 },
+                async (e, _) => parents[e] = await parent.ParentOfAsync(first, e.Item1, e.Item2));
+            var refined = TaxiWaysClustering.Build(rows, cities, options.Value, version, first.BuiltAt, citiesMissing: false,
+                endCity: (la, ln) => parents.GetValueOrDefault((la, ln)));
+            lock (_gate)
+            {
+                if (ReferenceEquals(_current, first)) _current = refined;
+            }
+            logger.LogInformation("taxi.ways.parent.refined {Ends} {Places}", ends.Count, refined.Places.Count);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("taxi.ways.parent.refine failed: {Error}", ex.Message);
+        }
+    }
+
     private async Task<TaxiWaysNetworkSnapshot?> BuildAsync(string version)
     {
         try
@@ -80,6 +106,8 @@ public class TaxiWaysNetwork(
             var snapshot = TaxiWaysClustering.Build(rows, cities, options.Value, version, DateTime.UtcNow, citiesMissing: cities == null);
             _current = snapshot;
             logger.LogInformation("taxi.ways.rebuild {Places} {Links} {Ms}", snapshot.Places.Count, snapshot.Links.Count, watch.ElapsedMilliseconds);
+            if (cities != null && sp.GetService<ParentCityResolver>() is { } parent)
+                _ = Task.Run(() => RefineAsync(parent, snapshot, rows, cities, version));
             return snapshot;
         }
         catch (Exception ex)

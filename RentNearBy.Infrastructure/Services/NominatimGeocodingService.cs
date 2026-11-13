@@ -7,7 +7,7 @@ using RentNearBy.Core.Interfaces;
 
 namespace RentNearBy.Infrastructure.Services;
 
-public class NominatimGeocodingService : IGeocodingService
+public class NominatimGeocodingService : IGeocodingService, IAreaGeocoder
 {
     private readonly HttpClient _http;
     private static readonly WKTReader WktReader = new();
@@ -68,6 +68,21 @@ public class NominatimGeocodingService : IGeocodingService
             var placeName = result.Address?.City ?? result.Address?.Town ?? result.Address?.Municipality
                 ?? result.Address?.Village ?? result.Address?.Suburb ?? result.Address?.County;
             return new ReverseGeocodeResult(result.DisplayName, placeName?.Trim());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<AreaAddress?> ReverseAreaAsync(double lat, double lng, CancellationToken ct = default)
+    {
+        var url = $"reverse?lat={lat.ToString(CultureInfo.InvariantCulture)}&lon={lng.ToString(CultureInfo.InvariantCulture)}&format=jsonv2&zoom=14&addressdetails=1";
+        try
+        {
+            var result = await _http.GetFromJsonAsync<NominatimReverseResult>(url, ct);
+            var a = result?.Address;
+            return new AreaAddress(a?.City, a?.Town, a?.Village, a?.County);
         }
         catch
         {
