@@ -134,6 +134,13 @@ public static class NainitalDemoSeeder
         var taxiCount = 0;
         var rewritten = 0;
 
+        // Earlier versions pointed demo photos at picsum.photos, which is not our storage. Real photos live in Cloudinary.
+        var fakeStayPhotos = await db.StayPhotos.Where(p => p.PhotoUrl.StartsWith("https://picsum.photos/")).ToListAsync();
+        db.StayPhotos.RemoveRange(fakeStayPhotos);
+        var fakePlates = await db.TaxiListings.Where(t => t.PlatePhotoUrl != null && t.PlatePhotoUrl.StartsWith("https://picsum.photos/")).ToListAsync();
+        foreach (var t in fakePlates) { t.PlatePhotoUrl = null; t.PlatePhotoPath = null; }
+        rewritten += fakeStayPhotos.Count + fakePlates.Count;
+
         for (var i = 0; i < Stays.Length; i++)
         {
             var s = Stays[i];
@@ -194,15 +201,6 @@ public static class NainitalDemoSeeder
                     CreatedAt = now, UpdatedAt = now,
                 });
             }
-            for (var p = 0; p < 4; p++)
-            {
-                stay.Photos.Add(new StayPhoto
-                {
-                    Id = Guid.NewGuid(), StayListingId = stayId, PhotoOrder = p,
-                    PhotoUrl = $"https://picsum.photos/seed/demo-stay-{i + 1}-{p + 1}/900/600",
-                    FilePath = $"demo/stay-{i + 1}-{p + 1}", UploadedAt = now,
-                });
-            }
             db.Users.Add(user);
             db.StayListings.Add(stay);
             stayCount++;
@@ -231,8 +229,6 @@ public static class NainitalDemoSeeder
                 VehicleTypeId = vehicle.Id,
                 Seats = t.Seats,
                 NumberPlate = TaxiPlate.Normalize(t.Plate),
-                PlatePhotoUrl = $"https://picsum.photos/seed/demo-plate-{i + 1}/800/500",
-                PlatePhotoPath = $"demo/plate-{i + 1}",
                 ContactPhone = phone,
                 WhatsAppNumber = phone,
                 DrivingLicenceNumberEnc = cipher.IsConfigured ? cipher.Protect(dl) : "demo-not-encrypted",
