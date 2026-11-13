@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261112095946_InitialCreate")]
+    [Migration("20261113150739_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
