@@ -313,8 +313,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
         string? RoomsJson, bool HasGroundFloorRoom, string? CityName, string? DistrictName);
 
     public async Task<IEnumerable<StayNearbyDto>> GetNearestAsync(
-        double latitude, double longitude, int count, Guid districtId, Guid? stayTypeId)
+        double latitude, double longitude, int count, Guid? districtId, Guid? stayTypeId, double? maxKm = null)
     {
+        double? maxMeters = maxKm is { } km ? km * 1000 : null;
         // <-> is KNN-index-assisted by ix_staylistings_location_gist; the n rows are re-sorted paid rank first.
         var rows = await context.Database
             .SqlQuery<KnnQueryResult>($"""
@@ -359,7 +360,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                   AND s."AcceptingGuests" = TRUE
                   AND s."IsDeleted" = FALSE
                   AND s."Location" IS NOT NULL
-                  AND s."DistrictId" = {districtId}
+                  AND ({districtId}::uuid IS NULL OR s."DistrictId" = {districtId}::uuid)
+                  AND ({maxMeters}::float8 IS NULL OR ST_DWithin(s."Location", ST_MakePoint({longitude}, {latitude})::geography, {maxMeters}::float8))
                   AND ({stayTypeId}::uuid IS NULL OR s."StayTypeId" = {stayTypeId}::uuid)
                 ORDER BY s."Location" <-> ST_MakePoint({longitude}, {latitude})::geography
                 LIMIT {count}

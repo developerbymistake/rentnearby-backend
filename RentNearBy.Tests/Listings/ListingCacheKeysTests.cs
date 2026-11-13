@@ -35,11 +35,17 @@ public class ListingCacheKeysTests
     public void GlobalGenKeys_Taxi_Search()
         => Assert.Equal(new[] { "taxis:search:gen" }, ListingCacheKeys.GlobalGenKeys(ListingKinds.Taxi));
 
-    [Theory]
-    [InlineData("Stay")]
-    [InlineData("Unknown")]
-    public void GlobalGenKeys_OtherKinds_Empty(string kind)
-        => Assert.Empty(ListingCacheKeys.GlobalGenKeys(kind));
+    [Fact]
+    public void GlobalGenKeys_Stay_DistanceOnlyGeneration()
+        => Assert.Equal(new[] { "stays:gen:all" }, ListingCacheKeys.GlobalGenKeys(ListingKinds.Stay));
+
+    [Fact]
+    public void GlobalGenKeys_Unknown_Empty()
+        => Assert.Empty(ListingCacheKeys.GlobalGenKeys("Unknown"));
+
+    [Fact]
+    public void StayAllGen_CannotCollideWithADistrictGeneration()
+        => Assert.NotEqual(ListingCacheKeys.StayAllGen, ListingCacheKeys.StayGen(District));
 
     [Fact]
     public void GenKeys_NeverMatchAFeedKey()

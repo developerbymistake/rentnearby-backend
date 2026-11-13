@@ -13,7 +13,8 @@ public class StayCityNearbyTests
 
     private static Task<IResult> Nearby(long cityKey, ICityResolver resolver,
         IUnitOfWork uow, double? lat = null, double? lng = null)
-        => StayHandlers.GetNearby(lat, lng, null, null, null, cityKey, uow, resolver, Anonymous, CityFixture.NoRedis());
+        => StayHandlers.GetNearby(lat, lng, null, null, null, cityKey, uow, resolver, Anonymous, CityFixture.NoRedis(),
+            new CityFixture.AllowAll(), new DefaultHttpContext());
 
     private static List<Guid> Ids(System.Text.Json.JsonElement data) =>
         data.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("Id").GetGuid()).ToList();
@@ -107,20 +108,54 @@ public class StayCityNearbyTests
         Assert.Equal([near.Id], Ids(result.Data));
     }
 
+    private static Task<IResult> District(double? lat, double? lng, double? radius, Guid? district, IUnitOfWork uow, ICityResolver r)
+        => StayHandlers.GetNearby(lat, lng, radius, district, null, null, uow, r, Anonymous, CityFixture.NoRedis(),
+            new CityFixture.AllowAll(), new DefaultHttpContext());
+
     [Fact]
-    public async Task Old_district_shape_still_needs_radius_district_and_coordinates()
+    public async Task Bad_radius_or_coordinates_are_400_for_the_district_and_the_distance_only_shapes()
     {
         var (uow, stays, _) = CityFixture.Uow();
         var r = CityFixture.Resolver(CityFixture.Haldwani);
 
-        var noRadius = await StayHandlers.GetNearby(29.2, 79.5, null, Guid.NewGuid(), null, null, uow, r, Anonymous, CityFixture.NoRedis());
-        var noDistrict = await StayHandlers.GetNearby(29.2, 79.5, 5, null, null, null, uow, r, Anonymous, CityFixture.NoRedis());
-        var noPin = await StayHandlers.GetNearby(null, null, 5, Guid.NewGuid(), null, null, uow, r, Anonymous, CityFixture.NoRedis());
-
-        Assert.Equal(400, CityFixture.Read(noRadius).Status);
-        Assert.Equal(400, CityFixture.Read(noDistrict).Status);
-        Assert.Equal(400, CityFixture.Read(noPin).Status);
+        foreach (var district in new Guid?[] { Guid.NewGuid(), null })
+        {
+            Assert.Equal(400, CityFixture.Read(await District(29.2, 79.5, null, district, uow, r)).Status);
+            Assert.Equal(400, CityFixture.Read(await District(29.2, 79.5, 0.5, district, uow, r)).Status);
+            Assert.Equal(400, CityFixture.Read(await District(29.2, 79.5, 51, district, uow, r)).Status);
+            Assert.Equal(400, CityFixture.Read(await District(null, null, 5, district, uow, r)).Status);
+            Assert.Equal(400, CityFixture.Read(await District(91, 79.5, 5, district, uow, r)).Status);
+        }
         Assert.Equal(0, stays.Calls);
+    }
+
+    [Fact]
+    public async Task Without_district_or_city_nearby_is_distance_only_and_cuts_at_the_radius()
+    {
+        var (uow, stays, _) = CityFixture.Uow();
+        var inside = CityFixture.Stay((29.2185, 79.5131));
+        var outside = CityFixture.Stay((29.40, 79.60));
+        stays.All = [outside, inside];
+
+        var result = CityFixture.Read(await District(29.2185, 79.5131, 6, null, uow, CityFixture.Resolver(CityFixture.Haldwani)));
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(stays.SeenDistrict);
+        Assert.Equal([inside.Id], Ids(result.Data));
+    }
+
+    [Fact]
+    public async Task Nearby_answers_get_the_map_thumbnail()
+    {
+        var (uow, stays, _) = CityFixture.Uow();
+        var s = CityFixture.Stay((29.2185, 79.5131));
+        s.ThumbnailUrl = "https://res.cloudinary.com/demo/image/upload/v1/a.jpg";
+        stays.All = [s];
+
+        var result = CityFixture.Read(await District(29.2185, 79.5131, 6, null, uow, CityFixture.Resolver(CityFixture.Haldwani)));
+
+        var url = result.Data.GetProperty("items")[0].GetProperty("ThumbnailUrl").GetString();
+        Assert.Contains("c_fill,w_480,h_360,q_auto,f_auto", url);
     }
 
     [Fact]

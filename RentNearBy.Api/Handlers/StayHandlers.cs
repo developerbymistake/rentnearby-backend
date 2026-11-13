@@ -45,6 +45,13 @@ public static class StayCache
     public static string CityKey(long cityKey, Guid? stayTypeId) => $"stays:city:{cityKey}:{stayTypeId:N}";
     public static readonly TimeSpan CityTtl = TimeSpan.FromSeconds(60);
 
+    // Distance-only nearby/nearest (no district, no city): the cell candidate set, stamped with ListingCacheKeys.StayAllGen.
+    public static string AnyNearbyKey(Guid? stayTypeId, double radius, GeoCell cell)
+        => string.Create(CultureInfo.InvariantCulture, $"stays:nearby:any:{stayTypeId:N}:{GeoCacheKey.RadiusKey(radius):F1}:{cell.Key}");
+
+    public static string AnyNearestKey(Guid? stayTypeId, int count, GeoCell cell)
+        => string.Create(CultureInfo.InvariantCulture, $"stays:nearest:any:{stayTypeId:N}:{count}:{cell.Key}");
+
     public static string GenKey(Guid districtId) => ListingCacheKeys.StayGen(districtId);
 
     public static async Task InvalidateAsync(IConnectionMultiplexer? redis, Guid? districtId)
@@ -56,7 +63,8 @@ public static class StayCache
             await redis.GetDatabase().KeyDeleteAsync(RecentKey);
         }
         catch { /* best-effort: TTL (<= 60s) covers Redis failures */ }
-        if (districtId is { } id) await FeedCache.BumpAsync(redis, new[] { GenKey(id) });
+        var gens = districtId is { } id ? new[] { GenKey(id), ListingCacheKeys.StayAllGen } : new[] { ListingCacheKeys.StayAllGen };
+        await FeedCache.BumpAsync(redis, gens);
     }
 }
 
@@ -77,6 +85,7 @@ public static class StayHandlers
     private const int ReportSubmitMax = 5;
     private static readonly TimeSpan NearestRateLimitWindow = TimeSpan.FromMinutes(10);
     private const int NearestRateLimitMax = 20;
+    private const int NearbyRateLimitMax = 120;
     private const int DefaultPageSize = 10;
     private const int MaxPageSize = 30;
     private const string StayNotFound = "Stay not found";
@@ -153,9 +162,9 @@ public static class StayHandlers
     }
 
     private static async Task<(List<StayNearbyDto>? Items, long? Generation)> ReadNearbyCacheAsync(
-        IConnectionMultiplexer? redis, string key, Guid districtId)
+        IConnectionMultiplexer? redis, string key, string genKey)
     {
-        var (cached, generation) = await FeedCache.ReadAsync(redis, key, StayCache.GenKey(districtId));
+        var (cached, generation) = await FeedCache.ReadAsync(redis, key, genKey);
         if (cached == null) return (null, generation);
         try { return (JsonSerializer.Deserialize<List<StayNearbyDto>>(cached), generation); }
         catch (JsonException) { return (null, generation); }
@@ -168,7 +177,8 @@ public static class StayHandlers
     // With cityKey the stays are the ones whose own nearest city is that city (any district, no radius); the pin only sorts.
     public static async Task<IResult> GetNearby(
         double? latitude, double? longitude, double? radius, Guid? districtId, Guid? stayTypeId, long? cityKey,
-        IUnitOfWork unitOfWork, ICityResolver resolver, ClaimsPrincipal principal, IServiceProvider sp, int? guests = null,
+        IUnitOfWork unitOfWork, ICityResolver resolver, ClaimsPrincipal principal, IServiceProvider sp,
+        IRateLimitService rateLimiter, HttpContext httpContext, int? guests = null,
         bool? groundFloor = null, int? rooms = null, int? nights = null)
     {
         if (PartyError(guests, rooms, nights) is { } partyError) return partyError;
@@ -180,10 +190,47 @@ public static class StayHandlers
         }
         if (radius is not { } radiusKm || radiusKm < 1 || radiusKm > 50)
             return BadRequestResponse("Radius must be between 1 and 50 km");
-        if (districtId is not { } district) return BadRequestResponse("District is required");
-        if (latitude is not { } lat || longitude is not { } lng || lat < -90 || lat > 90 || lng < -180 || lng > 180)
+        if (latitude is not { } lat || longitude is not { } lng || double.IsNaN(lat) || double.IsNaN(lng)
+            || lat < -90 || lat > 90 || lng < -180 || lng > 180)
             return BadRequestResponse("Invalid coordinates");
+        if (districtId is not { } district)
+        {
+            if (await RateLimited(rateLimiter, httpContext, "stays:nearby:ip", NearbyRateLimitMax) is { } limit) return limit;
+            return await AnyNearbyAsync(lat, lng, radiusKm, stayTypeId, unitOfWork, principal, sp, guests, groundFloor, rooms, nights);
+        }
         return await DistrictNearbyAsync(lat, lng, radiusKm, district, stayTypeId, unitOfWork, principal, sp, guests, groundFloor, rooms, nights);
+    }
+
+    private static async Task<IResult?> RateLimited(IRateLimitService rateLimiter, HttpContext httpContext, string prefix, int max)
+    {
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var rl = await rateLimiter.CheckAsync($"{prefix}:{ip}", max, NearestRateLimitWindow);
+        if (rl.IsAllowed) return null;
+        httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
+        return TooManyRequestsResponse();
+    }
+
+    // No district, no city: every approved stay inside the radius (cached per ~110 m cell, one global generation).
+    private static async Task<IResult> AnyNearbyAsync(
+        double latitude, double longitude, double radius, Guid? stayTypeId,
+        IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, int? guests, bool? groundFloor, int? rooms, int? nights)
+    {
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var cell = GeoCacheKey.Cell(latitude, longitude);
+        var cacheKey = StayCache.AnyNearbyKey(stayTypeId, radius, cell);
+
+        var (candidates, generation) = await ReadNearbyCacheAsync(redis, cacheKey, ListingCacheKeys.StayAllGen);
+        if (candidates == null)
+        {
+            candidates = (await unitOfWork.Stays.GetNearbyAsync(
+                cell.CenterLat, cell.CenterLng, GeoCacheKey.CandidateRadiusKm(cell, radius), null, stayTypeId)).ToList();
+            await WriteNearbyCacheAsync(redis, cacheKey, generation, candidates, StayCache.NearbyTtl);
+        }
+
+        var items = StayGeoRefine.WithinRadius(candidates, latitude, longitude, radius);
+        items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
+        if (principal.Identity?.IsAuthenticated != true) RedactForAnonymous(items);
+        return OkResponse(new { items = StayGeoRefine.WithMapThumbs(items) });
     }
 
     private static bool CoordinateError(double? latitude, double? longitude)
@@ -215,7 +262,7 @@ public static class StayHandlers
         var items = StayCityRank.Order(candidates, latitude ?? city.Latitude, longitude ?? city.Longitude, count);
         items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
         if (principal.Identity?.IsAuthenticated != true) RedactForAnonymous(items);
-        return OkResponse(new { items });
+        return OkResponse(new { items = StayGeoRefine.WithMapThumbs(items) });
     }
 
     private static async Task<(List<StayNearbyDto>? Items, long? Generation)> ReadCityStaysAsync(IConnectionMultiplexer? redis, string key)
@@ -236,7 +283,7 @@ public static class StayHandlers
         var cell = GeoCacheKey.Cell(latitude, longitude);
         var cacheKey = StayCache.NearbyKey(districtId, stayTypeId, radius, cell);
 
-        var (candidates, generation) = await ReadNearbyCacheAsync(redis, cacheKey, districtId);
+        var (candidates, generation) = await ReadNearbyCacheAsync(redis, cacheKey, StayCache.GenKey(districtId));
         if (candidates == null)
         {
             candidates = (await unitOfWork.Stays.GetNearbyAsync(
@@ -247,7 +294,7 @@ public static class StayHandlers
         var items = StayGeoRefine.WithinRadius(candidates, latitude, longitude, radius);
         items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
         if (!isAuth) RedactForAnonymous(items);
-        return OkResponse(new { items });
+        return OkResponse(new { items = StayGeoRefine.WithMapThumbs(items) });
     }
 
     // Party params of the nearby quote, each optional: guests up to StayPartyFit.MaxGuests, rooms 1..MaxRoomsWanted, nights 1..30.
@@ -270,19 +317,12 @@ public static class StayHandlers
         if (PartyError(guests, rooms, nights) is { } partyError) return partyError;
         if (cityKey == null)
         {
-            if (districtId is null) return BadRequestResponse("District is required");
             if (latitude is not (>= -90 and <= 90) || longitude is not (>= -180 and <= 180))
                 return BadRequestResponse("Invalid coordinates");
         }
         else if (CoordinateError(latitude, longitude)) return BadRequestResponse("Invalid coordinates");
 
-        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var rl = await rateLimiter.CheckAsync($"stays:nearest:ip:{ip}", NearestRateLimitMax, NearestRateLimitWindow);
-        if (!rl.IsAllowed)
-        {
-            httpContext.Response.Headers["Retry-After"] = ((int)rl.RetryAfter!.Value.TotalSeconds).ToString();
-            return TooManyRequestsResponse();
-        }
+        if (await RateLimited(rateLimiter, httpContext, "stays:nearest:ip", NearestRateLimitMax) is { } limited) return limited;
 
         if (cityKey != null)
             return await CityStaysAsync(cityKey.Value, latitude, longitude, count, stayTypeId, unitOfWork, resolver, principal, sp,
@@ -290,13 +330,16 @@ public static class StayHandlers
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         var isAuth = principal.Identity?.IsAuthenticated == true;
-        var districtGuid = districtId!.Value;
         var lat = latitude!.Value;
         var lng = longitude!.Value;
         var cell = GeoCacheKey.Cell(lat, lng);
+
+        if (districtId is not { } districtGuid)
+            return await AnyNearestAsync(lat, lng, count, stayTypeId, cell, unitOfWork, redis, isAuth, guests, groundFloor, rooms, nights);
+
         var cacheKey = StayCache.NearestKey(districtGuid, stayTypeId, count, cell);
 
-        var (candidates, generation) = await ReadNearbyCacheAsync(redis, cacheKey, districtGuid);
+        var (candidates, generation) = await ReadNearbyCacheAsync(redis, cacheKey, StayCache.GenKey(districtGuid));
         if (candidates == null)
         {
             var knn = (await unitOfWork.Stays.GetNearestAsync(cell.CenterLat, cell.CenterLng, count, districtGuid, stayTypeId)).ToList();
@@ -309,7 +352,30 @@ public static class StayHandlers
         var items = StayGeoRefine.Nearest(candidates, lat, lng, count);
         items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
         if (!isAuth) RedactForAnonymous(items);
-        return OkResponse(new { items });
+        return OkResponse(new { items = StayGeoRefine.WithMapThumbs(items) });
+    }
+
+    // No district, no city: the nearest stays by distance, only within StayLimits.NearestMaxKm of the caller.
+    private static async Task<IResult> AnyNearestAsync(
+        double lat, double lng, int count, Guid? stayTypeId, GeoCell cell, IUnitOfWork unitOfWork, IConnectionMultiplexer? redis,
+        bool isAuth, int? guests, bool? groundFloor, int? rooms, int? nights)
+    {
+        var cacheKey = StayCache.AnyNearestKey(stayTypeId, count, cell);
+        var (candidates, generation) = await ReadNearbyCacheAsync(redis, cacheKey, ListingCacheKeys.StayAllGen);
+        if (candidates == null)
+        {
+            var knn = (await unitOfWork.Stays.GetNearestAsync(
+                cell.CenterLat, cell.CenterLng, count, null, stayTypeId, StayGeoRefine.CentreCapKm(cell, StayLimits.NearestMaxKm))).ToList();
+            candidates = StayGeoRefine.NearestCandidateRadiusKm(cell, knn) is { } candidateKm
+                ? (await unitOfWork.Stays.GetNearbyAsync(cell.CenterLat, cell.CenterLng, candidateKm, null, stayTypeId)).ToList()
+                : [];
+            await WriteNearbyCacheAsync(redis, cacheKey, generation, candidates, StayCache.NearestTtl);
+        }
+
+        var items = StayGeoRefine.NearestWithin(candidates, lat, lng, count, StayLimits.NearestMaxKm);
+        items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
+        if (!isAuth) RedactForAnonymous(items);
+        return OkResponse(new { items = StayGeoRefine.WithMapThumbs(items) });
     }
 
     // Share-link resolver. StayPublicSlugDto carries no owner fields, and the repository only

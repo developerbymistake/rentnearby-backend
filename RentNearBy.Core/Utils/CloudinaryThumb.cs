@@ -4,6 +4,9 @@ public static class CloudinaryThumb
 {
     public const string CityCover = "c_fill,w_480,h_360,q_auto,f_auto";
 
+    // Stay nearby/nearest map sheets.
+    public const string StayMap = "c_fill,w_480,h_360,q_auto,f_auto";
+
     private const string UploadMarker = "/image/upload/";
 
     // Cloudinary image URLs get the transformation right after /image/upload/; anything else is returned unchanged.

@@ -74,6 +74,9 @@ public static class StayLimits
     public const int MaxPhotos = 5;
     public const int MinPrice = 100;
     public const int MaxPrice = 9_900_000;
+
+    // GET /stays/nearest without district or cityKey: stays farther than this from the caller are not returned.
+    public const double NearestMaxKm = 100;
 }
 
 // Step flags and the setup percentage, always computed from the row (Photos and Rooms must be loaded).

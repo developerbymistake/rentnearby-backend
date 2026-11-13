@@ -14,6 +14,9 @@ public static class ListingCacheKeys
     public static string TaxiGen(Guid districtId) => $"taxis:gen:{districtId:N}";
     public const string TaxiSearchGen = "taxis:search:gen";
 
+    // Stay nearby/nearest without a district (distance only): one generation for every stay change anywhere.
+    public const string StayAllGen = "stays:gen:all";
+
     // District context payload (district fields + its cities), the only cell-invariant part of /context.
     public static string ContextDistrict(Guid districtId) => $"context:district:{districtId:N}";
 
@@ -36,6 +39,7 @@ public static class ListingCacheKeys
     public static string[] GlobalGenKeys(string kind) => kind switch
     {
         ListingKinds.Taxi => [TaxiSearchGen],
+        ListingKinds.Stay => [StayAllGen],
         _ => [],
     };
 
