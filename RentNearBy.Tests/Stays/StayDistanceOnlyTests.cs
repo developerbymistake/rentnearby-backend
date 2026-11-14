@@ -1,7 +1,12 @@
 using RentNearBy.Api.Handlers;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Utils;
+using Microsoft.EntityFrameworkCore;
+using RentNearBy.Infrastructure.Repositories;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Tests.Data;
+using RentNearBy.Tests.Integration;
+using RentNearBy.Tests.Integration.Journeys;
 
 namespace RentNearBy.Tests.Stays;
 
@@ -46,6 +51,18 @@ public class StayDistanceOnlyTests
         var stayLat = corner.Lat + StayLimits.NearestMaxKm / 111.195;
         Assert.True(GeoMath.HaversineKm(Cell.CenterLat, Cell.CenterLng, stayLat, corner.Lng) <= centreCap);
     }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(6)]
+    [InlineData(12)]
+    [InlineData(20)]
+    public void Candidate_radius_covers_the_requested_radius(double radius)
+        => Assert.True(GeoCacheKey.CandidateRadiusKm(Cell, radius) >= radius);
+
+    [Fact]
+    public void Candidate_radius_for_20_is_larger_than_for_12()
+        => Assert.True(GeoCacheKey.CandidateRadiusKm(Cell, 20) > GeoCacheKey.CandidateRadiusKm(Cell, 12));
 
     [Fact]
     public void Keys_have_no_district_and_differ_by_type_radius_count_and_cell()
@@ -99,5 +116,54 @@ public class StayDistanceOnlyTests
         StayGeoRefine.WithMapThumbs(items);
         Assert.Equal($"https://res.cloudinary.com/demo/image/upload/{CloudinaryThumb.StayMap}/v1/a.jpg", items[0].ThumbnailUrl);
         Assert.Equal("c_fill,w_480,h_360,q_auto,f_auto", CloudinaryThumb.StayMap);
+    }
+
+}
+
+// Needs RENTNEARBY_TEST_DB (PostGIS). Written, not run where the variable is unset.
+[Collection(IntegrationCollection.Name)]
+[Trait("Category", "Integration")]
+public class StayRadiusDbTests(TestDatabase db)
+{
+    private const double Lat = 29.2183, Lng = 79.5130;
+
+    private async Task<Guid> StayAtKmNorthAsync(JourneyHarness h, double km)
+    {
+        var id = await h.AddStayAsync(await h.AddStayOwnerAsync());
+        await using var ctx = db.CreateContext();
+        await ctx.StayListings.Where(s => s.Id == id).ExecuteUpdateAsync(x => x
+            .SetProperty(s => s.Latitude, (decimal)(Lat + km / 111.195)).SetProperty(s => s.Longitude, (decimal)Lng));
+        return id;
+    }
+
+    private async Task<HashSet<Guid>> HandlerPathAsync(double radius)
+    {
+        var cell = GeoCacheKey.Cell(Lat, Lng);
+        await using var ctx = db.CreateContext();
+        var candidates = (await new StayListingRepository(ctx).GetNearbyAsync(
+            cell.CenterLat, cell.CenterLng, GeoCacheKey.CandidateRadiusKm(cell, radius), null, null)).ToList();
+        return StayGeoRefine.WithinRadius(candidates, Lat, Lng, radius).Select(s => s.Id).ToHashSet();
+    }
+
+    [IntegrationFact]
+    public async Task Stay_at_15_km_is_missed_at_12_found_at_20_and_20_is_a_superset_of_12()
+    {
+        await using var h = new JourneyHarness(db);
+        var near = await StayAtKmNorthAsync(h, 5);
+        var mid = await StayAtKmNorthAsync(h, 15);
+        var r12 = await HandlerPathAsync(12);
+        var r20 = await HandlerPathAsync(20);
+        Assert.Contains(near, r12);
+        Assert.DoesNotContain(mid, r12);
+        Assert.Contains(mid, r20);
+        Assert.True(r12.IsSubsetOf(r20));
+    }
+
+    [IntegrationFact]
+    public async Task Stay_at_25_km_is_not_returned_at_20()
+    {
+        await using var h = new JourneyHarness(db);
+        var far = await StayAtKmNorthAsync(h, 25);
+        Assert.DoesNotContain(far, await HandlerPathAsync(20));
     }
 }
