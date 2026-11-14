@@ -84,6 +84,19 @@ public class ParentCityResolverTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_route_end_takes_only_a_geocoder_named_parent_never_the_nearest_city()
+    {
+        var snapshot = TaxiWaysClustering.Build([], [Haldwani, Kathgodam, Bhimtal, Lalkuan], new TaxiWaysOptions(), "t", DateTime.UtcNow);
+        var g = Geo();
+        g.Places.Add((29.0334, 79.4737, new AreaAddress("Pantnagar", null, null, null)));
+        var r = Make(g);
+        Assert.Equal("Haldwani", (await r.NamedParentOfAsync(snapshot, Kathgodam.Latitude, Kathgodam.Longitude))?.Name);
+        Assert.Null(await r.NamedParentOfAsync(snapshot, 29.0334, 79.4737));
+        g.Down = true;
+        Assert.Null(await Make(g).NamedParentOfAsync(snapshot, 29.1, 79.5));
+    }
+
+    [Fact]
     public async Task Name_in_another_district_is_not_matched()
     {
         var other = City(9, "Haldwani", 29.2183, 79.5130, "Other");

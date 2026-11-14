@@ -42,6 +42,12 @@ public class WayBestDto
     public string Reason { get; set; } = string.Empty;
 }
 
+public static class WayDriverSections
+{
+    public const string Direct = "direct";
+    public const string OnTheWay = "onTheWay";
+}
+
 public class WayDriverDto
 {
     public Guid TaxiId { get; set; }
@@ -56,8 +62,15 @@ public class WayDriverDto
     public short PriorityRank { get; set; }
     public bool IsFeatured { get; set; }
     public Guid RouteId { get; set; }
+    // "direct": the route starts and ends at the pickup and drop cities. "onTheWay": it passes both in order but starts before the pickup or ends after the drop.
+    public string Section { get; set; } = WayDriverSections.Direct;
+    // The ridden stretch: pickup place to drop place.
     public string FromName { get; set; } = string.Empty;
     public string ToName { get; set; } = string.Empty;
+    // The driver's whole route ends.
+    public string RouteFromName { get; set; } = string.Empty;
+    public string RouteToName { get; set; } = string.Empty;
+    public bool FareEstimated { get; set; }
     public int ListedFare { get; set; }
     public string TripType { get; set; } = string.Empty;
     public bool Partial { get; set; }

@@ -67,9 +67,11 @@ public class TaxiWaysSearchEngineTests
     }
 
     [Fact]
-    public void Direct_driver_works_in_the_reverse_direction()
+    public void A_round_trip_driver_works_in_the_reverse_direction()
     {
-        var s = TaxiWaysFixture.Build(TaxiWaysFixture.Row("Badrinath", Badrinath, "Delhi", Delhi, 17000));
+        var row = TaxiWaysFixture.Row("Badrinath", Badrinath, "Delhi", Delhi, 17000);
+        row.TripType = "RoundTrip";
+        var s = TaxiWaysFixture.Build(row);
 
         var r = TaxiWaysFixture.Search(s, Delhi, Badrinath);
 

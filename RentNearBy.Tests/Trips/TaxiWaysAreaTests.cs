@@ -268,7 +268,7 @@ public class TaxiWaysAreaTests
     }
 
     [Fact]
-    public void A_chain_cheaper_than_the_direct_taxi_is_kept()
+    public void No_chain_is_offered_when_a_single_driver_covers_the_trip_even_if_the_chain_is_cheaper()
     {
         var s = TaxiWaysFixture.Build(
             Row("Delhi", Delhi, "Almora", Almora, 12000),
@@ -278,7 +278,7 @@ public class TaxiWaysAreaTests
         var r = TaxiWaysFixture.Search(s, Delhi, Almora);
 
         Assert.Single(r.AllTheWay);
-        Assert.Equal(2, Assert.Single(r.Plans).Cars);
+        Assert.Empty(r.Plans);
     }
 
     private sealed class FakeNetwork(TaxiWaysNetworkSnapshot snapshot) : ITaxiWaysNetwork

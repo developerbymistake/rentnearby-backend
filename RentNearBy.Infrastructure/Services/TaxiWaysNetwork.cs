@@ -63,7 +63,7 @@ public class TaxiWaysNetwork(
             var ends = rows.SelectMany(r => new[] { (r.FromLat, r.FromLng), (r.ToLat, r.ToLng) }).Distinct().ToList();
             var parents = new System.Collections.Concurrent.ConcurrentDictionary<(double, double), TripCityInfo?>();
             await Parallel.ForEachAsync(ends, new ParallelOptions { MaxDegreeOfParallelism = 8 },
-                async (e, _) => parents[e] = await parent.ParentOfAsync(first, e.Item1, e.Item2));
+                async (e, _) => parents[e] = await parent.NamedParentOfAsync(first, e.Item1, e.Item2));
             var refined = TaxiWaysClustering.Build(rows, cities, options.Value, version, first.BuiltAt, citiesMissing: false,
                 endCity: (la, ln) => parents.GetValueOrDefault((la, ln)));
             lock (_gate)

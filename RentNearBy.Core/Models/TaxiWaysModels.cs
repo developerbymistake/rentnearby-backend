@@ -701,7 +701,9 @@ public static class TaxiWaysClustering
             var r = rows[i];
             foreach (var end in new[] { new EndPoint(i, true, r.FromName, r.FromLat, r.FromLng), new EndPoint(i, false, r.ToName, r.ToLat, r.ToLng) })
             {
-                var city = endCity?.Invoke(end.Lat, end.Lng) ?? NearestAtlas(atlasGrid, end.Lat, end.Lng, o.CityResolveMeters);
+                var city = endCity?.Invoke(end.Lat, end.Lng);
+                // A route end joins a city only when the geocoder names that city as its parent or the end sits in the city (SamePlaceMeters); else it keeps its own place.
+                city ??= NearestAtlas(atlasGrid, end.Lat, end.Lng, o.SamePlaceMeters);
                 if (city == null) { unmatched.Add(end); continue; }
                 var key = TaxiWaysKeys.PlaceKeyAtlas(city.CityKey);
                 if (!places.ContainsKey(key))
@@ -1089,7 +1091,14 @@ public static class TaxiWaysSearchEngine
         return chain;
     }
 
-    public static IEnumerable<TaxiWaysLink> LinksBetween(TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysAnchor b)
+    // Links a rides a -> b: the route runs from a to b (FromPlace is the earlier stop), or it is a round trip.
+    public static IEnumerable<TaxiWaysLink> LinksBetween(TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysAnchor b) =>
+        UndirectedLinksBetween(s, a, b).Where(l => RidesFrom(l, a.Key));
+
+    public static bool RidesFrom(TaxiWaysLink l, string fromKey) =>
+        l.FromPlace == fromKey || l.TripType != TaxiTripTypes.OneWay;
+
+    private static IEnumerable<TaxiWaysLink> UndirectedLinksBetween(TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysAnchor b)
     {
         if (a.Key == b.Key) return [];
         if (a.Resolved && b.Resolved)
@@ -1141,8 +1150,9 @@ public static class TaxiWaysSearchEngine
             if (!best.TryGetValue(link.TaxiId, out var current) || comparer.Compare(candidate, current) < 0)
                 best[link.TaxiId] = candidate;
         }
-        // A driver whose routes chain through a place (a to x, x to b) is one car for the whole stretch, fares added.
-        foreach (var relay in RelayLinks(s, a, b).Where(l => !UsesRoute(l, excludeRoute) && !best.ContainsKey(l.TaxiId)))
+        // Only when no driver covers the stretch on his own route: a driver whose routes chain through a place (a to x, x to b)
+        // is one car for the whole stretch, fares added.
+        foreach (var relay in best.Count > 0 ? Enumerable.Empty<TaxiWaysLink>() : RelayLinks(s, a, b, o).Where(l => !UsesRoute(l, excludeRoute)))
         {
             if (!s.Drivers.TryGetValue(relay.TaxiId, out var driver)) continue;
             var basedHere = driver.BaseLat.HasValue && driver.BaseLng.HasValue
@@ -1158,33 +1168,43 @@ public static class TaxiWaysSearchEngine
     private static bool UsesRoute(TaxiWaysLink l, Guid? route) =>
         route is { } r && (l.RouteId == r || l.Relay.Any(p => p.RouteId == r));
 
-    // One link per driver whose two routes meet at a third place x: a to x on one route, x to b on another.
-    private static IEnumerable<TaxiWaysLink> RelayLinks(TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysAnchor b)
+    // One link per driver whose two routes meet at a third place x: a to x on one route, x to b on another. Both stretches are
+    // ridden in their route's direction, and x is nearer the destination than the start (never a backward positioning leg).
+    // The cheapest pair wins, ties by route ids, so the shown route never depends on storage order.
+    private static IEnumerable<TaxiWaysLink> RelayLinks(TaxiWaysNetworkSnapshot s, TaxiWaysAnchor a, TaxiWaysAnchor b, TaxiWaysOptions o)
     {
         if (a.Key == b.Key) yield break;
-        var firsts = (a.Resolved ? s.LinksAt(a.Key).Concat(a.Links) : a.Links).Where(l => l.Touches(a.Key)).ToList();
-        var byTaxi = new Dictionary<Guid, TaxiWaysLink>();
+        var straight = TaxiGeo.DistanceMeters(a.Lat, a.Lng, b.Lat, b.Lng);
+        var firsts = (a.Resolved ? s.LinksAt(a.Key).Concat(a.Links) : a.Links).Where(l => l.Touches(a.Key) && RidesFrom(l, a.Key)).ToList();
+        var byTaxi = new Dictionary<Guid, (TaxiWaysLink Link, TaxiWaysLink First, TaxiWaysLink Second, string Via)>();
         foreach (var l1 in firsts)
         {
             var x = l1.OtherEnd(a.Key);
             if (x == a.Key || x == b.Key) continue;
+            if (!s.Places.TryGetValue(x, out var xp)) continue;
+            var toX = TaxiGeo.DistanceMeters(a.Lat, a.Lng, xp.Lat, xp.Lng);
+            var left = TaxiGeo.DistanceMeters(xp.Lat, xp.Lng, b.Lat, b.Lng);
+            if (left >= straight || toX + left > o.DetourFactor * straight) continue;
             IEnumerable<TaxiWaysLink> seconds = b.Resolved
                 ? s.LinksBetweenPlaces(x, b.Key).Concat(b.Links.Where(l => l.OtherEnd(b.Key) == x))
                 : b.Links.Where(l => l.OtherEnd(b.Key) == x);
             foreach (var l2 in seconds)
             {
-                if (l2.TaxiId != l1.TaxiId || l2.RouteId == l1.RouteId) continue;
+                if (l2.TaxiId != l1.TaxiId || l2.RouteId == l1.RouteId || !RidesFrom(l2, x)) continue;
                 var fare = l1.EstimatedFare + l2.EstimatedFare;
-                if (byTaxi.TryGetValue(l1.TaxiId, out var held) && held.Fare <= fare) continue;
-                byTaxi[l1.TaxiId] = new TaxiWaysLink
+                var order = l1.RouteId.ToString("N") + l2.RouteId.ToString("N");
+                if (byTaxi.TryGetValue(l1.TaxiId, out var held)
+                    && (held.Link.Fare < fare || (held.Link.Fare == fare && string.CompareOrdinal(held.Via, order) <= 0))) continue;
+                byTaxi[l1.TaxiId] = (new TaxiWaysLink
                 {
                     RouteId = l1.RouteId, TaxiId = l1.TaxiId, FromPlace = a.Key, ToPlace = b.Key, Fare = fare,
-                    TripType = l1.TripType, Partial = false, FromFraction = 0, ToFraction = 1,
+                    TripType = l1.TripType == TaxiTripTypes.OneWay || l2.TripType == TaxiTripTypes.OneWay ? TaxiTripTypes.OneWay : l1.TripType,
+                    Partial = false, FromFraction = 0, ToFraction = 1,
                     Via = l1.Via.Append(x).Concat(l2.Via).ToList(), MeetAtPlace = l1.MeetAtPlace, Relay = [l1, l2],
-                };
+                }, l1, l2, order);
             }
         }
-        foreach (var link in byTaxi.Values.OrderBy(l => l.TaxiId)) yield return link;
+        foreach (var link in byTaxi.OrderBy(e => e.Key).Select(e => e.Value.Link)) yield return link;
     }
 
     public static TaxiWaysStop StopOf(TaxiWaysAnchor a) => new(a.Key, a.Name, a.Lat, a.Lng);
@@ -1267,19 +1287,10 @@ public static class TaxiWaysSearchEngine
 
         result.AllTheWay.AddRange(Candidates(s, from, to, people, o, basedHereFirst: true));
 
-        int? cheapFare = null, cheapMinutes = null;
-        foreach (var c in result.AllTheWay)
-        {
-            var fare = (int)Math.Min(int.MaxValue, (long)c.Link.EstimatedFare * TaxiWaysRanking.CarsNeeded(people, c.Driver.Seats));
-            var minutes = MinutesOf(s, c.Link);
-            if (cheapFare == null || fare < cheapFare || (fare == cheapFare && minutes is { } m && (cheapMinutes == null || m < cheapMinutes)))
-            {
-                cheapFare = fare;
-                cheapMinutes = minutes;
-            }
-        }
-
-        var (plans, relaxed) = TaxiWaysChainSearch.Plans(s, from, to, people, o, cheapFare, cheapMinutes);
+        // A chain of cars only when no single driver covers the trip.
+        var (plans, relaxed) = result.AllTheWay.Count > 0
+            ? (new List<TaxiWaysPlan>(), 0)
+            : TaxiWaysChainSearch.Plans(s, from, to, people, o);
         result.Plans.AddRange(plans);
         if (DirectCoverPlan(s, from, to, result.AllTheWay, people, o) is { } direct)
         {

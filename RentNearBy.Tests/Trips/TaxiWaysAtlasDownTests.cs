@@ -262,14 +262,25 @@ public class TaxiWaysAtlasDownTests
     }
 
     [Fact]
-    public void A_route_start_8_km_from_its_nearest_city_is_attached_to_that_city()
+    public void A_route_start_8_km_from_its_nearest_city_keeps_its_own_place()
     {
         var far = (29.2183 - 0.072, 79.5130);
         var row = TaxiWaysFixture.Row("Outskirts", far, "Nainital", Nainital, 1500);
         var s = TaxiWaysClustering.Build([row], Cities, TaxiWaysFixture.Options, "t", DateTime.UtcNow);
 
-        Assert.Contains(s.Places.Values, p => p.CityKey == 210000001);
-        Assert.DoesNotContain(s.Places.Values, p => p.CityKey == null && p.Name == "Outskirts");
+        var start = s.Places[s.Routes[row.RouteId].FromPlace];
+        Assert.Null(start.CityKey);
+        Assert.Equal("Outskirts", start.Name);
+    }
+
+    [Fact]
+    public void A_route_start_3_km_from_its_nearest_city_is_attached_to_that_city()
+    {
+        var near = (29.2183 - 0.027, 79.5130);
+        var row = TaxiWaysFixture.Row("Outskirts", near, "Nainital", Nainital, 1500);
+        var s = TaxiWaysClustering.Build([row], Cities, TaxiWaysFixture.Options, "t", DateTime.UtcNow);
+
+        Assert.Equal(210000001, s.Places[s.Routes[row.RouteId].FromPlace].CityKey);
     }
 
     [Fact]

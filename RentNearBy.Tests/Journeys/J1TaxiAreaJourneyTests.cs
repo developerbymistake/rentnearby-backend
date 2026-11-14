@@ -20,7 +20,10 @@ public class J1TaxiAreaJourneyTests
     private static readonly (double Lat, double Lng) Karan = (29.5800, 79.2500);
 
     private static TaxiWaysSourceRow Row((string, (double, double)) a, (string, (double, double)) b, int fare, Guid? taxi = null) =>
-        TaxiWaysFixture.Row(a.Item1, a.Item2, b.Item1, b.Item2, fare, taxi: taxi);
+        RoundTrip(TaxiWaysFixture.Row(a.Item1, a.Item2, b.Item1, b.Item2, fare, taxi: taxi));
+
+    // The area rules are tested in both directions; one-way direction is covered by TaxiWaysDirectionRuleTests.
+    private static TaxiWaysSourceRow RoundTrip(TaxiWaysSourceRow r) { r.TripType = "RoundTrip"; return r; }
 
     private static (string, (double, double)) P(string n, (double Lat, double Lng) c) => (n, (c.Lat, c.Lng));
 

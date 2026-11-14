@@ -44,7 +44,7 @@ public class TaxiWaysSearch(
         var memoryTtl = TimeSpan.FromSeconds(o.MemoryCacheSeconds);
 
         var (core, source) = await TaxiWaysPlanCache.GetAsync(
-            memory, redis, TaxiWaysKeys.Plan(snapshot.CityGrid.Count == 0 ? snapshot.Version + "~nc" : CacheVersion(snapshot), from.Ref, to.Ref, people),
+            memory, redis, TaxiWaysKeys.Plan(snapshot.CityGrid.Count == 0 ? snapshot.Version + "~nc" + CacheRules : CacheVersion(snapshot), from.Ref, to.Ref, people),
             TimeSpan.FromMinutes(o.PlanCacheMinutes), memoryTtl,
             () => ComputeCoreAsync(snapshot, from, to, people, o), logger, ct);
 
@@ -81,7 +81,10 @@ public class TaxiWaysSearch(
         return result;
     }
 
-    private static string CacheVersion(TaxiWaysNetworkSnapshot s) => s.ParentResolved ? s.Version + "~p" : s.Version;
+    // CacheRules: bumped whenever the shown ways change shape or rule, so cached plans of an older engine are never served.
+    private const string CacheRules = "~w3";
+
+    private static string CacheVersion(TaxiWaysNetworkSnapshot s) => (s.ParentResolved ? s.Version + "~p" : s.Version) + CacheRules;
 
     private async Task<CityPin?> PinAsync(double lat, double lng)
     {
@@ -121,7 +124,7 @@ public class TaxiWaysSearch(
         var dto = new WayPlanDetailDto { PlanKey = plan.PlanKey, Cars = plan.Cars, Total = plan.Total };
         foreach (var leg in plan.Legs)
         {
-            var drivers = shown[leg.Index].Select(c => WithContacts(TaxiWaysMapper.Driver(snapshot, c), contacts)).ToList();
+            var drivers = shown[leg.Index].Select(c => WithContacts(TaxiWaysMapper.Driver(snapshot, c, leg.From, leg.To), contacts)).ToList();
             var legDto = TaxiWaysMapper.Leg(snapshot, leg, 0);
             legDto.Drivers = drivers;
             legDto.TopDrivers = drivers.Take(o.TopDriversPerLeg).ToList();
@@ -160,7 +163,7 @@ public class TaxiWaysSearch(
             LegKey = legKey,
             Total = list.Count,
             HasMore = (Math.Max(1, q.Page) - 1) * size + page.Count < list.Count,
-            Items = page.Select(c => WithContacts(TaxiWaysMapper.Driver(snapshot, c), contacts)).ToList(),
+            Items = page.Select(c => WithContacts(TaxiWaysMapper.Driver(snapshot, c, TaxiWaysSearchEngine.StopOf(a), TaxiWaysSearchEngine.StopOf(b)), contacts)).ToList(),
         };
     }
 
@@ -212,7 +215,7 @@ public class TaxiWaysSearch(
         var dto = new TaxiWaysResultDto
         {
             Version = snapshot.Version,
-            AllTheWay = search.AllTheWay.Take(o.TopDrivers).Select(c => TaxiWaysMapper.Driver(snapshot, c)).ToList(),
+            AllTheWay = search.AllTheWay.Take(o.TopDrivers).Select(c => TaxiWaysMapper.Driver(snapshot, c, TaxiWaysSearchEngine.StopOf(from), TaxiWaysSearchEngine.StopOf(to))).ToList(),
             AllTheWayHasMore = search.AllTheWay.Count > o.TopDrivers,
             Plans = search.Plans.Select(p => TaxiWaysMapper.Plan(snapshot, p, o.TopDriversPerLeg)).ToList(),
             Truncated = search.Truncated,
@@ -299,11 +302,28 @@ internal static class TaxiWaysMapper
 {
     public static WayPlaceDto Place(TaxiWaysStop s) => new() { Key = s.Key, Name = s.Name, Lat = s.Lat, Lng = s.Lng };
 
-    public static WayDriverDto Driver(TaxiWaysNetworkSnapshot snapshot, TaxiWaysCandidate c)
+    // The ridden end: the snapshot place of the link end, else the traveller's own point (a virtual pin) when it is that end.
+    private static string RiddenName(TaxiWaysNetworkSnapshot snapshot, string placeKey, TaxiWaysStop? pickup, TaxiWaysStop? drop, string fallback)
     {
-        var route = snapshot.Routes.GetValueOrDefault(c.Link.RouteId);
-        var span = Math.Clamp(c.Link.ToFraction - c.Link.FromFraction, 0, 1);
+        if (snapshot.Places.GetValueOrDefault(placeKey)?.Name is { Length: > 0 } name) return name;
+        if (pickup != null && pickup.Key == placeKey) return pickup.Name;
+        if (drop != null && drop.Key == placeKey) return drop.Name;
+        return fallback;
+    }
+
+    public static WayDriverDto Driver(TaxiWaysNetworkSnapshot snapshot, TaxiWaysCandidate c, TaxiWaysStop? pickup = null, TaxiWaysStop? drop = null)
+    {
+        var link = c.Link;
+        var route = snapshot.Routes.GetValueOrDefault(link.RouteId);
+        var lastRoute = link.Relay.Count > 0 ? snapshot.Routes.GetValueOrDefault(link.Relay[^1].RouteId) : route;
+        var span = Math.Clamp(link.ToFraction - link.FromFraction, 0, 1);
         var d = c.Driver;
+        var routeFrom = route?.FromName ?? string.Empty;
+        var routeTo = lastRoute?.ToName ?? string.Empty;
+        // A link is stored in the route's direction; a rider going the other way (round trip) starts at its far end.
+        var startKey = c.Reversed ? link.ToPlace : link.FromPlace;
+        var endKey = c.Reversed ? link.FromPlace : link.ToPlace;
+        var estimated = link.Relay.Count > 0 ? link.Relay.Any(p => p.FareEstimated) : link.FareEstimated;
         return new WayDriverDto
         {
             TaxiId = d.TaxiId,
@@ -317,18 +337,22 @@ internal static class TaxiWaysMapper
             TripReplyLabel = d.TripReplyLabel,
             PriorityRank = d.PriorityRank,
             IsFeatured = d.IsFeatured,
-            RouteId = c.Link.RouteId,
-            FromName = route == null ? string.Empty : c.Reversed ? route.ToName : route.FromName,
-            ToName = route == null ? string.Empty : c.Reversed ? route.FromName : route.ToName,
-            ListedFare = c.Link.Fare,
-            EstimatedFare = c.Link.FareEstimated ? c.Link.EstimatedFare : null,
-            TripType = c.Link.TripType,
-            Partial = c.Link.Partial,
+            RouteId = link.RouteId,
+            Section = link.Partial || link.Relay.Count > 0 ? WayDriverSections.OnTheWay : WayDriverSections.Direct,
+            FromName = RiddenName(snapshot, startKey, pickup, drop, c.Reversed ? routeTo : routeFrom),
+            ToName = RiddenName(snapshot, endKey, pickup, drop, c.Reversed ? routeFrom : routeTo),
+            RouteFromName = routeFrom,
+            RouteToName = routeTo,
+            FareEstimated = estimated,
+            ListedFare = link.Fare,
+            EstimatedFare = estimated ? link.EstimatedFare : null,
+            TripType = link.TripType,
+            Partial = link.Partial,
             Reversed = c.Reversed,
             DistanceKm = route?.DistanceKm is { } km ? Math.Round(km * span, 1) : null,
             Minutes = route?.Minutes is { } min ? (int)Math.Ceiling(min * span) : null,
             HasRoadLine = route?.HasLine == true,
-            MeetAtName = c.Link.MeetAtPlace is { } meet ? snapshot.Places.GetValueOrDefault(meet)?.Name : null,
+            MeetAtName = link.MeetAtPlace is { } meet ? snapshot.Places.GetValueOrDefault(meet)?.Name : null,
         };
     }
 
@@ -337,7 +361,7 @@ internal static class TaxiWaysMapper
         var top = leg.Top;
         IEnumerable<string> via = top.Link.Via;
         if (top.Reversed) via = via.Reverse();
-        var topDto = Driver(snapshot, top);
+        var topDto = Driver(snapshot, top, leg.From, leg.To);
         return new WayLegDto
         {
             LegKey = leg.LegKey,
@@ -356,7 +380,7 @@ internal static class TaxiWaysMapper
             PassStops = via.Where(k => k != leg.From.Key && k != leg.To.Key && snapshot.Places.ContainsKey(k))
                 .Select(k => snapshot.Places[k])
                 .Select(p => new WayPassStopDto { Key = p.Key, Name = p.Name, Lat = p.Lat, Lng = p.Lng }).ToList(),
-            TopDrivers = leg.Drivers.Take(topDrivers).Select(c => Driver(snapshot, c)).ToList(),
+            TopDrivers = leg.Drivers.Take(topDrivers).Select(c => Driver(snapshot, c, leg.From, leg.To)).ToList(),
             DriverCount = leg.Drivers.Count,
             HasRoadLine = topDto.HasRoadLine,
         };

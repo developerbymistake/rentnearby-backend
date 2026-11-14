@@ -75,6 +75,13 @@ public sealed class ParentCityResolver(
 
     public async Task<TripCityInfo?> ParentOfAsync(TaxiWaysNetworkSnapshot s, double lat, double lng) => (await ParentAsync(s, lat, lng)).City;
 
+    // The city the geocoder names as the parent of a point, only when it matches a live city of the district; never the nearest-city fallback.
+    public async Task<TripCityInfo?> NamedParentOfAsync(TaxiWaysNetworkSnapshot s, double lat, double lng)
+    {
+        var (city, source) = await ParentAsync(s, lat, lng);
+        return source == ParentSource.NameMatch ? city : null;
+    }
+
     public async Task<CityPin> ResolveAsync(double lat, double lng)
     {
         if (await UsableAsync() is not { } s) return new CityPin(false, null);
