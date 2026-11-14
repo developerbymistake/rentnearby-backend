@@ -114,39 +114,53 @@ public class TripJourneyIntegrityE2Tests
     // ---- B3: guide gate
 
     [Fact]
-    public void B3_a_step_beyond_the_first_unresolved_row_is_rejected()
+    public void B3_a_step_ahead_of_the_first_unresolved_row_is_stored_as_sent()
     {
         var plan = OneCity();
-        var result = TripGuideGate.Apply(new TripGuide { Step = "taxi" }, null, Rows(plan));
-        Assert.Equal(TripGuideGate.StepAhead, result.Error);
+        Assert.Equal("stay:1", TripGuideGate.Apply(new TripGuide { Step = "stay:1" }, Rows(plan))!.Step);
+        Assert.Equal("taxi", TripGuideGate.Apply(new TripGuide { Step = "taxi" }, Rows(plan))!.Step);
+        Assert.Equal("gettingThere", TripGuideGate.Apply(new TripGuide { Step = "gettingThere" }, Rows(plan))!.Step);
     }
 
     [Fact]
-    public void B3_the_first_unresolved_step_and_earlier_ones_are_accepted()
+    public void B3_a_step_the_plan_does_not_have_is_dropped_not_refused()
     {
         var plan = OneCity();
-        Assert.Null(TripGuideGate.Apply(new TripGuide { Step = "gettingThere" }, null, Rows(plan)).Error);
-        plan.Steps = new TripSteps { GettingThere = new TripStep { Status = TripStepStatuses.Own } };
+        Assert.Null(TripGuideGate.Apply(new TripGuide { Step = "stay:9" }, Rows(plan)));
+        Assert.Null(TripGuideGate.Apply(new TripGuide { Step = "between:2" }, Rows(plan)));
+        var kept = TripGuideGate.Apply(new TripGuide { Step = "stay:9", Overview = true }, Rows(plan))!;
+        Assert.Null(kept.Step);
+        Assert.True(kept.Overview);
+    }
+
+    [Fact]
+    public void B3_multi_city_steps_are_all_stored_as_sent()
+    {
+        var plan = OneCity();
+        plan.Legs!.Add(new TripCityLeg { Index = 2, CityKey = 2, CityName = "Almora" });
+        plan.Days.Add(new TripDay { Day = 4, Leg = 2, Spots = { new TripSpot { Id = "s4", Name = "Spot", VisitMinutes = 60 } } });
         var rows = Rows(plan);
-        Assert.Null(TripGuideGate.Apply(new TripGuide { Step = "stay:1" }, null, rows).Error);
-        Assert.Null(TripGuideGate.Apply(new TripGuide { Step = "gettingThere" }, null, rows).Error);
-        Assert.Equal(TripGuideGate.StepAhead, TripGuideGate.Apply(new TripGuide { Step = "taxi" }, null, rows).Error);
+        foreach (var key in new[] { "stay:1", "taxi", "between:2", "stay:2" })
+            Assert.Equal(key, TripGuideGate.Apply(new TripGuide { Step = key }, rows)!.Step);
     }
 
     [Fact]
-    public void B3_a_step_the_plan_does_not_have_is_rejected()
+    public void B3_not_now_keeps_plan_keys_deduped_and_capped()
     {
         var plan = OneCity();
-        Assert.Equal(TripGuideGate.UnknownStep, TripGuideGate.Apply(new TripGuide { Step = "stay:9" }, null, Rows(plan)).Error);
-        Assert.Equal(TripGuideGate.UnknownStep, TripGuideGate.Apply(new TripGuide { Step = "between:2" }, null, Rows(plan)).Error);
+        var guide = TripGuideGate.Apply(new TripGuide { NotNow = ["gettingThere", "gettingThere", "stay:9", "stay:1"] }, Rows(plan))!;
+        Assert.Equal(new[] { "gettingThere", "stay:1" }, guide.NotNow);
+        Assert.Null(TripGuideGate.Apply(new TripGuide { NotNow = ["stay:9"] }, Rows(plan)));
+        var many = TripGuideRules.Sanitize(new TripGuide { NotNow = Enumerable.Range(1, 12).Select(i => $"stay:{i}").ToList() })!;
+        Assert.Equal(TripGuideRules.MaxNotNow, many.NotNow!.Count);
     }
 
     [Fact]
-    public void B3_a_stored_step_that_did_not_change_is_not_rejected()
+    public void B3_validator_rule_rejects_a_malformed_or_oversized_not_now()
     {
-        var plan = OneCity();
-        var result = TripGuideGate.Apply(new TripGuide { Step = "taxi" }, new TripGuide { Step = "taxi" }, Rows(plan));
-        Assert.Null(result.Error);
+        Assert.True(TripGuideRules.IsValid(new TripGuide { NotNow = ["gettingThere", "stay:1"] }));
+        Assert.False(TripGuideRules.IsValid(new TripGuide { NotNow = ["stay:0"] }));
+        Assert.False(TripGuideRules.IsValid(new TripGuide { NotNow = Enumerable.Range(1, 9).Select(i => $"stay:{i}").ToList() }));
     }
 
     [Fact]
@@ -154,14 +168,13 @@ public class TripJourneyIntegrityE2Tests
     {
         var plan = OneCity();
         var guide = new TripGuide { Step = "stay:1", Choices = new() { ["stay:1"] = "find", ["taxi"] = "find" } };
-        var bare = TripGuideGate.Apply(new TripGuide { Step = "gettingThere", Choices = guide.Choices }, null, Rows(plan));
-        Assert.Null(bare.Error);
-        Assert.Null(bare.Guide!.Choices);
+        var bare = TripGuideGate.Apply(new TripGuide { Step = "gettingThere", Choices = guide.Choices }, Rows(plan));
+        Assert.Null(bare!.Choices);
 
         plan.Steps = new TripSteps { GettingThere = new TripStep { Status = TripStepStatuses.Own } };
-        var asked = TripGuideGate.Apply(guide, null, Rows(plan, Stay(TripEnquiryStatuses.Asked, 1, 3)));
-        Assert.Equal("find", asked.Guide!.Choices!["stay:1"]);
-        Assert.False(asked.Guide.Choices.ContainsKey("taxi"));
+        var asked = TripGuideGate.Apply(guide, Rows(plan, Stay(TripEnquiryStatuses.Asked, 1, 3)));
+        Assert.Equal("find", asked!.Choices!["stay:1"]);
+        Assert.False(asked.Choices.ContainsKey("taxi"));
     }
 
     [Fact]
@@ -175,7 +188,7 @@ public class TripJourneyIntegrityE2Tests
             Step = "gettingThere",
             Choices = new() { ["taxi"] = "own", ["stay:1"] = "skip", ["comingBack"] = "skip", ["stay:7"] = "own" },
         };
-        var choices = TripGuideGate.Apply(guide, null, Rows(plan)).Guide!.Choices!;
+        var choices = TripGuideGate.Apply(guide, Rows(plan))!.Choices!;
         Assert.Equal("own", choices["taxi"]);
         Assert.Equal("skip", choices["stay:1"]);
         Assert.False(choices.ContainsKey("comingBack"));
@@ -183,8 +196,20 @@ public class TripJourneyIntegrityE2Tests
     }
 
     [Fact]
+    public void B3_a_todo_row_with_not_now_and_a_shortlist_is_not_done_in_progress()
+    {
+        var plan = OneCity();
+        plan.Guide = new TripGuide { Step = "stay:1", NotNow = ["gettingThere"] };
+        var rows = Rows(plan);
+        var progress = TripEasyRows.Progress(rows, null, "stay:1");
+        Assert.Equal(TripRowStates.Todo, rows.First(r => r.Key.Id == "gettingThere").State);
+        Assert.Equal(0, progress.Done);
+        Assert.Equal(0, progress.Percent);
+    }
+
+    [Fact]
     public void B3_no_guide_stays_no_guide()
-        => Assert.Null(TripGuideGate.Apply(null, null, Rows(OneCity())).Guide);
+        => Assert.Null(TripGuideGate.Apply(null, Rows(OneCity())));
 
     // ---- M6: a mark cannot hide a live enquiry
 

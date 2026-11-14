@@ -418,9 +418,7 @@ public static class TripHandlers
         var refs = TripJourneyLinks.ReferencedIds(plan);
         var owned = refs.Count == 0 ? new List<SavedJourney>() : (await journeys.GetOwnedByIdsAsync(refs, userId)).ToList();
         var newRows = TripEasyRows.Build(new Trip { Id = Guid.NewGuid(), StartDate = plan.Settings.StartDate, EndDate = plan.EndDate }, plan, [], owned);
-        var gate = TripGuideGate.Apply(plan.Guide, null, newRows);
-        if (gate.Error != null) return BadRequestResponse("This step is not open yet.", gate.Error);
-        plan.Guide = gate.Guide;
+        plan.Guide = TripGuideGate.Apply(plan.Guide, newRows);
 
         var now = DateTime.UtcNow;
         var trip = new Trip
@@ -593,9 +591,7 @@ public static class TripHandlers
             return ConflictResponse("This step has live enquiries or a booking. Withdraw or cancel them first.", TripMarkGuard.Code);
         if (TripBookedRange.Strands(trip.StartDate ?? stored.Settings?.StartDate, stored.Days.Count, plan.Settings.StartDate, plan.Days.Count, enquiries0))
             return ConflictResponse("A confirmed booking falls on a day you are removing. Cancel it first.", TripBookedRange.Code);
-        var gate = TripGuideGate.Apply(plan.Guide, stored.Guide, incomingRows);
-        if (gate.Error != null) return BadRequestResponse("This step is not open yet.", gate.Error);
-        plan.Guide = gate.Guide;
+        plan.Guide = TripGuideGate.Apply(plan.Guide, incomingRows);
 
         // A title the traveller typed is never touched; the default follows the cities.
         if (request.Title != null) trip.Title = TitleOrDefault(request.Title, plan.LegCities);

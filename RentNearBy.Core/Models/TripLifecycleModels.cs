@@ -91,36 +91,22 @@ public static class TripCompleteRules
         => rows.All(r => r.State is TripRowStates.Todo or TripRowStates.Saved);
 }
 
-// plan.guide the server accepts: steps of the plan only, none beyond the first unresolved row, no choice without evidence.
+// plan.guide the server keeps: the step and Not now are UI cursor state, stored as sent when they are keys of the plan
+// (anything else is dropped, never refused); a choice is kept only with evidence on its row.
 public static class TripGuideGate
 {
-    public const string StepAhead = "GuideStepAhead";
-    public const string UnknownStep = "GuideUnknownStep";
-
-    public sealed record Result(TripGuide? Guide, string? Error);
-
-    private static bool Resolved(string state) => state is TripRowStates.Asked or TripRowStates.Offer or TripRowStates.Confirmed
-        or TripRowStates.Booked or TripRowStates.Own or TripRowStates.Skipped;
-
     // rows = the Make it easy rows of the incoming plan, in guide order.
-    public static Result Apply(TripGuide? incoming, TripGuide? stored, IReadOnlyList<TripEasyRow> rows)
+    public static TripGuide? Apply(TripGuide? incoming, IReadOnlyList<TripEasyRow> rows)
     {
-        if (incoming == null) return new Result(null, null);
-        var order = rows.Select(r => r.Key.Id).ToList();
-
-        if (incoming.Step != null)
-        {
-            var at = order.IndexOf(incoming.Step);
-            if (at < 0) return new Result(null, UnknownStep);
-            var firstOpen = rows.ToList().FindIndex(r => !Resolved(r.State));
-            if (firstOpen >= 0 && at > firstOpen && incoming.Step != stored?.Step) return new Result(null, StepAhead);
-        }
-
+        if (incoming == null) return null;
         var states = rows.ToDictionary(r => r.Key.Id, r => r.State);
+
+        var step = incoming.Step != null && states.ContainsKey(incoming.Step) ? incoming.Step : null;
+        var notNow = incoming.NotNow?.Where(states.ContainsKey).ToList();
         var choices = incoming.Choices?
             .Where(c => states.TryGetValue(c.Key, out var state) && Evidenced(c.Value, state))
             .ToDictionary(c => c.Key, c => c.Value);
-        return new Result(TripGuideRules.Sanitize(new TripGuide { Step = incoming.Step, Choices = choices, Overview = incoming.Overview }), null);
+        return TripGuideRules.Sanitize(new TripGuide { Step = step, Choices = choices, Overview = incoming.Overview, NotNow = notNow });
     }
 
     private static bool Evidenced(string choice, string state) => choice == TripGuideChoices.Find

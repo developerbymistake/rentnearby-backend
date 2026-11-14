@@ -268,6 +268,8 @@ public sealed class TripGuide
     public string? Step { get; set; }
     public Dictionary<string, string>? Choices { get; set; }
     public bool? Overview { get; set; }
+    // Step keys the traveller postponed with Not now; only the UI cursor depends on them.
+    public List<string>? NotNow { get; set; }
 }
 
 public static class TripGuideChoices
@@ -289,6 +291,8 @@ public static class TripStepKeys
 
 public static class TripGuideRules
 {
+    public const int MaxNotNow = 8;
+
     // Unknown step or choice values are dropped on read; an empty guide is no guide (toJson writes it only when non-default).
     public static TripGuide? Sanitize(TripGuide? guide)
     {
@@ -300,14 +304,17 @@ public static class TripGuideRules
             .ToDictionary(c => c.Key, c => c.Value);
         if (choices is { Count: 0 }) choices = null;
         var overview = guide.Overview == true ? true : (bool?)null;
-        if (step == null && choices == null && overview == null) return null;
-        return new TripGuide { Step = step, Choices = choices, Overview = overview };
+        var notNow = guide.NotNow?.Where(TripStepKeys.IsValid).Distinct().Take(MaxNotNow).ToList();
+        if (notNow is { Count: 0 }) notNow = null;
+        if (step == null && choices == null && overview == null && notNow == null) return null;
+        return new TripGuide { Step = step, Choices = choices, Overview = overview, NotNow = notNow };
     }
 
     public static bool IsValid(TripGuide guide)
         => (guide.Step == null || TripStepKeys.IsValid(guide.Step))
            && (guide.Choices == null || (guide.Choices.Count <= TripStepKeys.MaxChoices
-               && guide.Choices.All(c => TripStepKeys.IsValid(c.Key) && Array.IndexOf(TripGuideChoices.All, c.Value) >= 0)));
+               && guide.Choices.All(c => TripStepKeys.IsValid(c.Key) && Array.IndexOf(TripGuideChoices.All, c.Value) >= 0)))
+           && (guide.NotNow == null || (guide.NotNow.Count <= MaxNotNow && guide.NotNow.All(TripStepKeys.IsValid)));
 }
 
 public static class TripLeaveOn
