@@ -317,7 +317,7 @@ public sealed class TripReminderService(
             return false;
         }
 
-        var connectionString = db.Database.GetConnectionString() ?? throw new InvalidOperationException("No connection string");
+        var connectionString = scope.ServiceProvider.GetRequiredService<DbLockConnectionString>().Value;
         await using var gate = await PgAdvisoryLock.TryAcquireAsync(connectionString, LockName, ct);
         if (gate is null) return false;
 

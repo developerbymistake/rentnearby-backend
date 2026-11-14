@@ -167,7 +167,7 @@ public sealed class RetentionRunner : BackgroundService
 
         using var scope = _scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var connectionString = db.Database.GetConnectionString() ?? throw new InvalidOperationException("No connection string");
+        var connectionString = scope.ServiceProvider.GetRequiredService<DbLockConnectionString>().Value;
         var env = new RetentionEnvironment
         {
             UtcNow = () => _clock.GetUtcNow().UtcDateTime,

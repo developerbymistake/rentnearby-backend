@@ -17,9 +17,8 @@ public static class ServiceCollectionExtensions
         // Maximum Pool Size is set directly in the DATABASE_URL env var on the server (see
         // SERVER_PERFORMANCE_TUNING.md, Point 4), not hardcoded here — a deployment-level tuning
         // knob belongs in deployment config, adjustable without a code change/rebuild.
-        var connectionString = configuration["DATABASE_URL"]
-            ?? configuration.GetConnectionString("DefaultConnection")
-            ?? throw new InvalidOperationException("DATABASE_URL not configured");
+        var connectionString = DbLockConnectionString.Resolve(configuration);
+        services.AddSingleton(new DbLockConnectionString(connectionString));
 
         // Pooled instead of AddDbContext: reuses ApplicationDbContext instances across requests
         // instead of allocating/disposing one per request. Safe here — audited the whole
