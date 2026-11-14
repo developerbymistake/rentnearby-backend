@@ -497,13 +497,6 @@ public static class ListingReportTypes
     public const string TripEnquiry = "TripEnquiry";
 }
 
-// Section "TripExecution"; env TRIP_EXECUTION_ENABLED overrides Enabled.
-public sealed class TripExecutionOptions
-{
-    public const string Section = "TripExecution";
-    public bool Enabled { get; set; } = true;
-}
-
 public static class TripExecutionRules
 {
     // Every per-request, per-step and per-enquiry cap is 3: one rule for the traveller and the host.

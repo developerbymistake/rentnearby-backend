@@ -27,9 +27,9 @@ namespace RentNearBy.Infrastructure.Services;
 //  10. Planned trips 7 days past the last day with nothing open -> Completed (no push, runs even when muted).
 //  11. Travel-eve: 18:00 IST the evening before a travel day between two cities, once (trv:{tripId}:{date}); muted trips skipped.
 // Passes 6, 9, 10 and 11 read keyset pages of only un-done work (key not logged / nothing open) until exhausted.
-// Order: 1, 2, 7, 5, 6, 8, 9, 11, 10, 3, 4. Skipped while TripExecution:Enabled is false.
+// Order: 1, 2, 7, 5, 6, 8, 9, 11, 10, 3, 4. Skipped while the trip bookings setting is off.
 public class TripTimerService(
-    IServiceScopeFactory scopeFactory, IOptionsMonitor<TripExecutionOptions> options, ILogger<TripTimerService> logger)
+    IServiceScopeFactory scopeFactory, ITripExecutionFeatureReader reader, ILogger<TripTimerService> logger)
     : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
@@ -55,7 +55,7 @@ public class TripTimerService(
 
     private async Task RunOnceAsync(CancellationToken ct)
     {
-        if (!options.CurrentValue.Enabled)
+        if (!await reader.IsEnabledAsync())
         {
             if (!_loggedDisabled) logger.LogInformation("Trip timer: trip execution is disabled, passes skipped");
             _loggedDisabled = true;

@@ -8,6 +8,7 @@ using Npgsql;
 using NpgsqlTypes;
 using System.Text.Json;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 
@@ -262,7 +263,7 @@ public sealed class TripReminderRunner(ILogger logger)
 // Starts the run each morning at TripReminderRules IST time; catches up after a restart until 12:00 IST and never in the afternoon.
 // A PostgreSQL advisory lock on a dedicated connection keeps a second instance from duplicating the work.
 public sealed class TripReminderService(
-    IServiceScopeFactory scopeFactory, IOptionsMonitor<TripExecutionOptions> options, ILogger<TripReminderService> logger) : BackgroundService
+    IServiceScopeFactory scopeFactory, ITripExecutionFeatureReader reader, ILogger<TripReminderService> logger) : BackgroundService
 {
     private static readonly TimeSpan Tick = TimeSpan.FromSeconds(60);
     public const string LockName = "trip.reminders";
@@ -292,7 +293,7 @@ public sealed class TripReminderService(
 
     public async Task<bool> TickAsync(DateTime nowUtc, CancellationToken ct)
     {
-        if (!options.CurrentValue.Enabled) return false;
+        if (!await reader.IsEnabledAsync()) return false;
         var today = IstTime.TodayIst(nowUtc);
         if (_doneDate == today) return false;
         var overdue = TripReminderRules.RunMissed(nowUtc, todayFinished: false);

@@ -559,6 +559,50 @@ public static class AdminHandlers
         return OkResponse(ToPaymentFeatureDto(flag));
     }
 
+    // ── Trip bookings master switch (AppFeatureKeys.TripExecutionEnabled row, default off) ───────────────
+
+    public static async Task<IResult> GetTripExecution(IUnitOfWork unitOfWork)
+    {
+        var flag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.TripExecutionEnabled);
+        if (flag == null) return NotFoundResponse("Trip execution setting not found");
+
+        return OkResponse(ToTripExecutionDto(flag));
+    }
+
+    private static object ToTripExecutionDto(AppFeatureFlag flag) => new
+    {
+        isEnabled = flag.IsEnabled,
+        updatedByAdminId = flag.UpdatedByAdminId,
+        updatedAt = flag.UpdatedAt,
+        reason = flag.Reason,
+    };
+
+    public static async Task<IResult> UpdateTripExecution(
+        UpdateTripExecutionRequest request, IValidator<UpdateTripExecutionRequest> validator,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ITripExecutionFeatureReader reader, ILoggerFactory loggerFactory)
+    {
+        var validation = await validator.ValidateAsync(request);
+        if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        var flag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.TripExecutionEnabled);
+        if (flag == null) return NotFoundResponse("Trip execution setting not found");
+
+        flag.IsEnabled = request.IsEnabled!.Value;
+        flag.Reason = request.Reason;
+        var adminIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        flag.UpdatedByAdminId = Guid.TryParse(adminIdClaim, out var adminId) ? adminId : null;
+        flag.UpdatedAt = DateTime.UtcNow;
+
+        await unitOfWork.AppFeatureFlags.UpdateAsync(flag);
+        await unitOfWork.SaveChangesAsync();
+
+        reader.Invalidate();
+        loggerFactory.CreateLogger("TripExecutionSwitch")
+            .LogInformation("Trip execution switched to {Enabled} by admin {AdminId}", flag.IsEnabled, flag.UpdatedByAdminId);
+
+        return OkResponse(ToTripExecutionDto(flag));
+    }
+
     // ── App Tabs (master table for the consumer app's bottom-nav) ───────────────
     // Seeded rows (RentNearBy.Core.Models.AppTabKeys) — renaming applies to any row; deactivating applies to the
     // five business tabs (Home/Profile are structural, rejected below). An off tab's consumer route group is

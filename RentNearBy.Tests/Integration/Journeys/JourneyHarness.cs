@@ -47,7 +47,6 @@ public sealed class JourneyHarness : IAsyncDisposable
     public IMemoryCache Cache { get; }
     public ILoggerFactory Loggers => NullLoggerFactory.Instance;
     public IServiceProvider Services { get; }
-    public IOptions<TripExecutionOptions> ExecutionOptions { get; } = Options.Create(new TripExecutionOptions());
 
     public Guid StayTypeId { get; private set; }
     public Guid RegistrationTypeId { get; private set; }

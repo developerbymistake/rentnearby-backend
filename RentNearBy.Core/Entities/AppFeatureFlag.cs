@@ -3,7 +3,8 @@ using RentNearBy.Core.Models;
 namespace RentNearBy.Core.Entities;
 
 // Generic, reusable global feature-flag table.
-// First (and currently only) row: the payment kill switch (RentNearBy.Core.Models.AppFeatureKeys.PaymentEnabled).
+// Rows are keyed by RentNearBy.Core.Models.AppFeatureKeys: the payment kill switch and the trip bookings switch.
+// Payment-only columns are ignored by the other rows.
 public class AppFeatureFlag
 {
     public Guid Id { get; set; }

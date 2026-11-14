@@ -17,7 +17,7 @@ namespace RentNearBy.Infrastructure.Services;
 //   18:00-24:00 IST the day before   -> push once per date (jrn:e:{id}:{date}), not when the trip's travel-eve push covers it (JourneyEveCover)
 // A journey in a trip routes the paused/back pushes to the trip plan.
 public class JourneyWatchService(
-    IServiceScopeFactory scopeFactory, IOptionsMonitor<TripExecutionOptions> tripExecution, ILogger<JourneyWatchService> logger)
+    IServiceScopeFactory scopeFactory, ITripExecutionFeatureReader tripExecution, ILogger<JourneyWatchService> logger)
     : BackgroundService
 {
     private static readonly TimeSpan FirstDelay = TimeSpan.FromMinutes(1);
@@ -93,7 +93,7 @@ public class JourneyWatchService(
             .ToHashSet();
         var taxis = await repo.LoadTaxisAsync(taxiIds);
         var segmentIds = await SegmentJourneyIdsAsync(
-            db, journeys.Where(j => j.TravelDate == today.AddDays(1)).ToList(), tripExecution.CurrentValue.Enabled, now, ct);
+            db, journeys.Where(j => j.TravelDate == today.AddDays(1)).ToList(), await tripExecution.IsEnabledAsync(), now, ct);
         var booked = await BookedLegsAsync(db, journeys, ct);
 
         int changed = 0, sent = 0;

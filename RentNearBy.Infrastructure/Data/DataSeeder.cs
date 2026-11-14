@@ -42,20 +42,31 @@ public static class DataSeeder
     // Payment kill switch — starts OFF (payment not required) so Go-Live is free by default until an
     // admin explicitly turns payment back on. Do not "fix" IsEnabled to true here; that flip is an
     // explicit product decision, not an oversight.
-    private static async Task SeedAppFeatureFlagsAsync(ApplicationDbContext db)
+    internal static async Task SeedAppFeatureFlagsAsync(ApplicationDbContext db)
     {
-        if (await db.AppFeatureFlags.AnyAsync()) return;
+        var keys = await db.AppFeatureFlags.Select(f => f.FeatureKey).ToListAsync();
 
-        db.AppFeatureFlags.Add(new AppFeatureFlag
-        {
-            Id = Guid.NewGuid(),
-            FeatureKey = AppFeatureKeys.PaymentEnabled,
-            IsEnabled = false,
-            FreeDurationDays = 30,
-            PaymentProvider = PaymentProviders.Play,
-            UpdatedAt = DateTime.UtcNow,
-        });
-        await db.SaveChangesAsync();
+        if (!keys.Contains(AppFeatureKeys.PaymentEnabled))
+            db.AppFeatureFlags.Add(new AppFeatureFlag
+            {
+                Id = Guid.NewGuid(),
+                FeatureKey = AppFeatureKeys.PaymentEnabled,
+                IsEnabled = false,
+                FreeDurationDays = 30,
+                PaymentProvider = PaymentProviders.Play,
+                UpdatedAt = DateTime.UtcNow,
+            });
+
+        if (!keys.Contains(AppFeatureKeys.TripExecutionEnabled))
+            db.AppFeatureFlags.Add(new AppFeatureFlag
+            {
+                Id = Guid.NewGuid(),
+                FeatureKey = AppFeatureKeys.TripExecutionEnabled,
+                IsEnabled = false,
+                UpdatedAt = DateTime.UtcNow,
+            });
+
+        if (db.ChangeTracker.HasChanges()) await db.SaveChangesAsync();
     }
 
     // Master table for the consumer app's 5 bottom-nav tabs. Inserts only missing keys, so tabs added
