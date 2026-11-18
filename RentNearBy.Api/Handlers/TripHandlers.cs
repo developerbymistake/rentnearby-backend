@@ -17,6 +17,7 @@ using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Core.DTOs.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.TaxiRequests;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -592,6 +593,11 @@ public static class TripHandlers
         if (trip.Status == TripStatuses.Completed)
             return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
 
+        var plan = request.Plan!;
+        plan.Normalize();
+        var planLock = await TripPlanLockReader.ReadAsync(db, trip.Id);
+        if (TripPlanLock.UpdateRefusal(planLock.Reason, planLock.RequestId, stored, plan) is { } lockedEarly) return LockRefusal(lockedEarly);
+
         var enquiries0 = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
         var hasLive = enquiries0.Any(x => TripEnquiryStatuses.IsOpen(x.Status));
         var spotCount = request.Plan!.Days.Sum(d => d.Spots.Count);
@@ -603,8 +609,6 @@ public static class TripHandlers
             return BadRequestResponse(PlanTripRequestValidator.NoPlacesMessage);
 
         // Stored legs keep their snapshot (no Atlas call); only a new leg is looked up.
-        var plan = request.Plan!;
-        plan.Normalize();
         if (await ResolveLegsAsync(plan, stored, catalog, unitOfWork, create: false) is { } legError) return legError;
 
         var linkIds = await SanitiseLinksAsync(plan, journeys, userId, trip.Id);
@@ -697,6 +701,14 @@ public static class TripHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            // A taxi request created after the early check is seen here: its create holds the same trip row lock.
+            await TripGuards.LockTripAsync(db, trip.Id);
+            var planLockNow = await TripPlanLockReader.ReadAsync(db, trip.Id);
+            if (TripPlanLock.UpdateRefusal(planLockNow.Reason, planLockNow.RequestId, stored, plan) is { } lockedNow)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return LockRefusal(lockedNow);
+            }
             foreach (var x in legGone)
             {
                 x.Status = TripEnquiryStatuses.Closed;
@@ -774,6 +786,9 @@ public static class TripHandlers
 
     private const string TripLegGoneReason = "LegRemoved";
 
+    public static IResult LockRefusal(TripLockRefusal refusal)
+        => ErrorResponse(refusal.StatusCode, refusal.Message, refusal.ErrorType, refusal.Data);
+
     private static NotificationEvent EnquiryClosedByCityRemoved(TripEnquiry e, TripPushContext ctx)
     {
         var n = TripNotifications.TripTravellerCancelled(e, ctx);
@@ -800,10 +815,13 @@ public static class TripHandlers
     }
 
     // Open enquiries close first (confirmed ones count as a guest cancel); each owner told once after commit.
-    // Linked journeys are unlinked, never deleted.
+    // Linked journeys are unlinked, never deleted. db is last so old direct callers compile, but a call without it
+    // throws: the plan lock guard can never be skipped. The endpoint gets the scoped context from DI.
     public static async Task<IResult> Delete(
-        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ITripEnquiryClosure closure, ISavedJourneyRepository journeys)
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ITripEnquiryClosure closure, ISavedJourneyRepository journeys,
+        ApplicationDbContext? db = null)
     {
+        ArgumentNullException.ThrowIfNull(db);
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
@@ -813,6 +831,13 @@ public static class TripHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            await TripGuards.LockTripAsync(db, trip.Id);
+            var planLock = await TripPlanLockReader.ReadAsync(db, trip.Id);
+            if (TripPlanLock.DeleteRefusal(planLock.Reason, planLock.RequestId) is { } locked)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return LockRefusal(locked);
+            }
             pushes = await closure.OnTripDeletedAsync(trip.Id);
             await journeys.UnlinkTripAsync(trip.Id);
             await unitOfWork.Trips.DeleteAsync(trip);

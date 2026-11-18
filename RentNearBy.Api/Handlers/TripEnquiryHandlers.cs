@@ -11,8 +11,10 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.TaxiRequests;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -568,6 +570,11 @@ public static class TripEnquiryHandlers
                 return TripGuards.NotShortlistedError();
         }
 
+        // Lock-free so a send that would write nothing is refused too; writes check again under the trip lock.
+        if (toProcess.Count > 0
+            && TripPlanLock.LegacyTaxiBlock(await TripPlanLockReader.HasActiveRequestAsync(db, trip.Id)) is { } requestActiveEarly)
+            return TripHandlers.LockRefusal(requestActiveEarly);
+
         // One query each for the taxis, the blocks and the traveller's own open rows (no per-listing lookups).
         var taxisById = await LoadTaxisAsync(db, toProcess);
         var blockedOwners = await TripBulk.BlockedOwnersAsync(db, callerId, taxisById.Values.Select(x => x.UserId).Distinct().ToList());
@@ -670,6 +677,12 @@ public static class TripEnquiryHandlers
             {
                 // Parallel sends on one trip run one after the other; the per-day and per-step caps are re-checked on fresh rows.
                 await TripGuards.LockTripAsync(db, trip.Id);
+                if (TripPlanLock.LegacyTaxiBlock(await TripPlanLockReader.HasActiveRequestAsync(db, trip.Id)) is { } requestActive)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    await quotas.ReleaseAllAsync();
+                    return TripHandlers.LockRefusal(requestActive);
+                }
                 var fresh = (await db.TripEnquiries.AsNoTracking()
                     .Where(x => x.TripId == trip.Id && x.Kind == TripEnquiryKinds.Taxi && TripEnquiryStatuses.Open.Contains(x.Status))
                     .ToListAsync()).Where(x => !TripSegmentRows.IsSegment(x)).ToList();
@@ -928,8 +941,13 @@ public static class TripEnquiryHandlers
         if (CheckDaysInOneLeg(trip, plan, days) is { } legError) return legError;
         var (checkIn, checkOut) = TaxiSpan(trip, days);
 
-        if (await RateLimitedAsync(rateLimiter, http, $"trip:booking:{callerId}", TripLeadRules.BookingsPerHour, Hour) is { } limited)
-            return limited;
+        var bookingPermit = new RateLimitPermits(rateLimiter);
+        var bookingLimit = await bookingPermit.TakeAsync($"trip:booking:{callerId}", TripLeadRules.BookingsPerHour, Hour);
+        if (!bookingLimit.IsAllowed)
+        {
+            http.Response.Headers["Retry-After"] = ((int)Math.Ceiling((bookingLimit.RetryAfter ?? Hour).TotalSeconds)).ToString();
+            return TooManyRequestsResponse();
+        }
 
         var travellerName = TripTextSafety.Clean(
             await db.Users.AsNoTracking().Where(u => u.Id == callerId).Select(u => u.Name).FirstOrDefaultAsync());
@@ -946,7 +964,14 @@ public static class TripEnquiryHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
-            var others = (await db.TripEnquiries
+            await TripGuards.LockTripAsync(db, trip.Id);
+            if (TripPlanLock.LegacyTaxiBlock(await TripPlanLockReader.HasActiveRequestAsync(db, trip.Id)) is { } requestActive)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                await bookingPermit.ReleaseAllAsync();
+                return TripHandlers.LockRefusal(requestActive);
+            }
+            var others =(await db.TripEnquiries
                 .Where(x => x.TripId == trip.Id && x.Kind == TripEnquiryKinds.Taxi && x.ListingId != taxi.Id
                     && TripEnquiryStatuses.Open.Contains(x.Status))
                 .ToListAsync())

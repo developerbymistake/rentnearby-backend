@@ -6,8 +6,10 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.TaxiRequests;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -165,13 +167,42 @@ public static class TripLeadHandlers
         if (e.Status != TripEnquiryStatuses.BookedByTraveller) return Closed();
 
         var now = DateTime.UtcNow;
-        if (!await SaveAsync(unitOfWork, db, e, now, () =>
+        // Same driver row lock and fresh overlap query as the taxi request confirm (MASTER_PLAN P1, P11): a driver is never
+        // booked twice for overlapping days, whichever route books him.
+        await using (var tx = await DriverCalendar.BeginConfirmTransactionAsync(db))
         {
-            e.Status = TripEnquiryStatuses.ConfirmedByBoth;
-            e.FailReason = null;
-            e.ConfirmedByOwnerAt = now;
-            e.UpdatedAt = now;
-        })) return Concurrent();
+            try
+            {
+                var calendar = new EfDriverCalendarSql(db);
+                if (DriverCalendar.LegacyRange(e.CheckIn, e.CheckOut) is { } dates)
+                {
+                    var check = await DriverCalendar.LockAndCheckAsync(calendar, e.ListingId, dates, e.Id, CancellationToken.None);
+                    if (check.Outcome != DriverCheckOutcome.Free)
+                    {
+                        await tx.RollbackAsync();
+                        return check.Clash is { } clash ? DriverDatesBooked(clash) : Closed();
+                    }
+                }
+                else if (await calendar.LockDriverAsync(e.ListingId, CancellationToken.None) is null)
+                {
+                    await tx.RollbackAsync();
+                    return Closed();
+                }
+
+                e.Status = TripEnquiryStatuses.ConfirmedByBoth;
+                e.FailReason = null;
+                e.ConfirmedByOwnerAt = now;
+                e.UpdatedAt = now;
+                await unitOfWork.SaveChangesAsync();
+                await JourneyLegSync.SyncAsync(db, e, now);
+                await tx.CommitAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await tx.RollbackAsync();
+                return Concurrent();
+            }
+        }
 
         await PushAsync(unitOfWork, notifier, loggers, e, TripNotifications.TripDriverConfirmed);
         return OkResponse(await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId));
@@ -265,6 +296,10 @@ public static class TripLeadHandlers
 
     private static IResult Closed() =>
         ErrorResponse(409, "This lead is closed.", TripEnquiryErrorTypes.TripEnquiryClosed);
+
+    private static IResult DriverDatesBooked(TaxiDateRange clash) =>
+        ErrorResponse(409, TaxiRequestErrorTypes.DatesAlreadyBookedMessage(clash.From, clash.To), TripEnquiryErrorTypes.DayAlreadyBooked,
+            new { from = clash.From.ToString("yyyy-MM-dd"), to = clash.To.ToString("yyyy-MM-dd") });
 
     private static IResult Concurrent() =>
         ErrorResponse(409, "This lead just changed.", TripEnquiryErrorTypes.ConcurrentUpdate);

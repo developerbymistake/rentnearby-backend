@@ -334,10 +334,14 @@ public class TaxiRouteCityKeyTests
         Assert.Null(dtos[0].FromCityName);
     }
 
-    // A write of a key: "FromCityKey = x" or SetProperty(r => r.FromCityKey, ...) or SQL "FromCityKey" = ...,
-    // or a Mapster map INTO a TaxiRoute (same-name properties would copy a key without naming it).
+    // A write of a key: "FromCityKey = x" or SetProperty(r => r.FromCityKey, ...), a SQL assignment (SET "FromCityKey" = ...,
+    // ", "ToCityKey" = ..." in a SET list, or a line that starts with the bare quoted column), an INSERT INTO "TaxiRoutes" naming
+    // a key, or a Mapster map INTO a TaxiRoute (same-name properties would copy a key without naming it).
+    // A qualified or WHERE/AND/ON comparison (rt."ToCityKey" = @to) is a read.
     private static readonly Regex Write = new(
-        @"\b(From|To)CityKey\b\s*=(?!=)|SetProperty\(\s*\w+\s*=>\s*\w+\.(From|To)CityKey\b|""(From|To)CityKey""\s*=(?!=)"
+        @"\b(From|To)CityKey\b\s*=(?!=)|SetProperty\(\s*\w+\s*=>\s*\w+\.(From|To)CityKey\b"
+        + @"|(?:^\s*|(?i:\bSET\b)\s*|,\s*)""(From|To)CityKey""\s*=(?!=)"
+        + @"|(?i:\bINSERT\s+INTO\s+)""*TaxiRoutes\b[^;]*""(From|To)CityKey"""
         + @"|\.Adapt<TaxiRoute>|TypeAdapterConfig<\s*\w+\s*,\s*TaxiRoute\s*>|\.Adapt\(\s*\w*[Rr]oute\w*\s*\)", RegexOptions.Compiled);
     // A same-name copy of a stored key into a read model ("FromCityKey = r.FromCityKey" in a DTO projection). Only the read-model
     // files below may do it; anywhere else the same line is a write (for example route.FromCityKey = request.FromCityKey).
@@ -384,7 +388,19 @@ public class TaxiRouteCityKeyTests
         Assert.Matches(Write, "new TaxiRoute { ToCityKey = key }");
         Assert.Matches(Write, ".SetProperty(r => r.ToCityKey, 7)");
         Assert.Matches(Write, "UPDATE \"TaxiRoutes\" SET \"FromCityKey\" = 1");
+        Assert.Matches(Write, "UPDATE \"TaxiRoutes\" SET \"Seats\" = 4, \"ToCityKey\" = @to");
+        Assert.Matches(Write, "    \"ToCityKey\" = @to,");
+        Assert.Matches(Write, "ON CONFLICT (\"Id\") DO UPDATE SET \"FromCityKey\" = EXCLUDED.\"FromCityKey\"");
+        Assert.Matches(Write, "INSERT INTO \"TaxiRoutes\" (\"Id\", \"FromCityKey\", \"ToCityKey\") VALUES");
+        Assert.Matches(Write, "INSERT INTO TaxiRoutes (Id, \"ToCityKey\")");
         Assert.DoesNotMatch(Write, "x.FromCityKey == key");
+        Assert.DoesNotMatch(Write, "EXISTS (SELECT 1 FROM \"TaxiRoutes\" rt WHERE rt.\"TaxiListingId\" = l.\"Id\" AND rt.\"ToCityKey\" = r.\"MatchToCityKey\"");
+        Assert.DoesNotMatch(Write, "AND (r.\"MatchFromCityKey\" IS NULL OR rt.\"FromCityKey\" = r.\"MatchFromCityKey\"))");
+        Assert.DoesNotMatch(Write, "WHERE rt.\"ToCityKey\" = @to AND rt.\"FromCityKey\" IS NOT NULL AND rt.\"FromCityKey\" <> rt.\"ToCityKey\"");
+        Assert.DoesNotMatch(Write, "WHERE \"FromCityKey\" = @from AND \"ToCityKey\" = @to");
+        Assert.DoesNotMatch(Write, "JOIN \"TaxiRequests\" q ON q.\"MatchToCityKey\" = rt.\"ToCityKey\"");
+        Assert.DoesNotMatch(Write, "SELECT \"Id\", \"FromCityKey\", \"ToCityKey\" FROM \"TaxiRoutes\"");
+        Assert.DoesNotMatch(Write, "INSERT INTO \"TaxiRequests\" (\"Id\", \"MatchToCityKey\") SELECT rt.\"ToCityKey\" FROM \"TaxiRoutes\" rt");
         Assert.True(IsWrite("RentNearBy.Api/Handlers/TaxiHandlers.cs", "route.FromCityKey = request.FromCityKey;"));
         Assert.True(IsWrite("RentNearBy.Api/Handlers/TaxiHandlers.cs", "ToCityKey = r.ToCityKey,"));
         Assert.True(IsWrite("RentNearBy.Api/Mappings/DtoMappings.cs", "route.FromCityKey = 5;"));

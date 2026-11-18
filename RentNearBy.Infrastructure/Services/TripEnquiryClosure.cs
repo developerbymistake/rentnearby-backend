@@ -4,6 +4,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.TaxiRequests;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -85,16 +86,31 @@ public static class TripEnquiryOps
     }
 }
 
-// Scoped: keeps the chat posts of its own On* calls until AfterCommitAsync.
+// Scoped: keeps the chat posts and the taxi request signals of its own On* calls until AfterCommitAsync.
+// Every entry point also runs the taxi request closure (MASTER_PLAN B2-8), so each existing caller covers both.
 public class TripEnquiryClosure(
     ApplicationDbContext db, IUnitOfWork unitOfWork, ITripChatService chat, ITripNotifier notifier,
-    ILogger<TripEnquiryClosure> logger) : ITripEnquiryClosure
+    ILogger<TripEnquiryClosure> logger, TaxiRequestClosure? taxiRequests = null) : ITripEnquiryClosure
 {
     private readonly List<TripChatPost> _posts = new();
+    private readonly List<TaxiClosureResult> _taxi = new();
+    private bool _taxiPoolChanged;
 
     private ITripEnquiryRepository Enquiries => unitOfWork.TripEnquiries;
 
+    // False only when built without DI (test harness); the DI resolution test pins it true for the app container.
+    public bool RunsTaxiClosure => taxiRequests is not null;
+
+    // Taxi requests first: they are locked before the first save here can flush a caller's pending listing write (2.4).
     public async Task<IReadOnlyList<TripClosurePush>> OnListingsRemovedAsync(string kind, IReadOnlyCollection<Guid> listingIds)
+    {
+        if (kind == ListingKinds.Taxi)
+            foreach (var id in listingIds.Distinct().Order())
+                await RunTaxiAsync(t => t.ListingRemovedAsync(db, id), poolChanged: true);
+        return await CloseEnquiriesOfRemovedListingsAsync(kind, listingIds);
+    }
+
+    private async Task<IReadOnlyList<TripClosurePush>> CloseEnquiriesOfRemovedListingsAsync(string kind, IReadOnlyCollection<Guid> listingIds)
     {
         if (listingIds.Count == 0) return [];
         var ids = listingIds.Distinct().ToList();
@@ -135,6 +151,12 @@ public class TripEnquiryClosure(
 
     public async Task<IReadOnlyList<TripClosurePush>> OnTripDeletedAsync(Guid tripId)
     {
+        await RunTaxiAsync(t => t.TripDeletedAsync(db, tripId));
+        return await CloseEnquiriesOfDeletedTripAsync(tripId);
+    }
+
+    private async Task<IReadOnlyList<TripClosurePush>> CloseEnquiriesOfDeletedTripAsync(Guid tripId)
+    {
         var rows = await db.TripEnquiries.Where(e => e.TripId == tripId).ToListAsync();
         if (rows.Count == 0) return [];
 
@@ -154,6 +176,13 @@ public class TripEnquiryClosure(
 
     public async Task<IReadOnlyList<TripClosurePush>> OnTravellerDeletedAsync(Guid userId)
     {
+        var pushes = await CloseEnquiriesOfDeletedTravellerAsync(userId);
+        await RunTaxiAsync(t => t.TravellerAccountDeletedAsync(db, userId));
+        return pushes;
+    }
+
+    private async Task<IReadOnlyList<TripClosurePush>> CloseEnquiriesOfDeletedTravellerAsync(Guid userId)
+    {
         var rows = await db.TripEnquiries
             .Where(e => e.TravellerUserId == userId && TripEnquiryStatuses.Open.Contains(e.Status))
             .ToListAsync();
@@ -167,7 +196,22 @@ public class TripEnquiryClosure(
         return pushes;
     }
 
+    // The block route calls this outside a transaction; the taxi part then gets its own, so its locks and rows go together.
     public async Task OnBlockAsync(Guid userA, Guid userB)
+    {
+        await CloseEnquiriesOfBlockAsync(userA, userB);
+        if (taxiRequests is null) return;
+        if (db.Database.CurrentTransaction is not null)
+        {
+            await RunTaxiAsync(t => t.UsersBlockedAsync(db, userA, userB));
+            return;
+        }
+        await using var tx = await db.Database.BeginTransactionAsync();
+        await RunTaxiAsync(t => t.UsersBlockedAsync(db, userA, userB));
+        await tx.CommitAsync();
+    }
+
+    private async Task CloseEnquiriesOfBlockAsync(Guid userA, Guid userB)
     {
         var rows = await db.TripEnquiries
             .Where(e => TripEnquiryStatuses.Withdrawable.Contains(e.Status)
@@ -234,6 +278,22 @@ public class TripEnquiryClosure(
             try { await notifier.SendOnceAsync(p.Notification, p.DedupeKey, p.TripId, p.EnquiryId); }
             catch (Exception ex) { logger.LogError(ex, "trip.closure.push_failed {EnquiryId}", p.EnquiryId); }
         }
+
+        var taxi = TaxiRequestClosure.Merge(_taxi);
+        var poolChanged = _taxiPoolChanged;
+        _taxi.Clear();
+        _taxiPoolChanged = false;
+        if (taxiRequests is not null) await taxiRequests.AfterCommitAsync(taxi, poolChanged);
+    }
+
+    // Taxi request rows move in the caller's transaction; their push rows are saved here, the signals wait for AfterCommitAsync.
+    private async Task RunTaxiAsync(Func<TaxiRequestClosure, Task<TaxiClosureResult>> step, bool poolChanged = false)
+    {
+        if (taxiRequests is null) return;
+        var result = await step(taxiRequests);
+        await db.SaveChangesAsync();
+        _taxi.Add(result);
+        _taxiPoolChanged |= poolChanged;
     }
 
     // Trip deleted or traveller account deleted: unconfirmed rows close, booked rows count as a guest cancel.

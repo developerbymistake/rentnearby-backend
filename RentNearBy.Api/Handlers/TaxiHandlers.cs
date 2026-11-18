@@ -627,6 +627,8 @@ public static class TaxiHandlers
         if (taxi == null) return NotFoundResponse(TaxiNotFound);
         if (taxi.Status == TaxiStatuses.PendingReview) return LockedResponse();
         if (!TaxiSetupRules.Step1Done(taxi)) return StepLocked(1);
+        // Resolved before any write, so a missing registration can never fail a route save after its commit.
+        var pickupPlaces = sp.GetRequiredService<TaxiPickupPlaces>();
 
         // Full replace by position: slot N keeps its row (and RouteIndex N), extra rows are removed,
         // so the (TaxiListingId, RouteIndex) unique index never sees a transient duplicate.
@@ -680,6 +682,7 @@ public static class TaxiHandlers
 
         try { await unitOfWork.SaveChangesAsync(); }
         catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        await pickupPlaces.BumpAsync();
 
         if (taxi.Status == TaxiStatuses.Approved)
             await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
@@ -841,12 +844,17 @@ public static class TaxiHandlers
         taxi.IsAvailable = request.IsAvailable!.Value;
         taxi.UpdatedAt = DateTime.UtcNow;
         var paused = wasAvailable && !taxi.IsAvailable;
+        var resumed = !wasAvailable && taxi.IsAvailable;
+        var taxiRequests = sp.GetRequiredService<TaxiRequestClosure>();
 
-        // A paused driver ends his unanswered local trip leads; pushes go out after commit.
+        // A paused driver ends his unanswered local trip leads and his ringing taxi requests; pushes go out after commit.
+        // The requests are closed before the listing row is written, keeping the lock order request -> driver listing.
         IReadOnlyList<TripClosurePush> tripPushes = [];
+        var taxiSignals = resumed ? TaxiRequestClosure.DriverOnline(taxi.Id) : TaxiClosureResult.Empty;
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            if (paused) taxiSignals = await taxiRequests.DriverOfflineAsync(db, taxi.Id);
             await unitOfWork.SaveChangesAsync();
             if (paused) tripPushes = await TripLeadSilence.ClosePausedDriverLeadsAsync(db, unitOfWork.TripEnquiries, taxi.Id, taxi.UpdatedAt);
             await unitOfWork.CommitTransactionAsync();
@@ -862,6 +870,7 @@ public static class TaxiHandlers
             throw;
         }
         if (paused) await tripClosure.AfterCommitAsync(tripPushes);
+        await taxiRequests.AfterCommitAsync(taxiSignals, poolChanged: true);
 
         await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
         return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
@@ -884,12 +893,14 @@ public static class TaxiHandlers
         taxi.DeletedAt = now;
         taxi.UpdatedAt = now;
 
+        // The closure locks the taxi requests before the listing row is written (lock order request -> driver listing),
+        // so a traveller confirming this driver at the same moment cannot deadlock the delete.
         IReadOnlyList<TripClosurePush> tripPushes;
         await unitOfWork.BeginTransactionAsync();
         try
         {
-            await unitOfWork.SaveChangesAsync();
             tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, [taxi.Id]);
+            await unitOfWork.SaveChangesAsync();
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
