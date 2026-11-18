@@ -1,0 +1,37 @@
+{
+  "offerId": "a1b2c3d4-0001-4a00-8000-000000000001",
+  "requestId": "3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101",
+  "bookingId": null,
+  "state": "Selected",
+  "endReason": null,
+  "bucket": "New",
+  "expiresAt": null,
+  "confirmBy": "2026-12-10T10:01:00Z",
+  "pickupName": "Kathgodam",
+  "sections": { "pickup": true, "sightseeing": true, "drop": true },
+  "sightseeingDayCount": 3,
+  "dateFrom": "2026-12-18",
+  "dateTo": "2026-12-21",
+  "dayCount": 4,
+  "nightCount": 3,
+  "routeLine": "Kathgodam to Nainital, Ranikhet",
+  "seats": 4,
+  "travellers": 2,
+  "traveller": { "name": "Aarav Sharma", "phone": "+919876543210" },
+  "datesConflict": { "from": "2026-12-20", "to": "2026-12-24" },
+  "trip": {
+    "name": "Uttarakhand Hills Trip",
+    "pickup": { "name": "Kathgodam", "date": "2026-12-18" },
+    "drop": { "name": "Kathgodam", "sameAsPickup": true, "date": "2026-12-21" },
+    "cities": [
+      { "name": "Nainital", "nights": 3, "from": "2026-12-18", "to": "2026-12-21" },
+      { "name": "Ranikhet", "nights": 1, "from": "2026-12-21", "to": "2026-12-22" }
+    ],
+    "days": [
+      { "day": 1, "date": "2026-12-18", "city": "Nainital", "taxi": true, "km": 25, "minutes": 370, "places": ["Naini Lake", "Naina Devi Temple", "Snow View Point", "Mall Road"] },
+      { "day": 2, "date": "2026-12-19", "city": "Nainital", "taxi": true, "km": 30, "minutes": 560, "places": ["Bhimtal Lake", "Sattal", "Kainchi Dham", "Nainital Zoo"] },
+      { "day": 3, "date": "2026-12-20", "city": "Nainital", "taxi": false, "km": 40, "minutes": 300, "places": ["Tiffin Top", "Hanuman Garhi", "Himalaya Darshan", "Raj Bhavan"] },
+      { "day": 4, "date": "2026-12-21", "city": "Ranikhet", "taxi": true, "km": 18, "minutes": 230, "places": ["Chaubatia Gardens", "Jhula Devi Temple", "Ranikhet Golf Course"] }
+    ]
+  }
+}

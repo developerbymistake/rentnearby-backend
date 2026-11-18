@@ -1,0 +1,35 @@
+{
+  "from": "2026-12-01",
+  "to": "2026-12-31",
+  "occupied": [
+    { "bookingId": "b00c1e55-0001-4b00-8000-000000000001", "from": "2026-12-18", "to": "2026-12-21" }
+  ],
+  "items": [
+    {
+      "bookingId": "b00c1e55-0001-4b00-8000-000000000001",
+      "offerId": "a1b2c3d4-0001-4a00-8000-000000000001",
+      "requestId": "3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101",
+      "state": "Booked",
+      "dateFrom": "2026-12-18",
+      "dateTo": "2026-12-21",
+      "pickupName": "Kathgodam",
+      "travellerName": "Aarav Sharma",
+      "travellerPhone": "+919876543210",
+      "canWithdraw": true,
+      "canEnd": false
+    },
+    {
+      "bookingId": "b00c1e55-0007-4b00-8000-000000000007",
+      "offerId": "a1b2c3d4-0007-4a00-8000-000000000007",
+      "requestId": "8f1b4da3-2e50-4a6c-d9b4-0c3e6f2a4b55",
+      "state": "Completed",
+      "dateFrom": "2026-11-02",
+      "dateTo": "2026-11-06",
+      "pickupName": "Kathgodam",
+      "travellerName": "Neha Verma",
+      "travellerPhone": null,
+      "canWithdraw": false,
+      "canEnd": false
+    }
+  ]
+}

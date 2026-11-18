@@ -1,0 +1,16 @@
+{
+  "paused": false,
+  "firstCity": { "cityKey": 632970, "name": "Nainital" },
+  "lastCity": { "cityKey": 1418230, "name": "Ranikhet" },
+  "pickup": [
+    { "cityKey": 6377270, "name": "Kathgodam", "drivers": 6 },
+    { "cityKey": 2552100, "name": "Haldwani", "drivers": 9 }
+  ],
+  "drop": [
+    { "cityKey": 2738820, "name": "Ramnagar", "drivers": 5 },
+    { "cityKey": 1525290, "name": "Kashipur", "drivers": 7 }
+  ],
+  "sightseeingDrivers": 15,
+  "travellers": 2,
+  "suggestedSeats": 4
+}

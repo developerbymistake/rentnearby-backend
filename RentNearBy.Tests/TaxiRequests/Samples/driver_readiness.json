@@ -1,0 +1,9 @@
+{
+  "approved": true,
+  "online": true,
+  "ringReady": true,
+  "notificationsOn": true,
+  "hasValidToken": true,
+  "missedRings": false,
+  "routesWithoutCity": 0
+}

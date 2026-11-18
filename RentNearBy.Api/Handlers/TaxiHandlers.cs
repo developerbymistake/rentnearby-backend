@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -12,6 +13,7 @@ using RentNearBy.Core.Models;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.TaxiRequests;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -85,11 +87,14 @@ public static class TaxiHandlers
     private static IResult PlateTaken() =>
         ConflictResponse("This number plate is already listed", TaxiErrorTypes.TaxiPlateTaken);
 
-    private static async Task<TaxiOwnerDto> ToOwnerDtoAsync(TaxiListing taxi, IUnitOfWork unitOfWork)
+    // Route city names: GetMine and UpsertRoutes (the responses that show routes) wait up to a budget; every other
+    // owner response takes only names a warm city grid has at once (zero budget) and never waits.
+    private static async Task<TaxiOwnerDto> ToOwnerDtoAsync(TaxiListing taxi, IUnitOfWork unitOfWork, ICityResolver resolver, TimeSpan? namesBudget = null)
     {
         var dto = taxi.Adapt<TaxiOwnerDto>();
         var counts = await unitOfWork.ListingReports.GetPendingCountsForListingsAsync(new[] { taxi.Id }, ListingKinds.Taxi);
         dto.PendingReportCount = counts.GetValueOrDefault(taxi.Id);
+        await TaxiRouteCityKeys.FillNamesAsync(dto.Routes, resolver, namesBudget ?? TimeSpan.Zero);
         return dto;
     }
 
@@ -349,14 +354,14 @@ public static class TaxiHandlers
 
     // ---- Driver (CanListTaxis), always keyed on the caller's live taxi ----
 
-    public static async Task<IResult> GetMine(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetMine(ClaimsPrincipal principal, IUnitOfWork unitOfWork, ICityResolver resolver)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
         var taxi = await unitOfWork.Taxis.GetLiveByUserAsync(userId);
         if (taxi == null) return OkResponse<TaxiOwnerDto?>(null);
-        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
+        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver, TaxiRouteCityKeys.RequestBudget));
     }
 
     // Allowed in Draft, Rejected and Approved. On an Approved taxi a new plate, licence number or date of
@@ -370,6 +375,7 @@ public static class TaxiHandlers
         IRabbitMqPublisher publisher,
         IPlanEntitlementService entitlements,
         IIdentityCipher cipher,
+        ICityResolver resolver,
         ILoggerFactory loggerFactory,
         IServiceProvider sp)
     {
@@ -511,7 +517,7 @@ public static class TaxiHandlers
             }
             if (sentBack) await PublishReviewRequestAsync(publisher, taxi.Id);
 
-            return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
+            return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
         }
 
         // One live taxi per account and one live taxi per plate are enforced by partial unique
@@ -543,7 +549,7 @@ public static class TaxiHandlers
             return ConflictResponse("Could not generate a unique link for this taxi. Please try again.", "SLUG_GENERATION_FAILED");
         }
 
-        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
+        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
     }
 
     // The one write allowed under review: the Vehicle page saves basic first and then the photo, so a
@@ -601,6 +607,8 @@ public static class TaxiHandlers
         IValidator<UpsertTaxiRoutesRequest> validator,
         IUnitOfWork unitOfWork,
         ApplicationDbContext db,
+        ICityResolver resolver,
+        ILoggerFactory loggerFactory,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -624,11 +632,13 @@ public static class TaxiHandlers
         // so the (TaxiListingId, RouteIndex) unique index never sees a transient duplicate.
         var now = DateTime.UtcNow;
         var existing = taxi.Routes.OrderBy(r => r.RouteIndex).ToList();
+        var saved = new List<(TaxiRoute Route, RouteEndsBefore? Before)>(request.Routes.Count);
         for (var i = 0; i < request.Routes.Count; i++)
         {
             var input = request.Routes[i];
             var index = (short)(i + 1);
             var route = existing.FirstOrDefault(r => r.RouteIndex == index);
+            var before = RouteEndsBefore.Of(route);
             if (route == null)
             {
                 route = new TaxiRoute
@@ -652,6 +662,7 @@ public static class TaxiHandlers
             route.Fare = input.Fare;
             route.TripType = input.TripType.Trim();
             route.UpdatedAt = now;
+            saved.Add((route, before));
         }
         foreach (var extra in existing.Where(r => r.RouteIndex > request.Routes.Count))
         {
@@ -662,12 +673,19 @@ public static class TaxiHandlers
         RecomputeMinFare(taxi);
         taxi.UpdatedAt = now;
 
+        // A city that cannot be trusted right now leaves the key null; the route still saves and the backfill retries.
+        var started = Stopwatch.GetTimestamp();
+        await TaxiRouteCityKeys.ResolveAsync(resolver, saved, loggerFactory.CreateLogger("TaxiRouteCityKeys"), TaxiRouteCityKeys.RequestBudget);
+        TaxiRouteCityKeys.MarkKeysWritten(db, saved.Select(s => s.Route));
+
         try { await unitOfWork.SaveChangesAsync(); }
         catch (DbUpdateConcurrencyException) { return Concurrent(); }
 
         if (taxi.Status == TaxiStatuses.Approved)
             await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
-        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
+        // Resolve and names share one budget, so a cold city grid costs one wait, not two.
+        var namesBudget = TaxiRouteCityKeys.RequestBudget - Stopwatch.GetElapsedTime(started);
+        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver, namesBudget > TimeSpan.Zero ? namesBudget : TimeSpan.Zero));
     }
 
     public static async Task<IResult> UpdateFare(
@@ -676,6 +694,7 @@ public static class TaxiHandlers
         ClaimsPrincipal principal,
         IValidator<UpdateTaxiFareRequest> validator,
         IUnitOfWork unitOfWork,
+        ICityResolver resolver,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -703,7 +722,7 @@ public static class TaxiHandlers
 
         if (taxi.Status == TaxiStatuses.Approved)
             await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
-        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
+        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
     }
 
     // A rate change never sends an Approved taxi back to review.
@@ -713,7 +732,8 @@ public static class TaxiHandlers
         IValidator<UpdateTaxiLocalRateRequest> validator,
         IUnitOfWork unitOfWork,
         IServiceProvider sp,
-        ITripEnquiryClosure tripClosure)
+        ITripEnquiryClosure tripClosure,
+        ICityResolver resolver)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -756,11 +776,11 @@ public static class TaxiHandlers
 
         if (taxi.Status == TaxiStatuses.Approved)
             await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
-        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
+        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
     }
 
     public static async Task<IResult> Submit(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IRabbitMqPublisher publisher)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IRabbitMqPublisher publisher, ICityResolver resolver)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -791,7 +811,7 @@ public static class TaxiHandlers
 
         await PublishReviewRequestAsync(publisher, taxi.Id);
 
-        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
+        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
     }
 
     public static async Task<IResult> UpdateAvailability(
@@ -801,6 +821,7 @@ public static class TaxiHandlers
         IUnitOfWork unitOfWork,
         ApplicationDbContext db,
         ITripEnquiryClosure tripClosure,
+        ICityResolver resolver,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -843,7 +864,7 @@ public static class TaxiHandlers
         if (paused) await tripClosure.AfterCommitAsync(tripPushes);
 
         await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
-        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork));
+        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
     }
 
     public static async Task<IResult> DeleteMine(

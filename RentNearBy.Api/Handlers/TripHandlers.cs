@@ -4,6 +4,7 @@ using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using RentNearBy.Api.Validators;
@@ -12,6 +13,8 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.TaxiRequests;
+using RentNearBy.Core.DTOs.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
 using StackExchange.Redis;
@@ -55,6 +58,7 @@ public static class TripHandlers
         var error = validation.Errors[0];
         return BadRequestResponse(error.ErrorMessage,
             error.ErrorCode is TripErrorTypes.TooManySpots or TripErrorTypes.TooManySpotsPerDay or TripErrorTypes.TooManySpotsForDays
+                or TaxiRequestErrorTypes.TripNameInvalid
                 ? error.ErrorCode
                 : "BadRequest");
     }
@@ -420,19 +424,7 @@ public static class TripHandlers
         var newRows = TripEasyRows.Build(new Trip { Id = Guid.NewGuid(), StartDate = plan.Settings.StartDate, EndDate = plan.EndDate }, plan, [], owned);
         plan.Guide = TripGuideGate.Apply(plan.Guide, newRows);
 
-        var now = DateTime.UtcNow;
-        var trip = new Trip
-        {
-            Id = Guid.NewGuid(),
-            OwnerUserId = userId,
-            Title = TitleOrDefault(request.Title, plan.LegCities),
-            Status = request.Status ?? TripStatuses.Draft,
-            ClientTripId = request.ClientTripId,
-            CreatedAt = now,
-            UpdatedAt = now,
-        };
-        CopyFirstLeg(trip, plan);
-        ApplyPlan(trip, plan);
+        var trip = NewTrip(userId, request, plan, DateTime.UtcNow);
 
         await unitOfWork.Trips.AddAsync(trip);
         try
@@ -464,6 +456,43 @@ public static class TripHandlers
 
         return CreatedResponse(ToDto(trip, plan), $"/api/v1/trips/{trip.Id}");
     }
+
+    public static Trip NewTrip(Guid userId, SaveTripRequest request, TripPlan plan, DateTime now)
+    {
+        var name = TripNames.Resolve(null, false, request.Name, request.Title, [], plan.LegCities);
+        var trip = new Trip
+        {
+            Id = Guid.NewGuid(),
+            InviteCode = Guid.NewGuid(),
+            OwnerUserId = userId,
+            Title = name.Title,
+            NameChosen = name.NameChosen,
+            Status = request.Status ?? TripStatuses.Draft,
+            ClientTripId = request.ClientTripId,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        CopyFirstLeg(trip, plan);
+        ApplyPlan(trip, plan);
+        return trip;
+    }
+
+    public static async Task<IResult> GetInvite(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IConfiguration configuration)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+
+        var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
+        if (trip == null) return ErrorResponse(404, "Not found", TaxiRequestErrorTypes.NotFound);
+
+        return OkResponse(InviteDto(trip, TripInvites.PublicBaseUrl(configuration[TripInvites.ConfigKey])));
+    }
+
+    public static TripInviteDto InviteDto(Trip trip, string? baseUrl) => new()
+    {
+        TripId = trip.Id,
+        InviteCode = trip.InviteCode,
+        InviteLink = TripInvites.Link(baseUrl, trip.InviteCode),
+    };
 
     public static async Task<IResult> GetById(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys)
     {
@@ -593,9 +622,10 @@ public static class TripHandlers
             return ConflictResponse("A confirmed booking falls on a day you are removing. Cancel it first.", TripBookedRange.Code);
         plan.Guide = TripGuideGate.Apply(plan.Guide, incomingRows);
 
-        // A title the traveller typed is never touched; the default follows the cities.
-        if (request.Title != null) trip.Title = TitleOrDefault(request.Title, plan.LegCities);
-        else if (trip.Title == TripTitles.Default(stored.LegCities)) trip.Title = TripTitles.Default(plan.LegCities);
+        // A chosen name is never touched; a default title follows the cities.
+        var name = TripNames.Resolve(trip.Title, trip.NameChosen, request.Name, request.Title, stored.LegCities, plan.LegCities);
+        trip.Title = name.Title;
+        trip.NameChosen = name.NameChosen;
         if (effectiveStatus != null) trip.Status = effectiveStatus;
         CopyFirstLeg(trip, plan);
         var oldStart = trip.StartDate;
@@ -816,12 +846,6 @@ public static class TripHandlers
         Total = 0,
     };
 
-    private static string TitleOrDefault(string? title, IReadOnlyList<string> cityNames)
-    {
-        var trimmed = TripTextSafety.Clean(title, 80);
-        return !string.IsNullOrEmpty(trimmed) ? trimmed : TripTitles.Default(cityNames);
-    }
-
     private static IResult LegCityNotFound(TripCityLeg leg)
     {
         var name = string.IsNullOrWhiteSpace(leg.CityName) ? "This city" : leg.CityName.Trim();
@@ -910,7 +934,7 @@ public static class TripHandlers
 
     internal static TripPlan ReadPlan(Trip trip) => TripPlanReader.Read(trip);
 
-    private static TripDto ToDto(
+    public static TripDto ToDto(
         Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry>? enquiries = null, IReadOnlyList<SavedJourney>? journeys = null,
         IReadOnlySet<Guid>? revisedPending = null)
     {
@@ -920,6 +944,7 @@ public static class TripHandlers
         {
             Id = trip.Id,
             Title = trip.Title,
+            NameChosen = trip.NameChosen,
             Status = trip.Status,
             CityKey = trip.CityKey,
             CityName = trip.CityName,

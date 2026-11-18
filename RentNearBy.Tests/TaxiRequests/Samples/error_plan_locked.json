@@ -1,0 +1,7 @@
+{
+  "data": { "reason": "TaxiRequestActive", "requestId": "3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101" },
+  "status": "409",
+  "code": 409,
+  "timestamp": 1797500000,
+  "error": { "message": "Plan is locked while your taxi request is active. Cancel the request to edit.", "type": "PlanLocked" }
+}

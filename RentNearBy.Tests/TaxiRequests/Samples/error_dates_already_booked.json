@@ -1,0 +1,7 @@
+{
+  "data": { "from": "2026-12-20", "to": "2026-12-24" },
+  "status": "409",
+  "code": 409,
+  "timestamp": 1797500000,
+  "error": { "message": "Dates already booked. You have another booking from 20 Dec to 24 Dec.", "type": "DatesAlreadyBooked" }
+}

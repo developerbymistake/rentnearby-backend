@@ -1,0 +1,52 @@
+{
+  "id": "3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101",
+  "tripId": "7b1c2f0e-5a44-4c1e-9d3a-0f6f2a1b9c01",
+  "tripName": "Uttarakhand Hills Trip",
+  "state": "InProgress",
+  "view": "InProgress",
+  "version": 10,
+  "endReason": null,
+  "sections": { "pickup": true, "sightseeing": true, "drop": true },
+  "pickup": { "cityKey": 6377270, "name": "Kathgodam" },
+  "drop": { "cityKey": 6377270, "name": "Kathgodam", "sameAsPickup": true },
+  "seats": 4,
+  "travellers": 2,
+  "dateFrom": "2026-12-18",
+  "dateTo": "2026-12-21",
+  "dayCount": 4,
+  "sightseeingDays": [1, 2, 4],
+  "askedCount": 3,
+  "ringingCount": 0,
+  "acceptedCount": 2,
+  "stillAsking": false,
+  "canAskMore": false,
+  "canCancel": false,
+  "waitUntil": null,
+  "drivers": [
+    {
+      "offerId": "a1b2c3d4-0001-4a00-8000-000000000001",
+      "state": "Confirmed",
+      "name": "Ramesh Kumar",
+      "phone": "+919876500001",
+      "vehicle": "Swift Dzire",
+      "seats": 4,
+      "ratingAverage": 4.8,
+      "ratingCount": 72,
+      "ridesCompleted": 120,
+      "canSelect": false,
+      "confirmBy": null
+    }
+  ],
+  "booking": {
+    "id": "b00c1e55-0001-4b00-8000-000000000001",
+    "state": "InProgress",
+    "dateFrom": "2026-12-18",
+    "dateTo": "2026-12-21",
+    "dayNumber": 3,
+    "canCancel": false,
+    "canEnd": true
+  },
+  "rating": null,
+  "createdAt": "2026-12-10T09:41:07Z",
+  "updatedAt": "2026-12-17T18:30:00Z"
+}

@@ -1,0 +1,21 @@
+{
+  "nextCursor": null,
+  "items": [
+    {
+      "bookingId": "b00c1e55-0001-4b00-8000-000000000001",
+      "requestId": "3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101",
+      "state": "Booked",
+      "driverName": "Ramesh Kumar",
+      "driverPhone": "+919876500001",
+      "travellerName": "Aarav Sharma",
+      "travellerPhone": "+919876543210",
+      "pickupName": "Kathgodam",
+      "dateFrom": "2026-12-18",
+      "dateTo": "2026-12-21",
+      "cancelledBy": null,
+      "cancelChip": null,
+      "stars": null,
+      "bookedAt": "2026-12-10T09:52:12Z"
+    }
+  ]
+}

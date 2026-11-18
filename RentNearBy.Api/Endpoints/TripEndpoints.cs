@@ -17,6 +17,7 @@ public static class TripEndpoints
         group.MapGet("/", TripHandlers.GetMine).RequireAuthorization();
         group.MapPost("/", TripHandlers.Create).RequireAuthorization();
         group.MapGet("/{id:guid}", TripHandlers.GetById).RequireAuthorization();
+        group.MapGet("/{id:guid}/invite", TripHandlers.GetInvite).RequireAuthorization();
         group.MapPut("/{id:guid}", TripHandlers.Update).RequireAuthorization();
         group.MapDelete("/{id:guid}", TripHandlers.Delete).RequireAuthorization();
 

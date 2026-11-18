@@ -45,6 +45,16 @@ public class TaxiListing
     public int TripLeadsReceived { get; set; }
     public int TripLeadsAnsweredInApp { get; set; }
 
+    public int RatingSum { get; set; }
+    public int RatingCount { get; set; }
+    public int RidesCompleted { get; set; }
+    // Last device report of a ring-capable build; null = never reported, so not in the dispatch pool.
+    public DateTime? RingReadyAt { get; set; }
+    public int? RingReadyBuild { get; set; }
+    public bool RingNotificationsOn { get; set; }
+    // Rings that timed out without a timely shown ack, in a row; at the limit the driver leaves the pool.
+    public short RingMissStreak { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsDeleted { get; set; } = false;

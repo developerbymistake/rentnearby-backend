@@ -1,0 +1,4 @@
+{
+  "planLock": { "locked": true, "reason": "TaxiRequestActive", "requestId": "3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101" },
+  "taxiRequest": { "requestId": "3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101", "state": "Collecting", "view": "Collecting", "version": 6 }
+}

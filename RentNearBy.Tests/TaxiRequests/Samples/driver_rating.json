@@ -1,0 +1,11 @@
+{
+  "average": 4.8,
+  "ratingCount": 72,
+  "ridesCompleted": 86,
+  "latest": [
+    { "date": "2026-11-02", "stars": 5 },
+    { "date": "2026-10-24", "stars": 5 },
+    { "date": "2026-10-12", "stars": 4 },
+    { "date": "2026-09-30", "stars": 5 }
+  ]
+}

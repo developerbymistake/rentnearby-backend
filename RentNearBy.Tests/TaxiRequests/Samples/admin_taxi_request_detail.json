@@ -1,0 +1,37 @@
+{
+  "id": "3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101",
+  "tripId": "7b1c2f0e-5a44-4c1e-9d3a-0f6f2a1b9c01",
+  "tripName": "Uttarakhand Hills Trip",
+  "state": "Collecting",
+  "endReason": null,
+  "travellerName": "Aarav Sharma",
+  "travellerPhone": "+919876543210",
+  "pickupName": "Kathgodam",
+  "dropName": "Kathgodam",
+  "sections": { "pickup": true, "sightseeing": true, "drop": true },
+  "seats": 4,
+  "travellers": 2,
+  "dateFrom": "2026-12-18",
+  "dateTo": "2026-12-21",
+  "createdAt": "2026-12-10T09:41:07Z",
+  "canCancel": true,
+  "adminNote": null,
+  "offers": [
+    {
+      "offerId": "a1b2c3d4-0001-4a00-8000-000000000001",
+      "driverListingId": "d0d0d0d0-0001-4d00-8000-000000000001",
+      "driverName": "Ramesh Kumar",
+      "driverPhone": "+919876500001",
+      "state": "Accepted",
+      "endReason": null,
+      "offeredAt": "2026-12-10T09:41:08Z",
+      "expiresAt": "2026-12-10T09:46:08Z",
+      "pushReceivedAt": "2026-12-10T09:41:10Z",
+      "respondedAt": "2026-12-10T09:42:31Z"
+    }
+  ],
+  "booking": null,
+  "dueActions": [
+    { "kind": "RequestStaleExpire", "state": "Pending", "dueAt": "2026-12-12T09:41:07Z", "attempts": 0 }
+  ]
+}

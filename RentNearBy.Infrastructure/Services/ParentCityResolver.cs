@@ -88,6 +88,13 @@ public sealed class ParentCityResolver(
         return new CityPin(true, (await ParentAsync(s, lat, lng)).City);
     }
 
+    public async Task<TrustedCityPin> ResolveTrustedAsync(double lat, double lng)
+    {
+        if (await UsableAsync() is not { } s) return new TrustedCityPin(false, null, false);
+        var (city, source) = await ParentAsync(s, lat, lng);
+        return new TrustedCityPin(true, city, city != null && source != ParentSource.NearestGeocoderFailed);
+    }
+
     // Items whose parent city is cityKey. One lookup per grid cell, a few at a time.
     public async Task<IReadOnlyList<T>> FilterAsync<T>(IEnumerable<T> items, Func<T, (double Lat, double Lng)?> point, long cityKey)
     {

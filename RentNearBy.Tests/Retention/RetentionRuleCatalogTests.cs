@@ -4,7 +4,7 @@ using RentNearBy.Infrastructure.Services.Retention;
 
 namespace RentNearBy.Tests.Retention;
 
-// Red until groups A, B and C have landed all 16 rules.
+// All 18 rules: groups A, B and C plus the two taxi request rules.
 public class RetentionRuleCatalogTests
 {
     private static readonly string[] ExpectedNames =
@@ -12,6 +12,7 @@ public class RetentionRuleCatalogTests
         "NotificationEvents", "NotificationLogs", "TripPushLogs", "DeviceTokens", "AdminDeviceTokens", "Chat",
         "OutboxMessages", "TripReminderRuns", "TripShortlistItems", "TripOffers", "TripEnquiries", "TripEnquiryOrphans",
         "Sessions", "AdminSessions", "StayJobs", "BannerDismissals",
+        "DueActions", "TaxiRequests",
     };
 
     // Never auto-deleted (owner list), so no declarative rule may name them as its table.
@@ -19,13 +20,13 @@ public class RetentionRuleCatalogTests
     {
         "PlanPurchases", "PaymentEvents", "PlaySubscriptions", "UserPlans", "CouponRedemptions", "Coupons", "ListingReports",
         "TripProblemLogs", "StayListings", "TaxiListings", "Users", "UserBlocks", "RoleChangeRequests", "Roles", "Trips",
-        "SavedJourneys", "DistrictBanners", "DeletedAccountRecords",
+        "SavedJourneys", "DistrictBanners", "DeletedAccountRecords", "TaxiBookings", "TaxiRatings",
     };
 
     private static IReadOnlyList<IRetentionRule> Rules() => RetentionRuleRegistration.Discover(typeof(RetentionRunner).Assembly);
 
     [Fact]
-    public void Exactly_the_sixteen_contract_rules_exist()
+    public void Exactly_the_eighteen_contract_rules_exist()
         => Assert.Equal(ExpectedNames.OrderBy(x => x), Rules().Select(r => r.Name).OrderBy(x => x));
 
     [Fact]
@@ -38,10 +39,10 @@ public class RetentionRuleCatalogTests
     }
 
     [Fact]
-    public void Every_rule_has_a_config_key_in_the_checked_in_appsettings()
+    public void Every_rule_has_a_config_key_in_the_checked_in_example_appsettings()
     {
-        var path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "RentNearBy.Api", "appsettings.json"));
-        if (!File.Exists(path)) return;
+        var path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "RentNearBy.Api", "appsettings.example.json"));
+        Assert.True(File.Exists(path), path);
         var keys = new ConfigurationBuilder().AddJsonFile(path).Build().GetSection("Retention:Rules").GetChildren().Select(c => c.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         Assert.All(Rules(), r => Assert.Contains(r.Name, keys));
     }
@@ -66,11 +67,23 @@ public class RetentionRuleCatalogTests
     {
         var names = Rules().Select(r => r.Name).OrderBy(RetentionSchedule.OrderOf).ToList();
         Assert.True(names.IndexOf("TripOffers") < names.IndexOf("TripEnquiries"));
+        Assert.True(names.IndexOf("DueActions") < names.IndexOf("TaxiRequests"));
+        Assert.True(names.IndexOf("TaxiRequests") < names.IndexOf("TripOffers"));
+    }
+
+    [Fact]
+    public void Taxi_rules_sit_in_the_trip_enquiries_slot_with_their_defaults()
+    {
+        var rules = Rules().ToDictionary(r => r.Name);
+        Assert.Equal(RetentionGroups.TripEnquiries, rules["DueActions"].Group);
+        Assert.Equal(RetentionGroups.TripEnquiries, rules["TaxiRequests"].Group);
+        Assert.Equal(14, rules["DueActions"].DefaultDays);
+        Assert.Equal(90, rules["TaxiRequests"].DefaultDays);
     }
 
     [Fact]
     public void Exempt_rules_are_exactly_the_rolling_ones()
-        => Assert.Equal(new[] { "OutboxMessages", "TripReminderRuns", "TripShortlistItems" },
+        => Assert.Equal(new[] { "DueActions", "OutboxMessages", "TripReminderRuns", "TripShortlistItems" },
             Rules().Where(r => r.GuardExempt).Select(r => r.Name).OrderBy(x => x));
 
     [Fact]

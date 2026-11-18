@@ -83,7 +83,7 @@ public class RetentionScheduleTests
         var o = RetentionSchedule.RuleOrder;
         Assert.True(o.ToList().IndexOf("TripOffers") < o.ToList().IndexOf("TripEnquiries"));
         Assert.Equal("Chat", o[^1]);
-        Assert.Equal(16, o.Distinct().Count());
+        Assert.Equal(18, o.Distinct().Count());
         Assert.Equal(o.Count, RetentionSchedule.OrderOf("Nope"));
     }
 }

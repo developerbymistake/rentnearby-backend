@@ -17,6 +17,10 @@ public class TaxiRoute
     public decimal ToLatitude { get; set; }
     public decimal ToLongitude { get; set; }
 
+    // Atlas city keys of both ends; null until resolved (TaxiRouteCityKeys only).
+    public long? FromCityKey { get; set; }
+    public long? ToCityKey { get; set; }
+
     public int Fare { get; set; }
     public string TripType { get; set; } = string.Empty;
 

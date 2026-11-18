@@ -1,0 +1,7 @@
+{
+  "data": { "enquiries": [ { "id": "c7d1e2f3-4a5b-4c6d-8e9f-0a1b2c3d4e5f", "booked": false } ] },
+  "status": "409",
+  "code": 409,
+  "timestamp": 1797500000,
+  "error": { "message": "This trip already has a taxi ask from an older app version. Cancel it before you send a new request.", "type": "LegacyTaxiActive" }
+}

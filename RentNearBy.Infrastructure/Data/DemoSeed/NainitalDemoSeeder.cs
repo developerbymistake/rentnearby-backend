@@ -4,6 +4,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Utils;
+using RentNearBy.Infrastructure.Services.TaxiRequests;
 
 namespace RentNearBy.Infrastructure.Data.DemoSeed;
 
@@ -111,7 +112,8 @@ public static class NainitalDemoSeeder
             [R("Ramnagar", "Jim Corbett National Park", 1200), R("Jim Corbett National Park", "Nainital", 3500), R("Nainital", "Ramnagar", 3000), R("Ramnagar", "Delhi", 5200), R("Delhi", "Ramnagar", 5400), R("Ramnagar", "Haridwar", 4500)]),
     ];
 
-    public static async Task SeedAsync(ApplicationDbContext db, IIdentityCipher cipher, ILogger logger)
+    // resolver: the app's ICityResolver, so seeded routes carry their city keys from the first request; null leaves them to the backfill.
+    public static async Task SeedAsync(ApplicationDbContext db, IIdentityCipher cipher, ILogger logger, ICityResolver? resolver = null)
     {
         var district = await db.Districts.FirstOrDefaultAsync(d => d.Name == "Nainital" && d.StateName == "Uttarakhand");
         if (district == null) { logger.LogWarning("demo.seed.skipped: Nainital district not found"); return; }
@@ -133,6 +135,7 @@ public static class NainitalDemoSeeder
         var stayCount = 0;
         var taxiCount = 0;
         var rewritten = 0;
+        var seededRoutes = new List<TaxiRoute>();
 
         // Earlier versions pointed demo photos at picsum.photos, which is not our storage. Real photos live in Cloudinary.
         var fakeStayPhotos = await db.StayPhotos.Where(p => p.PhotoUrl.StartsWith("https://picsum.photos/")).ToListAsync();
@@ -214,7 +217,7 @@ public static class NainitalDemoSeeder
             if (existing != Guid.Empty)
             {
                 var demoTaxi = await db.TaxiListings.Include(x => x.Routes).FirstOrDefaultAsync(x => x.UserId == existing);
-                if (demoTaxi != null && RewriteRoutes(db, demoTaxi, t.Routes, now)) rewritten++;
+                if (demoTaxi != null && RewriteRoutes(db, demoTaxi, i, now, seededRoutes)) rewritten++;
                 continue;
             }
 
@@ -249,23 +252,15 @@ public static class NainitalDemoSeeder
                 CreatedAt = now.AddMinutes(-i),
                 UpdatedAt = now,
             };
-            for (var r = 0; r < t.Routes.Length; r++)
-            {
-                var route = t.Routes[r];
-                taxi.Routes.Add(new TaxiRoute
-                {
-                    Id = Guid.NewGuid(), TaxiListingId = taxiId, RouteIndex = (short)(r + 1),
-                    FromName = route.From, FromLatitude = (decimal)route.FromLat, FromLongitude = (decimal)route.FromLng,
-                    ToName = route.To, ToLatitude = (decimal)route.ToLat, ToLongitude = (decimal)route.ToLng,
-                    Fare = route.Fare, TripType = route.Type, CreatedAt = now, UpdatedAt = now,
-                });
-            }
+            foreach (var route in BuildRoutes(taxiId, i, now)) taxi.Routes.Add(route);
             db.Users.Add(user);
             db.TaxiListings.Add(taxi);
+            seededRoutes.AddRange(taxi.Routes);
             taxiCount++;
         }
 
         if (!HasChanges(stayCount, taxiCount, rewritten)) { logger.LogInformation("demo.seed.nainital: already present"); return; }
+        await KeySeededRoutesAsync(resolver, seededRoutes, logger);
         await db.SaveChangesAsync();
         logger.LogInformation("demo.seed.nainital: added {Stays} stays and {Taxis} taxis, rewrote routes of {Rewritten} taxis",
             stayCount, taxiCount, rewritten);
@@ -276,22 +271,33 @@ public static class NainitalDemoSeeder
     internal static bool RoutesMatch(IEnumerable<TaxiRoute> stored, IReadOnlyList<(string From, string To, int Fare)> wanted)
         => stored.OrderBy(r => r.RouteIndex).Select(r => (r.FromName, r.ToName, r.Fare)).SequenceEqual(wanted);
 
+    // Seeded routes, new or rewritten, get both city keys through the one writer before the single SaveChanges.
+    internal static async Task KeySeededRoutesAsync(ICityResolver? resolver, IReadOnlyList<TaxiRoute> routes, ILogger logger)
+    {
+        if (resolver == null || routes.Count == 0) return;
+        await TaxiRouteCityKeys.ResolveAsync(resolver, routes.Select(r => (r, (RouteEndsBefore?)null)).ToList(), logger);
+    }
+
+    internal static List<TaxiRoute> BuildRoutes(Guid taxiId, int taxiIndex, DateTime now)
+        => Taxis[taxiIndex].Routes.Select((route, r) => new TaxiRoute
+        {
+            Id = Guid.NewGuid(), TaxiListingId = taxiId, RouteIndex = (short)(r + 1),
+            FromName = route.From, FromLatitude = (decimal)route.FromLat, FromLongitude = (decimal)route.FromLng,
+            ToName = route.To, ToLatitude = (decimal)route.ToLat, ToLongitude = (decimal)route.ToLng,
+            Fare = route.Fare, TripType = route.Type, CreatedAt = now, UpdatedAt = now,
+        }).ToList();
+
     // Re-runs bring an already seeded database to the current route list. Only tracks the delete and the inserts:
     // the caller's single SaveChanges commits both together (EF orders the deletes first for the unique RouteIndex).
-    private static bool RewriteRoutes(ApplicationDbContext db, TaxiListing taxi, RouteSeed[] routes, DateTime now)
+    internal static bool RewriteRoutes(ApplicationDbContext db, TaxiListing taxi, int taxiIndex, DateTime now, List<TaxiRoute> added)
     {
+        var routes = Taxis[taxiIndex].Routes;
         if (RoutesMatch(taxi.Routes, routes.Select(r => (r.From, r.To, r.Fare)).ToList())) return false;
         db.TaxiRoutes.RemoveRange(taxi.Routes);
-        for (var r = 0; r < routes.Length; r++)
+        foreach (var row in BuildRoutes(taxi.Id, taxiIndex, now))
         {
-            var route = routes[r];
-            db.TaxiRoutes.Add(new TaxiRoute
-            {
-                Id = Guid.NewGuid(), TaxiListingId = taxi.Id, RouteIndex = (short)(r + 1),
-                FromName = route.From, FromLatitude = (decimal)route.FromLat, FromLongitude = (decimal)route.FromLng,
-                ToName = route.To, ToLatitude = (decimal)route.ToLat, ToLongitude = (decimal)route.ToLng,
-                Fare = route.Fare, TripType = route.Type, CreatedAt = now, UpdatedAt = now,
-            });
+            db.TaxiRoutes.Add(row);
+            added.Add(row);
         }
         taxi.MinFare = routes.Min(r => r.Fare);
         taxi.UpdatedAt = now;

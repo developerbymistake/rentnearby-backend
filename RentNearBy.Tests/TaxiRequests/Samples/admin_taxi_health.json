@@ -1,0 +1,20 @@
+{
+  "switchOn": true,
+  "requestsToday": 18,
+  "byState": { "open": 2, "collecting": 3, "selected": 1, "booked": 6, "inProgress": 1, "completed": 3, "cancelled": 1, "expired": 1 },
+  "stuckRequests": 0,
+  "pendingDueActions": 14,
+  "oldestDueActionSeconds": 0,
+  "outboxPending": 0,
+  "oldestOutboxSeconds": 0,
+  "ringsSentLastHour": 21,
+  "ringsAckedLastHour": 20,
+  "ackRatioLastHour": 0.95,
+  "ackP95SecondsLastHour": 2.4,
+  "driversRingReady": 37,
+  "driversMissingRings": 1,
+  "bookedThisWeek": 7,
+  "offersAnsweredPct7d": 82,
+  "routesWithoutCity": 2,
+  "workerHeartbeatSeconds": { "dueActions": 3, "matcher": 1, "outboxRelay": 1 }
+}

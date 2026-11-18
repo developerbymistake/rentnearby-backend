@@ -14,6 +14,21 @@ public static class UserNotificationRoutes
     public const string MyTrips = "/my-trips";
     public const string TripTaxiReplies = "/trip-taxi-replies";
 
+    public const string TripName = "/trip-name";
+    public const string TripCustomize = "/trip-customize";
+    public const string TripOverview = "/trip-overview";
+    public const string TripTaxiRequest = "/trip-taxi-request";
+    public const string TripTaxiStatus = "/trip-taxi-status";
+    public const string TaxiRequestRing = "/taxi-request-ring";
+    public const string TaxiRequests = "/taxi-requests";
+    public const string TaxiRequestDetail = "/taxi-request-detail";
+    public const string TaxiBookings = "/taxi-bookings";
+    public const string TaxiRating = "/taxi-rating";
+    public const string TaxiReady = "/taxi-ready";
+
+    public static readonly IReadOnlyList<string> TaxiDriverRoutes = [TaxiRequestRing, TaxiRequests, TaxiRequestDetail, TaxiBookings, TaxiRating, TaxiReady];
+    public static readonly IReadOnlyList<string> TravellerTaxiRoutes = [TripName, TripCustomize, TripOverview, TripTaxiRequest, TripTaxiStatus];
+
     public static string ForListingKind(string listingKind) => listingKind switch
     {
         ListingKinds.Stay => MyStays,
@@ -25,7 +40,7 @@ public static class UserNotificationRoutes
     public static IReadOnlyList<string> OwnedByKind(string listingKind) => listingKind switch
     {
         ListingKinds.Stay => [MyStays, StayEnquiries],
-        ListingKinds.Taxi => [MyTaxi, TripLeads],
+        ListingKinds.Taxi => [MyTaxi, TripLeads, .. TaxiDriverRoutes],
         _ => [],
     };
 }

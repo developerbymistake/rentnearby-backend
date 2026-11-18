@@ -1,0 +1,23 @@
+{
+  "data": {
+    "notification_type": "taxi_request_ring",
+    "kind": "taxi_ring",
+    "v": "1",
+    "offerId": "a1b2c3d4-0001-4a00-8000-000000000001",
+    "requestId": "3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101",
+    "expiresAt": "2026-12-10T09:46:07Z",
+    "sentAt": "2026-12-10T09:41:08Z",
+    "attempt": "0",
+    "ackToken": "Qk9fY2xhdWRlX3NhbXBsZQ",
+    "title": "New taxi request",
+    "line1": "4 days · 3 nights · 18 to 21 Dec",
+    "line2": "Kathgodam to Nainital, Ranikhet",
+    "line3": "4 seater · 2 travellers",
+    "sections": "pickup,sightseeing,drop",
+    "sightseeingDays": "3",
+    "action_route": "/taxi-request-ring",
+    "action_args_json": "{\"offerId\":\"a1b2c3d4-0001-4a00-8000-000000000001\"}"
+  },
+  "android": { "priority": "HIGH", "ttlSeconds": 299, "collapseKey": null },
+  "notification": null
+}

@@ -108,6 +108,7 @@ public static class ServiceCollectionExtensions
         // Every 5 min: offer and enquiry expiry, urgency refresh, purges.
         services.AddHostedService<TripTimerService>();
         services.AddTaxiWays(configuration);
+        services.AddTaxiRequests(configuration);
 
         // Hourly: plan expiry claims, 7-day reminders, daily rank reconcile.
         services.AddHostedService<PlanLifecycleService>();

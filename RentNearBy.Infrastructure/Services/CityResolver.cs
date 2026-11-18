@@ -25,6 +25,13 @@ public sealed class CityResolver(ITaxiWaysNetwork network, IOptions<TaxiWaysOpti
         return new CityPin(true, TaxiWaysSearchEngine.NearestCity(s, lat, lng, options.Value.CityResolveMeters));
     }
 
+    public async Task<TrustedCityPin> ResolveTrustedAsync(double lat, double lng)
+    {
+        if (parent != null) return await parent.ResolveTrustedAsync(lat, lng);
+        var pin = await ResolveAsync(lat, lng);
+        return new TrustedCityPin(pin.Available, pin.City, pin.Available && pin.City != null);
+    }
+
     public async Task<CityPin> FindAsync(long cityKey)
     {
         if (await UsableAsync() is not { } s) return new CityPin(false, null);

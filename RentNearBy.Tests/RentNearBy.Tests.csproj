@@ -15,6 +15,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.4" />
   </ItemGroup>
   <ItemGroup>
+    <None Update="TaxiRequests\Samples\*.*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\RentNearBy.Core\RentNearBy.Core.csproj" />
     <ProjectReference Include="..\RentNearBy.Infrastructure\RentNearBy.Infrastructure.csproj" />
     <ProjectReference Include="..\RentNearBy.Api\RentNearBy.Api.csproj" />

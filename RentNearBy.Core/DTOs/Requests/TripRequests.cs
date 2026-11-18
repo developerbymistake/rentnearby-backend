@@ -53,6 +53,8 @@ public class PlanDayInput
 public class SaveTripRequest
 {
     public string? Title { get; set; }
+    // Strict trip name (1 to 60); wins over Title and marks the trip as named by the traveller.
+    public string? Name { get; set; }
     public string? Status { get; set; }
     public TripPlan Plan { get; set; } = null!;
     // Create only; ignored by update.

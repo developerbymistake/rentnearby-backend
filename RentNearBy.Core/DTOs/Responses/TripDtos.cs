@@ -90,6 +90,7 @@ public class TripDto
 {
     public Guid Id { get; set; }
     public string Title { get; set; } = string.Empty;
+    public bool NameChosen { get; set; }
     public string Status { get; set; } = TripStatuses.Draft;
     public long CityKey { get; set; }
     public string CityName { get; set; } = string.Empty;

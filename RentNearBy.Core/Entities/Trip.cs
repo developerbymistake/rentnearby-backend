@@ -14,6 +14,10 @@ public class Trip
     // Main DB district by point-in-polygon; null = outside every active district.
     public Guid? DistrictId { get; set; }
     public string Title { get; set; } = string.Empty;
+    // True once the traveller sent a valid name; the server never retitles such a trip.
+    public bool NameChosen { get; set; }
+    // Invite GUID, returned only to the owner by GET /trips/{id}/invite. Database default gen_random_uuid().
+    public Guid InviteCode { get; set; }
     public string Status { get; set; } = TripStatuses.Draft;
     public string PlanJson { get; set; } = "{}";
     public int DayCount { get; set; }

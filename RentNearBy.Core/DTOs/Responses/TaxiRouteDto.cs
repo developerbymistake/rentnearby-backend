@@ -12,6 +12,10 @@ public class TaxiRouteDto
     public string? ToLabel { get; set; }
     public decimal ToLatitude { get; set; }
     public decimal ToLongitude { get; set; }
+    public long? FromCityKey { get; set; }
+    public string? FromCityName { get; set; }
+    public long? ToCityKey { get; set; }
+    public string? ToCityName { get; set; }
     public int Fare { get; set; }
     public string TripType { get; set; } = string.Empty;
 }

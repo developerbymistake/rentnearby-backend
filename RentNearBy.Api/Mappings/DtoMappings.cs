@@ -163,6 +163,8 @@ public static class DtoMappings
                 ToLabel = r.ToLabel,
                 ToLatitude = r.ToLatitude,
                 ToLongitude = r.ToLongitude,
+                FromCityKey = r.FromCityKey,
+                ToCityKey = r.ToCityKey,
                 Fare = r.Fare,
                 TripType = r.TripType,
             })

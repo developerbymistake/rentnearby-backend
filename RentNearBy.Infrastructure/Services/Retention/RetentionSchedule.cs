@@ -17,13 +17,14 @@ public static class RetentionSchedule
         new RetentionSlot(RetentionGroups.Chat, new TimeOnly(3, 15), new TimeOnly(4, 30)),
     };
 
-    // Run order across all groups; inside a group the order matters (offers before enquiries, chat after enquiries).
+    // Run order across all groups; inside a group the order matters (due actions and taxi requests first, offers before enquiries, chat after enquiries).
     public static IReadOnlyList<string> RuleOrder { get; } = new[]
     {
         "NotificationEvents", "NotificationLogs", "TripPushLogs",
         "OutboxMessages", "TripReminderRuns", "TripShortlistItems",
         "Sessions", "AdminSessions", "StayJobs", "BannerDismissals",
         "DeviceTokens", "AdminDeviceTokens",
+        "DueActions", "TaxiRequests",
         "TripOffers", "TripEnquiries", "TripEnquiryOrphans",
         "Chat",
     };

@@ -1,0 +1,13 @@
+{
+  "clientRequestId": "9d2f7c11-3a5b-4e8d-b0c6-1f4a7e9d2b55",
+  "pickup": { "on": true, "cityKey": 6377270 },
+  "sightseeing": { "on": true, "days": [1, 2, 4] },
+  "drop": { "on": true, "sameAsPickup": true, "cityKey": null },
+  "seats": 4,
+  "dayStats": [
+    { "day": 1, "km": 25, "minutes": 370 },
+    { "day": 2, "km": 30, "minutes": 560 },
+    { "day": 3, "km": 40, "minutes": 300 },
+    { "day": 4, "km": 18, "minutes": 230 }
+  ]
+}

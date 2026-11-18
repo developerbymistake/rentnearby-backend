@@ -1056,6 +1056,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(t => t.IsFeatured).HasDefaultValue(false);
             e.Property(t => t.TripLeadsReceived).HasDefaultValue(0);
             e.Property(t => t.TripLeadsAnsweredInApp).HasDefaultValue(0);
+            e.Property(t => t.RatingSum).HasDefaultValue(0);
+            e.Property(t => t.RatingCount).HasDefaultValue(0);
+            e.Property(t => t.RidesCompleted).HasDefaultValue(0);
+            e.Property(t => t.RingNotificationsOn).HasDefaultValue(false);
+            e.Property(t => t.RingMissStreak).HasDefaultValue((short)0);
 
             e.HasOne(t => t.User)
              .WithMany()
@@ -1148,6 +1153,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
                 t.HasCheckConstraint("ck_taxilistings_plate",
                     "\"NumberPlate\" IS NULL OR \"NumberPlate\" ~ '^([A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$'");
                 t.HasCheckConstraint("ck_taxilistings_min_fare_range", "\"MinFare\" IS NULL OR (\"MinFare\" >= 100 AND \"MinFare\" <= 9900000)");
+                t.HasCheckConstraint("ck_taxilistings_ringmiss", "\"RingMissStreak\" >= 0");
             });
         });
 
@@ -1172,6 +1178,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .HasForeignKey(r => r.TaxiListingId)
              .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(r => new { r.TaxiListingId, r.RouteIndex }).IsUnique();
+            // Taxi request matcher and pickup list: routes by resolved city keys.
+            e.HasIndex(r => new { r.ToCityKey, r.FromCityKey }, "ix_taxiroutes_to_from_city")
+             .IncludeProperties(r => r.TaxiListingId)
+             .HasFilter("\"ToCityKey\" IS NOT NULL AND \"FromCityKey\" IS NOT NULL");
 
             // Both ends as geography for the route search (TaxiListingRepository.SearchByRoutePagedAsync).
             e.Property<NetTopologySuite.Geometries.Point?>("FromPoint")
@@ -1268,6 +1278,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(t => t.CityKey).IsRequired();
             e.Property(t => t.CityName).HasMaxLength(120);
             e.Property(t => t.Title).HasMaxLength(80);
+            e.Property(t => t.NameChosen).HasDefaultValue(false);
+            e.Property(t => t.InviteCode).HasDefaultValueSql("gen_random_uuid()");
+            e.HasIndex(t => t.InviteCode, "ux_trips_invite_code").IsUnique();
             e.Property(t => t.Status).HasMaxLength(16).HasDefaultValue(TripStatuses.Draft);
             e.Property(t => t.PlanJson).HasColumnType("jsonb");
             e.HasIndex(t => new { t.OwnerUserId, t.UpdatedAt }).HasDatabaseName("ix_trips_owner_updated");
@@ -1603,6 +1616,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         });
 
         TaxiWaysModel.Configure(modelBuilder);
+        TaxiRequestModel.Configure(modelBuilder);
 
     }
 

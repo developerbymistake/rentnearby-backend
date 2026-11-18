@@ -3,6 +3,7 @@ using FluentValidation.Results;
 using Microsoft.Extensions.Options;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.TaxiRequests;
 
 namespace RentNearBy.Api.Validators;
 
@@ -50,6 +51,11 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
     public SaveTripRequestValidator(IOptions<TripPlannerOptions>? options = null)
     {
         var maxSpots = Math.Clamp(options?.Value.MaxSpotsPerTrip ?? TripLimits.MaxSpots, 1, TripLimits.MaxSpots);
+
+        RuleFor(x => x.Name)
+            .Must(n => TripNames.Clean(n) != null).WithMessage(TripNames.InvalidMessage)
+            .WithErrorCode(TaxiRequestErrorTypes.TripNameInvalid)
+            .When(x => x.Name != null);
 
         RuleFor(x => x.Title)
             .Must(t => t!.Trim().Length <= 80).WithMessage("Title can be up to 80 characters")
