@@ -68,9 +68,9 @@ public class FcmService : IFcmService
             return true;
         }
         catch (FirebaseMessagingException ex)
-            when (ex.MessagingErrorCode == MessagingErrorCode.Unregistered)
+            when (IsPermanentTokenError(ex.MessagingErrorCode, ex.Message))
         {
-            _logger.LogWarning("FCM token no longer registered: {Token}", token[..Math.Min(20, token.Length)]);
+            _logger.LogWarning("FCM token rejected ({ErrorCode}): {Token}", ex.MessagingErrorCode, token[..Math.Min(20, token.Length)]);
             return false;
         }
         catch (FirebaseMessagingException ex)
@@ -132,7 +132,12 @@ public class FcmService : IFcmService
             {
                 var response = await FirebaseMessaging.DefaultInstance.SendEachAsync(chunk, ct);
                 for (var i = 0; i < take; i++)
-                    outcomes[from + i] = Classify(response.Responses[i]);
+                {
+                    var r = response.Responses[i];
+                    outcomes[from + i] = Classify(r);
+                    if (outcomes[from + i] == FcmSendOutcome.Failed && r.Exception?.MessagingErrorCode == MessagingErrorCode.InvalidArgument)
+                        _logger.LogWarning("FCM rejected a message as invalid (token kept): {Reason}", r.Exception.Message);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -143,11 +148,21 @@ public class FcmService : IFcmService
         return outcomes;
     }
 
-    // Only Unregistered proves the token is dead; everything else is retried.
     public static FcmSendOutcome Classify(SendResponse response)
-        => response.IsSuccess ? FcmSendOutcome.Sent
-            : response.Exception?.MessagingErrorCode == MessagingErrorCode.Unregistered ? FcmSendOutcome.InvalidToken
+        => Classify(response.IsSuccess, response.Exception?.MessagingErrorCode, response.Exception?.Message);
+
+    public static FcmSendOutcome Classify(bool isSuccess, MessagingErrorCode? errorCode, string? errorMessage = null)
+        => isSuccess ? FcmSendOutcome.Sent
+            : IsPermanentTokenError(errorCode, errorMessage) ? FcmSendOutcome.InvalidToken
             : FcmSendOutcome.Failed;
+
+    // Unregistered and SenderIdMismatch always mean the token is dead. InvalidArgument also covers a bad message (data too big,
+    // bad TTL, reserved key), so it marks the token dead only when FCM names the registration token as the bad argument.
+    public static bool IsPermanentTokenError(MessagingErrorCode? errorCode, string? errorMessage = null)
+        => errorCode is MessagingErrorCode.Unregistered or MessagingErrorCode.SenderIdMismatch
+            || (errorCode is MessagingErrorCode.InvalidArgument
+                && errorMessage != null
+                && errorMessage.Contains("registration token", StringComparison.OrdinalIgnoreCase));
 
     public static Message ToMessage(FcmMessageSpec spec) => new()
     {

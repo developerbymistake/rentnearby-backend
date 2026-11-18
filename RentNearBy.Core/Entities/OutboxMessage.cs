@@ -23,5 +23,8 @@ public static class OutboxTargets
 }
 
 // Payload of a push outbox row (also the FCM data map). NotificationId is set when an inbox row exists.
+// Kind, ExpiresAtUtc and Data are optional trailing members so older rows still parse; Kind null = a normal visible push.
+// Kind names the notification type when there is no inbox row; a payload past ExpiresAtUtc is never sent.
 public sealed record OutboxPushPayload(
-    string Key, Guid UserId, Guid? NotificationId, string Title, string Body, string? Route, string? ArgsJson, string Tag, int Attempt = 0);
+    string Key, Guid UserId, Guid? NotificationId, string Title, string Body, string? Route, string? ArgsJson, string Tag, int Attempt = 0,
+    string? Kind = null, DateTime? ExpiresAtUtc = null, IReadOnlyDictionary<string, string>? Data = null);

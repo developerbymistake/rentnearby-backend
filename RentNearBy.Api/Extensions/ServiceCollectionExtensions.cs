@@ -104,6 +104,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITripChatService, TripChatService>();
         services.AddScoped<ITripNotifier, TripNotifier>();
         services.AddScoped<ITripEnquiryClosure, TripEnquiryClosure>();
+        services.AddSingleton<WorkerHeartbeats>(_ => new WorkerHeartbeats());
         // Every 5 min: offer and enquiry expiry, urgency refresh, purges.
         services.AddHostedService<TripTimerService>();
         services.AddTaxiWays(configuration);
@@ -180,7 +181,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 
         // Trip push pipeline: transactional outbox -> confirmed publisher -> rnb.push/push.send -> batched FCM, plus the 3-day morning reminder run.
-        // Additive: the old notification.push queue and its worker are untouched.
+        // Additive: the old notification.push queue keeps its shape; its worker hands transient failures to this pipeline. push.dead is logged (7003).
         services.AddScoped<IOutboxWriter, OutboxWriter>();
         services.AddSingleton<OutboxSignal>();
         services.AddSingleton<IOutboxSignal>(sp => sp.GetRequiredService<OutboxSignal>());
@@ -189,6 +190,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<DeviceTokenRepository>();
         services.AddHostedService<OutboxRelayService>();
         services.AddHostedService<PushDeliveryWorkerService>();
+        services.AddHostedService<PushDeadLetterWorkerService>();
         services.AddHostedService<TripReminderService>();
 
         // Broadcast worker — consumes broadcast.notification queue and sends FCM to all users

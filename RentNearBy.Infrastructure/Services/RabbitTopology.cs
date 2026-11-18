@@ -6,10 +6,12 @@ namespace RentNearBy.Infrastructure.Services;
 //   rnb.push (direct) --send--> push.send (dead-letters to rnb.push.dlx)
 //                     --retry.30s--> push.retry.30s (TTL 30 s, back to rnb.push/send)
 //                     --retry.5m--> push.retry.5m  (TTL 5 min, back to rnb.push/send)
-//                     --dead--> push.dead (no consumer; alert on depth)
+//                     --dead--> push.dead (PushDeadLetterWorkerService logs EventId 7003 and acks)
 // Declared once per connection by the publisher and by the consumer, never per publish.
 public static class RabbitTopology
 {
+    public static readonly TimeSpan Retry30 = TimeSpan.FromMilliseconds(Retry30Ms);
+
     public const string Exchange = "rnb.push", DeadExchange = "rnb.push.dlx";
     public const string SendKey = "send", Retry30Key = "retry.30s", Retry5mKey = "retry.5m", DeadKey = "dead";
     public const string SendQueue = "push.send", Retry30Queue = "push.retry.30s", Retry5mQueue = "push.retry.5m", DeadQueue = "push.dead";
@@ -23,6 +25,14 @@ public static class RabbitTopology
         2 => Retry5mKey,
         _ => DeadKey,
     };
+
+    // A push with an expiry may only take the 30 s step, and only when it is still alive when that step ends; null = drop it (ack).
+    public static string? NextRoute(int failureCount, DateTime? expiresAtUtc, DateTime utcNow)
+    {
+        var route = NextRoute(failureCount);
+        if (expiresAtUtc is not { } expires) return route;
+        return route == Retry30Key && utcNow + Retry30 < expires ? route : null;
+    }
 
     public static async Task DeclareAsync(IChannel channel, CancellationToken ct = default)
     {

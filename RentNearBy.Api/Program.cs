@@ -147,10 +147,11 @@ using (var scope = app.Services.CreateScope())
             RentNearBy.Core.Models.AppVersionSeed.ParseMinBuild(app.Configuration[RentNearBy.Core.Models.AppVersionSeed.AndroidMinBuildEnv]));
         Console.WriteLine("[STARTUP] Seeder complete.");
 
-        // TEST DATA, runs on every start: remove this statement with the Data/DemoSeed folder (see its README).
-        await RentNearBy.Infrastructure.Data.DemoSeed.NainitalDemoSeeder.SeedAsync(db,
-                scope.ServiceProvider.GetRequiredService<RentNearBy.Core.Interfaces.IIdentityCipher>(),
-                scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
+        // TEST DATA: Development, or DemoSeed:Enabled=true outside Production (never Production). Remove this statement with the Data/DemoSeed folder (see its README).
+        if (RentNearBy.Core.Models.DemoSeedGate.ShouldRun(app.Environment.EnvironmentName, app.Configuration[RentNearBy.Core.Models.DemoSeedGate.ConfigKey]))
+            await RentNearBy.Infrastructure.Data.DemoSeed.NainitalDemoSeeder.SeedAsync(db,
+                    scope.ServiceProvider.GetRequiredService<RentNearBy.Core.Interfaces.IIdentityCipher>(),
+                    scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
     }
     catch (Exception ex)
     {
@@ -362,6 +363,9 @@ app.MapGet("/health", async (IServiceProvider sp) =>
         tripPlanner = tripPlannerEnabled ? "on" : "off",
     });
 });
+
+app.MapGet("/health/live", RentNearBy.Api.Handlers.HealthHandlers.Live);
+app.MapGet("/health/ready", RentNearBy.Api.Handlers.HealthHandlers.Ready);
 
 app.MapGroup("/api/v1/auth")
     .WithTags("Authentication")

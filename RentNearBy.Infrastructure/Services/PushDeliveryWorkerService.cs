@@ -53,18 +53,27 @@ public sealed class PushDeliveryStore(IServiceScopeFactory scopeFactory) : IPush
 
 // One batch: one token query, one NotificationEvent query, FCM in chunks of 500, one UPDATE for dead tokens.
 // A message is delivered when any of its tokens took it; only an all-transient failure retries (so a three-device user never gets duplicates).
+// A payload past its ExpiresAtUtc is acked and counted, never sent.
 public static class PushBatchProcessor
 {
-    public static async Task<IReadOnlyList<PushVerdict>> ProcessAsync(
+    public static Task<IReadOnlyList<PushVerdict>> ProcessAsync(
         IReadOnlyList<PushDelivery> batch, IPushDeliveryStore store, IFcmService fcm, ILogger logger, CancellationToken ct)
+        => ProcessAsync(batch, store, fcm, logger, DateTime.UtcNow, ct);
+
+    public static async Task<IReadOnlyList<PushVerdict>> ProcessAsync(
+        IReadOnlyList<PushDelivery> batch, IPushDeliveryStore store, IFcmService fcm, ILogger logger, DateTime utcNow, CancellationToken ct)
     {
         var verdicts = new PushVerdict[batch.Count];
         var live = new List<int>(batch.Count);
+        var expired = 0;
         for (var i = 0; i < batch.Count; i++)
         {
-            if (batch[i].Payload is null || batch[i].Payload!.UserId == Guid.Empty) verdicts[i] = PushVerdict.Dead;
+            var p = batch[i].Payload;
+            if (p is null || p.UserId == Guid.Empty) verdicts[i] = PushVerdict.Dead;
+            else if (IsExpired(p, utcNow)) { verdicts[i] = PushVerdict.Ack; expired++; }
             else live.Add(i);
         }
+        if (expired > 0) logger.LogInformation("Dropped {Count} expired pushes without sending", expired);
         if (live.Count == 0) return verdicts;
 
         var userIds = live.Select(i => batch[i].Payload!.UserId).Distinct().ToList();
@@ -81,11 +90,12 @@ public static class PushBatchProcessor
             if (p.NotificationId is { } nid && !types.ContainsKey(nid)) { verdicts[i] = PushVerdict.Ack; continue; }
             var userTokens = tokens[p.UserId].Distinct().ToList();
             if (userTokens.Count == 0) { verdicts[i] = PushVerdict.Ack; continue; }
-            var data = new Dictionary<string, string>
-            {
-                ["notification_type"] = NotificationTypes.ToWireValue(p.NotificationId is { } id ? types[id] : NotificationTypes.TripReminder),
-                ["key"] = p.Key,
-            };
+            var data = new Dictionary<string, string>();
+            if (p.Data != null)
+                foreach (var kv in p.Data)
+                    if (kv.Value != null) data[kv.Key] = kv.Value;
+            data["notification_type"] = NotificationTypes.ToWireValue(TypeOf(p, types));
+            data["key"] = p.Key;
             if (p.Route != null) data["action_route"] = p.Route;
             if (p.ArgsJson != null) data["action_args_json"] = p.ArgsJson;
             foreach (var token in userTokens)
@@ -127,6 +137,22 @@ public static class PushBatchProcessor
         }
         return verdicts;
     }
+
+    public static bool IsExpired(OutboxPushPayload payload, DateTime utcNow)
+        => payload.ExpiresAtUtc is { } expires && expires <= utcNow;
+
+    private static string TypeOf(OutboxPushPayload p, IReadOnlyDictionary<Guid, string> types)
+        => p.NotificationId is { } id ? types[id]
+            : !string.IsNullOrWhiteSpace(p.Kind) ? p.Kind
+            : NotificationTypes.TripReminder;
+
+    // Where a message that was not acked goes next; null = ack and drop (an expiring push past its last useful retry).
+    public static string? HopRoute(PushDelivery delivery, PushVerdict verdict, DateTime utcNow)
+    {
+        if (verdict == PushVerdict.Ack) return null;
+        if (verdict == PushVerdict.Dead || delivery.Payload is null) return RabbitTopology.DeadKey;
+        return RabbitTopology.NextRoute(delivery.Attempt + 1, delivery.Payload.ExpiresAtUtc, utcNow);
+    }
 }
 
 // Consumes push.send: prefetch 200, up to 200 messages or 150 ms per batch, two batch loops. Retry hops go through the confirmed
@@ -140,11 +166,14 @@ public sealed class PushDeliveryWorkerService : BackgroundService
     private readonly IFcmService _fcm;
     private readonly IConfirmedPublisher _publisher;
     private readonly ILogger<PushDeliveryWorkerService> _logger;
+    private readonly WorkerHeartbeats? _heartbeats;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public PushDeliveryWorkerService(
-        IConfiguration configuration, IPushDeliveryStore store, IFcmService fcm, IConfirmedPublisher publisher, ILogger<PushDeliveryWorkerService> logger)
+        IConfiguration configuration, IPushDeliveryStore store, IFcmService fcm, IConfirmedPublisher publisher, ILogger<PushDeliveryWorkerService> logger,
+        WorkerHeartbeats? heartbeats = null)
     {
+        _heartbeats = heartbeats;
         _store = store;
         _fcm = fcm;
         _publisher = publisher;
@@ -181,7 +210,7 @@ public sealed class PushDeliveryWorkerService : BackgroundService
                 _logger.LogInformation("PushDeliveryWorkerService consuming '{Queue}'", RabbitTopology.SendQueue);
 
                 var loops = Enumerable.Range(0, Loops).Select(_ => LoopAsync(channel, inbox.Reader, stoppingToken)).ToArray();
-                await Task.WhenAny(loops);
+                await Task.WhenAny(loops.Append(BeatWhileConnectedAsync(channel, stoppingToken)));
                 if (stoppingToken.IsCancellationRequested) break;
                 throw new InvalidOperationException("push delivery loop stopped");
             }
@@ -195,6 +224,17 @@ public sealed class PushDeliveryWorkerService : BackgroundService
                 try { await Task.Delay(5000, stoppingToken); } catch (OperationCanceledException) { break; }
             }
         }
+    }
+
+    // The loops idle when the queue is empty, so liveness is a timer that beats only while the channel is open.
+    private async Task BeatWhileConnectedAsync(IChannel channel, CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        do
+        {
+            if (channel.IsOpen) _heartbeats?.Beat(WorkerNames.PushDelivery);
+        }
+        while (await timer.WaitForNextTickAsync(ct));
     }
 
     private async Task LoopAsync(IChannel channel, ChannelReader<PushDelivery> reader, CancellationToken ct)
@@ -233,14 +273,22 @@ public sealed class PushDeliveryWorkerService : BackgroundService
         }
 
         var hops = new List<(PushDelivery Delivery, ConfirmedMessage Message)>();
+        var now = DateTime.UtcNow;
+        var dropped = 0;
         for (var i = 0; i < batch.Count; i++)
         {
-            if (verdicts[i] == PushVerdict.Ack) { await channel.BasicAckAsync(batch[i].Tag, false, ct); continue; }
+            var route = PushBatchProcessor.HopRoute(batch[i], verdicts[i], now);
+            if (route == null)
+            {
+                if (verdicts[i] != PushVerdict.Ack) dropped++;
+                await channel.BasicAckAsync(batch[i].Tag, false, ct);
+                continue;
+            }
             var failures = batch[i].Attempt + 1;
-            var route = verdicts[i] == PushVerdict.Dead ? RabbitTopology.DeadKey : RabbitTopology.NextRoute(failures);
             var body = batch[i].Payload is { } p ? JsonSerializer.Serialize(p with { Attempt = failures }, Json) : string.Empty;
             hops.Add((batch[i], new ConfirmedMessage(RabbitTopology.Exchange, route, body, batch[i].Payload?.Key ?? Guid.NewGuid().ToString("N"), failures)));
         }
+        if (dropped > 0) _logger.LogInformation("Dropped {Count} expiring pushes that would outlive their retry", dropped);
         if (hops.Count == 0) return;
 
         var results = await _publisher.PublishBatchAsync(hops.Select(h => h.Message).ToList(), ct);

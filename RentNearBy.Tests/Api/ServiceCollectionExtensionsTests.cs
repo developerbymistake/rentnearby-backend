@@ -32,6 +32,7 @@ public class ServiceCollectionExtensionsTests
     [InlineData(typeof(PlanLifecycleService))]
     [InlineData(typeof(OutboxRelayService))]
     [InlineData(typeof(PushDeliveryWorkerService))]
+    [InlineData(typeof(PushDeadLetterWorkerService))]
     [InlineData(typeof(TripReminderService))]
     [InlineData(typeof(NotificationPushWorkerService))]
     public void TimedJob_IsRegisteredAsHostedService(Type worker)

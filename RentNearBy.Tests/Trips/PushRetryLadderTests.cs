@@ -16,6 +16,24 @@ public class PushRetryLadderTests
     public void Ladder_is_30_seconds_then_5_minutes_then_dead(int failure, string route)
         => Assert.Equal(route, RabbitTopology.NextRoute(failure));
 
+    [Theory]
+    [InlineData(1, "retry.30s")]
+    [InlineData(2, "retry.5m")]
+    [InlineData(3, "dead")]
+    public void A_push_without_expiry_keeps_the_same_ladder(int failure, string route)
+        => Assert.Equal(route, RabbitTopology.NextRoute(failure, null, DateTime.UtcNow));
+
+    [Fact]
+    public void A_retried_visible_push_keeps_its_shape_on_the_hop()
+    {
+        var delivery = Delivery(U1, 3, attempt: 1);
+        Assert.Equal("retry.5m", PushBatchProcessor.HopRoute(delivery, PushVerdict.Retry, DateTime.UtcNow));
+        var hopped = delivery.Payload! with { Attempt = 2 };
+        Assert.Null(hopped.Kind);
+        Assert.Null(hopped.ExpiresAtUtc);
+        Assert.Null(hopped.Data);
+    }
+
     [Fact]
     public void Topology_names_are_the_additive_set_and_not_the_old_queue()
     {
@@ -150,7 +168,7 @@ public class PushRetryLadderTests
     }
 
     [Fact]
-    public async Task Only_unregistered_tokens_are_marked_invalid_in_one_call_and_the_push_is_not_retried()
+    public async Task Only_invalid_tokens_are_marked_invalid_in_one_call_and_the_push_is_not_retried()
     {
         var store = new FakeStore(new() { [U1] = ["dead1"], [U2] = ["dead2", "ok"] });
         var fcm = new FakeFcm(s => s.Token.StartsWith("dead") ? FcmSendOutcome.InvalidToken : FcmSendOutcome.Sent);

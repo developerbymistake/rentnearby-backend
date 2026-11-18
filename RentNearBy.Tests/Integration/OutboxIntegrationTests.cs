@@ -114,6 +114,65 @@ public class OutboxIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         """);
 
     [IntegrationFact]
+    public async Task The_claim_leases_rows_outside_a_transaction_and_a_crash_after_it_makes_them_due_after_the_lease()
+    {
+        var key = await AddRowAsync();
+        IReadOnlyList<OutboxRow> claimed;
+        await using (var ctx = CreateContext())
+        {
+            var store = new PostgresOutboxLeaseStore(ctx);
+            Assert.False(store.HasOpenTransaction);
+            claimed = await store.ClaimAsync(CancellationToken.None);
+            Assert.False(store.HasOpenTransaction);
+        }
+        var row = Assert.Single(claimed, r => r.Key == key);
+        Assert.Equal(0, row.Attempts);
+
+        // The claim committed on its own: a second relay does not see the leased row.
+        var other = new ScriptedPublisher(_ => true);
+        await Relay(other).RelayBatchAsync(CancellationToken.None);
+        Assert.DoesNotContain(other.Sent, m => m.MessageId == key);
+
+        await using (var ctx = CreateContext())
+        {
+            var stored = await ctx.OutboxMessages.AsNoTracking().SingleAsync(o => o.Key == key);
+            Assert.Null(stored.PublishedAt);
+            Assert.Equal(0, stored.Attempts);
+            var lease = stored.NextAttemptAt - DateTime.UtcNow;
+            Assert.InRange(lease.TotalSeconds, OutboxRelayLogic.LeaseSeconds - 15, OutboxRelayLogic.LeaseSeconds + 1);
+            // Time passes beyond the lease after the crash.
+            await ctx.Database.ExecuteSqlInterpolatedAsync(
+                $"""UPDATE "OutboxMessages" SET "NextAttemptAt" = "NextAttemptAt" - make_interval(secs => {OutboxRelayLogic.LeaseSeconds}) WHERE "Key" = {key}""");
+        }
+
+        var after = new ScriptedPublisher(_ => true);
+        await Relay(after).RelayBatchAsync(CancellationToken.None);
+        Assert.Contains(after.Sent, m => m.MessageId == key);
+    }
+
+    [IntegrationFact]
+    public async Task An_unavailable_broker_keeps_the_attempt_count_and_retries_soon()
+    {
+        var key = await AddRowAsync(attempts: 3);
+        var down = new UnavailablePublisher();
+        await Relay(down).RelayBatchAsync(CancellationToken.None);
+
+        await using var ctx = CreateContext();
+        var row = await ctx.OutboxMessages.AsNoTracking().SingleAsync(o => o.Key == key);
+        Assert.Null(row.PublishedAt);
+        Assert.Equal(3, row.Attempts);
+        Assert.True(row.NextAttemptAt <= DateTime.UtcNow.AddSeconds(OutboxRelayLogic.UnavailableRetrySeconds + 1));
+        Assert.True(OutboxRelayLogic.IsUnavailable(row.LastError));
+    }
+
+    private sealed class UnavailablePublisher : IConfirmedPublisher
+    {
+        public Task<IReadOnlyList<PublishResult>> PublishBatchAsync(IReadOnlyList<ConfirmedMessage> messages, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<PublishResult>>(
+                messages.Select(_ => new PublishResult(false, OutboxRelayLogic.UnavailablePrefix + "connection refused")).ToList());
+    }
+
+    [IntegrationFact]
     public async Task Two_relays_never_publish_the_same_row_twice()
     {
         var keys = new List<string>();

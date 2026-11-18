@@ -29,7 +29,8 @@ namespace RentNearBy.Infrastructure.Services;
 // Passes 6, 9, 10 and 11 read keyset pages of only un-done work (key not logged / nothing open) until exhausted.
 // Order: 1, 2, 7, 5, 6, 8, 9, 11, 10, 3, 4. Skipped while the trip bookings setting is off.
 public class TripTimerService(
-    IServiceScopeFactory scopeFactory, ITripExecutionFeatureReader reader, ILogger<TripTimerService> logger)
+    IServiceScopeFactory scopeFactory, ITripExecutionFeatureReader reader, ILogger<TripTimerService> logger,
+    WorkerHeartbeats? heartbeats = null)
     : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
@@ -44,13 +45,26 @@ public class TripTimerService(
         {
             do
             {
-                await RunOnceAsync(stoppingToken);
+                await TickAsync(stoppingToken);
             }
             while (await timer.WaitForNextTickAsync(stoppingToken));
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
+    }
+
+    internal async Task TickAsync(CancellationToken ct)
+    {
+        try
+        {
+            await RunOnceAsync(ct);
+        }
+        catch (Exception ex) when (TripTimerLoop.IsFailure(ex, ct))
+        {
+            logger.LogError(TripTimerLoop.PassFailed, ex, "Trip timer tick failed");
+        }
+        heartbeats?.Beat(WorkerNames.TripTimer);
     }
 
     private async Task RunOnceAsync(CancellationToken ct)
@@ -63,37 +77,37 @@ public class TripTimerService(
         }
         _loggedDisabled = false;
 
-        try
-        {
-            using var scope = scopeFactory.CreateScope();
-            var sp = scope.ServiceProvider;
-            var offers = await OfferExpiryPassAsync(sp, ct);
-            var enquiries = await EnquiryExpiryPassAsync(sp, ct);
-            var leads = await FareSentExpiryPassAsync(sp, ct);
-            var hold = await HoldExpiryPassAsync(sp, ct);
-            var reminders = await HostReminderPassAsync(sp, ct);
-            var closed = await ShortlistClosePassAsync(sp, ct);
-            var bookedSilence = await BookedSilencePassAsync(sp, ct);
-            var dates = await DateReminderPassAsync(sp, ct);
-            var travelEve = await TravelEvePassAsync(sp, ct);
-            var completed = await AutoCompletePassAsync(sp, ct);
-            var urgent = await UrgentPassAsync(sp);
-            var purged = 0;
-            var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
-            if (_lastDailyStamp != today)
-            {
-                purged += await DailyFinalStampPassAsync(sp, DateTime.UtcNow);
-                _lastDailyStamp = today;
-            }
-            if (offers + enquiries + leads + hold + reminders + closed + bookedSilence + dates + travelEve + completed + urgent + purged > 0)
-                logger.LogInformation(
-                    "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} closed={Closed} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
-                    offers, enquiries, urgent, purged, hold, reminders, leads, closed, bookedSilence, dates, travelEve, completed);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogError(ex, "Trip timer pass failed");
-        }
+        var c = await TripTimerLoop.RunPassesAsync(
+        [
+            ("offers", OfferExpiryPassAsync),
+            ("enquiries", EnquiryExpiryPassAsync),
+            ("leads", FareSentExpiryPassAsync),
+            ("hold", HoldExpiryPassAsync),
+            ("reminders", HostReminderPassAsync),
+            ("closed", ShortlistClosePassAsync),
+            ("bookedsilence", BookedSilencePassAsync),
+            ("dates", DateReminderPassAsync),
+            ("traveleve", TravelEvePassAsync),
+            ("completed", AutoCompletePassAsync),
+            ("urgent", (sp, _) => UrgentPassAsync(sp)),
+            ("purged", DailyStampIfDueAsync),
+        ], scopeFactory, logger, ct);
+        var (offers, enquiries, leads, hold, reminders, closed) = (c[0], c[1], c[2], c[3], c[4], c[5]);
+        var (bookedSilence, dates, travelEve, completed, urgent, purged) = (c[6], c[7], c[8], c[9], c[10], c[11]);
+        if (c.Sum() > 0)
+            logger.LogInformation(
+                "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} closed={Closed} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
+                offers, enquiries, urgent, purged, hold, reminders, leads, closed, bookedSilence, dates, travelEve, completed);
+    }
+
+    // Once per IST day; a failed run leaves the stamp so the next tick retries.
+    private async Task<int> DailyStampIfDueAsync(IServiceProvider sp, CancellationToken ct)
+    {
+        var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
+        if (_lastDailyStamp == today) return 0;
+        var purged = await DailyFinalStampPassAsync(sp, DateTime.UtcNow);
+        _lastDailyStamp = today;
+        return purged;
     }
 
     private async Task<int> OfferExpiryPassAsync(IServiceProvider sp, CancellationToken ct)
@@ -683,6 +697,38 @@ public class TripTimerService(
               WHERE "Status" = 'Expired' AND "FinalPushedAt" IS NULL AND "UpdatedAt" < {cutoff} LIMIT 20000)
             """);
         return shortlist + enquiries;
+    }
+}
+
+// Runs the passes in order, each in its own scope; a failing pass is logged (7004, pass name), counts 0, and the rest still run.
+// Only cancellation of the host token leaves the loop.
+internal static class TripTimerLoop
+{
+    internal static readonly EventId PassFailed = new(7004, "trip.timer.pass_failed");
+
+    internal static bool IsFailure(Exception ex, CancellationToken ct)
+        => !(ex is OperationCanceledException && ct.IsCancellationRequested);
+
+    internal static async Task<int[]> RunPassesAsync(
+        IReadOnlyList<(string Name, Func<IServiceProvider, CancellationToken, Task<int>> Run)> passes,
+        IServiceScopeFactory scopeFactory, ILogger logger, CancellationToken ct)
+    {
+        var counts = new int[passes.Count];
+        for (var i = 0; i < passes.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var (name, run) = passes[i];
+            try
+            {
+                using var scope = scopeFactory.CreateScope();
+                counts[i] = await run(scope.ServiceProvider, ct);
+            }
+            catch (Exception ex) when (IsFailure(ex, ct))
+            {
+                logger.LogError(PassFailed, ex, "Trip timer: pass {Pass} failed", name);
+            }
+        }
+        return counts;
     }
 }
 

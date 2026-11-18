@@ -70,10 +70,20 @@ public class OutboxRelayTests
         => Assert.Equal(TimeSpan.FromSeconds(seconds), OutboxRelayLogic.Backoff(attempts));
 
     [Fact]
-    public void Batch_size_and_give_up_age_follow_the_plan()
+    public void Batch_size_give_up_age_and_lease_follow_the_plan()
     {
         Assert.Equal(500, OutboxRelayLogic.BatchSize);
         Assert.Equal(TimeSpan.FromHours(72), OutboxRelayLogic.GiveUpAfter);
+        Assert.Equal(60, OutboxRelayLogic.LeaseSeconds);
+    }
+
+    [Fact]
+    public void Claimable_rows_are_unpublished_due_and_younger_than_the_give_up_age()
+    {
+        Assert.True(OutboxRelayLogic.IsClaimable(null, Now, Now.AddHours(-71), Now));
+        Assert.False(OutboxRelayLogic.IsClaimable(Now, Now, Now, Now));
+        Assert.False(OutboxRelayLogic.IsClaimable(null, Now.AddSeconds(1), Now, Now));
+        Assert.False(OutboxRelayLogic.IsClaimable(null, Now, Now.AddHours(-72), Now));
     }
 
     [Fact]
