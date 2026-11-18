@@ -158,3 +158,236 @@ Authorization: Bearer {{userToken}}
 Accept: application/json
 
 ###
+
+# ============================================================================
+# Taxi request system. One example per route of
+# F:/Dhasu/TaxiRequest_resume/CONTRACT_TAXI_REQUEST.md (sections 3, 5, 6, 7, 11).
+# Bodies are the contract samples in F:/Dhasu/TaxiRequest_resume/contract_samples/.
+# Gated routes answer 403 TripExecutionDisabled while the master switch is off
+# (contract section 1). The ids below are the contract sample ids, replace them.
+# These are examples only: none of them was sent in the run that wrote them.
+# ============================================================================
+
+@driverToken = <taxi-driver-jwt>
+@requestId = 3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101
+@offerId = a1b2c3d4-0001-4a00-8000-000000000001
+@bookingId = <booking-guid>
+@adminRequestId = 3f9a6c2d-1b7e-4f0a-8c55-2e7d9b4a6101
+@taxiId = <taxi-listing-guid>
+
+### Trip name (contract section 3): POST /trips with the new optional "name" (1 to 60 characters)
+
+POST {{baseUrl}}/api/v1/trips
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{ "name": "Uttarakhand Hills Trip", "status": "Draft", "clientTripId": "0c3d6f1a-2b4e-4d6f-8a1c-5e7f9b2d4c10", "plan": { "version": 6 } }
+
+### Invite GUID (contract section 3): owner only, 404 NotFound for anyone else, not gated
+
+GET {{baseUrl}}/api/v1/trips/{{tripId}}/invite
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+### T1 pickup places (open)
+
+GET {{baseUrl}}/api/v1/trips/{{tripId}}/taxi-request/pickup-places
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+### T2 create taxi request (gated), 201 with state Open
+
+POST {{baseUrl}}/api/v1/trips/{{tripId}}/taxi-request
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "clientRequestId": "9d2f7c11-3a5b-4e8d-b0c6-1f4a7e9d2b55",
+  "pickup": { "on": true, "cityKey": 6377270 },
+  "sightseeing": { "on": true, "days": [1, 2, 4] },
+  "drop": { "on": true, "sameAsPickup": true, "cityKey": null },
+  "seats": 4,
+  "dayStats": [
+    { "day": 1, "km": 25, "minutes": 370 },
+    { "day": 2, "km": 30, "minutes": 560 },
+    { "day": 3, "km": 40, "minutes": 300 },
+    { "day": 4, "km": 18, "minutes": 230 }
+  ]
+}
+
+### T3 the trip taxi request (active, else latest); data is null when the trip never had one (open)
+
+GET {{baseUrl}}/api/v1/trips/{{tripId}}/taxi-request
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+### T4 one taxi request (open)
+
+GET {{baseUrl}}/api/v1/taxi-requests/{{requestId}}
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+### T5 cancel (open). A Booked request needs "chip" (400 ReasonRequired otherwise)
+
+POST {{baseUrl}}/api/v1/taxi-requests/{{requestId}}/cancel
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{ "reason": "TravellerCancelled", "chip": null }
+
+### T6 ask more drivers (gated)
+
+POST {{baseUrl}}/api/v1/taxi-requests/{{requestId}}/ask-more
+Authorization: Bearer {{userToken}}
+
+### T7 select a driver who accepted (gated)
+
+POST {{baseUrl}}/api/v1/taxi-requests/{{requestId}}/offers/{{offerId}}/select
+Authorization: Bearer {{userToken}}
+
+### T8 not agreed with the selected driver (open)
+
+POST {{baseUrl}}/api/v1/taxi-requests/{{requestId}}/offers/{{offerId}}/not-agreed
+Authorization: Bearer {{userToken}}
+
+### T9 end the trip early (open)
+
+POST {{baseUrl}}/api/v1/taxi-requests/{{requestId}}/end
+Authorization: Bearer {{userToken}}
+
+### T10 rate the driver, once, only after Completed (open)
+
+POST {{baseUrl}}/api/v1/taxi-requests/{{requestId}}/rating
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{ "stars": 5 }
+
+### D1 driver offers, first page; next pages use ?cursor= (open, policy CanListTaxis)
+
+GET {{baseUrl}}/api/v1/taxi-requests/driver/offers
+Authorization: Bearer {{driverToken}}
+Accept: application/json
+
+### D2 one offer, with the trip block (open)
+
+GET {{baseUrl}}/api/v1/taxi-requests/driver/offers/{{offerId}}
+Authorization: Bearer {{driverToken}}
+Accept: application/json
+
+### D3 accept a ringing offer (gated)
+
+POST {{baseUrl}}/api/v1/taxi-requests/driver/offers/{{offerId}}/accept
+Authorization: Bearer {{driverToken}}
+
+### D4 decline (open), chip is optional
+
+POST {{baseUrl}}/api/v1/taxi-requests/driver/offers/{{offerId}}/decline
+Authorization: Bearer {{driverToken}}
+Content-Type: application/json
+
+{ "chip": null }
+
+### D5 confirm after the traveller selected this driver (gated, 15 minute window)
+
+POST {{baseUrl}}/api/v1/taxi-requests/driver/offers/{{offerId}}/confirm
+Authorization: Bearer {{driverToken}}
+
+### D6 withdraw (open), chip required
+
+POST {{baseUrl}}/api/v1/taxi-requests/driver/offers/{{offerId}}/withdraw
+Authorization: Bearer {{driverToken}}
+Content-Type: application/json
+
+{ "chip": "VehicleIssue" }
+
+### D7 end a booking (open)
+
+POST {{baseUrl}}/api/v1/taxi-requests/driver/bookings/{{bookingId}}/end
+Authorization: Bearer {{driverToken}}
+
+### D8 bookings in a date range (open)
+
+GET {{baseUrl}}/api/v1/taxi-requests/driver/bookings?from=2026-12-01&to=2026-12-31
+Authorization: Bearer {{driverToken}}
+Accept: application/json
+
+### D9 rating summary (open)
+
+GET {{baseUrl}}/api/v1/taxi-requests/driver/rating
+Authorization: Bearer {{driverToken}}
+Accept: application/json
+
+### D10 readiness (open)
+
+GET {{baseUrl}}/api/v1/taxi-requests/driver/readiness
+Authorization: Bearer {{driverToken}}
+Accept: application/json
+
+### D11 report the phone state (open). ringTested, notificationsOn and ringChannelOn all true reset missed rings
+
+PUT {{baseUrl}}/api/v1/taxi-requests/driver/readiness
+Authorization: Bearer {{driverToken}}
+Content-Type: application/json
+
+{ "appBuild": 69, "notificationsOn": true, "ringChannelOn": true, "batteryUnrestricted": false, "manufacturer": "Xiaomi", "androidSdk": 34, "ringTested": false }
+
+### D12 send a test ring to the caller phone, 204 (open, 6 per hour)
+
+POST {{baseUrl}}/api/v1/taxi-requests/driver/test-ring
+Authorization: Bearer {{driverToken}}
+
+### Ring ack (contract section 7): anonymous, no Authorization header, 204; a wrong token is 404 OfferNotFound
+
+POST {{baseUrl}}/api/v1/taxi-requests/offers/{{offerId}}/ack
+Content-Type: application/json
+
+{
+  "ackToken": "Qk9fY2xhdWRlX3NhbXBsZQ",
+  "receivedAt": "2026-12-10T09:41:09Z",
+  "shown": true,
+  "late": false,
+  "notificationsOn": true,
+  "ringChannelOn": true,
+  "manufacturer": "Xiaomi",
+  "androidSdk": 34,
+  "appBuild": 69
+}
+
+### AD1 admin list of taxi requests
+
+GET {{baseUrl}}/api/v1/admin/taxi-requests?state=active&size=20
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### AD2 admin request detail
+
+GET {{baseUrl}}/api/v1/admin/taxi-requests/{{adminRequestId}}
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### AD3 admin cancel, note 1 to 300 characters
+
+POST {{baseUrl}}/api/v1/admin/taxi-requests/{{adminRequestId}}/cancel
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "note": "Stuck in finding" }
+
+### AD4 admin list of taxi bookings
+
+GET {{baseUrl}}/api/v1/admin/taxi-bookings?state=active&size=20
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### AD5 admin health numbers (the only place for the taxi request dashboard numbers)
+
+GET {{baseUrl}}/api/v1/admin/taxi-requests/health
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### AD6 existing admin taxi detail, with rating and ring fields and resolved route cities
+
+GET {{baseUrl}}/api/v1/admin/taxis/{{taxiId}}
+Authorization: Bearer {{adminToken}}
+Accept: application/json

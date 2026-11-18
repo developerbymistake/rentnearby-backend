@@ -69,6 +69,9 @@ public class PushRetryLadderTests
             Invalid.AddRange(t);
             return Task.CompletedTask;
         }
+
+        public Task<IReadOnlySet<Guid>> GetEndedRingOffersAsync(IReadOnlyCollection<Guid> offerIds, CancellationToken ct)
+            => Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());
     }
 
     private sealed class FakeFcm(Func<FcmMessageSpec, FcmSendOutcome> decide) : IFcmService

@@ -1,3 +1,4 @@
+using System.Globalization;
 using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Google.Apis.Auth.OAuth2;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.TaxiRequests;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -164,7 +166,65 @@ public class FcmService : IFcmService
                 && errorMessage != null
                 && errorMessage.Contains("registration token", StringComparison.OrdinalIgnoreCase));
 
-    public static Message ToMessage(FcmMessageSpec spec) => new()
+    public static readonly TimeSpan RingEndTtl = TimeSpan.FromSeconds(60);
+    public const int RingMaxTtlSeconds = 300;
+
+    public static Message ToMessage(FcmMessageSpec spec) => ToMessage(spec, DateTime.UtcNow);
+
+    // notification_type is always set by the push pipeline from the payload kind, so it picks the shape (contract 10).
+    public static Message ToMessage(FcmMessageSpec spec, DateTime utcNow)
+    {
+        spec.Data.TryGetValue("notification_type", out var type);
+        if (type == RingWireType) return RingMessage(spec, utcNow);
+        if (type == RingEndWireType) return RingEndMessage(spec);
+        return LegacyMessage(spec);
+    }
+
+    private static readonly string RingWireType = NotificationTypes.ToWireValue(NotificationTypes.TaxiRequestRing);
+    private static readonly string RingEndWireType = NotificationTypes.ToWireValue(NotificationTypes.TaxiRequestRingEnded);
+
+    // Data-only and high priority so the app rings from its background isolate; no collapse key so rings never replace each other in FCM.
+    private static Message RingMessage(FcmMessageSpec spec, DateTime utcNow) => new()
+    {
+        Token = spec.Token,
+        Data = spec.Data.ToDictionary(kv => kv.Key, kv => kv.Value),
+        Android = new AndroidConfig
+        {
+            Priority = Priority.High,
+            TimeToLive = TimeSpan.FromSeconds(RingTtlSeconds(spec.Data, utcNow)),
+        }
+    };
+
+    public static int RingTtlSeconds(IReadOnlyDictionary<string, string> data, DateTime utcNow)
+    {
+        if (!data.TryGetValue("expiresAt", out var raw)
+            || !DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var expiresAt))
+            return RingMaxTtlSeconds;
+        var left = Math.Floor((expiresAt - DateTime.SpecifyKind(utcNow, DateTimeKind.Utc)).TotalSeconds);
+        return (int)Math.Clamp(left, 1, RingMaxTtlSeconds);
+    }
+
+    // Visible, with the ring's tag, so the system replaces the ringing notification even when no app code runs.
+    private static Message RingEndMessage(FcmMessageSpec spec) => new()
+    {
+        Token = spec.Token,
+        Notification = new Notification { Title = spec.Title, Body = spec.Body },
+        Data = spec.Data.ToDictionary(kv => kv.Key, kv => kv.Value),
+        Android = new AndroidConfig
+        {
+            Priority = Priority.High,
+            TimeToLive = RingEndTtl,
+            Notification = new AndroidNotification
+            {
+                Sound = "default",
+                ClickAction = "FLUTTER_NOTIFICATION_CLICK",
+                ChannelId = TaxiPushKinds.UpdatesChannelId,
+                Tag = spec.Tag,
+            }
+        }
+    };
+
+    private static Message LegacyMessage(FcmMessageSpec spec) => new()
     {
         Token = spec.Token,
         Notification = new Notification { Title = spec.Title, Body = spec.Body },

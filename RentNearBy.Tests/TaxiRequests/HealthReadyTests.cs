@@ -1,13 +1,19 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using RentNearBy.Api.Handlers;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.TaxiRequests.DueActions;
+using RentNearBy.Infrastructure.Services.TaxiRequests.Matching;
 
 namespace RentNearBy.Tests.TaxiRequests;
 
 public class HealthReadyTests
 {
-    private static readonly string[] AllWorkers = [WorkerNames.TripTimer, WorkerNames.OutboxRelay, WorkerNames.PushDelivery];
+    private static readonly string[] AllWorkers =
+    [
+        WorkerNames.TripTimer, WorkerNames.OutboxRelay, WorkerNames.PushDelivery, DueActionsWorker.HeartbeatName, TaxiMatcherService.HeartbeatName,
+    ];
 
     private static int Status(IResult result) => Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode ?? 200;
 
@@ -45,6 +51,8 @@ public class HealthReadyTests
     [InlineData(WorkerNames.TripTimer, 12 * 60)]
     [InlineData(WorkerNames.OutboxRelay, 31)]
     [InlineData(WorkerNames.PushDelivery, 61)]
+    [InlineData(DueActionsWorker.HeartbeatName, 31)]
+    [InlineData(TaxiMatcherService.HeartbeatName, 31)]
     public async Task Ready_is_503_when_a_heartbeat_is_stale(string stale, int seconds)
     {
         var (beats, clock) = Fresh();
@@ -67,6 +75,38 @@ public class HealthReadyTests
         beats.Beat(WorkerNames.TripTimer);
         beats.Beat(WorkerNames.OutboxRelay);
         Assert.Equal(503, Status(await HealthHandlers.ReadyAsync(_ => Task.CompletedTask, beats, CancellationToken.None)));
+    }
+
+    [Fact]
+    public async Task Ready_checks_the_new_workers()
+    {
+        Assert.Contains((DueActionsWorker.HeartbeatName, "dueActions", TimeSpan.FromSeconds(30)), HealthHandlers.Workers);
+        Assert.Contains((TaxiMatcherService.HeartbeatName, "matcher", TimeSpan.FromSeconds(30)), HealthHandlers.Workers);
+
+        var (beats, clock) = Fresh();
+        var ready = await HealthHandlers.ReadyAsync(_ => Task.CompletedTask, beats, CancellationToken.None);
+        Assert.Equal(200, Status(ready));
+        var checks = JsonSerializer.SerializeToElement(Assert.IsAssignableFrom<IValueHttpResult>(ready).Value).GetProperty("checks");
+        foreach (var key in new[] { "dueActions", "matcher" })
+        {
+            Assert.True(checks.GetProperty(key).GetProperty("ok").GetBoolean());
+            Assert.Equal(30, checks.GetProperty(key).GetProperty("maxSeconds").GetInt32());
+        }
+
+        clock.Advance(TimeSpan.FromSeconds(30));
+        Assert.Equal(200, Status(await HealthHandlers.ReadyAsync(_ => Task.CompletedTask, beats, CancellationToken.None)));
+
+        foreach (var stale in new[] { DueActionsWorker.HeartbeatName, TaxiMatcherService.HeartbeatName })
+        {
+            var (b, c) = Fresh();
+            c.Advance(TimeSpan.FromSeconds(31));
+            foreach (var w in AllWorkers.Where(w => w != stale)) b.Beat(w);
+            var result = await HealthHandlers.ReadyAsync(_ => Task.CompletedTask, b, CancellationToken.None);
+            Assert.Equal(503, Status(result));
+            var key = stale == DueActionsWorker.HeartbeatName ? "dueActions" : "matcher";
+            var body = JsonSerializer.SerializeToElement(Assert.IsAssignableFrom<IValueHttpResult>(result).Value);
+            Assert.False(body.GetProperty("checks").GetProperty(key).GetProperty("ok").GetBoolean());
+        }
     }
 
     [Fact]

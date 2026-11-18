@@ -16,6 +16,7 @@ using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Core.DTOs.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Repositories;
 using RentNearBy.Infrastructure.Services;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using StackExchange.Redis;
@@ -354,7 +355,7 @@ public static class TripHandlers
     }
 
     public static async Task<IResult> GetMine(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, ApplicationDbContext db,
         int page = 1, int pageSize = DefaultPageSize, string? state = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
@@ -373,6 +374,7 @@ public static class TripHandlers
         var byTrip = enquiries.Where(e => e.TripId != null).GroupBy(e => e.TripId!.Value).ToDictionary(g => g.Key, g => (IReadOnlyList<TripEnquiry>)g.ToList());
         var journeysByTrip = await journeys.GetByTripsAsync(tripIds, userId);
         var revised = await RevisedPendingAsync(unitOfWork, enquiries);
+        var taxiRequests = await TripTaxiRequestReads.ReadManyAsync(db, items);
 
         return OkResponse(new TripListDto
         {
@@ -380,7 +382,8 @@ public static class TripHandlers
                 t,
                 byTrip.TryGetValue(t.Id, out var list) ? list : Array.Empty<TripEnquiry>(),
                 journeysByTrip.TryGetValue(t.Id, out var linked) ? linked : new List<SavedJourney>(),
-                revised)).ToList(),
+                revised,
+                taxiRequests.GetValueOrDefault(t.Id))).ToList(),
             HasMore = hasMore,
             Counts = new TripListCountsDto { Upcoming = active, Completed = past },
         });
@@ -406,7 +409,7 @@ public static class TripHandlers
         // A replayed create answers with the row it already made, even when the city has gone off since.
         if (request.ClientTripId is { } clientId
             && await unitOfWork.Trips.FindByClientIdAsync(userId, clientId) is { } existing)
-            return OkResponse(ToDto(existing, ReadPlan(existing)));
+            return OkResponse(await BuildDtoAsync(unitOfWork, journeys, db, existing, userId, DateTime.UtcNow));
 
         // Only a Draft counts; saving a trip as Planned frees the slot.
         if ((request.Status ?? TripStatuses.Draft) == TripStatuses.Draft
@@ -439,7 +442,7 @@ public static class TripHandlers
             await unitOfWork.Trips.DeleteAsync(trip);
             var winner = await unitOfWork.Trips.FindByClientIdAsync(userId, request.ClientTripId.Value);
             if (winner == null) throw;
-            return OkResponse(ToDto(winner, ReadPlan(winner)));
+            return OkResponse(await BuildDtoAsync(unitOfWork, journeys, db, winner, userId, DateTime.UtcNow));
         }
 
         // The trip row must exist before a journey can point at it; a failure here is healed by the next save.
@@ -495,7 +498,8 @@ public static class TripHandlers
         InviteLink = TripInvites.Link(baseUrl, trip.InviteCode),
     };
 
-    public static async Task<IResult> GetById(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys)
+    public static async Task<IResult> GetById(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, ApplicationDbContext db)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -503,7 +507,7 @@ public static class TripHandlers
         if (trip == null) return TripNotFound();
 
         await AdoptDistrictAsync(unitOfWork, trip);
-        var dto = await BuildDtoAsync(unitOfWork, journeys, trip, userId, DateTime.UtcNow);
+        var dto = await BuildDtoAsync(unitOfWork, journeys, db, trip, userId, DateTime.UtcNow);
         dto.Plan.DistrictId ??= trip.DistrictId;
         return OkResponse(dto);
     }
@@ -525,14 +529,15 @@ public static class TripHandlers
         }
     }
 
-    // The trip with its enquiries (newest first), its linked journeys and the derived booking state.
+    // The trip with its enquiries (newest first), its linked journeys, its taxi request and the derived booking state.
     internal static async Task<TripDto> BuildDtoAsync(
-        IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, Trip trip, Guid viewerId, DateTime nowUtc)
+        IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, ApplicationDbContext db, Trip trip, Guid viewerId, DateTime nowUtc)
     {
         var plan = ReadPlan(trip);
         var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
         var linked = await LinkedJourneysAsync(journeys, trip, viewerId);
-        var dto = ToDto(trip, plan, enquiries, linked, await RevisedPendingAsync(unitOfWork, enquiries));
+        var taxiRequest = await TripTaxiRequestReads.ReadAsync(db, trip);
+        var dto = ToDto(trip, plan, enquiries, linked, await RevisedPendingAsync(unitOfWork, enquiries), taxiRequest);
         dto.Enquiries = await TripEnquiryDtoBuilder.BuildManyAsync(unitOfWork, enquiries, viewerId, nowUtc);
         dto.Journeys = await JourneyDtosAsync(journeys, linked, plan, enquiries);
         return dto;
@@ -617,9 +622,10 @@ public static class TripHandlers
         var linked0 = (await LinkedJourneysAsync(journeys, trip, userId)).ToList();
         var extraIds = TripJourneyLinks.ReferencedIds(plan).Where(j => linked0.All(l => l.Id != j)).ToList();
         var known = extraIds.Count == 0 ? linked0 : linked0.Concat(await journeys.GetOwnedByIdsAsync(extraIds, userId)).ToList();
-        var storedRows = TripEasyRows.Build(trip, stored, enquiries0, linked0);
+        var taxiRequest0 = await TripTaxiRequestReads.ReadAsync(db, trip);
+        var storedRows = TripEasyRows.Build(trip, stored, enquiries0, linked0, null, taxiRequest0);
         var incomingTrip = new Trip { Id = trip.Id, Status = trip.Status, StartDate = plan.Settings.StartDate, EndDate = plan.EndDate };
-        var incomingRows = TripEasyRows.Build(incomingTrip, plan, enquiries0, known);
+        var incomingRows = TripEasyRows.Build(incomingTrip, plan, enquiries0, known, null, taxiRequest0);
         if (TripMarkGuard.BlockedKey(storedRows, incomingRows) != null)
             return ConflictResponse("This step has live enquiries or a booking. Withdraw or cancel them first.", TripMarkGuard.Code);
         if (TripBookedRange.Strands(trip.StartDate ?? stored.Settings?.StartDate, stored.Days.Count, plan.Settings.StartDate, plan.Days.Count, enquiries0))
@@ -779,7 +785,8 @@ public static class TripHandlers
         await TripEnquiryHandlers.AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
         var tripEnquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
         var linked = await LinkedJourneysAsync(journeys, trip, userId);
-        var dto = ToDto(trip, plan, tripEnquiries, linked, await RevisedPendingAsync(unitOfWork, tripEnquiries));
+        var taxiRequest = await TripTaxiRequestReads.ReadAsync(db, trip);
+        var dto = ToDto(trip, plan, tripEnquiries, linked, await RevisedPendingAsync(unitOfWork, tripEnquiries), taxiRequest);
         dto.Journeys = await JourneyDtosAsync(journeys, linked, plan, tripEnquiries);
         return OkResponse(dto);
     }
@@ -959,9 +966,10 @@ public static class TripHandlers
 
     internal static TripPlan ReadPlan(Trip trip) => TripPlanReader.Read(trip);
 
+    // taxiRequest = the trip's taxi request summary (null = the trip never had one).
     public static TripDto ToDto(
         Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry>? enquiries = null, IReadOnlyList<SavedJourney>? journeys = null,
-        IReadOnlySet<Guid>? revisedPending = null)
+        IReadOnlySet<Guid>? revisedPending = null, TripTaxiRequestSummary? taxiRequest = null)
     {
         var rows = enquiries ?? Array.Empty<TripEnquiry>();
         var linked = journeys ?? Array.Empty<SavedJourney>();
@@ -983,8 +991,10 @@ public static class TripHandlers
             StartDate = trip.StartDate,
             EndDate = trip.EndDate,
             Plan = plan,
-            BookingState = TripBookingStates.Compute(trip, plan, rows, linked),
-            Progress = TripEasyRows.Compute(trip, plan, rows, linked, revisedPending),
+            BookingState = TripBookingStates.Compute(trip, plan, rows, linked, taxiRequest),
+            Progress = TripEasyRows.Compute(trip, plan, rows, linked, revisedPending, taxiRequest),
+            PlanLock = TripTaxiRequestFields.PlanLock(taxiRequest),
+            TaxiRequest = TripTaxiRequestFields.Ref(taxiRequest),
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,
             CreatedAt = trip.CreatedAt,
@@ -1023,10 +1033,11 @@ public static class TripHandlers
     }
 
     private static TripSummaryDto ToSummary(
-        Trip trip, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney> journeys, IReadOnlySet<Guid>? revisedPending = null)
+        Trip trip, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney> journeys, IReadOnlySet<Guid>? revisedPending = null,
+        TripTaxiRequestSummary? taxiRequest = null)
     {
         var plan = ReadPlan(trip);
-        var rows = TripEasyRows.Build(trip, plan, enquiries, journeys, revisedPending);
+        var rows = TripEasyRows.Build(trip, plan, enquiries, journeys, revisedPending, taxiRequest);
         return new TripSummaryDto
         {
             Id = trip.Id,

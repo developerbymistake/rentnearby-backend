@@ -4,14 +4,18 @@ using Mapster;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using RentNearBy.Api.Handlers.TaxiRequests;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.TaxiRequests;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -42,6 +46,9 @@ public static class AdminTaxiHandlers
         }
         dto.DateOfBirth = TaxiIdentityRules.FormatDob(taxi.DateOfBirth);
         dto.Age = TaxiIdentityRules.AgeOn(taxi.DateOfBirth, TaxiIdentityRules.TodayIst());
+        dto.RatingAverage = AdminTaxiRequestRules.RatingAverage(taxi.RatingSum, taxi.RatingCount);
+        dto.RatingCount = taxi.RatingCount;
+        dto.RidesCompleted = taxi.RidesCompleted;
         return dto;
     }
 
@@ -75,13 +82,20 @@ public static class AdminTaxiHandlers
 
     // Survives IsDeleted so a reported taxi can still be reviewed after it was deleted.
     public static async Task<IResult> GetTaxiById(
-        Guid id, IUnitOfWork unitOfWork, IIdentityCipher cipher, ILoggerFactory loggerFactory)
+        Guid id, IUnitOfWork unitOfWork, IIdentityCipher cipher, ILoggerFactory loggerFactory, ApplicationDbContext db, ICityResolver resolver)
     {
         var taxi = await unitOfWork.Taxis.GetByIdForAdminAsync(id);
         if (taxi == null) return NotFoundResponse(TaxiNotFound);
         var items = await WithReportCountsAsync(
             [taxi], unitOfWork, cipher, includeLicence: true, loggerFactory.CreateLogger(nameof(AdminTaxiHandlers)));
-        return OkResponse(items[0]);
+        var dto = items[0];
+
+        await TaxiRouteCityKeys.FillNamesAsync(dto.Routes, resolver);
+        dto.OffersMissed = await AdminTaxiRequestQueries.DriverMissedOffers(db, id).CountAsync();
+        dto.OffersAccepted = await AdminTaxiRequestQueries.DriverAnsweredOffers(db, id).CountAsync();
+        var hasToken = await db.DeviceTokens.AsNoTracking().AnyAsync(t => t.UserId == taxi.UserId && t.IsValid);
+        dto.RingReady = AdminTaxiRequestRules.RingReady(taxi, hasToken);
+        return OkResponse(dto);
     }
 
     private static NotificationEvent BuildTaxiNotification(Guid userId, string type, string title, string body) => new()

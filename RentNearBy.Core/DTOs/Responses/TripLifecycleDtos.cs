@@ -67,6 +67,9 @@ public class TripSummaryTaxiDto
     public string? PickupPlace { get; set; }
     public string? ConfirmedBy { get; set; }
     public string? CancelledBy { get; set; }
+    // A booking of the taxi request tables (EnquiryId is then null).
+    public Guid? BookingId { get; set; }
+    public string? BookingStatus { get; set; }
 }
 
 public class TripSummaryRecordDto

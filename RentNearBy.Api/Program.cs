@@ -459,6 +459,8 @@ app.MapGroup("/api/v1/trips")
     .AddEndpointFilter<TripPlannerGateFilter>()
     .MapTripEndpoints();
 
+app.MapTaxiRequests();
+
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");
 app.MapHub<NotificationHub>("/hubs/notification");

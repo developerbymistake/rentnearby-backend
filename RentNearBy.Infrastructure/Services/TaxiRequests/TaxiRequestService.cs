@@ -272,10 +272,14 @@ public sealed class TaxiRequestService(
             if (offer is null) return Step.Fail(TaxiRequestCreateRules.Error(404, TaxiRequestErrorTypes.OfferNotFound));
             if (offer.Status != OfferStates.Accepted) return Step.OfferInvalid(offer.Status);
 
-            // The driver's taxi was taken down, sent back to review or deleted after he accepted: the offer closes, nothing is selected.
-            if (!await TaxiOfferRows.IsDriverBookableAsync(db, offer.DriverListingId, c))
+            // The driver's taxi was taken down, sent back to review or deleted after he accepted, or he was booked for
+            // overlapping dates by another trip meanwhile: the offer closes, nothing is selected.
+            var closeReason = !await TaxiOfferRows.IsDriverBookableAsync(db, offer.DriverListingId, c) ? OfferEndReasons.ListingRemoved
+                : await DriverCalendar.ConflictForAsync(db, offer.DriverListingId, locked.DateFrom, locked.DateTo, c) is not null ? OfferEndReasons.Booked
+                : null;
+            if (closeReason is not null)
             {
-                var closed = await store.TryMoveOfferAsync(db, offerId, [OfferStates.Accepted], OfferStates.Closed, OfferEndReasons.ListingRemoved, null, c);
+                var closed = await store.TryMoveOfferAsync(db, offerId, [OfferStates.Accepted], OfferStates.Closed, closeReason, null, c);
                 if (closed is null) return Step.OfferInvalid(offer.Status);
                 var change = new TaxiRequestChange(locked.Id, locked.TripId, locked.TravellerUserId, closed.Version, locked.Status);
                 if (await store.ReopenRequestAsync(db, requestId, 0, c) is { } reopened) change = reopened.Change;
@@ -373,8 +377,12 @@ public sealed class TaxiRequestService(
         return (plan.LegOf(days.Min())?.CityKey ?? plan.CityKey, plan.LegOf(days.Max())?.CityKey ?? plan.CityKey);
     }
 
-    private TaxiRequestResult ReplayOrConflict(TaxiRequest existing, Guid tripId)
-        => existing.TripId == tripId ? TaxiRequestResult.Ok(existing) : AlreadyActive(existing.Id);
+    public const string ClientIdReusedMessage = "Invalid request id";
+
+    // A client id already used for another trip is a client error, whatever state that other request is in.
+    public static TaxiRequestResult ReplayOrConflict(TaxiRequest existing, Guid tripId)
+        => existing.TripId == tripId ? TaxiRequestResult.Ok(existing)
+            : TaxiRequestResult.Fail(400, TaxiRequestCreateRules.BadRequestType, message: ClientIdReusedMessage);
 
     private static TaxiRequestResult AlreadyActive(Guid requestId)
         => TaxiRequestResult.Fail(409, TaxiRequestErrorTypes.TaxiRequestAlreadyActive, new TaxiRequestAlreadyActiveData { RequestId = requestId });

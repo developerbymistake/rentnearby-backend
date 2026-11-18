@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.TaxiRequests.DueActions;
+using RentNearBy.Infrastructure.Services.TaxiRequests.Matching;
 
 namespace RentNearBy.Api.Handlers;
 
@@ -15,6 +17,8 @@ public static class HealthHandlers
         (WorkerNames.TripTimer, "tripTimer", TimeSpan.FromMinutes(11)),
         (WorkerNames.OutboxRelay, "outboxRelay", TimeSpan.FromSeconds(30)),
         (WorkerNames.PushDelivery, "pushDelivery", TimeSpan.FromSeconds(60)),
+        (DueActionsWorker.HeartbeatName, "dueActions", TimeSpan.FromSeconds(30)),
+        (TaxiMatcherService.HeartbeatName, "matcher", TimeSpan.FromSeconds(30)),
     ];
 
     public static IResult Live() => Results.Ok(new { status = "live" });

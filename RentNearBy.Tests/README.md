@@ -118,6 +118,27 @@ PowerShell: `$env:RENTNEARBY_TEST_DB = "Host=..."; dotnet test RentNearBy.Tests 
 The project is added to the solution with `dotnet sln RentNearBy.sln add RentNearBy.Tests/RentNearBy.Tests.csproj`.
 The Docker image builds `RentNearBy.Api` only, so tests never affect the deploy.
 
+## Taxi request tests (`TaxiRequests/`)
+
+Source of what they check: `F:/Dhasu/TaxiRequest_resume/CONTRACT_TAXI_REQUEST.md` and `F:/Dhasu/TaxiRequest_resume/MASTER_PLAN.md` (work packages B0 to B3). Backend notes: "Taxi request system" in `F:/Dhasu/Backend/CLAUDE.md`.
+
+- **Contract samples**: `TaxiRequests/Samples/` is a copy of `F:/Dhasu/TaxiRequest_resume/contract_samples/`. `ContractSamplesGuardTests.cs` compares the hashes with `SHA256SUMS.txt` pasted into the test; DTO tests parse a sample and write it back unchanged (`ContractDtoRoundTripTests.cs` and the per-DTO view tests). After an approved contract change, regenerate the samples with `python -I contract_samples/extract_samples.py CONTRACT_TAXI_REQUEST.md contract_samples` in `F:/Dhasu/TaxiRequest_resume`, copy them here and update the pasted hashes. [CONTRACT section 0]
+- **Unit tests** (no database): rules, views, validators, FCM message shapes, ack tokens, fair queue, signals, endpoint and DI wiring. They run with the normal unit command below.
+- **Integration tests** (`[IntegrationFact]`, `Category=Integration`, files named `*IntegrationTests.cs` plus `TaxiRetentionRuleTests.cs` and `TaxiRequestReviewFixTests.cs`): matcher passes, offers, confirm race, due action claim, plan lock race, closure, store SQL, the two old/new guards, retention, API and admin integration. They need a real PostgreSQL WITH PostGIS and are skipped without `RENTNEARBY_TEST_DB`. In the run that wrote this section none of them ran (PostGIS is not installed on the dev machine, `F:/Dhasu/TaxiRequest_resume/evidence/preflight_testdb.md`), so the SQL of the feature is not proven against Postgres. `IntegrationTraitGuardTests.cs` is a unit test that fails when an integration test class lacks the `Category=Integration` trait.
+
+Run once PostGIS exists (PowerShell, one process, password never written to a file):
+
+```powershell
+# one-time: install PostGIS for PostgreSQL 18 (Stack Builder, Spatial Extensions), then as postgres:
+#   CREATE DATABASE rnb_taxi_test TEMPLATE template0;
+$env:RENTNEARBY_TEST_DB = "Host=localhost;Port=5432;Database=rnb_taxi_test;Username=postgres;Password=<local>"
+dotnet run --project RentNearBy.Tests -- -trait "Category=Integration"
+# only this feature:
+dotnet run --project RentNearBy.Tests -- -namespace "RentNearBy.Tests.TaxiRequests*"
+```
+
+Unit only (what the phase gates ran): `dotnet run --project RentNearBy.Tests --no-build -- -trait- "Category=Integration"`. The fixture runs `MigrateAsync` once, so the database is disposable and must never be a real one. [MASTER_PLAN section 14; `evidence/B2.md`]
+
 ## Packages
 
 | Package | Version | Note |

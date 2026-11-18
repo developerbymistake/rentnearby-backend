@@ -20,6 +20,8 @@ public static class TaxiDispatchRules
     public const int MaxLatestRatings = 10;
     public const int OfferListPageSize = 20;
     public const int AckPerMinutePerIp = 30;
+    public const int AckPerMinutePerOffer = 5;
+    public const int ReadinessReportsPerHour = 20;
     public const int AckTokenBytes = 16;
     public const int RingTtlMinSeconds = 1;
     public const int RingTtlMaxSeconds = RingSeconds;

@@ -7,6 +7,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Repositories;
 
 namespace RentNearBy.Infrastructure.Services;
 
@@ -458,6 +459,16 @@ public class TripTimerService(
         var done = 0;
         var rows = await LoadPageRowsAsync(trips, unitOfWork, journeyRepo, "date reminder", ct);
         if (rows == null) return 0;
+        Dictionary<Guid, TripTaxiRequestSummary> taxiRequests;
+        try
+        {
+            taxiRequests = await TripTaxiRequestReads.ReadManyAsync(db, trips, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Trip timer: date reminder taxi request load failed");
+            return 0;
+        }
         foreach (var trip in trips)
         {
             if (ct.IsCancellationRequested) break;
@@ -465,18 +476,19 @@ public class TripTimerService(
             {
                 var plan = ReadPlan(trip);
                 var (enquiries, linked) = rows[trip.Id];
+                var taxiRequest = taxiRequests.GetValueOrDefault(trip.Id);
 
                 if (trip.StartDate is { } start)
                 {
                     if (TripReminderRules.StartsInOpen(start, now)
-                        && TripReminderRules.ShouldSendStartsIn(trip, plan, enquiries, today, linked)
+                        && TripReminderRules.ShouldSendStartsIn(trip, plan, enquiries, today, linked, taxiRequest)
                         && await TripRemindableAsync(db, trip.Id, ct)
                         && await notifier.SendOnceAsync(
                             TripReminderNotifications.StartsIn(
                                 trip.OwnerUserId, trip.Id,
                                 plan.Legs is { Count: > 1 } ? TripReminderRules.RouteTitle(plan.LegCities) : trip.CityName,
                                 TripReminderRules.DaysLeft(start, today),
-                                TripReminderRules.StartsInBody(trip, plan, enquiries, today, linked)),
+                                TripReminderRules.StartsInBody(trip, plan, enquiries, today, linked, taxiRequest)),
                             TripReminderRules.StartsInKey(trip.Id, start), trip.Id, null))
                         done++;
 
@@ -610,15 +622,24 @@ public class TripTimerService(
             after = next;
             var rows = await LoadPageRowsAsync(trips, unitOfWork, journeyRepo, "auto-complete", ct);
             if (rows == null) continue;
+            Dictionary<Guid, TripTaxiRequestSummary> taxiRequests;
+            try
+            {
+                taxiRequests = await TripTaxiRequestReads.ReadManyAsync(sp.GetRequiredService<ApplicationDbContext>(), trips, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Trip timer: auto-complete taxi request load failed");
+                continue;
+            }
             foreach (var trip in trips)
             {
                 if (ct.IsCancellationRequested) break;
                 try
                 {
                     var (enquiries, linked) = rows[trip.Id];
-                    if (enquiries.Any(TripBookingStates.IsOpenForCompletion)) continue;
-                    // A trip nobody worked on is left for the traveller (no enquiry, no mark, no journey ask).
-                    if (TripCompleteRules.IsUntouched(TripEasyRows.Build(trip, ReadPlan(trip), enquiries, linked))) continue;
+                    // An open row, taxi request or booking keeps the trip; a trip nobody worked on is left for the traveller.
+                    if (!TripCompleteRules.AutoCompletes(trip, ReadPlan(trip), enquiries, linked, taxiRequests.GetValueOrDefault(trip.Id))) continue;
                     if (await unitOfWork.Trips.TryCompleteAsync(trip.Id, now) == 0) continue;
                     logger.LogInformation("trip.completed {TripId} auto", trip.Id);
                     done++;

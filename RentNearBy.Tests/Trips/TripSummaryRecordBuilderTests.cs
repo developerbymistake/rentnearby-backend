@@ -413,4 +413,61 @@ public class TripSummaryRecordBuilderTests
         Assert.DoesNotContain(record.Taxis, t => t.EnquiryId == stale.Id);
         Assert.All(record.Legs[1].Travel!.Cars, c => Assert.NotEqual(stale.Id, c.EnquiryId));
     }
+
+    [Fact]
+    public void Summary_lists_a_booked_taxi()
+    {
+        var plan = Plan(1, 2, 2, 2);
+        var bookingId = Guid.NewGuid();
+        var booking = new TripTaxiBookingSummary(bookingId, "Booked", Start.AddDays(2), Start.AddDays(3), "Pradeep Bisht", "Innova Crysta", 7, "Badrinath");
+        var request = new TripTaxiRequestSummary(Guid.NewGuid(), "Booked", "Booked", 8, booking);
+        var record = TripSummaryRecordBuilder.Build(NewTrip(4), plan, [], [], Now, [], Taxis(), request, [booking]);
+
+        var taxi = Assert.Single(record.Taxis);
+        Assert.Null(taxi.EnquiryId);
+        Assert.Equal(bookingId, taxi.BookingId);
+        Assert.Equal("Booked", taxi.BookingStatus);
+        Assert.Equal("Pradeep Bisht", taxi.ListingName);
+        Assert.Equal("Innova Crysta", taxi.VehicleTypeName);
+        Assert.Equal(new List<int> { 3, 4 }, taxi.Days);
+        Assert.Equal(Start.AddDays(2), taxi.CheckIn);
+        Assert.Equal(Start.AddDays(4), taxi.CheckOut);
+        Assert.Equal(TripDisplayStatuses.ConfirmedByBoth, taxi.DisplayStatus);
+        Assert.Equal("both", taxi.ConfirmedBy);
+        Assert.Empty(record.Legs[0].Taxis);
+        Assert.Single(record.Legs[1].Taxis, t => t.BookingId == bookingId);
+
+        var row = record.Arrangements.Single(a => a.Key == "taxi");
+        Assert.Equal(TripRowStates.Confirmed, row.State);
+        Assert.Equal("Pradeep Bisht", row.Detail);
+    }
+
+    [Fact]
+    public void Booking_days_outside_the_trip_dates_are_dropped()
+    {
+        var plan = Plan(1, 2, 2, 2);
+        var bookingId = Guid.NewGuid();
+        var booking = new TripTaxiBookingSummary(bookingId, "InProgress", Start.AddDays(-2), Start.AddDays(1), "Pradeep Bisht", "Innova Crysta", 7, "Haridwar");
+        var later = new TripTaxiBookingSummary(Guid.NewGuid(), "Completed", Start.AddDays(5), Start.AddDays(6), "Ravi", "Dzire", 4, "Badrinath");
+        var record = TripSummaryRecordBuilder.Build(NewTrip(4), plan, [], [], Now, [], Taxis(), null, [booking, later]);
+
+        var taxi = record.Taxis.Single(t => t.BookingId == bookingId);
+        Assert.Equal(new List<int> { 1, 2 }, taxi.Days);
+        Assert.Equal("InProgress", taxi.BookingStatus);
+        Assert.Empty(record.Taxis.Single(t => t.BookingId == later.BookingId).Days);
+        Assert.All(record.Taxis.SelectMany(t => t.Days), d => Assert.InRange(d, 1, 4));
+        Assert.Single(record.Legs[0].Taxis, t => t.BookingId == bookingId);
+        Assert.Single(record.Legs[1].Taxis, t => t.BookingId == bookingId);
+    }
+
+    [Fact]
+    public void Summary_without_request_input_keeps_the_legacy_taxis_only()
+    {
+        var plan = Plan(1, 1, 1);
+        var local = LocalTaxi("[1,2]", 1, 2, 2500);
+        var record = TripSummaryRecordBuilder.Build(NewTrip(3), plan, [Dto(local)], [local], Now, [], Taxis(), null, []);
+        Assert.Equal(local.Id, Assert.Single(record.Taxis).EnquiryId);
+        Assert.Null(record.Taxis[0].BookingId);
+        Assert.Equal(TripRowStates.Booked, record.Arrangements.Single(a => a.Key == "taxi").State);
+    }
 }

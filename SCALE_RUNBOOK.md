@@ -71,3 +71,47 @@ Not run: the 10,000-user bulk enquiry test and the 200,000-row `ScaleReminderRun
 - Reminder run. If `TripReminderRuns` has no finished row for today after 12:00 IST, `TripReminderService` logs Critical `trip.reminders.missed` (EventId 7002) once that day. Check: `SELECT * FROM "TripReminderRuns" WHERE "RunDate" = (now() AT TIME ZONE 'Asia/Kolkata')::date;` (expect `FinishedAt` set).
 - Final pushes look back 2 days only; the daily pass in `TripTimerService` stamps older unannounced rows (`FinalPushedAt`) and the purge removes Sent shortlist rows after 30 days.
 - Not measured: the new `NOT EXISTS` probes on `Messages` and `TripOffers` and the step-less Final rows (not served by the StepKey-bound `ix_tripenquiries_final`) were run for correctness on a scratch PostgreSQL 18.3 schema, not with `EXPLAIN ANALYZE` at 400,000 rows.
+
+## Taxi request system: launch gates and load test plan (written 2026-11-18, NOTHING MEASURED)
+
+Read this first: no number in this section was measured. Every figure below is a target the system was designed for, copied from `F:/Dhasu/TRIP_TAXI_ARCHITECTURE.md` section 11. In the run that wrote it, no load test, no integration test against Postgres, no FCM delivery and no device test was executed: there is no PostGIS on the dev machine (`F:/Dhasu/TaxiRequest_resume/evidence/preflight_testdb.md`) and `F:/Dhasu/TaxiRequest_resume/MASTER_PLAN.md` section 14 lists these as NOT RUN. The measured tables above are about the Trip enquiry tables and do not cover this feature. Measured results go in the empty table at the end of this section, by whoever runs the plan, with the date and the machine.
+
+### Targets (designed for, not measured) [TRIP_TAXI_ARCHITECTURE section 11]
+
+| Target | Value |
+|---|---|
+| Dispatch transaction, database time | p95 under 100 ms |
+| Accept write | p95 under 150 ms |
+| Outbox enqueue to FCM send | p95 under 2 s |
+| Push to ring on the device (read from the ack endpoint) | p95 under 5 s |
+| Timer lag (due to fired) | p95 under 3 s |
+| Duplicate offers and double bookings in the concurrency tests | zero |
+| Fairness simulation | each driver's share of offers within 5 percent of its weight share, no driver at 0 |
+| Peak assumption for the load test | about 1.2 requests per second and 10 pushes per second, then 10 times that |
+
+### Launch gates (the master switch stays off until every item is done and recorded) [ARCHITECTURE section 11; MASTER_PLAN section 15]
+
+1. PostGIS installed on a test machine and every `[IntegrationFact]` of the feature run and green (matcher under parallel passes, confirm race, due action claim, plan lock race, the two old/new guards, API integration). Command in `RentNearBy.Tests/README.md`. Status: open.
+2. The load test plan below run against a staging copy of the server shape (Postgres, Redis, RabbitMQ and the existing background services running) and every target above met. Status: open.
+3. The device test of step 5 below done, including the missed rings rule on real phones (`MASTER_PLAN.md` section 14). Status: open.
+4. Owner answers to launch gates L1 to L7 (`F:/Dhasu/TaxiRequest_resume/OWNER_GATES.md`, every line OPEN, none decided): route city keys, double booking method, stay lock, unbooked request closing, Name your trip placement, planner numbers and words, old-ask dialog. Status: open.
+5. Server database dropped and recreated for the regenerated `InitialCreate` and the update gate set (`CLAUDE.md`, "Deploy after a database reset"). Status: open.
+6. Pilot with one hub and a small set of real drivers who finished the permission onboarding, switch off elsewhere; watch the metrics for a week and compare with the targets; widen hub by hub; rollback is the switch (requests show paused, plans still save). [ARCHITECTURE section 13]
+
+### Load test plan (text only; run only when the owner asks) [ARCHITECTURE section 11]
+
+1. Unit tests: state transitions, fair queue ordering, floor rule, accept cap, rating maths (`RentNearBy.Tests/TaxiRequests/`; they run in the normal suite and have run in the phase gates, `evidence/B2.md`).
+2. Simulation test: 20 drivers with different weights, 1,000 requests, one driver offline for a window and back, one new driver mid-run (`TaxiFairQueueSimulationTests.cs` is the in-memory form; weights are all 1 in release 1, `TaxiDispatchRules.FairQueueStride`).
+3. Integration tests against real Postgres: concurrent dispatch (no shared driver), concurrent select (one booking wins), timer re-validation, crash and restart of the worker, due action claim by two workers. The exclusion constraint of architecture 16.1 is not part of this build (gate L2).
+4. Load test: ramp to the peak assumption, then 10 times it, measuring the targets above, with Postgres, Redis, RabbitMQ and the existing hosted services running (including `TaxiMatcherService` and `DueActionsWorker`). Read the numbers from the meter `RentNearBy.TaxiRequests` (`taxi.dispatch.duration`, `taxi.due_actions.lag`, `taxi.push.ack_delay`, `taxi.push.ring_sent`, `taxi.push.ring_acked`) and from `GET /api/v1/admin/taxi-requests/health` (AD5). [MASTER_PLAN 2.9, B3-6]
+5. Device test: a short list of real Android phones, at least two with aggressive battery management, app closed, screen locked; measure push-to-ring delay and whether the ring sounds; test ring from the Get ready screen. [ARCHITECTURE section 11; RESEARCH_R3 section 6 in `F:/Dhasu/Analysis_2026_11_18/`]
+
+### Alerts to wire (not measured, not yet verified in production) [MASTER_PLAN 2.9]
+
+Log event 7110 `taxi.due.parked`, 7111 `taxi.due.lag`, 7120 `taxi.match.pass_failed`, 7121 `taxi.request.stuck`, 7130 `taxi.push.ack_low` (hourly ack ratio under 0.9, computed by the AD5 health query). Worker liveness: `/health/ready` checks the `dueActions` and `matcher` heartbeats at 30 s (work package B3-7).
+
+### Results (empty: nothing has been measured)
+
+| Date | Machine and data size | Target | Measured | Pass |
+|---|---|---|---|---|
+| none | none | none | none | none |

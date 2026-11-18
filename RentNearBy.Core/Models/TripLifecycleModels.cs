@@ -1,6 +1,7 @@
 using System.Text.Json;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models.TaxiRequests;
 
 namespace RentNearBy.Core.Models;
 
@@ -28,12 +29,13 @@ public static class TripBookingStates
     // Order: Completed, Draft, PlanOnly, Confirming, Ready, on the Make it easy rows (skipped rows leave the count).
     // PlanOnly = a saved plan with spots and no row done, in progress or needing attention.
     // Ready = every row that is not skipped is done and at least one row is done.
-    public static string Compute(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys = null)
+    public static string Compute(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys = null,
+        TripTaxiRequestSummary? taxiRequest = null)
     {
         if (trip.Status == TripStatuses.Completed) return Completed;
         var spots = plan.Days.Sum(d => d.Spots.Count);
         if (trip.Status != TripStatuses.Planned || spots == 0) return Draft;
-        return OfRows(TripEasyRows.Build(trip, plan, enquiries, journeys));
+        return OfRows(TripEasyRows.Build(trip, plan, enquiries, journeys, null, taxiRequest));
     }
 
     public static string OfRows(IReadOnlyList<TripEasyRow> rows)
@@ -49,6 +51,12 @@ public static class TripBookingStates
     public static bool IsOpenForCompletion(TripEnquiry e) =>
         e.Status is TripEnquiryStatuses.Asked or TripEnquiryStatuses.Offered or TripEnquiryStatuses.Countered or TripEnquiryStatuses.FareSent
         || (e.Status == TripEnquiryStatuses.ConfirmedByBoth && e.AdvanceStatus is TripAdvanceStatuses.Pending or TripAdvanceStatuses.ProofSent);
+
+    // Blocker 16.3 item 7: an active taxi request or booking keeps the trip open too.
+    public static bool IsOpenForCompletion(TripTaxiRequestSummary? taxiRequest) => taxiRequest?.KeepsTripOpen == true;
+
+    public static bool AnyOpenForCompletion(IEnumerable<TripEnquiry> enquiries, TripTaxiRequestSummary? taxiRequest)
+        => IsOpenForCompletion(taxiRequest) || enquiries.Any(IsOpenForCompletion);
 
     // Confirmed by the host or driver too; booked by the traveller alone is still waiting.
     public static bool IsSettled(TripEnquiry e) => e.Status == TripEnquiryStatuses.ConfirmedByBoth;
@@ -86,9 +94,30 @@ public static class TripCompleteRules
         return settled ? TripCompleteVerdict.Ok : TripCompleteVerdict.NotEnded;
     }
 
+    public const string TaxiRequestOpenMessage = "Cancel the taxi request first.";
+    public const string TaxiBookingOpenMessage = "Your taxi booking is still active. End or cancel it first.";
+
+    // Complete is refused (409 PlanLocked) while the trip's taxi request or booking is active: only the taxi request
+    // service can end it and tell the drivers. null = no refusal.
+    public static TripLockRefusal? TaxiRefusal(TripTaxiRequestSummary? taxiRequest)
+    {
+        if (taxiRequest is not { KeepsTripOpen: true } r) return null;
+        var reason = PlanLockReasons.For(r.State)
+            ?? (r.Booking?.IsActive == true ? PlanLockReasons.TaxiBookingActive : PlanLockReasons.TaxiRequestActive);
+        var message = reason == PlanLockReasons.TaxiBookingActive ? TaxiBookingOpenMessage : TaxiRequestOpenMessage;
+        return new TripLockRefusal(409, TaxiRequestErrorTypes.PlanLocked, message,
+            new RentNearBy.Core.DTOs.TaxiRequests.PlanLockedData { Reason = reason, RequestId = r.RequestId });
+    }
+
     // A trip nobody touched (every row still todo or saved) is left for the traveller; the timer never completes it.
     public static bool IsUntouched(IReadOnlyList<TripEasyRow> rows)
         => rows.All(r => r.State is TripRowStates.Todo or TripRowStates.Saved);
+
+    // Timer pass: nothing open (legacy rows, taxi request or booking) and the trip was worked on.
+    public static bool AutoCompletes(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys,
+        TripTaxiRequestSummary? taxiRequest)
+        => !TripBookingStates.AnyOpenForCompletion(enquiries, taxiRequest)
+           && !IsUntouched(TripEasyRows.Build(trip, plan, enquiries, journeys, null, taxiRequest));
 }
 
 // plan.guide the server keeps: the step and Not now are UI cursor state, stored as sent when they are keys of the plan
@@ -365,11 +394,11 @@ public static class TripReminderRules
     // The 3-day push: a live Planned trip with something left to settle. A plan with no choice at all is nagged only
     // when its city has supply to act on (DistrictId set).
     public static bool ShouldRemindStartsIn(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst,
-        IReadOnlyList<SavedJourney>? journeys = null)
+        IReadOnlyList<SavedJourney>? journeys = null, TripTaxiRequestSummary? taxiRequest = null)
     {
         if (trip.StartDate is not { } start || DaysLeft(start, todayIst) <= 0) return false;
-        var rows = TripEasyRows.Build(trip, plan, enquiries, journeys);
-        return TripBookingStates.Compute(trip, plan, enquiries, journeys) switch
+        var rows = TripEasyRows.Build(trip, plan, enquiries, journeys, null, taxiRequest);
+        return TripBookingStates.Compute(trip, plan, enquiries, journeys, taxiRequest) switch
         {
             TripBookingStates.PlanOnly => trip.DistrictId != null,
             TripBookingStates.Confirming => !AllSettled(rows),
@@ -379,13 +408,16 @@ public static class TripReminderRules
 
     // The 3-day push also goes out when Getting there is the only thing left to sort.
     public static bool ShouldSendStartsIn(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst,
-        IReadOnlyList<SavedJourney>? journeys = null)
+        IReadOnlyList<SavedJourney>? journeys = null, TripTaxiRequestSummary? taxiRequest = null)
         => trip.StartDate is { } start && DaysLeft(start, todayIst) > 0
-           && (ShouldRemindStartsIn(trip, plan, enquiries, todayIst, journeys) || NeedsGettingThereNudge(plan, TripEasyRows.Build(trip, plan, enquiries, journeys)));
+           && (ShouldRemindStartsIn(trip, plan, enquiries, todayIst, journeys, taxiRequest)
+               || NeedsGettingThereNudge(plan, TripEasyRows.Build(trip, plan, enquiries, journeys, null, taxiRequest)));
 
     public static string StartsInBody(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst,
-        IReadOnlyList<SavedJourney>? journeys = null)
-        => ShouldRemindStartsIn(trip, plan, enquiries, todayIst, journeys) ? StartsInSummary(trip, plan, enquiries, journeys) : GettingThereNudge;
+        IReadOnlyList<SavedJourney>? journeys = null, TripTaxiRequestSummary? taxiRequest = null)
+        => ShouldRemindStartsIn(trip, plan, enquiries, todayIst, journeys, taxiRequest)
+            ? StartsInSummary(trip, plan, enquiries, journeys, taxiRequest)
+            : GettingThereNudge;
 
     public static bool ProblemAllowed(Trip t, DateOnly todayIst) => t.StartDate is { } s && t.EndDate is { } e && s <= todayIst && todayIst <= e.AddDays(1);
 
@@ -411,9 +443,10 @@ public static class TripReminderRules
 
     // "Stay confirmed. No taxi yet." | "1 stay enquiry waiting. Taxi confirmed." (+ " Travel booked.") (+ " Getting there not sorted.")
     // A skipped row says nothing.
-    public static string StartsInSummary(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys = null)
+    public static string StartsInSummary(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys = null,
+        TripTaxiRequestSummary? taxiRequest = null)
     {
-        var rows = TripEasyRows.Build(trip, plan, enquiries, journeys);
+        var rows = TripEasyRows.Build(trip, plan, enquiries, journeys, null, taxiRequest);
         var parts = new List<string>();
         if (KindSentence(rows, TripRowKinds.Stay, "stay", "No stay yet.", "Stay confirmed.") is { } stay) parts.Add(stay);
         if (KindSentence(rows, TripRowKinds.Taxi, "taxi", "No taxi yet.", "Taxi confirmed.") is { } taxi) parts.Add(taxi);

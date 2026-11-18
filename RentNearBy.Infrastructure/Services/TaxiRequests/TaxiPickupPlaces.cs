@@ -1,8 +1,13 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
+using RentNearBy.Core.DTOs.TaxiRequests;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
+using StackExchange.Redis;
 
 namespace RentNearBy.Infrastructure.Services.TaxiRequests;
 
@@ -20,8 +25,25 @@ public sealed record TaxiPickupLists(IReadOnlyList<TaxiPickupPlace> Pickup, IRea
 // the trip's first city, drop = the same around the last city, a FROM equal to the TO city is not listed, drivers counted
 // by the pool rule of MASTER_PLAN 2.5. City names come from the cached catalog (no Atlas call per request); a key that is
 // not a live city is left out, so the list and the create check always agree. Run outside any transaction.
-public sealed class TaxiPickupPlaces(ApplicationDbContext db, ICityResolver resolver)
+public sealed class TaxiPickupPlaces
 {
+    private readonly ApplicationDbContext db;
+    private readonly ICityResolver resolver;
+    private readonly TaxiPickupCache _cache;
+
+    // Redis is optional (no REDIS_URL, no multiplexer): then every call goes to the database.
+    public TaxiPickupPlaces(ApplicationDbContext db, ICityResolver resolver, IConnectionMultiplexer? redis = null, ILogger<TaxiPickupPlaces>? logger = null)
+        : this(db, resolver, redis is null ? null : new RedisPickupCacheStore(redis), logger)
+    {
+    }
+
+    internal TaxiPickupPlaces(ApplicationDbContext db, ICityResolver resolver, ITaxiPickupCacheStore? store, ILogger? logger = null)
+    {
+        this.db = db;
+        this.resolver = resolver;
+        _cache = new TaxiPickupCache(store, logger);
+    }
+
     public static readonly string FromCitiesSql = $"""
         SELECT rt."FromCityKey" AS "CityKey", count(DISTINCT l."Id")::int AS "Drivers"
         FROM "TaxiRoutes" rt
@@ -44,43 +66,66 @@ public sealed class TaxiPickupPlaces(ApplicationDbContext db, ICityResolver reso
         var pickupRows = await FromCitiesAsync(firstCityKey, ct);
         var dropRows = lastCityKey == firstCityKey ? pickupRows : await FromCitiesAsync(lastCityKey, ct);
         var sightseeing = await CountForAsync(firstCityKey, ct);
-        return await BuildAsync(resolver, pickupRows, dropRows, sightseeing);
+        return await BuildAsync(resolver, pickupRows, dropRows, sightseeing, firstCityKey, lastCityKey);
     }
 
-    // Names the rows from the catalog; a key that is not a live city is left out of both lists.
+    // T1 body. Paused = the master switch is off; seats follow the traveller count.
+    public static PickupPlacesDto ToDto(TaxiPickupLists lists, TaxiCityRefDto? firstCity, TaxiCityRefDto? lastCity, bool switchOn, int travellers)
+        => new()
+        {
+            Paused = !switchOn,
+            FirstCity = firstCity,
+            LastCity = lastCity,
+            Pickup = lists.Pickup.Select(ToDto).ToList(),
+            Drop = lists.Drop.Select(ToDto).ToList(),
+            SightseeingDrivers = lists.SightseeingDrivers,
+            Travellers = travellers,
+            SuggestedSeats = TaxiRequestSeats.SuggestedFor(travellers),
+        };
+
+    private static TaxiPickupPlaceDto ToDto(TaxiPickupPlace p) => new() { CityKey = p.CityKey, Name = p.Name, Drivers = p.Drivers };
+
+    // Names the rows from the catalog; a key that is not a live city is left out of both lists. With the trip's first and
+    // last city the lists are sorted by distance from them (contract T1), then name; without, by name.
     internal static async Task<TaxiPickupLists> BuildAsync(ICityResolver resolver, IReadOnlyList<FromCityRow> pickupRows,
-        IReadOnlyList<FromCityRow> dropRows, int sightseeing)
+        IReadOnlyList<FromCityRow> dropRows, int sightseeing, long? firstCityKey = null, long? lastCityKey = null)
     {
-        var names = await NamesAsync(resolver, pickupRows.Concat(dropRows).Select(r => r.CityKey).Distinct());
-        return new TaxiPickupLists(Named(pickupRows, names), Named(dropRows, names), sightseeing);
+        var points = await PointsAsync(resolver, pickupRows.Concat(dropRows).Select(r => r.CityKey).Distinct());
+        var firstAt = firstCityKey is { } f ? (await resolver.FindAsync(f)).City : null;
+        var lastAt = lastCityKey is { } l ? (await resolver.FindAsync(l)).City : null;
+        return new TaxiPickupLists(Named(pickupRows, points, firstAt), Named(dropRows, points, lastAt), sightseeing);
     }
 
     // Pool drivers with a route to this city from anywhere (sightseeing only, P18).
     public async Task<int> CountForAsync(long toCityKey, CancellationToken ct = default)
-        => await db.Database.SqlQueryRaw<int>(DriversToCitySql, To(toCityKey)).SingleAsync(ct);
+        => await _cache.GetOrLoadAsync("cnt", toCityKey,
+            async () => await db.Database.SqlQueryRaw<int>(DriversToCitySql, To(toCityKey)).SingleAsync(ct));
 
-    // The single invalidation call for a change that moves the lists (routes, availability, readiness, removal).
-    // No cache exists yet (B3-1 adds it), so there is nothing to bump.
-    public Task BumpAsync() => Task.CompletedTask;
+    // The single invalidation call for a change that moves the lists (routes, availability, readiness, removal): it moves
+    // the cache generation, so every cached entry is ignored at once. Never throws; without Redis there is nothing to move.
+    public Task BumpAsync() => _cache.BumpAsync();
 
     private async Task<List<FromCityRow>> FromCitiesAsync(long toCityKey, CancellationToken ct)
-        => await db.Database.SqlQueryRaw<FromCityRow>(FromCitiesSql, To(toCityKey)).ToListAsync(ct);
+        => await _cache.GetOrLoadAsync("from", toCityKey,
+            async () => await db.Database.SqlQueryRaw<FromCityRow>(FromCitiesSql, To(toCityKey)).ToListAsync(ct));
 
-    private static async Task<Dictionary<long, string>> NamesAsync(ICityResolver resolver, IEnumerable<long> keys)
+    private static async Task<Dictionary<long, TripCityInfo>> PointsAsync(ICityResolver resolver, IEnumerable<long> keys)
     {
-        var names = new Dictionary<long, string>();
+        var cities = new Dictionary<long, TripCityInfo>();
         foreach (var key in keys)
         {
             var pin = await resolver.FindAsync(key);
-            if (pin is { Available: true, City.Name: { Length: > 0 } name }) names[key] = name;
+            if (pin is { Available: true, City.Name: { Length: > 0 } } && pin.City is { } city) cities[key] = city;
         }
-        return names;
+        return cities;
     }
 
-    private static List<TaxiPickupPlace> Named(IEnumerable<FromCityRow> rows, IReadOnlyDictionary<long, string> names)
-        => rows.Where(r => names.ContainsKey(r.CityKey))
-            .Select(r => new TaxiPickupPlace(r.CityKey, names[r.CityKey], r.Drivers))
-            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ThenBy(p => p.CityKey)
+    private static List<TaxiPickupPlace> Named(IEnumerable<FromCityRow> rows, IReadOnlyDictionary<long, TripCityInfo> cities, TripCityInfo? anchor)
+        => rows.Where(r => cities.ContainsKey(r.CityKey))
+            .Select(r => (Place: new TaxiPickupPlace(r.CityKey, cities[r.CityKey].Name, r.Drivers), City: cities[r.CityKey]))
+            .OrderBy(x => anchor is null ? 0 : GeoMath.HaversineKm(anchor.Latitude, anchor.Longitude, x.City.Latitude, x.City.Longitude))
+            .ThenBy(x => x.Place.Name, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Place.CityKey)
+            .Select(x => x.Place)
             .ToList();
 
     private static NpgsqlParameter To(long cityKey) => new("to", NpgsqlDbType.Bigint) { Value = cityKey };

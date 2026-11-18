@@ -1,4 +1,7 @@
-using Microsoft.Extensions.DependencyInjection.Extensions;
+using RentNearBy.Api.Endpoints;
+using RentNearBy.Api.Filters;
+using RentNearBy.Api.Handlers.TaxiRequests;
+using RentNearBy.Api.Services;
 using RentNearBy.Core.Interfaces.TaxiRequests;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using RentNearBy.Infrastructure.Services.TaxiRequests.DueActions;
@@ -25,11 +28,13 @@ public static class TaxiRequestServiceCollectionExtensions
         services.AddSingleton(_ => new TaxiAckTokens(configuration));
         services.AddSingleton<IDueActionScheduler, DueActionScheduler>();
         services.AddSingleton<ITaxiPushWriter, TaxiPushWriter>();
-        // B3-7 replaces this with the SignalR implementation.
-        services.TryAddSingleton<ITaxiRequestEvents, NoTaxiRequestEvents>();
+        // The Status screen hint goes through the notification hub; AddSignalR is idempotent, Program.cs adds it too.
+        services.AddSignalR();
+        services.AddSingleton<ITaxiRequestEvents, TaxiRequestEvents>();
 
         services.AddScoped<TaxiRequestStore>();
         services.AddScoped<TaxiPickupPlaces>();
+        services.AddScoped<TaxiRequestViews>();
         services.AddScoped<ITripPlanLockReader, TripPlanLockReader>();
         // Concrete type too: TripEnquiryClosure and the availability route take TaxiRequestClosure itself.
         services.AddScoped<TaxiRequestClosure>();
@@ -52,8 +57,24 @@ public static class TaxiRequestServiceCollectionExtensions
         return services;
     }
 
-    private sealed class NoTaxiRequestEvents : ITaxiRequestEvents
+    // Contract sections 5, 6, 7 and 11. T1 to T3 sit on a /trips group that keeps the planner gate; the per-route master
+    // switch (TripExecutionGateFilter) is added inside the endpoint files.
+    public static IEndpointRouteBuilder MapTaxiRequests(this IEndpointRouteBuilder app)
     {
-        public Task RequestChangedAsync(Guid requestId, Guid tripId, Guid travellerUserId, long version, string state) => Task.CompletedTask;
+        app.MapGroup("/api/v1/trips")
+            .WithTags("Trips")
+            .AddEndpointFilter<TripPlannerGateFilter>()
+            .MapTripTaxiRequestEndpoints();
+
+        app.MapGroup("/api/v1/taxi-requests")
+            .WithTags("TaxiRequests")
+            .MapTaxiRequestEndpoints()
+            .MapTaxiDriverRequestEndpoints();
+
+        app.MapGroup("/api/v1/admin")
+            .WithTags("AdminTaxiRequests")
+            .MapAdminTaxiRequestEndpoints();
+
+        return app;
     }
 }

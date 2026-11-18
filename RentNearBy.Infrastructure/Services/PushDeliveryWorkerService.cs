@@ -9,8 +9,10 @@ using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
 
@@ -25,6 +27,9 @@ public interface IPushDeliveryStore
     Task<IReadOnlyList<(Guid UserId, string Token)>> GetTokensAsync(IReadOnlyCollection<Guid> userIds, CancellationToken ct);
     Task<IReadOnlyDictionary<Guid, string>> GetNotificationTypesAsync(IReadOnlyCollection<Guid> notificationIds, CancellationToken ct);
     Task MarkInvalidAsync(IReadOnlyCollection<string> tokens, CancellationToken ct);
+
+    // Ring offers among the ids that are no longer Ringing (answered, closed or gone).
+    Task<IReadOnlySet<Guid>> GetEndedRingOffersAsync(IReadOnlyCollection<Guid> offerIds, CancellationToken ct);
 }
 
 public sealed class PushDeliveryStore(IServiceScopeFactory scopeFactory) : IPushDeliveryStore
@@ -49,11 +54,23 @@ public sealed class PushDeliveryStore(IServiceScopeFactory scopeFactory) : IPush
         using var scope = scopeFactory.CreateScope();
         await new DeviceTokenRepository(scope.ServiceProvider.GetRequiredService<ApplicationDbContext>()).MarkInvalidManyAsync(tokens, ct);
     }
+
+    public async Task<IReadOnlySet<Guid>> GetEndedRingOffersAsync(IReadOnlyCollection<Guid> offerIds, CancellationToken ct)
+    {
+        if (offerIds.Count == 0) return new HashSet<Guid>();
+        var ids = offerIds.ToArray();
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var ringing = await db.Set<TaxiRequestOffer>().AsNoTracking()
+            .Where(o => ids.Contains(o.Id) && o.Status == OfferStates.Ringing).Select(o => o.Id).ToListAsync(ct);
+        return ids.Except(ringing).ToHashSet();
+    }
 }
 
 // One batch: one token query, one NotificationEvent query, FCM in chunks of 500, one UPDATE for dead tokens.
 // A message is delivered when any of its tokens took it; only an all-transient failure retries (so a three-device user never gets duplicates).
 // A payload past its ExpiresAtUtc is acked and counted, never sent.
+// Ring and ring end data carry no key (contract 10); a ring's expiresAt is the payload expiry, which FcmService turns into the TTL.
 public static class PushBatchProcessor
 {
     public static Task<IReadOnlyList<PushVerdict>> ProcessAsync(
@@ -76,6 +93,25 @@ public static class PushBatchProcessor
         if (expired > 0) logger.LogInformation("Dropped {Count} expired pushes without sending", expired);
         if (live.Count == 0) return verdicts;
 
+        // A ring whose offer the driver already answered (in-app list) or that already closed is acked, never sent.
+        var ringOffers = live.Select(i => RingOfferId(batch[i].Payload!)).Where(id => id != null).Select(id => id!.Value).Distinct().ToList();
+        if (ringOffers.Count > 0)
+        {
+            var ended = await store.GetEndedRingOffersAsync(ringOffers, ct);
+            if (ended.Count > 0)
+            {
+                var before = live.Count;
+                live.RemoveAll(i =>
+                {
+                    if (RingOfferId(batch[i].Payload!) is not { } id || !ended.Contains(id)) return false;
+                    verdicts[i] = PushVerdict.Ack;
+                    return true;
+                });
+                logger.LogInformation("Dropped {Count} rings of offers no longer ringing", before - live.Count);
+                if (live.Count == 0) return verdicts;
+            }
+        }
+
         var userIds = live.Select(i => batch[i].Payload!.UserId).Distinct().ToList();
         var eventIds = live.Select(i => batch[i].Payload!.NotificationId).Where(id => id != null).Select(id => id!.Value).Distinct().ToList();
         var tokenRows = await store.GetTokensAsync(userIds, ct);
@@ -94,8 +130,15 @@ public static class PushBatchProcessor
             if (p.Data != null)
                 foreach (var kv in p.Data)
                     if (kv.Value != null) data[kv.Key] = kv.Value;
-            data["notification_type"] = NotificationTypes.ToWireValue(TypeOf(p, types));
-            data["key"] = p.Key;
+            var type = TypeOf(p, types);
+            data["notification_type"] = NotificationTypes.ToWireValue(type);
+            if (type == NotificationTypes.TaxiRequestRing)
+            {
+                data.Remove("key");
+                if (p.ExpiresAtUtc is { } expires) data["expiresAt"] = TaxiRingPayload.Instant(expires);
+            }
+            else if (type == NotificationTypes.TaxiRequestRingEnded) data.Remove("key");
+            else data["key"] = p.Key;
             if (p.Route != null) data["action_route"] = p.Route;
             if (p.ArgsJson != null) data["action_args_json"] = p.ArgsJson;
             foreach (var token in userTokens)
@@ -140,6 +183,11 @@ public static class PushBatchProcessor
 
     public static bool IsExpired(OutboxPushPayload payload, DateTime utcNow)
         => payload.ExpiresAtUtc is { } expires && expires <= utcNow;
+
+    // The offer of a real ring; a test ring (empty offerId) and every other push have none.
+    public static Guid? RingOfferId(OutboxPushPayload payload)
+        => payload.Kind == NotificationTypes.TaxiRequestRing && payload.NotificationId is null
+            && payload.Data?.GetValueOrDefault("offerId") is { } raw && Guid.TryParse(raw, out var id) && id != Guid.Empty ? id : null;
 
     private static string TypeOf(OutboxPushPayload p, IReadOnlyDictionary<Guid, string> types)
         => p.NotificationId is { } id ? types[id]

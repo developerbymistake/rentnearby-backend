@@ -1,11 +1,16 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using RentNearBy.Api.Handlers;
+using RentNearBy.Api.Services;
+using RentNearBy.Core.Entities.TaxiRequests;
+using RentNearBy.Core.Models.TaxiRequests;
+using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Api.Hubs;
 
-// Independent of ChatHub/BannerHub — no shared code, always joins the user_{id} group. Push-only: no client-invokable methods, no sub-group concept (a push event
-// is scoped to the owning user, never to anything narrower).
+// Independent of ChatHub/BannerHub — no shared code, always joins the user_{id} group. Push events are scoped to the owning user; the only client-invokable
+// methods are the taxi request subscriptions, which join a per-request group only for that request's traveller.
 [Authorize]
 public class NotificationHub : Hub
 {
@@ -24,4 +29,18 @@ public class NotificationHub : Hub
 
         await base.OnDisconnectedAsync(exception);
     }
+
+    // Contract section 9: ownership is the only rule; reads stay open while the master switch is off, so hints keep flowing.
+    public async Task SubscribeTaxiRequest(string requestId, ApplicationDbContext db)
+    {
+        if (!Guid.TryParse(requestId, out var id) || !UsersHandlers.TryGetUserId(Context.User!, out var userId)) return;
+        var aborted = Context.ConnectionAborted;
+        await TaxiRequestSubscriptions.JoinIfTravellerAsync(Groups, Context.ConnectionId, userId, id,
+            () => db.Set<TaxiRequest>().AsNoTracking().Where(r => r.Id == id).Select(r => (Guid?)r.TravellerUserId).FirstOrDefaultAsync(aborted));
+    }
+
+    public Task UnsubscribeTaxiRequest(string requestId)
+        => Guid.TryParse(requestId, out var id)
+            ? Groups.RemoveFromGroupAsync(Context.ConnectionId, TaxiRequestRoutes.HubGroup(id))
+            : Task.CompletedTask;
 }

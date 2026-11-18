@@ -9,6 +9,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Repositories;
 using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -193,15 +194,21 @@ public static class TripLifecycleHandlers
         {
             var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
             var linked = await journeys.GetByTripAsync(trip.Id, userId);
-            IResult? Verdict(IReadOnlyList<TripEnquiry> list) => TripCompleteRules.Check(
-                trip, TripEasyRows.Build(trip, TripHandlers.ReadPlan(trip), list, linked), TripExecutionRules.TodayIst(now)) switch
+            // An active taxi request or booking can only be ended by the taxi request service (it tells the drivers).
+            IResult? Verdict(IReadOnlyList<TripEnquiry> list, TripTaxiRequestSummary? taxiRequest)
             {
-                TripCompleteVerdict.NotPlanned => ConflictResponse("Only a planned trip can be completed.", TripErrorTypes.TripNotPlanned),
-                TripCompleteVerdict.NotEnded => ConflictResponse("The trip has not ended and some steps are still open.", TripEnquiryErrorTypes.TripNotEnded),
-                TripCompleteVerdict.DatesRequired => ErrorResponse(422, "Add your trip dates or settle every step first.", TripEnquiryErrorTypes.TripDatesRequired),
-                _ => null,
-            };
-            if (Verdict(enquiries) is { } early) return early;
+                if (trip.Status == TripStatuses.Planned && TripCompleteRules.TaxiRefusal(taxiRequest) is { } taxiOpen)
+                    return TripHandlers.LockRefusal(taxiOpen);
+                return TripCompleteRules.Check(
+                    trip, TripEasyRows.Build(trip, TripHandlers.ReadPlan(trip), list, linked, null, taxiRequest), TripExecutionRules.TodayIst(now)) switch
+                {
+                    TripCompleteVerdict.NotPlanned => ConflictResponse("Only a planned trip can be completed.", TripErrorTypes.TripNotPlanned),
+                    TripCompleteVerdict.NotEnded => ConflictResponse("The trip has not ended and some steps are still open.", TripEnquiryErrorTypes.TripNotEnded),
+                    TripCompleteVerdict.DatesRequired => ErrorResponse(422, "Add your trip dates or settle every step first.", TripEnquiryErrorTypes.TripDatesRequired),
+                    _ => null,
+                };
+            }
+            if (Verdict(enquiries, await TripTaxiRequestReads.ReadAsync(db, trip)) is { } early) return early;
 
             var posts = new List<TripChatPost>();
             var pushes = new List<TripPendingPush>();
@@ -214,10 +221,11 @@ public static class TripLifecycleHandlers
                 if (trip.Status == TripStatuses.Completed)
                 {
                     await unitOfWork.RollbackTransactionAsync();
-                    return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, journeys, trip, userId, DateTime.UtcNow));
+                    return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, journeys, db, trip, userId, DateTime.UtcNow));
                 }
+                // A taxi request create holds the same trip row lock, so the request read here is current.
                 var fresh = await db.TripEnquiries.AsNoTracking().Where(x => x.TripId == trip.Id).ToListAsync();
-                if (Verdict(fresh) is { } late)
+                if (Verdict(fresh, await TripTaxiRequestReads.ReadAsync(db, trip)) is { } late)
                 {
                     await unitOfWork.RollbackTransactionAsync();
                     return late;
@@ -260,7 +268,7 @@ public static class TripLifecycleHandlers
             await PostCompletedLinesAsync(unitOfWork, db, chat, loggers, trip, userId);
         }
 
-        return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, journeys, trip, userId, DateTime.UtcNow));
+        return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, journeys, db, trip, userId, DateTime.UtcNow));
     }
 
     private static NotificationEvent EnquiryClosedByCompletion(TripEnquiry e, TripPushContext ctx)
@@ -310,7 +318,8 @@ public static class TripLifecycleHandlers
     // ---------- PUT /trips/{tripId}/mute ----------
 
     public static async Task<IResult> Mute(
-        Guid tripId, MuteTripRequest request, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys)
+        Guid tripId, MuteTripRequest request, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys,
+        ApplicationDbContext db)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -333,13 +342,13 @@ public static class TripLifecycleHandlers
             }
         }
 
-        return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, journeys, trip, userId, now));
+        return OkResponse(await TripHandlers.BuildDtoAsync(unitOfWork, journeys, db, trip, userId, now));
     }
 
     // ---------- GET /trips/{tripId}/summary ----------
 
     public static async Task<IResult> Summary(
-        Guid tripId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys)
+        Guid tripId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, ApplicationDbContext db)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -354,7 +363,9 @@ public static class TripLifecycleHandlers
         var local = raw.Where(e => e.Kind == TripEnquiryKinds.Taxi && !TripSegmentRows.IsSegment(e) && !taxis.ContainsKey(e.ListingId))
             .Select(e => e.ListingId).Distinct().ToList();
         foreach (var (id, info) in await journeys.LoadTaxisAsync(local)) taxis[id] = info;
-        return OkResponse(TripSummaryRecordBuilder.Build(trip, TripHandlers.ReadPlan(trip), dtos, raw, now, linked, taxis));
+        var taxiRequest = await TripTaxiRequestReads.ReadAsync(db, trip);
+        var bookings = await TripTaxiRequestReads.BookingsAsync(db, trip);
+        return OkResponse(TripSummaryRecordBuilder.Build(trip, TripHandlers.ReadPlan(trip), dtos, raw, now, linked, taxis, taxiRequest, bookings));
     }
 
     // ---------- POST /trips/enquiries/{id}/report-traveller ----------
@@ -436,9 +447,11 @@ public static class TripSummaryRecordBuilder
     private const string Both = "both";
     private const string You = "you";
 
+    // taxiRequest = the trip's taxi request summary; bookings = its booked, in progress and completed taxi bookings.
     public static TripSummaryRecordDto Build(
         Trip trip, TripPlan plan, IReadOnlyList<TripEnquiryDto> dtos, IReadOnlyList<TripEnquiry> raw, DateTime nowUtc,
-        IReadOnlyList<SavedJourney> journeys, Dictionary<Guid, JourneyTaxiInfo> taxis)
+        IReadOnlyList<SavedJourney> journeys, Dictionary<Guid, JourneyTaxiInfo> taxis,
+        TripTaxiRequestSummary? taxiRequest = null, IReadOnlyList<TripTaxiBookingSummary>? bookings = null)
     {
         var start = trip.StartDate ?? plan.Settings?.StartDate;
         var rawById = raw.GroupBy(e => e.Id).ToDictionary(g => g.Key, g => g.First());
@@ -452,7 +465,7 @@ public static class TripSummaryRecordBuilder
             EndDate = trip.EndDate ?? plan.EndDate,
             Adults = plan.Settings?.Adults,
             Kids = plan.Settings?.Kids,
-            BookingState = TripBookingStates.Compute(trip, plan, raw, journeys),
+            BookingState = TripBookingStates.Compute(trip, plan, raw, journeys, taxiRequest),
             AgreedTotal = TripEasyRows.AgreedTotal(raw),
             GeneratedAt = nowUtc,
         };
@@ -502,12 +515,14 @@ public static class TripSummaryRecordBuilder
             rawById.TryGetValue(d.Id, out var row);
             record.Taxis.Add(TaxiFrom(d, row, taxis));
         }
+        foreach (var b in bookings ?? Array.Empty<TripTaxiBookingSummary>())
+            record.Taxis.Add(TaxiFrom(b, start, plan.Days.Count));
 
         record.Steps = plan.Steps;
         record.GettingThere = StepJourney(plan, TripStepRoles.GettingThere, journeys, taxis);
         record.ComingBack = StepJourney(plan, TripStepRoles.ComingBack, journeys, taxis);
         record.Legs = BuildLegs(trip, plan, start, record, dtos, raw, rawById, journeys, taxis);
-        record.Arrangements = Arrangements(TripEasyRows.Build(trip, plan, raw, journeys), plan);
+        record.Arrangements = Arrangements(TripEasyRows.Build(trip, plan, raw, journeys, null, taxiRequest), plan);
         return record;
     }
 
@@ -533,7 +548,8 @@ public static class TripSummaryRecordBuilder
                 StartDate = start is { } s && startDay >= 1 ? TripExecutionRules.NightDate(s, startDay) : null,
                 EndDate = start is { } e && endDay >= 1 ? TripExecutionRules.NightDate(e, endDay) : null,
                 Nights = record.Nights.Where(n => TripSummaryLegs.LegOfNight(plan, n.Night) == k).ToList(),
-                Taxis = record.Taxis.Where(t => TripSummaryLegs.LegOfTaxi(plan, start, t.Days, t.CheckIn).Contains(k)).ToList(),
+                // A booking's Days are already plan days clipped to the trip; its CheckIn is the booking's own first date.
+                Taxis = record.Taxis.Where(t => TripSummaryLegs.LegOfTaxi(plan, start, t.Days, t.BookingId == null ? t.CheckIn : null).Contains(k)).ToList(),
                 Travel = k >= 2 ? Travel(plan, k, start, cityLegs, dtos, raw, rawById, journeys, taxis) : null,
             });
         }
@@ -741,6 +757,28 @@ public static class TripSummaryRecordBuilder
         };
     }
 
+    // A taxi request booking: the driver confirmed after the traveller chose him (BookingStatus tells booked, in progress
+    // or completed). Days are the plan days the booking covers; a booking outside the trip's current dates has none.
+    private static TripSummaryTaxiDto TaxiFrom(TripTaxiBookingSummary b, DateOnly? start, int dayCount)
+    {
+        var days = new List<int>();
+        if (start is { } s)
+            for (var d = b.DateFrom; d <= b.DateTo; d = d.AddDays(1))
+                if (d.DayNumber - s.DayNumber + 1 is var day and >= 1 && day <= dayCount) days.Add(day);
+        return new TripSummaryTaxiDto
+        {
+            BookingId = b.BookingId,
+            BookingStatus = b.Status,
+            ListingName = b.DriverName,
+            VehicleTypeName = string.IsNullOrWhiteSpace(b.VehicleName) ? null : b.VehicleName,
+            Days = days,
+            CheckIn = b.DateFrom,
+            CheckOut = b.DateTo.AddDays(1),
+            DisplayStatus = TripDisplayStatuses.ConfirmedByBoth,
+            ConfirmedBy = Both,
+        };
+    }
+
     // The Make it easy rows the traveller is working on; skipped rows are not on the record.
     private static List<TripSummaryArrangementDto> Arrangements(IReadOnlyList<TripEasyRow> rows, TripPlan plan)
         => rows
@@ -787,6 +825,8 @@ public static class TripSummaryRecordBuilder
             if (journey.Legs.Count > 1) parts.Add($"{journey.Legs.Count} cars");
         }
         else if (names.Count > 0) parts.Add(string.Join(", ", names));
+        else if (row.TaxiRequest?.Booking is { } booking && TripTextSafety.Clean(booking.DriverName, 120) is { Length: > 0 } driver)
+            parts.Add(driver);
 
         var status = row.State switch
         {

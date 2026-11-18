@@ -101,7 +101,8 @@ public class TaxiRequestReviewFixTests
         var ringLock = TaxiSource.At(select, "MatcherSql.LockDriverRing");
         var move = TaxiSource.At(select, "OfferStates.Selected, null, null, c)");
         Assert.True(bookable < move && ringLock < move, "Both checks run before the offer becomes Selected");
-        Assert.Contains("OfferStates.Closed, OfferEndReasons.ListingRemoved", select);
+        Assert.Contains("? OfferEndReasons.ListingRemoved", select);
+        Assert.Contains("[OfferStates.Accepted], OfferStates.Closed, closeReason", select);
         Assert.Contains("Step.OfferClosed(", select);
         Assert.True(TaxiRequestTransitions.CanMove(TransitionKinds.Offer, OfferStates.Accepted, OfferStates.Closed));
 

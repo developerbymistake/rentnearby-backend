@@ -1,7 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using NpgsqlTypes;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
@@ -125,33 +129,60 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
         return (trips.OrderBy(t => order[t.Id]).ToList(), ids.Count == size ? ids[^1] : (Guid?)null);
     }
 
-    // Trips with an open row (TripBookingStates.IsOpenForCompletion) never reach the page, so they cannot pin it.
+    // Trips with an open row (TripBookingStates.IsOpenForCompletion), an active taxi request (partial index
+    // ux_taxirequests_active_trip, same IN list) or an active taxi booking never reach the page, so they cannot pin it.
+    public static readonly string AutoCompleteCandidatesSql = $"""
+        SELECT t."Id" AS "Value" FROM "Trips" t
+        WHERE t."Status" = @planned AND t."EndDate" IS NOT NULL AND t."EndDate" <= @endBefore
+          AND (@after::uuid IS NULL OR t."Id" > @after::uuid)
+          AND NOT EXISTS (SELECT 1 FROM "TripEnquiries" e
+                          WHERE e."TripId" = t."Id"
+                            AND (e."Status" IN ('Asked', 'Offered', 'Countered', 'FareSent')
+                                 OR (e."Status" = @both AND e."AdvanceStatus" IN (@pending, @proofSent))))
+          AND NOT EXISTS (SELECT 1 FROM "TaxiRequests" r
+                          WHERE r."TripId" = t."Id" AND r."Status" IN ({RequestStates.ActiveSqlList}))
+          AND NOT EXISTS (SELECT 1 FROM "TaxiBookings" b
+                          WHERE b."TravellerUserId" = t."OwnerUserId" AND b."TripId" = t."Id"
+                            AND b."Status" IN ({BookingStates.ActiveSqlList}))
+        ORDER BY t."Id"
+        LIMIT @size
+        """;
+
     public async Task<(IReadOnlyList<Trip> Items, Guid? Next)> GetAutoCompleteCandidatesAsync(DateOnly endBefore, Guid? after, int take)
     {
         var size = Math.Max(1, take);
-        var planned = TripStatuses.Planned;
-        var both = TripEnquiryStatuses.ConfirmedByBoth;
-        var pending = TripAdvanceStatuses.Pending;
-        var proofSent = TripAdvanceStatuses.ProofSent;
         var ids = await _context.Database
-            .SqlQuery<Guid>($"""
-                SELECT t."Id" AS "Value" FROM "Trips" t
-                WHERE t."Status" = {planned} AND t."EndDate" IS NOT NULL AND t."EndDate" <= {endBefore}
-                  AND ({after}::uuid IS NULL OR t."Id" > {after}::uuid)
-                  AND NOT EXISTS (SELECT 1 FROM "TripEnquiries" e
-                                  WHERE e."TripId" = t."Id"
-                                    AND (e."Status" IN ('Asked', 'Offered', 'Countered', 'FareSent')
-                                         OR (e."Status" = {both} AND e."AdvanceStatus" IN ({pending}, {proofSent}))))
-                ORDER BY t."Id"
-                LIMIT {size}
-                """)
+            .SqlQueryRaw<Guid>(AutoCompleteCandidatesSql,
+                new NpgsqlParameter("planned", TripStatuses.Planned),
+                new NpgsqlParameter("endBefore", NpgsqlDbType.Date) { Value = endBefore },
+                new NpgsqlParameter("after", NpgsqlDbType.Uuid) { Value = after.HasValue ? after.Value : DBNull.Value },
+                new NpgsqlParameter("both", TripEnquiryStatuses.ConfirmedByBoth),
+                new NpgsqlParameter("pending", TripAdvanceStatuses.Pending),
+                new NpgsqlParameter("proofSent", TripAdvanceStatuses.ProofSent),
+                new NpgsqlParameter("size", size))
             .ToListAsync();
         return await LoadPageAsync(ids, size);
     }
 
+    // The trip row lock orders this against a taxi request create (it locks the same row and refuses a Completed trip):
+    // a request committed first is seen by the update's fresh snapshot, a later one finds the trip Completed.
     public async Task<int> TryCompleteAsync(Guid id, DateTime nowUtc)
+    {
+        await using var tx = _context.Database.CurrentTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
+        await _context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Trips\" WHERE \"Id\" = {id} FOR UPDATE");
+        var updated = await CompleteIfNothingOpenAsync(id, nowUtc);
+        if (tx != null) await tx.CommitAsync();
+        return updated;
+    }
+
+    private async Task<int> CompleteIfNothingOpenAsync(Guid id, DateTime nowUtc)
         => await _dbSet
             .Where(t => t.Id == id && t.Status == TripStatuses.Planned)
+            .Where(t => !_context.Set<TaxiRequest>().Any(r => r.TripId == t.Id
+                && (r.Status == RequestStates.Open || r.Status == RequestStates.Collecting || r.Status == RequestStates.Selected
+                    || r.Status == RequestStates.Booked || r.Status == RequestStates.InProgress)))
+            .Where(t => !_context.Set<TaxiBooking>().Any(b => b.TravellerUserId == t.OwnerUserId && b.TripId == t.Id
+                && (b.Status == BookingStates.Booked || b.Status == BookingStates.InProgress)))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(t => t.Status, TripStatuses.Completed)
                 .SetProperty(t => t.CompletedAt, nowUtc)
@@ -224,5 +255,99 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
         return await _dbSet.AsNoTracking()
             .Where(t => list.Contains(t.Id) && t.OwnerUserId == ownerUserId)
             .ToListAsync();
+    }
+}
+
+// The trip's taxi request and bookings of the new tables (contract section 4). The traveller of a request is the trip
+// owner, so every read goes through the traveller indexes (ix_taxirequests_traveller, ix_taxibookings_traveller).
+public static class TripTaxiRequestReads
+{
+    // Per trip: the active request, else the latest one; with its offer facts, its newest booking and whether it was rated.
+    public static readonly string SummarySql = $"""
+        SELECT r."Id" AS "RequestId", r."TripId", r."TravellerUserId", r."Status", r."EndReason", r."Version", r."QueueWaitStartedAt",
+               EXISTS (SELECT 1 FROM "TaxiRequestOffers" o
+                       WHERE o."RequestId" = r."Id" AND o."Status" = '{OfferStates.Ringing}') AS "HasRingingOffer",
+               EXISTS (SELECT 1 FROM "TaxiRequestOffers" o
+                       WHERE o."RequestId" = r."Id" AND o."Status" IN ('{OfferStates.Missed}', '{OfferStates.Declined}')) AS "AnyOfferMissedOrDeclined",
+               b."Id" AS "BookingId", b."Status" AS "BookingStatus", b."DateFrom" AS "BookingDateFrom", b."DateTo" AS "BookingDateTo",
+               b."DriverName", b."VehicleName", b."Seats", b."PickupCityName",
+               (b."Id" IS NOT NULL AND EXISTS (SELECT 1 FROM "TaxiRatings" x WHERE x."BookingId" = b."Id")) AS "Rated"
+        FROM (
+            SELECT DISTINCT ON (q."TripId") q."Id", q."TripId", q."TravellerUserId", q."Status", q."EndReason", q."Version", q."QueueWaitStartedAt"
+            FROM "TaxiRequests" q
+            WHERE q."TravellerUserId" = ANY(@owners) AND q."TripId" = ANY(@trips)
+            ORDER BY q."TripId", (q."Status" IN ({RequestStates.ActiveSqlList})) DESC, q."CreatedAt" DESC, q."Id" DESC
+        ) r
+        LEFT JOIN LATERAL (
+            SELECT k."Id", k."Status", k."DateFrom", k."DateTo", k."DriverName", k."VehicleName", k."Seats", k."PickupCityName"
+            FROM "TaxiBookings" k
+            WHERE k."TravellerUserId" = r."TravellerUserId" AND k."RequestId" = r."Id"
+            ORDER BY k."BookedAt" DESC, k."Id" DESC
+            LIMIT 1
+        ) b ON true
+        """;
+
+    public static async Task<TripTaxiRequestSummary?> ReadAsync(ApplicationDbContext db, Trip trip, CancellationToken ct = default)
+        => (await ReadManyAsync(db, [trip], ct)).GetValueOrDefault(trip.Id);
+
+    public static async Task<Dictionary<Guid, TripTaxiRequestSummary>> ReadManyAsync(
+        ApplicationDbContext db, IReadOnlyCollection<Trip> trips, CancellationToken ct = default)
+    {
+        if (trips.Count == 0) return new Dictionary<Guid, TripTaxiRequestSummary>();
+        var owners = trips.GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First().OwnerUserId);
+        var rows = await db.Database
+            .SqlQueryRaw<SummaryRow>(SummarySql,
+                new NpgsqlParameter("owners", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = owners.Values.Distinct().ToArray() },
+                new NpgsqlParameter("trips", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = owners.Keys.ToArray() })
+            .ToListAsync(ct);
+        return Pick(rows, owners);
+    }
+
+    // A row counts only for the trip's own owner (one query serves trips of several owners).
+    public static Dictionary<Guid, TripTaxiRequestSummary> Pick(IEnumerable<SummaryRow> rows, IReadOnlyDictionary<Guid, Guid> ownerByTrip)
+        => rows
+            .Where(r => ownerByTrip.TryGetValue(r.TripId, out var owner) && owner == r.TravellerUserId)
+            .ToDictionary(r => r.TripId, ToSummary);
+
+    // Booked, in progress and completed taxis of the trip, oldest first (the summary lists them).
+    public static async Task<List<TripTaxiBookingSummary>> BookingsAsync(ApplicationDbContext db, Trip trip, CancellationToken ct = default)
+        => await db.Set<TaxiBooking>().AsNoTracking()
+            .Where(b => b.TravellerUserId == trip.OwnerUserId && b.TripId == trip.Id
+                && (b.Status == BookingStates.Booked || b.Status == BookingStates.InProgress || b.Status == BookingStates.Completed))
+            .OrderBy(b => b.DateFrom).ThenBy(b => b.BookedAt)
+            .Select(b => new TripTaxiBookingSummary(b.Id, b.Status, b.DateFrom, b.DateTo, b.DriverName, b.VehicleName, b.Seats, b.PickupCityName))
+            .ToListAsync(ct);
+
+    public static TripTaxiRequestSummary ToSummary(SummaryRow row)
+    {
+        var waitUntil = row.QueueWaitStartedAt?.AddSeconds(TaxiDispatchRules.QueueWaitSeconds);
+        var view = TaxiRequestViewRules.Derive(row.Status, row.EndReason, row.AnyOfferMissedOrDeclined, row.HasRingingOffer, waitUntil, row.Rated);
+        var booking = row.BookingId is { } id
+            ? new TripTaxiBookingSummary(id, row.BookingStatus ?? string.Empty, row.BookingDateFrom ?? default, row.BookingDateTo ?? default,
+                row.DriverName ?? string.Empty, row.VehicleName ?? string.Empty, row.Seats ?? 0, row.PickupCityName ?? string.Empty)
+            : null;
+        return new TripTaxiRequestSummary(row.RequestId, row.Status, view, row.Version, booking);
+    }
+
+    public sealed class SummaryRow
+    {
+        public Guid RequestId { get; set; }
+        public Guid TripId { get; set; }
+        public Guid TravellerUserId { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string? EndReason { get; set; }
+        public long Version { get; set; }
+        public DateTime? QueueWaitStartedAt { get; set; }
+        public bool HasRingingOffer { get; set; }
+        public bool AnyOfferMissedOrDeclined { get; set; }
+        public Guid? BookingId { get; set; }
+        public string? BookingStatus { get; set; }
+        public DateOnly? BookingDateFrom { get; set; }
+        public DateOnly? BookingDateTo { get; set; }
+        public string? DriverName { get; set; }
+        public string? VehicleName { get; set; }
+        public short? Seats { get; set; }
+        public string? PickupCityName { get; set; }
+        public bool Rated { get; set; }
     }
 }

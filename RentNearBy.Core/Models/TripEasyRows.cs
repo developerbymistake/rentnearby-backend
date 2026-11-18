@@ -1,4 +1,6 @@
+using RentNearBy.Core.DTOs.TaxiRequests;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Models.TaxiRequests;
 
 namespace RentNearBy.Core.Models;
 
@@ -64,6 +66,35 @@ public sealed class TripEasyRow
     // The rows and journey behind the state (summary detail); empty for a mark or a todo row.
     public IReadOnlyList<TripEnquiry> Enquiries { get; init; } = Array.Empty<TripEnquiry>();
     public SavedJourney? Journey { get; init; }
+    // Taxi row only: the request that drives the row (null = legacy rows or a mark).
+    public TripTaxiRequestSummary? TaxiRequest { get; init; }
+}
+
+// A booking of the new taxi request tables as the trip reads it (names are the booking's snapshots).
+public sealed record TripTaxiBookingSummary(
+    Guid BookingId, string Status, DateOnly DateFrom, DateOnly DateTo, string DriverName, string VehicleName, short Seats, string PickupCityName)
+{
+    public bool IsActive => BookingStates.Active.Contains(Status);
+}
+
+// The trip's taxi request (contract section 4): the active one, else the latest; null only when the trip never had one.
+public sealed record TripTaxiRequestSummary(Guid RequestId, string State, string View, long Version, TripTaxiBookingSummary? Booking = null)
+{
+    public bool IsActive => RequestStates.IsActive(State);
+    // An active request or booking keeps the trip open (plan lock, completion).
+    public bool KeepsTripOpen => IsActive || Booking?.IsActive == true;
+}
+
+// Trip detail planLock and taxiRequest (contract section 4), both from the same summary.
+public static class TripTaxiRequestFields
+{
+    public static TripPlanLockDto PlanLock(TripTaxiRequestSummary? request)
+        => request is { IsActive: true } r && PlanLockReasons.For(r.State) is { } reason
+            ? new TripPlanLockDto { Locked = true, Reason = reason, RequestId = r.RequestId }
+            : new TripPlanLockDto();
+
+    public static TripTaxiRequestRefDto? Ref(TripTaxiRequestSummary? request)
+        => request is { } r ? new TripTaxiRequestRefDto { RequestId = r.RequestId, State = r.State, View = r.View, Version = r.Version } : null;
 }
 
 public sealed class TripEasyRowDto
@@ -115,10 +146,11 @@ public static class TripEasyRows
     ];
 
     // revisedPending = ids of stay rows with a pending revised price (it needs the traveller).
+    // taxiRequest = the trip's taxi request summary; null keeps the legacy taxi row.
     public static List<TripEasyRow> Build(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys,
-        IReadOnlySet<Guid>? revisedPending = null)
+        IReadOnlySet<Guid>? revisedPending = null, TripTaxiRequestSummary? taxiRequest = null)
     {
-        var ctx = new Context(plan, trip.StartDate ?? plan.Settings?.StartDate, enquiries, journeys ?? Array.Empty<SavedJourney>(), revisedPending);
+        var ctx = new Context(plan, trip.StartDate ?? plan.Settings?.StartDate, enquiries, journeys ?? Array.Empty<SavedJourney>(), revisedPending, taxiRequest);
         var rows = new List<TripEasyRow> { JourneyRow(ctx, TripStepRoles.GettingThere) };
 
         var legCount = Math.Max(1, plan.Legs?.Count ?? 1);
@@ -175,8 +207,8 @@ public static class TripEasyRows
     }
 
     public static TripProgress Compute(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys,
-        IReadOnlySet<Guid>? revisedPending = null)
-        => Progress(Build(trip, plan, enquiries, journeys, revisedPending), enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt), GuideStepOf(plan));
+        IReadOnlySet<Guid>? revisedPending = null, TripTaxiRequestSummary? taxiRequest = null)
+        => Progress(Build(trip, plan, enquiries, journeys, revisedPending, taxiRequest), enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt), GuideStepOf(plan));
 
     public static TripEasyRowDto ToDto(TripEasyRow row) => new()
     {
@@ -220,8 +252,10 @@ public static class TripEasyRows
     }
 
     private sealed class Context(
-        TripPlan plan, DateOnly? start, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney> journeys, IReadOnlySet<Guid>? revisedPending)
+        TripPlan plan, DateOnly? start, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney> journeys, IReadOnlySet<Guid>? revisedPending,
+        TripTaxiRequestSummary? taxiRequest)
     {
+        public TripTaxiRequestSummary? TaxiRequest { get; } = taxiRequest;
         public IReadOnlySet<Guid> RevisedPending { get; } = revisedPending ?? new HashSet<Guid>();
         public TripPlan Plan { get; } = plan;
         public DateOnly? Start { get; } = start;
@@ -236,7 +270,7 @@ public static class TripEasyRows
 
     private static TripEasyRow Row(string kind, int? leg, string state, bool needsYou = false, int asked = 0,
         IEnumerable<TripEnquiry>? rows = null, SavedJourney? journey = null, int nightsTotal = 0, int nightsCovered = 0,
-        int daysTotal = 0, int daysCovered = 0, bool advanceOpen = false, int nightsBooked = 0)
+        int daysTotal = 0, int daysCovered = 0, bool advanceOpen = false, int nightsBooked = 0, TripTaxiRequestSummary? taxiRequest = null)
         => new()
         {
             Key = new TripRowKey(kind, leg),
@@ -251,6 +285,7 @@ public static class TripEasyRows
             DaysTotal = daysTotal,
             DaysCovered = daysCovered,
             AdvanceOpen = advanceOpen,
+            TaxiRequest = taxiRequest,
         };
 
     private static List<TripEnquiry> Newest(IEnumerable<TripEnquiry> rows) => rows.OrderByDescending(e => e.UpdatedAt).ToList();
@@ -325,8 +360,13 @@ public static class TripEasyRows
 
     private static int OrphanLeg(TripEnquiry e, TripPlan plan) => TripLegRules.HomeLegIndex(e, plan) is { } home && home >= 1 ? home : 1;
 
+    // Any request drives the row (contract section 4, Cancelled or Expired = todo); legacy local taxi rows only without one.
     private static TripEasyRow TaxiRow(Context ctx)
     {
+        if (ctx.TaxiRequest is { } request)
+            return Row(TripRowKinds.Taxi, null, TaxiRequestViewRules.EasyRowState(request.State),
+                needsYou: request.State == RequestStates.Collecting, taxiRequest: request);
+
         var mark = ctx.Plan.TaxiMark;
         if (Marked(mark, TripRowMarkStatuses.Own)) return Row(TripRowKinds.Taxi, null, TripRowStates.Own);
         if (Marked(mark, TripRowMarkStatuses.Skipped)) return Row(TripRowKinds.Taxi, null, TripRowStates.Skipped);

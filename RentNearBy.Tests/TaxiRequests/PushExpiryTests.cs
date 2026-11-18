@@ -10,9 +10,16 @@ public class PushExpiryTests
     private static readonly Guid U1 = Guid.Parse("00000000-0000-0000-0000-000000000001");
     private static readonly DateTime Now = new(2026, 11, 18, 10, 0, 0, DateTimeKind.Utc);
 
-    private sealed class FakeStore(Dictionary<Guid, string[]> tokens) : IPushDeliveryStore
+    private sealed class FakeStore(Dictionary<Guid, string[]> tokens, HashSet<Guid>? ended = null) : IPushDeliveryStore
     {
         public int TokenQueries { get; private set; }
+        public readonly List<Guid[]> EndedQueries = [];
+
+        public Task<IReadOnlySet<Guid>> GetEndedRingOffersAsync(IReadOnlyCollection<Guid> offerIds, CancellationToken ct)
+        {
+            EndedQueries.Add(offerIds.ToArray());
+            return Task.FromResult<IReadOnlySet<Guid>>(offerIds.Where(id => ended?.Contains(id) == true).ToHashSet());
+        }
 
         public Task<IReadOnlyList<(Guid UserId, string Token)>> GetTokensAsync(IReadOnlyCollection<Guid> userIds, CancellationToken ct)
         {
@@ -86,6 +93,36 @@ public class PushExpiryTests
     }
 
     [Fact]
+    public async Task Ring_of_an_offer_no_longer_ringing_is_acked_not_sent()
+    {
+        var answered = Guid.NewGuid();
+        var ringing = Guid.NewGuid();
+        var store = new FakeStore(new() { [U1] = ["a"] }, [answered]);
+        var fcm = new FakeFcm();
+        PushDelivery RingOf(Guid offer) => Ring(Now.AddSeconds(200), attempt: 1, data: new Dictionary<string, string> { ["offerId"] = offer.ToString() });
+
+        var verdicts = await PushBatchProcessor.ProcessAsync([RingOf(answered), RingOf(ringing)], store, fcm, NullLogger.Instance, Now, CancellationToken.None);
+
+        Assert.Equal([PushVerdict.Ack, PushVerdict.Ack], verdicts);
+        Assert.Equal(ringing.ToString(), Assert.Single(fcm.Sent).Data["offerId"]);
+        Assert.Single(store.EndedQueries);
+        Assert.Equal(2, store.EndedQueries[0].Length);
+    }
+
+    [Fact]
+    public async Task Test_ring_and_other_pushes_never_query_offer_state()
+    {
+        var store = new FakeStore(new() { [U1] = ["a"] });
+        var fcm = new FakeFcm();
+
+        await Run(Ring(Now.AddSeconds(30), data: new Dictionary<string, string> { ["offerId"] = "" }), store, fcm);
+        await Run(Ring(null, kind: null, data: new Dictionary<string, string> { ["offerId"] = Guid.NewGuid().ToString() }), store, fcm);
+
+        Assert.Empty(store.EndedQueries);
+        Assert.Equal(2, fcm.Sent.Count);
+    }
+
+    [Fact]
     public void Ring_retry_past_expiry_is_dropped()
     {
         Assert.Null(PushBatchProcessor.HopRoute(Ring(Now.AddSeconds(30)), PushVerdict.Retry, Now));
@@ -120,12 +157,19 @@ public class PushExpiryTests
     {
         var fcm = new FakeFcm();
         var data = new Dictionary<string, string> { ["offer_id"] = "o1", ["key"] = "spoof", ["notification_type"] = "spoof" };
-        await Run(Ring(Now.AddSeconds(60), data: data), new FakeStore(new() { [U1] = ["a"] }), fcm);
+        await Run(Ring(Now.AddSeconds(60), kind: null, data: data), new FakeStore(new() { [U1] = ["a"] }), fcm);
 
         var sent = Assert.Single(fcm.Sent).Data;
         Assert.Equal("o1", sent["offer_id"]);
         Assert.Equal("ring:1", sent["key"]);
         Assert.NotEqual("spoof", sent["notification_type"]);
+
+        var ring = new FakeFcm();
+        await Run(Ring(Now.AddSeconds(60), data: data), new FakeStore(new() { [U1] = ["a"] }), ring);
+        var ringData = Assert.Single(ring.Sent).Data;
+        Assert.Equal("o1", ringData["offer_id"]);
+        Assert.False(ringData.ContainsKey("key"));
+        Assert.Equal(NotificationTypes.ToWireValue(NotificationTypes.TaxiRequestRing), ringData["notification_type"]);
     }
 
     [Fact]
