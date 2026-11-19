@@ -251,6 +251,41 @@ public class TaxiOfferServiceIntegrationTests(TestDatabase db) : IntegrationTest
     }
 
     [IntegrationFact]
+    public async Task Confirm_closes_the_driver_offers_on_other_overlapping_requests()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seed = await TaxiOfferKit.SeedAsync(h, RequestStates.Selected, 2, accepted: 1);
+        var driver = seed.Drivers[0];
+        var chosen = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, driver, OfferStates.Selected, 1, confirmBy: DateTime.UtcNow.AddMinutes(10), select: true);
+
+        var selectedElsewhere = await TaxiOfferKit.SeedAsync(h, RequestStates.Selected, 1, accepted: 1);
+        var lapsing = await TaxiOfferKit.AddOfferAsync(h, selectedElsewhere.RequestId, driver, OfferStates.Selected, 1, confirmBy: DateTime.UtcNow.AddMinutes(10), select: true);
+        var acceptedElsewhere = await TaxiOfferKit.SeedAsync(h, RequestStates.Collecting, 1, accepted: 1);
+        var closing = await TaxiOfferKit.AddOfferAsync(h, acceptedElsewhere.RequestId, driver, OfferStates.Accepted, 1);
+        var later = await TaxiOfferKit.SeedAsync(h, RequestStates.Collecting, 1, accepted: 1, startOffsetDays: 30);
+        var untouched = await TaxiOfferKit.AddOfferAsync(h, later.RequestId, driver, OfferStates.Accepted, 1);
+
+        await using (var s = h.NewScope())
+            Assert.True((await TaxiOfferKit.For(s.Db).Bookings.ConfirmAsync(chosen, driver.User)).Ok);
+
+        await using var read = CreateContext();
+        var offers = await read.Set<TaxiRequestOffer>().AsNoTracking().Where(o => o.DriverListingId == driver.Listing).ToDictionaryAsync(o => o.Id);
+        Assert.Equal(OfferStates.Confirmed, offers[chosen].Status);
+        Assert.Equal((OfferStates.Closed, OfferEndReasons.Booked), (offers[lapsing].Status, offers[lapsing].EndReason));
+        Assert.Equal((OfferStates.Closed, OfferEndReasons.Booked), (offers[closing].Status, offers[closing].EndReason));
+        Assert.Equal(OfferStates.Accepted, offers[untouched].Status);
+        var states = await read.Set<TaxiRequest>().AsNoTracking()
+            .Where(r => r.Id == selectedElsewhere.RequestId || r.Id == acceptedElsewhere.RequestId || r.Id == later.RequestId)
+            .ToDictionaryAsync(r => r.Id, r => r.Status);
+        Assert.Equal(RequestStates.Open, states[selectedElsewhere.RequestId]);
+        Assert.Equal(RequestStates.Open, states[acceptedElsewhere.RequestId]);
+        Assert.Equal(RequestStates.Collecting, states[later.RequestId]);
+        var confirmTimers = await read.Set<DueAction>().AsNoTracking()
+            .CountAsync(d => d.SubjectId == lapsing && d.Kind == DueActionKinds.ConfirmExpire && d.State == DueActionStates.Pending);
+        Assert.Equal(0, confirmTimers);
+    }
+
+    [IntegrationFact]
     public async Task Legacy_confirm_respects_a_new_booking()
     {
         await using var h = new JourneyHarness(Db);

@@ -44,6 +44,16 @@ public class TaxiOfferRulesTests
     }
 
     [Fact]
+    public void Overlapping_live_offers_sql_finds_only_other_requests_on_overlapping_dates_in_lock_order()
+    {
+        var sql = TaxiBookingService.OverlappingLiveOffersSql;
+        Assert.Contains("o.\"DriverListingId\" = @driver AND o.\"RequestId\" <> @request", sql);
+        Assert.Contains("o.\"Status\" IN ('Accepted', 'Selected')", sql);
+        Assert.Contains("r.\"DateFrom\" <= @to AND r.\"DateTo\" >= @from", sql);
+        Assert.EndsWith("ORDER BY o.\"RequestId\", o.\"Id\"", sql.Trim());
+    }
+
+    [Fact]
     public void Legacy_local_row_covers_check_in_to_the_day_before_check_out()
     {
         Assert.Equal(R(18, 21), DriverCalendar.LegacyRange(new DateOnly(2026, 12, 18), new DateOnly(2026, 12, 22)));

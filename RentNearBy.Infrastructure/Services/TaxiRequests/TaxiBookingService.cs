@@ -42,8 +42,82 @@ public sealed class TaxiBookingService(
         => ConfirmAsync(offerId, driverUserId, new EfDriverCalendarSql(db), ct);
 
     // Test seam: the calendar must run on this service's context (same connection and transaction).
-    internal Task<TaxiActionResult> ConfirmAsync(Guid offerId, Guid driverUserId, IDriverCalendarSql calendar, CancellationToken ct)
-        => PgRetry.OnceAsync(db, c => ConfirmUnitAsync(offerId, driverUserId, calendar, c), ct, logger);
+    internal async Task<TaxiActionResult> ConfirmAsync(Guid offerId, Guid driverUserId, IDriverCalendarSql calendar, CancellationToken ct)
+    {
+        var result = await PgRetry.OnceAsync(db, c => ConfirmUnitAsync(offerId, driverUserId, calendar, c), ct, logger);
+        if (result is { Ok: true, BookingId: { } bookingId }) await CloseOverlappingOffersAsync(bookingId, ct);
+        return result;
+    }
+
+    // Live offers of the booked driver on other requests whose dates overlap the booking. Ordered by request id so the
+    // follow-up units below take request locks in one order (2.4).
+    public static readonly string OverlappingLiveOffersSql = $"""
+        SELECT o."Id" AS "OfferId", o."RequestId"
+        FROM "TaxiRequestOffers" o JOIN "TaxiRequests" r ON r."Id" = o."RequestId"
+        WHERE o."DriverListingId" = @driver AND o."RequestId" <> @request
+          AND o."Status" IN ('{OfferStates.Accepted}', '{OfferStates.Selected}')
+          AND r."DateFrom" <= @to AND r."DateTo" >= @from
+        ORDER BY o."RequestId", o."Id"
+        """;
+
+    // After the booking commit: other travellers stop seeing a driver who can no longer serve their dates. Each request is
+    // its own unit (request row lock only, never held together with the booking's locks). A failure leaves the offer to
+    // the checks at select and confirm, so it is logged, not raised.
+    private async Task CloseOverlappingOffersAsync(Guid bookingId, CancellationToken ct)
+    {
+        var booking = await db.Set<TaxiBooking>().AsNoTracking().Where(b => b.Id == bookingId)
+            .Select(b => new { b.DriverListingId, b.RequestId, b.DateFrom, b.DateTo, b.Status }).FirstOrDefaultAsync(ct);
+        if (booking is null || !BookingStates.Active.Contains(booking.Status)) return;
+        var rows = await db.Database.SqlQueryRaw<OverlapOfferRow>(OverlappingLiveOffersSql,
+            new NpgsqlParameter("driver", NpgsqlDbType.Uuid) { Value = booking.DriverListingId },
+            new NpgsqlParameter("request", NpgsqlDbType.Uuid) { Value = booking.RequestId },
+            new NpgsqlParameter("from", NpgsqlDbType.Date) { Value = booking.DateFrom },
+            new NpgsqlParameter("to", NpgsqlDbType.Date) { Value = booking.DateTo }).ToListAsync(ct);
+        foreach (var row in rows)
+        {
+            try
+            {
+                await PgRetry.OnceAsync(db, c => CloseOverlapUnitAsync(row.RequestId, row.OfferId, c), ct, logger);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "taxi.booking.close_overlap failed: {RequestId} {OfferId}", row.RequestId, row.OfferId);
+            }
+        }
+    }
+
+    private async Task CloseOverlapUnitAsync(Guid requestId, Guid offerId, CancellationToken ct)
+    {
+        TaxiClosureResult? signals = null;
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct))
+        {
+            var request = await store.LockRequestAsync(db, requestId, ct);
+            var offer = await TaxiOfferRows.FindAsync(db, offerId, ct);
+            if (request is null || offer is null) return;
+            if (offer.Status == OfferStates.Selected)
+            {
+                signals = await offers.LapseSelectionInTxAsync(db, requestId, offer, OfferStates.Closed, OfferEndReasons.Booked, null, ct);
+            }
+            else if (offer.Status == OfferStates.Accepted
+                     && await store.TryMoveOfferAsync(db, offerId, [OfferStates.Accepted], OfferStates.Closed, OfferEndReasons.Booked, null, ct) is { } closed)
+            {
+                var change = new TaxiRequestChange(request.Id, request.TripId, request.TravellerUserId, closed.Version, request.Status);
+                if (await store.ReopenRequestAsync(db, requestId, 0, ct) is { } reopened) change = reopened.Change;
+                signals = new TaxiClosureResult([request.DispatchCityKey], [], [change]);
+            }
+            if (signals is null) return;
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
+        metrics?.OfferEnded(OfferStates.Closed);
+        await store.AfterCommitAsync(signals);
+    }
+
+    private sealed class OverlapOfferRow
+    {
+        public Guid OfferId { get; set; }
+        public Guid RequestId { get; set; }
+    }
 
     public Task<TaxiActionResult> EndByTravellerAsync(Guid requestId, Guid travellerUserId, CancellationToken ct = default)
         => PgRetry.OnceAsync(db, c => EndByTravellerUnitAsync(requestId, travellerUserId, c), ct, logger);
