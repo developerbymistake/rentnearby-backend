@@ -23,7 +23,7 @@ public sealed class TaxiPushWriter(TaxiAckTokens ackTokens, TimeProvider? clock 
             ?? throw new InvalidOperationException($"taxi ring: request {ring.RequestId} not found");
         var now = _clock.GetUtcNow().UtcDateTime;
         var data = TaxiRingPayload.Build(
-            ring.OfferId, ring.RequestId, ring.ExpiresAtUtc, now, 0, ackTokens.Create(ring.OfferId), SnapshotOf(request));
+            ring.OfferId, ring.RequestId, ring.ExpiresAtUtc, now, 0, ackTokens.Create(ring.OfferId), SnapshotOf(request), ring.DriverUserId);
 
         AddOutbox(db, new OutboxPushPayload(
             TaxiPushKinds.RingKey(ring.OfferId), ring.DriverUserId, null,

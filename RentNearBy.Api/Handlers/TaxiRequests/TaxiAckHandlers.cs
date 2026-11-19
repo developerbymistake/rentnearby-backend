@@ -11,7 +11,7 @@ using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers.TaxiRequests;
 
-public sealed record TaxiAckOffer(Guid DriverListingId, DateTime OfferedAt);
+public sealed record TaxiAckOffer(Guid DriverListingId, DateTime OfferedAt, DateTime? ExpiresAt = null);
 
 public enum TaxiAckOutcome
 {
@@ -27,7 +27,7 @@ public interface ITaxiAckSteps
 {
     Task<TaxiAckOffer?> FindOfferAsync(Guid offerId, CancellationToken ct);
 
-    // First write wins: false when the offer already holds an ack.
+    // First write wins, except that a good ack replaces a stored late one: false when nothing was written.
     Task<bool> TryRecordFirstAsync(Guid offerId, DateTime receivedAtUtc, bool late, CancellationToken ct);
 
     Task ResetRingMissAsync(Guid driverListingId, CancellationToken ct);
@@ -37,7 +37,9 @@ public interface ITaxiAckSteps
 // with PushLate = late or not shown; only that first ack, shown and in time, resets the driver's missed rings (section 6).
 public static class TaxiAckFlow
 {
-    public static bool IsLate(TaxiRingAckDto body) => body.Late || !body.Shown;
+    // An ack that reaches the server after the offer's own expiry is late too (it can no longer reset a counted miss).
+    public static bool IsLate(TaxiRingAckDto body, DateTime? nowUtc = null, DateTime? expiresAtUtc = null)
+        => body.Late || !body.Shown || (nowUtc is { } now && expiresAtUtc is { } exp && now >= DateTime.SpecifyKind(exp, DateTimeKind.Utc));
 
     // The device clock is not trusted beyond the ring's own life: the stored time stays between the ring and now.
     public static DateTime ReceivedAt(TaxiRingAckDto body, DateTime offeredAtUtc, DateTime nowUtc)
@@ -56,7 +58,7 @@ public static class TaxiAckFlow
 
         var offeredAt = DateTime.SpecifyKind(offer.OfferedAt, DateTimeKind.Utc);
         var receivedAt = ReceivedAt(body, offeredAt, nowUtc);
-        var late = IsLate(body);
+        var late = IsLate(body, nowUtc, offer.ExpiresAt);
         if (!await steps.TryRecordFirstAsync(offerId, receivedAt, late, ct)) return new TaxiAckResult(TaxiAckOutcome.Repeat);
 
         metrics?.RingAcked((receivedAt - offeredAt).TotalSeconds);
@@ -70,12 +72,12 @@ public sealed class EfTaxiAckSteps(ApplicationDbContext db, TaxiRequestStore sto
 {
     public const string RecordFirstSql = """
         UPDATE "TaxiRequestOffers" SET "PushReceivedAt" = @at, "PushLate" = @late
-        WHERE "Id" = @id AND "PushReceivedAt" IS NULL
+        WHERE "Id" = @id AND ("PushReceivedAt" IS NULL OR ("PushLate" AND NOT @late))
         """;
 
     public Task<TaxiAckOffer?> FindOfferAsync(Guid offerId, CancellationToken ct)
         => db.Set<TaxiRequestOffer>().AsNoTracking().Where(o => o.Id == offerId)
-            .Select(o => new TaxiAckOffer(o.DriverListingId, o.OfferedAt)).FirstOrDefaultAsync(ct);
+            .Select(o => new TaxiAckOffer(o.DriverListingId, o.OfferedAt, o.ExpiresAt)).FirstOrDefaultAsync(ct);
 
     public async Task<bool> TryRecordFirstAsync(Guid offerId, DateTime receivedAtUtc, bool late, CancellationToken ct)
         => await db.Database.ExecuteSqlRawAsync(RecordFirstSql,

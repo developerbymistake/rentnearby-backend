@@ -398,6 +398,7 @@ public static class TripReminderRules
     {
         if (trip.StartDate is not { } start || DaysLeft(start, todayIst) <= 0) return false;
         var rows = TripEasyRows.Build(trip, plan, enquiries, journeys, null, taxiRequest);
+        if (rows.All(r => r.State == TripRowStates.Skipped)) return false;
         return TripBookingStates.Compute(trip, plan, enquiries, journeys, taxiRequest) switch
         {
             TripBookingStates.PlanOnly => trip.DistrictId != null,
@@ -406,18 +407,13 @@ public static class TripReminderRules
         };
     }
 
-    // The 3-day push also goes out when Getting there is the only thing left to sort.
     public static bool ShouldSendStartsIn(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst,
         IReadOnlyList<SavedJourney>? journeys = null, TripTaxiRequestSummary? taxiRequest = null)
-        => trip.StartDate is { } start && DaysLeft(start, todayIst) > 0
-           && (ShouldRemindStartsIn(trip, plan, enquiries, todayIst, journeys, taxiRequest)
-               || NeedsGettingThereNudge(plan, TripEasyRows.Build(trip, plan, enquiries, journeys, null, taxiRequest)));
+        => ShouldRemindStartsIn(trip, plan, enquiries, todayIst, journeys, taxiRequest);
 
     public static string StartsInBody(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, DateOnly todayIst,
         IReadOnlyList<SavedJourney>? journeys = null, TripTaxiRequestSummary? taxiRequest = null)
-        => ShouldRemindStartsIn(trip, plan, enquiries, todayIst, journeys, taxiRequest)
-            ? StartsInSummary(trip, plan, enquiries, journeys, taxiRequest)
-            : GettingThereNudge;
+        => StartsInSummary(trip, plan, enquiries, journeys, taxiRequest);
 
     public static bool ProblemAllowed(Trip t, DateOnly todayIst) => t.StartDate is { } s && t.EndDate is { } e && s <= todayIst && todayIst <= e.AddDays(1);
 
@@ -434,14 +430,7 @@ public static class TripReminderRules
         return text.Length <= max ? text : text[..(max - 1)].TrimEnd() + "…";
     }
 
-    public const string GettingThereNudge = "Getting there not sorted.";
-
-    // Only when we know he starts elsewhere and Getting there still has nothing; every other state silences it.
-    public static bool NeedsGettingThereNudge(TripPlan plan, IReadOnlyList<TripEasyRow> rows)
-        => plan.Steps?.StartFrom != null
-           && rows.FirstOrDefault(r => r.Key.Kind == TripRowKinds.GettingThere)?.State == TripRowStates.Todo;
-
-    // "Stay confirmed. No taxi yet." | "1 stay enquiry waiting. Taxi confirmed." (+ " Travel booked.") (+ " Getting there not sorted.")
+    // "No stay yet. No taxi yet." | "1 stay enquiry waiting. Taxi request open." | "Stay confirmed. Taxi booked."
     // A skipped row says nothing.
     public static string StartsInSummary(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys = null,
         TripTaxiRequestSummary? taxiRequest = null)
@@ -449,9 +438,7 @@ public static class TripReminderRules
         var rows = TripEasyRows.Build(trip, plan, enquiries, journeys, null, taxiRequest);
         var parts = new List<string>();
         if (KindSentence(rows, TripRowKinds.Stay, "stay", "No stay yet.", "Stay confirmed.") is { } stay) parts.Add(stay);
-        if (KindSentence(rows, TripRowKinds.Taxi, "taxi", "No taxi yet.", "Taxi confirmed.") is { } taxi) parts.Add(taxi);
-        if (TravelSentence(rows) is { } travel) parts.Add(travel);
-        if (NeedsGettingThereNudge(plan, rows)) parts.Add(GettingThereNudge);
+        if (TaxiSentence(rows) is { } taxi) parts.Add(taxi);
         return string.Join(' ', parts);
     }
 
@@ -464,13 +451,13 @@ public static class TripReminderRules
         return mine.All(TripEasyRows.IsRowDone) ? done : none;
     }
 
-    // "Travel booked." | "1 travel not booked." | null (one city, or no travel chosen yet).
-    private static string? TravelSentence(IReadOnlyList<TripEasyRow> rows)
+    // A taxi request row: "Taxi request open." while it runs, "Taxi booked." once booked; legacy rows keep the enquiry text.
+    private static string? TaxiSentence(IReadOnlyList<TripEasyRow> rows)
     {
-        var planned = rows.Where(r => r.Key.Kind == TripRowKinds.Between && r.State is not (TripRowStates.Todo or TripRowStates.Skipped)).ToList();
-        if (planned.Count == 0) return null;
-        var open = planned.Count(r => !TripRowStates.IsDone(r.State));
-        return open == 0 ? "Travel booked." : $"{open} travel not booked.";
+        var row = rows.FirstOrDefault(r => r.Key.Kind == TripRowKinds.Taxi && r.State != TripRowStates.Skipped);
+        if (row?.TaxiRequest != null && row.State != TripRowStates.Todo)
+            return row.State == TripRowStates.Confirmed ? "Taxi booked." : "Taxi request open.";
+        return KindSentence(rows, TripRowKinds.Taxi, "taxi", "No taxi yet.", "Taxi confirmed.");
     }
 
     // "Pickup 8:30 am. Tap for the driver's number." when a booked local taxi of day 1 has a pickup time, else

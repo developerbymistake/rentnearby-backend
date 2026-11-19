@@ -23,10 +23,13 @@ public static class TaxiRingPayload
     public const string RingTitle = "New taxi request";
     public const string RingEndTitle = "Request closed";
     public const int MaxCitiesShown = 3;
+    // G9: the receiver's own user id, so a device logged into another account stays silent.
+    public const string DriverUserIdKey = "driverUserId";
 
     private static readonly CultureInfo En = CultureInfo.GetCultureInfo("en-GB");
 
-    public static Dictionary<string, string> Build(Guid offerId, Guid requestId, DateTime expiresAtUtc, DateTime sentAtUtc, int attempt, string ackToken, TaxiRingSnapshot snapshot)
+    public static Dictionary<string, string> Build(Guid offerId, Guid requestId, DateTime expiresAtUtc, DateTime sentAtUtc, int attempt, string ackToken,
+        TaxiRingSnapshot snapshot, Guid driverUserId)
     {
         var sections = new List<string>(3);
         if (snapshot.Pickup) sections.Add("pickup");
@@ -52,6 +55,7 @@ public static class TaxiRingPayload
             ["sightseeingDays"] = snapshot.SightseeingDayCount.ToString(CultureInfo.InvariantCulture),
             ["action_route"] = UserNotificationRoutes.TaxiRequestRing,
             ["action_args_json"] = OfferArgs(offerId),
+            [DriverUserIdKey] = driverUserId.ToString("D"),
         };
     }
 

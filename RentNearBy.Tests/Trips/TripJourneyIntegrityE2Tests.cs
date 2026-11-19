@@ -32,7 +32,7 @@ public class TripJourneyIntegrityE2Tests
         ContextJson = "{\"city\":\"Nainital\"}", UpdatedAt = new DateTime(2026, 10, 30, 10, 0, 0, DateTimeKind.Utc),
     };
 
-    private static List<TripEasyRow> Rows(TripPlan plan, params TripEnquiry[] rows) => TripEasyRows.Build(TripOf(plan), plan, rows, []);
+    private static List<TripEasyRow> Rows(TripPlan plan, params TripEnquiry[] rows) => TripEasyRows.BuildAll(TripOf(plan), plan, rows, []);
 
     private static readonly TripRowMark Own = new() { Status = TripRowMarkStatuses.Own };
     private static readonly TripRowMark Skipped = new() { Status = TripRowMarkStatuses.Skipped };
@@ -201,10 +201,10 @@ public class TripJourneyIntegrityE2Tests
         var plan = OneCity();
         plan.Guide = new TripGuide { Step = "stay:1", NotNow = ["gettingThere"] };
         var rows = Rows(plan);
-        var progress = TripEasyRows.Progress(rows, null, "stay:1");
+        var progress = TripEasyRows.Progress(1, rows, null, "stay:1");
         Assert.Equal(TripRowStates.Todo, rows.First(r => r.Key.Id == "gettingThere").State);
-        Assert.Equal(0, progress.Done);
-        Assert.Equal(0, progress.Percent);
+        Assert.Equal(1, progress.Done);
+        Assert.Equal(33, progress.Percent);
     }
 
     [Fact]

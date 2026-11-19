@@ -85,7 +85,7 @@ public interface IDueActionHandler
     Task<DueOutcome> HandleAsync(ApplicationDbContext db, DueActionItem item, CancellationToken ct);
 }
 
-public sealed record TripPlanLockState(bool Locked, string? Reason, Guid? RequestId)
+public sealed record TripPlanLockState(bool Locked, string? Reason, Guid? RequestId, Guid? EnquiryId = null)
 {
     public static readonly TripPlanLockState Unlocked = new(false, null, null);
 }

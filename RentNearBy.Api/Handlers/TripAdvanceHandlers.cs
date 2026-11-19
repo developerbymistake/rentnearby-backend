@@ -210,8 +210,7 @@ public static class TripAdvanceHandlers
             && e.TripId != null && e.Kind == TripEnquiryKinds.Stay;
         if (!onTime && !late) return NotAllowed();
 
-        if (late && await MovedOnAsync(db, e)) return ConflictResponse(
-            "The guest has booked another stay. Sort the advance with him directly.", TripEnquiryErrorTypes.TravellerMovedOn);
+        if (late && await MovedOnAsync(db, e)) return MovedOnConflict();
 
         var hadProof = e.ProofSentAt != null;
         var conversation = e.ConversationId is { } cid ? await db.Conversations.FirstOrDefaultAsync(c => c.Id == cid) : null;
@@ -219,6 +218,17 @@ public static class TripAdvanceHandlers
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            // A late re-confirm locks the plan again (Decision 14): serialise it with a plan save and with a stay send (both take
+            // the trip row lock), then check again on fresh rows.
+            if (late)
+            {
+                await TripGuards.LockTripAsync(db, e.TripId!.Value);
+                if (await MovedOnAsync(db, e))
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return MovedOnConflict();
+                }
+            }
             e.AdvanceStatus = TripAdvanceStatuses.Received;
             e.AdvanceReceivedAt = now;
             if (late)
@@ -248,7 +258,7 @@ public static class TripAdvanceHandlers
         {
             // The guest re-opened an enquiry with this stay for the same night meanwhile.
             await unitOfWork.RollbackTransactionAsync();
-            return ConflictResponse("The guest has booked another stay. Sort the advance with him directly.", TripEnquiryErrorTypes.TravellerMovedOn);
+            return MovedOnConflict();
         }
         catch
         {
@@ -306,20 +316,27 @@ public static class TripAdvanceHandlers
         return (null, e, callerId);
     }
 
-    // Late mark: another booked stay of the same trip on any of these nights means the guest moved on.
+    private static IResult MovedOnConflict() => ConflictResponse(
+        "The guest has booked another stay. Sort the advance with him directly.", TripEnquiryErrorTypes.TravellerMovedOn);
+
     private static async Task<bool> MovedOnAsync(ApplicationDbContext db, TripEnquiry e)
     {
-        if (e.TripId is not { } tripId || e.CheckIn is not { } checkIn || e.CheckOut is not { } checkOut) return true;
+        if (e.TripId is not { } tripId) return true;
         var others = await db.TripEnquiries.AsNoTracking()
-            .Where(x => x.TripId == tripId && x.Kind == TripEnquiryKinds.Stay && x.Id != e.Id
-                && TripEnquiryStatuses.Booked.Contains(x.Status))
-            .Select(x => new { x.CheckIn, x.CheckOut })
+            .Where(x => x.TripId == tripId && x.Kind == TripEnquiryKinds.Stay && x.Id != e.Id && TripEnquiryStatuses.Open.Contains(x.Status))
             .ToListAsync();
-        if (others.Any(x => x.CheckIn is { } a && x.CheckOut is { } b && TripExecutionRules.NightsOverlap(a, b, checkIn, checkOut)))
-            return true;
-        // Back to ConfirmedByBoth must not collide with a newer open enquiry for this stay and night.
-        return await db.TripEnquiries.AsNoTracking().AnyAsync(x => x.TripId == tripId && x.Kind == TripEnquiryKinds.Stay
-            && x.Id != e.Id && x.ListingId == e.ListingId && x.Day == e.Day && TripEnquiryStatuses.Open.Contains(x.Status));
+        return MovedOn(e, others);
+    }
+
+    // Late mark: another booked stay of the same trip on any of these nights means the guest moved on; so does any other open
+    // row of the same stay in the trip (issue 10: one open enquiry per trip and stay, whatever its Day).
+    public static bool MovedOn(TripEnquiry e, IEnumerable<TripEnquiry> openStaysOfTrip)
+    {
+        if (e.CheckIn is not { } checkIn || e.CheckOut is not { } checkOut) return true;
+        return openStaysOfTrip.Where(x => x.Id != e.Id).Any(x =>
+            x.ListingId == e.ListingId
+            || (TripEnquiryStatuses.IsBooked(x.Status) && x.CheckIn is { } a && x.CheckOut is { } b
+                && TripExecutionRules.NightsOverlap(a, b, checkIn, checkOut)));
     }
 
     private static async Task RewriteCardAsync(

@@ -148,6 +148,12 @@ Content-Type: application/json
 
 ###
 
+# Complete my plan: open Taxi and Stay parts become skipped (idempotent)
+POST {{baseUrl}}/api/v1/trips/{{tripId}}/complete-plan
+Authorization: Bearer {{userToken}}
+
+###
+
 DELETE {{baseUrl}}/api/v1/trips/{{tripId}}
 Authorization: Bearer {{userToken}}
 

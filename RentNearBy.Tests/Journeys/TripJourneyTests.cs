@@ -241,17 +241,25 @@ public class TripJourneyTests(TestDatabase db) : IntegrationTestBase(db)
     }
 
     [IntegrationFact]
-    public async Task Enquiry_AfterCloseSkipped_409StepClosed()
+    public async Task Enquiry_AfterCloseSkipped_ShortlistSendReopensTheCity()
     {
         await using var h = new JourneyHarness(Db);
         var seeker = await h.AddSeekerAsync();
         var stay = await h.AddStayAsync(await h.AddStayOwnerAsync());
         var tripId = await h.AddTripAsync(seeker, h.BuildPlan(("Nainital", CityA, 2)));
+        await SetTripPlannedAsync(tripId);
         await h.UpdatePlanAsync(tripId, seeker, p => p.Legs![0].StayMark = new TripRowMark { Status = TripRowMarkStatuses.Skipped });
+        Assert.Equal(200, StatusOf(await ShortlistAddAsync(h, tripId, seeker, "stay:1", stay)));
 
         var result = await h.AskAsync(tripId, seeker, Stay(1, 2, "stay:1", stay));
-        Assert.Equal(409, StatusOf(result));
-        Assert.Equal(TripEnquiryErrorTypes.StepClosed, ErrorTypeOf(result));
+        Assert.InRange(StatusOf(result), 200, 201);
+        var loaded = await h.LoadAsync(tripId);
+        Assert.Single(loaded.Enquiries);
+        await using var ctx = CreateContext();
+        var trip = await ctx.Trips.AsNoTracking().FirstAsync(t => t.Id == tripId);
+        Assert.Null(TripPlanReader.Read(trip).Legs![0].StayMark);
+
+        // A send that names no step still meets a settled city closed (FixerWiringIntegrationTests).
     }
 
     [IntegrationFact]

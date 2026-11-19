@@ -5,34 +5,34 @@ namespace RentNearBy.Core.Models.TaxiRequests;
 // A refusal the API writes as is (status, error.type, message, data).
 public sealed record TripLockRefusal(int StatusCode, string ErrorType, string Message, PlanLockedData? Data);
 
-// Decisions 14, 20, 23c and contract section 4: while a taxi request or booking of the trip is active its structure is frozen.
+// Decisions 14, 20, 23c and contract section 4: while a taxi request or booking, or a booked stay, of the trip is active its structure is frozen.
 public static class TripPlanLock
 {
     // Structural = legs (city keys, order), days (count, order, leg, rest flag), spots of a day (ids, order), start date,
-    // adults, kids and the taxi mark. Name, guide, steps, stay marks and dismissed rows are not. Both plans normalised.
-    public static bool IsStructuralChange(TripPlan stored, TripPlan incoming)
+    // adults, kids and (taxiMark true) the taxi mark. Name, guide, steps, stay marks and dismissed rows are not. Both plans normalised.
+    public static bool IsStructuralChange(TripPlan stored, TripPlan incoming, bool taxiMark = true)
     {
         if (!SameLegs(stored.Legs, incoming.Legs)) return true;
         if (!SameDays(stored.Days, incoming.Days)) return true;
         var a = stored.Settings;
         var b = incoming.Settings;
         if (a?.StartDate != b?.StartDate || a?.Adults != b?.Adults || a?.Kids != b?.Kids) return true;
-        return stored.TaxiMark?.Status != incoming.TaxiMark?.Status;
+        return taxiMark && stored.TaxiMark?.Status != incoming.TaxiMark?.Status;
     }
 
     public static string MessageFor(string reason) => PlanLockReasons.MessageFor(reason);
 
     public static string DeleteMessage => PlanLockReasons.DeleteMessage;
 
-    // null = the save may go on (not locked, or nothing structural changed).
-    public static TripLockRefusal? UpdateRefusal(string? lockReason, Guid? requestId, TripPlan stored, TripPlan incoming)
-        => lockReason is { } reason && IsStructuralChange(stored, incoming)
-            ? new TripLockRefusal(409, TaxiRequestErrorTypes.PlanLocked, MessageFor(reason), Data(reason, requestId))
+    // null = the save may go on (not locked, or nothing structural changed). Under a stay lock the taxi mark stays free.
+    public static TripLockRefusal? UpdateRefusal(string? lockReason, Guid? requestId, TripPlan stored, TripPlan incoming, Guid? enquiryId = null)
+        => lockReason is { } reason && IsStructuralChange(stored, incoming, taxiMark: PlanLockReasons.IsTaxi(reason))
+            ? new TripLockRefusal(409, TaxiRequestErrorTypes.PlanLocked, MessageFor(reason), Data(reason, requestId, enquiryId))
             : null;
 
-    public static TripLockRefusal? DeleteRefusal(string? lockReason, Guid? requestId)
+    public static TripLockRefusal? DeleteRefusal(string? lockReason, Guid? requestId, Guid? enquiryId = null)
         => lockReason is { } reason
-            ? new TripLockRefusal(409, TaxiRequestErrorTypes.PlanLocked, DeleteMessage, Data(reason, requestId))
+            ? new TripLockRefusal(409, TaxiRequestErrorTypes.PlanLocked, PlanLockReasons.DeleteMessageFor(reason), Data(reason, requestId, enquiryId))
             : null;
 
     // P25, contract section 1 exception 2: old local taxi writers stop while a taxi request of the trip is active.
@@ -42,7 +42,8 @@ public static class TripPlanLock
                 TaxiRequestErrorTypes.Messages[TaxiRequestErrorTypes.TaxiRequestActive], null)
             : null;
 
-    private static PlanLockedData Data(string reason, Guid? requestId) => new() { Reason = reason, RequestId = requestId };
+    private static PlanLockedData Data(string reason, Guid? requestId, Guid? enquiryId)
+        => new() { Reason = reason, RequestId = requestId, EnquiryId = enquiryId };
 
     private static bool SameLegs(List<TripCityLeg>? a, List<TripCityLeg>? b)
     {

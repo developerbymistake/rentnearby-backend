@@ -190,6 +190,9 @@ public class PlanLockedData
 {
     public string Reason { get; set; } = string.Empty;
     public Guid? RequestId { get; set; }
+    // StayBookingActive only: the booked stay enquiry.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? EnquiryId { get; set; }
 }
 
 // data of 409 TaxiRequestAlreadyActive.

@@ -16,7 +16,8 @@
     "sections": "pickup,sightseeing,drop",
     "sightseeingDays": "3",
     "action_route": "/taxi-request-ring",
-    "action_args_json": "{\"offerId\":\"a1b2c3d4-0001-4a00-8000-000000000001\"}"
+    "action_args_json": "{\"offerId\":\"a1b2c3d4-0001-4a00-8000-000000000001\"}",
+    "driverUserId": "7c1e2f3a-0005-4b00-9000-000000000005"
   },
   "android": { "priority": "HIGH", "ttlSeconds": 299, "collapseKey": null },
   "notification": null

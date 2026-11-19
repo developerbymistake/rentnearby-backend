@@ -88,10 +88,24 @@ public sealed record TripTaxiRequestSummary(Guid RequestId, string State, string
 // Trip detail planLock and taxiRequest (contract section 4), both from the same summary.
 public static class TripTaxiRequestFields
 {
-    public static TripPlanLockDto PlanLock(TripTaxiRequestSummary? request)
-        => request is { IsActive: true } r && PlanLockReasons.For(r.State) is { } reason
-            ? new TripPlanLockDto { Locked = true, Reason = reason, RequestId = r.RequestId }
+    // The taxi lock wins; else the booked stay with the earliest check-in that has not ended yet.
+    public static TripPlanLockDto PlanLock(TripTaxiRequestSummary? request, IEnumerable<TripEnquiry>? enquiries = null, DateOnly? todayIst = null)
+    {
+        if (request is { IsActive: true } r && PlanLockReasons.For(r.State) is { } reason)
+            return new TripPlanLockDto { Locked = true, Reason = reason, RequestId = r.RequestId };
+        var today = todayIst ?? TripExecutionRules.TodayIst(DateTime.UtcNow);
+        var stay = (enquiries ?? []).Where(e => StayLockHolds(e, today))
+            .OrderBy(e => e.CheckIn).FirstOrDefault();
+        return stay != null
+            ? new TripPlanLockDto { Locked = true, Reason = PlanLockReasons.StayBookingActive, EnquiryId = stay.Id }
             : new TripPlanLockDto();
+    }
+
+    // A booked stay locks the plan only while it can still be cancelled: the cancel rule calls it ended once
+    // CheckOut <= today IST, so an ended stay never blocks a delete or an edit that no action could unblock.
+    // TripPlanLockReader.BookedStaySql repeats this filter in SQL.
+    public static bool StayLockHolds(TripEnquiry e, DateOnly todayIst)
+        => e.Kind == TripEnquiryKinds.Stay && TripEnquiryStatuses.IsBooked(e.Status) && (e.CheckOut is not { } checkOut || checkOut > todayIst);
 
     public static TripTaxiRequestRefDto? Ref(TripTaxiRequestSummary? request)
         => request is { } r ? new TripTaxiRequestRefDto { RequestId = r.RequestId, State = r.State, View = r.View, Version = r.Version } : null;
@@ -147,7 +161,13 @@ public static class TripEasyRows
 
     // revisedPending = ids of stay rows with a pending revised price (it needs the traveller).
     // taxiRequest = the trip's taxi request summary; null keeps the legacy taxi row.
+    // The rows the trip parts count: stay:k for every city, then taxi (the question flow rows are gone).
     public static List<TripEasyRow> Build(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys,
+        IReadOnlySet<Guid>? revisedPending = null, TripTaxiRequestSummary? taxiRequest = null)
+        => BuildAll(trip, plan, enquiries, journeys, revisedPending, taxiRequest).Where(r => r.Key.Kind is TripRowKinds.Stay or TripRowKinds.Taxi).ToList();
+
+    // Every row incl. travel rows; only the save guards use it (old builds still send travel marks).
+    public static List<TripEasyRow> BuildAll(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys,
         IReadOnlySet<Guid>? revisedPending = null, TripTaxiRequestSummary? taxiRequest = null)
     {
         var ctx = new Context(plan, trip.StartDate ?? plan.Settings?.StartDate, enquiries, journeys ?? Array.Empty<SavedJourney>(), revisedPending, taxiRequest);
@@ -184,20 +204,22 @@ public static class TripEasyRows
     public static string? GuideStepOf(TripPlan plan)
         => plan.Guide?.Step is { } step && TripStepKeys.IsValid(step) && StepKeysOf(plan).Contains(step) ? step : null;
 
-    public static TripProgress Progress(IReadOnlyList<TripEasyRow> rows, DateTime? lastEventAt = null, string? guideStep = null)
+    // Total 3 parts (Itinerary, Taxi, Stay); Done = parts arranged or skipped (TripParts).
+    public static TripProgress Progress(int spotCount, IReadOnlyList<TripEasyRow> rows, DateTime? lastEventAt = null, string? guideStep = null)
     {
-        var counted = rows.Where(r => r.State != TripRowStates.Skipped).ToList();
-        var done = counted.Count(IsRowDone);
+        rows = rows.Where(r => r.Key.Kind is TripRowKinds.Stay or TripRowKinds.Taxi).ToList();
+        var parts = TripParts.Of(spotCount, rows);
         var next = rows.FirstOrDefault(r => r.State == TripRowStates.Attention || r.NeedsYou)
-                   ?? rows.FirstOrDefault(r => r.State == TripRowStates.Todo)
-                   ?? rows.FirstOrDefault(r => TripRowStates.IsInProgress(r.State));
+                   ?? (parts.Stay == TripPartStates.Open ? rows.FirstOrDefault(r => r.Key.Kind == TripRowKinds.Stay && r.State == TripRowStates.Todo) : null)
+                   ?? (parts.Taxi == TripPartStates.Open ? rows.FirstOrDefault(r => r.Key.Kind == TripRowKinds.Taxi) : null);
+        var counted = rows.Where(r => r.State != TripRowStates.Skipped).ToList();
         return new TripProgress
         {
-            Total = counted.Count,
-            Done = done,
+            Total = TripParts.Count,
+            Done = parts.Handled,
             InProgress = counted.Count(r => TripRowStates.IsInProgress(r.State)),
             Attention = counted.Count(r => r.State == TripRowStates.Attention),
-            Percent = counted.Count == 0 ? 0 : done * 100 / counted.Count,
+            Percent = parts.Percent,
             NeedsYou = rows.Any(r => r.NeedsYou),
             Next = next == null ? null : new TripNextRow { Kind = next.Key.Kind, LegIndex = next.Key.LegIndex, Key = next.Key.Id },
             LastEventAt = lastEventAt,
@@ -208,7 +230,8 @@ public static class TripEasyRows
 
     public static TripProgress Compute(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, IReadOnlyList<SavedJourney>? journeys,
         IReadOnlySet<Guid>? revisedPending = null, TripTaxiRequestSummary? taxiRequest = null)
-        => Progress(Build(trip, plan, enquiries, journeys, revisedPending, taxiRequest), enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt), GuideStepOf(plan));
+        => Progress(plan.Days.Sum(d => d.Spots.Count), Build(trip, plan, enquiries, journeys, revisedPending, taxiRequest),
+            enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt), GuideStepOf(plan));
 
     public static TripEasyRowDto ToDto(TripEasyRow row) => new()
     {
@@ -360,16 +383,18 @@ public static class TripEasyRows
 
     private static int OrphanLeg(TripEnquiry e, TripPlan plan) => TripLegRules.HomeLegIndex(e, plan) is { } home && home >= 1 ? home : 1;
 
-    // Any request drives the row (contract section 4, Cancelled or Expired = todo); legacy local taxi rows only without one.
+    // A live or finished request drives the row; else the mark; else an ended request (todo); legacy local taxi rows only without one.
     private static TripEasyRow TaxiRow(Context ctx)
     {
-        if (ctx.TaxiRequest is { } request)
-            return Row(TripRowKinds.Taxi, null, TaxiRequestViewRules.EasyRowState(request.State),
-                needsYou: request.State == RequestStates.Collecting, taxiRequest: request);
+        var request = ctx.TaxiRequest;
+        if (request != null && TaxiRequestViewRules.EasyRowState(request.State) is var state && state != TripRowStates.Todo)
+            return Row(TripRowKinds.Taxi, null, state, needsYou: request.State == RequestStates.Collecting, taxiRequest: request);
 
         var mark = ctx.Plan.TaxiMark;
         if (Marked(mark, TripRowMarkStatuses.Own)) return Row(TripRowKinds.Taxi, null, TripRowStates.Own);
         if (Marked(mark, TripRowMarkStatuses.Skipped)) return Row(TripRowKinds.Taxi, null, TripRowStates.Skipped);
+        if (request != null)
+            return Row(TripRowKinds.Taxi, null, TripRowStates.Todo, needsYou: request.State == RequestStates.Collecting, taxiRequest: request);
 
         var covering = Newest(ctx.Local.Where(e => e.Kind == TripEnquiryKinds.Taxi));
         var live = covering.Where(e => TripEnquiryStatuses.Open.Contains(e.Status)).ToList();
@@ -490,6 +515,64 @@ public static class TripEasyRows
         TripTravelStates.CarMissing or TripTravelStates.DriverUnavailable or TripTravelStates.DateChanged => (TripRowStates.Attention, false),
         _ => (TripRowStates.Todo, false),
     };
+}
+
+public static class TripPartStates
+{
+    public const string Open = "open", Arranged = "arranged", Skipped = "skipped";
+}
+
+// Issue 16 v7: Itinerary, Taxi, Stay; handled = arranged or skipped; percent = handled of 3 (0, 33, 67, 100). The app's TripParts mirrors it.
+public sealed record TripParts(string Itinerary, string Taxi, string Stay)
+{
+    public const int Count = 3;
+
+    public int Handled => new[] { Itinerary, Taxi, Stay }.Count(p => p != TripPartStates.Open);
+    public int Percent => (int)Math.Round(Handled * 100.0 / Count);
+    public bool Complete => Handled == Count;
+
+    public static bool IsArranged(string state)
+        => state is TripRowStates.Asked or TripRowStates.Offer or TripRowStates.Booked or TripRowStates.Confirmed or TripRowStates.Own;
+
+    public static TripParts Of(int spotCount, IReadOnlyList<TripEasyRow> rows)
+    {
+        var taxiRow = rows.FirstOrDefault(r => r.Key.Kind == TripRowKinds.Taxi);
+        var taxi = taxiRow == null ? TripPartStates.Open
+            : IsArranged(taxiRow.State) ? TripPartStates.Arranged
+            : taxiRow.State == TripRowStates.Skipped ? TripPartStates.Skipped : TripPartStates.Open;
+        var stays = rows.Where(r => r.Key.Kind == TripRowKinds.Stay).ToList();
+        var stay = stays.Any(r => IsArranged(r.State)) ? TripPartStates.Arranged
+            : stays.Count > 0 && stays.All(r => r.State == TripRowStates.Skipped) ? TripPartStates.Skipped : TripPartStates.Open;
+        return new TripParts(spotCount > 0 ? TripPartStates.Arranged : TripPartStates.Open, taxi, stay);
+    }
+}
+
+// Complete my plan (issue 16 v7): the open parts become skipped through the existing marks; nothing else changes.
+public static class TripCompletePlan
+{
+    // true = the plan changed. A stay row in attention that still holds an open enquiry is left alone.
+    public static bool Apply(TripPlan plan, IReadOnlyList<TripEasyRow> rows, int spotCount)
+    {
+        var parts = TripParts.Of(spotCount, rows);
+        var changed = false;
+        if (parts.Taxi == TripPartStates.Open)
+        {
+            plan.TaxiMark = new TripRowMark { Status = TripRowMarkStatuses.Skipped };
+            changed = true;
+        }
+        if (parts.Stay != TripPartStates.Open) return changed;
+        var legs = plan.Legs ?? new List<TripCityLeg>();
+        foreach (var row in rows.Where(r => r.Key.Kind == TripRowKinds.Stay && r.Key.LegIndex is { } k && k >= 1 && k <= legs.Count))
+        {
+            var open = row.Enquiries.Any(e => TripEnquiryStatuses.Open.Contains(e.Status));
+            if (row.State != TripRowStates.Todo && !(row.State == TripRowStates.Attention && !open)) continue;
+            var leg = legs[row.Key.LegIndex!.Value - 1];
+            if (leg == null) continue;
+            leg.StayMark = new TripRowMark { Status = TripRowMarkStatuses.Skipped };
+            changed = true;
+        }
+        return changed;
+    }
 }
 
 public static class TripCreateRules

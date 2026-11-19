@@ -20,7 +20,13 @@ public class TaxiRingPayloadTests
 
     private static Dictionary<string, string> Ring(TaxiRingSnapshot? snapshot = null) => TaxiRingPayload.Build(
         OfferId, RequestId, new DateTime(2026, 12, 10, 9, 46, 7, DateTimeKind.Utc), new DateTime(2026, 12, 10, 9, 41, 8, DateTimeKind.Utc),
-        0, "Qk9fY2xhdWRlX3NhbXBsZQ", snapshot ?? Snapshot());
+        0, "Qk9fY2xhdWRlX3NhbXBsZQ", snapshot ?? Snapshot(), DriverUserId);
+
+    private static readonly Guid DriverUserId = Guid.Parse("7c1e2f3a-0005-4b00-9000-000000000005");
+
+    [Fact]
+    public void Ring_data_carries_the_driver_user_id()
+        => Assert.Equal("7c1e2f3a-0005-4b00-9000-000000000005", Ring()[TaxiRingPayload.DriverUserIdKey]);
 
     [Fact]
     public void Ring_data_equals_the_contract_sample()

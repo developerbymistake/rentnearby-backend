@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;
+using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 
@@ -14,13 +15,25 @@ public sealed class TripPlanLockReader : ITripPlanLockReader
     public static readonly string ActiveRequestSql =
         $"SELECT \"Id\", \"Status\" FROM \"TaxiRequests\" WHERE \"TripId\" = @tripId AND \"Status\" IN ({RequestStates.ActiveSqlList}) LIMIT 1";
 
+    // Decision 14, stay half: the booked stay of the trip with the earliest check-in that has not ended (ix_tripenquiries_trip).
+    // Same rule as TripTaxiRequestFields.StayLockHolds: an ended stay (CheckOut <= today IST) cannot be cancelled, so it never locks.
+    public static readonly string BookedStaySql =
+        $"SELECT \"Id\" AS \"Value\" FROM \"TripEnquiries\" WHERE \"TripId\" = @tripId AND \"Kind\" = '{TripEnquiryKinds.Stay}' AND \"Status\" IN ({string.Join(", ", TripEnquiryStatuses.Booked.Select(s => $"'{s}'"))}) AND (\"CheckOut\" IS NULL OR \"CheckOut\" > @today) ORDER BY \"CheckIn\" LIMIT 1";
+
     public Task<TripPlanLockState> GetAsync(ApplicationDbContext db, Guid tripId, CancellationToken ct = default) => ReadAsync(db, tripId, ct);
 
+    // The taxi lock first (it has its own screen); else a booked stay locks the plan.
     public static async Task<TripPlanLockState> ReadAsync(ApplicationDbContext db, Guid tripId, CancellationToken ct = default)
     {
         var row = await ActiveAsync(db, tripId, ct);
-        return row != null && PlanLockReasons.For(row.Status) is { } reason
-            ? new TripPlanLockState(true, reason, row.Id)
+        if (row != null && PlanLockReasons.For(row.Status) is { } reason) return new TripPlanLockState(true, reason, row.Id);
+        var stayIds = await db.Database
+            .SqlQueryRaw<Guid>(BookedStaySql,
+                new NpgsqlParameter("tripId", NpgsqlDbType.Uuid) { Value = tripId },
+                new NpgsqlParameter("today", NpgsqlDbType.Date) { Value = TripExecutionRules.TodayIst(DateTime.UtcNow) })
+            .ToListAsync(ct);
+        return stayIds.Count > 0
+            ? new TripPlanLockState(true, PlanLockReasons.StayBookingActive, null, stayIds[0])
             : TripPlanLockState.Unlocked;
     }
 

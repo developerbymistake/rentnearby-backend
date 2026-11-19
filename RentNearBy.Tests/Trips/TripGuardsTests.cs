@@ -121,6 +121,47 @@ public class TripGuardsTests
         Assert.False(TripGuards.StepClosed(plan, "between:2"));
     }
 
+    // Audit BREAK: a shortlist send on a city settled by Complete my plan (skipped) or an old build (own) reopens only that city.
+    [Fact]
+    public void Reopen_stay_step_clears_only_the_sent_city()
+    {
+        var plan = TwoCityPlan();
+        plan.TaxiMark = new TripRowMark { Status = TripRowMarkStatuses.Skipped };
+        plan.Legs![0].StayMark = new TripRowMark { Status = TripRowMarkStatuses.Own };
+        plan.Legs[1].StayMark = new TripRowMark { Status = TripRowMarkStatuses.Skipped };
+        plan.Guide = new TripGuide { Choices = new() { ["stay:1"] = TripGuideChoices.Own, ["stay:2"] = TripGuideChoices.Skip } };
+
+        Assert.True(TripGuards.ReopenStayStep(plan, "stay:1"));
+        Assert.False(TripGuards.StepClosed(plan, "stay:1"));
+        Assert.Null(plan.Legs[0].StayMark);
+        Assert.True(TripGuards.StepClosed(plan, "stay:2"));
+        Assert.True(TripGuards.StepClosed(plan, "taxi"));
+        Assert.False(TripGuards.ReopenStayStep(plan, "stay:1"));
+
+        Assert.True(TripGuards.ReopenStayStep(plan, "stay:2"));
+        Assert.False(TripGuards.StepClosed(plan, "stay:2"));
+        Assert.False(TripGuards.ReopenStayStep(plan, "taxi"));
+        Assert.False(TripGuards.ReopenStayStep(plan, "stay:9"));
+    }
+
+    [Fact]
+    public void Shortlist_gaps_skip_server_closed_hosts_and_refuse_unknown_ones()
+    {
+        var closedByClock = Guid.NewGuid();
+        var neverShortlisted = Guid.NewGuid();
+        var serverClosed = new HashSet<Guid> { closedByClock };
+
+        var none = TripGuards.ShortlistGaps([], serverClosed);
+        Assert.False(none.Refuse);
+        Assert.Empty(none.Skip);
+        var (refuse, skip) = TripGuards.ShortlistGaps([closedByClock], serverClosed);
+        Assert.False(refuse);
+        Assert.Equal([closedByClock], skip);
+        Assert.True(TripGuards.ShortlistGaps([closedByClock, neverShortlisted], serverClosed).Refuse);
+        Assert.Equal(
+            [TripShortlistClosedReasons.NoReply, TripShortlistClosedReasons.Unavailable], TripGuards.ServerCloseReasons);
+    }
+
     // ----- cap, nights, completed, listing -----
 
     [Theory]

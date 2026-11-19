@@ -141,12 +141,14 @@ public class TaxiEasyRowTests
     [Theory]
     [InlineData(RequestStates.Cancelled)]
     [InlineData(RequestStates.Expired)]
-    public void Ended_request_is_todo_over_legacy_rows_and_a_stored_mark(string state)
+    public void Ended_request_is_todo_over_legacy_rows_and_a_stored_mark_reads_after_it(string state)
     {
         var plan = Plan();
         Assert.Equal(TripRowStates.Todo, TaxiRowOf(plan, Request(state), LegacyTaxi(TripEnquiryStatuses.Asked)).State);
         Assert.Equal(TripRowStates.Todo, TaxiRowOf(plan, Request(state), LegacyTaxi(TripEnquiryStatuses.ConfirmedByBoth)).State);
         plan.TaxiMark = new TripRowMark { Status = TripRowMarkStatuses.Skipped };
+        Assert.Equal(TripRowStates.Skipped, TaxiRowOf(plan, Request(state)).State);
+        plan.TaxiMark = null;
         var row = TaxiRowOf(plan, Request(state));
         Assert.Equal(TripRowStates.Todo, row.State);
         Assert.Equal(RequestId, row.TaxiRequest!.RequestId);

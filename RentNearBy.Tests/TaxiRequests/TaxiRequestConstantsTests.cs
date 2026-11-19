@@ -21,7 +21,7 @@ public class TaxiRequestConstantsTests
     [InlineData(typeof(RequestEndReasons), new[] { "TravellerCancelled", "PickupChanged", "BookingCancelledByTraveller", "DriverLeftTrip", "AdminCancelled", "AccountClosed", "AllDriversBusy", "NotBooked" })]
     [InlineData(typeof(OfferEndReasons), new[] { "Expired", "Filled", "ConfirmTimeout", "DeclinedBooking", "RequestCancelled", "RequestExpired", "Booked", "DriverOffline", "ListingRemoved", "RouteRemoved" })]
     [InlineData(typeof(ReasonChips), new[] { "ChangedPlan", "NotReachable", "PriceNotAgreed", "VehicleIssue", "Other" })]
-    [InlineData(typeof(PlanLockReasons), new[] { "TaxiRequestActive", "TaxiBookingActive" })]
+    [InlineData(typeof(PlanLockReasons), new[] { "TaxiRequestActive", "TaxiBookingActive", "StayBookingActive" })]
     [InlineData(typeof(DueActionKinds), new[] { "OfferExpire", "ConfirmExpire", "RequestWaitExpire", "RequestStaleExpire", "BookingStart", "BookingAutoComplete", "ChooseReminderFirst", "ChooseReminderSecond" })]
     [InlineData(typeof(DueActionStates), new[] { "Pending", "Running", "Done", "Cancelled", "Skipped", "Failed" })]
     public void Constants_are_exactly_the_contract_names_once_and_All_lists_them(Type holder, string[] contract)

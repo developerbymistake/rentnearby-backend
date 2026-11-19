@@ -20,6 +20,8 @@ public class TripPlanLockDto
     public bool Locked { get; set; }
     public string? Reason { get; set; }
     public Guid? RequestId { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? EnquiryId { get; set; }
 }
 
 public class TripTaxiRequestRefDto

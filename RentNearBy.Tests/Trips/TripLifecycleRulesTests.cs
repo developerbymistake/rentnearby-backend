@@ -529,23 +529,7 @@ public class TripLifecycleRulesTests
     }
 
     [Fact]
-    public void Starts_in_sends_the_nudge_and_names_it_last()
-    {
-        var today = Start.AddDays(-3);
-        var trip = PlannedTrip();
-        var plan = WithGettingThere(TripStepStatuses.NotStarted);
-
-        Assert.True(TripReminderRules.ShouldSendStartsIn(trip, plan, [], today));
-        Assert.Equal("Stay confirmed. Taxi confirmed. Getting there not sorted.", TripReminderRules.StartsInBody(trip, plan, [], today));
-
-        var open = Plan();
-        open.Steps = new TripSteps { StartFrom = new TripStartFrom { Name = "Delhi", Lat = 28.61, Lon = 77.21 } };
-        Assert.Equal("Stay confirmed. Taxi confirmed. Getting there not sorted.", TripReminderRules.StartsInSummary(
-            trip, open, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3), Taxi(TripEnquiryStatuses.ConfirmedByBoth)]));
-    }
-
-    [Fact]
-    public void Starts_in_sends_the_nudge_alone_without_a_district()
+    public void Starts_in_has_no_getting_there_nudge_any_more()
     {
         var today = Start.AddDays(-3);
         var trip = PlannedTrip();
@@ -553,19 +537,23 @@ public class TripLifecycleRulesTests
         var plan = Plan();
         plan.Steps = new TripSteps { StartFrom = new TripStartFrom { Name = "Delhi", Lat = 28.61, Lon = 77.21 } };
 
-        Assert.True(TripReminderRules.ShouldSendStartsIn(trip, plan, [], today));
-        Assert.Equal(TripReminderRules.GettingThereNudge, TripReminderRules.StartsInBody(trip, plan, [], today));
+        Assert.False(TripReminderRules.ShouldSendStartsIn(trip, plan, [], today));
+        Assert.Equal("Stay confirmed. Taxi confirmed.", TripReminderRules.StartsInSummary(
+            trip, plan, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3), Taxi(TripEnquiryStatuses.ConfirmedByBoth)]));
     }
 
-    [Theory]
-    [InlineData(TripStepStatuses.Own)]
-    [InlineData(TripStepStatuses.Skipped)]
-    public void Starts_in_no_nudge_when_getting_there_is_handled(string status)
-        => Assert.False(TripReminderRules.ShouldSendStartsIn(PlannedTrip(), WithGettingThere(status), [], Start.AddDays(-3)));
-
     [Fact]
-    public void Starts_in_nudge_keeps_the_days_left_guard()
-        => Assert.False(TripReminderRules.ShouldSendStartsIn(PlannedTrip(), WithGettingThere(TripStepStatuses.NotStarted), [], Start));
+    public void Starts_in_stays_quiet_when_every_part_is_skipped()
+    {
+        var trip = PlannedTrip();
+        trip.DistrictId = Guid.NewGuid();
+        var plan = Plan();
+        plan.Legs = [new TripCityLeg { Index = 1, CityName = "Haridwar" }];
+        foreach (var leg in plan.Legs) leg.StayMark = new TripRowMark { Status = TripRowMarkStatuses.Skipped };
+        plan.TaxiMark = new TripRowMark { Status = TripRowMarkStatuses.Skipped };
+
+        Assert.False(TripReminderRules.ShouldSendStartsIn(trip, plan, [], Start.AddDays(-3)));
+    }
 
     [Fact]
     public void StartsInSummary_samples()
@@ -602,19 +590,20 @@ public class TripLifecycleRulesTests
         foreach (var state in new[] { RentNearBy.Core.Models.TaxiRequests.RequestStates.Booked, RentNearBy.Core.Models.TaxiRequests.RequestStates.InProgress })
         {
             var booked = TaxiRequest(state);
-            Assert.Equal("Stay confirmed. Taxi confirmed.", TripReminderRules.StartsInSummary(trip, plan, [stay], null, booked));
+            Assert.Equal("Stay confirmed. Taxi booked.", TripReminderRules.StartsInSummary(trip, plan, [stay], null, booked));
             Assert.False(TripReminderRules.ShouldRemindStartsIn(trip, plan, [stay], today, null, booked));
             Assert.False(TripReminderRules.ShouldSendStartsIn(trip, plan, [stay], today, null, booked));
         }
 
         var open = TaxiRequest(RentNearBy.Core.Models.TaxiRequests.RequestStates.Collecting);
         Assert.True(TripReminderRules.ShouldSendStartsIn(trip, plan, [stay], today, null, open));
-        Assert.Equal("Stay confirmed. 1 taxi enquiry waiting.", TripReminderRules.StartsInBody(trip, plan, [stay], today, null, open));
+        Assert.Equal("Stay confirmed. Taxi request open.", TripReminderRules.StartsInBody(trip, plan, [stay], today, null, open));
 
-        // An ended request is todo even over a stored Own mark.
-        plan.TaxiMark = new TripRowMark { Status = TripRowMarkStatuses.Own };
+        // An ended request is todo; a stored mark reads again after it (issue 16 v7).
         var cancelled = TaxiRequest(RentNearBy.Core.Models.TaxiRequests.RequestStates.Cancelled);
         Assert.Equal("Stay confirmed. No taxi yet.", TripReminderRules.StartsInBody(trip, plan, [stay], today, null, cancelled));
+        plan.TaxiMark = new TripRowMark { Status = TripRowMarkStatuses.Own };
+        Assert.Equal("Stay confirmed. Taxi confirmed.", TripReminderRules.StartsInBody(trip, plan, [stay], today, null, cancelled));
     }
 
     [Fact]
@@ -627,14 +616,14 @@ public class TripLifecycleRulesTests
     }
 
     [Fact]
-    public void StartsInSummary_two_cities_travel_sentences()
+    public void StartsInSummary_two_cities_has_no_travel_sentence()
     {
         var own = TwoCityPlan(null);
         own.Legs![1].TravelMark = new TripRowMark { Status = TripRowMarkStatuses.Own };
-        Assert.Equal("No stay yet. No taxi yet. Travel booked.", TripReminderRules.StartsInSummary(FourDayTrip(), own, []));
+        Assert.Equal("No stay yet. No taxi yet.", TripReminderRules.StartsInSummary(FourDayTrip(), own, []));
 
         var open = TwoCityPlan(JourneyArrival(JourneyA));
-        Assert.Equal("No stay yet. No taxi yet. 1 travel not booked.",
+        Assert.Equal("No stay yet. No taxi yet.",
             TripReminderRules.StartsInSummary(FourDayTrip(), open, [], [SavedA()]));
 
         Assert.Equal("No stay yet. No taxi yet.", TripReminderRules.StartsInSummary(FourDayTrip(), TwoCityPlan(null), []));

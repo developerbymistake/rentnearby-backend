@@ -26,9 +26,13 @@ public class TaxiAckTests
             return Task.FromResult(Offers.GetValueOrDefault(offerId));
         }
 
-        // Same condition as EfTaxiAckSteps.RecordFirstSql: only while no ack is stored.
+        // Same condition as EfTaxiAckSteps.RecordFirstSql: while no ack is stored, or a good ack over a stored late one.
         public Task<bool> TryRecordFirstAsync(Guid offerId, DateTime receivedAtUtc, bool late, CancellationToken ct)
-            => Task.FromResult(Stored.TryAdd(offerId, (receivedAtUtc, late)));
+        {
+            if (Stored.TryGetValue(offerId, out var was) && !(was.Late && !late)) return Task.FromResult(false);
+            Stored[offerId] = (receivedAtUtc, late);
+            return Task.FromResult(true);
+        }
 
         public Task ResetRingMissAsync(Guid driverListingId, CancellationToken ct)
         {
@@ -75,7 +79,7 @@ public class TaxiAckTests
         var steps = new FakeAckSteps();
         var offer = Guid.NewGuid();
         var listing = Guid.NewGuid();
-        steps.Offers[offer] = new TaxiAckOffer(listing, OfferedAt);
+        steps.Offers[offer] = new TaxiAckOffer(listing, OfferedAt, OfferedAt.AddSeconds(TaxiDispatchRules.RingSeconds));
         return (steps, offer, listing);
     }
 
@@ -118,6 +122,38 @@ public class TaxiAckTests
 
         Assert.Equal((first, false), steps.Stored[offer]);
         Assert.Contains("\"PushReceivedAt\" IS NULL", EfTaxiAckSteps.RecordFirstSql);
+    }
+
+    [Fact]
+    public async Task Late_ack_for_an_ended_ring_is_stored_and_does_not_reset()
+    {
+        var (steps, offer, _) = Kit();
+        var result = await Run(steps, offer, Body(offer, shown: false, late: true));
+        Assert.Equal(TaxiAckOutcome.Stored, result.Outcome);
+        Assert.False(result.ResetMissedRings);
+        Assert.True(steps.Stored[offer].Late);
+    }
+
+    [Fact]
+    public async Task Ack_after_the_offer_expiry_is_late_and_does_not_reset()
+    {
+        var (steps, offer, _) = Kit();
+        var after = OfferedAt.AddSeconds(TaxiDispatchRules.RingSeconds + 5);
+        var result = await TaxiAckFlow.RunAsync(steps, Tokens, offer, Body(offer), after, null, CancellationToken.None);
+        Assert.False(result.ResetMissedRings);
+        Assert.True(steps.Stored[offer].Late);
+    }
+
+    [Fact]
+    public async Task Shown_ack_replaces_an_earlier_late_ack_and_resets()
+    {
+        var (steps, offer, listing) = Kit();
+        await Run(steps, offer, Body(offer, shown: false, late: true));
+        var result = await Run(steps, offer, Body(offer));
+        Assert.True(result.ResetMissedRings);
+        Assert.Equal([listing], steps.Resets);
+        Assert.False(steps.Stored[offer].Late);
+        Assert.Contains("(\"PushLate\" AND NOT @late)", EfTaxiAckSteps.RecordFirstSql);
     }
 
     [Fact]
@@ -272,13 +308,15 @@ public class TaxiAckTests
     [Fact]
     public void Test_ring_is_the_ring_shape_with_no_offer_and_30_seconds()
     {
-        var row = TaxiDriverRequestHandlers.TestRingOutbox(Guid.NewGuid(), Now);
+        var user = Guid.NewGuid();
+        var row = TaxiDriverRequestHandlers.TestRingOutbox(user, Now);
         using var doc = JsonDocument.Parse(row.Payload);
         var data = doc.RootElement.GetProperty("data");
         Assert.Equal(TaxiPushKinds.RingTest, data.GetProperty("kind").GetString());
         Assert.Equal("", data.GetProperty("offerId").GetString());
         Assert.Equal(TaxiRingPayload.Instant(Now.AddSeconds(TaxiDispatchRules.TestRingSeconds)), data.GetProperty("expiresAt").GetString());
         Assert.Equal("taxi_request_ring", data.GetProperty("notification_type").GetString());
+        Assert.Equal(user.ToString("D"), data.GetProperty("driverUserId").GetString());
         Assert.Equal("TaxiRequestRing", doc.RootElement.GetProperty("kind").GetString());
         var ringKeys = File.ReadAllText(Path.Combine(ContractSamplesGuardTests.SamplesDir, "push_ring.json"));
         using var ring = JsonDocument.Parse(ringKeys);

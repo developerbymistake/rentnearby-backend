@@ -32,7 +32,7 @@ public class TripCoreB4Tests
         var progress = TripEasyRows.Compute(NewTrip(), plan, [], null);
         Assert.Equal("taxi", progress.GuideStep);
         // The server's own next row is the first todo row, which is not where Rahul stopped.
-        Assert.Equal("gettingThere", progress.Next!.Key);
+        Assert.Equal("stay:1", progress.Next!.Key);
     }
 
     [Theory]
@@ -66,7 +66,7 @@ public class TripCoreB4Tests
 
     [Fact]
     public void Progress_without_a_guide_step_leaves_it_null()
-        => Assert.Null(TripEasyRows.Progress([]).GuideStep);
+        => Assert.Null(TripEasyRows.Progress(1, []).GuideStep);
 
     [Fact]
     public void StepKeysOf_lists_every_key_of_a_three_city_plan()

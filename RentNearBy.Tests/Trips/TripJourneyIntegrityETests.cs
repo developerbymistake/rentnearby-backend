@@ -51,7 +51,7 @@ public class TripJourneyIntegrityETests
         => plan.Steps = new TripSteps { GettingThere = new TripStep { Status = TripStepStatuses.Chosen, JourneyId = JourneyId } };
 
     private static List<TripEasyRow> Rows(TripPlan plan, IReadOnlyList<TripEnquiry>? rows = null, SavedJourney[]? journeys = null)
-        => TripEasyRows.Build(TripOf(plan), plan, rows ?? [], journeys ?? []);
+        => TripEasyRows.BuildAll(TripOf(plan), plan, rows ?? [], journeys ?? []);
 
     private static TripEasyRow Row(IEnumerable<TripEasyRow> rows, string key) => rows.Single(r => r.Key.Id == key);
 
@@ -94,14 +94,14 @@ public class TripJourneyIntegrityETests
         var plan = OneCity();
         AllMarked(plan, Own);
         plan.Steps!.GettingThere = new TripStep { Status = TripStepStatuses.Chosen, JourneyId = JourneyId };
-        var progress = TripEasyRows.Progress(Rows(plan, null, [Journey()]));
+        // Travel rows leave the progress: stay and taxi own + itinerary = 100.
+        var progress = TripEasyRows.Progress(1, Rows(plan, null, [Journey()]));
         Assert.Equal(3, progress.Done);
-        Assert.NotEqual(100, progress.Percent);
-        Assert.NotEqual(TripBookingStates.Ready, TripBookingStates.Compute(TripOf(plan), plan, [], [Journey()]));
+        Assert.Equal(100, progress.Percent);
 
         var only = OneCity();
         ChooseGettingThere(only);
-        Assert.Equal(0, TripEasyRows.Progress(Rows(only, null, [Journey()])).Done);
+        Assert.Equal(1, TripEasyRows.Progress(1, Rows(only, null, [Journey()])).Done);
         Assert.Equal(TripBookingStates.PlanOnly, TripBookingStates.Compute(TripOf(only), only, [], [Journey()]));
     }
 
@@ -215,13 +215,13 @@ public class TripJourneyIntegrityETests
     // ---- M14: all skipped is 0 of 0, not 100 percent and not ready
 
     [Fact]
-    public void M14_all_skipped_is_zero_percent_and_not_ready()
+    public void M14_all_skipped_is_100_percent_but_not_ready()
     {
         var plan = OneCity();
         AllMarked(plan, Skipped);
-        var progress = TripEasyRows.Progress(Rows(plan));
-        Assert.Equal(0, progress.Total);
-        Assert.Equal(0, progress.Percent);
+        var progress = TripEasyRows.Progress(1, Rows(plan));
+        Assert.Equal(3, progress.Total);
+        Assert.Equal(100, progress.Percent);
         Assert.Equal(TripBookingStates.PlanOnly, TripBookingStates.Compute(TripOf(plan), plan, []));
     }
 }

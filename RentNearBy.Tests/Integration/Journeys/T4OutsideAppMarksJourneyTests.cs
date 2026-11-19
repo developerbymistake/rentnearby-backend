@@ -31,7 +31,7 @@ public class T4OutsideAppMarksJourneyTests(TestDatabase db) : IntegrationTestBas
         var (trip, plan, enquiries) = await h.LoadAsync(tripId);
         Assert.Empty(enquiries);
         var rows = TripEasyRows.Build(trip, plan, enquiries, null);
-        var progress = TripEasyRows.Progress(rows);
+        var progress = TripEasyRows.Progress(1, rows);
         Assert.Equal(3, progress.Total);
         Assert.Equal(progress.Total, progress.Done);
         Assert.Equal(100, progress.Percent);

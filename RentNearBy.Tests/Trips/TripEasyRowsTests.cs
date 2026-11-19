@@ -106,7 +106,7 @@ public class TripEasyRowsTests
 
     private static List<TripEasyRow> Rows(TripPlan plan, IReadOnlyList<TripEnquiry>? rows = null, SavedJourney[]? journeys = null,
         IReadOnlySet<Guid>? revised = null)
-        => TripEasyRows.Build(TripOf(plan), plan, rows ?? [], journeys ?? [], revised);
+        => TripEasyRows.BuildAll(TripOf(plan), plan, rows ?? [], journeys ?? [], revised);
 
     private static TripEasyRow Row(IEnumerable<TripEasyRow> rows, string key) => rows.Single(r => r.Key.Id == key);
 
@@ -270,7 +270,7 @@ public class TripEasyRowsTests
         plan.Legs![0].StayMark = Skipped;
         plan.TaxiMark = null;
         var rows = Rows(plan, [TaxiRow(TripEnquiryStatuses.BookedByTraveller, 1, 2)]);
-        var progress = TripEasyRows.Progress(rows);
+        var progress = TripEasyRows.Progress(1, rows);
         Assert.Equal(TripRowStates.Booked, Row(rows, "taxi").State);
         Assert.True(progress.Done >= 1);
         Assert.True(TripRowStates.IsDone(TripRowStates.Booked));
@@ -290,8 +290,9 @@ public class TripEasyRowsTests
         Assert.Equal(2, row.NightsCovered);
         Assert.Equal(3, row.NightsTotal);
         Assert.True(row.Partial);
-        var progress = TripEasyRows.Progress([row]);
-        Assert.Equal(0, progress.Done);
+        var progress = TripEasyRows.Progress(1, [row]);
+        // Issue 16 v7: an asked stay counts as handled (itinerary + stay).
+        Assert.Equal(2, progress.Done);
         Assert.Equal(1, progress.InProgress);
         Assert.Equal(2, progress.Rows[0].NightsCovered);
         Assert.Equal(3, progress.Rows[0].NightsTotal);
@@ -306,7 +307,7 @@ public class TripEasyRowsTests
         Assert.Equal(TripRowStates.Confirmed, row.State);
         Assert.True(row.Partial);
         Assert.False(TripEasyRows.IsRowDone(row));
-        Assert.Equal(0, TripEasyRows.Progress([row]).Done);
+        Assert.Equal(2, TripEasyRows.Progress(1, [row]).Done);
         Assert.Equal(TripBookingStates.Confirming, TripBookingStates.OfRows([row]));
     }
 
@@ -477,19 +478,19 @@ public class TripEasyRowsTests
     // ---- progress numbers
 
     [Fact]
-    public void Fresh_plan_is_all_todo_zero_percent_and_next_is_the_first_row()
+    public void Fresh_plan_is_itinerary_only_33_percent_and_next_is_the_stay()
     {
-        var progress = TripEasyRows.Progress(Rows(OneCity()));
-        Assert.Equal(4, progress.Total);
-        Assert.Equal(0, progress.Done);
+        var progress = TripEasyRows.Progress(1, Rows(OneCity()));
+        Assert.Equal(3, progress.Total);
+        Assert.Equal(1, progress.Done);
         Assert.Equal(0, progress.InProgress);
         Assert.Equal(0, progress.Attention);
-        Assert.Equal(0, progress.Percent);
+        Assert.Equal(33, progress.Percent);
         Assert.False(progress.NeedsYou);
-        Assert.Equal("gettingThere", progress.Next!.Key);
-        Assert.Equal(TripRowKinds.GettingThere, progress.Next.Kind);
-        Assert.Null(progress.Next.LegIndex);
-        Assert.Equal(4, progress.Rows.Count);
+        Assert.Equal("stay:1", progress.Next!.Key);
+        Assert.Equal(TripRowKinds.Stay, progress.Next.Kind);
+        Assert.Equal(1, progress.Next.LegIndex);
+        Assert.Equal(2, progress.Rows.Count);
     }
 
     [Fact]
@@ -500,14 +501,15 @@ public class TripEasyRowsTests
         plan.Steps!.ComingBack = new TripStep { Status = TripStepStatuses.Skipped };
         plan.Legs![1].TravelMark = Own;
         var rows = Rows(plan, [StayRow(TripEnquiryStatuses.Asked, 1, 2)], [Journey(GettingThereId, 1, Start)]);
-        var progress = TripEasyRows.Progress(rows, new DateTime(2026, 11, 7, 10, 0, 0, DateTimeKind.Utc));
+        var progress = TripEasyRows.Progress(1, rows, new DateTime(2026, 11, 7, 10, 0, 0, DateTimeKind.Utc));
 
         Assert.Equal(new[] { "saved", "asked", "own", "todo", "todo", "skipped" }, rows.Select(r => r.State).ToArray());
-        Assert.Equal(5, progress.Total);
-        Assert.Equal(1, progress.Done);
+        // Travel rows leave the progress; itinerary + asked stay = 2 of 3, next is the taxi.
+        Assert.Equal(3, progress.Total);
+        Assert.Equal(2, progress.Done);
         Assert.Equal(1, progress.InProgress);
-        Assert.Equal(20, progress.Percent);
-        Assert.Equal("gettingThere", progress.Next!.Key);
+        Assert.Equal(67, progress.Percent);
+        Assert.Equal("taxi", progress.Next!.Key);
         Assert.Null(progress.Next.LegIndex);
         Assert.Equal(new DateTime(2026, 11, 7, 10, 0, 0, DateTimeKind.Utc), progress.LastEventAt);
         Assert.Equal("asked", progress.Rows.Single(r => r.Key == "stay:1").State);
@@ -518,28 +520,28 @@ public class TripEasyRowsTests
     public void Next_prefers_attention_or_a_row_that_needs_you_then_todo_then_in_progress()
     {
         var plan = OneCity();
-        var progress = TripEasyRows.Progress(Rows(plan, [StayRow(TripEnquiryStatuses.Offered, 1, 2)]));
+        var progress = TripEasyRows.Progress(1, Rows(plan, [StayRow(TripEnquiryStatuses.Offered, 1, 2)]));
         Assert.True(progress.NeedsYou);
         Assert.Equal("stay:1", progress.Next!.Key);
 
         plan.Steps = new TripSteps { GettingThere = new TripStep { Status = TripStepStatuses.Own }, ComingBack = new TripStep { Status = TripStepStatuses.Own } };
         plan.TaxiMark = Own;
-        var waiting = TripEasyRows.Progress(Rows(plan, [StayRow(TripEnquiryStatuses.Asked, 1, 2)]));
-        Assert.Equal("stay:1", waiting.Next!.Key);
+        var waiting = TripEasyRows.Progress(1, Rows(plan, [StayRow(TripEnquiryStatuses.Asked, 1, 2)]));
+        Assert.Null(waiting.Next);
         Assert.False(waiting.NeedsYou);
-        Assert.Equal(75, waiting.Percent);
+        Assert.Equal(100, waiting.Percent);
     }
 
     [Fact]
-    public void Everything_skipped_is_zero_percent_of_nothing()
+    public void Everything_skipped_is_handled_and_100_percent()
     {
         var plan = OneCity();
         plan.Steps = new TripSteps { GettingThere = new TripStep { Status = TripStepStatuses.Skipped }, ComingBack = new TripStep { Status = TripStepStatuses.Skipped } };
         plan.TaxiMark = Skipped;
         plan.Legs![0].StayMark = Skipped;
-        var progress = TripEasyRows.Progress(Rows(plan));
-        Assert.Equal(0, progress.Total);
-        Assert.Equal(0, progress.Percent);
+        var progress = TripEasyRows.Progress(1, Rows(plan));
+        Assert.Equal(3, progress.Total);
+        Assert.Equal(100, progress.Percent);
         Assert.Null(progress.Next);
     }
 
@@ -615,7 +617,8 @@ public class TripEasyRowsTests
         var date = DateOf(3);
         var journeys = new[] { Journey(SegmentId, 1, date, asked: true) };
         var stay = StayRow(TripEnquiryStatuses.ConfirmedByBoth, 1, 2);
-        Assert.Equal(TripBookingStates.Confirming, Booking(plan, [stay], journeys: journeys));
+        // Travel rows no longer count in the booking state (the question flow is gone).
+        Assert.Equal(TripBookingStates.Ready, Booking(plan, [stay], journeys: journeys));
 
         var car = JourneyRow(TripEnquiryStatuses.ConfirmedByBoth, SegmentId, 1, date, TripStepRoles.Segment);
         Assert.Equal(TripBookingStates.Ready, Booking(plan, [stay, car], journeys: journeys));

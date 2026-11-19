@@ -425,7 +425,7 @@ public static class TripHandlers
         // A new trip has no enquiries yet, so a guide claiming progress is forged.
         var refs = TripJourneyLinks.ReferencedIds(plan);
         var owned = refs.Count == 0 ? new List<SavedJourney>() : (await journeys.GetOwnedByIdsAsync(refs, userId)).ToList();
-        var newRows = TripEasyRows.Build(new Trip { Id = Guid.NewGuid(), StartDate = plan.Settings.StartDate, EndDate = plan.EndDate }, plan, [], owned);
+        var newRows = TripEasyRows.BuildAll(new Trip { Id = Guid.NewGuid(), StartDate = plan.Settings.StartDate, EndDate = plan.EndDate }, plan, [], owned);
         plan.Guide = TripGuideGate.Apply(plan.Guide, newRows);
 
         var trip = NewTrip(userId, request, plan, DateTime.UtcNow);
@@ -604,7 +604,7 @@ public static class TripHandlers
         var plan = request.Plan!;
         plan.Normalize();
         var planLock = await TripPlanLockReader.ReadAsync(db, trip.Id);
-        if (TripPlanLock.UpdateRefusal(planLock.Reason, planLock.RequestId, stored, plan) is { } lockedEarly) return LockRefusal(lockedEarly);
+        if (TripPlanLock.UpdateRefusal(planLock.Reason, planLock.RequestId, stored, plan, planLock.EnquiryId) is { } lockedEarly) return LockRefusal(lockedEarly);
 
         var enquiries0 = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
         var hasLive = enquiries0.Any(x => TripEnquiryStatuses.IsOpen(x.Status));
@@ -626,9 +626,9 @@ public static class TripHandlers
         var extraIds = TripJourneyLinks.ReferencedIds(plan).Where(j => linked0.All(l => l.Id != j)).ToList();
         var known = extraIds.Count == 0 ? linked0 : linked0.Concat(await journeys.GetOwnedByIdsAsync(extraIds, userId)).ToList();
         var taxiRequest0 = await TripTaxiRequestReads.ReadAsync(db, trip);
-        var storedRows = TripEasyRows.Build(trip, stored, enquiries0, linked0, null, taxiRequest0);
+        var storedRows = TripEasyRows.BuildAll(trip, stored, enquiries0, linked0, null, taxiRequest0);
         var incomingTrip = new Trip { Id = trip.Id, Status = trip.Status, StartDate = plan.Settings.StartDate, EndDate = plan.EndDate };
-        var incomingRows = TripEasyRows.Build(incomingTrip, plan, enquiries0, known, null, taxiRequest0);
+        var incomingRows = TripEasyRows.BuildAll(incomingTrip, plan, enquiries0, known, null, taxiRequest0);
         if (TripMarkGuard.BlockedKey(storedRows, incomingRows) != null)
             return ConflictResponse("This step has live enquiries or a booking. Withdraw or cancel them first.", TripMarkGuard.Code);
         if (TripBookedRange.Strands(trip.StartDate ?? stored.Settings?.StartDate, stored.Days.Count, plan.Settings.StartDate, plan.Days.Count, enquiries0))
@@ -713,7 +713,7 @@ public static class TripHandlers
             // A taxi request created after the early check is seen here: its create holds the same trip row lock.
             await TripGuards.LockTripAsync(db, trip.Id);
             var planLockNow = await TripPlanLockReader.ReadAsync(db, trip.Id);
-            if (TripPlanLock.UpdateRefusal(planLockNow.Reason, planLockNow.RequestId, stored, plan) is { } lockedNow)
+            if (TripPlanLock.UpdateRefusal(planLockNow.Reason, planLockNow.RequestId, stored, plan, planLockNow.EnquiryId) is { } lockedNow)
             {
                 await unitOfWork.RollbackTransactionAsync();
                 return LockRefusal(lockedNow);
@@ -794,6 +794,59 @@ public static class TripHandlers
         return OkResponse(dto);
     }
 
+    // POST /trips/{id}/complete-plan (issue 16 v7): owner only; marks the open Taxi and Stay parts skipped. Idempotent.
+    public static async Task<IResult> CompletePlan(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, ISavedJourneyRepository journeys)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+        var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
+        if (trip == null) return TripNotFound();
+        if (TripPlanCompat.NeedsUpdate(StoredPlanVersion(trip)))
+            return ConflictResponse("Update the app to edit this trip.", TripEnquiryErrorTypes.TripNeedsUpdate);
+        if (trip.Status == TripStatuses.Completed)
+            return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
+
+        TripPlan plan;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await TripGuards.LockTripAsync(db, trip.Id);
+            await db.Entry(trip).ReloadAsync();
+            plan = ReadPlan(trip);
+            var enquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
+            var taxiRequest = await TripTaxiRequestReads.ReadAsync(db, trip);
+            var rows = TripEasyRows.Build(trip, plan, enquiries, await LinkedJourneysAsync(journeys, trip, userId), null, taxiRequest);
+            if (!TripCompletePlan.Apply(plan, rows, trip.SpotCount))
+            {
+                await unitOfWork.RollbackTransactionAsync();
+            }
+            else
+            {
+                plan.Version = TripPlan.CurrentVersion;
+                trip.PlanJson = JsonSerializer.Serialize(plan, TripJson.Options);
+                trip.UpdatedAt = DateTime.UtcNow;
+                await unitOfWork.SaveChangesAsync();
+                await unitOfWork.CommitTransactionAsync();
+            }
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return ConflictResponse("This trip was just modified. Please retry.", "CONCURRENT_UPDATE");
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+
+        var tripEnquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
+        var linked = await LinkedJourneysAsync(journeys, trip, userId);
+        var dto = ToDto(trip, plan, tripEnquiries, linked, await RevisedPendingAsync(unitOfWork, tripEnquiries), await TripTaxiRequestReads.ReadAsync(db, trip));
+        dto.Journeys = await JourneyDtosAsync(journeys, linked, plan, tripEnquiries);
+        return OkResponse(dto);
+    }
+
     private const string TripLegGoneReason = "LegRemoved";
 
     public static IResult LockRefusal(TripLockRefusal refusal)
@@ -843,7 +896,7 @@ public static class TripHandlers
         {
             await TripGuards.LockTripAsync(db, trip.Id);
             var planLock = await TripPlanLockReader.ReadAsync(db, trip.Id);
-            if (TripPlanLock.DeleteRefusal(planLock.Reason, planLock.RequestId) is { } locked)
+            if (TripPlanLock.DeleteRefusal(planLock.Reason, planLock.RequestId, planLock.EnquiryId) is { } locked)
             {
                 await unitOfWork.RollbackTransactionAsync();
                 return LockRefusal(locked);
@@ -996,7 +1049,7 @@ public static class TripHandlers
             Plan = plan,
             BookingState = TripBookingStates.Compute(trip, plan, rows, linked, taxiRequest),
             Progress = TripEasyRows.Compute(trip, plan, rows, linked, revisedPending, taxiRequest),
-            PlanLock = TripTaxiRequestFields.PlanLock(taxiRequest),
+            PlanLock = TripTaxiRequestFields.PlanLock(taxiRequest, rows),
             TaxiRequest = TripTaxiRequestFields.Ref(taxiRequest),
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,
@@ -1059,7 +1112,7 @@ public static class TripHandlers
             BookingState = trip.Status == TripStatuses.Completed ? TripBookingStates.Completed
                 : trip.Status != TripStatuses.Planned || trip.SpotCount == 0 ? TripBookingStates.Draft
                 : TripBookingStates.OfRows(rows),
-            Progress = TripEasyRows.Progress(rows, enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt), TripEasyRows.GuideStepOf(plan)),
+            Progress = TripEasyRows.Progress(trip.SpotCount, rows, enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt), TripEasyRows.GuideStepOf(plan)),
             AgreedTotal = TripEasyRows.AgreedTotal(enquiries),
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,

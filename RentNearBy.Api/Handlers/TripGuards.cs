@@ -84,6 +84,25 @@ public static class TripGuards
             || stepStatus is TripStepStatuses.Own or TripStepStatuses.Skipped;
     }
 
+    // A shortlist send names its stay step: asking hosts for it is the traveller reopening a city he had settled (an own or
+    // skipped mark, Complete my plan, an old build's guide answer). Clears that step only; true = the plan changed.
+    public static bool ReopenStayStep(TripPlan plan, string stepKey)
+    {
+        if (!TryLeg(stepKey, "stay:", out var k)) return false;
+        var changed = false;
+        if (plan.Guide?.Choices is { } choices && choices.TryGetValue(stepKey, out var choice)
+            && (choice == TripGuideChoices.Own || choice == TripGuideChoices.Skip))
+            changed |= choices.Remove(stepKey);
+        var legs = plan.Legs ?? [];
+        if (k >= 1 && k <= legs.Count && legs[k - 1] is { } leg
+            && leg.StayMark?.Status is TripRowMarkStatuses.Own or TripRowMarkStatuses.Skipped)
+        {
+            leg.StayMark = null;
+            changed = true;
+        }
+        return changed;
+    }
+
     private static bool TryLeg(string key, string prefix, out int leg)
     {
         leg = 0;
@@ -127,6 +146,23 @@ public static class TripGuards
         var have = active.ToHashSet();
         return listingIds.Where(id => !have.Contains(id) && !exempt.Contains(id)).ToList();
     }
+
+    // Reasons the server itself closes a shortlist row with (the 72 h clock, an admin take-down): the app may still hold the row
+    // as active, so a send naming it skips that host instead of refusing the whole batch.
+    public static readonly string[] ServerCloseReasons = [TripShortlistClosedReasons.NoReply, TripShortlistClosedReasons.Unavailable];
+
+    // Of the listings without an Active row, those whose row on this step the server closed.
+    public static async Task<HashSet<Guid>> ServerClosedAsync(
+        ApplicationDbContext db, Guid tripId, Guid callerId, string stepKey, IReadOnlyCollection<Guid> listingIds)
+        => (await db.TripShortlistItems.AsNoTracking()
+            .Where(x => x.TripId == tripId && x.TravellerUserId == callerId && x.StepKey == stepKey
+                && x.State == TripShortlistStates.Closed && x.ClosedReason != null && ServerCloseReasons.Contains(x.ClosedReason)
+                && listingIds.Contains(x.ListingId))
+            .Select(x => x.ListingId).ToListAsync()).ToHashSet();
+
+    // A listing never shortlisted on the step (or removed by the traveller) refuses the send; one the server closed is skipped.
+    public static (bool Refuse, List<Guid> Skip) ShortlistGaps(IReadOnlyCollection<Guid> missing, IReadOnlySet<Guid> serverClosed)
+        => missing.Any(id => !serverClosed.Contains(id)) ? (true, []) : (false, missing.ToList());
 
     public static IResult NotShortlistedError()
         => ConflictResponse("Add these to your shortlist first.", TripEnquiryErrorTypes.NotShortlisted);

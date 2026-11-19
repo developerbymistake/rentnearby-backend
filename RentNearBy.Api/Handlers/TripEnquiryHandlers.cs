@@ -117,8 +117,17 @@ public static class TripEnquiryHandlers
         var plan = ReadPlan(trip);
         if (request.StepKey is { } sendStep
             && TripGuards.StepMismatch(plan, sendStep, TripShortlistKinds.Stay, request.Day) is { } mismatch) return TripGuards.StepMismatchError(mismatch);
-        // No stepKey: the step is derived from the nights, so a settled step stays closed to a forged send.
-        if (TripGuards.StepClosed(plan, request.StepKey ?? TripGuards.DerivedStayStep(plan, request.Day))) return TripGuards.StepClosedError();
+        // No stepKey: the step is derived from the nights, so a settled step stays closed to a forged send. A shortlist send
+        // names its step and reopens it (Complete my plan skipped it, or an old build marked it own): the mark is cleared
+        // under the trip lock once something was sent.
+        var reopenStep = false;
+        if (TripGuards.StepClosed(plan, request.StepKey ?? TripGuards.DerivedStayStep(plan, request.Day)))
+        {
+            if (request.StepKey == null) return TripGuards.StepClosedError();
+            if (TripPlanCompat.NeedsUpdate(TripHandlers.StoredPlanVersion(trip)))
+                return ConflictResponse("Update the app to edit this trip.", TripEnquiryErrorTypes.TripNeedsUpdate);
+            reopenStep = true;
+        }
         var (checkIn, checkOut) = Nights(trip, plan, request.Day, request.AllNights, request.Nights);
         var multiNight = request.Nights != null ? TripExecutionRules.Nights(checkIn, checkOut) > 1 : request.AllNights;
 
@@ -155,12 +164,19 @@ public static class TripEnquiryHandlers
             toProcess = requested.Where(id => !replayed.Contains(id)).ToList();
         }
 
-        // A step send is for shortlisted hosts only (hosts already open in the step are handled below as open rows).
+        // A step send is for shortlisted hosts only (hosts already open in the step are handled below as open rows). A host whose
+        // shortlist row the server closed since the app loaded it (72 h clock, take-down) is skipped; the rest are still sent.
         if (request.StepKey is { } shortStep && toProcess.Count > 0)
         {
             var open = tripOpen.Where(x => x.StepKey == shortStep).Select(x => x.ListingId).ToHashSet();
-            if ((await TripGuards.NotShortlistedAsync(db, trip.Id, callerId, shortStep, toProcess, open)).Count > 0)
-                return TripGuards.NotShortlistedError();
+            var missing = await TripGuards.NotShortlistedAsync(db, trip.Id, callerId, shortStep, toProcess, open);
+            if (missing.Count > 0)
+            {
+                var (refuse, gone) = TripGuards.ShortlistGaps(missing, await TripGuards.ServerClosedAsync(db, trip.Id, callerId, shortStep, missing));
+                if (refuse) return TripGuards.NotShortlistedError();
+                skipped.AddRange(gone.Select(id => Skip(id, TripSkipReasons.NotAvailable)));
+                toProcess = toProcess.Where(id => !gone.Contains(id)).ToList();
+            }
         }
 
         // One query each for the stays, the blocks and the traveller's own open rows (no per-listing lookups).
@@ -219,6 +235,12 @@ public static class TripEnquiryHandlers
                 continue;
             }
 
+            // Issue 10: one open enquiry per trip and stay; a booked row for other nights refuses a second one.
+            if (tripOpen.Any(x => x.ListingId == listingId))
+            {
+                skipped.Add(Skip(listingId, TripSkipReasons.AlreadyOpen));
+                continue;
+            }
             if (!TripExecutionRules.FitsNightCap(tripOpen, listingId, candidates.Count + stayMerges.Count, checkIn, checkOut))
             {
                 skipped.Add(Skip(listingId, TripSkipReasons.LimitReached));
@@ -374,6 +396,7 @@ public static class TripEnquiryHandlers
                     counted.AddRange(sentIds);
                     await unitOfWork.TripShortlist.MarkSentAsync(trip.Id, request.StepKey, sentIds, now);
                 }
+                if (reopenStep && (created.Count > 0 || updated.Count > 0)) await ReopenStayStepAsync(db, trip, request.StepKey!, now);
                 await db.SaveChangesAsync();
                 await PromoteToPlannedAsync(db, trip.Id);
                 await unitOfWork.CommitTransactionAsync();
@@ -443,7 +466,7 @@ public static class TripEnquiryHandlers
     // Under the trip row lock: a joined row must still be the same Asked range (else null = concurrent change); a new
     // stay is answered with a fresh row that already holds the nights, skipped when the stay has another open row on the
     // trip, and every row must still fit the night cap.
-    private static (List<TripEnquiry>? Merges, List<StaySnapshot> Candidates) RecheckUnderLock(
+    public static (List<TripEnquiry>? Merges, List<StaySnapshot> Candidates) RecheckUnderLock(
         List<TripEnquiry> fresh, List<TripEnquiry> stayMerges, List<StaySnapshot> candidates, DateOnly checkIn, DateOnly checkOut,
         List<TripEnquiry> items, List<TripSkippedDto> skipped)
     {
@@ -472,9 +495,10 @@ public static class TripEnquiryHandlers
                 items.Add(holder);
                 continue;
             }
-            if (mine.Any(x => TripEnquiryStatuses.IsUnconfirmed(x.Status) || Overlaps(x, checkIn, checkOut)))
+            if (mine.Count > 0)
             {
-                skipped.Add(Skip(stay.Id, TripSkipReasons.OpenForOtherNights));
+                skipped.Add(Skip(stay.Id, mine.Any(x => TripEnquiryStatuses.IsUnconfirmed(x.Status) || Overlaps(x, checkIn, checkOut))
+                    ? TripSkipReasons.OpenForOtherNights : TripSkipReasons.AlreadyOpen));
                 continue;
             }
             if (!TripExecutionRules.FitsNightCap(fresh, stay.Id, added, checkIn, checkOut))
@@ -2449,6 +2473,18 @@ public static class TripEnquiryHandlers
     }
 
     // An ask or a booking makes a Draft trip Planned, so reminders and auto-complete see it. Never touches the tracked Trip.
+    // Under the trip row lock: the stored plan is read fresh and only the sent step's mark is cleared. UpdatedAt moves so an
+    // app save on the old base answers TripChanged and reloads instead of writing the mark back.
+    internal static async Task ReopenStayStepAsync(ApplicationDbContext db, Trip trip, string stepKey, DateTime now)
+    {
+        await db.Entry(trip).ReloadAsync();
+        var plan = ReadPlan(trip);
+        if (!TripGuards.ReopenStayStep(plan, stepKey)) return;
+        plan.Version = TripPlan.CurrentVersion;
+        trip.PlanJson = JsonSerializer.Serialize(plan, TripJson.Options);
+        trip.UpdatedAt = now;
+    }
+
     internal static Task<int> PromoteToPlannedAsync(ApplicationDbContext db, Guid tripId)
         => db.Trips.Where(t => t.Id == tripId && t.Status == TripStatuses.Draft)
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TripStatuses.Planned));
@@ -2684,7 +2720,7 @@ public static class TripEnquiryHandlers
 
     private static TripPlan ReadPlan(Trip trip) => TripPlanReader.Read(trip);
 
-    private sealed record StaySnapshot(
+    public sealed record StaySnapshot(
         Guid Id, Guid UserId, string? Name, string Status, bool AcceptingGuests, bool IsDeleted, double? Latitude, double? Longitude,
         Guid? StayTypeId, string? CityName, string? DistrictName, Guid? DistrictId);
 

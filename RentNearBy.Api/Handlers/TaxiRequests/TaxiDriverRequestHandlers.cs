@@ -270,7 +270,7 @@ public static class TaxiDriverRequestHandlers
     public static OutboxMessage TestRingOutbox(Guid userId, DateTime nowUtc)
     {
         var expires = nowUtc.AddSeconds(TaxiDispatchRules.TestRingSeconds);
-        var data = TestRingData(nowUtc, expires);
+        var data = TestRingData(nowUtc, expires, userId);
         var push = new OutboxPushPayload(
             "ringtest:" + Guid.NewGuid().ToString("N"), userId, null, data["title"], data["line1"], data["action_route"], data["action_args_json"],
             TestRingTag, 0, NotificationTypes.TaxiRequestRing, expires, data);
@@ -285,7 +285,7 @@ public static class TaxiDriverRequestHandlers
         };
     }
 
-    public static Dictionary<string, string> TestRingData(DateTime nowUtc, DateTime expiresAtUtc) => new()
+    public static Dictionary<string, string> TestRingData(DateTime nowUtc, DateTime expiresAtUtc, Guid userId) => new()
     {
         ["notification_type"] = NotificationTypes.ToWireValue(NotificationTypes.TaxiRequestRing),
         ["kind"] = TaxiPushKinds.RingTest,
@@ -304,6 +304,7 @@ public static class TaxiDriverRequestHandlers
         ["sightseeingDays"] = "0",
         ["action_route"] = UserNotificationRoutes.TaxiReady,
         ["action_args_json"] = "{}",
+        [TaxiRingPayload.DriverUserIdKey] = userId.ToString("D"),
     };
 
     // Owner of the offer or booking (null = no such row) against the caller: null = allowed, else the error type.

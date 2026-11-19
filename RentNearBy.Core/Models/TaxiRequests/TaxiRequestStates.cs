@@ -209,8 +209,10 @@ public static class PlanLockReasons
 {
     public const string TaxiRequestActive = "TaxiRequestActive";
     public const string TaxiBookingActive = "TaxiBookingActive";
+    // Decision 14, stay half: a booked stay (ConfirmedByBoth or BookedByTraveller) of the trip.
+    public const string StayBookingActive = "StayBookingActive";
 
-    public static readonly IReadOnlyList<string> All = [TaxiRequestActive, TaxiBookingActive];
+    public static readonly IReadOnlyList<string> All = [TaxiRequestActive, TaxiBookingActive, StayBookingActive];
     public static readonly string SqlList = TaxiSql.List(All);
 
     // null = the request state does not lock the plan.
@@ -221,11 +223,18 @@ public static class PlanLockReasons
         _ => null,
     };
 
-    public static string MessageFor(string reason) => reason == TaxiBookingActive
-        ? "Plan is locked while your booking is active. Cancel the booking to edit."
-        : "Plan is locked while your taxi request is active. Cancel the request to edit.";
+    public static bool IsTaxi(string? reason) => reason is TaxiRequestActive or TaxiBookingActive;
+
+    public static string MessageFor(string reason) => reason switch
+    {
+        TaxiBookingActive => "Plan is locked while your booking is active. Cancel the booking to edit.",
+        StayBookingActive => "Plan is locked while your stay booking is active. Cancel the stay booking to edit.",
+        _ => "Plan is locked while your taxi request is active. Cancel the request to edit.",
+    };
 
     public static string DeleteMessage => "Cancel the taxi request first.";
+
+    public static string DeleteMessageFor(string reason) => reason == StayBookingActive ? "Cancel your stay booking first." : DeleteMessage;
 }
 
 public static class DueActionKinds

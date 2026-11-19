@@ -283,29 +283,19 @@ public class TripSummaryRecordBuilderTests
         plan.Steps = new TripSteps { ComingBack = new TripStep { Status = TripStepStatuses.Skipped } };
         var record = Build(NewTrip(4), plan, [car1, local, StayRow(2, 4, "Alaknanda View", TripEnquiryStatuses.Asked)], [journey]);
 
-        Assert.Equal(new[] { "gettingThere", "stay:1", "between:2", "stay:2", "taxi" }, record.Arrangements.Select(a => a.Key).ToArray());
-        var gettingThere = record.Arrangements[0];
-        Assert.Equal("Getting there", gettingThere.Title);
-        Assert.Equal(TripRowStates.Todo, gettingThere.State);
-        Assert.Null(gettingThere.Detail);
+        Assert.Equal(new[] { "stay:1", "stay:2", "taxi" }, record.Arrangements.Select(a => a.Key).ToArray());
 
-        var own = record.Arrangements[1];
+        var own = record.Arrangements[0];
         Assert.Equal("Stay in Haridwar", own.Title);
         Assert.Equal(TripRowStates.Own, own.State);
         Assert.Null(own.Detail);
 
-        var between = record.Arrangements[2];
-        Assert.Equal("Haridwar → Badrinath", between.Title);
-        Assert.Equal(2, between.LegIndex);
-        Assert.Equal(TripRowStates.Asked, between.State);
-        Assert.Contains("2 cars", between.Detail);
-
-        var stay = record.Arrangements[3];
+        var stay = record.Arrangements[1];
         Assert.Equal("Stay in Badrinath", stay.Title);
         Assert.Equal(TripRowStates.Asked, stay.State);
         Assert.Equal("Alaknanda View · waiting for reply", stay.Detail);
 
-        var taxi = record.Arrangements[4];
+        var taxi = record.Arrangements[2];
         Assert.Equal("Local taxi", taxi.Title);
         Assert.Equal(TripRowStates.Booked, taxi.State);
     }
