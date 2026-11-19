@@ -11,6 +11,7 @@ using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using RentNearBy.Tests.Data;
 using RentNearBy.Tests.Integration;
@@ -72,15 +73,16 @@ public class TaxiRequestApiIntegrationTests(TestDatabase db) : IntegrationTestBa
         var service = Service(s.Db);
         var views = new TaxiRequestViews(s.Db);
         var http = Http();
+        var limiter = new InMemoryRateLimitService();
 
         Assert.Equal((403, TaxiRequestErrorTypes.NotTripOwner),
-            await RunAsync(await TaxiRequestHandlers.Get(request, Caller(stranger), service, views, http, default)));
+            await RunAsync(await TaxiRequestHandlers.Get(request, Caller(stranger), service, views, http, limiter, default)));
         Assert.Equal((403, TaxiRequestErrorTypes.NotTripOwner),
             await RunAsync(await TaxiRequestHandlers.Cancel(request, new CancelTaxiRequestDto { Reason = RequestEndReasons.TravellerCancelled },
-                new CancelTaxiRequestValidator(), Caller(stranger), service, views, http, default)));
+                new CancelTaxiRequestValidator(), Caller(stranger), service, views, http, limiter, default)));
         Assert.Equal((403, TaxiRequestErrorTypes.NotTripOwner),
-            await RunAsync(await TaxiRequestHandlers.GetForTrip(trip, Caller(stranger), s.Db, views, default)));
-        Assert.Equal((200, null), await RunAsync(await TaxiRequestHandlers.Get(request, Caller(owner), service, views, http, default)));
+            await RunAsync(await TaxiRequestHandlers.GetForTrip(trip, Caller(stranger), s.Db, views, http, limiter, default)));
+        Assert.Equal((200, null), await RunAsync(await TaxiRequestHandlers.Get(request, Caller(owner), service, views, http, limiter, default)));
 
         await using var read = CreateContext();
         Assert.Equal(RequestStates.Open, (await read.Set<TaxiRequest>().AsNoTracking().SingleAsync(r => r.Id == request)).Status);
@@ -92,7 +94,7 @@ public class TaxiRequestApiIntegrationTests(TestDatabase db) : IntegrationTestBa
         await using var h = new JourneyHarness(Db);
         var user = await h.AddSeekerAsync();
         await using var s = h.NewScope();
-        var result = await TaxiRequestHandlers.Get(Guid.NewGuid(), Caller(user), Service(s.Db), new TaxiRequestViews(s.Db), Http(), default);
+        var result = await TaxiRequestHandlers.Get(Guid.NewGuid(), Caller(user), Service(s.Db), new TaxiRequestViews(s.Db), Http(), new InMemoryRateLimitService(), default);
         Assert.Equal((404, TaxiRequestErrorTypes.TaxiRequestNotFound), await RunAsync(result));
     }
 }

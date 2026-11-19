@@ -7,7 +7,7 @@ namespace RentNearBy.Infrastructure.Services.TaxiRequests;
 
 public sealed record RingPush(Guid OfferId, Guid RequestId, Guid DriverUserId, DateTime ExpiresAtUtc);
 
-public sealed record RingEndPush(Guid OfferId, Guid RequestId, Guid DriverUserId, string Reason);
+public sealed record RingEndPush(Guid OfferId, Guid RequestId, Guid DriverUserId, string Reason, string? ExceptToken = null);
 
 // One value per row of the contract table 10.3.
 public enum TaxiNoticeKind
@@ -24,10 +24,13 @@ public enum TaxiNoticeKind
     RequestClosed,
     BookingCancelled,
     RingsMissed,
+    ChooseDriver,
 }
 
-// PersonName is the other side's name for the copy that needs one ({driver}, {name}); callers never pass copy.
-public sealed record TaxiNotice(TaxiNoticeKind Kind, Guid UserId, Guid TripId, Guid RequestId, Guid? OfferId = null, string? PersonName = null);
+// PersonName is the other side's name for the copy that needs one ({driver}, {name}); Count is the number the copy shows
+// (ChooseDriver: live accepted drivers); Reason is the offer end reason of a SelectionLapsed. Callers never pass copy.
+public sealed record TaxiNotice(TaxiNoticeKind Kind, Guid UserId, Guid TripId, Guid RequestId, Guid? OfferId = null, string? PersonName = null, int Count = 0,
+    string? Reason = null);
 
 public static class TaxiNoticeTypes
 {
@@ -45,6 +48,7 @@ public static class TaxiNoticeTypes
         TaxiNoticeKind.RequestClosed => NotificationTypes.TaxiRequestClosed,
         TaxiNoticeKind.BookingCancelled => NotificationTypes.TaxiBookingCancelled,
         TaxiNoticeKind.RingsMissed => NotificationTypes.TaxiRingsMissed,
+        TaxiNoticeKind.ChooseDriver => NotificationTypes.TaxiChooseDriver,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown notice kind"),
     };
 }

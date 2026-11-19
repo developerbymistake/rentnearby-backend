@@ -54,6 +54,7 @@ public class TaxiRequestEndpointsTests
         builder.Services.AddScoped(Unused<IValidator<CreateTaxiRequestDto>>);
         builder.Services.AddScoped(Unused<IValidator<CancelTaxiRequestDto>>);
         builder.Services.AddScoped(Unused<IValidator<RateTaxiRequestDto>>);
+        builder.Services.AddSingleton(Unused<RentNearBy.Core.Interfaces.IRateLimitService>);
         builder.Services.AddSingleton<ITripExecutionFeatureReader>(new StubReader(true));
         var app = builder.Build();
 

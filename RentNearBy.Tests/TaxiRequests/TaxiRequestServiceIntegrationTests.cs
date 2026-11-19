@@ -210,6 +210,143 @@ public class TaxiRequestServiceIntegrationTests(TestDatabase db) : IntegrationTe
         Assert.False(await read.Set<TaxiRequest>().AnyAsync(r => r.TripId == trip));
     }
 
+    private const long Almora = 210000077;
+
+    private static CreateTaxiRequestDto SightseeingOnly(params int[] days) => new()
+    {
+        ClientRequestId = Guid.NewGuid(),
+        Pickup = new CreateTaxiPickupDto { On = false },
+        Sightseeing = new CreateTaxiSightseeingDto { On = true, Days = days.ToList() },
+        Drop = new CreateTaxiDropDto { On = false },
+        Seats = 4,
+    };
+
+    private static async Task<Guid> TripFromAsync(JourneyHarness h, Guid seeker, int startOffset, string title)
+    {
+        var plan = h.BuildPlan(("Nainital", Nainital, 3));
+        plan.Settings.StartDate = h.Start.AddDays(startOffset);
+        var id = await h.AddTripAsync(seeker, plan);
+        await using var s = h.NewScope();
+        await s.Db.Trips.Where(t => t.Id == id).ExecuteUpdateAsync(u => u.SetProperty(t => t.Title, title));
+        return id;
+    }
+
+    // O3 + O10
+    [IntegrationFact]
+    public async Task Create_is_refused_when_another_trip_of_the_traveller_has_an_active_request_on_overlapping_dates()
+    {
+        await using var h = new JourneyHarness(Db);
+        await ReadyDriverAsync(h, "Ramesh");
+        var seeker = await h.AddSeekerAsync();
+        var hills = await TripFromAsync(h, seeker, 0, "Hills trip");
+        var lakes = await TripFromAsync(h, seeker, 2, "Lakes trip");
+        var first = await CreateAsync(h, hills, seeker);
+
+        await using var s = h.NewScope();
+        var second = await Service(s.Db).CreateAsync(lakes, seeker, Body());
+
+        Assert.Equal((409, TaxiRequestErrorTypes.OverlappingTaxiRequest), (second.Error!.Status, second.Error.Type));
+        var data = (OverlappingTaxiRequestData)second.Error.Data!;
+        Assert.Equal((hills, "Hills trip", first.Id), (data.TripId, data.TripName, data.RequestId));
+        Assert.Equal("You already have a taxi request for these dates in Hills trip", second.Error.Message);
+        await using var read = CreateContext();
+        Assert.False(await read.Set<TaxiRequest>().AnyAsync(r => r.TripId == lakes));
+    }
+
+    [IntegrationFact]
+    public async Task Create_is_refused_while_another_trip_has_an_active_booking_on_overlapping_dates()
+    {
+        await using var h = new JourneyHarness(Db);
+        var driver = await ReadyDriverAsync(h, "Ramesh");
+        var seeker = await h.AddSeekerAsync();
+        var hills = await TripFromAsync(h, seeker, 0, "Hills trip");
+        var lakes = await TripFromAsync(h, seeker, 1, "Lakes trip");
+        await using (var s = h.NewScope())
+        {
+            s.Db.Set<TaxiBooking>().Add(new TaxiBooking
+            {
+                Id = Guid.NewGuid(), RequestId = Guid.NewGuid(), OfferId = Guid.NewGuid(), TripId = hills, DriverListingId = driver.Listing,
+                DriverUserId = driver.User, TravellerUserId = seeker, DateFrom = h.Start, DateTo = h.Start.AddDays(2),
+                Status = BookingStates.InProgress, TripName = "Hills trip", BookedAt = DateTime.UtcNow,
+            });
+            await s.Db.SaveChangesAsync();
+        }
+
+        await using var scope = h.NewScope();
+        var result = await Service(scope.Db).CreateAsync(lakes, seeker, Body());
+        Assert.Equal(TaxiRequestErrorTypes.OverlappingTaxiRequest, result.Error!.Type);
+        Assert.Equal("Hills trip", ((OverlappingTaxiRequestData)result.Error.Data!).TripName);
+    }
+
+    [IntegrationFact]
+    public async Task Another_trip_on_other_dates_or_with_an_ended_request_does_not_block()
+    {
+        await using var h = new JourneyHarness(Db);
+        await ReadyDriverAsync(h, "Ramesh");
+        var seeker = await h.AddSeekerAsync();
+        var hills = await TripFromAsync(h, seeker, 0, "Hills trip");
+        var later = await TripFromAsync(h, seeker, 5, "Later trip");
+        var lakes = await TripFromAsync(h, seeker, 1, "Lakes trip");
+        var first = await CreateAsync(h, hills, seeker);
+
+        await CreateAsync(h, later, seeker);
+        await SetAsync(h, first.Id, RequestStates.Cancelled, 0, 3);
+        await using var s = h.NewScope();
+        Assert.True((await Service(s.Db).CreateAsync(lakes, seeker, Body())).Created);
+    }
+
+    [IntegrationFact]
+    public async Task Two_trips_racing_on_overlapping_dates_create_only_one_request()
+    {
+        await using var h = new JourneyHarness(Db);
+        await ReadyDriverAsync(h, "Ramesh");
+        var seeker = await h.AddSeekerAsync();
+        var hills = await TripFromAsync(h, seeker, 0, "Hills trip");
+        var lakes = await TripFromAsync(h, seeker, 0, "Lakes trip");
+
+        async Task<TaxiRequestResult> Run(Guid trip)
+        {
+            await using var s = h.NewScope();
+            return await Service(s.Db).CreateAsync(trip, seeker, Body());
+        }
+
+        var results = await Task.WhenAll(Run(hills), Run(lakes));
+        Assert.Single(results, r => r.Created);
+        Assert.Single(results, r => r.Error?.Type == TaxiRequestErrorTypes.OverlappingTaxiRequest);
+    }
+
+    // O4: sightseeing-only days in the second city match drivers of that city, and the empty pool check uses it too.
+    [IntegrationFact]
+    public async Task Sightseeing_in_the_second_city_dispatches_to_that_city()
+    {
+        await using var h = new JourneyHarness(Db);
+        var driver = await ReadyDriverAsync(h, "Ramesh");
+        var seeker = await h.AddSeekerAsync();
+        var trip = await h.AddTripAsync(seeker, h.BuildPlan(("Nainital", Nainital, 2), ("Almora", Almora, 2)));
+
+        await using (var s = h.NewScope())
+        {
+            var refused = await Service(s.Db).CreateAsync(trip, seeker, SightseeingOnly(3, 4));
+            Assert.Equal(TaxiRequestErrorTypes.NoDriversNearHere, refused.Error!.Type);
+        }
+
+        await using (var s = h.NewScope())
+        {
+            s.Db.TaxiRoutes.Add(new TaxiRoute
+            {
+                Id = Guid.NewGuid(), TaxiListingId = driver.Listing, FromName = "Nainital", ToName = "Almora", FromCityKey = Nainital, ToCityKey = Almora,
+                FromLatitude = 29.39m, FromLongitude = 79.45m, ToLatitude = 29.59m, ToLongitude = 79.65m, Fare = 2500, TripType = "OneWay",
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            });
+            await s.Db.SaveChangesAsync();
+        }
+
+        await using var scope = h.NewScope();
+        var created = await Service(scope.Db).CreateAsync(trip, seeker, SightseeingOnly(3, 4));
+        Assert.True(created.Created, created.Error?.Type);
+        Assert.Equal((Almora, Almora, (long?)null), (created.Request!.DispatchCityKey, created.Request.MatchToCityKey, created.Request.MatchFromCityKey));
+    }
+
     [IntegrationFact]
     public async Task Cancel_closes_offers_and_unlocks()
     {
@@ -307,6 +444,31 @@ public class TaxiRequestServiceIntegrationTests(TestDatabase db) : IntegrationTe
         await SetAsync(h, request.Id, RequestStates.Collecting, 3, 3);
         await OfferAsync(h, request.Id, driver, OfferStates.Accepted);
         Assert.Equal(TaxiRequestErrorTypes.AllDriversBusy, (await AskAsync()).Error!.Type);
+    }
+
+    // O6: while the chosen driver has his confirm window, Ask more stays closed (even with an exhausted queue).
+    [IntegrationFact]
+    public async Task Ask_more_is_refused_while_a_driver_is_selected()
+    {
+        await using var h = new JourneyHarness(Db);
+        var driver = await ReadyDriverAsync(h, "Ramesh");
+        await ReadyDriverAsync(h, "Mohan");
+        var (trip, seeker) = await TripAsync(h);
+        var request = await CreateAsync(h, trip, seeker);
+        await SetAsync(h, request.Id, RequestStates.Selected, 1, 3);
+        var offer = await OfferAsync(h, request.Id, driver, OfferStates.Selected);
+        await using (var s = h.NewScope())
+            await s.Db.Set<TaxiRequest>().Where(r => r.Id == request.Id).ExecuteUpdateAsync(u => u
+                .SetProperty(r => r.SelectedOfferId, offer).SetProperty(r => r.QueueExhaustedAt, DateTime.UtcNow));
+        var before = await ReadAsync(request.Id);
+
+        TaxiRequestResult result;
+        await using (var s = h.NewScope()) result = await Service(s.Db).AskMoreAsync(request.Id, seeker);
+
+        Assert.Equal((409, TaxiRequestErrorTypes.TaxiRequestStateInvalid), Status(result));
+        var after = await ReadAsync(request.Id);
+        Assert.Equal((RequestStates.Selected, (Guid?)offer, (short)3, before.Version), (after.Status, after.SelectedOfferId, after.AcceptTarget, after.Version));
+        Assert.NotNull(after.QueueExhaustedAt);
     }
 
     [IntegrationFact]

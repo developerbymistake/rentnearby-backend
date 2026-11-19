@@ -101,10 +101,7 @@ public static class TaxiRingPayload
         return shown.Length == 0 ? pickup : $"{pickup} to {shown}";
     }
 
-    // "4 seater · 2 travellers"; seats 7 means seven or more.
+    // "4 seater · 2 travellers"; seats never fall below the travellers (O2).
     public static string SeatsLine(int seats, int travellers)
-    {
-        var seatText = seats >= TaxiRequestSeats.SevenPlus ? "7+" : seats.ToString(CultureInfo.InvariantCulture);
-        return $"{seatText} seater · {travellers} {(travellers == 1 ? "traveller" : "travellers")}";
-    }
+        => $"{seats.ToString(CultureInfo.InvariantCulture)} seater · {travellers} {(travellers == 1 ? "traveller" : "travellers")}";
 }

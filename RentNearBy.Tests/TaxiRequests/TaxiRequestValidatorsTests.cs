@@ -39,13 +39,27 @@ public class TaxiRequestValidatorsTests
     [Theory]
     [InlineData(0)]
     [InlineData(5)]
-    [InlineData(12)]
-    public void Seats_other_than_4_6_7_are_refused(int seats)
+    [InlineData(8)]
+    [InlineData(13)]
+    public void Seats_other_than_4_6_7_12_are_refused(int seats)
     {
         var body = Valid();
         body.Seats = seats;
         var result = new CreateTaxiRequestValidator().Validate(body);
         Assert.Equal(TaxiRequestCreateRules.SeatsMessage, Assert.Single(result.Errors).ErrorMessage);
+    }
+
+    // O2: 12 = Tempo Traveller.
+    [Theory]
+    [InlineData(4)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(12)]
+    public void Seats_4_6_7_and_12_pass_the_validator(int seats)
+    {
+        var body = Valid();
+        body.Seats = seats;
+        Assert.True(new CreateTaxiRequestValidator().Validate(body).IsValid);
     }
 
     [Fact]

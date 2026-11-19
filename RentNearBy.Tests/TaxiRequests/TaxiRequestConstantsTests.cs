@@ -19,10 +19,10 @@ public class TaxiRequestConstantsTests
     [InlineData(typeof(BookingCancelledBy), new[] { "Traveller", "Driver", "Admin", "System" })]
     [InlineData(typeof(BookingCompletedBy), new[] { "Auto", "Traveller", "Driver" })]
     [InlineData(typeof(RequestEndReasons), new[] { "TravellerCancelled", "PickupChanged", "BookingCancelledByTraveller", "DriverLeftTrip", "AdminCancelled", "AccountClosed", "AllDriversBusy", "NotBooked" })]
-    [InlineData(typeof(OfferEndReasons), new[] { "Expired", "Filled", "ConfirmTimeout", "DeclinedBooking", "RequestCancelled", "RequestExpired", "Booked", "DriverOffline", "ListingRemoved" })]
+    [InlineData(typeof(OfferEndReasons), new[] { "Expired", "Filled", "ConfirmTimeout", "DeclinedBooking", "RequestCancelled", "RequestExpired", "Booked", "DriverOffline", "ListingRemoved", "RouteRemoved" })]
     [InlineData(typeof(ReasonChips), new[] { "ChangedPlan", "NotReachable", "PriceNotAgreed", "VehicleIssue", "Other" })]
     [InlineData(typeof(PlanLockReasons), new[] { "TaxiRequestActive", "TaxiBookingActive" })]
-    [InlineData(typeof(DueActionKinds), new[] { "OfferExpire", "ConfirmExpire", "RequestWaitExpire", "RequestStaleExpire", "BookingStart", "BookingAutoComplete" })]
+    [InlineData(typeof(DueActionKinds), new[] { "OfferExpire", "ConfirmExpire", "RequestWaitExpire", "RequestStaleExpire", "BookingStart", "BookingAutoComplete", "ChooseReminderFirst", "ChooseReminderSecond" })]
     [InlineData(typeof(DueActionStates), new[] { "Pending", "Running", "Done", "Cancelled", "Skipped", "Failed" })]
     public void Constants_are_exactly_the_contract_names_once_and_All_lists_them(Type holder, string[] contract)
     {
@@ -170,9 +170,42 @@ public class TaxiRequestConstantsTests
     [InlineData("Booked", "Taken by another driver")]
     [InlineData("RequestCancelled", "The traveller cancelled the request")]
     [InlineData("DriverOffline", "You are offline")]
+    [InlineData("RouteRemoved", "You removed this route")]
+    [InlineData("Accepted", "You accepted this request")]
+    [InlineData("Declined", "You declined this request")]
+    [InlineData("Closed", "This request is closed")]
     [InlineData("Expired", null)]
+    [InlineData("ListingRemoved", null)]
     public void Ring_end_body_by_reason(string reason, string? body)
         => Assert.Equal(body, OfferEndReasons.RingEndBody(reason));
+
+    // O11 + O14: the backup ring end always has a body, so it stops the ring on the other device even for ListingRemoved.
+    [Theory]
+    [InlineData("Accepted", "Accepted")]
+    [InlineData("Declined", "Declined")]
+    [InlineData("Filled", "Filled")]
+    [InlineData("Booked", "Booked")]
+    [InlineData("ListingRemoved", "Closed")]
+    public void Other_device_ring_end_reason(string reason, string expected)
+    {
+        Assert.Equal(expected, RingEndReasons.ForOtherDevices(reason));
+        Assert.NotNull(OfferEndReasons.RingEndBody(RingEndReasons.ForOtherDevices(reason)));
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData("   ", null)]
+    [InlineData(" tok-1 ", "tok-1")]
+    public void Answering_token_is_trimmed_and_blank_means_unknown(string? raw, string? expected)
+        => Assert.Equal(expected, RingEndReasons.AnsweringToken(raw));
+
+    [Fact]
+    public void Answering_token_over_the_limit_is_ignored()
+    {
+        Assert.Null(RingEndReasons.AnsweringToken(new string('a', RingEndReasons.MaxTokenLength + 1)));
+        Assert.NotNull(RingEndReasons.AnsweringToken(new string('a', RingEndReasons.MaxTokenLength)));
+    }
 
     [Fact]
     public void Routes_and_push_names_are_unique()
@@ -184,13 +217,14 @@ public class TaxiRequestConstantsTests
     }
 
     [Fact]
-    public void Twelve_notice_kinds_map_to_twelve_distinct_types_that_have_wire_values()
+    public void Thirteen_notice_kinds_map_to_thirteen_distinct_types_that_have_wire_values()
     {
         var kinds = Enum.GetValues<TaxiNoticeKind>();
-        Assert.Equal(12, kinds.Length);
+        Assert.Equal(13, kinds.Length);
         var types = kinds.Select(TaxiNoticeTypes.TypeOf).ToArray();
-        Assert.Equal(12, types.Distinct().Count());
+        Assert.Equal(13, types.Distinct().Count());
         Assert.All(types, t => Assert.NotEqual(t, NotificationTypes.ToWireValue(t)));
         Assert.Contains(nameof(TaxiNoticeKind.RingsMissed), kinds.Select(k => k.ToString()));
+        Assert.Contains(nameof(TaxiNoticeKind.ChooseDriver), kinds.Select(k => k.ToString()));
     }
 }

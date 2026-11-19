@@ -391,3 +391,23 @@ Accept: application/json
 GET {{baseUrl}}/api/v1/admin/taxis/{{taxiId}}
 Authorization: Bearer {{adminToken}}
 Accept: application/json
+
+### Delete account: 204 when nothing is active; else 409
+### { "error": { "type": "AccountHasActiveItems", "message": "Take your listing offline first." },
+###   "data": { "reasons": [ { "code": "LiveListing", "message": "Take your listing offline first." } ] } }
+
+DELETE {{baseUrl}}/api/v1/account
+Authorization: Bearer {{userToken}}
+
+### Admin deleted accounts (keyset; search with digits = phone; then cursor=<nextCursor>)
+
+@deletedAccountId = <deleted-account-record-guid>
+GET {{baseUrl}}/api/v1/admin/deleted-accounts?search=98765&pageSize=20
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### Admin deleted account detail (licence decrypted here only; audit log deleted_account.admin.viewed)
+
+GET {{baseUrl}}/api/v1/admin/deleted-accounts/{{deletedAccountId}}
+Authorization: Bearer {{adminToken}}
+Accept: application/json

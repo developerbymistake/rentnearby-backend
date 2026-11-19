@@ -2,8 +2,10 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using StackExchange.Redis;
 
@@ -19,7 +21,7 @@ public class AccountDeletionService(
     IServiceProvider services)
     : IAccountDeletionService
 {
-    public async Task DeleteAccountAsync(Guid userId)
+    public async Task<AccountDeletionResult> DeleteAccountAsync(Guid userId)
     {
         using var tx = await context.Database.BeginTransactionAsync();
 
@@ -28,8 +30,18 @@ public class AccountDeletionService(
 
         var user = await context.Users.AsNoTracking()
             .Where(u => u.Id == userId)
-            .Select(u => new { u.PhoneNumber, u.Name, u.CreatedAt })
+            .Select(u => new { u.PhoneNumber, u.Name, u.CreatedAt, u.RoleId })
             .FirstOrDefaultAsync();
+
+        // Owner rule O17: nothing is deleted while anything is active. Read without row locks; a commitment that
+        // lands after this read is closed by the closures below, as before the guard existed.
+        var blocks = AccountDeletionRules.Blocks(await ReadActivityAsync(userId));
+        if (blocks.Count > 0)
+        {
+            await tx.RollbackAsync();
+            return new AccountDeletionResult(blocks);
+        }
+
         if (user != null)
         {
             // Latest licence/registration details (deleted listings included) outlive the listing purge below
@@ -51,6 +63,7 @@ public class AccountDeletionService(
                 OriginalUserId = userId,
                 PhoneNumber = user.PhoneNumber,
                 Name = user.Name,
+                Role = UserRoles.KeyOf(user.RoleId),
                 AccountCreatedAt = user.CreatedAt,
                 DeletedAt = DateTime.UtcNow,
                 DrivingLicenceNumberEnc = taxi?.DrivingLicenceNumberEnc,
@@ -129,6 +142,14 @@ public class AccountDeletionService(
         tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, stayIds));
         tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, taxiIds));
 
+        // Kept bookings (no FK to Users) stop carrying the person's name.
+        await context.Set<TaxiBooking>()
+            .Where(b => b.TravellerUserId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(b => b.TravellerName, AccountDeletionRules.DeletedUserName));
+        await context.Set<TaxiBooking>()
+            .Where(b => b.DriverUserId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(b => b.DriverName, AccountDeletionRules.DeletedUserName));
+
         await context.Users
             .Where(u => u.Id == userId)
             .ExecuteDeleteAsync();
@@ -137,6 +158,58 @@ public class AccountDeletionService(
 
         await BustListingCachesAsync(stayDistricts, taxiDistricts);
         await tripClosure.AfterCommitAsync(tripPushes);
+        return AccountDeletionResult.Done;
+    }
+
+    private async Task<AccountActivity> ReadActivityAsync(Guid userId)
+    {
+        var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
+        var enquiries = context.TripEnquiries.AsNoTracking();
+        var bookedEnquiry = TripEnquiryStatuses.Booked;
+        var unconfirmed = TripEnquiryStatuses.Unconfirmed;
+        string[] openLead = [TripEnquiryStatuses.Asked, TripEnquiryStatuses.FareSent];
+
+        // Driver-side taxi rows are keyed by listing (indexed), deleted listings included.
+        var taxiIds = await context.TaxiListings.AsNoTracking()
+            .Where(t => t.UserId == userId).Select(t => t.Id).ToListAsync();
+
+        var activeTaxiBooking =
+            await context.Set<TaxiBooking>().AsNoTracking().AnyAsync(b =>
+                BookingStates.Active.Contains(b.Status) && b.TravellerUserId == userId)
+            || (taxiIds.Count > 0 && await context.Set<TaxiBooking>().AsNoTracking().AnyAsync(b =>
+                BookingStates.Active.Contains(b.Status) && taxiIds.Contains(b.DriverListingId)))
+            || await enquiries.AnyAsync(e =>
+                e.Kind == TripEnquiryKinds.Taxi && bookedEnquiry.Contains(e.Status)
+                && (e.CheckOut == null || e.CheckOut >= today)
+                && (e.TravellerUserId == userId || e.OwnerUserId == userId));
+
+        var activeStayBooking = await enquiries.AnyAsync(e =>
+            e.Kind == TripEnquiryKinds.Stay && bookedEnquiry.Contains(e.Status)
+            && (e.CheckOut == null || e.CheckOut >= today)
+            && (e.TravellerUserId == userId || e.OwnerUserId == userId));
+
+        var selectedTaxiOffer = taxiIds.Count > 0 && await context.Set<TaxiRequestOffer>().AsNoTracking().AnyAsync(o =>
+            o.Status == OfferStates.Selected && taxiIds.Contains(o.DriverListingId));
+
+        string[] openRequest = [RequestStates.Open, RequestStates.Collecting, RequestStates.Selected];
+        var openTaxiRequest =
+            await context.Set<TaxiRequest>().AsNoTracking().AnyAsync(r =>
+                r.TravellerUserId == userId && openRequest.Contains(r.Status))
+            || await enquiries.AnyAsync(e =>
+                e.Kind == TripEnquiryKinds.Taxi && e.TravellerUserId == userId && openLead.Contains(e.Status));
+
+        var openStayEnquiry = await enquiries.AnyAsync(e =>
+            e.Kind == TripEnquiryKinds.Stay && unconfirmed.Contains(e.Status)
+            && (e.TravellerUserId == userId || e.OwnerUserId == userId));
+
+        var liveListing =
+            await context.TaxiListings.AsNoTracking().AnyAsync(t =>
+                t.UserId == userId && !t.IsDeleted && t.Status == TaxiStatuses.Approved && t.IsAvailable)
+            || await context.StayListings.AsNoTracking().AnyAsync(s =>
+                s.UserId == userId && !s.IsDeleted && s.Status == StayStatuses.Approved && s.AcceptingGuests);
+
+        return new AccountActivity(activeTaxiBooking, activeStayBooking, selectedTaxiOffer,
+            openTaxiRequest, openStayEnquiry, liveListing);
     }
 
     // Same caches the stay/taxi delete paths clear: the feeds, the trip supply counts and the taxi ways version.

@@ -109,7 +109,40 @@ public class TaxiRequestViewsTests
     {
         var expected = JsonNode.Parse(File.ReadAllText(Path.Combine(ContractSamplesGuardTests.SamplesDir, sample)));
         var written = JsonNode.Parse(JsonSerializer.Serialize(TaxiRequestViews.Build(input()), Web));
+        WithoutAdditiveFields(written!);
         Assert.True(JsonNode.DeepEquals(expected, written), $"{sample}\nexpected {expected}\nwas      {written}");
+    }
+
+    // Fields added after contract version 1 (CONTRACT_DELTA.md); the shared samples stay at version 1, old apps ignore them.
+    private static readonly string[] AdditiveBookingFields = ["canRate", "leftDuringTrip"];
+
+    private static void WithoutAdditiveFields(JsonNode written)
+    {
+        if (written["booking"] is not JsonObject booking) return;
+        foreach (var field in AdditiveBookingFields)
+            Assert.True(booking.Remove(field), $"booking.{field} missing");
+    }
+
+    // O13: rating is offered after a completed trip and after a trip that was cancelled while it was running.
+    [Theory]
+    [InlineData(RequestStates.Completed, null, BookingStates.Completed, false, false, true, false)]
+    [InlineData(RequestStates.Completed, null, BookingStates.Completed, false, true, false, false)]
+    [InlineData(RequestStates.Cancelled, RequestEndReasons.DriverLeftTrip, BookingStates.Cancelled, true, false, true, true)]
+    [InlineData(RequestStates.Cancelled, RequestEndReasons.AdminCancelled, BookingStates.Cancelled, true, false, true, true)]
+    [InlineData(RequestStates.Cancelled, RequestEndReasons.DriverLeftTrip, BookingStates.Cancelled, true, true, false, true)]
+    [InlineData(RequestStates.Cancelled, RequestEndReasons.AdminCancelled, BookingStates.Cancelled, false, false, false, false)]
+    [InlineData(RequestStates.Cancelled, RequestEndReasons.AccountClosed, BookingStates.Cancelled, true, false, false, false)]
+    [InlineData(RequestStates.Cancelled, RequestEndReasons.TravellerCancelled, BookingStates.Cancelled, false, false, false, false)]
+    [InlineData(RequestStates.InProgress, null, BookingStates.InProgress, true, false, false, false)]
+    [InlineData(RequestStates.Booked, null, BookingStates.Booked, false, false, false, false)]
+    public void Booking_says_whether_the_traveller_can_rate(string state, string? endReason, string bookingState, bool started, bool rated,
+        bool canRate, bool leftDuringTrip)
+    {
+        var booking = Booking(bookingState) with { StartedAt = started ? Utc("2026-12-17T18:30:00Z") : null };
+        var rating = rated ? new TaxiViewRating(3, Utc("2026-12-19T04:10:00Z")) : null;
+        var dto = TaxiRequestViews.Build(Input(Request(state, 12, "2026-12-19T04:10:00Z", accepted: 1, endReason: endReason),
+            [Offer(1, OfferStates.Confirmed, 1)], booking, rating));
+        Assert.Equal(((bool?)canRate, (bool?)leftDuringTrip), (dto.Booking!.CanRate, dto.Booking.LeftDuringTrip));
     }
 
     [Fact]

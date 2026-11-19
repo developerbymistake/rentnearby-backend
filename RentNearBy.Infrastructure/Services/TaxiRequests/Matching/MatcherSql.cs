@@ -49,25 +49,30 @@ public static class MatcherSql
         SELECT "Seq", "LastMinPass" FROM "TaxiDispatchCities" WHERE "CityKey" = @city FOR UPDATE SKIP LOCKED
         """;
 
+    // O5: an exhausted request is never loaded, so no pass (sweeper, readiness report, a freed driver, another request of
+    // the city) rings a driver for it; only ask more (or a driver withdraw reopen) clears the mark.
     public static readonly string LoadRequests = $"""
         SELECT r."Id", r."TripId", r."TravellerUserId", r."CreatedAt",
                r."AcceptTarget"::int AS "AcceptTarget", r."AcceptedCount"::int AS "AcceptedCount", {RingingOf}::int AS "Ringing",
                r."Seats"::int AS "Seats", r."MatchToCityKey", r."MatchFromCityKey", r."DateFrom", r."DateTo",
                r."QueueWaitStartedAt", r."QueueExhaustedAt"
         FROM "TaxiRequests" r
-        WHERE r."DispatchCityKey" = @city AND r."Status" IN ({Dispatching})
+        WHERE r."DispatchCityKey" = @city AND r."Status" IN ({Dispatching}) AND r."QueueExhaustedAt" IS NULL
         AND {NeedsRings}
         ORDER BY r."CreatedAt", r."Id"
         LIMIT @limit
         FOR UPDATE OF r SKIP LOCKED
         """;
 
+    // The route rule is checked again at insert time (O12): candidates loaded before a route save committed never ring for
+    // a route that is gone.
     public static readonly string InsertOffer = $"""
         INSERT INTO "TaxiRequestOffers" ("Id", "RequestId", "DriverListingId", "DriverUserId", "Status", "SeqNo", "OfferedAt", "ExpiresAt", "PushLate")
         SELECT @id, @requestId, @driverId, @driverUserId, '{OfferStates.Ringing}',
                COALESCE((SELECT max(x."SeqNo") FROM "TaxiRequestOffers" x WHERE x."RequestId" = @requestId), 0) + 1,
                now(), now() + interval '{TaxiDispatchRules.RingSeconds} seconds', false
         WHERE NOT EXISTS (SELECT 1 FROM "TaxiRequestOffers" s WHERE s."DriverListingId" = @driverId AND s."Status" = '{OfferStates.Selected}')
+          AND EXISTS (SELECT 1 FROM "TaxiRequests" r, "TaxiListings" l WHERE r."Id" = @requestId AND l."Id" = @driverId AND {TaxiCandidateQuery.RouteRule})
         ON CONFLICT ("DriverListingId") WHERE "Status" = '{OfferStates.Ringing}' DO NOTHING
         RETURNING "Id" AS "OfferId", "ExpiresAt"
         """;
@@ -106,7 +111,7 @@ public static class MatcherSql
         """;
 
     // Sweeper: every city with a request that still needs rings (a waiting request needs them by definition). An exhausted
-    // request waits for ask more or a reopen, which clear the mark and signal the city.
+    // request waits for ask more (or a driver withdraw reopen), which clear the mark and signal the city.
     public static readonly string DueCities = $"""
         SELECT DISTINCT r."DispatchCityKey" AS "Value" FROM "TaxiRequests" r
         WHERE r."Status" IN ({Dispatching}) AND r."QueueExhaustedAt" IS NULL
@@ -118,14 +123,16 @@ public static class MatcherSql
         SELECT ds."CityKey" AS "Value" FROM "DriverDispatchStates" ds WHERE ds."DriverListingId" = ANY(@ids)
         UNION
         SELECT q."DispatchCityKey" AS "Value" FROM "TaxiRoutes" rt
-        JOIN "TaxiRequests" q ON q."MatchToCityKey" = rt."ToCityKey" AND q."Status" IN ({Dispatching})
+        JOIN "TaxiRequests" q ON q."MatchToCityKey" = rt."ToCityKey" AND q."Status" IN ({Dispatching}) AND q."QueueExhaustedAt" IS NULL
         WHERE rt."TaxiListingId" = ANY(@ids)
         """;
 
-    // Contract AD health: Open or Collecting, no ringing offer, no accepted driver, no pending wait, for over 15 minutes.
+    // Contract AD health: Open or Collecting, no ringing offer, no accepted driver, no pending wait, for over 15 minutes. An
+    // exhausted request waits for the traveller's ask more (O5), so it is not stuck.
     public static readonly string CountStuck = $"""
         SELECT count(*)::int AS "Value" FROM "TaxiRequests" r
-        WHERE r."Status" IN ({Dispatching}) AND r."QueueWaitStartedAt" IS NULL AND r."UpdatedAt" < now() - interval '15 minutes'
+        WHERE r."Status" IN ({Dispatching}) AND r."QueueWaitStartedAt" IS NULL AND r."QueueExhaustedAt" IS NULL
+        AND r."UpdatedAt" < now() - interval '15 minutes'
         AND NOT EXISTS (SELECT 1 FROM "TaxiRequestOffers" o WHERE o."RequestId" = r."Id"
                         AND o."Status" IN ('{OfferStates.Ringing}', '{OfferStates.Accepted}'))
         """;

@@ -51,6 +51,8 @@ public static class TaxiRequestServiceCollectionExtensions
         services.AddScoped<IDueActionHandler, RequestStaleExpireHandler>();
         services.AddScoped<IDueActionHandler, BookingStartHandler>();
         services.AddScoped<IDueActionHandler, BookingAutoCompleteHandler>();
+        services.AddScoped<IDueActionHandler, ChooseReminderFirstHandler>();
+        services.AddScoped<IDueActionHandler, ChooseReminderSecondHandler>();
 
         services.AddHostedService<DueActionsWorker>();
         services.AddHostedService<TaxiMatcherService>();

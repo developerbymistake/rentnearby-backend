@@ -14,7 +14,7 @@ public sealed record TaxiViewOffer(
     Guid Id, string Status, int SeqNo, DateTime? ConfirmBy, string DriverName, string? ContactPhone, string Vehicle,
     int Seats, int RatingSum, int RatingCount, int RidesCompleted);
 
-public sealed record TaxiViewBooking(Guid Id, string Status, DateOnly DateFrom, DateOnly DateTo);
+public sealed record TaxiViewBooking(Guid Id, string Status, DateOnly DateFrom, DateOnly DateTo, DateTime? StartedAt = null);
 
 public sealed record TaxiViewRating(int Stars, DateTime RatedAt);
 
@@ -67,7 +67,7 @@ public sealed class TaxiRequestViews(ApplicationDbContext db)
             RingingCount = ringing,
             AcceptedCount = r.AcceptedCount,
             StillAsking = TaxiDispatchRules.StillAsking(r.Status, r.QueueExhaustedAt is not null, ringing > 0, r.AcceptedCount, r.AcceptTarget),
-            CanAskMore = TaxiDispatchRules.CanAskMore(r.Status, r.AcceptedCount, r.AcceptTarget),
+            CanAskMore = TaxiDispatchRules.CanAskMore(r.Status, r.AcceptedCount, r.AcceptTarget, r.QueueExhaustedAt is not null),
             CanCancel = r.Status is RequestStates.Open or RequestStates.Collecting or RequestStates.Selected or RequestStates.Booked,
             WaitUntil = waitUntil,
             Drivers = input.Offers
@@ -75,7 +75,7 @@ public sealed class TaxiRequestViews(ApplicationDbContext db)
                 .OrderBy(o => o.SeqNo)
                 .Select(o => Driver(o, r.Status, bookingLive))
                 .ToList(),
-            Booking = input.Booking is { } b ? Booking(b, input.TodayIst) : null,
+            Booking = input.Booking is { } b ? Booking(b, r, input.Rating is not null, input.TodayIst) : null,
             Rating = input.Rating is { } rt ? new TaxiRequestRatingDto { Stars = rt.Stars, RatedAt = rt.RatedAt } : null,
             CreatedAt = r.CreatedAt,
             UpdatedAt = r.UpdatedAt,
@@ -102,7 +102,7 @@ public sealed class TaxiRequestViews(ApplicationDbContext db)
         };
     }
 
-    private static TaxiRequestBookingDto Booking(TaxiViewBooking b, DateOnly todayIst) => new()
+    private static TaxiRequestBookingDto Booking(TaxiViewBooking b, TaxiRequest r, bool rated, DateOnly todayIst) => new()
     {
         Id = b.Id,
         State = b.Status,
@@ -113,6 +113,8 @@ public sealed class TaxiRequestViews(ApplicationDbContext db)
             : null,
         CanCancel = b.Status == BookingStates.Booked,
         CanEnd = b.Status == BookingStates.InProgress,
+        CanRate = !rated && TaxiRatingRules.CanRate(r.Status, r.EndReason, b.Status, b.StartedAt),
+        LeftDuringTrip = TaxiRatingRules.LeftDuringTrip(r.Status, r.EndReason, b.Status, b.StartedAt),
     };
 
     private static List<int> ReadDays(string? json)
@@ -161,7 +163,7 @@ public sealed class TaxiRequestViews(ApplicationDbContext db)
         var booking = await db.Set<TaxiBooking>().AsNoTracking()
             .Where(b => b.RequestId == request.Id)
             .OrderByDescending(b => b.BookedAt)
-            .Select(b => new TaxiViewBooking(b.Id, b.Status, b.DateFrom, b.DateTo))
+            .Select(b => new TaxiViewBooking(b.Id, b.Status, b.DateFrom, b.DateTo, b.StartedAt))
             .FirstOrDefaultAsync(ct);
         TaxiViewRating? rating = null;
         if (booking is not null)

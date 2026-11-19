@@ -45,7 +45,8 @@ public class TaxiPickupPlacesTests
     [InlineData(5, 6)]
     [InlineData(6, 6)]
     [InlineData(7, 7)]
-    [InlineData(12, 7)]
+    [InlineData(8, 12)]
+    [InlineData(12, 12)]
     public void Suggested_seats_by_travellers(int travellers, int seats)
     {
         var dto = TaxiPickupPlaces.ToDto(NoLists, null, null, true, travellers);
@@ -84,6 +85,21 @@ public class TaxiPickupPlacesTests
         Assert.Equal(15, dto.SightseeingDrivers);
         Assert.Equal("Nainital", dto.FirstCity!.Name);
         Assert.Equal("Ranikhet", dto.LastCity!.Name);
+    }
+
+    // O2 + O4: the T1 body carries the seat choices, the group limit and the sightseeing pool of each plan city.
+    [Fact]
+    public void Dto_carries_seat_options_max_travellers_and_sightseeing_cities()
+    {
+        var cities = new List<TaxiSightseeingCityDto> { new() { CityKey = 9, Name = "Nainital", Days = [1, 2], Drivers = 15 }, new() { CityKey = 8, Name = "Almora", Days = [3], Drivers = 0 } };
+        var dto = TaxiPickupPlaces.ToDto(NoLists, null, null, true, 2, cities);
+        Assert.Equal([4, 6, 7, 12], dto.SeatOptions);
+        Assert.Equal(12, dto.MaxTravellers);
+        Assert.Same(cities, dto.SightseeingCities);
+
+        var json = System.Text.Json.JsonSerializer.SerializeToNode(dto, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        Assert.Equal(0, (int)json["sightseeingCities"]![1]!["drivers"]!);
+        Assert.Equal(3, (int)json["sightseeingCities"]![1]!["days"]![0]!);
     }
 
     [Fact]

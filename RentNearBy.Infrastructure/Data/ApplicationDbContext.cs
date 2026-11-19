@@ -1607,6 +1607,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(r => r.PhoneNumber);
             e.HasIndex(r => r.DeletedAt); // powers the purge job's cutoff scan
+            e.Property(r => r.Role).HasMaxLength(20).IsRequired().HasDefaultValue(UserRoles.Seeker);
             e.Property(r => r.DrivingLicenceNumberEnc).HasMaxLength(TaxiIdentityRules.DlEncMaxLength);
             e.Property(r => r.DateOfBirth).HasColumnType("date");
             e.Property(r => r.StayRegistrationTypeName).HasMaxLength(StayRegistrationRules.TypeNameMax);

@@ -615,6 +615,13 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("SEEKER");
+
                     b.Property<string>("StayGstin")
                         .HasMaxLength(15)
                         .HasColumnType("character varying(15)");
@@ -3235,7 +3242,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_dueactions_done", "(\"State\" IN ('Pending','Running')) = (\"DoneAt\" IS NULL)");
 
-                            t.HasCheckConstraint("ck_dueactions_kind", "\"Kind\" IN ('OfferExpire', 'ConfirmExpire', 'RequestWaitExpire', 'RequestStaleExpire', 'BookingStart', 'BookingAutoComplete')");
+                            t.HasCheckConstraint("ck_dueactions_kind", "\"Kind\" IN ('OfferExpire', 'ConfirmExpire', 'RequestWaitExpire', 'RequestStaleExpire', 'BookingStart', 'BookingAutoComplete', 'ChooseReminderFirst', 'ChooseReminderSecond')");
 
                             t.HasCheckConstraint("ck_dueactions_state", "\"State\" IN ('Pending', 'Running', 'Done', 'Cancelled', 'Skipped', 'Failed')");
                         });
@@ -3561,7 +3568,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_taxirequests_dates", "\"DateTo\" >= \"DateFrom\"");
 
-                            t.HasCheckConstraint("ck_taxirequests_seats", "\"Seats\" IN (4, 6, 7)");
+                            t.HasCheckConstraint("ck_taxirequests_seats", "\"Seats\" IN (4, 6, 7, 12)");
 
                             t.HasCheckConstraint("ck_taxirequests_sections", "\"WantPickup\" OR \"WantSightseeing\" OR \"WantDrop\"");
 

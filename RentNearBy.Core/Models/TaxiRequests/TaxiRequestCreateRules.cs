@@ -5,7 +5,8 @@ namespace RentNearBy.Core.Models.TaxiRequests;
 
 public sealed record TaxiRequestError(int Status, string Type, string Message, object? Data = null);
 
-// What the server knows when it checks a create (contract T2). Pickup and drop keys are the live T1 lists.
+// What the server knows when it checks a create (contract T2). Pickup and drop keys are the live T1 lists. SightseeingCityKey
+// = city of the first chosen sightseeing day (O4; null = the first city) and SightseeingDrivers counts the pool for it.
 public sealed record TaxiCreateFacts(
     DateOnly? TripStart,
     int DayCount,
@@ -15,7 +16,9 @@ public sealed record TaxiCreateFacts(
     long LastCityKey,
     IReadOnlyCollection<long> PickupKeys,
     IReadOnlyCollection<long> DropKeys,
-    int SightseeingDrivers);
+    int SightseeingDrivers,
+    long? SightseeingCityKey = null,
+    int Travellers = 1);
 
 // A create that passed every rule: what the request row stores besides the snapshot.
 public sealed record TaxiCreatePlan(
@@ -32,6 +35,9 @@ public sealed record TaxiCreatePlan(
 
 public sealed record TaxiCreateCheck(TaxiCreatePlan? Plan, TaxiRequestError? Error);
 
+// Another trip of the same traveller that already holds a taxi request or booking on overlapping dates (O3 + O10).
+public sealed record TaxiOverlap(Guid TripId, string TripName, Guid RequestId, DateOnly DateFrom, DateOnly DateTo);
+
 public sealed record TaxiCancelPlan(string EndReason, string? Chip, string CancelledBy);
 
 public sealed record TaxiCancelCheck(TaxiCancelPlan? Plan, TaxiRequestError? Error, bool AlreadyDone);
@@ -41,7 +47,7 @@ public sealed record TaxiCancelCheck(TaxiCancelPlan? Plan, TaxiRequestError? Err
 public static class TaxiRequestCreateRules
 {
     public const string BadRequestType = "BadRequest";
-    public const string SeatsMessage = "Choose 4, 6 or 7 seats";
+    public const string SeatsMessage = "Choose 4, 6, 7 or 12 seats";
     public const string ReasonMessage = "Choose why you cancel";
     public const string ChipMessage = "Choose a valid reason";
     public const string TripCompletedMessage = "This trip is complete. Plan changes are off.";
@@ -54,6 +60,8 @@ public static class TaxiRequestCreateRules
 
         if (!pickupOn && !sightseeingOn && !dropOn) return Fail(400, TaxiRequestErrorTypes.TaxiSectionsRequired);
         if (!TaxiRequestSeats.IsValid(body.Seats)) return Fail(400, BadRequestType, SeatsMessage);
+        if (facts.Travellers > TaxiRequestSeats.MaxTravellers) return Fail(400, TaxiRequestErrorTypes.TooManyTravellers);
+        if (!TaxiRequestSeats.Holds(body.Seats, facts.Travellers)) return Fail(400, TaxiRequestErrorTypes.SeatsTooFew);
         if (facts.TripCompleted) return Fail(409, TripEnquiryErrorTypes.TripCompleted, TripCompletedMessage);
         if (facts.TripStart is not { } start || facts.DayCount < 1) return Fail(409, TaxiRequestErrorTypes.TripDatesRequired);
 
@@ -86,17 +94,44 @@ public static class TaxiRequestCreateRules
 
         var occupied = TaxiDateRange.Occupied(pickupOn, sightseeingOn, dropOn, start, facts.DayCount, days)
             ?? throw new InvalidOperationException("A checked create always occupies a range");
-        var (dispatch, matchTo, matchFrom) = DispatchKeys(pickupKey, dropKey, facts.FirstCityKey, facts.LastCityKey);
+        var (dispatch, matchTo, matchFrom) = DispatchKeys(pickupKey, dropKey, facts.FirstCityKey, facts.LastCityKey,
+            facts.SightseeingCityKey ?? facts.FirstCityKey);
         return new TaxiCreateCheck(new TaxiCreatePlan(start, occupied, dispatch, matchTo, matchFrom, pickupKey, dropKey, sameAsPickup, days, body.Seats), null);
     }
 
     // MASTER_PLAN 2.2 and P18. Pickup = routes from the pickup city to the first city; drop without pickup = routes from
-    // the drop city to the last city; sightseeing only = any route to the first city. The pool key follows the same order.
-    public static (long Dispatch, long MatchTo, long? MatchFrom) DispatchKeys(long? pickupKey, long? dropKey, long firstCityKey, long lastCityKey)
+    // the drop city to the last city; sightseeing only = any route to the sightseeing city (O4). The pool key follows the same order.
+    public static (long Dispatch, long MatchTo, long? MatchFrom) DispatchKeys(long? pickupKey, long? dropKey, long firstCityKey, long lastCityKey,
+        long sightseeingCityKey)
     {
         if (pickupKey is { } p) return (p, firstCityKey, p);
         if (dropKey is { } d) return (d, lastCityKey, d);
-        return (firstCityKey, firstCityKey, null);
+        return (sightseeingCityKey, sightseeingCityKey, null);
+    }
+
+    // O4: the city of the first chosen sightseeing day; no day or no legs = the first city.
+    public static long SightseeingCityOf(TripPlan plan, IEnumerable<int>? days, long firstCityKey)
+    {
+        var chosen = days?.Where(d => d >= 1).ToList();
+        if (chosen is not { Count: > 0 }) return firstCityKey;
+        return plan.LegOf(chosen.Min())?.CityKey is { } key and > 0 ? key : firstCityKey;
+    }
+
+    // O4 for T1: each plan city with its days, in day order (one entry for a one-city trip).
+    public static IReadOnlyList<(long CityKey, string Name, List<int> Days)> SightseeingCityDays(TripPlan plan, long firstCityKey)
+    {
+        var days = plan.Days?.Where(d => d != null).Select(d => d.Day).Distinct().Order().ToList() ?? [];
+        var cities = new List<(long CityKey, string Name, List<int> Days)>();
+        foreach (var day in days)
+        {
+            var leg = plan.LegOf(day);
+            var key = leg?.CityKey is { } k and > 0 ? k : firstCityKey;
+            var name = leg?.CityName is { Length: > 0 } n ? n : plan.CityName;
+            var at = cities.FindIndex(c => c.CityKey == key);
+            if (at < 0) cities.Add((key, name, [day]));
+            else cities[at].Days.Add(day);
+        }
+        return cities;
     }
 
     public static DateOnly DateOf(DateOnly tripStart, int day) => tripStart.AddDays(day - 1);
@@ -113,6 +148,20 @@ public static class TaxiRequestCreateRules
             .Select(e => new LegacyTaxiEnquiryDto { Id = e.Id, Booked = TripEnquiryStatuses.Booked.Contains(e.Status) })
             .ToList();
         return open.Count == 0 ? null : new LegacyTaxiActiveData { Enquiries = open };
+    }
+
+    public static TaxiRequestError OverlapError(TaxiOverlap overlap)
+    {
+        var name = string.IsNullOrWhiteSpace(overlap.TripName) ? "another trip" : overlap.TripName.Trim();
+        return new(409, TaxiRequestErrorTypes.OverlappingTaxiRequest, TaxiRequestErrorTypes.OverlappingTaxiRequestMessage(name),
+            new OverlappingTaxiRequestData
+            {
+                TripId = overlap.TripId,
+                TripName = name,
+                RequestId = overlap.RequestId,
+                DateFrom = overlap.DateFrom,
+                DateTo = overlap.DateTo,
+            });
     }
 
     public static TaxiRequestError LegacyError(LegacyTaxiActiveData data)

@@ -40,7 +40,7 @@ public sealed class TaxiPushWriter(TaxiAckTokens ackTokens, TimeProvider? clock 
         AddOutbox(db, new OutboxPushPayload(
             TaxiPushKinds.RingEndKey(ringEnd.OfferId), ringEnd.DriverUserId, null,
             parts.Title, parts.Body, parts.Data["action_route"], parts.Data["action_args_json"], TaxiPushKinds.RingTag(ringEnd.OfferId),
-            0, NotificationTypes.TaxiRequestRingEnded, now + RingEndTtl, parts.Data), now);
+            0, NotificationTypes.TaxiRequestRingEnded, now + RingEndTtl, parts.Data, ringEnd.ExceptToken), now);
         return Task.CompletedTask;
     }
 
@@ -89,6 +89,8 @@ public sealed class TaxiPushWriter(TaxiAckTokens ackTokens, TimeProvider? clock 
 
     private static async Task<TaxiNoticeDetail?> DetailFromRequestAsync(ApplicationDbContext db, TaxiNotice notice, CancellationToken ct)
     {
+        if (notice.Kind == TaxiNoticeKind.ChooseDriver) return new TaxiNoticeDetail(Count: notice.Count);
+        if (notice.Kind == TaxiNoticeKind.SelectionLapsed) return new TaxiNoticeDetail(Reason: notice.Reason);
         if (notice.Kind is not (TaxiNoticeKind.RequestEnded or TaxiNoticeKind.RequestClosed or TaxiNoticeKind.DriverWithdrew or TaxiNoticeKind.TripEnded)) return null;
         var facts = await FindFactsAsync(db, notice.RequestId, ct)
             ?? throw new InvalidOperationException($"taxi notice: request {notice.RequestId} not found");

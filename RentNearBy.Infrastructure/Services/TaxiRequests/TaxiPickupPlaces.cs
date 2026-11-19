@@ -70,7 +70,8 @@ public sealed class TaxiPickupPlaces
     }
 
     // T1 body. Paused = the master switch is off; seats follow the traveller count.
-    public static PickupPlacesDto ToDto(TaxiPickupLists lists, TaxiCityRefDto? firstCity, TaxiCityRefDto? lastCity, bool switchOn, int travellers)
+    public static PickupPlacesDto ToDto(TaxiPickupLists lists, TaxiCityRefDto? firstCity, TaxiCityRefDto? lastCity, bool switchOn, int travellers,
+        List<TaxiSightseeingCityDto>? sightseeingCities = null)
         => new()
         {
             Paused = !switchOn,
@@ -81,7 +82,22 @@ public sealed class TaxiPickupPlaces
             SightseeingDrivers = lists.SightseeingDrivers,
             Travellers = travellers,
             SuggestedSeats = TaxiRequestSeats.SuggestedFor(travellers),
+            SightseeingCities = sightseeingCities,
+            SeatOptions = TaxiRequestSeats.Allowed.ToList(),
+            MaxTravellers = TaxiRequestSeats.MaxTravellers,
         };
+
+    // O4: the sightseeing pool of every plan city (the first city reuses the count already read for the lists).
+    public async Task<List<TaxiSightseeingCityDto>> SightseeingCitiesAsync(TripPlan plan, long firstCityKey, int firstCityDrivers, CancellationToken ct = default)
+    {
+        var result = new List<TaxiSightseeingCityDto>();
+        foreach (var (key, name, days) in TaxiRequestCreateRules.SightseeingCityDays(plan, firstCityKey))
+        {
+            var drivers = key == firstCityKey ? firstCityDrivers : await CountForAsync(key, ct);
+            result.Add(new TaxiSightseeingCityDto { CityKey = key, Name = name, Days = days, Drivers = drivers });
+        }
+        return result;
+    }
 
     private static TaxiPickupPlaceDto ToDto(TaxiPickupPlace p) => new() { CityKey = p.CityKey, Name = p.Name, Drivers = p.Drivers };
 

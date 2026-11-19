@@ -95,10 +95,23 @@ public class TaxiRequestClosureWiringTests
         var routes = HandlerBody(source, "UpsertRoutes");
         var resolvePlaces = routes.IndexOf("var pickupPlaces = sp.GetRequiredService<TaxiPickupPlaces>();", StringComparison.Ordinal);
         var firstWrite = routes.IndexOf("db.TaxiRoutes.Add(route);", StringComparison.Ordinal);
-        var routesSave = routes.IndexOf("try { await unitOfWork.SaveChangesAsync(); }", StringComparison.Ordinal);
+        var routesSave = routes.IndexOf("await unitOfWork.SaveChangesAsync();", StringComparison.Ordinal);
         var bump = routes.IndexOf("await pickupPlaces.BumpAsync();", StringComparison.Ordinal);
         Assert.True(resolvePlaces > 0 && firstWrite > resolvePlaces, "Pickup places are resolved before any write, never after the commit");
         Assert.True(routesSave > 0 && bump > routesSave, "Route save bumps the pickup lists after its save");
+
+        // O12: the route closure runs inside the save transaction, before the listing row is written; signals after commit.
+        var resolveClosure = routes.IndexOf("var taxiRequests = sp.GetRequiredService<TaxiRequestClosure>();", StringComparison.Ordinal);
+        var routesBegin = routes.IndexOf("await unitOfWork.BeginTransactionAsync();", StringComparison.Ordinal);
+        var routeClosure = routes.IndexOf("taxiSignals = await taxiRequests.RoutesChangedAsync(db, taxi.Id, routeKeys);", StringComparison.Ordinal);
+        var routesCommit = routes.IndexOf("await unitOfWork.CommitTransactionAsync();", StringComparison.Ordinal);
+        var routesAfter = routes.IndexOf("await taxiRequests.AfterCommitAsync(taxiSignals, poolChanged: false);", StringComparison.Ordinal);
+        Assert.True(resolveClosure > 0 && resolveClosure < firstWrite, "The route closure is resolved before any write");
+        Assert.True(routesBegin > firstWrite && routeClosure > routesBegin && routesSave > routeClosure, "Offers close before the routes and listing are written");
+        Assert.True(routesCommit > routesSave && routesAfter > routesCommit && bump > routesCommit, "Signals and the pickup bump run after commit");
+        var lookups = routes.IndexOf("var (_, routeKeys) = await TaxiRouteCityKeys.ResolveForSaveAsync(resolver, saved,", StringComparison.Ordinal);
+        Assert.True(lookups > 0 && lookups < routesBegin, "City lookups stay outside the transaction and give the closure its keys");
+        Assert.Contains("catch (Exception ex) when (ex is DbUpdateConcurrencyException || PgRetry.IsRetryable(ex))", routes);
 
         Assert.Single(Regex.Matches(source, Regex.Escape("GetRequiredService<TaxiPickupPlaces>()")));
         Assert.Single(Regex.Matches(source, Regex.Escape("DriverOfflineAsync(")));

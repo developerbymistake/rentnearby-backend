@@ -126,16 +126,17 @@ public sealed class TaxiOfferService(
     public static string AcceptRefusal(string offerState)
         => offerState is OfferStates.Missed or OfferStates.Closed ? TaxiRequestErrorTypes.OfferMissed : TaxiRequestErrorTypes.OfferStateInvalid;
 
-    public Task<TaxiActionResult> AcceptAsync(Guid offerId, Guid driverUserId, CancellationToken ct = default)
-        => PgRetry.OnceAsync(db, c => AcceptUnitAsync(offerId, driverUserId, c), ct, logger);
+    // deviceToken = the FCM token of the answering device (null from old apps).
+    public Task<TaxiActionResult> AcceptAsync(Guid offerId, Guid driverUserId, string? deviceToken = null, CancellationToken ct = default)
+        => PgRetry.OnceAsync(db, c => AcceptUnitAsync(offerId, driverUserId, RingEndReasons.AnsweringToken(deviceToken), c), ct, logger);
 
-    public Task<TaxiActionResult> DeclineAsync(Guid offerId, Guid driverUserId, string? chip, CancellationToken ct = default)
-        => PgRetry.OnceAsync(db, c => DeclineUnitAsync(offerId, driverUserId, chip, c), ct, logger);
+    public Task<TaxiActionResult> DeclineAsync(Guid offerId, Guid driverUserId, string? chip, string? deviceToken = null, CancellationToken ct = default)
+        => PgRetry.OnceAsync(db, c => DeclineUnitAsync(offerId, driverUserId, chip, RingEndReasons.AnsweringToken(deviceToken), c), ct, logger);
 
     public Task<TaxiActionResult> WithdrawAsync(Guid offerId, Guid driverUserId, string? chip, CancellationToken ct = default)
         => PgRetry.OnceAsync(db, c => WithdrawUnitAsync(offerId, driverUserId, chip, c), ct, logger);
 
-    private async Task<TaxiActionResult> AcceptUnitAsync(Guid offerId, Guid driverUserId, CancellationToken ct)
+    private async Task<TaxiActionResult> AcceptUnitAsync(Guid offerId, Guid driverUserId, string? answeringToken, CancellationToken ct)
     {
         if (await OwnedAsync(offerId, driverUserId, ct) is { } denied) return denied;
         TaxiClosureResult signals;
@@ -155,6 +156,7 @@ public sealed class TaxiOfferService(
                 if (await store.TryMoveOfferAsync(db, offerId, Ringing, OfferStates.Closed, closeReason, ct: ct) is null)
                     return TaxiActionResult.StateOf(TaxiRequestErrorTypes.OfferMissed, OfferStates.Missed);
                 await scheduler.CancelAsync(db, DueActionKinds.OfferExpire, offerId, ct);
+                await RingEndOtherDevicesAsync(request.Id, offer, closeReason, answeringToken, ct);
                 signals = await TaxiOfferRows.SignalsAsync(db, request.Id, request.DispatchCityKey, [offer.DriverListingId], ct);
                 await db.SaveChangesAsync(ct);
                 await store.ResetRingMissAsync(db, offer.DriverListingId, ct);
@@ -171,6 +173,7 @@ public sealed class TaxiOfferService(
                 if (await store.TryMoveOfferAsync(db, offerId, Ringing, OfferStates.Missed, OfferEndReasons.Filled, ct: ct) is null)
                     return TaxiActionResult.StateOf(TaxiRequestErrorTypes.OfferMissed, OfferStates.Missed);
                 await scheduler.CancelAsync(db, DueActionKinds.OfferExpire, offerId, ct);
+                await RingEndOtherDevicesAsync(request.Id, offer, OfferEndReasons.Filled, answeringToken, ct);
                 signals = await TaxiOfferRows.SignalsAsync(db, request.Id, request.DispatchCityKey, [offer.DriverListingId], ct);
                 await db.SaveChangesAsync(ct);
                 await store.ResetRingMissAsync(db, offer.DriverListingId, ct);
@@ -198,7 +201,10 @@ public sealed class TaxiOfferService(
                     }
                 }
                 await scheduler.CancelAsync(db, DueActionKinds.OfferExpire, offerId, ct);
+                await RingEndOtherDevicesAsync(request.Id, offer, RingEndReasons.Accepted, answeringToken, ct);
                 await pushes.NotifyAsync(db, new TaxiNotice(TaxiNoticeKind.DriverAccepted, request.TravellerUserId, request.TripId, request.Id, offerId), ct);
+                // The first accepted driver (Open -> Collecting) starts the choose reminders (O7).
+                if (request.Status == RequestStates.Open) await ChooseReminders.ArmAsync(scheduler, db, request.Id, request.DateFrom, ct);
                 signals = await TaxiOfferRows.SignalsAsync(db, request.Id, request.DispatchCityKey, freed, ct);
                 await db.SaveChangesAsync(ct);
                 await store.ResetRingMissAsync(db, offer.DriverListingId, ct);
@@ -223,7 +229,7 @@ public sealed class TaxiOfferService(
         return (null, null);
     }
 
-    private async Task<TaxiActionResult> DeclineUnitAsync(Guid offerId, Guid driverUserId, string? chip, CancellationToken ct)
+    private async Task<TaxiActionResult> DeclineUnitAsync(Guid offerId, Guid driverUserId, string? chip, string? answeringToken, CancellationToken ct)
     {
         if (chip is not null && !ReasonChips.IsValid(chip)) return TaxiActionResult.Fail(TaxiRequestErrorTypes.ReasonRequired);
         if (await OwnedAsync(offerId, driverUserId, ct) is { } denied) return denied;
@@ -240,6 +246,7 @@ public sealed class TaxiOfferService(
                     if (await store.TryMoveOfferAsync(db, offerId, Ringing, OfferStates.Declined, null, chip, ct) is null)
                         return TaxiActionResult.StateOf(TaxiRequestErrorTypes.OfferStateInvalid, offer.Status);
                     await scheduler.CancelAsync(db, DueActionKinds.OfferExpire, offerId, ct);
+                    await RingEndOtherDevicesAsync(request.Id, offer, RingEndReasons.Declined, answeringToken, ct);
                     signals = await TaxiOfferRows.SignalsAsync(db, request.Id, request.DispatchCityKey, [offer.DriverListingId], ct);
                     await db.SaveChangesAsync(ct);
                     await store.ResetRingMissAsync(db, offer.DriverListingId, ct);
@@ -345,10 +352,26 @@ public sealed class TaxiOfferService(
         var reopened = await store.ReopenRequestAsync(context, requestId, 0, ct);
         var change = await TaxiOfferRows.ChangeOfAsync(context, requestId, ct);
         if (reopened is not null && change is not null)
-            await pushes.NotifyAsync(context, new TaxiNotice(TaxiNoticeKind.SelectionLapsed, change.TravellerUserId, change.TripId, requestId, offer.Id), ct);
+            await pushes.NotifyAsync(context, new TaxiNotice(TaxiNoticeKind.SelectionLapsed, change.TravellerUserId, change.TripId, requestId, offer.Id,
+                Reason: endReason), ct);
         var city = reopened?.DispatchCityKey ?? await context.Set<TaxiRequest>().AsNoTracking()
             .Where(r => r.Id == requestId).Select(r => r.DispatchCityKey).FirstAsync(ct);
         return new TaxiClosureResult([city], [offer.DriverListingId], change is null ? [] : [change]);
+    }
+
+    // O11 + O14 backup: the ring may still ring on another device of the driver. Only his OTHER tokens get the ring end; with
+    // single session he has none, so nothing is written. Unknown answering device (old app): nothing is sent.
+    public const string OtherDeviceTokenSql = """
+        SELECT EXISTS (SELECT 1 FROM "DeviceTokens" d WHERE d."UserId" = @user AND d."IsValid" AND d."Token" <> @token) AS "Value"
+        """;
+
+    private async Task RingEndOtherDevicesAsync(Guid requestId, TaxiOfferFacts offer, string reason, string? answeringToken, CancellationToken ct)
+    {
+        if (answeringToken is null) return;
+        var other = await db.Database.SqlQueryRaw<bool>(OtherDeviceTokenSql, TaxiOfferRows.Uuid("user", offer.DriverUserId),
+            new NpgsqlParameter("token", NpgsqlDbType.Text) { Value = answeringToken }).SingleAsync(ct);
+        if (!other) return;
+        await pushes.RingEndAsync(db, new RingEndPush(offer.Id, requestId, offer.DriverUserId, RingEndReasons.ForOtherDevices(reason), answeringToken), ct);
     }
 
     private async Task<TaxiActionResult?> OwnedAsync(Guid offerId, Guid driverUserId, CancellationToken ct)

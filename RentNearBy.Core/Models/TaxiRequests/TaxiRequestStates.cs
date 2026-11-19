@@ -150,8 +150,10 @@ public static class OfferEndReasons
     public const string Booked = "Booked";
     public const string DriverOffline = "DriverOffline";
     public const string ListingRemoved = "ListingRemoved";
+    // O12: the driver removed the route the request matched through.
+    public const string RouteRemoved = "RouteRemoved";
 
-    public static readonly IReadOnlyList<string> All = [Expired, Filled, ConfirmTimeout, DeclinedBooking, RequestCancelled, RequestExpired, Booked, DriverOffline, ListingRemoved];
+    public static readonly IReadOnlyList<string> All = [Expired, Filled, ConfirmTimeout, DeclinedBooking, RequestCancelled, RequestExpired, Booked, DriverOffline, ListingRemoved, RouteRemoved];
     public static readonly string SqlList = TaxiSql.List(All);
 
     // Body of the visible ring end push (contract 10.2); null = no ring end push for this reason.
@@ -160,8 +162,33 @@ public static class OfferEndReasons
         Filled or Booked => "Taken by another driver",
         RequestCancelled => "The traveller cancelled the request",
         DriverOffline => "You are offline",
+        RouteRemoved => "You removed this route",
+        RingEndReasons.Accepted => "You accepted this request",
+        RingEndReasons.Declined => "You declined this request",
+        RingEndReasons.Closed => "This request is closed",
         _ => null,
     };
+}
+
+// Ring end push reasons only, never stored as an offer end reason: the driver answered on one device, so the ring stops
+// on his other devices (O11 + O14). The answering device never gets it: its token is left out of the send.
+public static class RingEndReasons
+{
+    public const string Accepted = "Accepted";
+    public const string Declined = "Declined";
+    public const string Closed = "Closed";
+
+    public const int MaxTokenLength = 1024;
+
+    // A reason without a ring end body (ListingRemoved) still has to stop the ring on the other devices.
+    public static string ForOtherDevices(string reason) => OfferEndReasons.RingEndBody(reason) is null ? Closed : reason;
+
+    // Old apps send no token: then the answering device is unknown and no backup ring end is sent.
+    public static string? AnsweringToken(string? raw)
+    {
+        var token = raw?.Trim();
+        return string.IsNullOrEmpty(token) || token.Length > MaxTokenLength ? null : token;
+    }
 }
 
 public static class ReasonChips
@@ -209,8 +236,13 @@ public static class DueActionKinds
     public const string RequestStaleExpire = "RequestStaleExpire";
     public const string BookingStart = "BookingStart";
     public const string BookingAutoComplete = "BookingAutoComplete";
+    // O7: the traveller has accepts but chose nobody; push after 2 h and after 24 h.
+    public const string ChooseReminderFirst = "ChooseReminderFirst";
+    public const string ChooseReminderSecond = "ChooseReminderSecond";
 
-    public static readonly IReadOnlyList<string> All = [OfferExpire, ConfirmExpire, RequestWaitExpire, RequestStaleExpire, BookingStart, BookingAutoComplete];
+    public static readonly IReadOnlyList<string> ChooseReminders = [ChooseReminderFirst, ChooseReminderSecond];
+    public static readonly IReadOnlyList<string> All =
+        [OfferExpire, ConfirmExpire, RequestWaitExpire, RequestStaleExpire, BookingStart, BookingAutoComplete, ChooseReminderFirst, ChooseReminderSecond];
     public static readonly string SqlList = TaxiSql.List(All);
 }
 

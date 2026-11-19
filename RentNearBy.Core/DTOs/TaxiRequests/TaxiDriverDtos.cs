@@ -95,9 +95,16 @@ public class DriverOfferListDto
     public List<DriverOfferDto> Items { get; set; } = new();
 }
 
+// DeviceToken = FCM token of the answering device; the ring end for other devices skips it (optional, old apps send none).
+public class AcceptOfferDto
+{
+    public string? DeviceToken { get; set; }
+}
+
 public class DeclineOfferDto
 {
     public string? Chip { get; set; }
+    public string? DeviceToken { get; set; }
 }
 
 public class WithdrawOfferDto

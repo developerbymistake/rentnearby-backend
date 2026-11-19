@@ -85,7 +85,8 @@ public class TaxiRingPayloadTests
         Assert.Equal("1 day · 18 Dec", TaxiRingPayload.DatesLine(new DateOnly(2026, 12, 18), new DateOnly(2026, 12, 18)));
         Assert.Equal("2 days · 1 night · 31 Dec to 1 Jan", TaxiRingPayload.DatesLine(new DateOnly(2026, 12, 31), new DateOnly(2027, 1, 1)));
         Assert.Equal("6 seater · 1 traveller", TaxiRingPayload.SeatsLine(6, 1));
-        Assert.Equal("7+ seater · 8 travellers", TaxiRingPayload.SeatsLine(7, 8));
+        Assert.Equal("7 seater · 7 travellers", TaxiRingPayload.SeatsLine(7, 7));
+        Assert.Equal("12 seater · 9 travellers", TaxiRingPayload.SeatsLine(12, 9));
     }
 
     [Fact]

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services.TaxiRequests;
@@ -18,6 +19,7 @@ public sealed record RouteEndsBefore(decimal FromLat, decimal FromLng, long? Fro
 public sealed class TaxiRouteKeyRow
 {
     public Guid Id { get; set; }
+    public Guid TaxiListingId { get; set; }
     public decimal FromLatitude { get; set; }
     public decimal FromLongitude { get; set; }
     public decimal ToLatitude { get; set; }
@@ -34,6 +36,16 @@ public interface ITaxiRouteCityKeyStore
     Task<IReadOnlyList<TaxiRouteKeyRow>> NextMissingAsync(Guid after, int take, CancellationToken ct);
     // Fills only keys that are still null on rows whose ends did not move since they were read; one transaction.
     Task<int> WriteAsync(IReadOnlyList<TaxiRouteKeyWrite> writes, CancellationToken ct);
+    // O12 follow-up of a slow lookup at route save: the ringing and accepted offers of each driver are checked against his
+    // routes as stored now; a null key at a point whose lookup is still unsettled keeps them. One unit per driver.
+    Task<int> RecheckOffersAsync(IReadOnlyCollection<Guid> taxiListingIds, Func<decimal, decimal, bool> unsettled, CancellationToken ct);
+}
+
+// Settled = the answer is final: a trusted city, or a point outside every live city. Unsettled = no city list, a guessed
+// city (geocoder failed), an error or no answer in time.
+public readonly record struct CityLookup(long? Key, bool Settled)
+{
+    public static readonly CityLookup NoAnswer = new(null, false);
 }
 
 // The ONLY writer of TaxiRoute.FromCityKey / ToCityKey. A key is stored only for an available, found and trusted city;
@@ -43,15 +55,19 @@ public static class TaxiRouteCityKeys
     public static readonly EventId Unresolved = new(7101, "taxi.route.city.unresolved");
 
     public static async Task<long?> KeyOfAsync(ICityResolver resolver, double lat, double lng)
+        => (await LookupAsync(resolver, lat, lng)).Key;
+
+    public static async Task<CityLookup> LookupAsync(ICityResolver resolver, double lat, double lng)
     {
         try
         {
             var pin = await resolver.ResolveTrustedAsync(lat, lng);
-            return pin is { Available: true, City: { } city, Trusted: true } ? city.CityKey : null;
+            if (pin is { Available: true, City: { } city, Trusted: true }) return new CityLookup(city.CityKey, true);
+            return new CityLookup(null, pin is { Available: true, City: null });
         }
         catch
         {
-            return null;
+            return CityLookup.NoAnswer;
         }
     }
 
@@ -59,22 +75,30 @@ public static class TaxiRouteCityKeys
     // beforeLookup runs before every real lookup but the first, so the geocoder is paced per call, not per batch.
     public sealed class PointCache(ICityResolver resolver, Func<CancellationToken, Task>? beforeLookup = null)
     {
-        private readonly Dictionary<(decimal, decimal), long?> _keys = new();
+        private readonly Dictionary<(decimal, decimal), CityLookup> _keys = new();
         private bool _looked;
 
         public int Lookups { get; private set; }
 
         public async Task<long?> KeyOfAsync(decimal lat, decimal lng, CancellationToken ct = default)
+            => (await LookupAsync(lat, lng, ct)).Key;
+
+        public async Task<CityLookup> LookupAsync(decimal lat, decimal lng, CancellationToken ct = default)
         {
-            var at = (Math.Round(lat, 5), Math.Round(lng, 5));
+            var at = At(lat, lng);
             if (_keys.TryGetValue(at, out var hit)) return hit;
             if (_looked && beforeLookup != null) await beforeLookup(ct);
             _looked = true;
             Lookups++;
-            var key = await TaxiRouteCityKeys.KeyOfAsync(resolver, (double)lat, (double)lng);
-            _keys[at] = key;
-            return key;
+            var lookup = await TaxiRouteCityKeys.LookupAsync(resolver, (double)lat, (double)lng);
+            _keys[at] = lookup;
+            return lookup;
         }
+
+        // Only a point this pass got a final answer for is settled; a point never looked up is not.
+        public bool IsSettled(decimal lat, decimal lng) => _keys.TryGetValue(At(lat, lng), out var hit) && hit.Settled;
+
+        private static (decimal, decimal) At(decimal lat, decimal lng) => (Math.Round(lat, 5), Math.Round(lng, 5));
     }
 
     // A request path waits at most this long for city lookups (a cold city grid or a slow geocoder); what is not
@@ -95,6 +119,12 @@ public static class TaxiRouteCityKeys
     // budget: null waits for every lookup; else unanswered points stay null after it.
     public static async Task<int> ResolveAsync(
         ICityResolver resolver, IReadOnlyList<(TaxiRoute Route, RouteEndsBefore? Before)> routes, ILogger logger, TimeSpan? budget = null)
+        => (await ResolveForSaveAsync(resolver, routes, logger, budget)).Unresolved;
+
+    // Same as ResolveAsync, plus the keys of every route (in order) for the O12 offer check: an end is pending when its
+    // point is new or moved and its lookup gave no final answer inside the budget.
+    public static async Task<(int Unresolved, IReadOnlyList<RouteServeKeys> Keys)> ResolveForSaveAsync(
+        ICityResolver resolver, IReadOnlyList<(TaxiRoute Route, RouteEndsBefore? Before)> routes, ILogger logger, TimeSpan? budget = null)
     {
         var points = new HashSet<(decimal Lat, decimal Lng)>();
         foreach (var (route, before) in routes)
@@ -104,26 +134,36 @@ public static class TaxiRouteCityKeys
             if (!Keeps(route.ToLatitude, route.ToLongitude, before?.ToLat, before?.ToLng, before?.ToKey))
                 points.Add((route.ToLatitude, route.ToLongitude));
         }
-        var lookup = Task.WhenAll(points.Select(async p => (p, Key: await KeyOfAsync(resolver, (double)p.Lat, (double)p.Lng))));
+        var lookup = Task.WhenAll(points.Select(async p => (p, Answer: await LookupAsync(resolver, (double)p.Lat, (double)p.Lng))));
         var answered = await WithinAsync(lookup, budget);
-        var keys = answered?.ToDictionary(x => x.p, x => x.Key) ?? new Dictionary<(decimal Lat, decimal Lng), long?>();
+        var answers = answered?.ToDictionary(x => x.p, x => x.Answer) ?? new Dictionary<(decimal Lat, decimal Lng), CityLookup>();
 
         var unresolved = 0;
+        var keys = new List<RouteServeKeys>(routes.Count);
         foreach (var (route, before) in routes)
         {
-            route.FromCityKey = Keeps(route.FromLatitude, route.FromLongitude, before?.FromLat, before?.FromLng, before?.FromKey)
-                ? before!.FromKey : keys.GetValueOrDefault((route.FromLatitude, route.FromLongitude));
-            route.ToCityKey = Keeps(route.ToLatitude, route.ToLongitude, before?.ToLat, before?.ToLng, before?.ToKey)
-                ? before!.ToKey : keys.GetValueOrDefault((route.ToLatitude, route.ToLongitude));
+            var from = Keeps(route.FromLatitude, route.FromLongitude, before?.FromLat, before?.FromLng, before?.FromKey)
+                ? new CityLookup(before!.FromKey, true) : answers.GetValueOrDefault((route.FromLatitude, route.FromLongitude), CityLookup.NoAnswer);
+            var to = Keeps(route.ToLatitude, route.ToLongitude, before?.ToLat, before?.ToLng, before?.ToKey)
+                ? new CityLookup(before!.ToKey, true) : answers.GetValueOrDefault((route.ToLatitude, route.ToLongitude), CityLookup.NoAnswer);
+            route.FromCityKey = from.Key;
+            route.ToCityKey = to.Key;
+            keys.Add(new RouteServeKeys(from.Key, to.Key,
+                FromPending: from.Key is null && !from.Settled && Moved(route.FromLatitude, route.FromLongitude, before?.FromLat, before?.FromLng),
+                ToPending: to.Key is null && !to.Settled && Moved(route.ToLatitude, route.ToLongitude, before?.ToLat, before?.ToLng)));
             if (route.FromCityKey != null && route.ToCityKey != null) continue;
             unresolved++;
             logger.LogWarning(Unresolved, "taxi.route.city.unresolved {RouteId}", route.Id);
         }
-        return unresolved;
+        return (unresolved, keys);
     }
 
     private static bool Keeps(decimal lat, decimal lng, decimal? beforeLat, decimal? beforeLng, long? beforeKey)
         => beforeKey != null && beforeLat == lat && beforeLng == lng;
+
+    // A new route counts as moved: the slot may now hold another route's ends.
+    private static bool Moved(decimal lat, decimal lng, decimal? beforeLat, decimal? beforeLng)
+        => beforeLat != lat || beforeLng != lng;
 
     // The save is the authority for both keys: they are written even when EF sees no change against the loaded value,
     // so a backfill write that landed between the load and this save (a key for the old point) is overwritten.
@@ -175,14 +215,14 @@ public static class TaxiRouteCityKeys
 }
 
 // Each call opens its own scope, so one batch is one short unit of work.
-public sealed class TaxiRouteCityKeyStore(IServiceScopeFactory scopes) : ITaxiRouteCityKeyStore
+public sealed class TaxiRouteCityKeyStore(IServiceScopeFactory scopes, ILogger<TaxiRouteCityKeyStore> logger) : ITaxiRouteCityKeyStore
 {
     public async Task<IReadOnlyList<TaxiRouteKeyRow>> NextMissingAsync(Guid after, int take, CancellationToken ct)
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         return await db.Database.SqlQuery<TaxiRouteKeyRow>($"""
-            SELECT "Id", "FromLatitude", "FromLongitude", "ToLatitude", "ToLongitude", "FromCityKey", "ToCityKey"
+            SELECT "Id", "TaxiListingId", "FromLatitude", "FromLongitude", "ToLatitude", "ToLongitude", "FromCityKey", "ToCityKey"
             FROM "TaxiRoutes"
             WHERE ("FromCityKey" IS NULL OR "ToCityKey" IS NULL) AND "Id" > {after}
             ORDER BY "Id"
@@ -212,5 +252,42 @@ public sealed class TaxiRouteCityKeyStore(IServiceScopeFactory scopes) : ITaxiRo
         }
         await tx.CommitAsync(ct);
         return changed;
+    }
+
+    // A failed driver is logged and left; the others still run.
+    public async Task<int> RecheckOffersAsync(IReadOnlyCollection<Guid> taxiListingIds, Func<decimal, decimal, bool> unsettled, CancellationToken ct)
+    {
+        var done = 0;
+        foreach (var listingId in taxiListingIds.Order())
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                await using var scope = scopes.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var closure = scope.ServiceProvider.GetRequiredService<TaxiRequestClosure>();
+                var signals = await PgRetry.OnceAsync(db, async c =>
+                {
+                    await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, c);
+                    var routes = await db.TaxiRoutes.AsNoTracking().Where(r => r.TaxiListingId == listingId)
+                        .Select(r => new { r.FromLatitude, r.FromLongitude, r.FromCityKey, r.ToLatitude, r.ToLongitude, r.ToCityKey })
+                        .ToListAsync(c);
+                    var keys = routes.Select(r => new RouteServeKeys(r.FromCityKey, r.ToCityKey,
+                        FromPending: r.FromCityKey is null && unsettled(r.FromLatitude, r.FromLongitude),
+                        ToPending: r.ToCityKey is null && unsettled(r.ToLatitude, r.ToLongitude))).ToList();
+                    var result = await closure.RoutesChangedAsync(db, listingId, keys, c);
+                    await db.SaveChangesAsync(c);
+                    await tx.CommitAsync(c);
+                    return result;
+                }, ct, logger);
+                await closure.AfterCommitAsync(signals, poolChanged: false);
+                done++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "taxi.route.city.backfill offer recheck failed for {TaxiListingId}", listingId);
+            }
+        }
+        return done;
     }
 }

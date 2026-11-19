@@ -167,9 +167,14 @@ public sealed class TaxiBookingService(
             }
             else if (check.Outcome == DriverCheckOutcome.Overlap)
             {
-                await tx.RollbackAsync(ct);
+                // O8: the driver is booked on these dates elsewhere, so the selection lapses at once (no wait for the
+                // confirm timer): the request goes back to Collecting with its other accepts and the traveller is told.
+                var lapsed = await offers.LapseSelectionInTxAsync(db, request.Id, offer, OfferStates.Closed, OfferEndReasons.Booked, null, ct);
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
                 metrics?.OverlapRejected();
-                return TaxiActionResult.Fail(TaxiRequestErrorTypes.DatesAlreadyBooked, DatesData(check.Clash!.Value));
+                signals = lapsed ?? TaxiClosureResult.Empty;
+                result = TaxiActionResult.Fail(TaxiRequestErrorTypes.DatesAlreadyBooked, DatesData(check.Clash!.Value));
             }
             else
             {
@@ -336,7 +341,8 @@ public sealed class TaxiBookingService(
         return new TaxiClosureResult([], [], change is null ? [] : [change]);
     }
 
-    // T10: once per booking, stars only. Same value again = 200, another value = AlreadyRated.
+    // T10: once per booking, stars only. Same value again = 200, another value = AlreadyRated. A trip the driver left (or an
+    // admin cancelled) while running is rated too (O13); RidesCompleted moves only in CompleteInTxAsync.
     private async Task<TaxiActionResult> RateUnitAsync(Guid requestId, Guid travellerUserId, short stars, CancellationToken ct)
     {
         TaxiClosureResult signals;
@@ -345,11 +351,12 @@ public sealed class TaxiBookingService(
             var request = await store.LockRequestAsync(db, requestId, ct);
             if (request is null) return TaxiActionResult.Fail(TaxiRequestErrorTypes.TaxiRequestNotFound);
             if (request.TravellerUserId != travellerUserId) return TaxiActionResult.Fail(TaxiRequestErrorTypes.NotTripOwner);
-            if (request.Status != RequestStates.Completed) return TaxiActionResult.Fail(TaxiRequestErrorTypes.RatingNotAllowed);
+            if (request.Status is not (RequestStates.Completed or RequestStates.Cancelled)) return TaxiActionResult.Fail(TaxiRequestErrorTypes.RatingNotAllowed);
             var booking = await db.Set<TaxiBooking>().AsNoTracking()
-                .Where(b => b.RequestId == requestId && b.Status == BookingStates.Completed)
-                .OrderByDescending(b => b.CompletedAt).Select(b => new { b.Id, b.DriverListingId }).FirstOrDefaultAsync(ct);
-            if (booking is null) return TaxiActionResult.Fail(TaxiRequestErrorTypes.RatingNotAllowed);
+                .Where(b => b.RequestId == requestId)
+                .OrderByDescending(b => b.BookedAt).Select(b => new { b.Id, b.DriverListingId, b.Status, b.StartedAt }).FirstOrDefaultAsync(ct);
+            if (booking is null || !TaxiRatingRules.CanRate(request.Status, request.EndReason, booking.Status, booking.StartedAt))
+                return TaxiActionResult.Fail(TaxiRequestErrorTypes.RatingNotAllowed);
 
             var inserted = await db.Database.ExecuteSqlRawAsync(InsertRatingSql,
             [

@@ -1,3 +1,5 @@
+using RentNearBy.Core.Models;
+
 namespace RentNearBy.Core.Entities;
 
 public class DeletedAccountRecord
@@ -6,6 +8,7 @@ public class DeletedAccountRecord
     public Guid OriginalUserId { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string? Name { get; set; }
+    public string Role { get; set; } = UserRoles.Seeker;   // UserRoles key at deletion
     public DateTime AccountCreatedAt { get; set; }
     public DateTime DeletedAt { get; set; }
 

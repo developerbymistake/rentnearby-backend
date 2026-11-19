@@ -14,15 +14,23 @@ public class TaxiRouteCityBackfillTests
         public readonly SortedDictionary<Guid, TaxiRouteKeyRow> Rows = new(Comparer<Guid>.Create((a, b) => string.CompareOrdinal(a.ToString(), b.ToString())));
         public int Reads, WriteCalls;
         public Func<int, bool> FailWrite = _ => false;
+        public readonly List<(IReadOnlyCollection<Guid> Drivers, Func<decimal, decimal, bool> Unsettled)> Rechecks = new();
 
-        public void Add((double Lat, double Lng) from, (double Lat, double Lng) to)
+        public Guid Add((double Lat, double Lng) from, (double Lat, double Lng) to, Guid? driver = null)
         {
             var id = Guid.NewGuid();
             Rows[id] = new TaxiRouteKeyRow
             {
-                Id = id, FromLatitude = (decimal)from.Lat, FromLongitude = (decimal)from.Lng,
+                Id = id, TaxiListingId = driver ?? Guid.NewGuid(), FromLatitude = (decimal)from.Lat, FromLongitude = (decimal)from.Lng,
                 ToLatitude = (decimal)to.Lat, ToLongitude = (decimal)to.Lng,
             };
+            return Rows[id].TaxiListingId;
+        }
+
+        public Task<int> RecheckOffersAsync(IReadOnlyCollection<Guid> taxiListingIds, Func<decimal, decimal, bool> unsettled, CancellationToken ct)
+        {
+            Rechecks.Add((taxiListingIds.ToList(), unsettled));
+            return Task.FromResult(taxiListingIds.Count);
         }
 
         public Task<IReadOnlyList<TaxiRouteKeyRow>> NextMissingAsync(Guid after, int take, CancellationToken ct)
@@ -54,7 +62,7 @@ public class TaxiRouteCityBackfillTests
 
         private static TaxiRouteKeyRow Clone(TaxiRouteKeyRow r) => new()
         {
-            Id = r.Id, FromLatitude = r.FromLatitude, FromLongitude = r.FromLongitude, ToLatitude = r.ToLatitude,
+            Id = r.Id, TaxiListingId = r.TaxiListingId, FromLatitude = r.FromLatitude, FromLongitude = r.FromLongitude, ToLatitude = r.ToLatitude,
             ToLongitude = r.ToLongitude, FromCityKey = r.FromCityKey, ToCityKey = r.ToCityKey,
         };
     }
@@ -117,6 +125,37 @@ public class TaxiRouteCityBackfillTests
         Assert.Equal(Bhimtal.CityKey, delhiRow.ToCityKey);
         Assert.Equal(2, log.Count(7101));
         Assert.Contains(log.Entries, e => e.Id.Id == 7101 && e.Message.Contains("1 routes"));
+    }
+
+    // O12 follow-up: a driver whose null end got a final answer (a key, or no city) has his offers checked again once, at the
+    // end of the pass; an end still without a final answer keeps his offers and is not rechecked.
+    [Fact]
+    public async Task Drivers_with_a_newly_settled_end_get_their_offers_rechecked()
+    {
+        var store = new MemoryStore();
+        var resolved = store.Add((Haldwani.Latitude, Haldwani.Longitude), (Bhimtal.Latitude, Bhimtal.Longitude));
+        var noCity = store.Add((Haldwani.Latitude, Haldwani.Longitude), Delhi);
+
+        var result = await new TaxiRouteCityBackfillPass(store, Resolver(), new RecordingLogger(), NoPause).RunAsync(CancellationToken.None);
+
+        var recheck = Assert.Single(store.Rechecks);
+        Assert.Equal(new[] { resolved, noCity }.Order(), recheck.Drivers.Order());
+        Assert.Equal(2, result.RecheckedDrivers);
+        Assert.False(recheck.Unsettled((decimal)Bhimtal.Latitude, (decimal)Bhimtal.Longitude));
+        Assert.False(recheck.Unsettled((decimal)Delhi.Lat, (decimal)Delhi.Lng));
+        Assert.True(recheck.Unsettled(10m, 10m));
+    }
+
+    [Fact]
+    public async Task No_recheck_while_every_answer_is_a_guess()
+    {
+        var store = new MemoryStore();
+        store.Add((Haldwani.Latitude, Haldwani.Longitude), (Bhimtal.Latitude, Bhimtal.Longitude));
+
+        var result = await new TaxiRouteCityBackfillPass(store, Resolver(geocoderDown: true), new RecordingLogger(), NoPause).RunAsync(CancellationToken.None);
+
+        Assert.Empty(store.Rechecks);
+        Assert.Equal(0, result.RecheckedDrivers);
     }
 
     [Fact]
@@ -223,5 +262,7 @@ public class TaxiRouteCityBackfillTests
     {
         public Task<IReadOnlyList<TaxiRouteKeyRow>> NextMissingAsync(Guid after, int take, CancellationToken ct) => throw new InvalidOperationException("db down");
         public Task<int> WriteAsync(IReadOnlyList<TaxiRouteKeyWrite> writes, CancellationToken ct) => Task.FromResult(0);
+        public Task<int> RecheckOffersAsync(IReadOnlyCollection<Guid> taxiListingIds, Func<decimal, decimal, bool> unsettled, CancellationToken ct)
+            => Task.FromResult(0);
     }
 }

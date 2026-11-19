@@ -74,11 +74,12 @@ public sealed class TaxiRequestService(
         // again under its lock and a plan whose first or last city moved meanwhile is read once more from the start.
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var (first, last) = EndCities(TripPlanReader.Read(trip));
-            var lists = await places.GetAsync(first, last, ct);
-            if (Check(trip, body, lists, first, last).Error is { } early) return TaxiRequestResult.Fail(early);
+            var cities = CitiesOf(TripPlanReader.Read(trip), body);
+            var lists = await places.GetAsync(cities.First, cities.Last, ct);
+            var sightseeingDrivers = cities.Sightseeing == cities.First ? lists.SightseeingDrivers : await places.CountForAsync(cities.Sightseeing, ct);
+            if (Check(trip, body, lists, cities, sightseeingDrivers).Error is { } early) return TaxiRequestResult.Fail(early);
 
-            var outcome = await PgRetry.OnceAsync(db, c => InsertUnderTripLockAsync(trip.Id, userId, body, lists, first, last, c), ct, logger);
+            var outcome = await PgRetry.OnceAsync(db, c => InsertUnderTripLockAsync(trip.Id, userId, body, lists, cities, sightseeingDrivers, c), ct, logger);
             if (outcome.Retry is { } fresh)
             {
                 trip = fresh;
@@ -97,8 +98,18 @@ public sealed class TaxiRequestService(
 
     private sealed record InsertOutcome(TaxiRequestResult? Result, Trip? Retry);
 
+    // The plan cities a create depends on: first and last (pickup and drop lists) and the sightseeing city (O4).
+    public sealed record TaxiCreateCities(long First, long Last, long Sightseeing);
+
+    public static TaxiCreateCities CitiesOf(TripPlan plan, CreateTaxiRequestDto body)
+    {
+        var (first, last) = EndCities(plan);
+        var days = body.Sightseeing?.On == true ? body.Sightseeing.Days : null;
+        return new TaxiCreateCities(first, last, TaxiRequestCreateRules.SightseeingCityOf(plan, days, first));
+    }
+
     private async Task<InsertOutcome> InsertUnderTripLockAsync(Guid tripId, Guid userId, CreateTaxiRequestDto body, TaxiPickupLists lists,
-        long first, long last, CancellationToken ct)
+        TaxiCreateCities cities, int sightseeingDrivers, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         await store.LockTripAsync(db, tripId, ct);
@@ -107,12 +118,12 @@ public sealed class TaxiRequestService(
         if (trip.OwnerUserId != userId) return new InsertOutcome(TaxiRequestResult.Fail(403, TaxiRequestErrorTypes.NotTripOwner), null);
 
         var plan = TripPlanReader.Read(trip);
-        if (EndCities(plan) != (first, last)) return new InsertOutcome(null, trip);
+        if (CitiesOf(plan, body) != cities) return new InsertOutcome(null, trip);
 
         if (body.ClientRequestId is { } clientId && await FindByClientIdAsync(userId, clientId, ct) is { } replay)
             return new InsertOutcome(ReplayOrConflict(replay, tripId), null);
 
-        var check = Check(trip, body, lists, first, last);
+        var check = Check(trip, body, lists, cities, sightseeingDrivers);
         if (check.Error is { } error) return new InsertOutcome(TaxiRequestResult.Fail(error), null);
         var createPlan = check.Plan!;
 
@@ -124,6 +135,12 @@ public sealed class TaxiRequestService(
 
         if (await ActiveRequestIdAsync(tripId, ct) is { } activeId)
             return new InsertOutcome(AlreadyActive(activeId), null);
+
+        // O3 + O10: one traveller, one taxi per date. The traveller lock serialises his creates across trips, so two trips
+        // racing cannot both pass the overlap check.
+        await db.Database.ExecuteSqlRawAsync(TravellerLockSql, [Uuid("traveller", userId)], ct);
+        if (await OverlapOfAsync(userId, tripId, createPlan.Occupied, ct) is { } overlap)
+            return new InsertOutcome(TaxiRequestResult.Fail(TaxiRequestCreateRules.OverlapError(overlap)), null);
 
         var pickupName = lists.PickupName(createPlan.PickupCityKey);
         var dropName = createPlan.DropSameAsPickup ? pickupName : lists.DropName(createPlan.DropCityKey);
@@ -207,7 +224,8 @@ public sealed class TaxiRequestService(
         }, ct);
     }
 
-    // T6 (P4): 3 more accepts within the cap of 9, rings drivers not yet offered. Nothing to add = the current object.
+    // T6 (P4): 3 more accepts within the cap of 9 (never below the target), rings drivers not yet offered; on an exhausted
+    // request (O5) it is the only way to ring again. Nothing to add = the current object.
     public async Task<TaxiRequestResult> AskMoreAsync(Guid requestId, Guid userId, CancellationToken ct = default)
     {
         if (await OwnedAsync(requestId, userId, ct) is { Error: { } denied }) return TaxiRequestResult.Fail(denied);
@@ -215,7 +233,7 @@ public sealed class TaxiRequestService(
         return await RunAsync(requestId, async (locked, c) =>
         {
             if (!RequestStates.Dispatching.Contains(locked.Status)) return Step.StateInvalid(locked);
-            if (!TaxiDispatchRules.CanAskMore(locked.Status, locked.AcceptedCount, locked.AcceptTarget)) return Step.Unchanged;
+            if (!TaxiDispatchRules.CanAskMore(locked.Status, locked.AcceptedCount, locked.AcceptTarget, locked.QueueExhaustedAt is not null)) return Step.Unchanged;
             var remaining = await TaxiCandidateQuery.CountRemainingAsync(db, requestId, c);
             if (remaining.Free + remaining.Busy == 0) return Step.Fail(TaxiRequestCreateRules.Error(409, TaxiRequestErrorTypes.AllDriversBusy));
 
@@ -227,10 +245,11 @@ public sealed class TaxiRequestService(
     }
 
     public static readonly string AskMoreSql = $"""
-        UPDATE "TaxiRequests" SET "AcceptTarget" = LEAST({TaxiDispatchRules.MaxAccepts}, "AcceptedCount" + {TaxiDispatchRules.AcceptBatch})::smallint,
+        UPDATE "TaxiRequests" SET "AcceptTarget" = GREATEST("AcceptTarget", LEAST({TaxiDispatchRules.MaxAccepts}, "AcceptedCount" + {TaxiDispatchRules.AcceptBatch}))::smallint,
             "QueueExhaustedAt" = NULL, "QueueWaitStartedAt" = NULL, "Version" = "Version" + 1, "UpdatedAt" = now()
         WHERE "Id" = @id AND "Status" IN ('{RequestStates.Open}', '{RequestStates.Collecting}')
-            AND "AcceptedCount" + {TaxiDispatchRules.AcceptBatch} > "AcceptTarget" AND "AcceptTarget" < {TaxiDispatchRules.MaxAccepts}
+            AND (("AcceptedCount" + {TaxiDispatchRules.AcceptBatch} > "AcceptTarget" AND "AcceptTarget" < {TaxiDispatchRules.MaxAccepts})
+                 OR ("QueueExhaustedAt" IS NOT NULL AND "AcceptedCount" < "AcceptTarget"))
         RETURNING "Version" AS "Value"
         """;
 
@@ -295,6 +314,7 @@ public sealed class TaxiRequestService(
 
             await db.Database.ExecuteSqlRawAsync(SetSelectedOfferSql, [Uuid("id", requestId), Uuid("offerId", offerId)], c);
             await scheduler.AddAsync(db, DueActionKinds.ConfirmExpire, offerId, requestId, 0, TimeSpan.FromSeconds(TaxiDispatchRules.ConfirmSeconds), c);
+            await ChooseReminders.CancelAsync(scheduler, db, requestId, c);
             await pushes.NotifyAsync(db, new TaxiNotice(TaxiNoticeKind.Selected, movedOffer.DriverUserId, locked.TripId, requestId, offerId), c);
             return Step.Changed(new TaxiClosureResult([locked.DispatchCityKey], [], [movedRequest.Change]));
         }, ct);
@@ -352,7 +372,7 @@ public sealed class TaxiRequestService(
         return fresh is null ? TaxiRequestResult.Fail(404, TaxiRequestErrorTypes.TaxiRequestNotFound) : TaxiRequestResult.Ok(fresh);
     }
 
-    private TaxiCreateCheck Check(Trip trip, CreateTaxiRequestDto body, TaxiPickupLists lists, long first, long last)
+    private TaxiCreateCheck Check(Trip trip, CreateTaxiRequestDto body, TaxiPickupLists lists, TaxiCreateCities cities, int sightseeingDrivers)
     {
         var plan = TripPlanReader.Read(trip);
         var facts = new TaxiCreateFacts(
@@ -360,12 +380,41 @@ public sealed class TaxiRequestService(
             plan.Days?.Count(d => d != null) ?? 0,
             trip.Status == TripStatuses.Completed,
             IstTime.TodayIst(_utcNow()),
-            first,
-            last,
+            cities.First,
+            cities.Last,
             lists.PickupKeys,
             lists.DropKeys,
-            lists.SightseeingDrivers);
+            sightseeingDrivers,
+            cities.Sightseeing,
+            TaxiRequestCreateRules.TravellersOf(plan.Settings));
         return TaxiRequestCreateRules.Check(body, facts);
+    }
+
+    public const string TravellerLockSql = "SELECT pg_advisory_xact_lock(hashtextextended('taxi-traveller:' || @traveller::text, 0))";
+
+    // Another trip of the traveller holding an active request or an active booking on overlapping dates (inclusive).
+    private async Task<TaxiOverlap?> OverlapOfAsync(Guid userId, Guid tripId, TaxiDateRange range, CancellationToken ct)
+    {
+        var request = await (
+                from r in db.Set<TaxiRequest>().AsNoTracking()
+                join t in db.Trips.AsNoTracking() on r.TripId equals t.Id into trips
+                from t in trips.DefaultIfEmpty()
+                where r.TravellerUserId == userId && r.TripId != tripId && RequestStates.Active.Contains(r.Status)
+                      && r.DateFrom <= range.To && range.From <= r.DateTo
+                orderby r.DateFrom
+                select new TaxiOverlap(r.TripId, t != null ? t.Title : string.Empty, r.Id, r.DateFrom, r.DateTo))
+            .FirstOrDefaultAsync(ct);
+        if (request is not null) return request;
+
+        return await (
+                from b in db.Set<TaxiBooking>().AsNoTracking()
+                join t in db.Trips.AsNoTracking() on b.TripId equals t.Id into trips
+                from t in trips.DefaultIfEmpty()
+                where b.TravellerUserId == userId && b.TripId != tripId && BookingStates.Active.Contains(b.Status)
+                      && b.DateFrom <= range.To && range.From <= b.DateTo
+                orderby b.DateFrom
+                select new TaxiOverlap(b.TripId, t != null ? t.Title : b.TripName, b.RequestId, b.DateFrom, b.DateTo))
+            .FirstOrDefaultAsync(ct);
     }
 
     // First city = leg of day 1, last city = leg of the last day (a plan without days uses its legs).

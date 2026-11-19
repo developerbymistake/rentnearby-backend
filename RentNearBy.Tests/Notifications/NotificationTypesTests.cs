@@ -32,6 +32,7 @@ public class NotificationTypesTests
     [InlineData(NotificationTypes.TaxiRequestClosed, "taxi_request_closed")]
     [InlineData(NotificationTypes.TaxiBookingCancelled, "taxi_booking_cancelled")]
     [InlineData(NotificationTypes.TaxiRingsMissed, "taxi_rings_missed")]
+    [InlineData(NotificationTypes.TaxiChooseDriver, "taxi_choose_driver")]
     [InlineData(NotificationTypes.TaxiRequestRing, "taxi_request_ring")]
     [InlineData(NotificationTypes.TaxiRequestRingEnded, "taxi_request_ring_ended")]
     public void ToWireValue_KnownType_SnakeValue(string type, string expected)
@@ -44,10 +45,10 @@ public class NotificationTypesTests
         => Assert.Equal(type, NotificationTypes.ToWireValue(type));
 
     [Fact]
-    public void Taxi_request_types_are_the_twelve_notices_plus_ring_and_ring_end()
+    public void Taxi_request_types_are_the_thirteen_notices_plus_ring_and_ring_end()
     {
         var names = typeof(NotificationTypes).GetFields().Where(f => f.IsLiteral && f.Name.StartsWith("Taxi") && f.Name is not ("TaxiApproved" or "TaxiRejected")).Select(f => f.Name).ToArray();
-        Assert.Equal(14, names.Length);
+        Assert.Equal(15, names.Length);
         Assert.All(names, n => Assert.Equal(n, (string)typeof(NotificationTypes).GetField(n)!.GetRawConstantValue()!));
     }
 }

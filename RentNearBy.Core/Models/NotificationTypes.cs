@@ -61,7 +61,7 @@ public static class NotificationTypes
     public const string TripTravelEve = "TripTravelEve";
     // Push-only morning reminders (rnb.push outbox), no NotificationEvent row.
     public const string TripReminder = "TripReminder";
-    // Taxi request system: the 12 visible notices of the contract table 10.3, then the push-only ring and ring end.
+    // Taxi request system: the 12 visible notices of the contract table 10.3 plus the choose reminder (O7), then the push-only ring and ring end.
     public const string TaxiDriverAccepted = "TaxiDriverAccepted";
     public const string TaxiSelectionLapsed = "TaxiSelectionLapsed";
     public const string TaxiBooked = "TaxiBooked";
@@ -74,6 +74,7 @@ public static class NotificationTypes
     public const string TaxiRequestClosed = "TaxiRequestClosed";
     public const string TaxiBookingCancelled = "TaxiBookingCancelled";
     public const string TaxiRingsMissed = "TaxiRingsMissed";
+    public const string TaxiChooseDriver = "TaxiChooseDriver";
     public const string TaxiRequestRing = "TaxiRequestRing";
     public const string TaxiRequestRingEnded = "TaxiRequestRingEnded";
 
@@ -146,6 +147,7 @@ public static class NotificationTypes
         [TaxiRequestClosed] = "taxi_request_closed",
         [TaxiBookingCancelled] = "taxi_booking_cancelled",
         [TaxiRingsMissed] = "taxi_rings_missed",
+        [TaxiChooseDriver] = "taxi_choose_driver",
         [TaxiRequestRing] = "taxi_request_ring",
         [TaxiRequestRingEnded] = "taxi_request_ring_ended",
     };

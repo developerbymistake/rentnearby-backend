@@ -257,6 +257,48 @@ public class PushExpiryTests
         Assert.Contains(U1.ToString(), entry.Message);
     }
 
+    private static PushDelivery RingEnd(string? exceptToken)
+        => new(1, new OutboxPushPayload("ringend:1", U1, null, "Request closed", "You accepted this request", "/taxi-request-ring", "{}",
+            "taxi_ring_1", 0, "TaxiRequestRingEnded", Now.AddSeconds(60), new Dictionary<string, string> { ["kind"] = "taxi_ring_end" }, exceptToken), 0);
+
+    // O11 + O14: the answering phone never receives the ring end of its own answer; only the driver's other tokens do.
+    [Fact]
+    public async Task Ring_end_skips_the_answering_token_and_reaches_the_other_devices()
+    {
+        var fcm = new FakeFcm();
+        var verdicts = await Run(RingEnd("phone-a"), new FakeStore(new() { [U1] = ["phone-a", "phone-b", "phone-c"] }), fcm);
+
+        Assert.Equal([PushVerdict.Ack], verdicts);
+        Assert.Equal(["phone-b", "phone-c"], fcm.Sent.Select(m => m.Token).ToArray());
+    }
+
+    [Fact]
+    public async Task Ring_end_with_only_the_answering_token_is_acked_and_never_sent()
+    {
+        var fcm = new FakeFcm();
+        var verdicts = await Run(RingEnd("phone-a"), new FakeStore(new() { [U1] = ["phone-a"] }), fcm);
+
+        Assert.Equal([PushVerdict.Ack], verdicts);
+        Assert.Empty(fcm.Sent);
+    }
+
+    [Fact]
+    public async Task Push_without_an_except_token_goes_to_every_token()
+    {
+        var fcm = new FakeFcm();
+        await Run(RingEnd(null), new FakeStore(new() { [U1] = ["phone-a", "phone-b"] }), fcm);
+
+        Assert.Equal(["phone-a", "phone-b"], fcm.Sent.Select(m => m.Token).ToArray());
+    }
+
+    [Fact]
+    public void Old_outbox_row_without_except_token_still_parses()
+    {
+        var old = "{\"key\":\"ringend:1\",\"userId\":\"00000000-0000-0000-0000-000000000001\",\"title\":\"t\",\"body\":\"b\",\"tag\":\"x\"}";
+        var payload = JsonSerializer.Deserialize<OutboxPushPayload>(old, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Null(payload.ExceptToken);
+    }
+
     private sealed class ListLogger : ILogger
     {
         public List<(LogLevel Level, EventId Event, string Message)> Entries { get; } = [];

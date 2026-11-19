@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using RentNearBy.Api.Handlers;
+using RentNearBy.Api.Handlers.TaxiRequests;
+using RentNearBy.Core.Entities;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Interfaces.TaxiRequests;
@@ -30,7 +32,8 @@ internal static class TaxiOfferKit
     {
         public List<string> Sent { get; } = [];
         public Task RingAsync(ApplicationDbContext db, RingPush ring, CancellationToken ct = default) { Sent.Add("ring"); return Task.CompletedTask; }
-        public Task RingEndAsync(ApplicationDbContext db, RingEndPush ringEnd, CancellationToken ct = default) { Sent.Add("ringend"); return Task.CompletedTask; }
+        public List<RingEndPush> RingEnds { get; } = [];
+        public Task RingEndAsync(ApplicationDbContext db, RingEndPush ringEnd, CancellationToken ct = default) { Sent.Add("ringend"); RingEnds.Add(ringEnd); return Task.CompletedTask; }
         public Task NotifyAsync(ApplicationDbContext db, TaxiNotice notice, CancellationToken ct = default) { Sent.Add(notice.Kind.ToString()); return Task.CompletedTask; }
     }
 
@@ -194,6 +197,36 @@ public class TaxiOfferServiceIntegrationTests(TestDatabase db) : IntegrationTest
         Assert.Equal(3, (await read.Set<TaxiRequest>().AsNoTracking().SingleAsync(r => r.Id == seed.RequestId)).AcceptedCount);
     }
 
+    // O6: a ring still out when the traveller chose a driver can still be accepted; it joins the list as a backup and
+    // the selection and its confirm window stay as they are.
+    [IntegrationFact]
+    public async Task Accept_from_a_ring_still_out_joins_the_list_while_selected()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seed = await TaxiOfferKit.SeedAsync(h, RequestStates.Selected, 2, accepted: 1);
+        var chosen = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, seed.Drivers[0], OfferStates.Selected, 1, confirmBy: DateTime.UtcNow.AddMinutes(10), select: true);
+        var ring = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, seed.Drivers[1], OfferStates.Ringing, 2);
+
+        var pushes = new TaxiOfferKit.RecordingPushes();
+        await using (var s = h.NewScope())
+            Assert.True((await TaxiOfferKit.For(s.Db, pushes).Offers.AcceptAsync(ring, seed.Drivers[1].User)).Ok);
+
+        Assert.Contains(nameof(TaxiNoticeKind.DriverAccepted), pushes.Sent);
+        await using var read = CreateContext();
+        var request = await read.Set<TaxiRequest>().AsNoTracking().SingleAsync(r => r.Id == seed.RequestId);
+        Assert.Equal((RequestStates.Selected, (Guid?)chosen, (short)2), (request.Status, request.SelectedOfferId, request.AcceptedCount));
+        var offers = await read.Set<TaxiRequestOffer>().AsNoTracking().Where(o => o.RequestId == seed.RequestId).ToDictionaryAsync(o => o.Id);
+        Assert.Equal(OfferStates.Selected, offers[chosen].Status);
+        Assert.Equal(OfferStates.Accepted, offers[ring].Status);
+
+        await using var view = h.NewScope();
+        var dto = await new TaxiRequestViews(view.Db).BuildAsync(request);
+        Assert.False(dto.CanAskMore);
+        var backup = Assert.Single(dto.Drivers, d => d.OfferId == ring);
+        Assert.Equal(OfferStates.Accepted, backup.State);
+        Assert.False(backup.CanSelect);
+    }
+
     [IntegrationFact]
     public async Task Accept_twice_is_idempotent()
     {
@@ -320,8 +353,118 @@ public class TaxiOfferServiceIntegrationTests(TestDatabase db) : IntegrationTest
 
         Assert.Equal(TaxiRequestErrorTypes.DatesAlreadyBooked, result.Error);
         await using var read = CreateContext();
-        Assert.Equal(RequestStates.Selected, (await read.Set<TaxiRequest>().AsNoTracking().SingleAsync(r => r.Id == seed.RequestId)).Status);
+        // O8: no accepted driver is left, so the lapsed selection reopens the request.
+        Assert.Equal(RequestStates.Open, (await read.Set<TaxiRequest>().AsNoTracking().SingleAsync(r => r.Id == seed.RequestId)).Status);
         Assert.False(await read.Set<TaxiBooking>().AnyAsync(b => b.RequestId == seed.RequestId));
+    }
+
+    [IntegrationFact]
+    public async Task Dates_already_booked_lapses_the_selection_at_once_and_keeps_the_other_accepts()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seed = await TaxiOfferKit.SeedAsync(h, RequestStates.Selected, 2, accepted: 2);
+        var driver = seed.Drivers[0];
+        var chosen = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, driver, OfferStates.Selected, 1, confirmBy: DateTime.UtcNow.AddMinutes(10), select: true);
+        var other = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, seed.Drivers[1], OfferStates.Accepted, 2);
+        await using (var s = h.NewScope())
+        {
+            s.Db.Set<DueAction>().Add(new DueAction
+            {
+                Id = Guid.NewGuid(), Kind = DueActionKinds.ConfirmExpire, SubjectId = chosen, RequestId = seed.RequestId, DueAt = DateTime.UtcNow.AddMinutes(10),
+            });
+            await s.Db.SaveChangesAsync();
+        }
+        var elsewhere = await TaxiOfferKit.SeedAsync(h, RequestStates.Booked, 0);
+        await TaxiOfferKit.AddBookingAsync(h, elsewhere, Guid.NewGuid(), driver, BookingStates.Booked, seed.From, seed.To, elsewhere.RequestId);
+
+        var pushes = new TaxiOfferKit.RecordingPushes();
+        TaxiActionResult result;
+        await using (var s = h.NewScope())
+            result = await TaxiOfferKit.For(s.Db, pushes).Bookings.ConfirmAsync(chosen, driver.User);
+
+        Assert.Equal(TaxiRequestErrorTypes.DatesAlreadyBooked, result.Error);
+        Assert.Contains(nameof(TaxiNoticeKind.SelectionLapsed), pushes.Sent);
+        await using var read = CreateContext();
+        var request = await read.Set<TaxiRequest>().AsNoTracking().SingleAsync(r => r.Id == seed.RequestId);
+        Assert.Equal((RequestStates.Collecting, (Guid?)null), (request.Status, request.SelectedOfferId));
+        var offers = await read.Set<TaxiRequestOffer>().AsNoTracking().Where(o => o.RequestId == seed.RequestId).ToDictionaryAsync(o => o.Id);
+        Assert.Equal((OfferStates.Closed, OfferEndReasons.Booked), (offers[chosen].Status, offers[chosen].EndReason));
+        Assert.Equal(OfferStates.Accepted, offers[other].Status);
+        Assert.False(await read.Set<DueAction>().AnyAsync(d => d.SubjectId == chosen && d.Kind == DueActionKinds.ConfirmExpire && d.DoneAt == null));
+        Assert.False(await read.Set<TaxiBooking>().AnyAsync(b => b.RequestId == seed.RequestId));
+    }
+
+    private static async Task AddTokensAsync(JourneyHarness h, Guid user, params string[] tokens)
+    {
+        await using var s = h.NewScope();
+        foreach (var t in tokens)
+            s.Db.DeviceTokens.Add(new DeviceToken { Id = Guid.NewGuid(), UserId = user, Token = t, IsValid = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        await s.Db.SaveChangesAsync();
+    }
+
+    // O11 + O14: only the driver's OTHER tokens get the ring end; the answering phone is skipped.
+    [IntegrationFact]
+    public async Task Accept_and_decline_send_a_ring_end_only_for_the_other_devices()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seed = await TaxiOfferKit.SeedAsync(h, RequestStates.Open, 2);
+        await AddTokensAsync(h, seed.Drivers[0].User, "a-phone", "a-tablet");
+        await AddTokensAsync(h, seed.Drivers[1].User, "b-phone", "b-tablet");
+        var a = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, seed.Drivers[0], OfferStates.Ringing, 1);
+        var b = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, seed.Drivers[1], OfferStates.Ringing, 2);
+
+        var accepted = new TaxiOfferKit.RecordingPushes();
+        await using (var s = h.NewScope())
+            Assert.True((await TaxiOfferKit.For(s.Db, accepted).Offers.AcceptAsync(a, seed.Drivers[0].User, "a-phone")).Ok);
+        var declined = new TaxiOfferKit.RecordingPushes();
+        await using (var s = h.NewScope())
+            Assert.True((await TaxiOfferKit.For(s.Db, declined).Offers.DeclineAsync(b, seed.Drivers[1].User, null, "b-phone")).Ok);
+
+        var end = Assert.Single(accepted.RingEnds);
+        Assert.Equal((a, RingEndReasons.Accepted, "a-phone"), (end.OfferId, end.Reason, end.ExceptToken));
+        end = Assert.Single(declined.RingEnds);
+        Assert.Equal((b, RingEndReasons.Declined, "b-phone"), (end.OfferId, end.Reason, end.ExceptToken));
+    }
+
+    // Single session (the normal case) and old apps (no token): no ring end at all for the driver's own answer.
+    [IntegrationFact]
+    public async Task Accept_with_one_device_or_no_token_sends_no_ring_end()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seed = await TaxiOfferKit.SeedAsync(h, RequestStates.Open, 2);
+        await AddTokensAsync(h, seed.Drivers[0].User, "a-phone");
+        await AddTokensAsync(h, seed.Drivers[1].User, "b-phone", "b-tablet");
+        var a = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, seed.Drivers[0], OfferStates.Ringing, 1);
+        var b = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, seed.Drivers[1], OfferStates.Ringing, 2);
+
+        var single = new TaxiOfferKit.RecordingPushes();
+        await using (var s = h.NewScope())
+            Assert.True((await TaxiOfferKit.For(s.Db, single).Offers.AcceptAsync(a, seed.Drivers[0].User, "a-phone")).Ok);
+        var oldApp = new TaxiOfferKit.RecordingPushes();
+        await using (var s = h.NewScope())
+            Assert.True((await TaxiOfferKit.For(s.Db, oldApp).Offers.AcceptAsync(b, seed.Drivers[1].User)).Ok);
+
+        Assert.Empty(single.RingEnds);
+        Assert.Empty(oldApp.RingEnds);
+    }
+
+    // An accept closed because the taxi is no longer listed still stops the ring on the other device.
+    [IntegrationFact]
+    public async Task Accept_closed_as_listing_removed_ends_the_ring_on_the_other_device()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seed = await TaxiOfferKit.SeedAsync(h, RequestStates.Open, 1);
+        await AddTokensAsync(h, seed.Drivers[0].User, "a-phone", "a-tablet");
+        var a = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, seed.Drivers[0], OfferStates.Ringing, 1);
+        await using (var s = h.NewScope())
+            await s.Db.Set<TaxiListing>().Where(l => l.Id == seed.Drivers[0].Listing).ExecuteUpdateAsync(x => x.SetProperty(l => l.IsDeleted, true));
+
+        var pushes = new TaxiOfferKit.RecordingPushes();
+        await using (var s = h.NewScope())
+            Assert.Equal(TaxiRequestErrorTypes.OfferMissed, (await TaxiOfferKit.For(s.Db, pushes).Offers.AcceptAsync(a, seed.Drivers[0].User, "a-phone")).Error);
+
+        var end = Assert.Single(pushes.RingEnds);
+        Assert.Equal((RingEndReasons.Closed, "a-phone"), (end.Reason, end.ExceptToken));
     }
 
     [IntegrationFact]
@@ -361,6 +504,47 @@ public class TaxiOfferServiceIntegrationTests(TestDatabase db) : IntegrationTest
         Assert.Equal((RequestStates.Cancelled, RequestEndReasons.DriverLeftTrip), (request.Status, request.EndReason));
         var b = await read.Set<TaxiBooking>().AsNoTracking().SingleAsync(x => x.Id == booking);
         Assert.Equal((BookingStates.Cancelled, BookingCancelledBy.Driver), (b.Status, b.CancelledBy));
+    }
+
+    [IntegrationFact]
+    public async Task Trip_the_driver_left_can_be_rated_but_adds_no_ride()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seed = await TaxiOfferKit.SeedAsync(h, RequestStates.InProgress, 1, accepted: 1, startOffsetDays: 0);
+        var offer = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, seed.Drivers[0], OfferStates.Confirmed, 1);
+        var booking = await TaxiOfferKit.AddBookingAsync(h, seed, offer, seed.Drivers[0], BookingStates.InProgress, seed.From, seed.To);
+        await using (var s = h.NewScope())
+            await s.Db.Set<TaxiBooking>().Where(x => x.Id == booking).ExecuteUpdateAsync(u => u.SetProperty(x => x.StartedAt, DateTime.UtcNow.AddHours(-3)));
+        await using (var s = h.NewScope())
+            Assert.True((await TaxiOfferKit.For(s.Db).Offers.WithdrawAsync(offer, seed.Drivers[0].User, ReasonChips.Other)).Ok);
+
+        await using (var s = h.NewScope())
+        {
+            var dto = await new TaxiRequestViews(s.Db).BuildAsync(await s.Db.Set<TaxiRequest>().AsNoTracking().SingleAsync(r => r.Id == seed.RequestId));
+            Assert.True(dto.Booking!.CanRate);
+            Assert.True(dto.Booking.LeftDuringTrip);
+        }
+        await using (var s = h.NewScope())
+            Assert.True((await TaxiOfferKit.For(s.Db).Bookings.RateAsync(seed.RequestId, seed.TravellerId, 2)).Ok);
+
+        await using var read = CreateContext();
+        var listing = await read.TaxiListings.AsNoTracking().SingleAsync(t => t.Id == seed.Drivers[0].Listing);
+        Assert.Equal((2, 1, 0), (listing.RatingSum, listing.RatingCount, listing.RidesCompleted));
+    }
+
+    [IntegrationFact]
+    public async Task Booking_cancelled_before_the_trip_started_cannot_be_rated()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seed = await TaxiOfferKit.SeedAsync(h, RequestStates.Booked, 1, accepted: 1);
+        await using (var s = h.NewScope())
+            await s.Db.Set<TaxiRequest>().Where(r => r.Id == seed.RequestId)
+                .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, RequestStates.Cancelled).SetProperty(r => r.EndReason, RequestEndReasons.AdminCancelled));
+        var offer = await TaxiOfferKit.AddOfferAsync(h, seed.RequestId, seed.Drivers[0], OfferStates.Closed, 1);
+        await TaxiOfferKit.AddBookingAsync(h, seed, offer, seed.Drivers[0], BookingStates.Cancelled, seed.From, seed.To);
+
+        await using var s2 = h.NewScope();
+        Assert.Equal(TaxiRequestErrorTypes.RatingNotAllowed, (await TaxiOfferKit.For(s2.Db).Bookings.RateAsync(seed.RequestId, seed.TravellerId, 4)).Error);
     }
 
     [IntegrationFact]

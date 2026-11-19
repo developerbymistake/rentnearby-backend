@@ -43,6 +43,8 @@ public class TaxiRequestNotificationsTests
             new(NotificationTypes.TaxiRequestClosed, "taxi_request_closed", "Request closed", "This request is closed", "/taxi-requests", "{}"),
             new(NotificationTypes.TaxiBookingCancelled, "taxi_booking_cancelled", "Booking cancelled", "Your dates are free again", "/taxi-bookings", "{}"),
             new(NotificationTypes.TaxiRingsMissed, "taxi_rings_missed", "You are missing requests", "Open Get ready for requests to fix your phone", "/taxi-ready", "{}"),
+            new(NotificationTypes.TaxiChooseDriver, "taxi_choose_driver", "Choose your driver", "3 drivers replied. Choose one to confirm your taxi.", "/trip-taxi-status", TravellerArgs, null, new(Count: 3)),
+            new(NotificationTypes.TaxiChooseDriver, "taxi_choose_driver", "Choose your driver", "1 driver replied. Choose the driver to confirm your taxi.", "/trip-taxi-status", TravellerArgs, null, new(Count: 1)),
         };
 
         foreach (var r in rows)
@@ -55,7 +57,7 @@ public class TaxiRequestNotificationsTests
             Assert.Equal(r.Route, copy.Route);
             Assert.Equal(r.Args, copy.ArgsJson);
         }
-        Assert.Equal(12, rows.Select(r => r.Type).Distinct().Count());
+        Assert.Equal(13, rows.Select(r => r.Type).Distinct().Count());
         Assert.Equal(TaxiRequestNotifications.Types.OrderBy(t => t), rows.Select(r => r.Type).Distinct().OrderBy(t => t));
     }
 
@@ -161,6 +163,56 @@ public class TaxiRequestNotificationsTests
             var detail = TaxiPushWriter.DetailOf(new TaxiNotice(kind, Driver, Trip, Request, Offer), facts);
             Assert.Equal(kind is TaxiNoticeKind.RequestEnded or TaxiNoticeKind.RequestClosed or TaxiNoticeKind.DriverWithdrew or TaxiNoticeKind.TripEnded, detail is not null);
         }
+    }
+
+    // O8: a selection that lapsed because the driver is booked elsewhere (or his taxi is gone) tells the traveller so.
+    [Theory]
+    [InlineData(OfferEndReasons.Booked, "Driver not available", "This driver is no longer available. Choose another driver.")]
+    [InlineData(OfferEndReasons.ListingRemoved, "Driver not available", "This driver is no longer available. Choose another driver.")]
+    [InlineData(OfferEndReasons.ConfirmTimeout, "Driver did not confirm", "Choose another driver")]
+    [InlineData(OfferEndReasons.DeclinedBooking, "Driver did not confirm", "Choose another driver")]
+    [InlineData(null, "Driver did not confirm", "Choose another driver")]
+    public async Task Selection_lapsed_copy_follows_the_offer_end_reason(string? reason, string title, string body)
+    {
+        await using var db = DesignDb();
+        ITaxiPushWriter writer = new TaxiPushWriter(new TaxiAckTokens("test-signing-key-test-signing-key-123"));
+
+        await writer.NotifyAsync(db, new TaxiNotice(TaxiNoticeKind.SelectionLapsed, Traveller, Trip, Request, Offer, Reason: reason));
+
+        var ev = db.ChangeTracker.Entries<NotificationEvent>().Single().Entity;
+        Assert.Equal((NotificationTypes.TaxiSelectionLapsed, title, body, "/trip-taxi-status", TravellerArgs),
+            (ev.Type, ev.Title, ev.Body, ev.ActionRoute, ev.ActionArgumentsJson));
+    }
+
+    // O11 + O14: the driver's answer on one device ends the ring on his other devices.
+    [Theory]
+    [InlineData(RingEndReasons.Accepted, "You accepted this request")]
+    [InlineData(RingEndReasons.Declined, "You declined this request")]
+    public async Task Answer_ring_end_goes_to_the_driver_with_the_ring_tag(string reason, string body)
+    {
+        await using var db = DesignDb();
+        await new TaxiPushWriter(new TaxiAckTokens("test-signing-key-test-signing-key-123"))
+            .RingEndAsync(db, new RingEndPush(Offer, Request, Driver, reason));
+        var row = db.ChangeTracker.Entries<OutboxMessage>().Single().Entity;
+        var push = System.Text.Json.JsonSerializer.Deserialize<OutboxPushPayload>(row.Payload,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        Assert.Equal(TaxiPushKinds.RingEndKey(Offer), row.Key);
+        Assert.Equal((Driver, body, TaxiPushKinds.RingTag(Offer), NotificationTypes.TaxiRequestRingEnded), (push.UserId, push.Body, push.Tag, push.Kind));
+        Assert.Equal((TaxiPushKinds.RingEnd, reason), (push.Data!["kind"], push.Data["reason"]));
+        Assert.Null(push.ExceptToken);
+    }
+
+    [Fact]
+    public async Task Answer_ring_end_carries_the_answering_token_to_skip()
+    {
+        await using var db = DesignDb();
+        await new TaxiPushWriter(new TaxiAckTokens("test-signing-key-test-signing-key-123"))
+            .RingEndAsync(db, new RingEndPush(Offer, Request, Driver, RingEndReasons.Accepted, "answering-token"));
+        var row = db.ChangeTracker.Entries<OutboxMessage>().Single().Entity;
+        var push = System.Text.Json.JsonSerializer.Deserialize<OutboxPushPayload>(row.Payload,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        Assert.Equal("answering-token", push.ExceptToken);
+        Assert.DoesNotContain(push.Data!.Values, v => v == "answering-token");
     }
 
     [Theory]

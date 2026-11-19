@@ -65,6 +65,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     OriginalUserId = table.Column<Guid>(type: "uuid", nullable: false),
                     PhoneNumber = table.Column<string>(type: "text", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: true),
+                    Role = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false, defaultValue: "SEEKER"),
                     AccountCreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     DeletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     DrivingLicenceNumberEnc = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
@@ -132,7 +133,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_DueActions", x => x.Id);
                     table.CheckConstraint("ck_dueactions_done", "(\"State\" IN ('Pending','Running')) = (\"DoneAt\" IS NULL)");
-                    table.CheckConstraint("ck_dueactions_kind", "\"Kind\" IN ('OfferExpire', 'ConfirmExpire', 'RequestWaitExpire', 'RequestStaleExpire', 'BookingStart', 'BookingAutoComplete')");
+                    table.CheckConstraint("ck_dueactions_kind", "\"Kind\" IN ('OfferExpire', 'ConfirmExpire', 'RequestWaitExpire', 'RequestStaleExpire', 'BookingStart', 'BookingAutoComplete', 'ChooseReminderFirst', 'ChooseReminderSecond')");
                     table.CheckConstraint("ck_dueactions_state", "\"State\" IN ('Pending', 'Running', 'Done', 'Cancelled', 'Skipped', 'Failed')");
                 });
 
@@ -1605,7 +1606,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.PrimaryKey("PK_TaxiRequests", x => x.Id);
                     table.CheckConstraint("ck_taxirequests_accepts", "\"AcceptedCount\" >= 0 AND \"AcceptedCount\" <= \"AcceptTarget\" AND \"AcceptTarget\" <= 9");
                     table.CheckConstraint("ck_taxirequests_dates", "\"DateTo\" >= \"DateFrom\"");
-                    table.CheckConstraint("ck_taxirequests_seats", "\"Seats\" IN (4, 6, 7)");
+                    table.CheckConstraint("ck_taxirequests_seats", "\"Seats\" IN (4, 6, 7, 12)");
                     table.CheckConstraint("ck_taxirequests_sections", "\"WantPickup\" OR \"WantSightseeing\" OR \"WantDrop\"");
                     table.CheckConstraint("ck_taxirequests_status", "\"Status\" IN ('Open', 'Collecting', 'Selected', 'Booked', 'InProgress', 'Completed', 'Cancelled', 'Expired')");
                     table.ForeignKey(

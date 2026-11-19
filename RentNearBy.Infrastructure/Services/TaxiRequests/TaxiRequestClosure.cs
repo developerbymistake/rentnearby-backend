@@ -5,6 +5,7 @@ using NpgsqlTypes;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.TaxiRequests.Matching;
 
 namespace RentNearBy.Infrastructure.Services.TaxiRequests;
 
@@ -23,6 +24,13 @@ public sealed class TaxiRequestClosure(
     private static readonly string[] SelectedOnly = [OfferStates.Selected];
     private static readonly string[] ConfirmedOnly = [OfferStates.Confirmed];
     private static readonly string[] BookedOnly = [BookingStates.Booked];
+    private static readonly string[] RingingOrAccepted = [OfferStates.Ringing, OfferStates.Accepted];
+
+    public static readonly string RouteOffersOfDriverSql = $"""
+        SELECT o."Id", o."RequestId", r."MatchToCityKey", r."MatchFromCityKey" FROM "TaxiRequestOffers" o
+        JOIN "TaxiRequests" r ON r."Id" = o."RequestId"
+        WHERE o."DriverListingId" = @id AND o."Status" IN ({List(RingingOrAccepted)})
+        """;
 
     public static readonly string OffersOfDriverSql = $"""
         SELECT "Id", "RequestId", "DriverListingId" FROM "TaxiRequestOffers"
@@ -95,6 +103,45 @@ public sealed class TaxiRequestClosure(
                     acc.Touch(request);
         }
         return await acc.BuildAsync(db, ct);
+    }
+
+    // O12: after a route save the driver's ringing and accepted offers that no route of his serves any more close
+    // (RouteRemoved; a ringing one gets the ring end push and never counts as a missed ring). Selected and confirmed offers
+    // and bookings stay: the driver made a promise. routes = his routes as they will be saved (keys already resolved).
+    // The driver ring lock is taken after the request locks (the select order) and the offers are read again under it, so
+    // a ring a matcher pass inserted for the old routes is seen (MatcherSql.InsertOffer re-checks the routes after commit).
+    public async Task<TaxiClosureResult> RoutesChangedAsync(ApplicationDbContext db, Guid driverListingId,
+        IReadOnlyList<RouteServeKeys> routes, CancellationToken ct = default)
+    {
+        var locked = new Dictionary<Guid, TaxiRequest?>();
+        await LockRequestsAsync(db, Gone(await RouteOffersAsync(db, driverListingId, ct), routes), locked, ct);
+        await db.Database.ExecuteSqlRawAsync(MatcherSql.LockDriverRing, [Uuid("driver", driverListingId)], ct);
+        var gone = Gone(await RouteOffersAsync(db, driverListingId, ct), routes);
+        await LockRequestsAsync(db, gone, locked, ct);
+
+        var acc = new Accumulator();
+        foreach (var o in gone.OrderBy(o => o.RequestId))
+        {
+            if (locked[o.RequestId] is not { } request) continue;
+            if (await CloseOfferAsync(db, request, o.Id, RingingOrAccepted, OfferEndReasons.RouteRemoved, tellTraveller: false, ct))
+            {
+                acc.Touch(request);
+                acc.Freed.Add(driverListingId);
+            }
+        }
+        return await acc.BuildAsync(db, ct);
+    }
+
+    private static async Task<List<RouteOfferRow>> RouteOffersAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct)
+        => await db.Database.SqlQueryRaw<RouteOfferRow>(RouteOffersOfDriverSql, Uuid("id", driverListingId)).ToListAsync(ct);
+
+    private static List<RouteOfferRow> Gone(IEnumerable<RouteOfferRow> rows, IReadOnlyList<RouteServeKeys> routes)
+        => rows.Where(o => !TaxiDispatchRules.RoutesStillServe(o.MatchToCityKey, o.MatchFromCityKey, routes)).ToList();
+
+    private async Task LockRequestsAsync(ApplicationDbContext db, IEnumerable<RouteOfferRow> rows, Dictionary<Guid, TaxiRequest?> locked, CancellationToken ct)
+    {
+        foreach (var requestId in rows.Select(o => o.RequestId).Where(id => !locked.ContainsKey(id)).Distinct().Order())
+            locked[requestId] = await store.LockRequestAsync(db, requestId, ct);
     }
 
     // Back online: nothing to change in rows; the matcher looks at every city of the driver again.
@@ -257,6 +304,14 @@ public sealed class TaxiRequestClosure(
             var own = new TaxiClosureResult(_requests.Values.Distinct().ToList(), Freed.ToList(), changes);
             return Merge(_ends.Prepend(own));
         }
+    }
+
+    private sealed class RouteOfferRow
+    {
+        public Guid Id { get; set; }
+        public Guid RequestId { get; set; }
+        public long MatchToCityKey { get; set; }
+        public long? MatchFromCityKey { get; set; }
     }
 
     private sealed class SubjectRow

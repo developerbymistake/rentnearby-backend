@@ -32,10 +32,6 @@ public static class DtoMappings
         TypeAdapterConfig<District, DistrictDto>.NewConfig();
         TypeAdapterConfig<City, CityDto>.NewConfig();
         TypeAdapterConfig<StayType, StayTypeDto>.NewConfig();
-        // The licence is decrypted and the date formatted by AdminHandlers.GetDeletedAccounts.
-        TypeAdapterConfig<DeletedAccountRecord, DeletedAccountRecordDto>.NewConfig()
-            .Ignore(dest => dest.DrivingLicenceNumber)
-            .Ignore(dest => dest.DateOfBirth);
         TypeAdapterConfig<StayRegistrationType, StayRegistrationTypeDto>.NewConfig()
             .Map(dest => dest.IsSeeded, src => StayRegistrationTypeSeed.IsSeeded(src.Id));
 

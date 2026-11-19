@@ -1,11 +1,11 @@
 namespace RentNearBy.Core.Models.TaxiRequests;
 
 // The few facts that choose a variant of the copy; everything else comes from the notice itself.
-public sealed record TaxiNoticeDetail(string? Reason = null, bool DuringTrip = false, bool ToDriver = false);
+public sealed record TaxiNoticeDetail(string? Reason = null, bool DuringTrip = false, bool ToDriver = false, int Count = 0);
 
 public sealed record TaxiNoticeCopy(string Type, string Title, string Body, string Route, string ArgsJson);
 
-// The words, route and args of the 12 visible notices (contract table 10.3).
+// The words, route and args of the 12 visible notices (contract table 10.3) and the choose reminder (O7).
 public static class TaxiRequestNotifications
 {
     public static readonly IReadOnlyList<string> Types =
@@ -14,6 +14,7 @@ public static class TaxiRequestNotifications
         NotificationTypes.TaxiRequestEnded, NotificationTypes.TaxiDriverWithdrew, NotificationTypes.TaxiRateDriver,
         NotificationTypes.TaxiTripEnded, NotificationTypes.TaxiSelected, NotificationTypes.TaxiNotSelected,
         NotificationTypes.TaxiRequestClosed, NotificationTypes.TaxiBookingCancelled, NotificationTypes.TaxiRingsMissed,
+        NotificationTypes.TaxiChooseDriver,
     ];
 
     public static TaxiNoticeCopy Build(string type, Guid tripId, Guid requestId, Guid? offerId = null, string? personName = null, TaxiNoticeDetail? detail = null)
@@ -31,7 +32,9 @@ public static class TaxiRequestNotifications
             case NotificationTypes.TaxiDriverAccepted:
                 return ToTraveller("A driver accepted", "Open to call and choose your driver");
             case NotificationTypes.TaxiSelectionLapsed:
-                return ToTraveller("Driver did not confirm", "Choose another driver");
+                return IsDriverGone(detail.Reason)
+                    ? ToTraveller("Driver not available", "This driver is no longer available. Choose another driver.")
+                    : ToTraveller("Driver did not confirm", "Choose another driver");
             case NotificationTypes.TaxiBooked:
                 return ToTraveller("Taxi booked", $"{name ?? "Your driver"} confirmed your booking");
             case NotificationTypes.TaxiRequestEnded:
@@ -58,10 +61,20 @@ public static class TaxiRequestNotifications
                 return ToDriverList("Booking cancelled", "Your dates are free again", UserNotificationRoutes.TaxiBookings);
             case NotificationTypes.TaxiRingsMissed:
                 return ToDriverList("You are missing requests", "Open Get ready for requests to fix your phone", UserNotificationRoutes.TaxiReady);
+            case NotificationTypes.TaxiChooseDriver:
+                return ToTraveller("Choose your driver", ChooseDriverBody(detail.Count));
             default:
                 throw new ArgumentOutOfRangeException(nameof(type), type, "Not a taxi request notice");
         }
     }
+
+    public static string ChooseDriverBody(int replied) => replied == 1
+        ? "1 driver replied. Choose the driver to confirm your taxi."
+        : $"{replied} drivers replied. Choose one to confirm your taxi.";
+
+    // A selection that lapsed because the driver can no longer take it (booked on these dates elsewhere, taxi removed), O8.
+    public static bool IsDriverGone(string? offerEndReason)
+        => offerEndReason is OfferEndReasons.Booked or OfferEndReasons.ListingRemoved;
 
     // Ends the traveller chose; expiry, admin cancel and a closed account get the neutral copy.
     public static bool IsTravellerCancel(string? endReason)

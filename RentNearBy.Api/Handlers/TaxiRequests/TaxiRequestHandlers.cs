@@ -82,7 +82,8 @@ public static class TaxiRequestHandlers
         var (first, last) = TaxiRequestService.EndCities(plan);
         var (firstRef, lastRef) = EndCityRefs(plan);
         var lists = await places.GetAsync(first, last, ct);
-        var dto = TaxiPickupPlaces.ToDto(lists, firstRef, lastRef, await gate.IsEnabledAsync(), TaxiRequestCreateRules.TravellersOf(plan.Settings));
+        var sightseeing = await places.SightseeingCitiesAsync(plan, first, lists.SightseeingDrivers, ct);
+        var dto = TaxiPickupPlaces.ToDto(lists, firstRef, lastRef, await gate.IsEnabledAsync(), TaxiRequestCreateRules.TravellersOf(plan.Settings), sightseeing);
         return OkResponse(dto);
     }
 
@@ -99,9 +100,11 @@ public static class TaxiRequestHandlers
 
     // T3
     public static async Task<IResult> GetForTrip(
-        Guid tripId, ClaimsPrincipal principal, ApplicationDbContext db, TaxiRequestViews views, CancellationToken ct)
+        Guid tripId, ClaimsPrincipal principal, ApplicationDbContext db, TaxiRequestViews views, HttpContext http, IRateLimitService limiter,
+        CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+        if (await TaxiRateLimits.ReadAsync(limiter, http, userId) is { } limited) return limited;
         if (await CheckTripOwnerAsync(db, tripId, userId, ct) is { } denied) return denied;
         var request = await views.CurrentForTripAsync(tripId, ct);
         return OkResponse(request is null ? null : await views.BuildAsync(request, ct));
@@ -109,48 +112,65 @@ public static class TaxiRequestHandlers
 
     // T4
     public static async Task<IResult> Get(
-        Guid requestId, ClaimsPrincipal principal, TaxiRequestService service, TaxiRequestViews views, HttpContext http, CancellationToken ct)
+        Guid requestId, ClaimsPrincipal principal, TaxiRequestService service, TaxiRequestViews views, HttpContext http, IRateLimitService limiter,
+        CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+        if (await TaxiRateLimits.ReadAsync(limiter, http, userId) is { } limited) return limited;
         return await RespondAsync(await service.OwnedAsync(requestId, userId, ct), views, http, ct);
     }
 
     // T5
     public static async Task<IResult> Cancel(
         Guid requestId, CancelTaxiRequestDto body, IValidator<CancelTaxiRequestDto> validator, ClaimsPrincipal principal,
-        TaxiRequestService service, TaxiRequestViews views, HttpContext http, CancellationToken ct)
+        TaxiRequestService service, TaxiRequestViews views, HttpContext http, IRateLimitService limiter, CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
-        if (await service.OwnedAsync(requestId, userId, ct) is { IsOk: false } denied) return Refusal(denied.Error!);
-        if (await ValidateAsync(validator, body) is { } invalid) return invalid;
-        return await RespondAsync(await service.CancelAsync(requestId, userId, body.Reason, body.Chip, ct), views, http, ct);
+        return await TaxiRateLimits.ActionAsync(limiter, http, userId, async () =>
+        {
+            if (await service.OwnedAsync(requestId, userId, ct) is { IsOk: false } denied) return Refusal(denied.Error!);
+            if (await ValidateAsync(validator, body) is { } invalid) return invalid;
+            return await RespondAsync(await service.CancelAsync(requestId, userId, body.Reason, body.Chip, ct), views, http, ct);
+        });
     }
 
     // T6
     public static async Task<IResult> AskMore(
-        Guid requestId, ClaimsPrincipal principal, TaxiRequestService service, TaxiRequestViews views, HttpContext http, CancellationToken ct)
+        Guid requestId, ClaimsPrincipal principal, TaxiRequestService service, TaxiRequestViews views, HttpContext http, IRateLimitService limiter,
+        CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
-        if (await service.OwnedAsync(requestId, userId, ct) is { IsOk: false } denied) return Refusal(denied.Error!);
-        return await RespondAsync(await service.AskMoreAsync(requestId, userId, ct), views, http, ct);
+        return await TaxiRateLimits.ActionAsync(limiter, http, userId, async () =>
+        {
+            if (await service.OwnedAsync(requestId, userId, ct) is { IsOk: false } denied) return Refusal(denied.Error!);
+            return await RespondAsync(await service.AskMoreAsync(requestId, userId, ct), views, http, ct);
+        });
     }
 
     // T7
     public static async Task<IResult> Select(
-        Guid requestId, Guid offerId, ClaimsPrincipal principal, TaxiRequestService service, TaxiRequestViews views, HttpContext http, CancellationToken ct)
+        Guid requestId, Guid offerId, ClaimsPrincipal principal, TaxiRequestService service, TaxiRequestViews views, HttpContext http,
+        IRateLimitService limiter, CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
-        if (await service.OwnedAsync(requestId, userId, ct) is { IsOk: false } denied) return Refusal(denied.Error!);
-        return await RespondAsync(await service.SelectAsync(requestId, offerId, userId, ct), views, http, ct);
+        return await TaxiRateLimits.ActionAsync(limiter, http, userId, async () =>
+        {
+            if (await service.OwnedAsync(requestId, userId, ct) is { IsOk: false } denied) return Refusal(denied.Error!);
+            return await RespondAsync(await service.SelectAsync(requestId, offerId, userId, ct), views, http, ct);
+        });
     }
 
     // T8
     public static async Task<IResult> NotAgreed(
-        Guid requestId, Guid offerId, ClaimsPrincipal principal, TaxiRequestService service, TaxiRequestViews views, HttpContext http, CancellationToken ct)
+        Guid requestId, Guid offerId, ClaimsPrincipal principal, TaxiRequestService service, TaxiRequestViews views, HttpContext http,
+        IRateLimitService limiter, CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
-        if (await service.OwnedAsync(requestId, userId, ct) is { IsOk: false } denied) return Refusal(denied.Error!);
-        return await RespondAsync(await service.NotAgreedAsync(requestId, offerId, userId, ct), views, http, ct);
+        return await TaxiRateLimits.ActionAsync(limiter, http, userId, async () =>
+        {
+            if (await service.OwnedAsync(requestId, userId, ct) is { IsOk: false } denied) return Refusal(denied.Error!);
+            return await RespondAsync(await service.NotAgreedAsync(requestId, offerId, userId, ct), views, http, ct);
+        });
     }
 
     // T9

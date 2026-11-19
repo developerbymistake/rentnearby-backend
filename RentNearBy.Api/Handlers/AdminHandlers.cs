@@ -858,38 +858,6 @@ public static class AdminHandlers
         return OkResponse(result);
     }
 
-    public static async Task<IResult> GetDeletedAccounts(
-        ApplicationDbContext db, IIdentityCipher cipher, ILoggerFactory loggerFactory,
-        int page = 1, int pageSize = 20, string? search = null)
-    {
-        var logger = loggerFactory.CreateLogger(nameof(AdminHandlers));
-        pageSize = Math.Clamp(pageSize, 1, 100);
-        page = Math.Max(1, page);
-
-        var query = db.DeletedAccountRecords.AsNoTracking().AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var s = search.Trim().ToLower();
-            query = query.Where(r =>
-                r.PhoneNumber.Contains(s) ||
-                (r.Name != null && r.Name.ToLower().Contains(s)));
-        }
-
-        var result = await query
-            .OrderByDescending(r => r.DeletedAt)
-            .ToPagedResultAsync(page, pageSize, r =>
-            {
-                var dto = r.Adapt<DeletedAccountRecordDto>();
-                var licence = TaxiHandlers.ReadLicence(cipher, r.DrivingLicenceNumberEnc, r.Id, logger, deletedRecord: true);
-                dto.DrivingLicenceNumber = licence == null ? null : TaxiIdentityRules.FormatDl(licence);
-                dto.DateOfBirth = r.DateOfBirth is { } dob ? TaxiIdentityRules.FormatDob(dob) : null;
-                return dto;
-            });
-
-        return OkResponse(new { items = result.Items, hasMore = result.HasMore });
-    }
-
     public static async Task<IResult> GetUserById(Guid id, ApplicationDbContext db, IRoleChangeGuardService guard)
     {
         var u = await db.Users.AsNoTracking().Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == id);

@@ -1,7 +1,9 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Api.Handlers.TaxiRequests;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Models.TaxiRequests;
+using RentNearBy.Infrastructure.Services;
 using RentNearBy.Tests.Data;
 using RentNearBy.Tests.Integration;
 using RentNearBy.Tests.Integration.Journeys;
@@ -22,11 +24,12 @@ public class TaxiDriverApiIntegrationTests(TestDatabase db) : IntegrationTestBas
 
         await using (var s = h.NewScope())
         {
-            var detail = await TaxiDriverRequestHandlers.GetOffer(offer, stranger, s.Db, CancellationToken.None);
+            var limiter = new InMemoryRateLimitService();
+            var detail = await TaxiDriverRequestHandlers.GetOffer(offer, stranger, s.Db, new DefaultHttpContext(), limiter, CancellationToken.None);
             Assert.Equal(403, JourneyHarness.StatusOf(detail));
-            var accept = await TaxiDriverRequestHandlers.Accept(offer, stranger, s.Db, TaxiOfferKit.For(s.Db).Offers, CancellationToken.None);
+            var accept = await TaxiDriverRequestHandlers.Accept(offer, null, stranger, s.Db, TaxiOfferKit.For(s.Db).Offers, new DefaultHttpContext(), limiter, CancellationToken.None);
             Assert.Equal(403, JourneyHarness.StatusOf(accept));
-            var unknown = await TaxiDriverRequestHandlers.GetOffer(Guid.NewGuid(), stranger, s.Db, CancellationToken.None);
+            var unknown = await TaxiDriverRequestHandlers.GetOffer(Guid.NewGuid(), stranger, s.Db, new DefaultHttpContext(), limiter, CancellationToken.None);
             Assert.Equal(404, JourneyHarness.StatusOf(unknown));
         }
 

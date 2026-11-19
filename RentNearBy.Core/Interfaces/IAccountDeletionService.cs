@@ -1,6 +1,9 @@
+using RentNearBy.Core.Models;
+
 namespace RentNearBy.Core.Interfaces;
 
 public interface IAccountDeletionService
 {
-    Task DeleteAccountAsync(Guid userId);
+    // Refused (nothing written, Reasons filled) while the user has anything active.
+    Task<AccountDeletionResult> DeleteAccountAsync(Guid userId);
 }

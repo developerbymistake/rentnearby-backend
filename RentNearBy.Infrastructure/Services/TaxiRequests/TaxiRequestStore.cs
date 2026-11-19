@@ -110,7 +110,10 @@ public sealed class TaxiRequestStore(
     }
 
     // Back to Collecting when a live Accepted offer exists (never from Booked, 2.3), else Open. Clears the selection and
-    // the exhausted mark; raises AcceptTarget by extraAccepts within the cap. null = nothing to reopen.
+    // raises AcceptTarget by extraAccepts within the cap. The exhausted mark is cleared only with extra accepts (a driver
+    // withdraw, P10): a lapsed selection or a lost accept never rings new drivers on its own (O5); an exhausted request left
+    // Open waits for ask more (TaxiDispatchRules.CanAskMore) or its stale expiry. Choose reminders (O7): armed when accepts
+    // are left to choose from (Selected -> Collecting), cancelled when none is left. null = nothing to reopen.
     public async Task<TaxiRequestMove?> ReopenRequestAsync(ApplicationDbContext db, Guid requestId, int extraAccepts, CancellationToken ct = default)
     {
         if (extraAccepts < 0) throw new ArgumentOutOfRangeException(nameof(extraAccepts));
@@ -122,7 +125,16 @@ public sealed class TaxiRequestStore(
 
         var rows = await db.Database.SqlQueryRaw<RequestMoveRow>(TaxiRequestStoreSql.Reopen(locked.Status, target),
             Uuid("id", requestId), new NpgsqlParameter("extra", NpgsqlDbType.Integer) { Value = extraAccepts }).ToListAsync(ct);
-        return rows.Count == 0 ? null : rows[0].ToMove();
+        if (rows.Count == 0) return null;
+        var move = rows[0].ToMove();
+
+        if (target == RequestStates.Collecting)
+        {
+            if (locked.Status == RequestStates.Selected) await ChooseReminders.ArmAsync(scheduler, db, requestId, locked.DateFrom, ct);
+            return move;
+        }
+        await ChooseReminders.CancelAsync(scheduler, db, requestId, ct);
+        return move;
     }
 
     // The only writers of TaxiListings.RingMissStreak (P26). Leaf statements: no FOR UPDATE, nothing read afterwards.
@@ -410,7 +422,8 @@ public static class TaxiRequestStoreSql
         var fromList = Checked(TransitionKinds.Request, [from], to);
         return $"""
             WITH old AS (SELECT "Id", "Status" FROM "TaxiRequests" WHERE "Id" = @id AND "Status" IN ({fromList}) FOR UPDATE)
-            UPDATE "TaxiRequests" AS r SET "Status" = '{to}', "SelectedOfferId" = NULL, "QueueExhaustedAt" = NULL, "QueueWaitStartedAt" = NULL,
+            UPDATE "TaxiRequests" AS r SET "Status" = '{to}', "SelectedOfferId" = NULL, "QueueWaitStartedAt" = NULL,
+                "QueueExhaustedAt" = CASE WHEN @extra > 0 THEN NULL ELSE r."QueueExhaustedAt" END,
                 "AcceptTarget" = LEAST({TaxiDispatchRules.MaxAccepts}, r."AcceptTarget" + @extra)::smallint,
                 "Version" = r."Version" + 1, "UpdatedAt" = now()
             FROM old WHERE r."Id" = old."Id" AND r."Status" IN ({fromList})

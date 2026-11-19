@@ -111,7 +111,7 @@ public class TaxiRequestModelTests
         Assert.Equal("\"Status\" IN ('Open', 'Collecting', 'Selected', 'Booked', 'InProgress', 'Completed', 'Cancelled', 'Expired')",
             Check<TaxiRequest>("ck_taxirequests_status"));
         Assert.Equal("\"WantPickup\" OR \"WantSightseeing\" OR \"WantDrop\"", Check<TaxiRequest>("ck_taxirequests_sections"));
-        Assert.Equal("\"Seats\" IN (4, 6, 7)", Check<TaxiRequest>("ck_taxirequests_seats"));
+        Assert.Equal("\"Seats\" IN (4, 6, 7, 12)", Check<TaxiRequest>("ck_taxirequests_seats"));
         Assert.Equal("\"DateTo\" >= \"DateFrom\"", Check<TaxiRequest>("ck_taxirequests_dates"));
         Assert.Equal("\"AcceptedCount\" >= 0 AND \"AcceptedCount\" <= \"AcceptTarget\" AND \"AcceptTarget\" <= 9",
             Check<TaxiRequest>("ck_taxirequests_accepts"));
@@ -302,7 +302,7 @@ public class TaxiRequestModelTests
         Assert.Equal(0, Prop<DueAction>(nameof(DueAction.RoundNo)).GetDefaultValue());
         Assert.Equal((short)0, Prop<DueAction>(nameof(DueAction.Attempts)).GetDefaultValue());
 
-        Assert.Equal("\"Kind\" IN ('OfferExpire', 'ConfirmExpire', 'RequestWaitExpire', 'RequestStaleExpire', 'BookingStart', 'BookingAutoComplete')",
+        Assert.Equal("\"Kind\" IN ('OfferExpire', 'ConfirmExpire', 'RequestWaitExpire', 'RequestStaleExpire', 'BookingStart', 'BookingAutoComplete', 'ChooseReminderFirst', 'ChooseReminderSecond')",
             Check<DueAction>("ck_dueactions_kind"));
         Assert.Equal("\"State\" IN ('Pending', 'Running', 'Done', 'Cancelled', 'Skipped', 'Failed')",
             Check<DueAction>("ck_dueactions_state"));

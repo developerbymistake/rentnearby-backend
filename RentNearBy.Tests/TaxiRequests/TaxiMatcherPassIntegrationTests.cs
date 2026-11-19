@@ -264,6 +264,41 @@ public class TaxiMatcherPassIntegrationTests(TestDatabase db) : IntegrationTestB
         Assert.Empty(await OffersAsync([id]));
     }
 
+    // O5: after "no more drivers" a driver who becomes free later is rung only once the traveller asks more.
+    [IntegrationFact]
+    public async Task Exhausted_request_rings_a_later_free_driver_only_after_ask_more()
+    {
+        await using var c = NewCtx();
+        var city = c.NewCity();
+        var id = await RequestAsync(c, city, city);
+        var first = await DriverAsync(c, city);
+        await RunAsync(city);
+        await using (var db = CreateContext())
+        {
+            await db.Set<TaxiRequestOffer>().Where(o => o.RequestId == id).ExecuteUpdateAsync(u => u
+                .SetProperty(o => o.Status, OfferStates.Accepted).SetProperty(o => o.RespondedAt, DateTime.UtcNow));
+            await db.Set<TaxiRequest>().Where(r => r.Id == id).ExecuteUpdateAsync(u => u
+                .SetProperty(r => r.Status, RequestStates.Collecting).SetProperty(r => r.AcceptedCount, (short)1));
+        }
+        await RunAsync(city);
+        Assert.NotNull((await ReadRequestAsync(id)).QueueExhaustedAt);
+
+        var later = await DriverAsync(c, city);
+        var result = await RunAsync(city);
+
+        Assert.Equal(MatcherPassOutcome.Nothing, result.Outcome);
+        Assert.DoesNotContain(await OffersAsync([id]), o => o.DriverListingId == later);
+        await using (var db = CreateContext())
+            Assert.DoesNotContain(city, await db.Database.SqlQueryRaw<long>(MatcherSql.DueCities).ToListAsync());
+
+        await using (var db = CreateContext())
+            await db.Database.ExecuteSqlRawAsync(TaxiRequestService.AskMoreSql, new Npgsql.NpgsqlParameter("id", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = id });
+        await RunAsync(city);
+
+        Assert.Contains(await OffersAsync([id]), o => o.DriverListingId == later && o.Status == OfferStates.Ringing);
+        Assert.Contains(await OffersAsync([id]), o => o.DriverListingId == first && o.Status == OfferStates.Accepted);
+    }
+
     [IntegrationFact]
     public async Task Busy_only_pool_starts_the_ten_minute_wait()
     {
@@ -313,6 +348,34 @@ public class TaxiMatcherPassIntegrationTests(TestDatabase db) : IntegrationTestB
         var offers = await OffersAsync([id]);
         Assert.DoesNotContain(offers, o => o.DriverListingId == blocked);
         Assert.Contains(offers, o => o.DriverListingId == ready);
+    }
+
+    // O15: business onboarding off only blocks NEW registrations; an approved driver of that district is still rung.
+    [IntegrationFact]
+    public async Task Driver_in_a_district_with_onboarding_off_is_still_rung()
+    {
+        await using var c = NewCtx();
+        var city = c.NewCity();
+        var districtId = Guid.NewGuid();
+        await using (var db = CreateContext())
+        {
+            db.Districts.Add(new District
+            {
+                Id = districtId, Name = $"Onboarding off {districtId:N}", StateName = "Test", IsActive = true, BusinessOnboardingEnabled = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+        c.Districts.Add(districtId);
+        var approved = await DriverAsync(c, city, l => { l.DistrictId = districtId; l.EverApproved = true; });
+        await using (var db = CreateContext())
+            await db.Districts.Where(d => d.Id == districtId).ExecuteUpdateAsync(u => u.SetProperty(d => d.BusinessOnboardingEnabled, false));
+        var id = await RequestAsync(c, city, city);
+
+        await RunAsync(city);
+
+        var offer = Assert.Single(await OffersAsync([id]));
+        Assert.Equal((approved, OfferStates.Ringing), (offer.DriverListingId, offer.Status));
     }
 
     [IntegrationFact]

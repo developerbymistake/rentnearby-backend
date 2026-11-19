@@ -116,9 +116,11 @@ public static class TaxiDriverRequestHandlers
     private static IResult Refuse(string type) => Refusal(TaxiActionResult.Fail(type));
 
     // D1
-    public static async Task<IResult> ListOffers(string? cursor, ClaimsPrincipal principal, ApplicationDbContext db, CancellationToken ct)
+    public static async Task<IResult> ListOffers(string? cursor, ClaimsPrincipal principal, ApplicationDbContext db, HttpContext http,
+        IRateLimitService limiter, CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+        if (await TaxiRateLimits.ReadAsync(limiter, http, userId) is { } limited) return limited;
         DriverOfferCursor? position = null;
         if (!string.IsNullOrEmpty(cursor))
         {
@@ -129,30 +131,39 @@ public static class TaxiDriverRequestHandlers
     }
 
     // D2
-    public static async Task<IResult> GetOffer(Guid offerId, ClaimsPrincipal principal, ApplicationDbContext db, CancellationToken ct)
+    public static async Task<IResult> GetOffer(Guid offerId, ClaimsPrincipal principal, ApplicationDbContext db, HttpContext http,
+        IRateLimitService limiter, CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+        if (await TaxiRateLimits.ReadAsync(limiter, http, userId) is { } limited) return limited;
         if (await CheckOfferAsync(db, offerId, userId, ct) is { } denied) return denied;
         return await OfferResponseAsync(db, offerId, withTrip: true, ct);
     }
 
     // D3
-    public static async Task<IResult> Accept(Guid offerId, ClaimsPrincipal principal, ApplicationDbContext db, TaxiOfferService offers, CancellationToken ct)
+    public static async Task<IResult> Accept(Guid offerId, AcceptOfferDto? body, ClaimsPrincipal principal, ApplicationDbContext db, TaxiOfferService offers,
+        HttpContext http, IRateLimitService limiter, CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
-        if (await CheckOfferAsync(db, offerId, userId, ct) is { } denied) return denied;
-        var result = await offers.AcceptAsync(offerId, userId, ct);
-        return result.Ok ? await OfferResponseAsync(db, offerId, withTrip: true, ct) : Refusal(result);
+        return await TaxiRateLimits.ActionAsync(limiter, http, userId, async () =>
+        {
+            if (await CheckOfferAsync(db, offerId, userId, ct) is { } denied) return denied;
+            var result = await offers.AcceptAsync(offerId, userId, body?.DeviceToken, ct);
+            return result.Ok ? await OfferResponseAsync(db, offerId, withTrip: true, ct) : Refusal(result);
+        });
     }
 
     // D4
     public static async Task<IResult> Decline(Guid offerId, DeclineOfferDto? body, ClaimsPrincipal principal, ApplicationDbContext db,
-        TaxiOfferService offers, CancellationToken ct)
+        TaxiOfferService offers, HttpContext http, IRateLimitService limiter, CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
-        if (await CheckOfferAsync(db, offerId, userId, ct) is { } denied) return denied;
-        var result = await offers.DeclineAsync(offerId, userId, body?.Chip, ct);
-        return result.Ok ? await OfferResponseAsync(db, offerId, withTrip: false, ct) : Refusal(result);
+        return await TaxiRateLimits.ActionAsync(limiter, http, userId, async () =>
+        {
+            if (await CheckOfferAsync(db, offerId, userId, ct) is { } denied) return denied;
+            var result = await offers.DeclineAsync(offerId, userId, body?.Chip, body?.DeviceToken, ct);
+            return result.Ok ? await OfferResponseAsync(db, offerId, withTrip: false, ct) : Refusal(result);
+        });
     }
 
     // D5
@@ -166,12 +177,15 @@ public static class TaxiDriverRequestHandlers
 
     // D6
     public static async Task<IResult> Withdraw(Guid offerId, WithdrawOfferDto? body, ClaimsPrincipal principal, ApplicationDbContext db,
-        TaxiOfferService offers, CancellationToken ct)
+        TaxiOfferService offers, HttpContext http, IRateLimitService limiter, CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
-        if (await CheckOfferAsync(db, offerId, userId, ct) is { } denied) return denied;
-        var result = await offers.WithdrawAsync(offerId, userId, body?.Chip, ct);
-        return result.Ok ? await OfferResponseAsync(db, offerId, withTrip: false, ct) : Refusal(result);
+        return await TaxiRateLimits.ActionAsync(limiter, http, userId, async () =>
+        {
+            if (await CheckOfferAsync(db, offerId, userId, ct) is { } denied) return denied;
+            var result = await offers.WithdrawAsync(offerId, userId, body?.Chip, ct);
+            return result.Ok ? await OfferResponseAsync(db, offerId, withTrip: false, ct) : Refusal(result);
+        });
     }
 
     // D7
@@ -188,9 +202,10 @@ public static class TaxiDriverRequestHandlers
 
     // D8
     public static async Task<IResult> ListBookings(DateOnly? from, DateOnly? to, ClaimsPrincipal principal, ApplicationDbContext db,
-        IValidator<DriverBookingsWindow> validator, CancellationToken ct)
+        IValidator<DriverBookingsWindow> validator, HttpContext http, IRateLimitService limiter, CancellationToken ct)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+        if (await TaxiRateLimits.ReadAsync(limiter, http, userId) is { } limited) return limited;
         var window = new DriverBookingsWindow(from, to);
         var validation = await validator.ValidateAsync(window, ct);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);

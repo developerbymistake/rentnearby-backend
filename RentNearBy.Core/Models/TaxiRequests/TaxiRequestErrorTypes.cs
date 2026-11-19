@@ -30,6 +30,9 @@ public static class TaxiRequestErrorTypes
     public const string DatesAlreadyBooked = "DatesAlreadyBooked";
     public const string RatingNotAllowed = "RatingNotAllowed";
     public const string AlreadyRated = "AlreadyRated";
+    public const string SeatsTooFew = "SeatsTooFew";
+    public const string TooManyTravellers = "TooManyTravellers";
+    public const string OverlappingTaxiRequest = "OverlappingTaxiRequest";
     // Existing types the contract reuses on the new routes.
     public const string TooManyRequests = "TooManyRequests";
     public const string NotFound = "NotFound";
@@ -42,6 +45,7 @@ public static class TaxiRequestErrorTypes
         PickupNotAvailable, DropNotAvailable, NoDriversNearHere, SightseeingDaysInvalid, TripDatesRequired, DayInPast,
         AllDriversBusy, ReasonRequired, OfferNotFound, NotOfferDriver, OfferMissed, OfferStateInvalid, ConfirmWindowPassed,
         DatesAlreadyBooked, RatingNotAllowed, AlreadyRated, TooManyRequests, NotFound, DayAlreadyBooked,
+        SeatsTooFew, TooManyTravellers, OverlappingTaxiRequest,
     ];
 
     // Messages the contract fixes (English, shown as is when the app has no own copy).
@@ -72,7 +76,13 @@ public static class TaxiRequestErrorTypes
         [ConfirmWindowPassed] = "Time to confirm is over",
         [RatingNotAllowed] = "You can rate after the trip",
         [AlreadyRated] = "You already rated this driver",
+        [SeatsTooFew] = "Choose a taxi with a seat for everyone",
+        [TooManyTravellers] = "For groups above 12, please send separate requests.",
+        [OverlappingTaxiRequest] = "You already have a taxi for these dates in another trip",
     };
+
+    public static string OverlappingTaxiRequestMessage(string tripName)
+        => $"You already have a taxi request for these dates in {tripName}";
 
     public static string DatesAlreadyBookedMessage(DateOnly from, DateOnly to)
         => $"Dates already booked. You have another booking from {from.ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture)} to {to.ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture)}.";

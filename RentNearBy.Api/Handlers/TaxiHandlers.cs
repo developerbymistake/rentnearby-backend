@@ -629,6 +629,7 @@ public static class TaxiHandlers
         if (!TaxiSetupRules.Step1Done(taxi)) return StepLocked(1);
         // Resolved before any write, so a missing registration can never fail a route save after its commit.
         var pickupPlaces = sp.GetRequiredService<TaxiPickupPlaces>();
+        var taxiRequests = sp.GetRequiredService<TaxiRequestClosure>();
 
         // Full replace by position: slot N keeps its row (and RouteIndex N), extra rows are removed,
         // so the (TaxiListingId, RouteIndex) unique index never sees a transient duplicate.
@@ -677,11 +678,31 @@ public static class TaxiHandlers
 
         // A city that cannot be trusted right now leaves the key null; the route still saves and the backfill retries.
         var started = Stopwatch.GetTimestamp();
-        await TaxiRouteCityKeys.ResolveAsync(resolver, saved, loggerFactory.CreateLogger("TaxiRouteCityKeys"), TaxiRouteCityKeys.RequestBudget);
+        var (_, routeKeys) = await TaxiRouteCityKeys.ResolveForSaveAsync(resolver, saved, loggerFactory.CreateLogger("TaxiRouteCityKeys"), TaxiRouteCityKeys.RequestBudget);
         TaxiRouteCityKeys.MarkKeysWritten(db, saved.Select(s => s.Route));
 
-        try { await unitOfWork.SaveChangesAsync(); }
-        catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        // O12: ringing and accepted offers no remaining route serves close in the same transaction, before the listing row
+        // is written (lock order request -> driver listing). Selected offers and bookings stay. A null key keeps an offer
+        // only while its lookup is still pending; the backfill checks those offers again once it answers.
+        TaxiClosureResult taxiSignals;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            taxiSignals = await taxiRequests.RoutesChangedAsync(db, taxi.Id, routeKeys);
+            await unitOfWork.SaveChangesAsync();
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch (Exception ex) when (ex is DbUpdateConcurrencyException || PgRetry.IsRetryable(ex))
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        await taxiRequests.AfterCommitAsync(taxiSignals, poolChanged: false);
         await pickupPlaces.BumpAsync();
 
         if (taxi.Status == TaxiStatuses.Approved)

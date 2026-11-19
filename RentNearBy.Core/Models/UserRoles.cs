@@ -18,6 +18,14 @@ public static class UserRoles
         : roleId == TaxiDriverId ? TaxiDriver
         : throw new InvalidOperationException($"Unknown role id {roleId}");
 
+    // Display names of the seeded Roles rows; an unknown key reads as Seeker.
+    public static string NameOf(string roleKey) => roleKey switch
+    {
+        StayOwner => "Stay Owner",
+        TaxiDriver => "Taxi Driver",
+        _ => "Seeker",
+    };
+
     public static string? ListingKindOf(Guid roleId) =>
         roleId == StayOwnerId ? ListingKinds.Stay
         : roleId == TaxiDriverId ? ListingKinds.Taxi

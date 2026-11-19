@@ -5,9 +5,11 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Infrastructure.Services.TaxiRequests;
 
-public sealed record TaxiRouteBackfillResult(int Batches, int Written, int Unresolved, int FailedBatches);
+public sealed record TaxiRouteBackfillResult(int Batches, int Written, int Unresolved, int FailedBatches, int RecheckedDrivers = 0);
 
-// One pass over routes with a null city key: keyset batches, a short pause between them, never a guessed key.
+// One pass over routes with a null city key: keyset batches, a short pause between them, never a guessed key. A driver
+// with a null end that got a final answer in this pass (a key, or no city) has his ringing and accepted offers checked
+// again at the end (O12: a route save that could not wait for the lookup kept them).
 public sealed class TaxiRouteCityBackfillPass(
     ITaxiRouteCityKeyStore store, ICityResolver resolver, ILogger logger, Func<TimeSpan, CancellationToken, Task>? pause = null)
 {
@@ -22,7 +24,8 @@ public sealed class TaxiRouteCityBackfillPass(
     {
         var cache = new TaxiRouteCityKeys.PointCache(resolver, c => _pause(LookupPause, c));
         var after = Guid.Empty;
-        int batches = 0, written = 0, unresolved = 0, failed = 0;
+        int batches = 0, written = 0, unresolved = 0, failed = 0, rechecked = 0;
+        var settledDrivers = new HashSet<Guid>();
         while (!ct.IsCancellationRequested)
         {
             IReadOnlyList<TaxiRouteKeyRow> rows;
@@ -44,6 +47,10 @@ public sealed class TaxiRouteCityBackfillPass(
                 var (writes, missing) = await TaxiRouteCityKeys.ResolveRowsAsync(cache, rows, ct);
                 unresolved += missing;
                 written += await store.WriteAsync(writes, ct);
+                foreach (var row in rows)
+                    if ((row.FromCityKey is null && cache.IsSettled(row.FromLatitude, row.FromLongitude))
+                        || (row.ToCityKey is null && cache.IsSettled(row.ToLatitude, row.ToLongitude)))
+                        settledDrivers.Add(row.TaxiListingId);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -55,7 +62,18 @@ public sealed class TaxiRouteCityBackfillPass(
         }
         if (unresolved > 0)
             logger.LogWarning(TaxiRouteCityKeys.Unresolved, "taxi.route.city.unresolved {Count} routes in this pass", unresolved);
-        return new TaxiRouteBackfillResult(batches, written, unresolved, failed);
+        if (settledDrivers.Count > 0 && !ct.IsCancellationRequested)
+        {
+            try
+            {
+                rechecked = await store.RecheckOffersAsync(settledDrivers, (lat, lng) => !cache.IsSettled(lat, lng), ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "taxi.route.city.backfill offer recheck failed");
+            }
+        }
+        return new TaxiRouteBackfillResult(batches, written, unresolved, failed, rechecked);
     }
 }
 

@@ -25,6 +25,22 @@ public class PickupPlacesDto
     public int SightseeingDrivers { get; set; }
     public int Travellers { get; set; }
     public int SuggestedSeats { get; set; }
+    // O4: drivers per trip city for sightseeing (the city of the first chosen sightseeing day decides). Additive field.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<TaxiSightseeingCityDto>? SightseeingCities { get; set; }
+    // O2: seat choices of a request and the largest group one request takes.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<int>? SeatOptions { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxTravellers { get; set; }
+}
+
+public class TaxiSightseeingCityDto
+{
+    public long CityKey { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public List<int> Days { get; set; } = new();
+    public int Drivers { get; set; }
 }
 
 public class TaxiSectionsDto
@@ -112,6 +128,11 @@ public class TaxiRequestBookingDto
     public int? DayNumber { get; set; }
     public bool CanCancel { get; set; }
     public bool CanEnd { get; set; }
+    // O13, added after contract v1: always set by the server; absent only in the v1 samples.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? CanRate { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LeftDuringTrip { get; set; }
 }
 
 public class TaxiRequestRatingDto
@@ -175,6 +196,16 @@ public class PlanLockedData
 public class TaxiRequestAlreadyActiveData
 {
     public Guid RequestId { get; set; }
+}
+
+// data of 409 OverlappingTaxiRequest: the other trip that already holds a taxi on these dates.
+public class OverlappingTaxiRequestData
+{
+    public Guid TripId { get; set; }
+    public string TripName { get; set; } = string.Empty;
+    public Guid RequestId { get; set; }
+    public DateOnly DateFrom { get; set; }
+    public DateOnly DateTo { get; set; }
 }
 
 // data of 409 TaxiRequestStateInvalid.
