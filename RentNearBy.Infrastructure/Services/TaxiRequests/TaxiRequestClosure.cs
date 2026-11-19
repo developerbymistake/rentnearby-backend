@@ -56,10 +56,17 @@ public sealed class TaxiRequestClosure(
 
     // Ringing, Accepted and Selected offers close (ListingRemoved); an active booking is cancelled by the system with P10
     // (before the trip the request reopens with 3 more accepts, during the trip it ends as DriverLeftTrip); the traveller is told.
-    public async Task<TaxiClosureResult> ListingRemovedAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct = default)
+    public Task<TaxiClosureResult> ListingRemovedAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct = default)
+        => CloseListingAsync(db, driverListingId, cancelBookings: true, ct);
+
+    // Admin unpublish or report takedown (Approved to Rejected): the offers close as on a removal, an active booking stays.
+    public Task<TaxiClosureResult> ListingTakenDownAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct = default)
+        => CloseListingAsync(db, driverListingId, cancelBookings: false, ct);
+
+    private async Task<TaxiClosureResult> CloseListingAsync(ApplicationDbContext db, Guid driverListingId, bool cancelBookings, CancellationToken ct)
     {
         var offers = await RowsAsync(db, OffersOfDriverSql, ct, Uuid("id", driverListingId));
-        var bookings = await RowsAsync(db, BookingsOfDriverSql, ct, Uuid("id", driverListingId));
+        var bookings = cancelBookings ? await RowsAsync(db, BookingsOfDriverSql, ct, Uuid("id", driverListingId)) : [];
         var acc = new Accumulator();
         foreach (var requestId in RequestOrder(offers, bookings))
         {

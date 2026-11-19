@@ -200,6 +200,53 @@ public class TaxiRequestClosureIntegrationTests(TestDatabase db) : IntegrationTe
     }
 
     [IntegrationFact]
+    public async Task Listing_taken_down_closes_live_offers_and_keeps_the_booking()
+    {
+        await using var h = new JourneyHarness(Db);
+        var traveller = await h.AddSeekerAsync();
+        var down = await AddDriverAsync(h, "Down");
+        var other = await AddDriverAsync(h, "Other");
+
+        var ringingReq = await AddRequestAsync(h, traveller, RequestStates.Open);
+        var ringing = await AddOfferAsync(h, ringingReq.RequestId, down, OfferStates.Ringing, 1);
+        var collecting = await AddRequestAsync(h, traveller, RequestStates.Collecting, acceptedCount: 2);
+        var accepted = await AddOfferAsync(h, collecting.RequestId, down, OfferStates.Accepted, 1);
+        var otherAccepted = await AddOfferAsync(h, collecting.RequestId, other, OfferStates.Accepted, 2);
+        var selectedReq = await AddRequestAsync(h, traveller, RequestStates.Selected, acceptedCount: 1);
+        var selected = await AddOfferAsync(h, selectedReq.RequestId, down, OfferStates.Selected, 1);
+        var bookedReq = await AddRequestAsync(h, traveller, RequestStates.Booked, acceptedCount: 1);
+        var confirmed = await AddOfferAsync(h, bookedReq.RequestId, down, OfferStates.Confirmed, 1);
+        var booking = await AddBookingAsync(h, bookedReq, traveller, down, confirmed, BookingStates.Booked);
+
+        var writer = new RecordingPushWriter();
+        var result = await RunAsync(h, writer, (c, d) => c.ListingTakenDownAsync(d, down.Listing));
+
+        await using (var read = CreateContext())
+            Assert.False(await read.Set<TaxiRequestOffer>().AnyAsync(o => o.DriverListingId == down.Listing && OfferStates.Live.Contains(o.Status)));
+        var closedRing = await OfferAsync(ringing);
+        Assert.Equal((OfferStates.Closed, OfferEndReasons.ListingRemoved), (closedRing.Status, closedRing.EndReason));
+        var end = Assert.Single(writer.RingEnds);
+        Assert.Equal((ringing, down.User, OfferEndReasons.ListingRemoved), (end.OfferId, end.DriverUserId, end.Reason));
+        Assert.Equal(OfferStates.Closed, (await OfferAsync(accepted)).Status);
+        Assert.Equal(OfferStates.Accepted, (await OfferAsync(otherAccepted)).Status);
+        Assert.Equal(OfferStates.Closed, (await OfferAsync(selected)).Status);
+        Assert.Equal(RequestStates.Open, (await RequestAsync(selectedReq.RequestId)).Status);
+        Assert.Contains(writer.Notices, n => n.Kind == TaxiNoticeKind.SelectionLapsed && n.RequestId == selectedReq.RequestId && n.UserId == traveller);
+
+        Assert.Equal(OfferStates.Confirmed, (await OfferAsync(confirmed)).Status);
+        Assert.Equal(BookingStates.Booked, (await BookingAsync(booking)).Status);
+        Assert.Equal(RequestStates.Booked, (await RequestAsync(bookedReq.RequestId)).Status);
+        Assert.DoesNotContain(writer.Notices, n => n.Kind == TaxiNoticeKind.DriverWithdrew);
+        Assert.Equal(3, result.Changes.Count);
+        Assert.DoesNotContain(result.Changes, c => c.RequestId == bookedReq.RequestId);
+        await using (var read = CreateContext())
+        {
+            Assert.False(await read.Set<DueAction>().AnyAsync(d => d.State == DueActionStates.Pending && (d.SubjectId == ringing || d.SubjectId == selected)));
+            Assert.True(await read.Set<DueAction>().AnyAsync(d => d.State == DueActionStates.Pending && d.SubjectId == booking));
+        }
+    }
+
+    [IntegrationFact]
     public async Task Going_offline_closes_only_ringing_offers()
     {
         await using var h = new JourneyHarness(Db);

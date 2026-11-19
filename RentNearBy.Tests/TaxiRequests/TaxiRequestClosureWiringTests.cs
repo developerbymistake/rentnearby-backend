@@ -118,6 +118,50 @@ public class TaxiRequestClosureWiringTests
         Assert.Single(Regex.Matches(delete, Regex.Escape("SaveChangesAsync()")));
     }
 
+    // Admin unpublish and report takedown (Approved -> Rejected) close the driver's live taxi request offers in the same
+    // transaction, before the listing row is written; signals and the pickup bump wait for the commit.
+    [Fact]
+    public void Admin_takedown_runs_the_taxi_closure_before_writing_the_listing()
+    {
+        var source = File.ReadAllText(Path.Combine(RepoRoot(), "RentNearBy.Api", "Handlers", "AdminTaxiHandlers.cs"));
+        var start = source.IndexOf("private static async Task<IResult> TakeDownCoreAsync(", StringComparison.Ordinal);
+        Assert.True(start > 0, "TakeDownCoreAsync not found");
+        var next = Regex.Match(source[(start + 1)..], @"\n    (public|private|internal) static ");
+        var body = source.Substring(start, next.Index + 1);
+
+        var resolve = body.IndexOf("var taxiRequests = sp.GetRequiredService<TaxiRequestClosure>();", StringComparison.Ordinal);
+        var begin = body.IndexOf("await unitOfWork.BeginTransactionAsync();", StringComparison.Ordinal);
+        var closure = body.IndexOf("var taxiSignals = await taxiRequests.ListingTakenDownAsync(db, taxi.Id);", StringComparison.Ordinal);
+        var status = body.IndexOf("taxi.Status = TaxiStatuses.Rejected;", StringComparison.Ordinal);
+        var save = body.IndexOf("await unitOfWork.SaveChangesAsync();", StringComparison.Ordinal);
+        var commit = body.IndexOf("await unitOfWork.CommitTransactionAsync();", StringComparison.Ordinal);
+        var after = body.IndexOf("await taxiRequests.AfterCommitAsync(taxiSignals, poolChanged: true);", StringComparison.Ordinal);
+
+        Assert.True(resolve > 0 && begin > resolve, "The closure is resolved before the transaction starts");
+        Assert.True(closure > begin, "The taxi closure runs inside the takedown transaction");
+        Assert.True(status > closure && save > closure, "Requests are closed before the listing row is written (lock order request -> listing)");
+        Assert.True(commit > save && after > commit, "Signals and the pickup bump run after commit");
+        Assert.DoesNotContain("ListingRemovedAsync", body);
+
+        Assert.Contains("=> TakeDownCoreAsync(report.ListingId,", source);
+        Assert.Contains("return await TakeDownCoreAsync(id, request.Reason,", source);
+    }
+
+    [Fact]
+    public void Takedown_closes_offers_like_a_removal_but_never_reads_bookings()
+    {
+        var source = File.ReadAllText(Path.Combine(RepoRoot(), "RentNearBy.Infrastructure", "Services", "TaxiRequests", "TaxiRequestClosure.cs"));
+        Assert.Contains("ListingRemovedAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct = default)\n        => CloseListingAsync(db, driverListingId, cancelBookings: true, ct);", source.Replace("\r\n", "\n"));
+        Assert.Contains("ListingTakenDownAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct = default)\n        => CloseListingAsync(db, driverListingId, cancelBookings: false, ct);", source.Replace("\r\n", "\n"));
+
+        var core = Body(source, "CloseListingAsync");
+        Assert.Contains("cancelBookings ? await RowsAsync(db, BookingsOfDriverSql, ct, Uuid(\"id\", driverListingId)) : []", core);
+        Assert.Contains("CloseOfferAsync(db, request, o.Id, OfferStates.Live, OfferEndReasons.ListingRemoved, tellTraveller: true, ct)", core);
+        Assert.Contains("CancelBookingForRemovedListingAsync(db, request, b.Id, acc, ct)", core);
+
+        Assert.NotNull(typeof(ITaxiRequestClosure).GetMethod(nameof(ITaxiRequestClosure.ListingTakenDownAsync)));
+    }
+
     // The app container must hand the enquiry closure a real taxi closure; an optional parameter would otherwise get null
     // silently and every removal, role change, account deletion, trip delete and block would skip the taxi requests.
     [Fact]

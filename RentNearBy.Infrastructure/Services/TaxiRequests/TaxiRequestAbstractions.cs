@@ -103,6 +103,7 @@ public sealed record TaxiClosureResult(IReadOnlyList<long> CityKeys, IReadOnlyLi
 public interface ITaxiRequestClosure
 {
     Task<TaxiClosureResult> ListingRemovedAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct = default);
+    Task<TaxiClosureResult> ListingTakenDownAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct = default);
     Task<TaxiClosureResult> DriverOfflineAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct = default);
     Task<TaxiClosureResult> TravellerAccountDeletedAsync(ApplicationDbContext db, Guid travellerUserId, CancellationToken ct = default);
     Task<TaxiClosureResult> UsersBlockedAsync(ApplicationDbContext db, Guid userAId, Guid userBId, CancellationToken ct = default);

@@ -262,9 +262,13 @@ public static class AdminTaxiHandlers
         var taxi = await unitOfWork.Taxis.GetByIdAsync(taxiId);
         if (taxi == null || taxi.IsDeleted) return NotFoundResponse(TaxiNotFound);
 
+        var taxiRequests = sp.GetRequiredService<TaxiRequestClosure>();
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            // Taxi requests are closed before the listing row is written, keeping the lock order request -> driver listing.
+            var taxiSignals = await taxiRequests.ListingTakenDownAsync(db, taxi.Id);
+
             var now = DateTime.UtcNow;
             taxi.Status = TaxiStatuses.Rejected;
             taxi.RejectedReason = reason;
@@ -298,6 +302,7 @@ public static class AdminTaxiHandlers
 
             await TripHostGuards.AfterTakeDownAsync(tripChat, sp.GetRequiredService<ITripNotifier>(),
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger("TripTakeDown"), tripPosts, tripPushes);
+            await taxiRequests.AfterCommitAsync(taxiSignals, poolChanged: true);
             await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
 
             await AdminHandlers.SendGoLiveNotificationAsync(hubContext, publisher, notification);
