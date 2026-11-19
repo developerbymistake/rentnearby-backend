@@ -59,4 +59,6 @@ public class SaveTripRequest
     public TripPlan Plan { get; set; } = null!;
     // Create only; ignored by update.
     public Guid? ClientTripId { get; set; }
+    // Update only: the updatedAt the app loaded; null (old apps) skips the check.
+    public DateTime? BaseUpdatedAt { get; set; }
 }

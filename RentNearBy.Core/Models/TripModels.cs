@@ -46,6 +46,27 @@ public static class TripErrorTypes
     public const string CitiesUnavailable = "TripCitiesUnavailable";
     public const string TripNotPlanned = "TripNotPlanned";
     public const string TripHasLiveEnquiries = "TripHasLiveEnquiries";
+    public const string TripChanged = "TripChanged";
+}
+
+// Optimistic save check of PUT /trips/{id}: compared at whole microseconds (Postgres and the app keep no finer digits).
+public static class TripSaveVersion
+{
+    public const string ChangedMessage = "This trip was changed on another device.";
+
+    public static bool IsStale(DateTime? baseUpdatedAt, DateTime storedUpdatedAt)
+        => baseUpdatedAt is { } b && Micros(b) != Micros(storedUpdatedAt);
+
+    private static long Micros(DateTime t)
+    {
+        var utc = t.Kind switch
+        {
+            DateTimeKind.Local => t.ToUniversalTime(),
+            DateTimeKind.Unspecified => DateTime.SpecifyKind(t, DateTimeKind.Utc),
+            _ => t,
+        };
+        return utc.Ticks / 10;
+    }
 }
 
 // Hard caps; TripPlannerOptions can only lower them.

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Services;
 
 namespace RentNearBy.Tests.TaxiRequests;
@@ -170,6 +171,33 @@ public class PushExpiryTests
         Assert.Equal("o1", ringData["offer_id"]);
         Assert.False(ringData.ContainsKey("key"));
         Assert.Equal(NotificationTypes.ToWireValue(NotificationTypes.TaxiRequestRing), ringData["notification_type"]);
+    }
+
+    [Fact]
+    public async Task Retried_ring_carries_the_time_of_this_send_as_sentAt()
+    {
+        var written = Now.AddSeconds(-30);
+        var data = new Dictionary<string, string> { ["sentAt"] = TaxiRingPayload.Instant(written), ["expiresAt"] = TaxiRingPayload.Instant(Now.AddSeconds(10)) };
+        var fcm = new FakeFcm();
+
+        await Run(Ring(Now.AddSeconds(10), attempt: 1, data: data), new FakeStore(new() { [U1] = ["a"] }), fcm);
+
+        var sent = Assert.Single(fcm.Sent).Data;
+        Assert.Equal(TaxiRingPayload.Instant(Now), sent["sentAt"]);
+        Assert.Equal(TaxiRingPayload.Instant(Now.AddSeconds(10)), sent["expiresAt"]);
+        Assert.Equal(10, FcmService.RingTtlSeconds(sent, Now));
+        Assert.Equal(TaxiRingPayload.Instant(written), data["sentAt"]);
+    }
+
+    [Fact]
+    public async Task Only_a_ring_gets_sentAt_rewritten()
+    {
+        var fcm = new FakeFcm();
+        var data = new Dictionary<string, string> { ["sentAt"] = "keep" };
+
+        await Run(Ring(Now.AddSeconds(60), kind: null, data: data), new FakeStore(new() { [U1] = ["a"] }), fcm);
+
+        Assert.Equal("keep", Assert.Single(fcm.Sent).Data["sentAt"]);
     }
 
     [Fact]

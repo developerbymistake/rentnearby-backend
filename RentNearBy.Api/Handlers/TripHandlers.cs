@@ -597,6 +597,9 @@ public static class TripHandlers
             return ConflictResponse("Update the app to edit this trip.", TripEnquiryErrorTypes.TripNeedsUpdate);
         if (trip.Status == TripStatuses.Completed)
             return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
+        // A save that raced in after this read fails on xmin (CONCURRENT_UPDATE); the app resends the same base and lands here.
+        if (TripSaveVersion.IsStale(request.BaseUpdatedAt, trip.UpdatedAt))
+            return ConflictResponse(TripSaveVersion.ChangedMessage, TripErrorTypes.TripChanged);
 
         var plan = request.Plan!;
         plan.Normalize();

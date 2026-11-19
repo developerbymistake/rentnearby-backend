@@ -70,7 +70,8 @@ public sealed class PushDeliveryStore(IServiceScopeFactory scopeFactory) : IPush
 // One batch: one token query, one NotificationEvent query, FCM in chunks of 500, one UPDATE for dead tokens.
 // A message is delivered when any of its tokens took it; only an all-transient failure retries (so a three-device user never gets duplicates).
 // A payload past its ExpiresAtUtc is acked and counted, never sent.
-// Ring and ring end data carry no key (contract 10); a ring's expiresAt is the payload expiry, which FcmService turns into the TTL.
+// Ring and ring end data carry no key (contract 10); a ring's expiresAt is the payload expiry, which FcmService turns into the TTL,
+// and its sentAt is this send (a retry hop too), so the app's clock offset is measured against the moment the TTL starts.
 public static class PushBatchProcessor
 {
     public static Task<IReadOnlyList<PushVerdict>> ProcessAsync(
@@ -136,6 +137,7 @@ public static class PushBatchProcessor
             {
                 data.Remove("key");
                 if (p.ExpiresAtUtc is { } expires) data["expiresAt"] = TaxiRingPayload.Instant(expires);
+                data["sentAt"] = TaxiRingPayload.Instant(utcNow);
             }
             else if (type == NotificationTypes.TaxiRequestRingEnded) data.Remove("key");
             else data["key"] = p.Key;
