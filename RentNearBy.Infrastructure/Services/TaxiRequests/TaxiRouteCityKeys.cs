@@ -280,7 +280,7 @@ public sealed class TaxiRouteCityKeyStore(IServiceScopeFactory scopes, ILogger<T
                     await tx.CommitAsync(c);
                     return result;
                 }, ct, logger);
-                await closure.AfterCommitAsync(signals, poolChanged: false);
+                await closure.AfterCommitAsync(signals, poolChanged: true);
                 done++;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

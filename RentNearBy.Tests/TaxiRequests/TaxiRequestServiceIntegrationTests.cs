@@ -718,4 +718,97 @@ public class TaxiRequestServiceIntegrationTests(TestDatabase db) : IntegrationTe
         var ended = await ReadAsync(request.Id);
         Assert.Equal((RequestStates.Expired, RequestEndReasons.NotBooked), (ended.Status, ended.EndReason));
     }
+
+    // Issue 2: a registered driver (approved, available, route Kathgodam -> Nainital) who never set up rings.
+    private static async Task<Guid> ListedDriverAsync(JourneyHarness h, string name)
+    {
+        var listing = await h.AddTaxiAsync(await h.AddTaxiDriverAsync(name));
+        await using var s = h.NewScope();
+        await s.Db.TaxiListings.Where(l => l.Id == listing).ExecuteUpdateAsync(u => u.SetProperty(l => l.Seats, (short)4));
+        s.Db.TaxiRoutes.Add(new TaxiRoute
+        {
+            Id = Guid.NewGuid(), TaxiListingId = listing, FromName = "Kathgodam", ToName = "Nainital", FromCityKey = Kathgodam, ToCityKey = Nainital,
+            FromLatitude = 29.27m, FromLongitude = 79.54m, ToLatitude = 29.39m, ToLongitude = 79.45m, Fare = 1500, TripType = "OneWay",
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+        });
+        await s.Db.SaveChangesAsync();
+        return listing;
+    }
+
+    private static async Task<TaxiPickupLists> ListsAsync(JourneyHarness h)
+    {
+        await using var s = h.NewScope();
+        return await new TaxiPickupPlaces(s.Db, new Resolver()).GetAsync(Nainital, Nainital);
+    }
+
+    private static async Task<int> RingablePoolAsync(JourneyHarness h)
+    {
+        await using var s = h.NewScope();
+        return await s.Db.Database.SqlQueryRaw<int>($"SELECT count(*)::int AS \"Value\" FROM \"TaxiListings\" l WHERE {TaxiCandidateQuery.StaticRule}").SingleAsync();
+    }
+
+    [IntegrationFact]
+    public async Task Driver_without_ring_readiness_is_listed_and_create_is_accepted()
+    {
+        await using var h = new JourneyHarness(Db);
+        await ListedDriverAsync(h, "Ramesh");
+        var (trip, seeker) = await TripAsync(h);
+
+        var lists = await ListsAsync(h);
+        var pickup = Assert.Single(lists.Pickup);
+        Assert.Equal((Kathgodam, "Kathgodam", 1), (pickup.CityKey, pickup.Name, pickup.Drivers));
+        Assert.Equal(1, lists.SightseeingDrivers);
+        Assert.Equal(0, await RingablePoolAsync(h));
+
+        await using var s = h.NewScope();
+        var created = await Service(s.Db).CreateAsync(trip, seeker, Body());
+        Assert.True(created.Created, created.Error?.Type);
+    }
+
+    [IntegrationFact]
+    public async Task Unavailable_or_unapproved_driver_is_not_listed()
+    {
+        await using var h = new JourneyHarness(Db);
+        var listing = await ListedDriverAsync(h, "Ramesh");
+        var (trip, seeker) = await TripAsync(h);
+
+        await using (var s = h.NewScope())
+            await s.Db.TaxiListings.Where(l => l.Id == listing).ExecuteUpdateAsync(u => u.SetProperty(l => l.IsAvailable, false));
+        var off = await ListsAsync(h);
+        Assert.Empty(off.Pickup);
+        Assert.Equal(0, off.SightseeingDrivers);
+
+        await using (var s = h.NewScope())
+            await s.Db.TaxiListings.Where(l => l.Id == listing).ExecuteUpdateAsync(u => u
+                .SetProperty(l => l.IsAvailable, true).SetProperty(l => l.Status, TaxiStatuses.PendingReview));
+        Assert.Empty((await ListsAsync(h)).Pickup);
+
+        await using (var s = h.NewScope())
+        {
+            var refused = await Service(s.Db).CreateAsync(trip, seeker, Body());
+            Assert.Equal(TaxiRequestErrorTypes.PickupNotAvailable, refused.Error!.Type);
+        }
+    }
+
+    [IntegrationFact]
+    public async Task All_drivers_turning_notifications_off_leaves_the_city_list_unchanged()
+    {
+        await using var h = new JourneyHarness(Db);
+        var a = await ReadyDriverAsync(h, "Ramesh");
+        var b = await ReadyDriverAsync(h, "Mohan");
+        var before = await ListsAsync(h);
+        Assert.Equal(2, await RingablePoolAsync(h));
+
+        await using (var s = h.NewScope())
+            await s.Db.TaxiListings.Where(l => l.Id == a.Listing || l.Id == b.Listing)
+                .ExecuteUpdateAsync(u => u.SetProperty(l => l.RingNotificationsOn, false));
+        var after = await ListsAsync(h);
+
+        var pickup = Assert.Single(after.Pickup);
+        Assert.Equal((Kathgodam, 2), (pickup.CityKey, pickup.Drivers));
+        Assert.Equal(before.Pickup, after.Pickup);
+        Assert.Equal(before.Drop, after.Drop);
+        Assert.Equal(before.SightseeingDrivers, after.SightseeingDrivers);
+        Assert.Equal(0, await RingablePoolAsync(h));
+    }
 }

@@ -67,13 +67,45 @@ public class TaxiPickupPlacesTests
     public void Paused_flag_follows_the_switch(bool switchOn, bool paused)
         => Assert.Equal(paused, TaxiPickupPlaces.ToDto(NoLists, null, null, switchOn, 2).Paused);
 
-    [Fact]
-    public void Driver_at_the_missed_rings_limit_is_not_counted()
+    [Theory]
+    [InlineData("RingReadyAt")]
+    [InlineData("RingNotificationsOn")]
+    [InlineData("RingMissStreak")]
+    [InlineData("DeviceTokens")]
+    public void Lists_and_counts_ignore_ring_readiness(string ringFragment)
     {
-        Assert.Contains($"l.\"RingMissStreak\" < {TaxiDispatchRules.RingMissLimit}", TaxiCandidateQuery.StaticRule);
-        Assert.Contains(TaxiCandidateQuery.StaticRule, TaxiPickupPlaces.FromCitiesSql);
-        Assert.Contains(TaxiCandidateQuery.StaticRule, TaxiPickupPlaces.DriversToCitySql);
+        Assert.Contains(TaxiCandidateQuery.ListRule, TaxiPickupPlaces.FromCitiesSql);
+        Assert.Contains(TaxiCandidateQuery.ListRule, TaxiPickupPlaces.DriversToCitySql);
+        Assert.DoesNotContain(ringFragment, TaxiCandidateQuery.ListRule);
+        Assert.DoesNotContain(ringFragment, TaxiPickupPlaces.FromCitiesSql);
+        Assert.DoesNotContain(ringFragment, TaxiPickupPlaces.DriversToCitySql);
     }
+
+    [Fact]
+    public void List_rule_keeps_approved_available_live_drivers_of_an_active_district()
+    {
+        Assert.Contains($"l.\"Status\" = '{TaxiStatuses.Approved}'", TaxiCandidateQuery.ListRule);
+        Assert.Contains("l.\"IsAvailable\"", TaxiCandidateQuery.ListRule);
+        Assert.Contains("NOT l.\"IsDeleted\"", TaxiCandidateQuery.ListRule);
+        Assert.Contains("d.\"IsActive\"", TaxiCandidateQuery.ListRule);
+    }
+
+    [Fact]
+    public void Matcher_rule_is_the_list_rule_plus_ring_readiness()
+    {
+        Assert.Contains(TaxiCandidateQuery.ListRule, TaxiCandidateQuery.StaticRule);
+        Assert.Contains(TaxiCandidateQuery.RingRule, TaxiCandidateQuery.StaticRule);
+        Assert.Contains("l.\"RingReadyAt\" IS NOT NULL", TaxiCandidateQuery.RingRule);
+        Assert.Contains("l.\"RingNotificationsOn\"", TaxiCandidateQuery.RingRule);
+        Assert.Contains($"l.\"RingMissStreak\" < {TaxiDispatchRules.RingMissLimit}", TaxiCandidateQuery.RingRule);
+        Assert.Contains("\"DeviceTokens\"", TaxiCandidateQuery.RingRule);
+        foreach (var sql in new[] { TaxiCandidateQuery.PoolSql, TaxiCandidateQuery.CandidatesSql, TaxiCandidateQuery.RemainingSql, TaxiCandidateQuery.EnsureDispatchStatesSql })
+            Assert.Contains(TaxiCandidateQuery.StaticRule, sql);
+    }
+
+    [Fact]
+    public async Task Static_bump_without_redis_does_nothing()
+        => await TaxiPickupPlaces.BumpAsync(null);
 
     [Fact]
     public void Dto_carries_both_lists_the_cities_and_the_sightseeing_count()

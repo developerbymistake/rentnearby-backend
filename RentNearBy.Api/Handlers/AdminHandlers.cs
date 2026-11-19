@@ -99,6 +99,7 @@ public static class AdminHandlers
         cache.Remove("cities_all");
         cache.Remove($"district_boundary_{id}");
         await FlushContextCacheAsync(sp.GetService<IConnectionMultiplexer>());
+        await RentNearBy.Infrastructure.Services.TaxiRequests.TaxiPickupPlaces.BumpAsync(sp.GetService<IConnectionMultiplexer>());
 
         return OkResponse(new { success = true, isActive = district.IsActive });
     }

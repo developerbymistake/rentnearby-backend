@@ -23,7 +23,7 @@ public sealed record TaxiPickupLists(IReadOnlyList<TaxiPickupPlace> Pickup, IRea
 
 // Contract T1 lists from driver routes by city key (decisions 12, 13, 23e): pickup = FROM cities of routes whose TO city is
 // the trip's first city, drop = the same around the last city, a FROM equal to the TO city is not listed, drivers counted
-// by the pool rule of MASTER_PLAN 2.5. City names come from the cached catalog (no Atlas call per request); a key that is
+// by the list rule (registered drivers; ring readiness is the matcher's). City names come from the cached catalog (no Atlas call per request); a key that is
 // not a live city is left out, so the list and the create check always agree. Run outside any transaction.
 public sealed class TaxiPickupPlaces
 {
@@ -49,7 +49,7 @@ public sealed class TaxiPickupPlaces
         FROM "TaxiRoutes" rt
         JOIN "TaxiListings" l ON l."Id" = rt."TaxiListingId"
         WHERE rt."ToCityKey" = @to AND rt."FromCityKey" IS NOT NULL AND rt."FromCityKey" <> rt."ToCityKey"
-        AND {TaxiCandidateQuery.StaticRule}
+        AND {TaxiCandidateQuery.ListRule}
         GROUP BY rt."FromCityKey"
         """;
 
@@ -58,7 +58,7 @@ public sealed class TaxiPickupPlaces
         FROM "TaxiRoutes" rt
         JOIN "TaxiListings" l ON l."Id" = rt."TaxiListingId"
         WHERE rt."ToCityKey" = @to
-        AND {TaxiCandidateQuery.StaticRule}
+        AND {TaxiCandidateQuery.ListRule}
         """;
 
     public async Task<TaxiPickupLists> GetAsync(long firstCityKey, long lastCityKey, CancellationToken ct = default)
@@ -112,7 +112,7 @@ public sealed class TaxiPickupPlaces
         return new TaxiPickupLists(Named(pickupRows, points, firstAt), Named(dropRows, points, lastAt), sightseeing);
     }
 
-    // Pool drivers with a route to this city from anywhere (sightseeing only, P18).
+    // Listed drivers with a route to this city from anywhere (sightseeing only, P18).
     public async Task<int> CountForAsync(long toCityKey, CancellationToken ct = default)
         => await _cache.GetOrLoadAsync("cnt", toCityKey,
             async () => await db.Database.SqlQueryRaw<int>(DriversToCitySql, To(toCityKey)).SingleAsync(ct));
@@ -120,6 +120,9 @@ public sealed class TaxiPickupPlaces
     // The single invalidation call for a change that moves the lists (routes, availability, readiness, removal): it moves
     // the cache generation, so every cached entry is ignored at once. Never throws; without Redis there is nothing to move.
     public Task BumpAsync() => _cache.BumpAsync();
+
+    public static Task BumpAsync(IConnectionMultiplexer? redis)
+        => new TaxiPickupCache(redis is null ? null : new RedisPickupCacheStore(redis)).BumpAsync();
 
     private async Task<List<FromCityRow>> FromCitiesAsync(long toCityKey, CancellationToken ct)
         => await _cache.GetOrLoadAsync("from", toCityKey,

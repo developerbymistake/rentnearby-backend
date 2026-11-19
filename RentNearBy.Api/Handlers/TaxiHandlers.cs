@@ -58,6 +58,7 @@ public static class TaxiCache
         await RentNearBy.Infrastructure.Services.TripSupplyCache.BumpAsync(redis, districtId);
         await TaxiWaysVersion.BumpAsync(redis);
         await FeedCache.BumpAsync(redis, districtId is { } id ? new[] { GenKey(id), SearchGenKey } : new[] { SearchGenKey });
+        await TaxiPickupPlaces.BumpAsync(redis);
     }
 }
 

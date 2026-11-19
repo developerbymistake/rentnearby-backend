@@ -242,6 +242,24 @@ public class TaxiRequestClosureWiringTests
         Assert.Contains("ORDER BY \"Id\"", TaxiRequestClosure.ActiveRequestsOfTravellerSql);
     }
 
+    // The pickup and drop lists follow every listing change, a district toggle and a backfilled route key (issue 2).
+    [Fact]
+    public void Taxi_cache_invalidation_moves_the_pickup_generation()
+    {
+        var handlers = HandlerSource().Replace("\r\n", "\n");
+        var start = handlers.IndexOf("public static async Task InvalidateAsync(IConnectionMultiplexer? redis, Guid? districtId)", StringComparison.Ordinal);
+        Assert.True(start >= 0, "TaxiCache.InvalidateAsync not found");
+        var invalidate = handlers[start..handlers.IndexOf("\n    }", start, StringComparison.Ordinal)];
+        Assert.Contains("await TaxiPickupPlaces.BumpAsync(redis);", invalidate);
+
+        var admin = File.ReadAllText(Path.Combine(RepoRoot(), "RentNearBy.Api", "Handlers", "AdminHandlers.cs"));
+        Assert.Contains("TaxiPickupPlaces.BumpAsync(sp.GetService<IConnectionMultiplexer>());", HandlerBody(admin, "ToggleDistrictActive"));
+
+        var backfill = File.ReadAllText(Path.Combine(RepoRoot(), "RentNearBy.Infrastructure", "Services", "TaxiRequests", "TaxiRouteCityKeys.cs"));
+        Assert.Contains("await closure.AfterCommitAsync(signals, poolChanged: true);", backfill);
+        Assert.DoesNotContain("await closure.AfterCommitAsync(signals, poolChanged: false);", backfill);
+    }
+
     private static string ClosureSource()
         => File.ReadAllText(Path.Combine(RepoRoot(), "RentNearBy.Infrastructure", "Services", "TripEnquiryClosure.cs"));
 

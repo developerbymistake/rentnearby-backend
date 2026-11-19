@@ -16,14 +16,21 @@ public sealed record TaxiRemainingCounts(int Free, int Busy);
 // MASTER_PLAN 2.5 as SQL (mirrored by the pure TaxiFairQueue). Aliases: l = driver TaxiListings row, r = TaxiRequests row.
 public static class TaxiCandidateQuery
 {
-    // Pool member for any request: also feeds the pickup driver counts.
-    public static readonly string StaticRule = $"""
+    // Registered driver: feeds the pickup/drop lists, the sightseeing counts and the create check (never ring readiness).
+    public static readonly string ListRule = $"""
         l."Status" = '{TaxiStatuses.Approved}' AND l."IsAvailable" AND NOT l."IsDeleted"
-        AND l."RingReadyAt" IS NOT NULL AND l."RingNotificationsOn"
-        AND l."RingMissStreak" < {TaxiDispatchRules.RingMissLimit}
-        AND EXISTS (SELECT 1 FROM "DeviceTokens" dt WHERE dt."UserId" = l."UserId" AND dt."IsValid")
         AND (l."DistrictId" IS NULL OR EXISTS (SELECT 1 FROM "Districts" d WHERE d."Id" = l."DistrictId" AND d."IsActive"))
         """;
+
+    // Reachable by a ring: matcher only.
+    public static readonly string RingRule = $"""
+        l."RingReadyAt" IS NOT NULL AND l."RingNotificationsOn"
+        AND l."RingMissStreak" < {TaxiDispatchRules.RingMissLimit}
+        AND EXISTS (SELECT 1 FROM "DeviceTokens" dt WHERE dt."UserId" = l."UserId" AND dt."IsValid")
+        """;
+
+    // Pool member for any request: a listed driver who can be rung.
+    public static readonly string StaticRule = $"{ListRule}\nAND {RingRule}";
 
     public static readonly string RouteRule = """
         EXISTS (SELECT 1 FROM "TaxiRoutes" rt WHERE rt."TaxiListingId" = l."Id" AND rt."ToCityKey" = r."MatchToCityKey"

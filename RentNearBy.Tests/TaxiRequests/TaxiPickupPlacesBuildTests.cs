@@ -4,7 +4,7 @@ using RentNearBy.Infrastructure.Services.TaxiRequests;
 
 namespace RentNearBy.Tests.TaxiRequests;
 
-// Contract T1 lists: SQL shape (same-city routes left out, pool rule applied) and catalog naming (non-live keys dropped).
+// Contract T1 lists: SQL shape (same-city routes left out, list rule applied) and catalog naming (non-live keys dropped).
 public class TaxiPickupPlacesBuildTests
 {
     private const long Kathgodam = 210000050, Haldwani = 210000060, Gone = 210000099;
@@ -23,19 +23,19 @@ public class TaxiPickupPlacesBuildTests
     private static TaxiPickupPlaces.FromCityRow Row(long key, int drivers) => new() { CityKey = key, Drivers = drivers };
 
     [Fact]
-    public void From_cities_sql_leaves_out_routes_inside_one_city_and_applies_the_pool_rule()
+    public void From_cities_sql_leaves_out_routes_inside_one_city_and_applies_the_list_rule()
     {
         Assert.Contains("rt.\"FromCityKey\" <> rt.\"ToCityKey\"", TaxiPickupPlaces.FromCitiesSql);
         Assert.Contains("rt.\"ToCityKey\" = @to", TaxiPickupPlaces.FromCitiesSql);
-        Assert.Contains(TaxiCandidateQuery.StaticRule, TaxiPickupPlaces.FromCitiesSql);
+        Assert.Contains(TaxiCandidateQuery.ListRule, TaxiPickupPlaces.FromCitiesSql);
         Assert.Contains("count(DISTINCT l.\"Id\")", TaxiPickupPlaces.FromCitiesSql);
     }
 
     [Fact]
-    public void Drivers_to_city_sql_applies_the_pool_rule()
+    public void Drivers_to_city_sql_applies_the_list_rule()
     {
         Assert.Contains("rt.\"ToCityKey\" = @to", TaxiPickupPlaces.DriversToCitySql);
-        Assert.Contains(TaxiCandidateQuery.StaticRule, TaxiPickupPlaces.DriversToCitySql);
+        Assert.Contains(TaxiCandidateQuery.ListRule, TaxiPickupPlaces.DriversToCitySql);
     }
 
     [Fact]
