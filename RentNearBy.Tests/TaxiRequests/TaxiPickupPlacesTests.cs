@@ -95,7 +95,7 @@ public class TaxiPickupPlacesTests
     {
         Assert.Contains(TaxiCandidateQuery.ListRule, TaxiCandidateQuery.StaticRule);
         Assert.Contains(TaxiCandidateQuery.RingRule, TaxiCandidateQuery.StaticRule);
-        Assert.Contains("l.\"RingReadyAt\" IS NOT NULL", TaxiCandidateQuery.RingRule);
+        Assert.Contains("l.\"RingReadyAt\" IS NULL", TaxiCandidateQuery.RingRule);
         Assert.Contains("l.\"RingNotificationsOn\"", TaxiCandidateQuery.RingRule);
         Assert.Contains($"l.\"RingMissStreak\" < {TaxiDispatchRules.RingMissLimit}", TaxiCandidateQuery.RingRule);
         Assert.Contains("\"DeviceTokens\"", TaxiCandidateQuery.RingRule);

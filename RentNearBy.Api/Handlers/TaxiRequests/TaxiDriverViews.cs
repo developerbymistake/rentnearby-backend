@@ -185,7 +185,7 @@ public static class TaxiDriverViews
         {
             Approved = !listing.IsDeleted && listing.Status == TaxiStatuses.Approved,
             Online = listing.IsAvailable,
-            RingReady = listing.RingReadyAt is not null && listing.RingNotificationsOn && hasValidToken && !missed,
+            RingReady = (listing.RingReadyAt is null || listing.RingNotificationsOn) && hasValidToken && !missed,
             NotificationsOn = listing.RingNotificationsOn,
             HasValidToken = hasValidToken,
             MissedRings = missed,

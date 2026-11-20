@@ -384,7 +384,7 @@ public class TaxiRequestStoreSqlTests
             Assert.Contains("l.\"Status\" = 'Approved'", sql);
             Assert.Contains("l.\"IsAvailable\"", sql);
             Assert.Contains("NOT l.\"IsDeleted\"", sql);
-            Assert.Contains("l.\"RingReadyAt\" IS NOT NULL", sql);
+            Assert.Contains("l.\"RingReadyAt\" IS NULL", sql);
             Assert.Contains("l.\"RingNotificationsOn\"", sql);
             Assert.Contains("l.\"RingMissStreak\" < 3", sql);
             Assert.Contains("dt.\"UserId\" = l.\"UserId\" AND dt.\"IsValid\"", sql);

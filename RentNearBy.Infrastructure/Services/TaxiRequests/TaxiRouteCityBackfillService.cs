@@ -84,6 +84,7 @@ public sealed class TaxiRouteCityBackfillService(
 {
     public const string LockName = "taxi-route-city-backfill";
     public static readonly TimeSpan FirstDelay = TimeSpan.FromMinutes(2);
+    public static readonly TimeSpan Every = TimeSpan.FromMinutes(5);
     public const int NightlyHourIst = 0;
     public const int NightlyMinuteIst = 20;
 
@@ -105,8 +106,7 @@ public sealed class TaxiRouteCityBackfillService(
                     async ct => await PgAdvisoryLock.TryAcquireAsync(lockConnection.Value, LockName, ct),
                     ct => new TaxiRouteCityBackfillPass(store, resolver, logger).RunAsync(ct),
                     logger, stoppingToken);
-                var now = DateTime.UtcNow;
-                await Task.Delay(NextNightlyUtc(now) - now, stoppingToken);
+                await Task.Delay(Every, stoppingToken);
             }
         }
         catch (OperationCanceledException)

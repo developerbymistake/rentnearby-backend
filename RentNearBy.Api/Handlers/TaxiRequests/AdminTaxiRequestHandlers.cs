@@ -87,7 +87,7 @@ public static class AdminTaxiRequestRules
 
     // Everything of ring readiness except the device token (contract section 6).
     public static readonly Expression<Func<TaxiListing, bool>> RingReadyBase = l =>
-        l.RingReadyAt != null && l.RingNotificationsOn && l.RingMissStreak < TaxiDispatchRules.RingMissLimit;
+        (l.RingReadyAt == null || l.RingNotificationsOn) && l.RingMissStreak < TaxiDispatchRules.RingMissLimit;
 
     private static readonly Func<TaxiListing, bool> RingReadyCompiled = RingReadyBase.Compile();
 

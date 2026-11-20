@@ -208,7 +208,7 @@ public class AdminTaxiRequestTests
         Assert.False(AdminTaxiRequestRules.RingReady(l, true));
         l.RingNotificationsOn = true;
         l.RingReadyAt = null;
-        Assert.False(AdminTaxiRequestRules.RingReady(l, true));
+        Assert.True(AdminTaxiRequestRules.RingReady(l, true));
     }
 
     [Fact]
@@ -318,7 +318,7 @@ public class AdminTaxiRequestTests
 
         var ready = AdminTaxiRequestQueries.RingReadyDrivers(db).ToQueryString();
         Assert.Contains("\"DeviceTokens\"", ready);
-        Assert.Contains("\"RingReadyAt\" IS NOT NULL", ready);
+        Assert.Contains("\"RingReadyAt\" IS NULL", ready);
         Assert.Contains("\"RingMissStreak\" >=", AdminTaxiRequestQueries.DriversMissingRings(db).ToQueryString());
 
         var unanswered = AdminTaxiRequestQueries.UnansweredOffers(db, Now).ToQueryString();

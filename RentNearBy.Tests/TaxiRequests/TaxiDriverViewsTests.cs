@@ -241,9 +241,9 @@ public class TaxiDriverViewsTests
     }
 
     [Fact]
-    public void Driver_without_a_device_report_is_not_ring_ready()
+    public void Driver_is_ring_ready_until_the_phone_reports_it_off()
     {
-        Assert.False(TaxiDriverViews.BuildReadiness(Listing(null, true, 0), true, 0).RingReady);
+        Assert.True(TaxiDriverViews.BuildReadiness(Listing(null, false, 0), true, 0).RingReady);
         Assert.False(TaxiDriverViews.BuildReadiness(Listing(Now, false, 0), true, 0).RingReady);
         Assert.False(TaxiDriverViews.BuildReadiness(Listing(Now, true, 0), false, 0).RingReady);
         Assert.False(TaxiDriverViews.BuildReadiness(null, true, 0).RingReady);

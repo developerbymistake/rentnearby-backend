@@ -24,7 +24,7 @@ public static class TaxiCandidateQuery
 
     // Reachable by a ring: matcher only.
     public static readonly string RingRule = $"""
-        l."RingReadyAt" IS NOT NULL AND l."RingNotificationsOn"
+        (l."RingReadyAt" IS NULL OR l."RingNotificationsOn")
         AND l."RingMissStreak" < {TaxiDispatchRules.RingMissLimit}
         AND EXISTS (SELECT 1 FROM "DeviceTokens" dt WHERE dt."UserId" = l."UserId" AND dt."IsValid")
         """;
