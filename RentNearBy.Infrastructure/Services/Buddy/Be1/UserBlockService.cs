@@ -82,7 +82,8 @@ public sealed class UserBlockService(
         {
             logger.LogWarning(ex, "trip.block.closure_failed");
         }
-        await hints.BuddiesChangedAsync([blockerId, blockedId]);
+        // Nobody is told: the blocked side picks the change up on its next normal load.
+        await hints.BuddiesChangedAsync([blockerId]);
         return outcome;
     }
 

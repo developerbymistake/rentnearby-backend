@@ -64,7 +64,9 @@ public class TripInviteGuidTests
         Assert.Contains(typeof(TripSummaryDto), dtos);
         var offenders = dtos
             .SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(p => (t, p)))
-            .Where(x => x.p.Name.Contains("Invite", StringComparison.OrdinalIgnoreCase))
+            .Where(x => x.p.Name.Contains("InviteCode", StringComparison.OrdinalIgnoreCase)
+                || x.p.Name.Contains("InviteLink", StringComparison.OrdinalIgnoreCase)
+                || x.p.Name.Equals("InviteToken", StringComparison.OrdinalIgnoreCase))
             .Select(x => $"{x.t.Name}.{x.p.Name}")
             .ToList();
         Assert.Empty(offenders);

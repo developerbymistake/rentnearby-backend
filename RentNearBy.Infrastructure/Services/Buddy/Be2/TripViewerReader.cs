@@ -16,11 +16,11 @@ public sealed record TripViewResult(TripViewerDto? View, string ETag, bool NotMo
 public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access, ITripMoneyCards money, TimeProvider clock)
 {
     // Owner + the first two joined viewers; the counts and stamps are uncorrelated subqueries (evaluated once).
-    internal const string StampSql = """
+    internal static readonly string StampSql = $"""
         SELECT x."UserId", x."Name", x."Username", x."IsOwner",
                (SELECT count(*)::int FROM "TripMembers" j WHERE j."TripId" = @trip AND j."Status" = 'Joined') AS "ViewerCount",
                (SELECT count(*)::int FROM "TripMembers" w
-                WHERE w."TripId" = @trip AND w."Status" = 'Invited' AND w."InviteExpiresAt" > now()) AS "PendingInvites",
+                WHERE w."TripId" = @trip AND {LooksWaitingWhere}) AS "PendingInvites",
                COALESCE((SELECT s."Version" FROM "TripExpenseState" s WHERE s."TripId" = @trip), 0) AS "BalancesVersion",
                GREATEST(
                  (SELECT max(e."UpdatedAt") FROM "TripEnquiries" e WHERE e."TripId" = @trip),

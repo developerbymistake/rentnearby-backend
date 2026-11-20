@@ -896,7 +896,8 @@ public static class TripHandlers
     // throws: the plan lock guard can never be skipped. The endpoint gets the scoped context from DI.
     public static async Task<IResult> Delete(
         Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ITripEnquiryClosure closure, ISavedJourneyRepository journeys,
-        ApplicationDbContext? db = null, [Microsoft.AspNetCore.Mvc.FromServices] ITripMoneyGuard? moneyGuard = null, [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null)
+        ApplicationDbContext? db = null, [Microsoft.AspNetCore.Mvc.FromServices] ITripMoneyGuard? moneyGuard = null, [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null,
+        [Microsoft.AspNetCore.Mvc.FromServices] INoticeWriter? noticeWriter = null)
     {
         ArgumentNullException.ThrowIfNull(db);
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
@@ -945,6 +946,7 @@ public static class TripHandlers
         }
 
         await closure.AfterCommitAsync(pushes);
+        if (viewersTold > 0) noticeWriter?.Wake();
         var ownersTold = pushes.Select(p => p.Notification.TargetUserId).Where(t => t != null).Distinct().Count();
         return OkResponse(new { message = "Trip deleted", ownersTold, viewersTold });
     }

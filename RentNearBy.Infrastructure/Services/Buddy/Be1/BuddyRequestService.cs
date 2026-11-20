@@ -134,7 +134,9 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
 
     private const string StatusSql = """SELECT "Status" AS "Value" FROM "BuddyRequests" WHERE "Id" = @id""";
 
-    public async Task<BuddyResult<SendOutcome>> SendAsync(Guid callerId, Guid toUserId, string source, Guid clientRequestId, CancellationToken ct = default)
+    // foundByUsername = B1 found this person for the caller lately; a new request needs it (a replay or a crossing request does not).
+    public async Task<BuddyResult<SendOutcome>> SendAsync(
+        Guid callerId, Guid toUserId, string source, Guid clientRequestId, bool foundByUsername = true, CancellationToken ct = default)
     {
         if (callerId == toUserId) return BuddyResult<SendOutcome>.Fail(BuddyErrorTypes.SelfRequest);
         var pushed = false;
@@ -173,6 +175,7 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
                 return BuddyResult<SendOutcome>.Success(new SendOutcome(SendKind.Accepted, null, new BuddyRequestAcceptedDto { Buddy = buddy }));
             }
 
+            if (!foundByUsername) return BuddyResult<SendOutcome>.Fail(BuddyErrorTypes.PersonNotFound);
             if (BuddyRules.InCooldown(mine, s.Now)) return BuddyResult<SendOutcome>.Fail(BuddyErrorTypes.TryLater);
             if (s.Waiting >= BuddyLimits.MaxWaitingRequests) return BuddyResult<SendOutcome>.Fail(BuddyErrorTypes.WaitingLimit);
             if (s.MyBuddies >= BuddyLimits.MaxBuddies) return BuddyResult<SendOutcome>.Fail(BuddyErrorTypes.BuddyLimit);

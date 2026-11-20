@@ -71,6 +71,8 @@ public sealed class SettleReminderJob(
         return await PgRetry.OnceAsync(db, async c =>
         {
             await using var tx = await db.Database.BeginTransactionAsync(c);
+            // Contract 5.1 order (trip rows, sorted, then notices) so a money write on one of these trips cannot deadlock with the job.
+            await BuddyLocks.LockTripsAsync(db, plan.Select(p => p.Notice.TripId), c);
             var rows = await notices.UpsertManyIfOlderAsync(plan.Select(p => p.Notice).ToList(), TripPaymentRules.IstDayStartUtc(now), c);
             var done = rows.Select(r => (r.UserId, r.TripId)).ToHashSet();
             await notices.PushAsync(plan.Where(p => done.Contains((p.Notice.UserId, p.Notice.TripId))).Select(p => p.Push).ToList(), c);

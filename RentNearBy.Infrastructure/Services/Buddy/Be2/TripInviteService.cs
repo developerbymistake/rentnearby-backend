@@ -13,7 +13,7 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be2;
 public sealed class TripInviteService(
     ApplicationDbContext db, INoticeWriter notices, IBuddyLiveHints hints, TimeProvider clock, ILogger<TripInviteService> logger)
 {
-    private const string CandidatesSql = """
+    private static readonly string CandidatesSql = $"""
         SELECT x.id AS "UserId", (u."Id" IS NOT NULL) AS "Exists", COALESCE(u."IsActive", FALSE) AS "IsActive",
                EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @owner AND b."BuddyUserId" = x.id) AS "IsBuddy",
                EXISTS (SELECT 1 FROM "UserBlocks" k
@@ -22,7 +22,7 @@ public sealed class TripInviteService(
                m."Status" AS "MemberStatus", m."InviteExpiresAt", m."RespondedAt",
                (SELECT count(*)::int FROM "TripMembers" j WHERE j."TripId" = @trip AND j."Status" = 'Joined') AS "JoinedViewers",
                (SELECT count(*)::int FROM "TripMembers" w
-                WHERE w."TripId" = @trip AND w."Status" = 'Invited' AND w."InviteExpiresAt" > now()) AS "WaitingInvites"
+                WHERE w."TripId" = @trip AND {LooksWaitingWhere}) AS "WaitingInvites"
         FROM unnest(@ids) AS x(id)
         LEFT JOIN "Users" u ON u."Id" = x.id
         LEFT JOIN "TripMembers" m ON m."TripId" = @trip AND m."UserId" = x.id
@@ -43,7 +43,7 @@ public sealed class TripInviteService(
 
     private const string CancelSql = """
         UPDATE "TripMembers" SET "Status" = 'Cancelled', "EndedAt" = now(), "UpdatedAt" = now(), "Version" = "Version" + 1
-        WHERE "TripId" = @trip AND "UserId" = @user AND "Status" = 'Invited'
+        WHERE "TripId" = @trip AND "UserId" = @user AND "Status" IN ('Invited', 'Declined')
         """;
 
     private const string AcceptSql = """
@@ -164,7 +164,7 @@ public sealed class TripInviteService(
     // S8: 200 also on a repeat. Only the trip lock; the conditional update serialises against cancel, block and expiry.
     public async Task<SharingResult<TripJoinedDto>> AcceptAsync(Guid memberId, Guid callerId, CancellationToken ct = default)
     {
-        var first = await ReadInviteAsync(db, memberId, ct);
+        var first = await ReadInviteLeanAsync(db, memberId, ct);
         if (first is null || first.UserId != callerId) return EndedResult<TripJoinedDto>(null);
         if (first.Status == TripMemberStatuses.Joined) return Joined(first.TripId);
 
@@ -174,7 +174,7 @@ public sealed class TripInviteService(
             await using var tx = await db.Database.BeginTransactionAsync(c);
             var trip = await LockTripAsync(db, first.TripId, c);
             if (trip is null) return EndedResult<TripJoinedDto>(null);
-            var row = await ReadInviteAsync(db, memberId, c);
+            var row = await ReadInviteLeanAsync(db, memberId, c);
             if (row is null || row.UserId != callerId) return EndedResult<TripJoinedDto>(null);
             if (row.Status == TripMemberStatuses.Joined) return Joined(row.TripId);
             if (row.Blocked) return EndedResult<TripJoinedDto>(null);
@@ -185,7 +185,7 @@ public sealed class TripInviteService(
             var version = (await db.Database.SqlQueryRaw<int>(AcceptSql, Id("member", memberId)).ToListAsync(c)).FirstOrDefault();
             if (version == 0)
             {
-                var again = await ReadInviteAsync(db, memberId, c);
+                var again = await ReadInviteLeanAsync(db, memberId, c);
                 return again?.Status == TripMemberStatuses.Joined ? Joined(again.TripId) : EndedResult<TripJoinedDto>(again);
             }
             await notices.DeleteAsync(NoticeKinds.TripInvite, row.TripId, [callerId], c);
@@ -207,7 +207,7 @@ public sealed class TripInviteService(
     // S9: idempotent and silent.
     public async Task<SharingResult<TripStatusDto>> DeclineAsync(Guid memberId, Guid callerId, CancellationToken ct = default)
     {
-        var first = await ReadInviteAsync(db, memberId, ct);
+        var first = await ReadInviteLeanAsync(db, memberId, ct);
         if (first is null || first.UserId != callerId) return EndedResult<TripStatusDto>(null);
         if (first.Status == TripMemberStatuses.Declined) return Declined();
 
@@ -218,7 +218,7 @@ public sealed class TripInviteService(
             var changed = await db.Database.ExecuteSqlRawAsync(DeclineSql, [Id("member", memberId)], c);
             if (changed == 0)
             {
-                var row = await ReadInviteAsync(db, memberId, c);
+                var row = await ReadInviteLeanAsync(db, memberId, c);
                 await tx.CommitAsync(c);
                 return row?.Status == TripMemberStatuses.Declined ? Declined() : EndedResult<TripStatusDto>(row);
             }

@@ -15,7 +15,7 @@ public sealed class TripMemberService(
     TimeProvider clock, ILogger<TripMemberService> logger)
 {
     // Owner row, Joined rows and (owner caller only) waiting invites, with "is the caller's buddy" per person.
-    private const string PeopleSql = """
+    private static readonly string PeopleSql = $"""
         SELECT x."UserId", x."Name", x."Username", x."Kind", x."MemberId", x."JoinedAt", x."InvitedAt", x."InviteExpiresAt",
                EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = x."UserId") AS "IsBuddy"
         FROM (
@@ -24,10 +24,11 @@ public sealed class TripMemberService(
           FROM "Trips" t JOIN "Users" u ON u."Id" = t."OwnerUserId"
           WHERE t."Id" = @trip
           UNION ALL
-          SELECT m."UserId", COALESCE(u."Name", ''), u."Username", m."Status"::text, m."Id", m."JoinedAt", m."InvitedAt", m."InviteExpiresAt"
+          SELECT m."UserId", COALESCE(u."Name", ''), u."Username",
+                 (CASE WHEN m."Status" = 'Declined' THEN 'Invited' ELSE m."Status" END)::text, m."Id", m."JoinedAt", m."InvitedAt", m."InviteExpiresAt"
           FROM "TripMembers" m JOIN "Users" u ON u."Id" = m."UserId"
           WHERE m."TripId" = @trip
-            AND (m."Status" = 'Joined' OR (@isOwner AND m."Status" = 'Invited' AND m."InviteExpiresAt" > now()))
+            AND (m."Status" = 'Joined' OR (@isOwner AND {LooksWaiting("m")}))
         ) x
         ORDER BY (x."Kind" = 'Owner') DESC, x."JoinedAt" NULLS FIRST, x."InvitedAt", x."UserId"
         """;
@@ -61,7 +62,7 @@ public sealed class TripMemberService(
                m."Status" AS "MemberStatus", m."InviteExpiresAt", m."RespondedAt",
                (SELECT count(*)::int FROM "TripMembers" j WHERE j."TripId" = t."Id" AND j."Status" = 'Joined') AS "JoinedViewers",
                (SELECT count(*)::int FROM "TripMembers" w
-                WHERE w."TripId" = t."Id" AND w."Status" = 'Invited' AND w."InviteExpiresAt" > now()) AS "WaitingInvites"
+                WHERE w."TripId" = t."Id" AND {LooksWaitingWhere}) AS "WaitingInvites"
         FROM "Trips" t
         LEFT JOIN "TripMembers" m ON m."TripId" = t."Id" AND m."UserId" = @user
         WHERE t."OwnerUserId" = @me AND t."Status" <> 'Completed' AND (t."EndDate" IS NULL OR t."EndDate" >= @today)

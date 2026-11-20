@@ -13,11 +13,11 @@ public sealed class TripSharingHooks(
     ApplicationDbContext db, ITripMoneyCards money, INoticeWriter notices, IBuddyLiveHints hints, TimeProvider clock,
     ILogger<TripSharingHooks> logger) : ITripSharingHooks
 {
-    private const string SharingSql = """
+    private static readonly string SharingSql = $"""
         SELECT x."UserId", x."Name", x."IsOwner", t."StartDate", t."DayCount",
                (SELECT count(*)::int FROM "TripMembers" j WHERE j."TripId" = @trip AND j."Status" = 'Joined') AS "ViewerCount",
                (SELECT count(*)::int FROM "TripMembers" w
-                WHERE w."TripId" = @trip AND w."Status" = 'Invited' AND w."InviteExpiresAt" > now()) AS "PendingInvites"
+                WHERE w."TripId" = @trip AND {LooksWaitingWhere}) AS "PendingInvites"
         FROM (
           SELECT t0."OwnerUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", TRUE AS "IsOwner", NULL::timestamptz AS "JoinedAt"
           FROM "Trips" t0 JOIN "Users" u ON u."Id" = t0."OwnerUserId"
@@ -79,6 +79,7 @@ public sealed class TripSharingHooks(
     }
 
     // Inside the delete transaction, after the trip lock: TripDeleted notices + pushes to joined viewers, other notices gone.
+    // The handler wakes the relay after commit when viewers were told (contract 5.1).
     public async Task<int> OnTripDeletingAsync(Guid tripId, Guid ownerId, CancellationToken ct = default)
     {
         var viewers = await ReadViewersAsync(tripId, ownerId, ct);
@@ -86,7 +87,6 @@ public sealed class TripSharingHooks(
         if (viewers.Count == 0) return 0;
         await notices.UpsertAsync(viewers.Select(v => new NoticeUpsert(v.UserId, NoticeKinds.TripDeleted, tripId, ownerId)).ToList(), ct);
         await notices.PushAsync(viewers.Select(v => BuddyPushCopy.TripDeletedForViewer(v.UserId, tripId, v.OwnerName, v.Title)).ToList(), ct);
-        notices.Wake();
         return viewers.Count;
     }
 

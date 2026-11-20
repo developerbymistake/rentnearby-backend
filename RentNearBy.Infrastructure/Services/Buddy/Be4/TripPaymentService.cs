@@ -30,8 +30,15 @@ public sealed class TripPaymentService(
     TimeProvider clock,
     ILogger<TripPaymentService> logger)
 {
+    // Locks the trip only for a caller who may write here, so a stranger or a viewer on an owner route never waits on it.
     internal const string LockTripSql = """
-        SELECT "Title" AS "Value" FROM "Trips" WHERE "Id" = @trip FOR UPDATE
+        SELECT t."Title" AS "Value" FROM "Trips" t
+        WHERE t."Id" = @trip
+          AND (t."OwnerUserId" = @caller
+               OR (NOT @ownerOnly AND EXISTS (SELECT 1 FROM "TripMembers" m
+                                             WHERE m."TripId" = t."Id" AND m."UserId" = @caller
+                                               AND m."Status" IN ('Joined', 'Left', 'Removed'))))
+        FOR UPDATE OF t
         """;
 
     internal const string InsertSaidPaidSql = """
@@ -250,8 +257,11 @@ public sealed class TripPaymentService(
     // Trip lock (+ title), travellers; 404 for a stranger, 403 NotTripOwner when the owner is required.
     private async Task<(Facts? Facts, PaymentResult? Denied)> OpenAsync(Guid tripId, Guid callerId, bool ownerOnly, CancellationToken ct)
     {
-        var title = (await db.Database.SqlQueryRaw<string>(LockTripSql, Uuid("trip", tripId)).ToListAsync(ct)).FirstOrDefault();
-        if (title is null) return (null, PaymentResult.Fail(BuddyErrorTypes.TripNotFound));
+        var title = (await db.Database.SqlQueryRaw<string>(LockTripSql, Uuid("trip", tripId), Uuid("caller", callerId),
+            new NpgsqlParameter("ownerOnly", NpgsqlDbType.Boolean) { Value = ownerOnly }).ToListAsync(ct)).FirstOrDefault();
+        if (title is null)
+            return (null, PaymentResult.Fail(ownerOnly && await access.GetAsync(tripId, callerId, ct) is not null
+                ? BuddyErrorTypes.NotTripOwner : BuddyErrorTypes.TripNotFound));
         var travellers = await access.GetTravellersAsync(tripId, includeFormer: true, ct);
         var me = travellers.FirstOrDefault(t => t.UserId == callerId);
         var owner = travellers.FirstOrDefault(t => t.IsOwner);

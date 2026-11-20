@@ -244,6 +244,26 @@ public class TripSharingIntegrationTests(TestDatabase db) : IntegrationTestBase(
     }
 
     [IntegrationFact]
+    public async Task S9_decline_leaves_the_owner_view_unchanged_and_cancel_removes_the_row()
+    {
+        await using var ctx = CreateContext();
+        var p = await BuddySeed.UsersAsync(ctx, 2);
+        var trip = await BuddySeed.TripAsync(ctx, p[0]);
+        await BuddySeed.BuddiesAsync(ctx, p[0], [p[1]]);
+        var memberId = (await Invites(ctx).InviteAsync(trip, p[0], [p[1]])).Value!.Results[0].MemberId!.Value;
+        var before = (await Members(ctx).GetMembersAsync(trip, p[0])).Value!;
+
+        Assert.True((await Invites(ctx).DeclineAsync(memberId, p[1])).Ok);
+        var after = (await Members(ctx).GetMembersAsync(trip, p[0])).Value!;
+        Assert.Equal(before.PendingInvites, after.PendingInvites);
+        Assert.Equal(before.SeatsLeft, after.SeatsLeft);
+        Assert.Equal(p[1], Assert.Single(after.Invited).UserId);
+
+        Assert.True((await Invites(ctx).CancelAsync(trip, p[0], p[1])).Ok);
+        Assert.Empty((await Members(ctx).GetMembersAsync(trip, p[0])).Value!.Invited);
+    }
+
+    [IntegrationFact]
     public async Task S12_remove_then_remove_again_is_NotOnTrip_and_the_view_answers_403_with_hasShare()
     {
         await using var ctx = CreateContext();

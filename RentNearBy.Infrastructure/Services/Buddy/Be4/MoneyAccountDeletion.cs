@@ -16,7 +16,7 @@ public sealed class MoneyAccountDeletion(ApplicationDbContext db, ITripLedger le
     public const int LookbackDays = 90;
 
     internal const string CandidatesSql = """
-        SELECT t."Id", t."Title"
+        SELECT t."Id", t."Title", (t."OwnerUserId" = @user) AS "IsOwner"
         FROM "Trips" t JOIN "TripExpenseState" s ON s."TripId" = t."Id"
         WHERE t."Id" IN (SELECT o."Id" FROM "Trips" o WHERE o."OwnerUserId" = @user
                          UNION SELECT m."TripId" FROM "TripMembers" m WHERE m."UserId" = @user)
@@ -35,9 +35,13 @@ public sealed class MoneyAccountDeletion(ApplicationDbContext db, ITripLedger le
             new NpgsqlParameter("since", NpgsqlDbType.Date) { Value = since }).ToListAsync(ct);
         if (trips.Count == 0) return [];
 
-        var snapshots = await ledger.LoadManyAsync(trips.ToDictionary(t => t.Id, _ => (IReadOnlyList<Guid>)[]), ct);
+        // An owner's trip with anything open blocks (only he can close rows, the cascade would wipe them); a member's only by his own money.
+        var memberTrips = trips.Where(t => !t.IsOwner).ToDictionary(t => t.Id, _ => (IReadOnlyList<Guid>)[]);
+        var snapshots = memberTrips.Count == 0
+            ? new Dictionary<Guid, TripLedgerSnapshot>()
+            : await ledger.LoadManyAsync(memberTrips, ct);
         return trips
-            .Where(t => snapshots.TryGetValue(t.Id, out var s) && HasMoneyToSettle(s, userId))
+            .Where(t => t.IsOwner || (snapshots.TryGetValue(t.Id, out var s) && HasMoneyToSettle(s, userId)))
             .Select(t => new AccountDeletionBlock(
                 AccountDeletionReasons.SharedTripOpenBalance, string.Format(AccountDeletionReasons.SharedTripOpenBalanceMessage, t.Title)))
             .ToList();
@@ -56,5 +60,6 @@ public sealed class MoneyAccountDeletion(ApplicationDbContext db, ITripLedger le
     {
         public Guid Id { get; set; }
         public string Title { get; set; } = string.Empty;
+        public bool IsOwner { get; set; }
     }
 }

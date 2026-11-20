@@ -123,7 +123,7 @@ public class Be1BuddyIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         var kit = new Be1Kit(counting);
         counter.Reset();
         var first = await kit.Requests.SendAsync(p[0], p[1], BuddyRequestSources.Search, client);
-        Assert.True(counter.Count <= 8, $"B2 used {counter.Count} statements");
+        Assert.True(counter.Count + kit.Notices.Calls <= 8, $"B2 used {counter.Count + kit.Notices.Calls} statements");
         Assert.Equal(SendKind.Created, first.Value!.Kind);
         Assert.Single(kit.Notices.Upserts, n => n.UserId == p[1] && n.Kind == NoticeKinds.BuddyRequest);
         Assert.Single(kit.Notices.Pushes);
@@ -432,7 +432,7 @@ public class Be1BuddyIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         var kit = new Be1Kit(counting);
         counter.Reset();
         var outcome = await kit.Blocks.BlockAsync(p[0], p[1]);
-        Assert.True(counter.Count <= 9, $"B12 used {counter.Count} statements");
+        Assert.True(counter.Count + kit.Notices.Calls <= 9, $"B12 used {counter.Count + kit.Notices.Calls} statements");
         Assert.Equal(BlockResult.Done, outcome.Result);
         var closed = (await RequestAsync(fromHim))!;
         Assert.Equal(BuddyRequestStatuses.ClosedByBlock, closed.Status);
@@ -472,6 +472,38 @@ public class Be1BuddyIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.Empty((await lists.BlockContextAsync(p[0], p[2]))!.TripsInCommon);
         await BlockRowAsync(p[1], p[0]);
         Assert.Null(await lists.BlockContextAsync(p[0], p[1]));
+    }
+
+    [IntegrationFact]
+    public async Task Block_context_hides_the_username_of_a_co_viewer_who_is_not_a_buddy()
+    {
+        var p = await PeopleAsync(3);
+        await using (var seed = CreateContext())
+        {
+            var trip = await BuddySeed.TripAsync(seed, p[0]);
+            await BuddySeed.MembersAsync(seed, trip, p[0], [p[1], p[2]]);
+        }
+        await using var ctx = CreateContext();
+        var lists = new Be1Kit(ctx).Lists;
+        var coViewer = (await lists.BlockContextAsync(p[1], p[2]))!.Person;
+        Assert.Null(coViewer.Username);
+        Assert.False(string.IsNullOrEmpty(coViewer.Name));
+        Assert.NotNull((await lists.BlockContextAsync(p[1], p[0]))!.Person.Username);
+        Assert.NotNull((await lists.BlockContextAsync(p[0], p[2]))!.Person.Username);
+    }
+
+    [IntegrationFact]
+    public async Task Send_without_a_find_is_PersonNotFound_and_writes_nothing()
+    {
+        var p = await PeopleAsync(2);
+        await using var ctx = CreateContext();
+        var kit = new Be1Kit(ctx);
+        var result = await kit.Requests.SendAsync(p[0], p[1], BuddyRequestSources.Search, Guid.NewGuid(), foundByUsername: false);
+        Assert.Equal(BuddyErrorTypes.PersonNotFound, result.ErrorType);
+        Assert.Empty(kit.Notices.Pushes);
+        await kit.Requests.SendAsync(p[1], p[0], BuddyRequestSources.Search, Guid.NewGuid());
+        var crossing = await kit.Requests.SendAsync(p[0], p[1], BuddyRequestSources.Search, Guid.NewGuid(), foundByUsername: false);
+        Assert.Equal(SendKind.Accepted, crossing.Value!.Kind);
     }
 
     // ---------- B15 / B16 ----------

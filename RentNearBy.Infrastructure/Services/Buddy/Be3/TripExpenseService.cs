@@ -151,7 +151,8 @@ public sealed class TripExpenseService(
         {
             done = null;
             await using var tx = await db.Database.BeginTransactionAsync(c);
-            await BuddyLocks.LockTripAsync(db, tripId, c);
+            if (!await BuddyLocks.LockOwnedTripAsync(db, tripId, callerId, c))
+                return ExpenseResult<SaveExpenseResponseDto>.Fail(await access.GetAsync(tripId, callerId, c) is null ? BuddyErrorTypes.TripNotFound : BuddyErrorTypes.NotTripOwner);
             var trip = await access.GetAsync(tripId, callerId, c);
             if (trip is null) return ExpenseResult<SaveExpenseResponseDto>.Fail(BuddyErrorTypes.TripNotFound);
             if (trip.Level != TripAccessLevel.Owner) return ExpenseResult<SaveExpenseResponseDto>.Fail(BuddyErrorTypes.NotTripOwner);
@@ -231,7 +232,8 @@ public sealed class TripExpenseService(
         {
             done = null;
             await using var tx = await db.Database.BeginTransactionAsync(c);
-            await BuddyLocks.LockTripAsync(db, tripId, c);
+            if (!await BuddyLocks.LockOwnedTripAsync(db, tripId, callerId, c))
+                return ExpenseResult<BalancesVersionDto>.Fail(await access.GetAsync(tripId, callerId, c) is null ? BuddyErrorTypes.TripNotFound : BuddyErrorTypes.NotTripOwner);
             var trip = await access.GetAsync(tripId, callerId, c);
             if (trip is null) return ExpenseResult<BalancesVersionDto>.Fail(BuddyErrorTypes.TripNotFound);
             if (trip.Level != TripAccessLevel.Owner) return ExpenseResult<BalancesVersionDto>.Fail(BuddyErrorTypes.NotTripOwner);
@@ -276,7 +278,8 @@ public sealed class TripExpenseService(
         {
             done = null;
             await using var tx = await db.Database.BeginTransactionAsync(c);
-            await BuddyLocks.LockTripAsync(db, tripId, c);
+            if (!await BuddyLocks.LockOwnedTripAsync(db, tripId, callerId, c))
+                return ExpenseResult<ShareWithResponseDto>.Fail(await access.GetAsync(tripId, callerId, c) is null ? BuddyErrorTypes.TripNotFound : BuddyErrorTypes.NotTripOwner);
             var trip = await access.GetAsync(tripId, callerId, c);
             if (trip is null) return ExpenseResult<ShareWithResponseDto>.Fail(BuddyErrorTypes.TripNotFound);
             if (trip.Level != TripAccessLevel.Owner) return ExpenseResult<ShareWithResponseDto>.Fail(BuddyErrorTypes.NotTripOwner);

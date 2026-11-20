@@ -18,7 +18,8 @@ public static class BuddyHttp
         return result.IsAllowed ? null : Denied(http, result, limit.Window);
     }
 
-    // Actions: permits are given back when the action did no work (non-2xx or an exception), unless keepOnFailure.
+    // Actions: permits are given back for a business refusal (409/422/400) or an exception, unless keepOnFailure.
+    // 401/403/404 keep the permit so calls on someone else's trip or a forged id are never free.
     public static async Task<IResult> ActionLimitAsync(
         IRateLimitService limiter, HttpContext http, BuddyRateLimit limit, Func<Task<IResult>> action, int permits = 1, bool keepOnFailure = false)
     {
@@ -35,9 +36,15 @@ public static class BuddyHttp
             await lease.ReleaseAllAsync();
             throw;
         }
-        if (!keepOnFailure && !IsSuccess(result)) await lease.ReleaseAllAsync();
+        if (!keepOnFailure && GivesPermitBack(result)) await lease.ReleaseAllAsync();
         return result;
     }
+
+    public static bool GivesPermitBack(IResult result)
+        => !IsSuccess(result) && result is IStatusCodeHttpResult { StatusCode: not (401 or 403 or 404) };
+
+    public static bool GivesPermitBack(string errorType)
+        => BuddyErrorTypes.StatusOf(errorType) is not (401 or 403 or 404);
 
     // Several limits on one request (B1: user + IP); the lease gives every permit back when the caller says so.
     public static async Task<IResult?> TakeAsync(RateLimitPermits lease, HttpContext http, BuddyRateLimit limit, int permits = 1)

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using FluentValidation;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Infrastructure.Services.Buddy.Be1;
@@ -17,7 +18,7 @@ public static class BuddyHandlers
 
     public static async Task<IResult> Find(
         FindBuddyRequest request, IValidator<FindBuddyRequest> validator, ClaimsPrincipal principal,
-        BuddyFindService finder, IRateLimitService limiter, HttpContext http, CancellationToken ct)
+        BuddyFindService finder, IBuddyFoundMarks marks, IRateLimitService limiter, HttpContext http, CancellationToken ct)
     {
         if (!BuddyHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request, ct);
@@ -32,12 +33,13 @@ public static class BuddyHandlers
             return ipDenied;
         }
         var found = await finder.FindAsync(me, request.Query, ct);
+        if (found.Found) await marks.MarkAsync(me, found.Person!.UserId);
         return found.Found ? OkResponse(found) : OkResponse(new NotFoundBuddyResponse { Found = false });
     }
 
     public static async Task<IResult> SendRequest(
         SendBuddyRequest request, IValidator<SendBuddyRequest> validator, ClaimsPrincipal principal,
-        BuddyRequestService requests, IRateLimitService limiter, HttpContext http, CancellationToken ct)
+        BuddyRequestService requests, IBuddyFoundMarks marks, IRateLimitService limiter, HttpContext http, CancellationToken ct)
     {
         if (!BuddyHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request, ct);
@@ -49,14 +51,15 @@ public static class BuddyHandlers
         BuddyResult<SendOutcome> result;
         try
         {
-            result = await requests.SendAsync(me, request.ToUserId, request.Source ?? BuddyRequestSources.Search, request.ClientRequestId, ct);
+            var found = await marks.HasAsync(me, request.ToUserId);
+            result = await requests.SendAsync(me, request.ToUserId, request.Source ?? BuddyRequestSources.Search, request.ClientRequestId, found, ct);
         }
         catch
         {
             await lease.ReleaseAllAsync();
             throw;
         }
-        if (!result.Ok || result.Value!.Kind != SendKind.Created) await lease.ReleaseAllAsync();
+        if (result.Ok ? result.Value!.Kind != SendKind.Created : BuddyHttp.GivesPermitBack(result.ErrorType!)) await lease.ReleaseAllAsync();
         if (!result.Ok) return BuddyHttp.Error(result.ErrorType!, result.ErrorData);
         var outcome = result.Value!;
         return outcome.Kind switch

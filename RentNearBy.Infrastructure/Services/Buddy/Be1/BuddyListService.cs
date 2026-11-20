@@ -83,7 +83,15 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
     private const string BlockCursorFilter = """AND (ub."CreatedAt", ub."Id") < (@at, @id)""";
 
     private const string ContextPersonSql = """
-        SELECT u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username"
+        SELECT u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name",
+               CASE WHEN EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = @him)
+                      OR EXISTS (SELECT 1 FROM "UserBlocks" mb WHERE mb."BlockerId" = @me AND mb."BlockedId" = @him)
+                      OR EXISTS (SELECT 1 FROM "BuddyRequests" r
+                                 WHERE r."PairLowId" = LEAST(@me, @him) AND r."PairHighId" = GREATEST(@me, @him))
+                      OR EXISTS (SELECT 1 FROM "TripMembers" m JOIN "Trips" t ON t."Id" = m."TripId"
+                                 WHERE (m."UserId" = @him AND t."OwnerUserId" = @me)
+                                    OR (m."UserId" = @me AND t."OwnerUserId" = @him))
+                    THEN u."Username" END AS "Username"
         FROM "Users" u
         WHERE u."Id" = @him AND u."IsActive"
           AND NOT EXISTS (SELECT 1 FROM "UserBlocks" ub WHERE ub."BlockerId" = @him AND ub."BlockedId" = @me)

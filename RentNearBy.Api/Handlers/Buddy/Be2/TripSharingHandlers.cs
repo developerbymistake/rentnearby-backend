@@ -43,7 +43,8 @@ public static class TripSharingHandlers
             await lease.ReleaseAllAsync();
             throw;
         }
-        var invited = result.Ok ? result.Value!.Results.Count(r => r.Outcome == InviteOutcomes.Invited) : 0;
+        var invited = result.Ok ? result.Value!.Results.Count(r => r.Outcome == InviteOutcomes.Invited)
+            : BuddyHttp.GivesPermitBack(result.ErrorType!) ? 0 : request.UserIds.Count;
         if (invited < request.UserIds.Count)
         {
             await lease.ReleaseAllAsync();

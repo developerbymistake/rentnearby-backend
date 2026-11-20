@@ -22,6 +22,11 @@ public static class BuddyLocks
     public static Task LockTripAsync(ApplicationDbContext db, Guid tripId, CancellationToken ct = default)
         => db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Trips\" WHERE \"Id\" = {tripId} FOR UPDATE", ct);
 
+    // Owner routes: the trip row is locked only for its owner; false = not his trip (or gone), nothing locked.
+    public static async Task<bool> LockOwnedTripAsync(ApplicationDbContext db, Guid tripId, Guid ownerId, CancellationToken ct = default)
+        => (await db.Database.SqlQuery<int>($"SELECT 1 AS \"Value\" FROM \"Trips\" WHERE \"Id\" = {tripId} AND \"OwnerUserId\" = {ownerId} FOR UPDATE")
+            .ToListAsync(ct)).Count > 0;
+
     public static Task LockTripsAsync(ApplicationDbContext db, IEnumerable<Guid> tripIds, CancellationToken ct = default)
     {
         var ids = tripIds.Distinct().ToArray();

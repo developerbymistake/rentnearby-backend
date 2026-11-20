@@ -28,7 +28,7 @@ public sealed class TripLedger(ApplicationDbContext db, ILogger<TripLedger> logg
         FROM (
           SELECT p."TripId", p."Id", p."FromUserId", p."ToUserId", p."Amount", p."State", p."SaidPaidAt", p."ReceivedAt", p."ReceivedByUserId", p."EndedAt",
                  row_number() OVER (PARTITION BY p."TripId" ORDER BY p."SaidPaidAt" DESC, p."Id" DESC) AS rn
-          FROM "TripPayments" p WHERE p."TripId" = ANY(@trips) AND p."State" <> 'Withdrawn'
+          FROM "TripPayments" p WHERE p."TripId" = ANY(@trips) AND p."State" IN ('SaidPaid','Received','NotReceived')
         ) q WHERE q.rn <= @max
         """;
 
@@ -72,11 +72,13 @@ public sealed class TripLedger(ApplicationDbContext db, ILogger<TripLedger> logg
         var money = await ReadMoneyAsync(ids, ct);
         var payments = await ReadPaymentsAsync(ids, ct);
         var states = (await db.Database.SqlQueryRaw<StateRow>(StateSql, Trips(ids)).ToListAsync(ct)).ToDictionary(s => s.TripId);
+        var moneyByTrip = money.ToLookup(m => m.TripId);
+        var paymentsByTrip = payments.ToLookup(p => p.TripId);
 
         foreach (var (tripId, order) in canonicalOrderByTrip)
         {
             var state = states.TryGetValue(tripId, out var s) ? s.ToFacts() : null;
-            result[tripId] = Build(tripId, order, money, payments, state);
+            result[tripId] = Build(tripId, order, moneyByTrip[tripId], paymentsByTrip[tripId], state);
         }
         return result;
     }
@@ -111,10 +113,10 @@ public sealed class TripLedger(ApplicationDbContext db, ILogger<TripLedger> logg
     }
 
     private TripLedgerSnapshot Build(
-        Guid tripId, IReadOnlyList<Guid> order, IReadOnlyList<MoneyRow> money, IReadOnlyList<PaymentRow> payments, LedgerStateFacts? state)
+        Guid tripId, IReadOnlyList<Guid> order, IEnumerable<MoneyRow> money, IEnumerable<PaymentRow> payments, LedgerStateFacts? state)
     {
-        var people = money.Where(m => m.TripId == tripId).Select(m => new TripLedgerPerson(m.UserId, m.Paid, m.Share, m.Sent, m.Got)).ToList();
-        var rows = payments.Where(p => p.TripId == tripId)
+        var people = money.Select(m => new TripLedgerPerson(m.UserId, m.Paid, m.Share, m.Sent, m.Got)).ToList();
+        var rows = payments
             .Select(p => new TripLedgerPaymentRow(p.Id, p.FromUserId, p.ToUserId, p.Amount, p.State, p.SaidPaidAt, p.ReceivedAt, p.ReceivedByUserId, p.EndedAt))
             .ToList();
         var built = TripLedgerMath.Build(tripId, order, people, rows, state);

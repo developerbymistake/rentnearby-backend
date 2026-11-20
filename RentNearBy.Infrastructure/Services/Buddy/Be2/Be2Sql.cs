@@ -57,11 +57,23 @@ internal static class Be2Sql
         FOR UPDATE OF t
         """;
 
-    public const string InviteSql = """
+    // A silent decline keeps looking like a waiting invite to the owner (doc Part 3 Q5) while S2/S17 still treat it as invited.
+    public static readonly string LooksWaitingWhere = LooksWaiting("w");
+
+    public static string LooksWaiting(string a) => $"""
+        (({a}."Status" = 'Invited' AND {a}."InviteExpiresAt" > now())
+          OR ({a}."Status" = 'Declined' AND {a}."InviteExpiresAt" > now()
+              AND {a}."RespondedAt" > now() - make_interval(secs => {(long)BuddyLimits.ReinviteAfterDecline.TotalSeconds})))
+        """;
+
+    private const string InviteSelect = """
         SELECT m."Id" AS "MemberId", m."TripId", m."UserId", m."Status", m."InviteExpiresAt", m."Version",
                COALESCE(iu."Name", '') AS "InviteeName",
                t."OwnerUserId", COALESCE(o."Name", '') AS "OwnerName", o."Username" AS "OwnerUsername",
-               t."Title", t."StartDate", t."EndDate", t."DayCount", t."PlanJson"::text AS "PlanJson", t."CityName",
+               t."Title", t."StartDate", t."EndDate", t."DayCount",
+        """;
+
+    private const string InviteRest = """
                EXISTS (SELECT 1 FROM "UserBlocks" k
                        WHERE (k."BlockerId" = m."UserId" AND k."BlockedId" = t."OwnerUserId")
                           OR (k."BlockerId" = t."OwnerUserId" AND k."BlockedId" = m."UserId")) AS "Blocked",
@@ -72,6 +84,15 @@ internal static class Be2Sql
         JOIN "Users" iu ON iu."Id" = m."UserId"
         WHERE m."Id" = @member
         """;
+
+    // S7 needs the leg cities; S8 and S9 never read the plan.
+    public const string InviteSql = InviteSelect + "\n" + """
+               t."PlanJson"::text AS "PlanJson", t."CityName",
+        """ + "\n" + InviteRest;
+
+    public const string InviteLeanSql = InviteSelect + "\n" + """
+               '{}'::text AS "PlanJson", ''::text AS "CityName",
+        """ + "\n" + InviteRest;
 
     // Deletes the TripInvite notices of (user, trip) pairs in one statement (block participant and expiry job).
     public const string DeleteInviteNoticesSql = """
@@ -97,6 +118,9 @@ internal static class Be2Sql
 
     public static async Task<InviteRow?> ReadInviteAsync(ApplicationDbContext db, Guid memberId, CancellationToken ct)
         => (await db.Database.SqlQueryRaw<InviteRow>(InviteSql, Id("member", memberId)).ToListAsync(ct)).FirstOrDefault();
+
+    public static async Task<InviteRow?> ReadInviteLeanAsync(ApplicationDbContext db, Guid memberId, CancellationToken ct)
+        => (await db.Database.SqlQueryRaw<InviteRow>(InviteLeanSql, Id("member", memberId)).ToListAsync(ct)).FirstOrDefault();
 
     public static Task DeleteInviteNoticesAsync(ApplicationDbContext db, IReadOnlyList<(Guid UserId, Guid TripId)> pairs, CancellationToken ct)
     {

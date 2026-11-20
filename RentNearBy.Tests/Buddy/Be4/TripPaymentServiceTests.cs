@@ -331,6 +331,17 @@ public class TripPaymentServiceTests(TestDatabase db) : IntegrationTestBase(db)
     }
 
     [IntegrationFact]
+    public async Task Account_deletion_of_the_owner_is_blocked_while_anything_is_open_whatever_his_own_net()
+    {
+        await using (var ctx = CreateContext()) await SeedAsync(ctx, 3);
+        await using (var c = CreateContext()) await new TripLedger(c, NullLogger<TripLedger>.Instance).RefreshStateAsync(_trip, [_owner, _aman, _priya], null);
+        await using var counting = Db.CreateCountingContext(out var counter);
+        var participant = new MoneyAccountDeletion(counting, new TripLedger(counting, NullLogger<TripLedger>.Instance), TimeProvider.System);
+        Assert.Equal(AccountDeletionReasons.SharedTripOpenBalance, Assert.Single(await participant.CheckAsync(_owner)).Code);
+        Assert.Equal(1, counter.Count);
+    }
+
+    [IntegrationFact]
     public async Task Morning_job_reminds_payers_once_a_day()
     {
         await using (var ctx = CreateContext())
