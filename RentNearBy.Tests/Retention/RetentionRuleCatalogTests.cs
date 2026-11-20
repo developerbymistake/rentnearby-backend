@@ -13,6 +13,7 @@ public class RetentionRuleCatalogTests
         "OutboxMessages", "TripReminderRuns", "TripShortlistItems", "TripOffers", "TripEnquiries", "TripEnquiryOrphans",
         "Sessions", "AdminSessions", "StayJobs", "BannerDismissals",
         "DueActions", "TaxiRequests",
+        "BuddyRequests", "UserNotices", "TripPaymentsEnded", "TripMemberInvites",
     };
 
     // Never auto-deleted (owner list), so no declarative rule may name them as its table.
@@ -83,7 +84,7 @@ public class RetentionRuleCatalogTests
 
     [Fact]
     public void Exempt_rules_are_exactly_the_rolling_ones()
-        => Assert.Equal(new[] { "DueActions", "OutboxMessages", "TripReminderRuns", "TripShortlistItems" },
+        => Assert.Equal(new[] { "DueActions", "OutboxMessages", "TripReminderRuns", "TripShortlistItems", "UserNotices" },
             Rules().Where(r => r.GuardExempt).Select(r => r.Name).OrderBy(x => x));
 
     [Fact]

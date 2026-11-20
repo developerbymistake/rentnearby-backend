@@ -3,6 +3,7 @@ using Mapster;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Infrastructure.Services.Buddy.Be4;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -43,13 +44,15 @@ public static class NotificationInboxHandlers
         return OkResponse(new { items = dtos, hasMore, nextCursor });
     }
 
-    public static async Task<IResult> GetUnreadCount(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    // count = the old inbox as before; notices = unread UserNotices of the buddy feature; total = both (additive).
+    public static async Task<IResult> GetUnreadCount(ClaimsPrincipal principal, IUnitOfWork unitOfWork, NoticeReader notices)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
         var count = await unitOfWork.Notifications.GetUnreadCountAsync(userId);
-        return OkResponse(new { count });
+        var noticeCount = await notices.UnreadCountAsync(userId);
+        return OkResponse(new { count, notices = noticeCount, total = count + noticeCount });
     }
 
     // Always OkResponse regardless of rows-affected — a wrong/foreign/nonexistent id is
@@ -64,12 +67,13 @@ public static class NotificationInboxHandlers
         return OkResponse(new { message = "Marked read" });
     }
 
-    public static async Task<IResult> MarkAllNotificationsRead(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> MarkAllNotificationsRead(ClaimsPrincipal principal, IUnitOfWork unitOfWork, NoticeReader notices)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
         await unitOfWork.Notifications.MarkAllReadAsync(userId);
+        await notices.MarkAllReadAsync(userId);
         return OkResponse(new { message = "All marked read" });
     }
 }

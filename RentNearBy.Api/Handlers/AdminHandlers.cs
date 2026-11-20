@@ -11,7 +11,9 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.Buddy.Be1;
 using RentNearBy.Infrastructure.Extensions;
 using RentNearBy.Infrastructure.Services;
 using StackExchange.Redis;
@@ -356,7 +358,7 @@ public static class AdminHandlers
         if (!cache.TryGetValue("report_reasons", out List<ReportReasonDto>? cached) || cached == null)
         {
             var reasons = await unitOfWork.ReportReasons.GetAllAsync();
-            cached = reasons.OrderBy(r => r.SortOrder).Select(r => r.Adapt<ReportReasonDto>()).ToList();
+            cached = reasons.Where(r => r.Scope == ReportScopes.Listing).OrderBy(r => r.SortOrder).Select(r => r.Adapt<ReportReasonDto>()).ToList();
             cache.Set("report_reasons", cached, CacheTtl);
         }
         return OkResponse(cached);
@@ -846,6 +848,8 @@ public static class AdminHandlers
                     Plan = x.Plan,
                     Role = x.RoleKey,
                     RoleName = x.RoleName,
+                    Username = u.Username,
+                    BuddyRequestsHeldUntil = u.BuddyRequestsHeldUntil,
                 };
             });
 
@@ -887,6 +891,8 @@ public static class AdminHandlers
                 .FirstOrDefaultAsync(),
             Role = u.Role.Key,
             RoleName = u.Role.Name,
+            Username = u.Username,
+            BuddyRequestsHeldUntil = u.BuddyRequestsHeldUntil,
         };
 
         return OkResponse(dto);
@@ -969,6 +975,8 @@ public static class AdminHandlers
         CreatedAt = r.CreatedAt,
         ResolvedAt = r.ResolvedAt,
         TripEnquiryId = r.TripEnquiryId,
+        ReportedUsername = r.ReportedUsername,
+        Context = r.Context,
     };
 
     private static void ApplyTripEnquiryReportDetails(AdminListingReportDto dto, TripEnquiry e)
@@ -1016,9 +1024,21 @@ public static class AdminHandlers
         var tripEnquiriesById = tripEnquiryIds.Count == 0 ? new Dictionary<Guid, TripEnquiry>() : await db.TripEnquiries
             .AsNoTracking().Where(e => tripEnquiryIds.Contains(e.Id)).ToDictionaryAsync(e => e.Id);
 
+        var personIds = paged.Items.Where(r => r.ListingType == ReportScopes.User).Select(r => r.ReportedUserId).Distinct().ToList();
+        var peopleById = personIds.Count == 0 ? new Dictionary<Guid, (bool IsActive, DateTime? HeldUntil)>() : await db.Users
+            .AsNoTracking().Where(u => personIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.IsActive, u.BuddyRequestsHeldUntil })
+            .ToDictionaryAsync(u => u.Id, u => (IsActive: u.IsActive, HeldUntil: u.BuddyRequestsHeldUntil));
+
         var items = paged.Items.Select(r =>
         {
             var dto = ToAdminListingReportDto(r);
+            if (r.ListingType == ReportScopes.User)
+            {
+                var known = peopleById.TryGetValue(r.ReportedUserId, out var person);
+                dto.ReportedUserActive = known && person.IsActive;
+                dto.BuddyRequestsHeldUntil = known ? person.HeldUntil : null;
+            }
             if (r.TripEnquiryId is { } tripEnquiryId && tripEnquiriesById.TryGetValue(tripEnquiryId, out var tripEnquiry))
                 ApplyTripEnquiryReportDetails(dto, tripEnquiry);
             if (r.ListingType == ListingKinds.Stay && staysById.TryGetValue(r.ListingId, out var stay)) AdminStayHandlers.ApplyStayReportDetails(dto, stay);
@@ -1036,11 +1056,20 @@ public static class AdminHandlers
         return new PagedResult<ListingReport> { Items = rows, Page = 1, PageSize = pageSize, HasMore = hasMore };
     }
 
-    public static async Task<IResult> GetReportById(Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db)
+    public static async Task<IResult> GetReportById(Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, UserReportService personReports)
     {
         var report = await unitOfWork.ListingReports.GetByIdAsync(id);
         if (report == null) return NotFoundResponse("Report not found");
         var dto = ToAdminListingReportDto(report);
+
+        if (report.ListingType == ReportScopes.User)
+        {
+            var person = await db.Users.AsNoTracking().Where(u => u.Id == report.ReportedUserId)
+                .Select(u => new { u.IsActive, u.BuddyRequestsHeldUntil }).FirstOrDefaultAsync();
+            dto.ReportedUserActive = person?.IsActive ?? false;
+            dto.BuddyRequestsHeldUntil = person?.BuddyRequestsHeldUntil;
+            dto.Counts = await personReports.CountsAsync(report.ReportedUserId);
+        }
 
         if (report.TripEnquiryId is { } tripEnquiryId
             && await db.TripEnquiries.AsNoTracking().FirstOrDefaultAsync(e => e.Id == tripEnquiryId) is { } tripEnquiry)

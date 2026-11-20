@@ -17,4 +17,7 @@ public class AdminUserDto
     public AdminUserPlanSummaryDto? Plan { get; set; }   // active paid/trial/granted plan; null = default plan
     public string Role { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
+
+    public string? Username { get; set; }
+    public DateTime? BuddyRequestsHeldUntil { get; set; }
 }

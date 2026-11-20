@@ -8,12 +8,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Filters;
+using RentNearBy.Api.Handlers.Buddy.Be1;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Infrastructure.Data;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -586,121 +589,26 @@ public static class ChatHandlers
     // ── Block ────────────────────────────────────────────────────────────────
 
     public static async Task<IResult> BlockUser(
-        Guid userId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext,
-        ITripEnquiryClosure tripClosure, ILogger<ChatHub> logger)
+        Guid userId, ClaimsPrincipal principal, IUserBlockService blocks, IHubContext<ChatHub> hubContext)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
         if (callerId == userId) return BadRequestResponse("You can't block yourself");
 
-        if (!await unitOfWork.UserBlocks.ExistsAsync(callerId, userId))
-        {
-            await unitOfWork.UserBlocks.AddAsync(new UserBlock
-            {
-                Id = Guid.NewGuid(), BlockerId = callerId, BlockedId = userId, CreatedAt = DateTime.UtcNow,
-            });
-        }
-
-        // A block is between two people, not one listing thread — flip every
-        // conversation between this pair so the chat header and the conversations
-        // list both reflect it immediately, not just future SendMessage calls.
-        var conversations = await unitOfWork.Conversations.GetAllBetweenUsersAsync(callerId, userId);
-        var flipped = new List<Conversation>();
-        foreach (var conversation in conversations)
-        {
-            if (conversation.Status == "Blocked") continue;
-            conversation.Status = "Blocked";
-            await unitOfWork.Conversations.UpdateAsync(conversation);
-            flipped.Add(conversation);
-        }
-
-        try
-        {
-            await unitOfWork.SaveChangesAsync();
-        }
-        catch (DbUpdateException)
-        {
-            // Lost a race against a concurrent block attempt on the same pair (double-tap) —
-            // the unique index on UserBlocks(BlockerId, BlockedId) caught it. The desired end
-            // state (blocked) is already achieved by the other request, so this is a no-op
-            // success, not an error — same idempotent-on-conflict shape used elsewhere in
-            // this file (e.g. CreateConversation's unique-index race). Skip the push below too:
-            // the winning request already pushed for the same end state.
-            return NoContentResponse();
-        }
-
-        try
-        {
-            await tripClosure.OnBlockAsync(callerId, userId);
-            await unitOfWork.SaveChangesAsync();
-            await tripClosure.AfterCommitAsync([]);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "trip.block.closure_failed");
-        }
-
-        // Live-push to both sides — the OTHER party's open conversation screen (if any) and
-        // their Chats list, mirroring BroadcastMessageAsync's own two-group pattern below.
-        // blockedByUserId (the blocker's own id, always `callerId` here) lets EACH recipient
-        // independently derive their own "did I block them, or did they block me" by comparing
-        // it against their own logged-in user id client-side — Status alone is a symmetric
-        // string with no sense of direction.
-        foreach (var conversation in flipped)
-        {
-            await hubContext.Clients.Group($"conversation_{conversation.Id}")
-                .SendAsync("ConversationStatusChanged", new { conversationId = conversation.Id, status = conversation.Status, blockedByUserId = callerId });
-            await hubContext.Clients.Group($"user_{userId}")
-                .SendAsync("ConversationStatusChanged", new { conversationId = conversation.Id, status = conversation.Status, blockedByUserId = callerId });
-        }
+        var outcome = await blocks.BlockAsync(callerId, userId);
+        if (outcome.Result == BlockResult.TooManyBlocks)
+            return ConflictResponse(BuddyErrorTypes.MessageOf(BuddyErrorTypes.TooManyBlocks), BuddyErrorTypes.TooManyBlocks);
+        await UserBlockHandlers.PushConversationStatusAsync(hubContext, outcome.FlippedConversationIds, "Blocked", userId, callerId);
         return NoContentResponse();
     }
 
     public static async Task<IResult> UnblockUser(
-        Guid userId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IHubContext<ChatHub> hubContext)
+        Guid userId, ClaimsPrincipal principal, IUserBlockService blocks, IHubContext<ChatHub> hubContext)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
         if (callerId == userId) return BadRequestResponse("You can't unblock yourself");
 
-        var existing = await unitOfWork.UserBlocks.GetByBlockerAndBlockedAsync(callerId, userId);
-        if (existing == null) return NoContentResponse(); // caller never blocked this user — nothing to undo
-
-        await unitOfWork.UserBlocks.DeleteAsync(existing);
-
-        // Mutual blocks are possible (UserBlocks has no symmetry constraint — A and B can each
-        // independently block the other), so clearing MY block doesn't necessarily mean the
-        // conversation should reopen: if the other party still has ME blocked, restoring
-        // "Active" here would desync the UI (composer re-enables) from SendMessage's own block
-        // check (still rejects) — confusing, not just cosmetically wrong.
-        var stillBlockedByOtherParty = await unitOfWork.UserBlocks.ExistsAsync(userId, callerId);
-
-        // Deliberate user action — unlike the listing-lifecycle reconciler (which
-        // intentionally never overrides a "Blocked" status automatically), an explicit
-        // unblock is exactly the case that should restore it. If the listing has since
-        // gone inactive/removed, the next SendMessage/GetConversations reconciliation
-        // pass will correct it from here, same as it would for any other conversation.
-        // Only reaches here when `existing` was real — a caller who never blocked this
-        // user (e.g. the other party trying to clear a block they don't own) can't flip
-        // Status back just by hitting this endpoint.
-        var conversations = await unitOfWork.Conversations.GetAllBetweenUsersAsync(callerId, userId);
-        var flipped = new List<Conversation>();
-        foreach (var conversation in conversations)
-        {
-            if (conversation.Status != "Blocked") continue;
-            if (stillBlockedByOtherParty) continue;
-            conversation.Status = "Active";
-            await unitOfWork.Conversations.UpdateAsync(conversation);
-            flipped.Add(conversation);
-        }
-
-        await unitOfWork.SaveChangesAsync();
-
-        foreach (var conversation in flipped)
-        {
-            await hubContext.Clients.Group($"conversation_{conversation.Id}")
-                .SendAsync("ConversationStatusChanged", new { conversationId = conversation.Id, status = conversation.Status });
-            await hubContext.Clients.Group($"user_{userId}")
-                .SendAsync("ConversationStatusChanged", new { conversationId = conversation.Id, status = conversation.Status });
-        }
+        var outcome = await blocks.UnblockAsync(callerId, userId);
+        await UserBlockHandlers.PushConversationStatusAsync(hubContext, outcome.FlippedConversationIds, "Active", userId, null);
         return NoContentResponse();
     }
 

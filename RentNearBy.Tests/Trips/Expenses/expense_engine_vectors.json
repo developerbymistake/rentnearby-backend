@@ -1,0 +1,7008 @@
+{
+ "version": 1,
+ "about": "Shared cases for the trip expense engine. The C# and the Dart test read this same file. Do not edit one copy only.",
+ "cases": [
+  {
+   "name": "equal 18500 by 3, payer shares (4.2)",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 18500,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "payer": "rahul"
+   },
+   "note": "6168, 6166, 6166",
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 6168
+     },
+     {
+      "userId": "aman",
+      "share": 6166
+     },
+     {
+      "userId": "priya",
+      "share": 6166
+     }
+    ],
+    "each": 6166,
+    "leftover": 2,
+    "leftoverUserId": "rahul"
+   }
+  },
+  {
+   "name": "equal 8000 by 3, payer shares (4.7)",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 8000,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "payer": "rahul"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 2668
+     },
+     {
+      "userId": "aman",
+      "share": 2666
+     },
+     {
+      "userId": "priya",
+      "share": 2666
+     }
+    ],
+    "each": 2666,
+    "leftover": 2,
+    "leftoverUserId": "rahul"
+   }
+  },
+  {
+   "name": "equal 2400 by 2, payer not in split, no leftover (4.3)",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 2400,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "aman",
+     "priya"
+    ],
+    "payer": "rahul"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "aman",
+      "share": 1200
+     },
+     {
+      "userId": "priya",
+      "share": 1200
+     }
+    ],
+    "each": 1200,
+    "leftover": 0,
+    "leftoverUserId": null
+   }
+  },
+  {
+   "name": "equal 100 by 3, payer not in split, leftover to first sharer",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 100,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya",
+     "meera"
+    ],
+    "sharers": [
+     "aman",
+     "priya",
+     "meera"
+    ],
+    "payer": "rahul"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "aman",
+      "share": 34
+     },
+     {
+      "userId": "priya",
+      "share": 33
+     },
+     {
+      "userId": "meera",
+      "share": 33
+     }
+    ],
+    "each": 33,
+    "leftover": 1,
+    "leftoverUserId": "aman"
+   }
+  },
+  {
+   "name": "equal 1000 by 3, payer aman (4.7 case 2)",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 1000,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "payer": "aman"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 333
+     },
+     {
+      "userId": "aman",
+      "share": 334
+     },
+     {
+      "userId": "priya",
+      "share": 333
+     }
+    ],
+    "each": 333,
+    "leftover": 1,
+    "leftoverUserId": "aman"
+   }
+  },
+  {
+   "name": "equal 19000 by 3 (4.8f)",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 19000,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "payer": "rahul"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 6334
+     },
+     {
+      "userId": "aman",
+      "share": 6333
+     },
+     {
+      "userId": "priya",
+      "share": 6333
+     }
+    ],
+    "each": 6333,
+    "leftover": 1,
+    "leftoverUserId": "rahul"
+   }
+  },
+  {
+   "name": "equal 19100 by 3 (4.8c)",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 19100,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "payer": "rahul"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 6368
+     },
+     {
+      "userId": "aman",
+      "share": 6366
+     },
+     {
+      "userId": "priya",
+      "share": 6366
+     }
+    ],
+    "each": 6366,
+    "leftover": 2,
+    "leftoverUserId": "rahul"
+   }
+  },
+  {
+   "name": "equal sharers given out of order",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 18500,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "priya",
+     "rahul",
+     "aman"
+    ],
+    "payer": "rahul"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 6168
+     },
+     {
+      "userId": "aman",
+      "share": 6166
+     },
+     {
+      "userId": "priya",
+      "share": 6166
+     }
+    ],
+    "each": 6166,
+    "leftover": 2,
+    "leftoverUserId": "rahul"
+   }
+  },
+  {
+   "name": "equal one sharer",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 750,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "priya"
+    ],
+    "payer": "rahul"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "priya",
+      "share": 750
+     }
+    ],
+    "each": 750,
+    "leftover": 0,
+    "leftoverUserId": null
+   }
+  },
+  {
+   "name": "equal amount below the head count drops zero shares",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 2,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "payer": "aman"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "aman",
+      "share": 2
+     }
+    ],
+    "each": 0,
+    "leftover": 2,
+    "leftoverUserId": "aman"
+   }
+  },
+  {
+   "name": "equal 1 rupee, payer not in split",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 1,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "aman",
+     "priya"
+    ],
+    "payer": "rahul"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "aman",
+      "share": 1
+     }
+    ],
+    "each": 0,
+    "leftover": 1,
+    "leftoverUserId": "aman"
+   }
+  },
+  {
+   "name": "equal 39 by 20, leftover 19",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 39,
+    "canonical": [
+     "u00",
+     "u01",
+     "u02",
+     "u03",
+     "u04",
+     "u05",
+     "u06",
+     "u07",
+     "u08",
+     "u09",
+     "u10",
+     "u11",
+     "u12",
+     "u13",
+     "u14",
+     "u15",
+     "u16",
+     "u17",
+     "u18",
+     "u19"
+    ],
+    "sharers": [
+     "u00",
+     "u01",
+     "u02",
+     "u03",
+     "u04",
+     "u05",
+     "u06",
+     "u07",
+     "u08",
+     "u09",
+     "u10",
+     "u11",
+     "u12",
+     "u13",
+     "u14",
+     "u15",
+     "u16",
+     "u17",
+     "u18",
+     "u19"
+    ],
+    "payer": "u07"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "u00",
+      "share": 1
+     },
+     {
+      "userId": "u01",
+      "share": 1
+     },
+     {
+      "userId": "u02",
+      "share": 1
+     },
+     {
+      "userId": "u03",
+      "share": 1
+     },
+     {
+      "userId": "u04",
+      "share": 1
+     },
+     {
+      "userId": "u05",
+      "share": 1
+     },
+     {
+      "userId": "u06",
+      "share": 1
+     },
+     {
+      "userId": "u07",
+      "share": 20
+     },
+     {
+      "userId": "u08",
+      "share": 1
+     },
+     {
+      "userId": "u09",
+      "share": 1
+     },
+     {
+      "userId": "u10",
+      "share": 1
+     },
+     {
+      "userId": "u11",
+      "share": 1
+     },
+     {
+      "userId": "u12",
+      "share": 1
+     },
+     {
+      "userId": "u13",
+      "share": 1
+     },
+     {
+      "userId": "u14",
+      "share": 1
+     },
+     {
+      "userId": "u15",
+      "share": 1
+     },
+     {
+      "userId": "u16",
+      "share": 1
+     },
+     {
+      "userId": "u17",
+      "share": 1
+     },
+     {
+      "userId": "u18",
+      "share": 1
+     },
+     {
+      "userId": "u19",
+      "share": 1
+     }
+    ],
+    "each": 1,
+    "leftover": 19,
+    "leftoverUserId": "u07"
+   }
+  },
+  {
+   "name": "equal 500000 by 7",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 500000,
+    "canonical": [
+     "u00",
+     "u01",
+     "u02",
+     "u03",
+     "u04",
+     "u05",
+     "u06",
+     "u07",
+     "u08",
+     "u09",
+     "u10",
+     "u11",
+     "u12",
+     "u13",
+     "u14",
+     "u15",
+     "u16",
+     "u17",
+     "u18",
+     "u19"
+    ],
+    "sharers": [
+     "u00",
+     "u01",
+     "u02",
+     "u03",
+     "u04",
+     "u05",
+     "u06"
+    ],
+    "payer": "u03"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "u00",
+      "share": 71428
+     },
+     {
+      "userId": "u01",
+      "share": 71428
+     },
+     {
+      "userId": "u02",
+      "share": 71428
+     },
+     {
+      "userId": "u03",
+      "share": 71432
+     },
+     {
+      "userId": "u04",
+      "share": 71428
+     },
+     {
+      "userId": "u05",
+      "share": 71428
+     },
+     {
+      "userId": "u06",
+      "share": 71428
+     }
+    ],
+    "each": 71428,
+    "leftover": 4,
+    "leftoverUserId": "u03"
+   }
+  },
+  {
+   "name": "equal 500000 by 20",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 500000,
+    "canonical": [
+     "u00",
+     "u01",
+     "u02",
+     "u03",
+     "u04",
+     "u05",
+     "u06",
+     "u07",
+     "u08",
+     "u09",
+     "u10",
+     "u11",
+     "u12",
+     "u13",
+     "u14",
+     "u15",
+     "u16",
+     "u17",
+     "u18",
+     "u19"
+    ],
+    "sharers": [
+     "u00",
+     "u01",
+     "u02",
+     "u03",
+     "u04",
+     "u05",
+     "u06",
+     "u07",
+     "u08",
+     "u09",
+     "u10",
+     "u11",
+     "u12",
+     "u13",
+     "u14",
+     "u15",
+     "u16",
+     "u17",
+     "u18",
+     "u19"
+    ],
+    "payer": "u19"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "u00",
+      "share": 25000
+     },
+     {
+      "userId": "u01",
+      "share": 25000
+     },
+     {
+      "userId": "u02",
+      "share": 25000
+     },
+     {
+      "userId": "u03",
+      "share": 25000
+     },
+     {
+      "userId": "u04",
+      "share": 25000
+     },
+     {
+      "userId": "u05",
+      "share": 25000
+     },
+     {
+      "userId": "u06",
+      "share": 25000
+     },
+     {
+      "userId": "u07",
+      "share": 25000
+     },
+     {
+      "userId": "u08",
+      "share": 25000
+     },
+     {
+      "userId": "u09",
+      "share": 25000
+     },
+     {
+      "userId": "u10",
+      "share": 25000
+     },
+     {
+      "userId": "u11",
+      "share": 25000
+     },
+     {
+      "userId": "u12",
+      "share": 25000
+     },
+     {
+      "userId": "u13",
+      "share": 25000
+     },
+     {
+      "userId": "u14",
+      "share": 25000
+     },
+     {
+      "userId": "u15",
+      "share": 25000
+     },
+     {
+      "userId": "u16",
+      "share": 25000
+     },
+     {
+      "userId": "u17",
+      "share": 25000
+     },
+     {
+      "userId": "u18",
+      "share": 25000
+     },
+     {
+      "userId": "u19",
+      "share": 25000
+     }
+    ],
+    "each": 25000,
+    "leftover": 0,
+    "leftoverUserId": null
+   }
+  },
+  {
+   "name": "equal sharer not in canonical goes last by id",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 1000,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "zed",
+     "priya",
+     "abe",
+     "rahul"
+    ],
+    "payer": "nobody"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 250
+     },
+     {
+      "userId": "priya",
+      "share": 250
+     },
+     {
+      "userId": "abe",
+      "share": 250
+     },
+     {
+      "userId": "zed",
+      "share": 250
+     }
+    ],
+    "each": 250,
+    "leftover": 0,
+    "leftoverUserId": null
+   }
+  },
+  {
+   "name": "equal 21 sharers refused",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 1000,
+    "canonical": [
+     "u00",
+     "u01",
+     "u02",
+     "u03",
+     "u04",
+     "u05",
+     "u06",
+     "u07",
+     "u08",
+     "u09",
+     "u10",
+     "u11",
+     "u12",
+     "u13",
+     "u14",
+     "u15",
+     "u16",
+     "u17",
+     "u18",
+     "u19",
+     "u20"
+    ],
+    "sharers": [
+     "u00",
+     "u01",
+     "u02",
+     "u03",
+     "u04",
+     "u05",
+     "u06",
+     "u07",
+     "u08",
+     "u09",
+     "u10",
+     "u11",
+     "u12",
+     "u13",
+     "u14",
+     "u15",
+     "u16",
+     "u17",
+     "u18",
+     "u19",
+     "u20"
+    ],
+    "payer": "u00"
+   },
+   "error": true
+  },
+  {
+   "name": "equal no sharers refused",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 1000,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [],
+    "payer": "rahul"
+   },
+   "error": true
+  },
+  {
+   "name": "equal duplicate sharer refused",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 1000,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "rahul",
+     "aman",
+     "rahul"
+    ],
+    "payer": "rahul"
+   },
+   "error": true
+  },
+  {
+   "name": "equal amount 0 refused",
+   "kind": "equalSplit",
+   "in": {
+    "amount": 0,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "sharers": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "payer": "rahul"
+   },
+   "error": true
+  },
+  {
+   "name": "custom 1500 as 500 x 3 (E5)",
+   "kind": "customSplit",
+   "in": {
+    "amount": 1500,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "entries": [
+     {
+      "userId": "rahul",
+      "share": 500
+     },
+     {
+      "userId": "aman",
+      "share": 500
+     },
+     {
+      "userId": "priya",
+      "share": 500
+     }
+    ]
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 500
+     },
+     {
+      "userId": "aman",
+      "share": 500
+     },
+     {
+      "userId": "priya",
+      "share": 500
+     }
+    ],
+    "assigned": 1500,
+    "difference": 0,
+    "isValid": true
+   }
+  },
+  {
+   "name": "custom 200 left to assign (4.4)",
+   "kind": "customSplit",
+   "in": {
+    "amount": 1500,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "entries": [
+     {
+      "userId": "rahul",
+      "share": 500
+     },
+     {
+      "userId": "aman",
+      "share": 500
+     },
+     {
+      "userId": "priya",
+      "share": 300
+     }
+    ]
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 500
+     },
+     {
+      "userId": "aman",
+      "share": 500
+     },
+     {
+      "userId": "priya",
+      "share": 300
+     }
+    ],
+    "assigned": 1300,
+    "difference": 200,
+    "isValid": false
+   }
+  },
+  {
+   "name": "custom 200 more than the amount (4.4c)",
+   "kind": "customSplit",
+   "in": {
+    "amount": 1500,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "entries": [
+     {
+      "userId": "rahul",
+      "share": 700
+     },
+     {
+      "userId": "aman",
+      "share": 500
+     },
+     {
+      "userId": "priya",
+      "share": 500
+     }
+    ]
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 700
+     },
+     {
+      "userId": "aman",
+      "share": 500
+     },
+     {
+      "userId": "priya",
+      "share": 500
+     }
+    ],
+    "assigned": 1700,
+    "difference": -200,
+    "isValid": false
+   }
+  },
+  {
+   "name": "custom zero means not in this one",
+   "kind": "customSplit",
+   "in": {
+    "amount": 1500,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "entries": [
+     {
+      "userId": "priya",
+      "share": 900
+     },
+     {
+      "userId": "rahul",
+      "share": 0
+     },
+     {
+      "userId": "aman",
+      "share": 600
+     }
+    ]
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "aman",
+      "share": 600
+     },
+     {
+      "userId": "priya",
+      "share": 900
+     }
+    ],
+    "assigned": 1500,
+    "difference": 0,
+    "isValid": true
+   }
+  },
+  {
+   "name": "custom all zero",
+   "kind": "customSplit",
+   "in": {
+    "amount": 1500,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "entries": [
+     {
+      "userId": "rahul",
+      "share": 0
+     },
+     {
+      "userId": "aman",
+      "share": 0
+     },
+     {
+      "userId": "priya",
+      "share": 0
+     }
+    ]
+   },
+   "out": {
+    "shares": [],
+    "assigned": 0,
+    "difference": 1500,
+    "isValid": false
+   }
+  },
+  {
+   "name": "custom no entries",
+   "kind": "customSplit",
+   "in": {
+    "amount": 1500,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "entries": []
+   },
+   "out": {
+    "shares": [],
+    "assigned": 0,
+    "difference": 1500,
+    "isValid": false
+   }
+  },
+  {
+   "name": "custom negative refused",
+   "kind": "customSplit",
+   "in": {
+    "amount": 1500,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "entries": [
+     {
+      "userId": "rahul",
+      "share": 2000
+     },
+     {
+      "userId": "aman",
+      "share": -500
+     }
+    ]
+   },
+   "error": true
+  },
+  {
+   "name": "custom duplicate refused",
+   "kind": "customSplit",
+   "in": {
+    "amount": 1500,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "entries": [
+     {
+      "userId": "rahul",
+      "share": 1000
+     },
+     {
+      "userId": "rahul",
+      "share": 500
+     }
+    ]
+   },
+   "error": true
+  },
+  {
+   "name": "share E1 with priya (4.7)",
+   "kind": "shareWith",
+   "in": {
+    "amount": 8000,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "stored": [
+     {
+      "userId": "rahul",
+      "share": 4000
+     },
+     {
+      "userId": "aman",
+      "share": 4000
+     }
+    ],
+    "payer": "rahul",
+    "joiner": "priya"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 2668
+     },
+     {
+      "userId": "aman",
+      "share": 2666
+     },
+     {
+      "userId": "priya",
+      "share": 2666
+     }
+    ],
+    "each": 2666,
+    "leftover": 2,
+    "leftoverUserId": "rahul"
+   }
+  },
+  {
+   "name": "share E2 with priya, payer aman (4.7 case 2)",
+   "kind": "shareWith",
+   "in": {
+    "amount": 1000,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "stored": [
+     {
+      "userId": "rahul",
+      "share": 500
+     },
+     {
+      "userId": "aman",
+      "share": 500
+     }
+    ],
+    "payer": "aman",
+    "joiner": "priya"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 333
+     },
+     {
+      "userId": "aman",
+      "share": 334
+     },
+     {
+      "userId": "priya",
+      "share": 333
+     }
+    ],
+    "each": 333,
+    "leftover": 1,
+    "leftoverUserId": "aman"
+   }
+  },
+  {
+   "name": "share E3 with priya",
+   "kind": "shareWith",
+   "in": {
+    "amount": 900,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "stored": [
+     {
+      "userId": "rahul",
+      "share": 450
+     },
+     {
+      "userId": "aman",
+      "share": 450
+     }
+    ],
+    "payer": "rahul",
+    "joiner": "priya"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 300
+     },
+     {
+      "userId": "aman",
+      "share": 300
+     },
+     {
+      "userId": "priya",
+      "share": 300
+     }
+    ],
+    "each": 300,
+    "leftover": 0,
+    "leftoverUserId": null
+   }
+  },
+  {
+   "name": "share keeps a former traveller",
+   "kind": "shareWith",
+   "in": {
+    "amount": 1000,
+    "canonical": [
+     "rahul",
+     "priya"
+    ],
+    "stored": [
+     {
+      "userId": "rahul",
+      "share": 500
+     },
+     {
+      "userId": "gone",
+      "share": 500
+     }
+    ],
+    "payer": "rahul",
+    "joiner": "priya"
+   },
+   "out": {
+    "shares": [
+     {
+      "userId": "rahul",
+      "share": 334
+     },
+     {
+      "userId": "priya",
+      "share": 333
+     },
+     {
+      "userId": "gone",
+      "share": 333
+     }
+    ],
+    "each": 333,
+    "leftover": 1,
+    "leftoverUserId": "rahul"
+   }
+  },
+  {
+   "name": "share with someone already in refused",
+   "kind": "shareWith",
+   "in": {
+    "amount": 1000,
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "stored": [
+     {
+      "userId": "rahul",
+      "share": 500
+     },
+     {
+      "userId": "aman",
+      "share": 500
+     }
+    ],
+    "payer": "rahul",
+    "joiner": "aman"
+   },
+   "error": true
+  },
+  {
+   "name": "owner first, then join time",
+   "kind": "canonicalOrder",
+   "in": {
+    "owner": "f0000000-0000-4000-8000-000000000004",
+    "members": [
+     {
+      "userId": "1a000000-0000-4000-8000-000000000002",
+      "joinedAt": "2026-05-12T10:00:00Z"
+     },
+     {
+      "userId": "0b1e6f0a-0000-4000-8000-000000000001",
+      "joinedAt": "2026-05-14T10:00:00Z"
+     },
+     {
+      "userId": "a0000000-0000-4000-8000-000000000003",
+      "joinedAt": "2026-05-10T10:00:00Z"
+     }
+    ]
+   },
+   "out": [
+    "f0000000-0000-4000-8000-000000000004",
+    "a0000000-0000-4000-8000-000000000003",
+    "1a000000-0000-4000-8000-000000000002",
+    "0b1e6f0a-0000-4000-8000-000000000001"
+   ]
+  },
+  {
+   "name": "same join time falls back to the id",
+   "kind": "canonicalOrder",
+   "in": {
+    "owner": "a0000000-0000-4000-8000-000000000003",
+    "members": [
+     {
+      "userId": "f0000000-0000-4000-8000-000000000004",
+      "joinedAt": "2026-05-12T10:00:00Z"
+     },
+     {
+      "userId": "0b1e6f0a-0000-4000-8000-000000000001",
+      "joinedAt": "2026-05-12T10:00:00Z"
+     },
+     {
+      "userId": "1a000000-0000-4000-8000-000000000002",
+      "joinedAt": "2026-05-12T10:00:00Z"
+     }
+    ]
+   },
+   "out": [
+    "a0000000-0000-4000-8000-000000000003",
+    "0b1e6f0a-0000-4000-8000-000000000001",
+    "1a000000-0000-4000-8000-000000000002",
+    "f0000000-0000-4000-8000-000000000004"
+   ]
+  },
+  {
+   "name": "owner listed among the members is not repeated",
+   "kind": "canonicalOrder",
+   "in": {
+    "owner": "0b1e6f0a-0000-4000-8000-000000000001",
+    "members": [
+     {
+      "userId": "1a000000-0000-4000-8000-000000000002",
+      "joinedAt": "2026-05-12T10:00:00Z"
+     },
+     {
+      "userId": "0b1e6f0a-0000-4000-8000-000000000001",
+      "joinedAt": "2026-05-01T10:00:00Z"
+     }
+    ]
+   },
+   "out": [
+    "0b1e6f0a-0000-4000-8000-000000000001",
+    "1a000000-0000-4000-8000-000000000002"
+   ]
+  },
+  {
+   "name": "owner alone",
+   "kind": "canonicalOrder",
+   "in": {
+    "owner": "0b1e6f0a-0000-4000-8000-000000000001",
+    "members": []
+   },
+   "out": [
+    "0b1e6f0a-0000-4000-8000-000000000001"
+   ]
+  },
+  {
+   "name": "example 1: sample ledger, no payments (4.9)",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 18500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 6168
+       },
+       {
+        "userId": "aman",
+        "share": 6166
+       },
+       {
+        "userId": "priya",
+        "share": 6166
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": []
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 29800,
+      "share": 11618,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 18182,
+      "settleNet": 18182
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 12816,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -11816,
+      "settleNet": -11816
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 7866,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -6366,
+      "settleNet": -6366
+     }
+    ],
+    "open": [
+     {
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816
+     },
+     {
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": null,
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "Open"
+      },
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "rahul",
+       "amount": 6366,
+       "state": "Open"
+      }
+     ],
+     "done": 0,
+     "total": 2
+    }
+   }
+  },
+  {
+   "name": "example 2a: aman says paid (4.12)",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 18500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 6168
+       },
+       {
+        "userId": "aman",
+        "share": 6166
+       },
+       {
+        "userId": "priya",
+        "share": 6166
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "SaysPaid"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 29800,
+      "share": 11618,
+      "sent": 0,
+      "got": 11816,
+      "expenseNet": 18182,
+      "settleNet": 6366
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 12816,
+      "sent": 11816,
+      "got": 0,
+      "expenseNet": -11816,
+      "settleNet": 0
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 7866,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -6366,
+      "settleNet": -6366
+     }
+    ],
+    "open": [
+     {
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "SaysPaid"
+      },
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "rahul",
+       "amount": 6366,
+       "state": "Open"
+      }
+     ],
+     "done": 0,
+     "total": 2
+    }
+   }
+  },
+  {
+   "name": "example 2b: rahul marks received (4.14)",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 18500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 6168
+       },
+       {
+        "userId": "aman",
+        "share": 6166
+       },
+       {
+        "userId": "priya",
+        "share": 6166
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "Received"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 29800,
+      "share": 11618,
+      "sent": 0,
+      "got": 11816,
+      "expenseNet": 18182,
+      "settleNet": 6366
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 12816,
+      "sent": 11816,
+      "got": 0,
+      "expenseNet": -11816,
+      "settleNet": 0
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 7866,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -6366,
+      "settleNet": -6366
+     }
+    ],
+    "open": [
+     {
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "Received"
+      },
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "rahul",
+       "amount": 6366,
+       "state": "Open"
+      }
+     ],
+     "done": 1,
+     "total": 2
+    }
+   }
+  },
+  {
+   "name": "example 3: E1 shared with priya",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 2668
+       },
+       {
+        "userId": "aman",
+        "share": 2666
+       },
+       {
+        "userId": "priya",
+        "share": 2666
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 18500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 6168
+       },
+       {
+        "userId": "aman",
+        "share": 6166
+       },
+       {
+        "userId": "priya",
+        "share": 6166
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": []
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 29800,
+      "share": 10286,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 19514,
+      "settleNet": 19514
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 11482,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -10482,
+      "settleNet": -10482
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 10532,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -9032,
+      "settleNet": -9032
+     }
+    ],
+    "open": [
+     {
+      "from": "aman",
+      "to": "rahul",
+      "amount": 10482
+     },
+     {
+      "from": "priya",
+      "to": "rahul",
+      "amount": 9032
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": null,
+       "from": "aman",
+       "to": "rahul",
+       "amount": 10482,
+       "state": "Open"
+      },
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "rahul",
+       "amount": 9032,
+       "state": "Open"
+      }
+     ],
+     "done": 0,
+     "total": 2
+    }
+   }
+  },
+  {
+   "name": "example 4: edit after a received payment, a row flips",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 18500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 6168
+       },
+       {
+        "userId": "aman",
+        "share": 6166
+       },
+       {
+        "userId": "priya",
+        "share": 6166
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2000,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1000
+       },
+       {
+        "userId": "priya",
+        "share": 1000
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "Received"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 29400,
+      "share": 11618,
+      "sent": 0,
+      "got": 11816,
+      "expenseNet": 17782,
+      "settleNet": 5966
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 12616,
+      "sent": 11816,
+      "got": 0,
+      "expenseNet": -11616,
+      "settleNet": 200
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 7666,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -6166,
+      "settleNet": -6166
+     }
+    ],
+    "open": [
+     {
+      "from": "priya",
+      "to": "rahul",
+      "amount": 5966
+     },
+     {
+      "from": "priya",
+      "to": "aman",
+      "amount": 200
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "Received"
+      },
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "rahul",
+       "amount": 5966,
+       "state": "Open"
+      },
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "aman",
+       "amount": 200,
+       "state": "Open"
+      }
+     ],
+     "done": 1,
+     "total": 3
+    }
+   }
+  },
+  {
+   "name": "all settled",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 18500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 6168
+       },
+       {
+        "userId": "aman",
+        "share": 6166
+       },
+       {
+        "userId": "priya",
+        "share": 6166
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "Received"
+     },
+     {
+      "id": "p2",
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366,
+      "state": "Received"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 29800,
+      "share": 11618,
+      "sent": 0,
+      "got": 18182,
+      "expenseNet": 18182,
+      "settleNet": 0
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 12816,
+      "sent": 11816,
+      "got": 0,
+      "expenseNet": -11816,
+      "settleNet": 0
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 7866,
+      "sent": 6366,
+      "got": 0,
+      "expenseNet": -6366,
+      "settleNet": 0
+     }
+    ],
+    "open": [],
+    "exact": true,
+    "allSettled": true,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "Received"
+      },
+      {
+       "paymentId": "p2",
+       "from": "priya",
+       "to": "rahul",
+       "amount": 6366,
+       "state": "Received"
+      }
+     ],
+     "done": 2,
+     "total": 2
+    }
+   }
+  },
+  {
+   "name": "settled, then the taxi goes up 600 (4.15a)",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 19100,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 6368
+       },
+       {
+        "userId": "aman",
+        "share": 6366
+       },
+       {
+        "userId": "priya",
+        "share": 6366
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "Received"
+     },
+     {
+      "id": "p2",
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366,
+      "state": "Received"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 30400,
+      "share": 11818,
+      "sent": 0,
+      "got": 18182,
+      "expenseNet": 18582,
+      "settleNet": 400
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 13016,
+      "sent": 11816,
+      "got": 0,
+      "expenseNet": -12016,
+      "settleNet": -200
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 8066,
+      "sent": 6366,
+      "got": 0,
+      "expenseNet": -6566,
+      "settleNet": -200
+     }
+    ],
+    "open": [
+     {
+      "from": "aman",
+      "to": "rahul",
+      "amount": 200
+     },
+     {
+      "from": "priya",
+      "to": "rahul",
+      "amount": 200
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "Received"
+      },
+      {
+       "paymentId": null,
+       "from": "aman",
+       "to": "rahul",
+       "amount": 200,
+       "state": "Open"
+      },
+      {
+       "paymentId": "p2",
+       "from": "priya",
+       "to": "rahul",
+       "amount": 6366,
+       "state": "Received"
+      },
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "rahul",
+       "amount": 200,
+       "state": "Open"
+      }
+     ],
+     "done": 2,
+     "total": 4
+    }
+   }
+  },
+  {
+   "name": "settled, then the taxi goes down 900: rows reverse (4.15a case 2)",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 17600,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 5868
+       },
+       {
+        "userId": "aman",
+        "share": 5866
+       },
+       {
+        "userId": "priya",
+        "share": 5866
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "Received"
+     },
+     {
+      "id": "p2",
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366,
+      "state": "Received"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 28900,
+      "share": 11318,
+      "sent": 0,
+      "got": 18182,
+      "expenseNet": 17582,
+      "settleNet": -600
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 12516,
+      "sent": 11816,
+      "got": 0,
+      "expenseNet": -11516,
+      "settleNet": 300
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 7566,
+      "sent": 6366,
+      "got": 0,
+      "expenseNet": -6066,
+      "settleNet": 300
+     }
+    ],
+    "open": [
+     {
+      "from": "rahul",
+      "to": "aman",
+      "amount": 300
+     },
+     {
+      "from": "rahul",
+      "to": "priya",
+      "amount": 300
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": null,
+       "from": "rahul",
+       "to": "aman",
+       "amount": 300,
+       "state": "Open"
+      },
+      {
+       "paymentId": null,
+       "from": "rahul",
+       "to": "priya",
+       "amount": 300,
+       "state": "Open"
+      },
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "Received"
+      },
+      {
+       "paymentId": "p2",
+       "from": "priya",
+       "to": "rahul",
+       "amount": 6366,
+       "state": "Received"
+      }
+     ],
+     "done": 2,
+     "total": 4
+    }
+   }
+  },
+  {
+   "name": "settled, then the taxi is deleted",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "Received"
+     },
+     {
+      "id": "p2",
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366,
+      "state": "Received"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 11300,
+      "share": 5450,
+      "sent": 0,
+      "got": 18182,
+      "expenseNet": 5850,
+      "settleNet": -12332
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 6650,
+      "sent": 11816,
+      "got": 0,
+      "expenseNet": -5650,
+      "settleNet": 6166
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 1700,
+      "sent": 6366,
+      "got": 0,
+      "expenseNet": -200,
+      "settleNet": 6166
+     }
+    ],
+    "open": [
+     {
+      "from": "rahul",
+      "to": "aman",
+      "amount": 6166
+     },
+     {
+      "from": "rahul",
+      "to": "priya",
+      "amount": 6166
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": null,
+       "from": "rahul",
+       "to": "aman",
+       "amount": 6166,
+       "state": "Open"
+      },
+      {
+       "paymentId": null,
+       "from": "rahul",
+       "to": "priya",
+       "amount": 6166,
+       "state": "Open"
+      },
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "Received"
+      },
+      {
+       "paymentId": "p2",
+       "from": "priya",
+       "to": "rahul",
+       "amount": 6366,
+       "state": "Received"
+      }
+     ],
+     "done": 2,
+     "total": 4
+    }
+   }
+  },
+  {
+   "name": "withdrawn and not received rows never count",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 18500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 6168
+       },
+       {
+        "userId": "aman",
+        "share": 6166
+       },
+       {
+        "userId": "priya",
+        "share": 6166
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p0",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "Withdrawn"
+     },
+     {
+      "id": "p9",
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366,
+      "state": "NotReceived"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 29800,
+      "share": 11618,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 18182,
+      "settleNet": 18182
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 12816,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -11816,
+      "settleNet": -11816
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 7866,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -6366,
+      "settleNet": -6366
+     }
+    ],
+    "open": [
+     {
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816
+     },
+     {
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": null,
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "Open"
+      },
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "rahul",
+       "amount": 6366,
+       "state": "Open"
+      }
+     ],
+     "done": 0,
+     "total": 2
+    }
+   }
+  },
+  {
+   "name": "ended row, then says paid again",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 18500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 6168
+       },
+       {
+        "userId": "aman",
+        "share": 6166
+       },
+       {
+        "userId": "priya",
+        "share": 6166
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p0",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "NotReceived"
+     },
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "SaysPaid"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 29800,
+      "share": 11618,
+      "sent": 0,
+      "got": 11816,
+      "expenseNet": 18182,
+      "settleNet": 6366
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 12816,
+      "sent": 11816,
+      "got": 0,
+      "expenseNet": -11816,
+      "settleNet": 0
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 7866,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -6366,
+      "settleNet": -6366
+     }
+    ],
+    "open": [
+     {
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "SaysPaid"
+      },
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "rahul",
+       "amount": 6366,
+       "state": "Open"
+      }
+     ],
+     "done": 0,
+     "total": 2
+    }
+   }
+  },
+  {
+   "name": "says paid on every row is not all settled",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 8000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 4000
+       },
+       {
+        "userId": "aman",
+        "share": 4000
+       }
+      ]
+     },
+     {
+      "paidBy": "aman",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 450
+       },
+       {
+        "userId": "aman",
+        "share": 450
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 18500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 6168
+       },
+       {
+        "userId": "aman",
+        "share": 6166
+       },
+       {
+        "userId": "priya",
+        "share": 6166
+       }
+      ]
+     },
+     {
+      "paidBy": "priya",
+      "amount": 1500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 500
+       },
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 2400,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1200
+       },
+       {
+        "userId": "priya",
+        "share": 1200
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 11816,
+      "state": "SaysPaid"
+     },
+     {
+      "id": "p2",
+      "from": "priya",
+      "to": "rahul",
+      "amount": 6366,
+      "state": "SaysPaid"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 29800,
+      "share": 11618,
+      "sent": 0,
+      "got": 18182,
+      "expenseNet": 18182,
+      "settleNet": 0
+     },
+     {
+      "userId": "aman",
+      "paid": 1000,
+      "share": 12816,
+      "sent": 11816,
+      "got": 0,
+      "expenseNet": -11816,
+      "settleNet": 0
+     },
+     {
+      "userId": "priya",
+      "paid": 1500,
+      "share": 7866,
+      "sent": 6366,
+      "got": 0,
+      "expenseNet": -6366,
+      "settleNet": 0
+     }
+    ],
+    "open": [],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 11816,
+       "state": "SaysPaid"
+      },
+      {
+       "paymentId": "p2",
+       "from": "priya",
+       "to": "rahul",
+       "amount": 6366,
+       "state": "SaysPaid"
+      }
+     ],
+     "done": 0,
+     "total": 2
+    }
+   }
+  },
+  {
+   "name": "no expenses",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [],
+    "payments": []
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 0,
+      "share": 0,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 0,
+      "settleNet": 0
+     },
+     {
+      "userId": "aman",
+      "paid": 0,
+      "share": 0,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 0,
+      "settleNet": 0
+     },
+     {
+      "userId": "priya",
+      "paid": 0,
+      "share": 0,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 0,
+      "settleNet": 0
+     }
+    ],
+    "open": [],
+    "exact": true,
+    "allSettled": true,
+    "whoPaysWhom": {
+     "rows": [],
+     "done": 0,
+     "total": 0
+    }
+   }
+  },
+  {
+   "name": "one expense paid and shared by one person",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 500,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       }
+      ]
+     }
+    ],
+    "payments": []
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 500,
+      "share": 500,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 0,
+      "settleNet": 0
+     },
+     {
+      "userId": "aman",
+      "paid": 0,
+      "share": 0,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 0,
+      "settleNet": 0
+     },
+     {
+      "userId": "priya",
+      "paid": 0,
+      "share": 0,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 0,
+      "settleNet": 0
+     }
+    ],
+    "open": [],
+    "exact": true,
+    "allSettled": true,
+    "whoPaysWhom": {
+     "rows": [],
+     "done": 0,
+     "total": 0
+    }
+   }
+  },
+  {
+   "name": "viewer paid, viewer owes viewer",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "aman",
+      "amount": 900,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 300
+       },
+       {
+        "userId": "priya",
+        "share": 600
+       }
+      ]
+     }
+    ],
+    "payments": []
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 0,
+      "share": 0,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 0,
+      "settleNet": 0
+     },
+     {
+      "userId": "aman",
+      "paid": 900,
+      "share": 300,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 600,
+      "settleNet": 600
+     },
+     {
+      "userId": "priya",
+      "paid": 0,
+      "share": 600,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -600,
+      "settleNet": -600
+     }
+    ],
+    "open": [
+     {
+      "from": "priya",
+      "to": "aman",
+      "amount": 600
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "aman",
+       "amount": 600,
+       "state": "Open"
+      }
+     ],
+     "done": 0,
+     "total": 1
+    }
+   }
+  },
+  {
+   "name": "former traveller not in the canonical list goes last",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 3000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 1000
+       },
+       {
+        "userId": "priya",
+        "share": 1000
+       },
+       {
+        "userId": "zara",
+        "share": 1000
+       }
+      ]
+     },
+     {
+      "paidBy": "abe",
+      "amount": 600,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 300
+       },
+       {
+        "userId": "abe",
+        "share": 300
+       }
+      ]
+     }
+    ],
+    "payments": []
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 3000,
+      "share": 1300,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 1700,
+      "settleNet": 1700
+     },
+     {
+      "userId": "priya",
+      "paid": 0,
+      "share": 1000,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -1000,
+      "settleNet": -1000
+     },
+     {
+      "userId": "abe",
+      "paid": 600,
+      "share": 300,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 300,
+      "settleNet": 300
+     },
+     {
+      "userId": "zara",
+      "paid": 0,
+      "share": 1000,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": -1000,
+      "settleNet": -1000
+     }
+    ],
+    "open": [
+     {
+      "from": "priya",
+      "to": "rahul",
+      "amount": 1000
+     },
+     {
+      "from": "zara",
+      "to": "rahul",
+      "amount": 700
+     },
+     {
+      "from": "zara",
+      "to": "abe",
+      "amount": 300
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": null,
+       "from": "priya",
+       "to": "rahul",
+       "amount": 1000,
+       "state": "Open"
+      },
+      {
+       "paymentId": null,
+       "from": "zara",
+       "to": "rahul",
+       "amount": 700,
+       "state": "Open"
+      },
+      {
+       "paymentId": null,
+       "from": "zara",
+       "to": "abe",
+       "amount": 300,
+       "state": "Open"
+      }
+     ],
+     "done": 0,
+     "total": 3
+    }
+   }
+  },
+  {
+   "name": "two stored rows of one pair come before its open row",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 3000,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 3000
+       }
+      ]
+     },
+     {
+      "paidBy": "rahul",
+      "amount": 500,
+      "shares": [
+       {
+        "userId": "priya",
+        "share": 500
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 1000,
+      "state": "Received"
+     },
+     {
+      "id": "p2",
+      "from": "priya",
+      "to": "rahul",
+      "amount": 500,
+      "state": "SaysPaid"
+     },
+     {
+      "id": "p3",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 500,
+      "state": "SaysPaid"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 3500,
+      "share": 0,
+      "sent": 0,
+      "got": 2000,
+      "expenseNet": 3500,
+      "settleNet": 1500
+     },
+     {
+      "userId": "aman",
+      "paid": 0,
+      "share": 3000,
+      "sent": 1500,
+      "got": 0,
+      "expenseNet": -3000,
+      "settleNet": -1500
+     },
+     {
+      "userId": "priya",
+      "paid": 0,
+      "share": 500,
+      "sent": 500,
+      "got": 0,
+      "expenseNet": -500,
+      "settleNet": 0
+     }
+    ],
+    "open": [
+     {
+      "from": "aman",
+      "to": "rahul",
+      "amount": 1500
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 1000,
+       "state": "Received"
+      },
+      {
+       "paymentId": "p3",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 500,
+       "state": "SaysPaid"
+      },
+      {
+       "paymentId": null,
+       "from": "aman",
+       "to": "rahul",
+       "amount": 1500,
+       "state": "Open"
+      },
+      {
+       "paymentId": "p2",
+       "from": "priya",
+       "to": "rahul",
+       "amount": 500,
+       "state": "SaysPaid"
+      }
+     ],
+     "done": 1,
+     "total": 4
+    }
+   }
+  },
+  {
+   "name": "stored payment larger than the debt opens the way back",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "aman",
+        "share": 1000
+       }
+      ]
+     }
+    ],
+    "payments": [
+     {
+      "id": "p1",
+      "from": "aman",
+      "to": "rahul",
+      "amount": 1500,
+      "state": "Received"
+     }
+    ]
+   },
+   "out": {
+    "people": [
+     {
+      "userId": "rahul",
+      "paid": 1000,
+      "share": 0,
+      "sent": 0,
+      "got": 1500,
+      "expenseNet": 1000,
+      "settleNet": -500
+     },
+     {
+      "userId": "aman",
+      "paid": 0,
+      "share": 1000,
+      "sent": 1500,
+      "got": 0,
+      "expenseNet": -1000,
+      "settleNet": 500
+     },
+     {
+      "userId": "priya",
+      "paid": 0,
+      "share": 0,
+      "sent": 0,
+      "got": 0,
+      "expenseNet": 0,
+      "settleNet": 0
+     }
+    ],
+    "open": [
+     {
+      "from": "rahul",
+      "to": "aman",
+      "amount": 500
+     }
+    ],
+    "exact": true,
+    "allSettled": false,
+    "whoPaysWhom": {
+     "rows": [
+      {
+       "paymentId": null,
+       "from": "rahul",
+       "to": "aman",
+       "amount": 500,
+       "state": "Open"
+      },
+      {
+       "paymentId": "p1",
+       "from": "aman",
+       "to": "rahul",
+       "amount": 1500,
+       "state": "Received"
+      }
+     ],
+     "done": 1,
+     "total": 2
+    }
+   }
+  },
+  {
+   "name": "shares that do not add up are refused",
+   "kind": "sheet",
+   "in": {
+    "canonical": [
+     "rahul",
+     "aman",
+     "priya"
+    ],
+    "expenses": [
+     {
+      "paidBy": "rahul",
+      "amount": 1000,
+      "shares": [
+       {
+        "userId": "rahul",
+        "share": 500
+       },
+       {
+        "userId": "aman",
+        "share": 400
+       }
+      ]
+     }
+    ],
+    "payments": []
+   },
+   "error": true
+  },
+  {
+   "name": "example 5: groups beat plain greedy",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": -7000
+     },
+     {
+      "userId": "b",
+      "net": -5000
+     },
+     {
+      "userId": "c",
+      "net": 3000
+     },
+     {
+      "userId": "d",
+      "net": 4000
+     },
+     {
+      "userId": "e",
+      "net": 5000
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "a",
+      "to": "c",
+      "amount": 3000
+     },
+     {
+      "from": "a",
+      "to": "d",
+      "amount": 4000
+     },
+     {
+      "from": "b",
+      "to": "e",
+      "amount": 5000
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "exact pair is preferred",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": 900
+     },
+     {
+      "userId": "b",
+      "net": -500
+     },
+     {
+      "userId": "c",
+      "net": -400
+     },
+     {
+      "userId": "d",
+      "net": -700
+     },
+     {
+      "userId": "e",
+      "net": 700
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "b",
+      "to": "a",
+      "amount": 500
+     },
+     {
+      "from": "c",
+      "to": "a",
+      "amount": 400
+     },
+     {
+      "from": "d",
+      "to": "e",
+      "amount": 700
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "equal debts tie on canonical order",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": 300
+     },
+     {
+      "userId": "b",
+      "net": -100
+     },
+     {
+      "userId": "c",
+      "net": -100
+     },
+     {
+      "userId": "d",
+      "net": -100
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "b",
+      "to": "a",
+      "amount": 100
+     },
+     {
+      "from": "c",
+      "to": "a",
+      "amount": 100
+     },
+     {
+      "from": "d",
+      "to": "a",
+      "amount": 100
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "equal credits tie on canonical order",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": -300
+     },
+     {
+      "userId": "b",
+      "net": 100
+     },
+     {
+      "userId": "c",
+      "net": 100
+     },
+     {
+      "userId": "d",
+      "net": 100
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "a",
+      "to": "b",
+      "amount": 100
+     },
+     {
+      "from": "a",
+      "to": "c",
+      "amount": 100
+     },
+     {
+      "from": "a",
+      "to": "d",
+      "amount": 100
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "several exact pairs with the same amount",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": -100
+     },
+     {
+      "userId": "b",
+      "net": -100
+     },
+     {
+      "userId": "c",
+      "net": 100
+     },
+     {
+      "userId": "d",
+      "net": 100
+     },
+     {
+      "userId": "e",
+      "net": -100
+     },
+     {
+      "userId": "f",
+      "net": 100
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "a",
+      "to": "c",
+      "amount": 100
+     },
+     {
+      "from": "b",
+      "to": "d",
+      "amount": 100
+     },
+     {
+      "from": "e",
+      "to": "f",
+      "amount": 100
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "smallest group wins over a larger one",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": -6
+     },
+     {
+      "userId": "b",
+      "net": 1
+     },
+     {
+      "userId": "c",
+      "net": 2
+     },
+     {
+      "userId": "d",
+      "net": 3
+     },
+     {
+      "userId": "e",
+      "net": 6
+     },
+     {
+      "userId": "f",
+      "net": -6
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "a",
+      "to": "e",
+      "amount": 6
+     },
+     {
+      "from": "f",
+      "to": "b",
+      "amount": 1
+     },
+     {
+      "from": "f",
+      "to": "c",
+      "amount": 2
+     },
+     {
+      "from": "f",
+      "to": "d",
+      "amount": 3
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "zero nets are skipped",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": 0
+     },
+     {
+      "userId": "b",
+      "net": -250
+     },
+     {
+      "userId": "c",
+      "net": 0
+     },
+     {
+      "userId": "d",
+      "net": 250
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "b",
+      "to": "d",
+      "amount": 250
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "nobody owes",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": 0
+     },
+     {
+      "userId": "b",
+      "net": 0
+     }
+    ]
+   },
+   "out": {
+    "payments": [],
+    "exact": true
+   }
+  },
+  {
+   "name": "empty",
+   "kind": "settle",
+   "in": {
+    "nets": []
+   },
+   "out": {
+    "payments": [],
+    "exact": true
+   }
+  },
+  {
+   "name": "two people",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": 500000
+     },
+     {
+      "userId": "b",
+      "net": -500000
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "b",
+      "to": "a",
+      "amount": 500000
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "large amounts",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": 250000000
+     },
+     {
+      "userId": "b",
+      "net": -100000001
+     },
+     {
+      "userId": "c",
+      "net": -149999999
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "b",
+      "to": "a",
+      "amount": 100000001
+     },
+     {
+      "from": "c",
+      "to": "a",
+      "amount": 149999999
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "nets that do not sum to zero are refused",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "a",
+      "net": 100
+     },
+     {
+      "userId": "b",
+      "net": -50
+     }
+    ]
+   },
+   "error": true
+  },
+  {
+   "name": "random n=6 hidden groups=2 #1",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -870
+     },
+     {
+      "userId": "p01",
+      "net": 1098
+     },
+     {
+      "userId": "p02",
+      "net": -1140
+     },
+     {
+      "userId": "p03",
+      "net": 912
+     },
+     {
+      "userId": "p04",
+      "net": -2530
+     },
+     {
+      "userId": "p05",
+      "net": 2530
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p03",
+      "amount": 870
+     },
+     {
+      "from": "p02",
+      "to": "p01",
+      "amount": 1098
+     },
+     {
+      "from": "p02",
+      "to": "p03",
+      "amount": 42
+     },
+     {
+      "from": "p04",
+      "to": "p05",
+      "amount": 2530
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=6 hidden groups=2 #2",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -724
+     },
+     {
+      "userId": "p01",
+      "net": 3119
+     },
+     {
+      "userId": "p02",
+      "net": 3019
+     },
+     {
+      "userId": "p03",
+      "net": 439
+     },
+     {
+      "userId": "p04",
+      "net": -2834
+     },
+     {
+      "userId": "p05",
+      "net": -3019
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p01",
+      "amount": 285
+     },
+     {
+      "from": "p00",
+      "to": "p03",
+      "amount": 439
+     },
+     {
+      "from": "p04",
+      "to": "p01",
+      "amount": 2834
+     },
+     {
+      "from": "p05",
+      "to": "p02",
+      "amount": 3019
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=8 hidden groups=3 #1",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": 4260
+     },
+     {
+      "userId": "p01",
+      "net": 985
+     },
+     {
+      "userId": "p02",
+      "net": -3929
+     },
+     {
+      "userId": "p03",
+      "net": 3009
+     },
+     {
+      "userId": "p04",
+      "net": -4260
+     },
+     {
+      "userId": "p05",
+      "net": 3929
+     },
+     {
+      "userId": "p06",
+      "net": -3548
+     },
+     {
+      "userId": "p07",
+      "net": -446
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p02",
+      "to": "p05",
+      "amount": 3929
+     },
+     {
+      "from": "p04",
+      "to": "p00",
+      "amount": 4260
+     },
+     {
+      "from": "p06",
+      "to": "p01",
+      "amount": 539
+     },
+     {
+      "from": "p06",
+      "to": "p03",
+      "amount": 3009
+     },
+     {
+      "from": "p07",
+      "to": "p01",
+      "amount": 446
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=8 hidden groups=3 #2",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -3443
+     },
+     {
+      "userId": "p01",
+      "net": -1989
+     },
+     {
+      "userId": "p02",
+      "net": -3236
+     },
+     {
+      "userId": "p03",
+      "net": 5225
+     },
+     {
+      "userId": "p04",
+      "net": -1319
+     },
+     {
+      "userId": "p05",
+      "net": 1319
+     },
+     {
+      "userId": "p06",
+      "net": -2710
+     },
+     {
+      "userId": "p07",
+      "net": 6153
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p07",
+      "amount": 3443
+     },
+     {
+      "from": "p01",
+      "to": "p03",
+      "amount": 1989
+     },
+     {
+      "from": "p02",
+      "to": "p03",
+      "amount": 3236
+     },
+     {
+      "from": "p04",
+      "to": "p05",
+      "amount": 1319
+     },
+     {
+      "from": "p06",
+      "to": "p07",
+      "amount": 2710
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=10 hidden groups=4 #1",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -142
+     },
+     {
+      "userId": "p01",
+      "net": 2133
+     },
+     {
+      "userId": "p02",
+      "net": 142
+     },
+     {
+      "userId": "p03",
+      "net": -4587
+     },
+     {
+      "userId": "p04",
+      "net": -3699
+     },
+     {
+      "userId": "p05",
+      "net": 7585
+     },
+     {
+      "userId": "p06",
+      "net": -2580
+     },
+     {
+      "userId": "p07",
+      "net": -2133
+     },
+     {
+      "userId": "p08",
+      "net": -418
+     },
+     {
+      "userId": "p09",
+      "net": 3699
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p02",
+      "amount": 142
+     },
+     {
+      "from": "p03",
+      "to": "p05",
+      "amount": 4587
+     },
+     {
+      "from": "p04",
+      "to": "p09",
+      "amount": 3699
+     },
+     {
+      "from": "p06",
+      "to": "p05",
+      "amount": 2580
+     },
+     {
+      "from": "p07",
+      "to": "p01",
+      "amount": 2133
+     },
+     {
+      "from": "p08",
+      "to": "p05",
+      "amount": 418
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=10 hidden groups=4 #2",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -1657
+     },
+     {
+      "userId": "p01",
+      "net": 4905
+     },
+     {
+      "userId": "p02",
+      "net": 3478
+     },
+     {
+      "userId": "p03",
+      "net": -1821
+     },
+     {
+      "userId": "p04",
+      "net": -4905
+     },
+     {
+      "userId": "p05",
+      "net": -1273
+     },
+     {
+      "userId": "p06",
+      "net": 3466
+     },
+     {
+      "userId": "p07",
+      "net": 1441
+     },
+     {
+      "userId": "p08",
+      "net": -2193
+     },
+     {
+      "userId": "p09",
+      "net": -1441
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p02",
+      "amount": 1657
+     },
+     {
+      "from": "p03",
+      "to": "p02",
+      "amount": 1821
+     },
+     {
+      "from": "p04",
+      "to": "p01",
+      "amount": 4905
+     },
+     {
+      "from": "p05",
+      "to": "p06",
+      "amount": 1273
+     },
+     {
+      "from": "p08",
+      "to": "p06",
+      "amount": 2193
+     },
+     {
+      "from": "p09",
+      "to": "p07",
+      "amount": 1441
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=12 hidden groups=5 #1",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": 3531
+     },
+     {
+      "userId": "p01",
+      "net": 1901
+     },
+     {
+      "userId": "p02",
+      "net": 1977
+     },
+     {
+      "userId": "p03",
+      "net": 3158
+     },
+     {
+      "userId": "p04",
+      "net": -1114
+     },
+     {
+      "userId": "p05",
+      "net": -4453
+     },
+     {
+      "userId": "p06",
+      "net": 20
+     },
+     {
+      "userId": "p07",
+      "net": -3531
+     },
+     {
+      "userId": "p08",
+      "net": -3878
+     },
+     {
+      "userId": "p09",
+      "net": -3158
+     },
+     {
+      "userId": "p10",
+      "net": 5567
+     },
+     {
+      "userId": "p11",
+      "net": -20
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p04",
+      "to": "p10",
+      "amount": 1114
+     },
+     {
+      "from": "p05",
+      "to": "p10",
+      "amount": 4453
+     },
+     {
+      "from": "p07",
+      "to": "p00",
+      "amount": 3531
+     },
+     {
+      "from": "p08",
+      "to": "p01",
+      "amount": 1901
+     },
+     {
+      "from": "p08",
+      "to": "p02",
+      "amount": 1977
+     },
+     {
+      "from": "p09",
+      "to": "p03",
+      "amount": 3158
+     },
+     {
+      "from": "p11",
+      "to": "p06",
+      "amount": 20
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=12 hidden groups=5 #2",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": 158
+     },
+     {
+      "userId": "p01",
+      "net": 4574
+     },
+     {
+      "userId": "p02",
+      "net": -2212
+     },
+     {
+      "userId": "p03",
+      "net": -402
+     },
+     {
+      "userId": "p04",
+      "net": 933
+     },
+     {
+      "userId": "p05",
+      "net": 4760
+     },
+     {
+      "userId": "p06",
+      "net": -5507
+     },
+     {
+      "userId": "p07",
+      "net": 4462
+     },
+     {
+      "userId": "p08",
+      "net": -158
+     },
+     {
+      "userId": "p09",
+      "net": -4462
+     },
+     {
+      "userId": "p10",
+      "net": 2614
+     },
+     {
+      "userId": "p11",
+      "net": -4760
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p02",
+      "to": "p10",
+      "amount": 2212
+     },
+     {
+      "from": "p03",
+      "to": "p10",
+      "amount": 402
+     },
+     {
+      "from": "p06",
+      "to": "p01",
+      "amount": 4574
+     },
+     {
+      "from": "p06",
+      "to": "p04",
+      "amount": 933
+     },
+     {
+      "from": "p08",
+      "to": "p00",
+      "amount": 158
+     },
+     {
+      "from": "p09",
+      "to": "p07",
+      "amount": 4462
+     },
+     {
+      "from": "p11",
+      "to": "p05",
+      "amount": 4760
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=13 hidden groups=3 #1",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -2024
+     },
+     {
+      "userId": "p01",
+      "net": -4357
+     },
+     {
+      "userId": "p02",
+      "net": -918
+     },
+     {
+      "userId": "p03",
+      "net": 4265
+     },
+     {
+      "userId": "p04",
+      "net": -492
+     },
+     {
+      "userId": "p05",
+      "net": -1005
+     },
+     {
+      "userId": "p06",
+      "net": 3399
+     },
+     {
+      "userId": "p07",
+      "net": 4643
+     },
+     {
+      "userId": "p08",
+      "net": -3399
+     },
+     {
+      "userId": "p09",
+      "net": 1830
+     },
+     {
+      "userId": "p10",
+      "net": 3098
+     },
+     {
+      "userId": "p11",
+      "net": -1360
+     },
+     {
+      "userId": "p12",
+      "net": -3680
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p10",
+      "amount": 2024
+     },
+     {
+      "from": "p01",
+      "to": "p07",
+      "amount": 4357
+     },
+     {
+      "from": "p02",
+      "to": "p03",
+      "amount": 93
+     },
+     {
+      "from": "p02",
+      "to": "p09",
+      "amount": 825
+     },
+     {
+      "from": "p04",
+      "to": "p03",
+      "amount": 492
+     },
+     {
+      "from": "p05",
+      "to": "p09",
+      "amount": 1005
+     },
+     {
+      "from": "p08",
+      "to": "p06",
+      "amount": 3399
+     },
+     {
+      "from": "p11",
+      "to": "p07",
+      "amount": 286
+     },
+     {
+      "from": "p11",
+      "to": "p10",
+      "amount": 1074
+     },
+     {
+      "from": "p12",
+      "to": "p03",
+      "amount": 3680
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=13 hidden groups=3 #2",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": 1863
+     },
+     {
+      "userId": "p01",
+      "net": 3309
+     },
+     {
+      "userId": "p02",
+      "net": 4873
+     },
+     {
+      "userId": "p03",
+      "net": -1822
+     },
+     {
+      "userId": "p04",
+      "net": -3549
+     },
+     {
+      "userId": "p05",
+      "net": -2125
+     },
+     {
+      "userId": "p06",
+      "net": 4663
+     },
+     {
+      "userId": "p07",
+      "net": -1113
+     },
+     {
+      "userId": "p08",
+      "net": -4714
+     },
+     {
+      "userId": "p09",
+      "net": -2443
+     },
+     {
+      "userId": "p10",
+      "net": 3238
+     },
+     {
+      "userId": "p11",
+      "net": 2483
+     },
+     {
+      "userId": "p12",
+      "net": -4663
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p03",
+      "to": "p00",
+      "amount": 1822
+     },
+     {
+      "from": "p04",
+      "to": "p00",
+      "amount": 41
+     },
+     {
+      "from": "p04",
+      "to": "p01",
+      "amount": 3309
+     },
+     {
+      "from": "p04",
+      "to": "p02",
+      "amount": 159
+     },
+     {
+      "from": "p04",
+      "to": "p11",
+      "amount": 40
+     },
+     {
+      "from": "p05",
+      "to": "p10",
+      "amount": 2125
+     },
+     {
+      "from": "p07",
+      "to": "p10",
+      "amount": 1113
+     },
+     {
+      "from": "p08",
+      "to": "p02",
+      "amount": 4714
+     },
+     {
+      "from": "p09",
+      "to": "p11",
+      "amount": 2443
+     },
+     {
+      "from": "p12",
+      "to": "p06",
+      "amount": 4663
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=14 hidden groups=1 #1",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -5925
+     },
+     {
+      "userId": "p01",
+      "net": 4249
+     },
+     {
+      "userId": "p02",
+      "net": 325
+     },
+     {
+      "userId": "p03",
+      "net": 3723
+     },
+     {
+      "userId": "p04",
+      "net": -454
+     },
+     {
+      "userId": "p05",
+      "net": -786
+     },
+     {
+      "userId": "p06",
+      "net": -2270
+     },
+     {
+      "userId": "p07",
+      "net": 520
+     },
+     {
+      "userId": "p08",
+      "net": -4161
+     },
+     {
+      "userId": "p09",
+      "net": -1467
+     },
+     {
+      "userId": "p10",
+      "net": -768
+     },
+     {
+      "userId": "p11",
+      "net": 2187
+     },
+     {
+      "userId": "p12",
+      "net": 4504
+     },
+     {
+      "userId": "p13",
+      "net": 323
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p03",
+      "amount": 1421
+     },
+     {
+      "from": "p00",
+      "to": "p12",
+      "amount": 4504
+     },
+     {
+      "from": "p04",
+      "to": "p07",
+      "amount": 454
+     },
+     {
+      "from": "p05",
+      "to": "p07",
+      "amount": 66
+     },
+     {
+      "from": "p05",
+      "to": "p11",
+      "amount": 720
+     },
+     {
+      "from": "p06",
+      "to": "p03",
+      "amount": 2270
+     },
+     {
+      "from": "p08",
+      "to": "p01",
+      "amount": 4161
+     },
+     {
+      "from": "p09",
+      "to": "p11",
+      "amount": 1467
+     },
+     {
+      "from": "p10",
+      "to": "p01",
+      "amount": 88
+     },
+     {
+      "from": "p10",
+      "to": "p02",
+      "amount": 325
+     },
+     {
+      "from": "p10",
+      "to": "p03",
+      "amount": 32
+     },
+     {
+      "from": "p10",
+      "to": "p13",
+      "amount": 323
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=14 hidden groups=1 #2",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": 1656
+     },
+     {
+      "userId": "p01",
+      "net": 3680
+     },
+     {
+      "userId": "p02",
+      "net": -3850
+     },
+     {
+      "userId": "p03",
+      "net": -4821
+     },
+     {
+      "userId": "p04",
+      "net": -2578
+     },
+     {
+      "userId": "p05",
+      "net": 2572
+     },
+     {
+      "userId": "p06",
+      "net": -7533
+     },
+     {
+      "userId": "p07",
+      "net": 1743
+     },
+     {
+      "userId": "p08",
+      "net": -1994
+     },
+     {
+      "userId": "p09",
+      "net": 2540
+     },
+     {
+      "userId": "p10",
+      "net": 4402
+     },
+     {
+      "userId": "p11",
+      "net": -4201
+     },
+     {
+      "userId": "p12",
+      "net": 3584
+     },
+     {
+      "userId": "p13",
+      "net": 4800
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p02",
+      "to": "p00",
+      "amount": 266
+     },
+     {
+      "from": "p02",
+      "to": "p12",
+      "amount": 3584
+     },
+     {
+      "from": "p03",
+      "to": "p00",
+      "amount": 419
+     },
+     {
+      "from": "p03",
+      "to": "p10",
+      "amount": 4402
+     },
+     {
+      "from": "p04",
+      "to": "p00",
+      "amount": 38
+     },
+     {
+      "from": "p04",
+      "to": "p09",
+      "amount": 2540
+     },
+     {
+      "from": "p06",
+      "to": "p00",
+      "amount": 161
+     },
+     {
+      "from": "p06",
+      "to": "p05",
+      "amount": 2572
+     },
+     {
+      "from": "p06",
+      "to": "p13",
+      "amount": 4800
+     },
+     {
+      "from": "p08",
+      "to": "p00",
+      "amount": 251
+     },
+     {
+      "from": "p08",
+      "to": "p07",
+      "amount": 1743
+     },
+     {
+      "from": "p11",
+      "to": "p00",
+      "amount": 521
+     },
+     {
+      "from": "p11",
+      "to": "p01",
+      "amount": 3680
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=14 hidden groups=4 #1",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -430
+     },
+     {
+      "userId": "p01",
+      "net": -617
+     },
+     {
+      "userId": "p02",
+      "net": -570
+     },
+     {
+      "userId": "p03",
+      "net": 4449
+     },
+     {
+      "userId": "p04",
+      "net": -6536
+     },
+     {
+      "userId": "p05",
+      "net": -380
+     },
+     {
+      "userId": "p06",
+      "net": 2779
+     },
+     {
+      "userId": "p07",
+      "net": -1840
+     },
+     {
+      "userId": "p08",
+      "net": -3084
+     },
+     {
+      "userId": "p09",
+      "net": -2209
+     },
+     {
+      "userId": "p10",
+      "net": 3084
+     },
+     {
+      "userId": "p11",
+      "net": 3045
+     },
+     {
+      "userId": "p12",
+      "net": -2235
+     },
+     {
+      "userId": "p13",
+      "net": 4544
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p11",
+      "amount": 430
+     },
+     {
+      "from": "p01",
+      "to": "p03",
+      "amount": 617
+     },
+     {
+      "from": "p02",
+      "to": "p06",
+      "amount": 570
+     },
+     {
+      "from": "p04",
+      "to": "p03",
+      "amount": 1992
+     },
+     {
+      "from": "p04",
+      "to": "p13",
+      "amount": 4544
+     },
+     {
+      "from": "p05",
+      "to": "p11",
+      "amount": 380
+     },
+     {
+      "from": "p07",
+      "to": "p03",
+      "amount": 1840
+     },
+     {
+      "from": "p08",
+      "to": "p10",
+      "amount": 3084
+     },
+     {
+      "from": "p09",
+      "to": "p06",
+      "amount": 2209
+     },
+     {
+      "from": "p12",
+      "to": "p11",
+      "amount": 2235
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=14 hidden groups=4 #2",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -3622
+     },
+     {
+      "userId": "p01",
+      "net": -3615
+     },
+     {
+      "userId": "p02",
+      "net": 3993
+     },
+     {
+      "userId": "p03",
+      "net": -96
+     },
+     {
+      "userId": "p04",
+      "net": 1154
+     },
+     {
+      "userId": "p05",
+      "net": -3291
+     },
+     {
+      "userId": "p06",
+      "net": 2127
+     },
+     {
+      "userId": "p07",
+      "net": -1154
+     },
+     {
+      "userId": "p08",
+      "net": 5794
+     },
+     {
+      "userId": "p09",
+      "net": 2920
+     },
+     {
+      "userId": "p10",
+      "net": 3711
+     },
+     {
+      "userId": "p11",
+      "net": -4670
+     },
+     {
+      "userId": "p12",
+      "net": 1337
+     },
+     {
+      "userId": "p13",
+      "net": -4588
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p02",
+      "amount": 3622
+     },
+     {
+      "from": "p01",
+      "to": "p10",
+      "amount": 3615
+     },
+     {
+      "from": "p03",
+      "to": "p10",
+      "amount": 96
+     },
+     {
+      "from": "p05",
+      "to": "p02",
+      "amount": 371
+     },
+     {
+      "from": "p05",
+      "to": "p09",
+      "amount": 2920
+     },
+     {
+      "from": "p07",
+      "to": "p04",
+      "amount": 1154
+     },
+     {
+      "from": "p11",
+      "to": "p08",
+      "amount": 4670
+     },
+     {
+      "from": "p13",
+      "to": "p06",
+      "amount": 2127
+     },
+     {
+      "from": "p13",
+      "to": "p08",
+      "amount": 1124
+     },
+     {
+      "from": "p13",
+      "to": "p12",
+      "amount": 1337
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=14 hidden groups=7 #1",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -3561
+     },
+     {
+      "userId": "p01",
+      "net": 1985
+     },
+     {
+      "userId": "p02",
+      "net": -2780
+     },
+     {
+      "userId": "p03",
+      "net": 2637
+     },
+     {
+      "userId": "p04",
+      "net": -3328
+     },
+     {
+      "userId": "p05",
+      "net": 2969
+     },
+     {
+      "userId": "p06",
+      "net": 2780
+     },
+     {
+      "userId": "p07",
+      "net": 3225
+     },
+     {
+      "userId": "p08",
+      "net": -2969
+     },
+     {
+      "userId": "p09",
+      "net": 3328
+     },
+     {
+      "userId": "p10",
+      "net": -1985
+     },
+     {
+      "userId": "p11",
+      "net": 3561
+     },
+     {
+      "userId": "p12",
+      "net": -2637
+     },
+     {
+      "userId": "p13",
+      "net": -3225
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p11",
+      "amount": 3561
+     },
+     {
+      "from": "p02",
+      "to": "p06",
+      "amount": 2780
+     },
+     {
+      "from": "p04",
+      "to": "p09",
+      "amount": 3328
+     },
+     {
+      "from": "p08",
+      "to": "p05",
+      "amount": 2969
+     },
+     {
+      "from": "p10",
+      "to": "p01",
+      "amount": 1985
+     },
+     {
+      "from": "p12",
+      "to": "p03",
+      "amount": 2637
+     },
+     {
+      "from": "p13",
+      "to": "p07",
+      "amount": 3225
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "random n=14 hidden groups=7 #2",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -1190
+     },
+     {
+      "userId": "p01",
+      "net": -333
+     },
+     {
+      "userId": "p02",
+      "net": 3485
+     },
+     {
+      "userId": "p03",
+      "net": 333
+     },
+     {
+      "userId": "p04",
+      "net": -429
+     },
+     {
+      "userId": "p05",
+      "net": 1190
+     },
+     {
+      "userId": "p06",
+      "net": -3014
+     },
+     {
+      "userId": "p07",
+      "net": 1361
+     },
+     {
+      "userId": "p08",
+      "net": 3360
+     },
+     {
+      "userId": "p09",
+      "net": -3485
+     },
+     {
+      "userId": "p10",
+      "net": 429
+     },
+     {
+      "userId": "p11",
+      "net": 3014
+     },
+     {
+      "userId": "p12",
+      "net": -3360
+     },
+     {
+      "userId": "p13",
+      "net": -1361
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p05",
+      "amount": 1190
+     },
+     {
+      "from": "p01",
+      "to": "p03",
+      "amount": 333
+     },
+     {
+      "from": "p04",
+      "to": "p10",
+      "amount": 429
+     },
+     {
+      "from": "p06",
+      "to": "p11",
+      "amount": 3014
+     },
+     {
+      "from": "p09",
+      "to": "p02",
+      "amount": 3485
+     },
+     {
+      "from": "p12",
+      "to": "p08",
+      "amount": 3360
+     },
+     {
+      "from": "p13",
+      "to": "p07",
+      "amount": 1361
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "n=14 all the same amount",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": 100
+     },
+     {
+      "userId": "p01",
+      "net": -100
+     },
+     {
+      "userId": "p02",
+      "net": 100
+     },
+     {
+      "userId": "p03",
+      "net": -100
+     },
+     {
+      "userId": "p04",
+      "net": 100
+     },
+     {
+      "userId": "p05",
+      "net": -100
+     },
+     {
+      "userId": "p06",
+      "net": 100
+     },
+     {
+      "userId": "p07",
+      "net": -100
+     },
+     {
+      "userId": "p08",
+      "net": 100
+     },
+     {
+      "userId": "p09",
+      "net": -100
+     },
+     {
+      "userId": "p10",
+      "net": 100
+     },
+     {
+      "userId": "p11",
+      "net": -100
+     },
+     {
+      "userId": "p12",
+      "net": 100
+     },
+     {
+      "userId": "p13",
+      "net": -100
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p01",
+      "to": "p00",
+      "amount": 100
+     },
+     {
+      "from": "p03",
+      "to": "p02",
+      "amount": 100
+     },
+     {
+      "from": "p05",
+      "to": "p04",
+      "amount": 100
+     },
+     {
+      "from": "p07",
+      "to": "p06",
+      "amount": 100
+     },
+     {
+      "from": "p09",
+      "to": "p08",
+      "amount": 100
+     },
+     {
+      "from": "p11",
+      "to": "p10",
+      "amount": 100
+     },
+     {
+      "from": "p13",
+      "to": "p12",
+      "amount": 100
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "n=14 small numbers, many zero-sum sets",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": 1
+     },
+     {
+      "userId": "p01",
+      "net": -1
+     },
+     {
+      "userId": "p02",
+      "net": 2
+     },
+     {
+      "userId": "p03",
+      "net": -2
+     },
+     {
+      "userId": "p04",
+      "net": 3
+     },
+     {
+      "userId": "p05",
+      "net": -3
+     },
+     {
+      "userId": "p06",
+      "net": 1
+     },
+     {
+      "userId": "p07",
+      "net": 1
+     },
+     {
+      "userId": "p08",
+      "net": -2
+     },
+     {
+      "userId": "p09",
+      "net": 2
+     },
+     {
+      "userId": "p10",
+      "net": -1
+     },
+     {
+      "userId": "p11",
+      "net": -1
+     },
+     {
+      "userId": "p12",
+      "net": 3
+     },
+     {
+      "userId": "p13",
+      "net": -3
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p01",
+      "to": "p00",
+      "amount": 1
+     },
+     {
+      "from": "p03",
+      "to": "p02",
+      "amount": 2
+     },
+     {
+      "from": "p05",
+      "to": "p04",
+      "amount": 3
+     },
+     {
+      "from": "p08",
+      "to": "p09",
+      "amount": 2
+     },
+     {
+      "from": "p10",
+      "to": "p06",
+      "amount": 1
+     },
+     {
+      "from": "p11",
+      "to": "p07",
+      "amount": 1
+     },
+     {
+      "from": "p13",
+      "to": "p12",
+      "amount": 3
+     }
+    ],
+    "exact": true
+   }
+  },
+  {
+   "name": "fallback n=15 is plain greedy",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": 4889
+     },
+     {
+      "userId": "p01",
+      "net": -2486
+     },
+     {
+      "userId": "p02",
+      "net": -1948
+     },
+     {
+      "userId": "p03",
+      "net": -4608
+     },
+     {
+      "userId": "p04",
+      "net": 755
+     },
+     {
+      "userId": "p05",
+      "net": 3203
+     },
+     {
+      "userId": "p06",
+      "net": -1597
+     },
+     {
+      "userId": "p07",
+      "net": 2340
+     },
+     {
+      "userId": "p08",
+      "net": 2486
+     },
+     {
+      "userId": "p09",
+      "net": -914
+     },
+     {
+      "userId": "p10",
+      "net": -11205
+     },
+     {
+      "userId": "p11",
+      "net": 2500
+     },
+     {
+      "userId": "p12",
+      "net": 2008
+     },
+     {
+      "userId": "p13",
+      "net": 4970
+     },
+     {
+      "userId": "p14",
+      "net": -393
+     }
+    ]
+   },
+   "note": "n > 14: not exact, at most n - 1 payments",
+   "out": {
+    "payments": [
+     {
+      "from": "p01",
+      "to": "p11",
+      "amount": 2486
+     },
+     {
+      "from": "p02",
+      "to": "p08",
+      "amount": 1948
+     },
+     {
+      "from": "p03",
+      "to": "p05",
+      "amount": 3203
+     },
+     {
+      "from": "p03",
+      "to": "p12",
+      "amount": 1405
+     },
+     {
+      "from": "p06",
+      "to": "p07",
+      "amount": 1597
+     },
+     {
+      "from": "p09",
+      "to": "p07",
+      "amount": 743
+     },
+     {
+      "from": "p09",
+      "to": "p08",
+      "amount": 145
+     },
+     {
+      "from": "p09",
+      "to": "p11",
+      "amount": 14
+     },
+     {
+      "from": "p09",
+      "to": "p12",
+      "amount": 12
+     },
+     {
+      "from": "p10",
+      "to": "p00",
+      "amount": 4889
+     },
+     {
+      "from": "p10",
+      "to": "p04",
+      "amount": 755
+     },
+     {
+      "from": "p10",
+      "to": "p12",
+      "amount": 591
+     },
+     {
+      "from": "p10",
+      "to": "p13",
+      "amount": 4970
+     },
+     {
+      "from": "p14",
+      "to": "p08",
+      "amount": 393
+     }
+    ],
+    "exact": false
+   }
+  },
+  {
+   "name": "fallback n=17 is plain greedy",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": -2883
+     },
+     {
+      "userId": "p01",
+      "net": -1273
+     },
+     {
+      "userId": "p02",
+      "net": -2541
+     },
+     {
+      "userId": "p03",
+      "net": -3633
+     },
+     {
+      "userId": "p04",
+      "net": 4835
+     },
+     {
+      "userId": "p05",
+      "net": 3646
+     },
+     {
+      "userId": "p06",
+      "net": 1488
+     },
+     {
+      "userId": "p07",
+      "net": -1488
+     },
+     {
+      "userId": "p08",
+      "net": -3222
+     },
+     {
+      "userId": "p09",
+      "net": -3646
+     },
+     {
+      "userId": "p10",
+      "net": -246
+     },
+     {
+      "userId": "p11",
+      "net": -3243
+     },
+     {
+      "userId": "p12",
+      "net": -2910
+     },
+     {
+      "userId": "p13",
+      "net": 2748
+     },
+     {
+      "userId": "p14",
+      "net": -1111
+     },
+     {
+      "userId": "p15",
+      "net": 10021
+     },
+     {
+      "userId": "p16",
+      "net": 3458
+     }
+    ]
+   },
+   "note": "n > 14: not exact, at most n - 1 payments",
+   "out": {
+    "payments": [
+     {
+      "from": "p00",
+      "to": "p04",
+      "amount": 104
+     },
+     {
+      "from": "p00",
+      "to": "p13",
+      "amount": 2748
+     },
+     {
+      "from": "p00",
+      "to": "p15",
+      "amount": 31
+     },
+     {
+      "from": "p01",
+      "to": "p06",
+      "amount": 1273
+     },
+     {
+      "from": "p02",
+      "to": "p15",
+      "amount": 2541
+     },
+     {
+      "from": "p03",
+      "to": "p15",
+      "amount": 3633
+     },
+     {
+      "from": "p07",
+      "to": "p04",
+      "amount": 1488
+     },
+     {
+      "from": "p08",
+      "to": "p05",
+      "amount": 3222
+     },
+     {
+      "from": "p09",
+      "to": "p15",
+      "amount": 3646
+     },
+     {
+      "from": "p10",
+      "to": "p06",
+      "amount": 215
+     },
+     {
+      "from": "p10",
+      "to": "p15",
+      "amount": 31
+     },
+     {
+      "from": "p11",
+      "to": "p04",
+      "amount": 3243
+     },
+     {
+      "from": "p12",
+      "to": "p16",
+      "amount": 2910
+     },
+     {
+      "from": "p14",
+      "to": "p05",
+      "amount": 424
+     },
+     {
+      "from": "p14",
+      "to": "p15",
+      "amount": 139
+     },
+     {
+      "from": "p14",
+      "to": "p16",
+      "amount": 548
+     }
+    ],
+    "exact": false
+   }
+  },
+  {
+   "name": "fallback n=20 is plain greedy",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": 9215
+     },
+     {
+      "userId": "p01",
+      "net": 2548
+     },
+     {
+      "userId": "p02",
+      "net": -537
+     },
+     {
+      "userId": "p03",
+      "net": -4616
+     },
+     {
+      "userId": "p04",
+      "net": -3471
+     },
+     {
+      "userId": "p05",
+      "net": -1402
+     },
+     {
+      "userId": "p06",
+      "net": 300
+     },
+     {
+      "userId": "p07",
+      "net": 2906
+     },
+     {
+      "userId": "p08",
+      "net": 2248
+     },
+     {
+      "userId": "p09",
+      "net": 163
+     },
+     {
+      "userId": "p10",
+      "net": -3871
+     },
+     {
+      "userId": "p11",
+      "net": 1316
+     },
+     {
+      "userId": "p12",
+      "net": -1434
+     },
+     {
+      "userId": "p13",
+      "net": -3249
+     },
+     {
+      "userId": "p14",
+      "net": -2173
+     },
+     {
+      "userId": "p15",
+      "net": 1059
+     },
+     {
+      "userId": "p16",
+      "net": 1809
+     },
+     {
+      "userId": "p17",
+      "net": -3766
+     },
+     {
+      "userId": "p18",
+      "net": 3249
+     },
+     {
+      "userId": "p19",
+      "net": -294
+     }
+    ]
+   },
+   "note": "n > 14: not exact, at most n - 1 payments",
+   "out": {
+    "payments": [
+     {
+      "from": "p02",
+      "to": "p00",
+      "amount": 162
+     },
+     {
+      "from": "p02",
+      "to": "p16",
+      "amount": 375
+     },
+     {
+      "from": "p03",
+      "to": "p00",
+      "amount": 4616
+     },
+     {
+      "from": "p04",
+      "to": "p00",
+      "amount": 565
+     },
+     {
+      "from": "p04",
+      "to": "p07",
+      "amount": 2906
+     },
+     {
+      "from": "p05",
+      "to": "p00",
+      "amount": 1
+     },
+     {
+      "from": "p05",
+      "to": "p06",
+      "amount": 6
+     },
+     {
+      "from": "p05",
+      "to": "p08",
+      "amount": 75
+     },
+     {
+      "from": "p05",
+      "to": "p09",
+      "amount": 4
+     },
+     {
+      "from": "p05",
+      "to": "p11",
+      "amount": 1316
+     },
+     {
+      "from": "p10",
+      "to": "p00",
+      "amount": 3871
+     },
+     {
+      "from": "p12",
+      "to": "p16",
+      "amount": 1434
+     },
+     {
+      "from": "p13",
+      "to": "p01",
+      "amount": 2548
+     },
+     {
+      "from": "p13",
+      "to": "p15",
+      "amount": 701
+     },
+     {
+      "from": "p14",
+      "to": "p08",
+      "amount": 2173
+     },
+     {
+      "from": "p17",
+      "to": "p09",
+      "amount": 159
+     },
+     {
+      "from": "p17",
+      "to": "p15",
+      "amount": 358
+     },
+     {
+      "from": "p17",
+      "to": "p18",
+      "amount": 3249
+     },
+     {
+      "from": "p19",
+      "to": "p06",
+      "amount": 294
+     }
+    ],
+    "exact": false
+   }
+  },
+  {
+   "name": "fallback n=15 with exact pairs",
+   "kind": "settle",
+   "in": {
+    "nets": [
+     {
+      "userId": "p00",
+      "net": 100
+     },
+     {
+      "userId": "p01",
+      "net": -100
+     },
+     {
+      "userId": "p02",
+      "net": 200
+     },
+     {
+      "userId": "p03",
+      "net": -200
+     },
+     {
+      "userId": "p04",
+      "net": 300
+     },
+     {
+      "userId": "p05",
+      "net": -300
+     },
+     {
+      "userId": "p06",
+      "net": 400
+     },
+     {
+      "userId": "p07",
+      "net": -400
+     },
+     {
+      "userId": "p08",
+      "net": 500
+     },
+     {
+      "userId": "p09",
+      "net": -500
+     },
+     {
+      "userId": "p10",
+      "net": 600
+     },
+     {
+      "userId": "p11",
+      "net": -600
+     },
+     {
+      "userId": "p12",
+      "net": 700
+     },
+     {
+      "userId": "p13",
+      "net": -700
+     },
+     {
+      "userId": "p14",
+      "net": 0
+     },
+     {
+      "userId": "p15",
+      "net": 50
+     },
+     {
+      "userId": "p16",
+      "net": -50
+     }
+    ]
+   },
+   "out": {
+    "payments": [
+     {
+      "from": "p01",
+      "to": "p00",
+      "amount": 100
+     },
+     {
+      "from": "p03",
+      "to": "p02",
+      "amount": 200
+     },
+     {
+      "from": "p05",
+      "to": "p04",
+      "amount": 300
+     },
+     {
+      "from": "p07",
+      "to": "p06",
+      "amount": 400
+     },
+     {
+      "from": "p09",
+      "to": "p08",
+      "amount": 500
+     },
+     {
+      "from": "p11",
+      "to": "p10",
+      "amount": 600
+     },
+     {
+      "from": "p13",
+      "to": "p12",
+      "amount": 700
+     },
+     {
+      "from": "p16",
+      "to": "p15",
+      "amount": 50
+     }
+    ],
+    "exact": false
+   }
+  }
+ ]
+}

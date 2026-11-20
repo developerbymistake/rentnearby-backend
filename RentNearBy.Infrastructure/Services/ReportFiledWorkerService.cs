@@ -144,8 +144,11 @@ public class ReportFiledWorkerService : BackgroundService
 
         // Admins are notified on every report (not just the first pending one) — unlike
         // the owner, there's no per-listing anti-spam concern for moderation staff.
-        const string adminTitle = "New listing report";
-        var adminBody = $"'{msg.ListingTitle}' was reported: {msg.ReasonName}.";
+        var isPerson = msg.ListingType == RentNearBy.Core.Models.Buddy.ReportScopes.User;
+        var adminTitle = isPerson ? "New person report" : "New listing report";
+        var adminBody = isPerson
+            ? $"{msg.ListingTitle} was reported: {msg.ReasonName}."
+            : $"'{msg.ListingTitle}' was reported: {msg.ReasonName}.";
 
         var adminTokens = (await unitOfWork.AdminDeviceTokens.GetAllValidAsync()).ToList();
         foreach (var token in adminTokens)

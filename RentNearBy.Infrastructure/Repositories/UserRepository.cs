@@ -92,7 +92,8 @@ public class UserRepository(ApplicationDbContext context) : Repository<User>(con
             .FirstOrDefaultAsync();
 
     public async Task<bool> UsernameExistsAsync(string username)
-        => await _dbSet.AnyAsync(u => u.Username == username);
+        => await _dbSet.AnyAsync(u => u.Username == username)
+           || await _context.DeletedAccountRecords.AnyAsync(d => d.Username == username);
 
     // Owners always show their number; a Seeker starts hidden.
     private static bool IsContactVisibleForRole(Guid roleId) => UserRoles.ListingKindOf(roleId) != null;

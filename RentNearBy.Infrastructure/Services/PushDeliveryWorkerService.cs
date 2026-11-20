@@ -145,7 +145,8 @@ public static class PushBatchProcessor
             if (p.ArgsJson != null) data["action_args_json"] = p.ArgsJson;
             foreach (var token in userTokens)
             {
-                specs.Add(new FcmMessageSpec(token, p.Title, p.Body, data, string.IsNullOrEmpty(p.Tag) ? p.Key : p.Tag));
+                var tag = string.IsNullOrEmpty(p.Tag) ? p.Key : p.Tag;
+                specs.Add(new FcmMessageSpec(token, p.Title, p.Body, data, tag, data.GetValueOrDefault("collapse") == "1" ? tag : null));
                 owner.Add(i);
             }
         }

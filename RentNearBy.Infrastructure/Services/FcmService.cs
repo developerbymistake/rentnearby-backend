@@ -232,6 +232,7 @@ public class FcmService : IFcmService
         Android = new AndroidConfig
         {
             Priority = Priority.High,
+            CollapseKey = spec.CollapseKey,
             Notification = new AndroidNotification
             {
                 Sound = "default",

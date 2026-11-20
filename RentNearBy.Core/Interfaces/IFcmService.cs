@@ -2,7 +2,7 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Core.Interfaces;
 
-public sealed record FcmMessageSpec(string Token, string Title, string Body, IReadOnlyDictionary<string, string> Data, string? Tag = null);
+public sealed record FcmMessageSpec(string Token, string Title, string Body, IReadOnlyDictionary<string, string> Data, string? Tag = null, string? CollapseKey = null);
 
 public enum FcmSendOutcome { Sent, InvalidToken, Failed }
 

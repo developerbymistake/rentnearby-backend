@@ -47,4 +47,11 @@ public class AdminListingReportDto
 
     // Populated only on GetReportById (single-item detail), left empty on the paginated list.
     public List<string> Photos { get; set; } = new();
+
+    // Person reports (ListingType "User"): buddy feature.
+    public string? ReportedUsername { get; set; }
+    public string? Context { get; set; }
+    public bool? ReportedUserActive { get; set; }
+    public DateTime? BuddyRequestsHeldUntil { get; set; }
+    public RentNearBy.Core.DTOs.Buddy.PersonReportCountsDto? Counts { get; set; }
 }
