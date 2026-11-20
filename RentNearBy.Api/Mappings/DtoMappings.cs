@@ -14,6 +14,7 @@ public static class DtoMappings
             .Map(dest => dest.Id, src => src.Id)
             .Map(dest => dest.PhoneNumber, src => src.PhoneNumber)
             .Map(dest => dest.Name, src => src.Name)
+            .Map(dest => dest.Username, src => src.Username)
             .Map(dest => dest.IsActive, src => src.IsActive)
             .Map(dest => dest.IsPhoneVerified, src => src.IsPhoneVerified)
             .Map(dest => dest.HasUsedPhoneChange, src => src.HasUsedPhoneChange)

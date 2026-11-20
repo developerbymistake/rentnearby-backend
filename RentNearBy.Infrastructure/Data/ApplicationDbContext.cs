@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Models;
 
@@ -108,6 +109,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(u => u.PlayAccountKey, "ix_users_play_account_key")
              .IsUnique()
              .HasFilter("\"PlayAccountKey\" IS NOT NULL");
+            // Written on insert and by SetUsernameIfNullAsync only: a whole-row Update of a stale entity must not touch it.
+            e.Property(u => u.Username).HasMaxLength(Usernames.MaxLength)
+             .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+            e.HasIndex(u => u.Username, Usernames.UniqueIndex)
+             .IsUnique()
+             .HasFilter("\"Username\" IS NOT NULL");
             e.HasOne(u => u.Role)
              .WithMany()
              .HasForeignKey(u => u.RoleId)

@@ -16,4 +16,8 @@ public interface IUserRepository : IRepository<User>
     // Writes Users.PlayAccountKey only while it is null; false = already set (or no such user).
     Task<bool> SetPlayAccountKeyIfNullAsync(Guid userId, string playAccountKey);
     Task<Guid?> GetIdByPlayAccountKeyAsync(string playAccountKey);
+    // Writes Users.Username only while it is null; false = already set (or no such user).
+    Task<bool> SetUsernameIfNullAsync(Guid userId, string username);
+    Task<string?> GetUsernameAsync(Guid userId);
+    Task<bool> UsernameExistsAsync(string username);
 }

@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261120033835_InitialCreate")]
+    [Migration("20261120071738_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -4616,6 +4616,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<string>("Username")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedAt");
@@ -4628,6 +4632,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "PlayAccountKey" }, "ix_users_play_account_key")
                         .IsUnique()
                         .HasFilter("\"PlayAccountKey\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "Username" }, "ix_users_username")
+                        .IsUnique()
+                        .HasFilter("\"Username\" IS NOT NULL");
 
                     b.ToTable("Users");
                 });

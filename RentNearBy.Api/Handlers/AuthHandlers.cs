@@ -58,7 +58,8 @@ public static class AuthHandlers
         IRateLimitService rateLimiter,
         IOtpService otpService,
         HttpContext httpContext,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        IUsernameService usernames)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -82,11 +83,15 @@ public static class AuthHandlers
             if (!existingUser.IsActive)
                 return ForbiddenResponse("Your account has been blocked. Contact admin.");
 
-            return await CreateSessionAndRespond(existingUser, unitOfWork, jwtService, cache);
+            return await CreateSessionAndRespond(existingUser, unitOfWork, jwtService, cache, usernames);
         }
 
         // New user — needs onboarding
-        return OkResponse(new PhoneLoginResponse { NeedsOnboarding = true });
+        return OkResponse(new PhoneLoginResponse
+        {
+            NeedsOnboarding = true,
+            Username = await usernames.ReserveForSignupAsync(request.PhoneNumber)
+        });
     }
 
     public static async Task<IResult> PhoneCompleteOnboarding(
@@ -94,7 +99,8 @@ public static class AuthHandlers
         IValidator<PhoneOnboardingRequest> validator,
         IUnitOfWork unitOfWork,
         IJwtService jwtService,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        IUsernameService usernames)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -114,20 +120,19 @@ public static class AuthHandlers
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
-        await unitOfWork.Users.AddAsync(newUser);
         try
         {
-            await unitOfWork.SaveChangesAsync();
+            await usernames.SaveNewUserAsync(newUser);
         }
         catch (Microsoft.EntityFrameworkCore.DbUpdateException)
         {
             return ConflictResponse("This phone number is already registered. Please sign in.", "PhoneExists");
         }
 
-        return await CreateSessionAndRespond(newUser, unitOfWork, jwtService, cache);
+        return await CreateSessionAndRespond(newUser, unitOfWork, jwtService, cache, usernames);
     }
 
-    private static async Task<IResult> CreateSessionAndRespond(User user, IUnitOfWork unitOfWork, IJwtService jwtService, IMemoryCache cache)
+    private static async Task<IResult> CreateSessionAndRespond(User user, IUnitOfWork unitOfWork, IJwtService jwtService, IMemoryCache cache, IUsernameService usernames)
     {
         await unitOfWork.Sessions.DeleteAllUserSessionsAsync(user.Id);
         await unitOfWork.DeviceTokens.DeleteByUserIdAsync(user.Id);
@@ -143,11 +148,13 @@ public static class AuthHandlers
         await unitOfWork.SaveChangesAsync();
 
         var token = jwtService.GenerateToken(user, session.Id);
+        var dto = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache, usernames);
         return OkResponse(new PhoneLoginResponse
         {
             NeedsOnboarding = false,
             Token = token,
-            User = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache)
+            Username = dto.Username,
+            User = dto
         });
     }
 
@@ -209,7 +216,8 @@ public static class AuthHandlers
         IRateLimitService rateLimiter,
         IOtpService otpService,
         HttpContext httpContext,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        IUsernameService usernames)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -251,7 +259,7 @@ public static class AuthHandlers
             return ConflictResponse("This number is already registered to another account. Please use a different number.", "PhoneAlreadyClaimed");
         }
 
-        return OkResponse(await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache));
+        return OkResponse(await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache, usernames));
     }
 
     public static async Task<IResult> Logout(ClaimsPrincipal principal, IUnitOfWork unitOfWork)

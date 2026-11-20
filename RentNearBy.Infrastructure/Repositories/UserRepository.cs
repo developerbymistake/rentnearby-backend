@@ -80,6 +80,20 @@ public class UserRepository(ApplicationDbContext context) : Repository<User>(con
             .Select(u => (Guid?)u.Id)
             .FirstOrDefaultAsync();
 
+    public async Task<bool> SetUsernameIfNullAsync(Guid userId, string username)
+        => await _dbSet
+            .Where(u => u.Id == userId && u.Username == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.Username, username)) > 0;
+
+    public async Task<string?> GetUsernameAsync(Guid userId)
+        => await _dbSet.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => u.Username)
+            .FirstOrDefaultAsync();
+
+    public async Task<bool> UsernameExistsAsync(string username)
+        => await _dbSet.AnyAsync(u => u.Username == username);
+
     // Owners always show their number; a Seeker starts hidden.
     private static bool IsContactVisibleForRole(Guid roleId) => UserRoles.ListingKindOf(roleId) != null;
 }

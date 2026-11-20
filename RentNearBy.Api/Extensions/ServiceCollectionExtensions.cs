@@ -32,6 +32,7 @@ public static class ServiceCollectionExtensions
         services.AddMemoryCache();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IJwtService, JwtService>();
+        services.AddScoped<IUsernameService, UsernameService>();
         services.AddScoped<IPhotoService, PhotoService>();
         services.AddScoped<IListingPurgeService, ListingPurgeService>();
         services.AddScoped<IRoleChangeGuardService, RoleChangeGuardService>();
@@ -166,11 +167,13 @@ public static class ServiceCollectionExtensions
             });
             services.AddSingleton<IRateLimitService, RedisRateLimitService>();
             services.AddSingleton<IOtpStore, RedisOtpStore>();
+            services.AddSingleton<IPendingUsernameStore, RedisPendingUsernameStore>();
         }
         else
         {
             services.AddSingleton<IRateLimitService, InMemoryRateLimitService>();
             services.AddSingleton<IOtpStore, MemoryOtpStore>();
+            services.AddSingleton<IPendingUsernameStore, MemoryPendingUsernameStore>();
         }
 
         services.AddHttpClient<IOtpService, WhatsAppOtpService>();

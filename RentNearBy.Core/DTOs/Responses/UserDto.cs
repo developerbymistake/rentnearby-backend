@@ -5,6 +5,7 @@ public class UserDto
     public Guid Id { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string? Name { get; set; }
+    public string? Username { get; set; }
     public bool IsActive { get; set; }
     public bool IsPhoneVerified { get; set; }
     public bool HasUsedPhoneChange { get; set; }

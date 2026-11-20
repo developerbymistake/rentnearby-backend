@@ -39,7 +39,8 @@ public static class RoleHandlers
         ClaimsPrincipal principal,
         IUnitOfWork unitOfWork,
         IJwtService jwtService,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        IUsernameService usernames)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -66,7 +67,7 @@ public static class RoleHandlers
             return OkResponse(new AuthResponse
             {
                 Token = jwtService.GenerateToken(current, sessionId),
-                User = await UsersHandlers.BuildUserDtoAsync(current, unitOfWork, cache)
+                User = await UsersHandlers.BuildUserDtoAsync(current, unitOfWork, cache, usernames)
             });
         }
 
@@ -82,7 +83,7 @@ public static class RoleHandlers
         return OkResponse(new AuthResponse
         {
             Token = jwtService.GenerateToken(user, sessionId),
-            User = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache)
+            User = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache, usernames)
         });
     }
 
@@ -97,7 +98,8 @@ public static class RoleHandlers
         IPlanPurchaseService purchases,
         IJwtService jwtService,
         IMemoryCache cache,
-        ITripEnquiryClosure tripClosure)
+        ITripEnquiryClosure tripClosure,
+        IUsernameService usernames)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -121,7 +123,7 @@ public static class RoleHandlers
 
         // A replay of the committed correction (lost response) gets the token again.
         if (user.RoleCorrectionUsed && user.RoleId == role.Id)
-            return await ReplayCorrectionAsync(user, sessionId, unitOfWork, jwtService, cache);
+            return await ReplayCorrectionAsync(user, sessionId, unitOfWork, jwtService, cache, usernames);
 
         if (user.RoleCorrectionUsed)
             return ConflictResponse(RoleCorrectionUsedMessage, RoleCorrectionUsedType);
@@ -159,7 +161,7 @@ public static class RoleHandlers
                 var current = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
                 if (current == null) return NotFoundResponse("User not found");
                 if (current.RoleCorrectionUsed && current.RoleId == role.Id)
-                    return await ReplayCorrectionAsync(current, sessionId, unitOfWork, jwtService, cache);
+                    return await ReplayCorrectionAsync(current, sessionId, unitOfWork, jwtService, cache, usernames);
                 return ConflictResponse(RoleCorrectionUsedMessage, RoleCorrectionUsedType);
             }
 
@@ -209,7 +211,7 @@ public static class RoleHandlers
 
         var fresh = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
         if (fresh == null) return NotFoundResponse("User not found");
-        return await CorrectionResponseAsync(fresh, newSessionId, unitOfWork, jwtService, cache);
+        return await CorrectionResponseAsync(fresh, newSessionId, unitOfWork, jwtService, cache, usernames);
     }
 
     private const string RoleCorrectionUsedType = "RoleCorrectionUsed";
@@ -241,7 +243,7 @@ public static class RoleHandlers
 
     // A replay after a committed correction: an active caller session is rotated, a revoked one is 401.
     private static async Task<IResult> ReplayCorrectionAsync(
-        User user, Guid sessionId, IUnitOfWork unitOfWork, IJwtService jwtService, IMemoryCache cache)
+        User user, Guid sessionId, IUnitOfWork unitOfWork, IJwtService jwtService, IMemoryCache cache, IUsernameService usernames)
     {
         Guid? rotated;
         await unitOfWork.BeginTransactionAsync();
@@ -260,7 +262,7 @@ public static class RoleHandlers
             await unitOfWork.RollbackTransactionAsync();
             throw;
         }
-        return await CorrectionResponseAsync(user, rotated.Value, unitOfWork, jwtService, cache);
+        return await CorrectionResponseAsync(user, rotated.Value, unitOfWork, jwtService, cache, usernames);
     }
 
     private static Task<bool> HasSubmittedHistoryAsync(IUnitOfWork unitOfWork, Guid userId, string kind)
@@ -269,11 +271,11 @@ public static class RoleHandlers
             : unitOfWork.Taxis.HasSubmittedHistoryAsync(userId);
 
     private static async Task<IResult> CorrectionResponseAsync(
-        User user, Guid sessionId, IUnitOfWork unitOfWork, IJwtService jwtService, IMemoryCache cache)
+        User user, Guid sessionId, IUnitOfWork unitOfWork, IJwtService jwtService, IMemoryCache cache, IUsernameService usernames)
         => OkResponse(new AuthResponse
         {
             Token = jwtService.GenerateToken(user, sessionId),
-            User = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache)
+            User = await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache, usernames)
         });
 
     public static async Task<IResult> CreateRoleRequest(

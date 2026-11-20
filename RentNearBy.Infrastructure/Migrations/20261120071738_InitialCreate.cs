@@ -745,6 +745,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     PhoneNumber = table.Column<string>(type: "text", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: true),
+                    Username = table.Column<string>(type: "character varying(24)", maxLength: 24, nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     IsPhoneVerified = table.Column<bool>(type: "boolean", nullable: false),
                     HasUsedPhoneChange = table.Column<bool>(type: "boolean", nullable: false),
@@ -3551,6 +3552,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "IX_Users_RoleId",
                 table: "Users",
                 column: "RoleId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_users_username",
+                table: "Users",
+                column: "Username",
+                unique: true,
+                filter: "\"Username\" IS NOT NULL");
 
             migrationBuilder.AddForeignKey(
                 name: "FK_ListingReports_TripEnquiries_TripEnquiryId",

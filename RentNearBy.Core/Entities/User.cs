@@ -7,6 +7,7 @@ public class User
     public Guid Id { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string? Name { get; set; }
+    public string? Username { get; set; }
     public bool IsActive { get; set; } = true;
     public bool IsPhoneVerified { get; set; } = false;
     public bool HasUsedPhoneChange { get; set; } = false;
