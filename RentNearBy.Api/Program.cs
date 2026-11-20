@@ -460,6 +460,7 @@ app.MapGroup("/api/v1/trips")
     .MapTripEndpoints();
 
 app.MapTaxiRequests();
+app.MapBuddyFeature();
 
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");

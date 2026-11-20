@@ -20,8 +20,9 @@ public static class RetentionSchedule
     // Run order across all groups; inside a group the order matters (due actions and taxi requests first, offers before enquiries, chat after enquiries).
     public static IReadOnlyList<string> RuleOrder { get; } = new[]
     {
-        "NotificationEvents", "NotificationLogs", "TripPushLogs",
+        "NotificationEvents", "UserNotices", "NotificationLogs", "TripPushLogs",
         "OutboxMessages", "TripReminderRuns", "TripShortlistItems",
+        "BuddyRequests", "TripMemberInvites", "TripPaymentsEnded",
         "Sessions", "AdminSessions", "StayJobs", "BannerDismissals",
         "DeviceTokens", "AdminDeviceTokens",
         "DueActions", "TaxiRequests",

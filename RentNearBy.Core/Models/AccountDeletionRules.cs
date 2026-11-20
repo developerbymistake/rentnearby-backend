@@ -9,6 +9,9 @@ public static class AccountDeletionReasons
     public const string OpenTaxiRequest = "OpenTaxiRequest";
     public const string OpenStayEnquiry = "OpenStayEnquiry";
     public const string LiveListing = "LiveListing";
+    // Reported by the buddy money participant (IAccountDeletionParticipant), not by Blocks(); {0} = trip title.
+    public const string SharedTripOpenBalance = "SharedTripOpenBalance";
+    public const string SharedTripOpenBalanceMessage = "You have money to settle on {0}.";
 
     public static readonly IReadOnlyList<string> All =
         [ActiveTaxiBooking, ActiveStayBooking, SelectedTaxiOffer, OpenTaxiRequest, OpenStayEnquiry, LiveListing];

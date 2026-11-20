@@ -5,6 +5,7 @@ using NetTopologySuite.IO;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Utils;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -431,9 +432,9 @@ public static class DataSeeder
     // reasons reach databases that already hold some, and admin-made reasons are never duplicated.
     private static async Task SeedReportReasonsAsync(ApplicationDbContext db)
     {
-        var existing = await db.ReportReasons.Select(r => new { r.Id, r.Name }).ToListAsync();
+        var existing = await db.ReportReasons.Select(r => new { r.Id, r.Name, r.Scope }).ToListAsync();
         var existingIds = existing.Select(r => r.Id).ToHashSet();
-        var existingNames = existing.Select(r => r.Name.ToLowerInvariant()).ToHashSet();
+        var existingNames = existing.Select(r => r.Scope + "|" + r.Name.ToLowerInvariant()).ToHashSet();
 
         var reasons = new[]
         {
@@ -442,9 +443,14 @@ public static class DataSeeder
             new ReportReason { Id = Guid.Parse("c1000000-0000-0000-0000-000000000003"), Name = "Fake or not available", SortOrder = 3, Description = "The place doesn't exist or isn't open to guests or tenants", CreatedAt = DateTime.UtcNow },
             new ReportReason { Id = Guid.Parse("c1000000-0000-0000-0000-000000000004"), Name = "Asked for advance payment", SortOrder = 4, Description = "Owner asked for money before a visit or stay",           CreatedAt = DateTime.UtcNow },
             new ReportReason { Id = Guid.Parse("c1000000-0000-0000-0000-000000000005"), Name = "Wrong contact details", SortOrder = 5, Description = "Phone number doesn't work or isn't the owner's",          CreatedAt = DateTime.UtcNow },
+            // Person reports (buddy feature).
+            new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000001"), Scope = ReportScopes.User, Name = "Spam",         SortOrder = 1, CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000002"), Scope = ReportScopes.User, Name = "Harassment",   SortOrder = 2, CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000003"), Scope = ReportScopes.User, Name = "Fake account", SortOrder = 3, CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000004"), Scope = ReportScopes.User, Name = "Other",        SortOrder = 4, CreatedAt = DateTime.UtcNow },
         };
 
-        var toAdd = reasons.Where(r => !existingIds.Contains(r.Id) && !existingNames.Contains(r.Name.ToLowerInvariant())).ToList();
+        var toAdd = reasons.Where(r => !existingIds.Contains(r.Id) && !existingNames.Contains(r.Scope + "|" + r.Name.ToLowerInvariant())).ToList();
         if (toAdd.Count == 0) return;
 
         db.ReportReasons.AddRange(toAdd);

@@ -12,6 +12,7 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Core.DTOs.TaxiRequests;
@@ -499,7 +500,8 @@ public static class TripHandlers
     };
 
     public static async Task<IResult> GetById(
-        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, ApplicationDbContext db)
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, ApplicationDbContext db,
+        [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -509,6 +511,7 @@ public static class TripHandlers
         await AdoptDistrictAsync(unitOfWork, trip);
         var dto = await BuildDtoAsync(unitOfWork, journeys, db, trip, userId, DateTime.UtcNow);
         dto.Plan.DistrictId ??= trip.DistrictId;
+        if (sharingHooks != null) dto.Sharing = await sharingHooks.GetSharingAsync(trip.Id, userId);
         return OkResponse(dto);
     }
 
@@ -582,7 +585,7 @@ public static class TripHandlers
     public static async Task<IResult> Update(
         Guid id, SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
         ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier, ILoggerFactory loggers,
-        ISavedJourneyRepository journeys, ITripCityCatalog catalog)
+        ISavedJourneyRepository journeys, ITripCityCatalog catalog, [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -786,6 +789,17 @@ public static class TripHandlers
         }
 
         await TripEnquiryHandlers.AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
+        if (sharingHooks != null && TripPlanLock.IsStructuralChange(stored, plan, taxiMark: false))
+        {
+            try
+            {
+                await sharingHooks.OnPlanSavedAsync(trip.Id, userId);
+            }
+            catch (Exception ex)
+            {
+                loggers.CreateLogger(nameof(TripHandlers)).LogWarning(ex, "buddy.plan_saved.hook_failed {TripId}", trip.Id);
+            }
+        }
         var tripEnquiries = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);
         var linked = await LinkedJourneysAsync(journeys, trip, userId);
         var taxiRequest = await TripTaxiRequestReads.ReadAsync(db, trip);
@@ -882,7 +896,7 @@ public static class TripHandlers
     // throws: the plan lock guard can never be skipped. The endpoint gets the scoped context from DI.
     public static async Task<IResult> Delete(
         Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ITripEnquiryClosure closure, ISavedJourneyRepository journeys,
-        ApplicationDbContext? db = null)
+        ApplicationDbContext? db = null, [Microsoft.AspNetCore.Mvc.FromServices] ITripMoneyGuard? moneyGuard = null, [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null)
     {
         ArgumentNullException.ThrowIfNull(db);
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
@@ -891,6 +905,7 @@ public static class TripHandlers
         if (trip == null) return TripNotFound();
 
         IReadOnlyList<TripClosurePush> pushes;
+        var viewersTold = 0;
         await unitOfWork.BeginTransactionAsync();
         try
         {
@@ -901,6 +916,17 @@ public static class TripHandlers
                 await unitOfWork.RollbackTransactionAsync();
                 return LockRefusal(locked);
             }
+            if (moneyGuard != null)
+            {
+                var open = await moneyGuard.GetOpenPaymentsAsync(trip.Id);
+                if (open.Count > 0)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return ErrorResponse(409, RentNearBy.Core.Models.Buddy.BuddyErrorTypes.MessageOf(RentNearBy.Core.Models.Buddy.BuddyErrorTypes.TripHasOpenBalances), RentNearBy.Core.Models.Buddy.BuddyErrorTypes.TripHasOpenBalances,
+                        new { openPayments = open.Select(o => new { from = o.From, to = o.To, amount = o.Amount, state = o.State }).ToList() });
+                }
+            }
+            if (sharingHooks != null) viewersTold = await sharingHooks.OnTripDeletingAsync(trip.Id, userId);
             pushes = await closure.OnTripDeletedAsync(trip.Id);
             await journeys.UnlinkTripAsync(trip.Id);
             await unitOfWork.Trips.DeleteAsync(trip);
@@ -920,7 +946,7 @@ public static class TripHandlers
 
         await closure.AfterCommitAsync(pushes);
         var ownersTold = pushes.Select(p => p.Notification.TargetUserId).Where(t => t != null).Distinct().Count();
-        return OkResponse(new { message = "Trip deleted", ownersTold });
+        return OkResponse(new { message = "Trip deleted", ownersTold, viewersTold });
     }
 
     private static TripSpotsPageDto EmptySpotsPage(string cityName, long cityKey) => new()

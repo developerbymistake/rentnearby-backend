@@ -17,6 +17,7 @@ public class User
     public DateTime? RoleConfirmedAt { get; set; }
     // HMAC(PlayBilling:AccountIdSalt, Id) sent to Play as obfuscatedAccountId; written once, never changed.
     public string? PlayAccountKey { get; set; }
+    public DateTime? BuddyRequestsHeldUntil { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

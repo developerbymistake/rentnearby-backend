@@ -232,6 +232,7 @@ public static class ServiceCollectionExtensions
         // Plan purchase admin push: consumes plan.purchase.admin (granted Play charge, chargeback review), FCM via AdminDeviceTokens.
         services.AddHostedService<PlanPurchaseAdminWorkerService>();
 
+        services.AddBuddyFeature(configuration);
         return services;
     }
 

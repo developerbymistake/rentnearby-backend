@@ -4,7 +4,7 @@ public class ListingReport
 {
     public Guid Id { get; set; }
     public Guid ListingId { get; set; }
-    public string ListingType { get; set; } = string.Empty; // "Stay" | "Taxi" | "TripEnquiry"
+    public string ListingType { get; set; } = string.Empty; // "Stay" | "Taxi" | "TripEnquiry" | "User"
 
     public Guid ReporterUserId { get; set; }
     public string ReporterName { get; set; } = string.Empty;
@@ -27,4 +27,7 @@ public class ListingReport
     public Admin? ResolvedByAdmin { get; set; }
 
     public Guid? TripEnquiryId { get; set; }
+
+    public string? ReportedUsername { get; set; }
+    public string? Context { get; set; }
 }

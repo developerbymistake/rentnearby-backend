@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
@@ -30,12 +31,15 @@ public class AccountDeletionService(
 
         var user = await context.Users.AsNoTracking()
             .Where(u => u.Id == userId)
-            .Select(u => new { u.PhoneNumber, u.Name, u.CreatedAt, u.RoleId })
+            .Select(u => new { u.PhoneNumber, u.Name, u.CreatedAt, u.RoleId, u.Username })
             .FirstOrDefaultAsync();
 
         // Owner rule O17: nothing is deleted while anything is active. Read without row locks; a commitment that
         // lands after this read is closed by the closures below, as before the guard existed.
-        var blocks = AccountDeletionRules.Blocks(await ReadActivityAsync(userId));
+        var blocks = AccountDeletionRules.Blocks(await ReadActivityAsync(userId)).ToList();
+        var participants = services.GetServices<IAccountDeletionParticipant>().OrderBy(p => p.Order).ToList();
+        foreach (var participant in participants)
+            blocks.AddRange(await participant.CheckAsync(userId));
         if (blocks.Count > 0)
         {
             await tx.RollbackAsync();
@@ -63,6 +67,7 @@ public class AccountDeletionService(
                 OriginalUserId = userId,
                 PhoneNumber = user.PhoneNumber,
                 Name = user.Name,
+                Username = user.Username,
                 Role = UserRoles.KeyOf(user.RoleId),
                 AccountCreatedAt = user.CreatedAt,
                 DeletedAt = DateTime.UtcNow,
@@ -150,11 +155,17 @@ public class AccountDeletionService(
             .Where(b => b.DriverUserId == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(b => b.DriverName, AccountDeletionRules.DeletedUserName));
 
+        foreach (var participant in participants)
+            await participant.OnDeletingAsync(userId);
+
         await context.Users
             .Where(u => u.Id == userId)
             .ExecuteDeleteAsync();
 
         await tx.CommitAsync();
+
+        foreach (var participant in participants)
+            await participant.AfterCommitAsync(userId);
 
         await BustListingCachesAsync(stayDistricts, taxiDistricts);
         await tripClosure.AfterCommitAsync(tripPushes);

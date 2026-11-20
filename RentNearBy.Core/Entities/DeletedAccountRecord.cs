@@ -11,6 +11,7 @@ public class DeletedAccountRecord
     public string Role { get; set; } = UserRoles.Seeker;   // UserRoles key at deletion
     public DateTime AccountCreatedAt { get; set; }
     public DateTime DeletedAt { get; set; }
+    public string? Username { get; set; }
 
     // Latest taxi/stay identity values, copied before the listing rows are purged; gone with the row after 180 days.
     public string? DrivingLicenceNumberEnc { get; set; }

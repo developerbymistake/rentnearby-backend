@@ -77,6 +77,27 @@ public static class NotificationTypes
     public const string TaxiChooseDriver = "TaxiChooseDriver";
     public const string TaxiRequestRing = "TaxiRequestRing";
     public const string TaxiRequestRingEnded = "TaxiRequestRingEnded";
+    // Buddies, trip sharing and expenses: push-only (outbox, NotificationId null); stored rows live in UserNotices.
+    public const string BuddyRequestReceived = "BuddyRequestReceived";
+    public const string BuddyRequestAccepted = "BuddyRequestAccepted";
+    public const string TripInvite = "TripInvite";
+    public const string TripMemberJoined = "TripMemberJoined";
+    public const string TripPlanUpdated = "TripPlanUpdated";
+    public const string TripMemberRemoved = "TripMemberRemoved";
+    public const string TripDeletedForViewer = "TripDeletedForViewer";
+    public const string TripExpensesUpdated = "TripExpensesUpdated";
+    public const string TripSettleReminder = "TripSettleReminder";
+    public const string TripPaymentSaidPaid = "TripPaymentSaidPaid";
+    public const string TripPaymentReceived = "TripPaymentReceived";
+    public const string TripPaymentWithdrawn = "TripPaymentWithdrawn";
+    public const string TripPaymentNotReceived = "TripPaymentNotReceived";
+
+    public static readonly IReadOnlyList<string> BuddyPushKinds =
+    [
+        BuddyRequestReceived, BuddyRequestAccepted, TripInvite, TripMemberJoined, TripPlanUpdated, TripMemberRemoved,
+        TripDeletedForViewer, TripExpensesUpdated, TripSettleReminder, TripPaymentSaidPaid, TripPaymentReceived,
+        TripPaymentWithdrawn, TripPaymentNotReceived,
+    ];
 
     // The lowercase-snake value sent as the FCM data payload's "notification_type" key — kept
     // paired here (not derived by naive case-conversion) so the PascalCase DB value and the wire
@@ -150,6 +171,19 @@ public static class NotificationTypes
         [TaxiChooseDriver] = "taxi_choose_driver",
         [TaxiRequestRing] = "taxi_request_ring",
         [TaxiRequestRingEnded] = "taxi_request_ring_ended",
+        [BuddyRequestReceived] = "buddy_request_received",
+        [BuddyRequestAccepted] = "buddy_request_accepted",
+        [TripInvite] = "trip_invite",
+        [TripMemberJoined] = "trip_member_joined",
+        [TripPlanUpdated] = "trip_plan_updated",
+        [TripMemberRemoved] = "trip_member_removed",
+        [TripDeletedForViewer] = "trip_deleted_for_viewer",
+        [TripExpensesUpdated] = "trip_expenses_updated",
+        [TripSettleReminder] = "trip_settle_reminder",
+        [TripPaymentSaidPaid] = "trip_payment_said_paid",
+        [TripPaymentReceived] = "trip_payment_received",
+        [TripPaymentWithdrawn] = "trip_payment_withdrawn",
+        [TripPaymentNotReceived] = "trip_payment_not_received",
     };
 
     public static string ToWireValue(string type) => WireValues.TryGetValue(type, out var wire) ? wire : type;

@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261120104209_InitialCreate")]
+    [Migration("20261120145313_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -321,6 +321,610 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("DismissedAt");
 
                     b.ToTable("BannerDismissals");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.BuddyLink", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BuddyUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("SeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId", "BuddyUserId");
+
+                    b.HasIndex(new[] { "BuddyUserId" }, "ix_buddies_buddy");
+
+                    b.HasIndex(new[] { "UserId" }, "ix_buddies_user_unseen")
+                        .HasFilter("\"SeenAt\" IS NULL");
+
+                    b.ToTable("Buddies", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_buddies_not_self", "\"UserId\" <> \"BuddyUserId\"");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.BuddyRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<bool>("BlockedSender")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid>("ClientRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FromUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PairHighId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PairLowId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("RespondedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("ToUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "EndedAt" }, "ix_buddyrequests_ended")
+                        .HasFilter("\"EndedAt\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "FromUserId", "CreatedAt", "Id" }, "ix_buddyrequests_from_created")
+                        .IsDescending(false, true, true);
+
+                    b.HasIndex(new[] { "PairLowId", "PairHighId", "CreatedAt" }, "ix_buddyrequests_pair_created")
+                        .IsDescending(false, false, true);
+
+                    b.HasIndex(new[] { "ExpiresAt" }, "ix_buddyrequests_pending_expires")
+                        .HasFilter("\"Status\" = 'Pending'");
+
+                    b.HasIndex(new[] { "ToUserId", "CreatedAt", "Id" }, "ix_buddyrequests_to_pending")
+                        .IsDescending(false, true, true)
+                        .HasFilter("\"Status\" = 'Pending'");
+
+                    b.HasIndex(new[] { "FromUserId", "ClientRequestId" }, "ux_buddyrequests_from_client")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "PairLowId", "PairHighId" }, "ux_buddyrequests_pair_open")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Pending'");
+
+                    b.ToTable("BuddyRequests", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_buddyrequests_not_self", "\"FromUserId\" <> \"ToUserId\"");
+
+                            t.HasCheckConstraint("ck_buddyrequests_pair", "\"PairLowId\" < \"PairHighId\"");
+
+                            t.HasCheckConstraint("ck_buddyrequests_source", "\"Source\" IN ('Search', 'Qr')");
+
+                            t.HasCheckConstraint("ck_buddyrequests_status", "\"Status\" IN ('Pending', 'Accepted', 'Declined', 'Cancelled', 'Expired', 'ClosedByBlock', 'ClosedByDeletion')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripExpense", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Amount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CreatedOpId")
+                        .HasColumnType("uuid");
+
+                    b.Property<short>("DayNumber")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("LastOpId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("LeftoverUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("LinkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LinkKind")
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("PaidByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SplitMode")
+                        .IsRequired()
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<Guid>("TripId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "TripId", "DayNumber", "CreatedAt", "Id" }, "ix_tripexpenses_trip_day_live")
+                        .IsDescending(false, true, true, true)
+                        .HasFilter("\"DeletedAt\" IS NULL");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "TripId", "DayNumber", "CreatedAt", "Id" }, "ix_tripexpenses_trip_day_live"), new[] { "Amount", "PaidByUserId" });
+
+                    b.HasIndex(new[] { "TripId", "LinkKind", "LinkId" }, "ix_tripexpenses_trip_link")
+                        .HasFilter("\"LinkId\" IS NOT NULL AND \"DeletedAt\" IS NULL");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "TripId", "LinkKind", "LinkId" }, "ix_tripexpenses_trip_link"), new[] { "Amount" });
+
+                    b.ToTable("TripExpenses", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_tripexpenses_amount", "\"Amount\" BETWEEN 1 AND 500000");
+
+                            t.HasCheckConstraint("ck_tripexpenses_category", "\"Category\" IN ('Stay', 'Taxi', 'Food', 'Fuel', 'Tickets', 'Other')");
+
+                            t.HasCheckConstraint("ck_tripexpenses_day", "\"DayNumber\" >= 1");
+
+                            t.HasCheckConstraint("ck_tripexpenses_link", "(\"LinkKind\" IS NULL) = (\"LinkId\" IS NULL)");
+
+                            t.HasCheckConstraint("ck_tripexpenses_linkkind", "\"LinkKind\" IS NULL OR \"LinkKind\" IN ('Stay', 'Taxi')");
+
+                            t.HasCheckConstraint("ck_tripexpenses_splitmode", "\"SplitMode\" IN ('All', 'Chosen', 'Custom')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripExpenseRevision", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AmountAfter")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ChangesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("ExpenseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid>("OpId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SharesAfterJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("TripId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "ExpenseId", "OpId" }, "ux_tripexpenserevisions_expense_op")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "ExpenseId", "Version" }, "ux_tripexpenserevisions_expense_version")
+                        .IsUnique();
+
+                    b.ToTable("TripExpenseRevisions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_tripexpenserevisions_kind", "\"Kind\" IN ('Added', 'Edited', 'SharedWith', 'Deleted')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripExpenseShare", b =>
+                {
+                    b.Property<Guid>("ExpenseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Share")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TripId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("ExpenseId", "UserId");
+
+                    b.HasIndex(new[] { "TripId", "UserId" }, "ix_tripexpenseshares_trip_user");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "TripId", "UserId" }, "ix_tripexpenseshares_trip_user"), new[] { "Share" });
+
+                    b.ToTable("TripExpenseShares", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_tripexpenseshares_share", "\"Share\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripExpenseState", b =>
+                {
+                    b.Property<Guid>("TripId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ExpenseCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("OpenPayments")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("ReceivedCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("ReopenedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReopenedExpenseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SaidPaidCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<long>("TotalSpent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<long>("Version")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.HasKey("TripId");
+
+                    b.ToTable("TripExpenseState", (string)null);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripExpenseSuggestionSkip", b =>
+                {
+                    b.Property<Guid>("TripId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceKind")
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)");
+
+                    b.Property<Guid>("SourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("SkippedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("TripId", "SourceKind", "SourceId");
+
+                    b.ToTable("TripExpenseSuggestionSkips", (string)null);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ExpensePromptDoneAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("InviteExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("InvitedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("InvitedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("JoinedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RespondedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid>("TripId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "EndedAt" }, "ix_tripmembers_ended")
+                        .HasFilter("\"Status\" IN ('Declined', 'Cancelled', 'Expired')");
+
+                    b.HasIndex(new[] { "InviteExpiresAt" }, "ix_tripmembers_invite_expires")
+                        .HasFilter("\"Status\" = 'Invited'");
+
+                    b.HasIndex(new[] { "TripId", "Status" }, "ix_tripmembers_trip_status");
+
+                    b.HasIndex(new[] { "UserId", "JoinedAt", "Id" }, "ix_tripmembers_user_joined")
+                        .IsDescending(false, true, true)
+                        .HasFilter("\"Status\" = 'Joined'");
+
+                    b.HasIndex(new[] { "UserId", "Status" }, "ix_tripmembers_user_status");
+
+                    b.HasIndex(new[] { "TripId", "UserId" }, "ux_tripmembers_trip_user")
+                        .IsUnique();
+
+                    b.ToTable("TripMembers", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_tripmembers_status", "\"Status\" IN ('Invited', 'Joined', 'Declined', 'Cancelled', 'Expired', 'Left', 'Removed')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripPayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Amount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("EndedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FromUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReceivedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("SaidPaidAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SaidPaidByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(11)
+                        .HasColumnType("character varying(11)");
+
+                    b.Property<Guid>("ToUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TripId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "EndedAt" }, "ix_trippayments_ended")
+                        .HasFilter("\"EndedAt\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "TripId", "State" }, "ix_trippayments_trip_state");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "TripId", "State" }, "ix_trippayments_trip_state"), new[] { "FromUserId", "ToUserId", "Amount" });
+
+                    b.HasIndex(new[] { "TripId", "FromUserId", "ToUserId" }, "ux_trippayments_pair_saidpaid")
+                        .IsUnique()
+                        .HasFilter("\"State\" = 'SaidPaid'");
+
+                    b.ToTable("TripPayments", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_trippayments_amount", "\"Amount\" BETWEEN 1 AND 5000000");
+
+                            t.HasCheckConstraint("ck_trippayments_ended", "(\"State\" IN ('Withdrawn', 'NotReceived')) = (\"EndedAt\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_trippayments_not_self", "\"FromUserId\" <> \"ToUserId\"");
+
+                            t.HasCheckConstraint("ck_trippayments_received", "\"State\" = 'Received' OR \"ReceivedAt\" IS NULL");
+
+                            t.HasCheckConstraint("ck_trippayments_state", "\"State\" IN ('SaidPaid', 'Received', 'Withdrawn', 'NotReceived')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.UserNotice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid?>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("Amount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Count")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("RefId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TripId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValue(new Guid("00000000-0000-0000-0000-000000000000"));
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "TripId", "Kind" }, "ix_usernotices_trip_kind");
+
+                    b.HasIndex(new[] { "UpdatedAt" }, "ix_usernotices_updated");
+
+                    b.HasIndex(new[] { "UserId" }, "ix_usernotices_user_unread")
+                        .HasFilter("\"ReadAt\" IS NULL");
+
+                    b.HasIndex(new[] { "UserId", "UpdatedAt", "Id" }, "ix_usernotices_user_updated")
+                        .IsDescending(false, true, true);
+
+                    b.HasIndex(new[] { "UserId", "Kind", "TripId" }, "ux_usernotices_user_kind_trip")
+                        .IsUnique();
+
+                    b.ToTable("UserNotices", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_usernotices_count", "\"Count\" >= 1");
+
+                            t.HasCheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted')");
+                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.City", b =>
@@ -641,11 +1245,18 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
+                    b.Property<string>("Username")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("DeletedAt");
 
                     b.HasIndex("PhoneNumber");
+
+                    b.HasIndex(new[] { "Username" }, "ix_deletedaccountrecords_username")
+                        .HasFilter("\"Username\" IS NOT NULL");
 
                     b.ToTable("DeletedAccountRecords");
                 });
@@ -983,6 +1594,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<string>("Context")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -1012,6 +1627,10 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Guid>("ReportedUserId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ReportedUsername")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
 
                     b.Property<string>("ReporterMobile")
                         .IsRequired()
@@ -1065,6 +1684,10 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("Status", "CreatedAt", "Id")
                         .IsDescending(false, true, true);
+
+                    b.HasIndex(new[] { "ReportedUserId", "CreatedAt" }, "ix_listingreports_user_reported")
+                        .IsDescending(false, true)
+                        .HasFilter("\"ListingType\" = 'User'");
 
                     b.ToTable("ListingReports");
                 });
@@ -1976,15 +2599,25 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("Listing");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
+                    b.HasIndex(new[] { "Scope", "Name" }, "ix_reportreasons_scope_name")
                         .IsUnique();
 
-                    b.ToTable("ReportReasons");
+                    b.ToTable("ReportReasons", t =>
+                        {
+                            t.HasCheckConstraint("ck_reportreasons_scope", "\"Scope\" IN ('Listing', 'User')");
+                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.Role", b =>
@@ -3352,6 +3985,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "TravellerUserId", "BookedAt" }, "ix_taxibookings_traveller")
                         .IsDescending(false, true);
 
+                    b.HasIndex(new[] { "TripId" }, "ix_taxibookings_trip");
+
                     b.HasIndex(new[] { "RequestId" }, "ux_taxibookings_request_active")
                         .IsUnique()
                         .HasFilter("\"Status\" IN ('Booked', 'InProgress')");
@@ -4572,6 +5207,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<DateTime?>("BuddyRequestsHeldUntil")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -4668,7 +5306,15 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("BlockerId", "BlockedId")
                         .IsUnique();
 
-                    b.ToTable("UserBlocks");
+                    b.HasIndex(new[] { "BlockedId" }, "ix_userblocks_blocked");
+
+                    b.HasIndex(new[] { "BlockerId", "CreatedAt", "Id" }, "ix_userblocks_blocker_created")
+                        .IsDescending(false, true, true);
+
+                    b.ToTable("UserBlocks", t =>
+                        {
+                            t.HasCheckConstraint("ck_userblocks_not_self", "\"BlockerId\" <> \"BlockedId\"");
+                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.UserPlan", b =>
@@ -4862,6 +5508,114 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Navigation("Banner");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.BuddyLink", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("BuddyUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.BuddyRequest", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("FromUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ToUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripExpense", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Trip", null)
+                        .WithMany()
+                        .HasForeignKey("TripId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripExpenseRevision", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Buddy.TripExpense", null)
+                        .WithMany()
+                        .HasForeignKey("ExpenseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripExpenseShare", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Buddy.TripExpense", null)
+                        .WithMany()
+                        .HasForeignKey("ExpenseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripExpenseState", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Trip", null)
+                        .WithOne()
+                        .HasForeignKey("RentNearBy.Core.Entities.Buddy.TripExpenseState", "TripId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripExpenseSuggestionSkip", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Trip", null)
+                        .WithMany()
+                        .HasForeignKey("TripId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripMember", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Trip", null)
+                        .WithMany()
+                        .HasForeignKey("TripId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.TripPayment", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Trip", null)
+                        .WithMany()
+                        .HasForeignKey("TripId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Buddy.UserNotice", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.City", b =>

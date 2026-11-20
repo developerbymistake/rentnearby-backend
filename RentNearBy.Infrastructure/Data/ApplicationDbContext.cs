@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore.Metadata;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Buddy;
 
 namespace RentNearBy.Infrastructure.Data;
 
@@ -260,9 +261,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
         modelBuilder.Entity<ReportReason>(e =>
         {
+            e.ToTable(t => t.HasCheckConstraint("ck_reportreasons_scope", $"\"Scope\" IN ({ReportScopes.SqlList})"));
             e.HasKey(r => r.Id);
             e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.HasIndex(r => r.Name).IsUnique();
+            e.Property(r => r.Scope).HasMaxLength(10).IsRequired().HasDefaultValue(ReportScopes.Listing);
+            e.HasIndex(r => new { r.Scope, r.Name }, "ix_reportreasons_scope_name").IsUnique();
             e.Property(r => r.CreatedAt).HasDefaultValueSql("now()");
         });
 
@@ -299,6 +302,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(r => new { r.ReporterUserId, r.CreatedAt })
              .IsDescending(false, true)
              .HasDatabaseName("ix_listingreports_reporter_created");
+            e.Property(r => r.ReportedUsername).HasMaxLength(Usernames.MaxLength);
+            e.Property(r => r.Context).HasMaxLength(10);
+            // Person reports (buddy feature): reports of one person in 30 days, admin queue.
+            e.HasIndex(r => new { r.ReportedUserId, r.CreatedAt }, "ix_listingreports_user_reported")
+             .IsDescending(false, true)
+             .HasFilter($"\"ListingType\" = '{ReportScopes.User}'");
 
             e.HasOne<TripEnquiry>()
              .WithMany()
@@ -381,6 +390,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(b => b.CreatedAt).HasDefaultValueSql("now()");
 
             e.HasIndex(b => new { b.BlockerId, b.BlockedId }).IsUnique();
+            e.HasIndex(b => new { b.BlockerId, b.CreatedAt, b.Id }, "ix_userblocks_blocker_created").IsDescending(false, true, true);
+            e.HasIndex(b => b.BlockedId, "ix_userblocks_blocked");
+            e.ToTable(t => t.HasCheckConstraint("ck_userblocks_not_self", "\"BlockerId\" <> \"BlockedId\""));
         });
 
         modelBuilder.Entity<QuestionTemplate>(e =>
@@ -1622,10 +1634,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(r => r.StayRegistrationOtherName).HasMaxLength(StayRegistrationRules.OtherNameMax);
             e.Property(r => r.StayRegistrationNumber).HasMaxLength(StayRegistrationRules.RegistrationMax);
             e.Property(r => r.StayGstin).HasMaxLength(StayRegistrationRules.GstinLength);
+            e.Property(r => r.Username).HasMaxLength(Usernames.MaxLength);
+            e.HasIndex(r => r.Username, "ix_deletedaccountrecords_username").HasFilter("\"Username\" IS NOT NULL");
         });
 
         TaxiWaysModel.Configure(modelBuilder);
         TaxiRequestModel.Configure(modelBuilder);
+        BuddyFeatureModel.Configure(modelBuilder);
 
     }
 

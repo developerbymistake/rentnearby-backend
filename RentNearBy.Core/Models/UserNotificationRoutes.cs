@@ -26,6 +26,12 @@ public static class UserNotificationRoutes
     public const string TaxiRating = "/taxi-rating";
     public const string TaxiReady = "/taxi-ready";
 
+    public const string Buddies = "/buddies";
+    public const string TripInvite = "/trip-invite";
+    public const string TripTravellers = "/trip-travellers";
+    public const string TripView = "/trip-view";
+    public const string TripExpenses = "/trip-expenses";
+
     public static readonly IReadOnlyList<string> TaxiDriverRoutes = [TaxiRequestRing, TaxiRequests, TaxiRequestDetail, TaxiBookings, TaxiRating, TaxiReady];
     public static readonly IReadOnlyList<string> TravellerTaxiRoutes = [TripName, TripCustomize, TripOverview, TripTaxiRequest, TripTaxiStatus];
 
