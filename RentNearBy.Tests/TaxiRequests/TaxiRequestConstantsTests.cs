@@ -18,7 +18,7 @@ public class TaxiRequestConstantsTests
     [InlineData(typeof(BookingStates), new[] { "Booked", "InProgress", "Completed", "Cancelled" })]
     [InlineData(typeof(BookingCancelledBy), new[] { "Traveller", "Driver", "Admin", "System" })]
     [InlineData(typeof(BookingCompletedBy), new[] { "Auto", "Traveller", "Driver" })]
-    [InlineData(typeof(RequestEndReasons), new[] { "TravellerCancelled", "PickupChanged", "BookingCancelledByTraveller", "DriverLeftTrip", "AdminCancelled", "AccountClosed", "AllDriversBusy", "NotBooked" })]
+    [InlineData(typeof(RequestEndReasons), new[] { "TravellerCancelled", "PickupChanged", "BookingCancelledByTraveller", "DriverLeftTrip", "AdminCancelled", "AccountClosed", "AllDriversBusy", "NotBooked", "NoReadyDriver" })]
     [InlineData(typeof(OfferEndReasons), new[] { "Expired", "Filled", "ConfirmTimeout", "DeclinedBooking", "RequestCancelled", "RequestExpired", "Booked", "DriverOffline", "ListingRemoved", "RouteRemoved" })]
     [InlineData(typeof(ReasonChips), new[] { "ChangedPlan", "NotReachable", "PriceNotAgreed", "VehicleIssue", "Other" })]
     [InlineData(typeof(PlanLockReasons), new[] { "TaxiRequestActive", "TaxiBookingActive", "StayBookingActive" })]
@@ -51,7 +51,7 @@ public class TaxiRequestConstantsTests
             "TaxiRequestStateInvalid", "TaxiRequestLimitReached", "LegacyTaxiActive", "TaxiRequestActive", "TaxiSectionsRequired",
             "PickupNotAvailable", "DropNotAvailable", "NoDriversNearHere", "SightseeingDaysInvalid", "TripDatesRequired", "DayInPast",
             "AllDriversBusy", "ReasonRequired", "OfferNotFound", "NotOfferDriver", "OfferMissed", "OfferStateInvalid", "ConfirmWindowPassed",
-            "DatesAlreadyBooked", "RatingNotAllowed", "AlreadyRated",
+            "DatesAlreadyBooked", "RatingNotAllowed", "AlreadyRated", "NoReadyDriver",
         };
         var consts = Consts(typeof(TaxiRequestErrorTypes)).ToArray();
         Assert.Equal(consts.Length, consts.Distinct().Count());
@@ -67,6 +67,14 @@ public class TaxiRequestConstantsTests
         Assert.Equal("This trip already has a taxi ask from an older app version. Cancel it before you send a new request.", TaxiRequestErrorTypes.Messages["LegacyTaxiActive"]);
         Assert.Equal("This trip already has a taxi request. Update the app to see it.", TaxiRequestErrorTypes.Messages["TaxiRequestActive"]);
         Assert.Equal("Dates already booked. You have another booking from 20 Dec to 24 Dec.", TaxiRequestErrorTypes.DatesAlreadyBookedMessage(new(2026, 12, 20), new(2026, 12, 24)));
+    }
+
+    [Fact]
+    public void No_ready_driver_and_busy_have_their_own_messages()
+    {
+        Assert.Equal("No driver is ready for this route right now. Please try again in a little while.", TaxiRequestErrorTypes.Messages["NoReadyDriver"]);
+        Assert.Equal("All drivers are busy right now. Please try again in a little while.", TaxiRequestErrorTypes.Messages["AllDriversBusy"]);
+        Assert.Contains("NoReadyDriver", RequestEndReasons.Expired);
     }
 
     [Fact]

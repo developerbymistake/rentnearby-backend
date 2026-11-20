@@ -63,6 +63,12 @@ public class UpsertTaxiRoutesRequestValidator : AbstractValidator<UpsertTaxiRout
                     >= TaxiLimits.MinEndpointDistanceMeters)
                 .OverridePropertyName("Endpoints")
                 .WithMessage("From and To must be different places");
+
+            route.RuleFor(r => r)
+                .Must(r => TaxiRouteCityPicks.ShapeError(r) == null)
+                .OverridePropertyName("CityKeys")
+                .WithMessage((_, r) => TaxiRouteCityPicks.ShapeError(r))
+                .WithErrorCode(TaxiErrorTypes.TaxiRouteCityInvalid);
         }).When(x => x.Routes != null);
 
         // Declared after the per-route rules so a field error wins over the duplicate check.

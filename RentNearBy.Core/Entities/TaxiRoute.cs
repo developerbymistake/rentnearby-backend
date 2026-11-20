@@ -17,9 +17,11 @@ public class TaxiRoute
     public decimal ToLatitude { get; set; }
     public decimal ToLongitude { get; set; }
 
-    // Atlas city keys of both ends; null until resolved (TaxiRouteCityKeys only).
+    // Atlas city keys of both ends (TaxiRouteCityKeys only). Chosen: the driver picked them from the city list and a
+    // null key is an other place the backfill never fills; else they are found from the pins (old builds).
     public long? FromCityKey { get; set; }
     public long? ToCityKey { get; set; }
+    public bool CityKeysChosen { get; set; }
 
     public int Fare { get; set; }
     public string TripType { get; set; } = string.Empty;

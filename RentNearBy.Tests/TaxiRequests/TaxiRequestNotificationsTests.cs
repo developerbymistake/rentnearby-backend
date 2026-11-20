@@ -30,6 +30,7 @@ public class TaxiRequestNotificationsTests
             new(NotificationTypes.TaxiBooked, "taxi_booked", "Taxi booked", "Ravi confirmed your booking", "/trip-taxi-status", TravellerArgs, "Ravi"),
             new(NotificationTypes.TaxiRequestEnded, "taxi_request_ended", "All drivers are busy right now", "Please try again in a little while.", "/trip-taxi-status", TravellerArgs, null, new(RequestEndReasons.AllDriversBusy)),
             new(NotificationTypes.TaxiRequestEnded, "taxi_request_ended", "All drivers are busy right now", "Please try again in a little while.", "/trip-taxi-status", TravellerArgs, null, new(RequestEndReasons.NotBooked)),
+            new(NotificationTypes.TaxiRequestEnded, "taxi_request_ended", "No driver is ready right now", "Please try again in a little while.", "/trip-taxi-status", TravellerArgs, null, new(RequestEndReasons.NoReadyDriver)),
             new(NotificationTypes.TaxiRequestEnded, "taxi_request_ended", "Request closed", "You can send a new request", "/trip-taxi-status", TravellerArgs, null, new(RequestEndReasons.AdminCancelled)),
             new(NotificationTypes.TaxiDriverWithdrew, "taxi_driver_withdrew", "Your driver cancelled", "We are finding another driver", "/trip-taxi-status", TravellerArgs),
             new(NotificationTypes.TaxiDriverWithdrew, "taxi_driver_withdrew", "Your driver cancelled", "You can request another taxi", "/trip-taxi-status", TravellerArgs, null, new(DuringTrip: true)),
@@ -120,6 +121,8 @@ public class TaxiRequestNotificationsTests
     {
         { TaxiNoticeKind.RequestEnded, Traveller, RequestEndReasons.AllDriversBusy, "All drivers are busy right now", "Please try again in a little while.", "/trip-taxi-status" },
         { TaxiNoticeKind.RequestEnded, Traveller, RequestEndReasons.NotBooked, "All drivers are busy right now", "Please try again in a little while.", "/trip-taxi-status" },
+        { TaxiNoticeKind.RequestEnded, Traveller, RequestEndReasons.NoReadyDriver, "No driver is ready right now", "Please try again in a little while.", "/trip-taxi-status" },
+        { TaxiNoticeKind.RequestClosed, Driver, RequestEndReasons.NoReadyDriver, "Request closed", "This request is closed", "/taxi-requests" },
         { TaxiNoticeKind.RequestEnded, Traveller, RequestEndReasons.AdminCancelled, "Request closed", "You can send a new request", "/trip-taxi-status" },
         { TaxiNoticeKind.DriverWithdrew, Traveller, RequestEndReasons.DriverLeftTrip, "Your driver cancelled", "You can request another taxi", "/trip-taxi-status" },
         { TaxiNoticeKind.DriverWithdrew, Traveller, null, "Your driver cancelled", "We are finding another driver", "/trip-taxi-status" },

@@ -21,6 +21,8 @@ public static class TaxiRequestErrorTypes
     public const string TripDatesRequired = "TripDatesRequired";
     public const string DayInPast = "DayInPast";
     public const string AllDriversBusy = "AllDriversBusy";
+    // Drivers are listed for the route but none can be rung now (none ring-ready, or none fits seats and dates).
+    public const string NoReadyDriver = "NoReadyDriver";
     public const string ReasonRequired = "ReasonRequired";
     public const string OfferNotFound = "OfferNotFound";
     public const string NotOfferDriver = "NotOfferDriver";
@@ -45,7 +47,7 @@ public static class TaxiRequestErrorTypes
         PickupNotAvailable, DropNotAvailable, NoDriversNearHere, SightseeingDaysInvalid, TripDatesRequired, DayInPast,
         AllDriversBusy, ReasonRequired, OfferNotFound, NotOfferDriver, OfferMissed, OfferStateInvalid, ConfirmWindowPassed,
         DatesAlreadyBooked, RatingNotAllowed, AlreadyRated, TooManyRequests, NotFound, DayAlreadyBooked,
-        SeatsTooFew, TooManyTravellers, OverlappingTaxiRequest,
+        SeatsTooFew, TooManyTravellers, OverlappingTaxiRequest, NoReadyDriver,
     ];
 
     // Messages the contract fixes (English, shown as is when the app has no own copy).
@@ -68,6 +70,7 @@ public static class TaxiRequestErrorTypes
         [TripDatesRequired] = "Add your trip dates first",
         [DayInPast] = "That day has passed",
         [AllDriversBusy] = "All drivers are busy right now. Please try again in a little while.",
+        [NoReadyDriver] = "No driver is ready for this route right now. Please try again in a little while.",
         [ReasonRequired] = "Choose a reason",
         [OfferNotFound] = "Request not found",
         [NotOfferDriver] = "You cannot answer this request",

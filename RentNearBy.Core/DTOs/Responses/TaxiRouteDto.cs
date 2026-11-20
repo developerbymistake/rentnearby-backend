@@ -16,6 +16,11 @@ public class TaxiRouteDto
     public string? FromCityName { get; set; }
     public long? ToCityKey { get; set; }
     public string? ToCityName { get; set; }
+    public bool CityKeysChosen { get; set; }
+    // Both ends are live cities, so taxi requests can match this route.
+    public bool ActiveInRequests => FromCityKey != null && ToCityKey != null;
+    public bool FromOtherPlace => CityKeysChosen && FromCityKey == null;
+    public bool ToOtherPlace => CityKeysChosen && ToCityKey == null;
     public int Fare { get; set; }
     public string TripType { get; set; } = string.Empty;
 }

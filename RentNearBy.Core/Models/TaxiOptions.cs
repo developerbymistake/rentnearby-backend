@@ -126,6 +126,7 @@ public static class TaxiErrorTypes
     public const string TaxiLocked = "TaxiLocked";
     public const string TaxiAlreadyExists = "TaxiAlreadyExists";
     public const string TaxiRouteLimit = "TaxiRouteLimit";
+    public const string TaxiRouteCityInvalid = "TaxiRouteCityInvalid";
     public const string TaxiNotApproved = "TaxiNotApproved";
     public const string TaxiPlateTaken = "TaxiPlateTaken";
     public const string TaxiVehicleTypeInUse = "TaxiVehicleTypeInUse";

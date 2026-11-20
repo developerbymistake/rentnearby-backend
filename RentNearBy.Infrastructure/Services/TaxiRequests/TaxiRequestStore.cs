@@ -10,7 +10,8 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services.TaxiRequests;
 
-public sealed record TaxiLiveCounts(int Ringing, int Accepted, int Selected);
+// Total = every offer the request ever had, in any state.
+public sealed record TaxiLiveCounts(int Ringing, int Accepted, int Selected, int Total = 0);
 
 public sealed record TaxiRequestMove(Guid RequestId, Guid TripId, Guid TravellerUserId, string FromState, string ToState, long Version, long DispatchCityKey)
 {
@@ -49,7 +50,7 @@ public sealed class TaxiRequestStore(
     public async Task<TaxiLiveCounts> GetLiveCountsAsync(ApplicationDbContext db, Guid requestId, CancellationToken ct = default)
     {
         var row = await db.Database.SqlQueryRaw<LiveCountsRow>(TaxiRequestStoreSql.LiveCounts, Uuid("id", requestId)).SingleAsync(ct);
-        return new TaxiLiveCounts(row.Ringing, row.Accepted, row.Selected);
+        return new TaxiLiveCounts(row.Ringing, row.Accepted, row.Selected, row.Total);
     }
 
     public async Task<TaxiRequestMove?> TryMoveRequestAsync(ApplicationDbContext db, Guid requestId, IReadOnlyCollection<string> from, string to,
@@ -264,6 +265,7 @@ public sealed class TaxiRequestStore(
         public int Ringing { get; set; }
         public int Accepted { get; set; }
         public int Selected { get; set; }
+        public int Total { get; set; }
     }
 
     private sealed class RequestMoveRow
@@ -340,7 +342,8 @@ public static class TaxiRequestStoreSql
     public static readonly string LiveCounts = $"""
         SELECT count(*) FILTER (WHERE "Status" = '{OfferStates.Ringing}')::int AS "Ringing",
                count(*) FILTER (WHERE "Status" = '{OfferStates.Accepted}')::int AS "Accepted",
-               count(*) FILTER (WHERE "Status" = '{OfferStates.Selected}')::int AS "Selected"
+               count(*) FILTER (WHERE "Status" = '{OfferStates.Selected}')::int AS "Selected",
+               count(*)::int AS "Total"
         FROM "TaxiRequestOffers" WHERE "RequestId" = @id
         """;
 
@@ -467,7 +470,8 @@ public static class TaxiRequestStoreSql
     // Contract 10.3: the traveller hears about an end he did not cause himself.
     public static TaxiNoticeKind? TravellerNoticeFor(string endReason) => endReason switch
     {
-        RequestEndReasons.AllDriversBusy or RequestEndReasons.NotBooked or RequestEndReasons.AdminCancelled => TaxiNoticeKind.RequestEnded,
+        RequestEndReasons.AllDriversBusy or RequestEndReasons.NoReadyDriver or RequestEndReasons.NotBooked or RequestEndReasons.AdminCancelled
+            => TaxiNoticeKind.RequestEnded,
         RequestEndReasons.DriverLeftTrip => TaxiNoticeKind.DriverWithdrew,
         _ => null,
     };

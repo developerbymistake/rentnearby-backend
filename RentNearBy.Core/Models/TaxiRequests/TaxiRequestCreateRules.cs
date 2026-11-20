@@ -35,6 +35,10 @@ public sealed record TaxiCreatePlan(
 
 public sealed record TaxiCreateCheck(TaxiCreatePlan? Plan, TaxiRequestError? Error);
 
+// Drivers for the planned request: Listed = registered with the route and fitting it; RingReady = of those, the ones a
+// ring can reach; Ringable = ring-ready with the dates free (busy with another ring still counts).
+public sealed record TaxiCreateReadiness(int Listed, int RingReady, int Ringable);
+
 // Another trip of the same traveller that already holds a taxi request or booking on overlapping dates (O3 + O10).
 public sealed record TaxiOverlap(Guid TripId, string TripName, Guid RequestId, DateOnly DateFrom, DateOnly DateTo);
 
@@ -98,6 +102,12 @@ public static class TaxiRequestCreateRules
             facts.SightseeingCityKey ?? facts.FirstCityKey);
         return new TaxiCreateCheck(new TaxiCreatePlan(start, occupied, dispatch, matchTo, matchFrom, pickupKey, dropKey, sameAsPickup, days, body.Seats), null);
     }
+
+    // A request nobody can be rung for would only expire later; it is refused at once instead. Busy = drivers a ring can
+    // reach exist but all are booked on these dates; otherwise nobody is ready.
+    public static TaxiRequestError? ReadinessError(TaxiCreateReadiness readiness)
+        => readiness.Ringable > 0 ? null
+            : Error(409, readiness.RingReady > 0 ? TaxiRequestErrorTypes.AllDriversBusy : TaxiRequestErrorTypes.NoReadyDriver);
 
     // MASTER_PLAN 2.2 and P18. Pickup = routes from the pickup city to the first city; drop without pickup = routes from
     // the drop city to the last city; sightseeing only = any route to the sightseeing city (O4). The pool key follows the same order.

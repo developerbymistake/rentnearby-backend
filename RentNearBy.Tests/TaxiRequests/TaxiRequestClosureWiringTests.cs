@@ -111,6 +111,9 @@ public class TaxiRequestClosureWiringTests
         Assert.True(routesCommit > routesSave && routesAfter > routesCommit && bump > routesCommit, "Signals and the pickup bump run after commit");
         var lookups = routes.IndexOf("var (_, routeKeys) = await TaxiRouteCityKeys.ResolveForSaveAsync(resolver, saved,", StringComparison.Ordinal);
         Assert.True(lookups > 0 && lookups < routesBegin, "City lookups stay outside the transaction and give the closure its keys");
+        Assert.Contains("TaxiRouteCityKeys.ResolveForSaveAsync(resolver, saved, picks,", routes);
+        var pickCheck = routes.IndexOf("await TaxiRouteCityKeys.CheckPicksAsync(catalog, pickChecks)", StringComparison.Ordinal);
+        Assert.True(pickCheck > 0 && pickCheck < firstWrite, "Picked city keys are checked against the catalog before any write");
         Assert.Contains("catch (Exception ex) when (ex is DbUpdateConcurrencyException || PgRetry.IsRetryable(ex))", routes);
 
         Assert.Single(Regex.Matches(source, Regex.Escape("GetRequiredService<TaxiPickupPlaces>()")));

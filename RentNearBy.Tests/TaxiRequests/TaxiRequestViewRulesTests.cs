@@ -51,6 +51,10 @@ public class TaxiRequestViewRulesTests
     [Fact]
     public void Expired_AllDriversBusy_is_Busy() => Assert.Equal("Busy", TaxiRequestViewRules.Derive("Expired", "AllDriversBusy", true, false, null, false));
 
+    // Same screen state; the app picks the words from endReason, so old builds keep working.
+    [Fact]
+    public void Expired_NoReadyDriver_is_Busy() => Assert.Equal("Busy", TaxiRequestViewRules.Derive("Expired", "NoReadyDriver", false, false, null, false));
+
     [Fact]
     public void Expired_NotBooked_is_Ended() => Assert.Equal("Ended", TaxiRequestViewRules.Derive("Expired", "NotBooked", false, false, null, false));
 

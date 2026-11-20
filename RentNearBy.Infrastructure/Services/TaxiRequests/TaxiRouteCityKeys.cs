@@ -1,9 +1,12 @@
+using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 
@@ -48,8 +51,9 @@ public readonly record struct CityLookup(long? Key, bool Settled)
     public static readonly CityLookup NoAnswer = new(null, false);
 }
 
-// The ONLY writer of TaxiRoute.FromCityKey / ToCityKey. A key is stored only for an available, found and trusted city;
-// anything else stays null (EventId 7101), never a guess. A later Atlas picker adds one branch here: a valid sent key is used.
+// The ONLY writer of TaxiRoute.FromCityKey / ToCityKey. A key the driver picked from the city list is stored as sent once
+// CheckPicksAsync passed. Old builds: a key is stored only for an available, found and trusted city; anything else stays
+// null (EventId 7101), never a guess.
 public static class TaxiRouteCityKeys
 {
     public static readonly EventId Unresolved = new(7101, "taxi.route.city.unresolved");
@@ -123,12 +127,22 @@ public static class TaxiRouteCityKeys
 
     // Same as ResolveAsync, plus the keys of every route (in order) for the O12 offer check: an end is pending when its
     // point is new or moved and its lookup gave no final answer inside the budget.
-    public static async Task<(int Unresolved, IReadOnlyList<RouteServeKeys> Keys)> ResolveForSaveAsync(
+    public static Task<(int Unresolved, IReadOnlyList<RouteServeKeys> Keys)> ResolveForSaveAsync(
         ICityResolver resolver, IReadOnlyList<(TaxiRoute Route, RouteEndsBefore? Before)> routes, ILogger logger, TimeSpan? budget = null)
+        => ResolveForSaveAsync(resolver, routes, new RouteCityPick?[routes.Count], logger, budget);
+
+    // picks[i] set = the driver chose both ends of routes[i] from the city list (already checked by CheckPicksAsync):
+    // the keys are stored as sent and final, nothing is looked up. null = an old build, the pins decide.
+    public static async Task<(int Unresolved, IReadOnlyList<RouteServeKeys> Keys)> ResolveForSaveAsync(
+        ICityResolver resolver, IReadOnlyList<(TaxiRoute Route, RouteEndsBefore? Before)> routes, IReadOnlyList<RouteCityPick?> picks,
+        ILogger logger, TimeSpan? budget = null)
     {
+        if (picks.Count != routes.Count) throw new ArgumentException("One pick slot per route", nameof(picks));
         var points = new HashSet<(decimal Lat, decimal Lng)>();
-        foreach (var (route, before) in routes)
+        for (var i = 0; i < routes.Count; i++)
         {
+            var (route, before) = routes[i];
+            if (picks[i] != null) continue;
             if (!Keeps(route.FromLatitude, route.FromLongitude, before?.FromLat, before?.FromLng, before?.FromKey))
                 points.Add((route.FromLatitude, route.FromLongitude));
             if (!Keeps(route.ToLatitude, route.ToLongitude, before?.ToLat, before?.ToLng, before?.ToKey))
@@ -140,8 +154,18 @@ public static class TaxiRouteCityKeys
 
         var unresolved = 0;
         var keys = new List<RouteServeKeys>(routes.Count);
-        foreach (var (route, before) in routes)
+        for (var i = 0; i < routes.Count; i++)
         {
+            var (route, before) = routes[i];
+            if (picks[i] is { } pick)
+            {
+                route.FromCityKey = pick.FromKey;
+                route.ToCityKey = pick.ToKey;
+                route.CityKeysChosen = true;
+                keys.Add(new RouteServeKeys(pick.FromKey, pick.ToKey, FromPending: false, ToPending: false));
+                continue;
+            }
+            route.CityKeysChosen = false;
             var from = Keeps(route.FromLatitude, route.FromLongitude, before?.FromLat, before?.FromLng, before?.FromKey)
                 ? new CityLookup(before!.FromKey, true) : answers.GetValueOrDefault((route.FromLatitude, route.FromLongitude), CityLookup.NoAnswer);
             var to = Keeps(route.ToLatitude, route.ToLongitude, before?.ToLat, before?.ToLng, before?.ToKey)
@@ -156,6 +180,31 @@ public static class TaxiRouteCityKeys
             logger.LogWarning(Unresolved, "taxi.route.city.unresolved {RouteId}", route.Id);
         }
         return (unresolved, keys);
+    }
+
+    // Every sent key that is new for its slot must be a live city of the catalog (the list of GET /trips/cities) with the
+    // pin near its centre. One catalog read per distinct key; the first refusal wins. Before = the slot's route as stored.
+    public static async Task<TaxiRouteCityError?> CheckPicksAsync(
+        ITripCityCatalog catalog, IReadOnlyList<(TaxiRouteInput Input, RouteCityPick? Pick, RouteEndsBefore? Before)> routes, CancellationToken ct = default)
+    {
+        var found = new Dictionary<long, (bool Available, TripCityInfo? City)>();
+        foreach (var (input, pick, before) in routes)
+        {
+            if (pick is null) continue;
+            var ends = new[] { (pick.FromKey, before?.FromKey, input.FromLatitude, input.FromLongitude), (pick.ToKey, before?.ToKey, input.ToLatitude, input.ToLongitude) };
+            foreach (var (key, keyBefore, lat, lng) in ends)
+            {
+                if (key is not { } k || !TaxiRouteCityPicks.NeedsCatalogCheck(k, keyBefore)) continue;
+                if (!found.TryGetValue(k, out var answer))
+                {
+                    try { answer = await catalog.FindAsync(k, ct); }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { answer = (false, null); }
+                    found[k] = answer;
+                }
+                if (TaxiRouteCityPicks.CheckEnd(lat, lng, answer.Available, answer.City) is { } error) return error;
+            }
+        }
+        return null;
     }
 
     private static bool Keeps(decimal lat, decimal lng, decimal? beforeLat, decimal? beforeLng, long? beforeKey)
@@ -221,14 +270,17 @@ public sealed class TaxiRouteCityKeyStore(IServiceScopeFactory scopes, ILogger<T
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        return await db.Database.SqlQuery<TaxiRouteKeyRow>($"""
-            SELECT "Id", "TaxiListingId", "FromLatitude", "FromLongitude", "ToLatitude", "ToLongitude", "FromCityKey", "ToCityKey"
-            FROM "TaxiRoutes"
-            WHERE ("FromCityKey" IS NULL OR "ToCityKey" IS NULL) AND "Id" > {after}
-            ORDER BY "Id"
-            LIMIT {take}
-            """).ToListAsync(ct);
+        return await db.Database.SqlQuery<TaxiRouteKeyRow>(FormattableStringFactory.Create(NextMissingSql, after, take)).ToListAsync(ct);
     }
+
+    // Routes whose keys the driver chose are final: a null key there is an other place, never guessed.
+    public const string NextMissingSql = """
+        SELECT "Id", "TaxiListingId", "FromLatitude", "FromLongitude", "ToLatitude", "ToLongitude", "FromCityKey", "ToCityKey"
+        FROM "TaxiRoutes"
+        WHERE ("FromCityKey" IS NULL OR "ToCityKey" IS NULL) AND NOT "CityKeysChosen" AND "Id" > {0}
+        ORDER BY "Id"
+        LIMIT {1}
+        """;
 
     public async Task<int> WriteAsync(IReadOnlyList<TaxiRouteKeyWrite> writes, CancellationToken ct)
     {
@@ -243,7 +295,7 @@ public sealed class TaxiRouteCityKeyStore(IServiceScopeFactory scopes, ILogger<T
             var from = w.FromCityKey;
             var to = w.ToCityKey;
             changed += await db.TaxiRoutes
-                .Where(x => x.Id == r.Id
+                .Where(x => x.Id == r.Id && !x.CityKeysChosen
                     && x.FromLatitude == r.FromLatitude && x.FromLongitude == r.FromLongitude
                     && x.ToLatitude == r.ToLatitude && x.ToLongitude == r.ToLongitude)
                 .ExecuteUpdateAsync(s => s

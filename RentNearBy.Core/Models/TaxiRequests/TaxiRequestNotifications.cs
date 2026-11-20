@@ -38,9 +38,12 @@ public static class TaxiRequestNotifications
             case NotificationTypes.TaxiBooked:
                 return ToTraveller("Taxi booked", $"{name ?? "Your driver"} confirmed your booking");
             case NotificationTypes.TaxiRequestEnded:
-                return detail.Reason is RequestEndReasons.AllDriversBusy or RequestEndReasons.NotBooked
-                    ? ToTraveller("All drivers are busy right now", "Please try again in a little while.")
-                    : ToTraveller("Request closed", "You can send a new request");
+                return detail.Reason switch
+                {
+                    RequestEndReasons.NoReadyDriver => ToTraveller("No driver is ready right now", "Please try again in a little while."),
+                    RequestEndReasons.AllDriversBusy or RequestEndReasons.NotBooked => ToTraveller("All drivers are busy right now", "Please try again in a little while."),
+                    _ => ToTraveller("Request closed", "You can send a new request"),
+                };
             case NotificationTypes.TaxiDriverWithdrew:
                 return ToTraveller("Your driver cancelled", detail.DuringTrip ? "You can request another taxi" : "We are finding another driver");
             case NotificationTypes.TaxiRateDriver:

@@ -609,6 +609,7 @@ public static class TaxiHandlers
         IUnitOfWork unitOfWork,
         ApplicationDbContext db,
         ICityResolver resolver,
+        ITripCityCatalog catalog,
         ILoggerFactory loggerFactory,
         IServiceProvider sp)
     {
@@ -619,8 +620,8 @@ public static class TaxiHandlers
         if (!validation.IsValid)
         {
             var error = validation.Errors[0];
-            return error.ErrorCode == TaxiErrorTypes.TaxiRouteLimit
-                ? BadRequestResponse(error.ErrorMessage, TaxiErrorTypes.TaxiRouteLimit)
+            return error.ErrorCode is TaxiErrorTypes.TaxiRouteLimit or TaxiErrorTypes.TaxiRouteCityInvalid
+                ? BadRequestResponse(error.ErrorMessage, error.ErrorCode)
                 : BadRequestResponse(error.ErrorMessage);
         }
 
@@ -636,6 +637,13 @@ public static class TaxiHandlers
         // so the (TaxiListingId, RouteIndex) unique index never sees a transient duplicate.
         var now = DateTime.UtcNow;
         var existing = taxi.Routes.OrderBy(r => r.RouteIndex).ToList();
+        var picks = request.Routes.Select(TaxiRouteCityPicks.Of).ToList();
+        var pickChecks = request.Routes
+            .Select((input, i) => (input, picks[i], RouteEndsBefore.Of(existing.FirstOrDefault(r => r.RouteIndex == i + 1))))
+            .ToList();
+        if (await TaxiRouteCityKeys.CheckPicksAsync(catalog, pickChecks) is { } cityError)
+            return ErrorResponse(cityError.Status, cityError.Message, cityError.Type);
+
         var saved = new List<(TaxiRoute Route, RouteEndsBefore? Before)>(request.Routes.Count);
         for (var i = 0; i < request.Routes.Count; i++)
         {
@@ -677,9 +685,10 @@ public static class TaxiHandlers
         RecomputeMinFare(taxi);
         taxi.UpdatedAt = now;
 
-        // A city that cannot be trusted right now leaves the key null; the route still saves and the backfill retries.
+        // Picked cities are stored as sent. Old builds: a city that cannot be trusted right now leaves the key null; the
+        // route still saves and the backfill retries.
         var started = Stopwatch.GetTimestamp();
-        var (_, routeKeys) = await TaxiRouteCityKeys.ResolveForSaveAsync(resolver, saved, loggerFactory.CreateLogger("TaxiRouteCityKeys"), TaxiRouteCityKeys.RequestBudget);
+        var (_, routeKeys) = await TaxiRouteCityKeys.ResolveForSaveAsync(resolver, saved, picks, loggerFactory.CreateLogger("TaxiRouteCityKeys"), TaxiRouteCityKeys.RequestBudget);
         TaxiRouteCityKeys.MarkKeysWritten(db, saved.Select(s => s.Route));
 
         // O12: ringing and accepted offers no remaining route serves close in the same transaction, before the listing row

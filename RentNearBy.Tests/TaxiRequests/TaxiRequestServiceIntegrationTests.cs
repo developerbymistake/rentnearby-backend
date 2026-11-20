@@ -748,7 +748,7 @@ public class TaxiRequestServiceIntegrationTests(TestDatabase db) : IntegrationTe
     }
 
     [IntegrationFact]
-    public async Task Driver_without_ring_readiness_is_listed_and_create_is_accepted()
+    public async Task Listed_driver_who_cannot_be_rung_is_listed_but_create_answers_NoReadyDriver()
     {
         await using var h = new JourneyHarness(Db);
         await ListedDriverAsync(h, "Ramesh");
@@ -760,6 +760,23 @@ public class TaxiRequestServiceIntegrationTests(TestDatabase db) : IntegrationTe
         Assert.Equal(1, lists.SightseeingDrivers);
         Assert.Equal(0, await RingablePoolAsync(h));
 
+        await using var s = h.NewScope();
+        var refused = await Service(s.Db).CreateAsync(trip, seeker, Body());
+        Assert.False(refused.Created);
+        Assert.Equal((409, TaxiRequestErrorTypes.NoReadyDriver), (refused.Error!.Status, refused.Error.Type));
+        Assert.Equal(0, await s.Db.Set<TaxiRequest>().CountAsync(r => r.TripId == trip));
+    }
+
+    [IntegrationFact]
+    public async Task Create_needs_one_ringable_driver_and_a_busy_one_counts()
+    {
+        await using var h = new JourneyHarness(Db);
+        var driver = await ReadyDriverAsync(h, "Ramesh");
+        var (otherTrip, otherSeeker) = await TripAsync(h);
+        var other = await CreateAsync(h, otherTrip, otherSeeker);
+        await OfferAsync(h, other.Id, driver, OfferStates.Ringing);
+
+        var (trip, seeker) = await TripAsync(h);
         await using var s = h.NewScope();
         var created = await Service(s.Db).CreateAsync(trip, seeker, Body());
         Assert.True(created.Created, created.Error?.Type);

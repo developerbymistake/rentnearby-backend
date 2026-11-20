@@ -15,7 +15,8 @@ public static class TaxiRequestViewRules
             RequestStates.Booked => RequestViews.Booked,
             RequestStates.InProgress => RequestViews.InProgress,
             RequestStates.Completed => rated ? RequestViews.Done : RequestViews.Rate,
-            RequestStates.Expired when endReason == RequestEndReasons.AllDriversBusy => RequestViews.Busy,
+            // The app tells the two apart by endReason; older builds show the busy screen for both.
+            RequestStates.Expired when endReason is RequestEndReasons.AllDriversBusy or RequestEndReasons.NoReadyDriver => RequestViews.Busy,
             RequestStates.Expired or RequestStates.Cancelled => RequestViews.Ended,
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown request state"),
         };

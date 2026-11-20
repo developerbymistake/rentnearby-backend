@@ -122,6 +122,34 @@ public static class TaxiCandidateQuery
         ) x
         """;
 
+    // Create check before the request row exists: r is the planned request as one row, so the same rules apply.
+    // Listed = registered drivers with the route who fit seats, traveller and blocks; RingReady = of those, the ones a ring
+    // can reach; Ringable = ring-ready with the dates free. Drivers busy with another ring count as ringable.
+    public static readonly string ReadinessSql = $"""
+        SELECT count(*)::int AS "Listed",
+               count(*) FILTER (WHERE {RingRule})::int AS "RingReady",
+               count(*) FILTER (WHERE {RingRule} AND {NoBookingOverlapRule} AND {NoLegacyOverlapRule})::int AS "Ringable"
+        FROM (SELECT @to::bigint AS "MatchToCityKey", @from::bigint AS "MatchFromCityKey", @seats::int AS "Seats",
+                     @traveller::uuid AS "TravellerUserId", @dateFrom::date AS "DateFrom", @dateTo::date AS "DateTo") r
+        JOIN "TaxiListings" l ON {RouteRule}
+        WHERE {ListRule}
+        AND {SeatsRule}
+        AND {NotTravellerRule}
+        AND {NoBlockRule}
+        """;
+
+    public static async Task<TaxiCreateReadiness> CountReadyAsync(ApplicationDbContext db, Guid travellerUserId, TaxiCreatePlan plan, CancellationToken ct = default)
+    {
+        var row = await db.Database.SqlQueryRaw<ReadinessRow>(ReadinessSql,
+            new NpgsqlParameter("to", NpgsqlDbType.Bigint) { Value = plan.MatchToCityKey },
+            new NpgsqlParameter("from", NpgsqlDbType.Bigint) { Value = (object?)plan.MatchFromCityKey ?? DBNull.Value },
+            new NpgsqlParameter("seats", NpgsqlDbType.Integer) { Value = plan.Seats },
+            new NpgsqlParameter("traveller", NpgsqlDbType.Uuid) { Value = travellerUserId },
+            new NpgsqlParameter("dateFrom", NpgsqlDbType.Date) { Value = plan.Occupied.From },
+            new NpgsqlParameter("dateTo", NpgsqlDbType.Date) { Value = plan.Occupied.To }).SingleAsync(ct);
+        return new TaxiCreateReadiness(row.Listed, row.RingReady, row.Ringable);
+    }
+
     // Matcher step before LoadPoolAsync: the pool query takes its lock on the state rows, so they must exist.
     public static Task<int> EnsureDispatchStatesAsync(ApplicationDbContext db, long cityKey, CancellationToken ct = default)
         => db.Database.ExecuteSqlRawAsync(EnsureDispatchStatesSql, [City(cityKey)], ct);
@@ -168,6 +196,13 @@ public static class TaxiCandidateQuery
         public Guid RequestId { get; set; }
         public Guid DriverListingId { get; set; }
         public bool Free { get; set; }
+    }
+
+    private sealed class ReadinessRow
+    {
+        public int Listed { get; set; }
+        public int RingReady { get; set; }
+        public int Ringable { get; set; }
     }
 
     private sealed class RemainingRow

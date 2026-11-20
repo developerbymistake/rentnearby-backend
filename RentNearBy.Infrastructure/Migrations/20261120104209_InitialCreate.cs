@@ -1497,6 +1497,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     ToLongitude = table.Column<decimal>(type: "numeric(9,6)", nullable: false),
                     FromCityKey = table.Column<long>(type: "bigint", nullable: true),
                     ToCityKey = table.Column<long>(type: "bigint", nullable: true),
+                    CityKeysChosen = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     Fare = table.Column<int>(type: "integer", nullable: false),
                     TripType = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),

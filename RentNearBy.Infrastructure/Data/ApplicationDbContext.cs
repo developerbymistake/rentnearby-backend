@@ -1179,6 +1179,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(r => r.ToLatitude).HasColumnType("numeric(9,6)");
             e.Property(r => r.ToLongitude).HasColumnType("numeric(9,6)");
             e.Property(r => r.TripType).HasMaxLength(12).IsRequired();
+            e.Property(r => r.CityKeysChosen).HasDefaultValue(false);
 
             e.HasOne<TaxiListing>()
              .WithMany(t => t.Routes)

@@ -248,7 +248,7 @@ public class TaxiMatcherPassIntegrationTests(TestDatabase db) : IntegrationTestB
     }
 
     [IntegrationFact]
-    public async Task Exhausted_request_with_no_live_offer_expires_as_all_drivers_busy()
+    public async Task Exhausted_request_that_never_rang_anyone_expires_as_no_ready_driver()
     {
         await using var c = NewCtx();
         var city = c.NewCity();
@@ -260,7 +260,7 @@ public class TaxiMatcherPassIntegrationTests(TestDatabase db) : IntegrationTestB
         Assert.Equal(MatcherPassOutcome.Done, result.Outcome);
         var request = await ReadRequestAsync(id);
         Assert.Equal(RequestStates.Expired, request.Status);
-        Assert.Equal(RequestEndReasons.AllDriversBusy, request.EndReason);
+        Assert.Equal(RequestEndReasons.NoReadyDriver, request.EndReason);
         Assert.Empty(await OffersAsync([id]));
     }
 

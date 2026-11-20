@@ -19,4 +19,11 @@ public class TaxiRouteInput
     public decimal ToLongitude { get; set; }
     public int Fare { get; set; }
     public string TripType { get; set; } = string.Empty;
+
+    // Sent by builds with the city list picker: each end is either a live city key or an explicit other place.
+    // Old builds send none of the four and the server finds the city from the pin.
+    public long? FromCityKey { get; set; }
+    public long? ToCityKey { get; set; }
+    public bool FromOtherPlace { get; set; }
+    public bool ToOtherPlace { get; set; }
 }

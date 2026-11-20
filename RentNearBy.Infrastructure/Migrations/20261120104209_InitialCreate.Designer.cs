@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261120071738_InitialCreate")]
+    [Migration("20261120104209_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -3668,6 +3668,11 @@ namespace RentNearBy.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<bool>("CityKeysChosen")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()

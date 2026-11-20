@@ -142,6 +142,11 @@ public sealed class TaxiRequestService(
         if (await OverlapOfAsync(userId, tripId, createPlan.Occupied, ct) is { } overlap)
             return new InsertOutcome(TaxiRequestResult.Fail(TaxiRequestCreateRules.OverlapError(overlap)), null);
 
+        // The lists count registered drivers; only a driver the matcher can ring makes the request worth creating.
+        var readiness = await TaxiCandidateQuery.CountReadyAsync(db, userId, createPlan, ct);
+        if (TaxiRequestCreateRules.ReadinessError(readiness) is { } notReady)
+            return new InsertOutcome(TaxiRequestResult.Fail(notReady), null);
+
         var pickupName = lists.PickupName(createPlan.PickupCityKey);
         var dropName = createPlan.DropSameAsPickup ? pickupName : lists.DropName(createPlan.DropCityKey);
         var snapshot = TaxiTripSnapshot.Build(plan, createPlan.TripStart, trip.Title, body, pickupName, dropName);

@@ -162,6 +162,7 @@ public static class DtoMappings
                 ToLongitude = r.ToLongitude,
                 FromCityKey = r.FromCityKey,
                 ToCityKey = r.ToCityKey,
+                CityKeysChosen = r.CityKeysChosen,
                 Fare = r.Fare,
                 TripType = r.TripType,
             })

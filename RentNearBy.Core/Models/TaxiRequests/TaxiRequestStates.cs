@@ -129,9 +129,14 @@ public static class RequestEndReasons
     // Expired
     public const string AllDriversBusy = "AllDriversBusy";
     public const string NotBooked = "NotBooked";
+    // The queue ran out before any driver was ever rung for the request.
+    public const string NoReadyDriver = "NoReadyDriver";
 
     public static readonly IReadOnlyList<string> Cancelled = [TravellerCancelled, PickupChanged, BookingCancelledByTraveller, DriverLeftTrip, AdminCancelled, AccountClosed];
-    public static readonly IReadOnlyList<string> Expired = [AllDriversBusy, NotBooked];
+    public static readonly IReadOnlyList<string> Expired = [AllDriversBusy, NotBooked, NoReadyDriver];
+
+    // A queue that ran out (no candidate left, none ringing or chosen): busy if a driver was ever rung, else nobody was ready.
+    public static string WhenQueueRunsOut(int offersEver) => offersEver == 0 ? NoReadyDriver : AllDriversBusy;
     public static readonly IReadOnlyList<string> All = [.. Cancelled, .. Expired];
     // The two reasons the traveller may send on cancel (T5).
     public static readonly IReadOnlyList<string> TravellerChoices = [TravellerCancelled, PickupChanged];

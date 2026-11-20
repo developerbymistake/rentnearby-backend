@@ -125,7 +125,7 @@ public sealed class PostgresMatcherPassUnit(
                     var live = await store.GetLiveCountsAsync(db, row.Id, ct);
                     if (live.Ringing + live.Accepted + live.Selected == 0)
                     {
-                        var end = await store.EndRequestAsync(db, row.Id, RequestStates.Expired, RequestEndReasons.AllDriversBusy, ct: ct);
+                        var end = await store.EndRequestAsync(db, row.Id, RequestStates.Expired, RequestEndReasons.WhenQueueRunsOut(live.Total), ct: ct);
                         if (end is not null)
                         {
                             changes.AddRange(end.Signals.Changes);

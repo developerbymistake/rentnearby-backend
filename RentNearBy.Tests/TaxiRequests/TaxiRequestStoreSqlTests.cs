@@ -197,6 +197,7 @@ public class TaxiRequestStoreSqlTests
     [Theory]
     [InlineData(RequestEndReasons.AllDriversBusy, nameof(TaxiNoticeKind.RequestEnded))]
     [InlineData(RequestEndReasons.NotBooked, nameof(TaxiNoticeKind.RequestEnded))]
+    [InlineData(RequestEndReasons.NoReadyDriver, nameof(TaxiNoticeKind.RequestEnded))]
     [InlineData(RequestEndReasons.AdminCancelled, nameof(TaxiNoticeKind.RequestEnded))]
     [InlineData(RequestEndReasons.DriverLeftTrip, nameof(TaxiNoticeKind.DriverWithdrew))]
     [InlineData(RequestEndReasons.TravellerCancelled, null)]
