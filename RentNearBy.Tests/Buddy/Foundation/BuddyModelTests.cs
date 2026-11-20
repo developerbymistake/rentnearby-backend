@@ -70,6 +70,7 @@ public class BuddyModelTests
         AssertIndex<BuddyRequest>("ux_buddyrequests_pair_open", ["PairLowId", "PairHighId"], unique: true, filter: "\"Status\" = 'Pending'");
         AssertIndex<BuddyRequest>("ux_buddyrequests_from_client", ["FromUserId", "ClientRequestId"], unique: true);
         AssertIndex<BuddyRequest>("ix_buddyrequests_to_pending", ["ToUserId", "CreatedAt", "Id"], filter: "\"Status\" = 'Pending'", descending: [false, true, true]);
+        AssertIndex<BuddyRequest>("ix_buddyrequests_to", ["ToUserId"]);
         AssertIndex<BuddyRequest>("ix_buddyrequests_from_created", ["FromUserId", "CreatedAt", "Id"], descending: [false, true, true]);
         AssertIndex<BuddyRequest>("ix_buddyrequests_pair_created", ["PairLowId", "PairHighId", "CreatedAt"], descending: [false, false, true]);
         AssertIndex<BuddyRequest>("ix_buddyrequests_pending_expires", ["ExpiresAt"], filter: "\"Status\" = 'Pending'");
@@ -108,6 +109,7 @@ public class BuddyModelTests
             filter: "\"DeletedAt\" IS NULL", descending: [false, true, true, true], include: ["Amount", "PaidByUserId"]);
         AssertIndex<TripExpense>("ix_tripexpenses_trip_link", ["TripId", "LinkKind", "LinkId"],
             filter: "\"LinkId\" IS NOT NULL AND \"DeletedAt\" IS NULL", include: ["Amount"]);
+        AssertIndex<TripExpense>("ix_tripexpenses_trip", ["TripId"]);
         Assert.Equal(ValueGenerated.Never, Entity<TripExpense>().FindProperty("Id")!.ValueGenerated);
         Assert.Equal(60, Entity<TripExpense>().FindProperty("Title")!.GetMaxLength());
         Assert.Equal(200, Entity<TripExpense>().FindProperty("Note")!.GetMaxLength());

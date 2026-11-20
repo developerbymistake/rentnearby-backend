@@ -2549,6 +2549,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"Status\" = 'Pending'");
 
             migrationBuilder.CreateIndex(
+                name: "ix_buddyrequests_to",
+                table: "BuddyRequests",
+                column: "ToUserId");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_buddyrequests_to_pending",
                 table: "BuddyRequests",
                 columns: new[] { "ToUserId", "CreatedAt", "Id" },
@@ -3755,6 +3760,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "TripExpenseRevisions",
                 columns: new[] { "ExpenseId", "Version" },
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_tripexpenses_trip",
+                table: "TripExpenses",
+                column: "TripId");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripexpenses_trip_day_live",

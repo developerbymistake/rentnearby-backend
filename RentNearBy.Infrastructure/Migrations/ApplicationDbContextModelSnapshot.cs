@@ -417,6 +417,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "ExpiresAt" }, "ix_buddyrequests_pending_expires")
                         .HasFilter("\"Status\" = 'Pending'");
 
+                    b.HasIndex(new[] { "ToUserId" }, "ix_buddyrequests_to");
+
                     b.HasIndex(new[] { "ToUserId", "CreatedAt", "Id" }, "ix_buddyrequests_to_pending")
                         .IsDescending(false, true, true)
                         .HasFilter("\"Status\" = 'Pending'");
@@ -518,6 +520,8 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex(new[] { "TripId" }, "ix_tripexpenses_trip");
 
                     b.HasIndex(new[] { "TripId", "DayNumber", "CreatedAt", "Id" }, "ix_tripexpenses_trip_day_live")
                         .IsDescending(false, true, true, true)

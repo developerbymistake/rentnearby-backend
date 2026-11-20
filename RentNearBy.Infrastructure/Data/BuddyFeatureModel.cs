@@ -38,6 +38,7 @@ public static class BuddyFeatureModel
             e.HasIndex(x => new { x.ToUserId, x.CreatedAt, x.Id }, "ix_buddyrequests_to_pending")
              .IsDescending(false, true, true)
              .HasFilter($"\"Status\" = '{BuddyRequestStatuses.Pending}'");
+            e.HasIndex(x => x.ToUserId, "ix_buddyrequests_to");
             e.HasIndex(x => new { x.FromUserId, x.CreatedAt, x.Id }, "ix_buddyrequests_from_created")
              .IsDescending(false, true, true);
             e.HasIndex(x => new { x.PairLowId, x.PairHighId, x.CreatedAt }, "ix_buddyrequests_pair_created")
@@ -116,6 +117,7 @@ public static class BuddyFeatureModel
             e.HasIndex(x => new { x.TripId, x.LinkKind, x.LinkId }, "ix_tripexpenses_trip_link")
              .IncludeProperties(x => new { x.Amount })
              .HasFilter("\"LinkId\" IS NOT NULL AND \"DeletedAt\" IS NULL");
+            e.HasIndex(x => x.TripId, "ix_tripexpenses_trip");
         });
 
         modelBuilder.Entity<TripExpenseShare>(e =>
