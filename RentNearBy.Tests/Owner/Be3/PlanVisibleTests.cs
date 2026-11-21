@@ -66,12 +66,41 @@ public class PlanVisibleTests
     }
 
     [Fact]
+    public void A_hidden_row_keeps_the_choice_open_even_when_all_rows_fit()
+    {
+        var a = R(1); var b = R(101, true);
+        Assert.True(PlanRowChoice.ChoiceNeeded([a, b], 2));
+        Assert.True(PlanRowChoice.ChoiceNeeded([a, R(2), R(3)], 2));
+        Assert.False(PlanRowChoice.ChoiceNeeded([a, R(2)], 2));
+        Assert.True(PlanRowChoice.ValidOwnerChoice(new HashSet<Guid> { a.Id, b.Id }, [a.Id, b.Id], 2));
+        var targets = PlanRowChoice.OwnerIndexed([a, b], new HashSet<Guid> { a.Id, b.Id });
+        Assert.All(targets, t => Assert.False(t.Hidden));
+    }
+
+    [Fact]
+    public void The_same_photos_in_the_same_order_change_nothing_even_with_gaps_in_the_order()
+    {
+        var a = R(0); var b = R(3); var c = R(5, true);
+        Assert.Empty(PlanRowChoice.Changed([a, b, c], PlanRowChoice.OwnerPhotos([a, b, c], [a.Id, b.Id])));
+        Assert.NotEmpty(PlanRowChoice.Changed([a, b, c], PlanRowChoice.OwnerPhotos([a, b, c], [b.Id, a.Id])));
+    }
+
+    [Fact]
+    public void A_refused_route_choice_tells_no_one()
+    {
+        var handler = Be3Kit.Source("RentNearBy.Api", "Handlers", "Owner", "Be3", "PlanVisibleHandlers.cs");
+        Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(handler, "AfterTaxiCommitAsync").Count);
+        var slots = Be3Kit.Source("RentNearBy.Infrastructure", "Services", "PlanSlotService.cs");
+        Assert.Contains("if (rows.Changed && rows.HiddenAfter == 0) await planRows.ClearLimitsNoticeAsync(userId);", slots);
+    }
+
+    [Fact]
     public void Payment_off_and_nothing_hidden_answer_not_needed()
     {
         var service = Be3Kit.Source("RentNearBy.Infrastructure", "Services", "Owner", "Be3", "PlanVisibleService.cs");
         Assert.Contains("if (!limits.PaymentEnabled) return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);", service);
-        Assert.Contains("if (photos.Count <= limits.Photos && rooms.Count <= limits.RoomTypes)", service);
-        Assert.Contains("if (planned.Count <= limits.Routes) return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);", service);
+        Assert.Contains("if (!PlanRowChoice.ChoiceNeeded(photos, limits.Photos) && !PlanRowChoice.ChoiceNeeded(rooms, limits.RoomTypes))", service);
+        Assert.Contains("if (!PlanRowChoice.ChoiceNeeded(PlanRows.AsRows(planned), limits.Routes)) return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);", service);
         Assert.Contains("notifier.ClearAsync(NoticeKinds.PlanLimitsChanged", service);
         Assert.Equal(409, OwnerErrorTypes.StatusOf(OwnerErrorTypes.PlanVisibleLimit));
         Assert.Equal(400, OwnerErrorTypes.StatusOf(OwnerErrorTypes.PlanVisibleInvalid));

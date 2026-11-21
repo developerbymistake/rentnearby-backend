@@ -36,11 +36,8 @@ public static class PlanVisibleHandlers
         return await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(userId), async () =>
         {
             var outcome = await service.SaveTaxiAsync(userId, request.RouteIds ?? [], http.RequestAborted);
-            if (outcome.Error != null)
-            {
-                await service.AfterTaxiCommitAsync(outcome.ListingId, changed: false);
-                return OwnerHttp.Refuse(outcome.Error, outcome.ErrorData);
-            }
+            // A refusal rolled the transaction back (a closure in it too): nothing to tell anyone.
+            if (outcome.Error != null) return OwnerHttp.Refuse(outcome.Error, outcome.ErrorData);
             await service.AfterTaxiCommitAsync(outcome.ListingId, outcome.Changed);
             if (outcome.Changed) await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), outcome.DistrictId);
             var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Taxi);

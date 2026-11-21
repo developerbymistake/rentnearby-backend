@@ -12,6 +12,9 @@ public static class PlanRowChoice
     // A save that adds above the limit is refused; one that keeps or shrinks an over-limit set passes (an edit never hits it).
     public static bool SaveAllowed(int requestCount, int limit, int visibleNow) => requestCount <= limit || requestCount <= visibleNow;
 
+    // V1 / V2 are open while a row is hidden or would be hidden (more rows than the plan value).
+    public static bool ChoiceNeeded(IReadOnlyCollection<PlanRow> rows, int limit) => rows.Count > Math.Max(0, limit) || rows.Any(r => r.Hidden);
+
     // Photo upload: refused when visible >= the plan value or all rows (hidden too) >= the hard ceiling.
     public static bool PhotoUploadAllowed(int visible, int all, int limit) => visible < limit && all < OwnerLimits.PhotosCeiling;
 
@@ -48,6 +51,9 @@ public static class PlanRowChoice
     public static IReadOnlyList<PlanRowTarget> OwnerPhotos(IEnumerable<PlanRow> rows, IReadOnlyList<Guid> chosenInOrder)
     {
         var ranked = Rank(rows);
+        // The visible photos in the same order again: nothing moves (no write, no daily count).
+        if (ranked.Where(r => !r.Hidden).Select(r => r.Id).SequenceEqual(chosenInOrder))
+            return ranked.Select(r => new PlanRowTarget(r.Id, r.Hidden, r.Index)).ToList();
         var chosen = chosenInOrder.ToHashSet();
         var result = chosenInOrder.Select((id, i) => new PlanRowTarget(id, false, i)).ToList();
         result.AddRange(ranked.Where(r => !chosen.Contains(r.Id)).Select((r, i) => new PlanRowTarget(r.Id, true, chosenInOrder.Count + i)));

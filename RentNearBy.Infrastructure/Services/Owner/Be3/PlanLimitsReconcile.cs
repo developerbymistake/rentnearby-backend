@@ -146,6 +146,10 @@ public sealed class PlanLimitsReconcile(
         }
     }
 
+    // Contract 5.3: the PlanLimitsChanged notice goes when nothing is hidden any more (a grant brought every row back).
+    public Task ClearLimitsNoticeAsync(Guid userId, CancellationToken ct = default)
+        => notifier.ClearAsync(NoticeKinds.PlanLimitsChanged, NoticeKinds.NoTrip, [userId], ct);
+
     public void DropAfterCommit()
     {
         _afterCommit.Clear();

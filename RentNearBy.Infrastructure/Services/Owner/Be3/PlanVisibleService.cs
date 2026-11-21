@@ -62,7 +62,7 @@ public sealed class PlanVisibleService(
 
             var photos = PlanRows.AsRows(await PlanRows.PhotosAsync(db, listing.Id, c));
             var rooms = PlanRows.AsRows(await PlanRows.RoomsAsync(db, listing.Id, c));
-            if (photos.Count <= limits.Photos && rooms.Count <= limits.RoomTypes)
+            if (!PlanRowChoice.ChoiceNeeded(photos, limits.Photos) && !PlanRowChoice.ChoiceNeeded(rooms, limits.RoomTypes))
                 return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);
             if (!PlanRowChoice.ValidOwnerChoice(photos.Select(p => p.Id).ToHashSet(), photoIds, limits.Photos)
                 || !PlanRowChoice.ValidOwnerChoice(rooms.Select(r => r.Id).ToHashSet(), roomIds, limits.RoomTypes))
@@ -97,13 +97,14 @@ public sealed class PlanVisibleService(
 
         return await PgRetry.OnceAsync(db, async c =>
         {
+            _closed = null;
             await using var tx = await db.Database.BeginTransactionAsync(c);
             var taxiId = await LiveIdAsync(userId, c);
             if (taxiId == null) return PlanVisibleOutcome.Fail(OwnerErrorTypes.ListingNotFound);
 
             // Lock order 4.1: request rows and the driver ring lock (closure) before the listing row.
             var planned = await PlanRows.RoutesAsync(db, taxiId.Value, c);
-            if (planned.Count <= limits.Routes) return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);
+            if (!PlanRowChoice.ChoiceNeeded(PlanRows.AsRows(planned), limits.Routes)) return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);
             if (!PlanRowChoice.ValidOwnerChoice(planned.Select(r => r.Id).ToHashSet(), routeIds, limits.Routes))
                 return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleInvalid);
             var chosen = routeIds.ToHashSet();
