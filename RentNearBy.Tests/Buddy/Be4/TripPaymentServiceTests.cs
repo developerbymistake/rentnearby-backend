@@ -395,13 +395,19 @@ public class TripPaymentServiceTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.Null((await Service(ctx).SaidPaidAsync(_trip, _aman, Pay(_paid))).Error);
     }
 
-    // rows notices of different trips for Aman.
+    // rows notices of different trips for Aman, mixing the kinds that join an expense title or a traveller count.
     private async Task SeedNoticesAsync(ApplicationDbContext ctx, int rows)
     {
         var people = await BuddySeed.UsersAsync(ctx, 2);
         (_owner, _aman) = (people[0], people[1]);
+        string[] kinds = [NoticeKinds.ExpensesChanged, NoticeKinds.TripJoined, NoticeKinds.ExpenseAdded, NoticeKinds.ShareChanged];
         var trips = new List<(string, Guid)>();
-        for (var i = 0; i < rows; i++) trips.Add((NoticeKinds.ExpensesChanged, await BuddySeed.TripAsync(ctx, _owner, title: $"Trip {i}")));
+        for (var i = 0; i < rows; i++)
+        {
+            var trip = await BuddySeed.TripAsync(ctx, _owner, title: $"Trip {i}");
+            await BuddySeed.MembersAsync(ctx, trip, _owner, [_aman]);
+            trips.Add((kinds[i % kinds.Length], trip));
+        }
         await BuddySeed.NoticesAsync(ctx, _aman, trips);
     }
 }

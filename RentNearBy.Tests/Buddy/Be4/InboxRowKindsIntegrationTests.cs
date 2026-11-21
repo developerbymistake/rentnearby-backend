@@ -70,6 +70,37 @@ public class InboxRowKindsIntegrationTests(TestDatabase db) : IntegrationTestBas
         Assert.False(await check.Set<UserNotice>().AnyAsync(n => n.TripId == trip));
     }
 
+    [IntegrationFact]
+    public async Task Page_carries_the_live_expense_title_and_traveller_count_in_one_statement()
+    {
+        Guid owner, aman, neha, trip;
+        Guid expense = Guid.NewGuid();
+        await using (var seed = CreateContext())
+        {
+            var p = await BuddySeed.UsersAsync(seed, 3);
+            (owner, aman, neha) = (p[0], p[1], p[2]);
+            trip = await BuddySeed.TripAsync(seed, owner);
+            await BuddySeed.MembersAsync(seed, trip, owner, [aman, neha]);
+            expense = (await BuddySeed.ExpensesAsync(seed, trip, owner, 1, [owner, aman, neha], amount: 900))[0];
+        }
+        await using (var c = CreateContext())
+            await new NoticeWriter(c).UpsertAsync(
+            [
+                new NoticeUpsert(aman, NoticeKinds.ExpenseAdded, trip, owner, expense, 300),
+                new NoticeUpsert(owner, NoticeKinds.TripJoined, trip, neha),
+            ]);
+        await using var ctx = Db.CreateCountingContext(out var counter);
+        counter.Reset();
+        var added = Assert.Single((await new NoticeReader(ctx).PageAsync(aman, null, 20)).Items);
+        Assert.Equal(2, counter.Count);
+        var title = await ctx.Set<TripExpense>().Where(e => e.Id == expense).Select(e => e.Title).SingleAsync();
+        Assert.Equal(title, added.RefTitle);
+        Assert.Null(added.Travellers);
+        var joined = Assert.Single((await new NoticeReader(ctx).PageAsync(owner, null, 20)).Items);
+        Assert.Equal(3, joined.Travellers);
+        Assert.Null(joined.RefTitle);
+    }
+
     private async Task<UserNotice> SingleAsync(Guid user, string kind, Guid trip)
     {
         await using var c = CreateContext();

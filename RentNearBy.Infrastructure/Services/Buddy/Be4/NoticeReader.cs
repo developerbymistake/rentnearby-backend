@@ -11,27 +11,37 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be4;
 // N1, N2 and the counts of the old inbox routes. Trip title and actor name are read live; nothing stored is text.
 public sealed class NoticeReader(ApplicationDbContext db)
 {
-    private const string PageColumns = """
+    // One statement: the page, then live trip title, actor name, expense title and traveller count joined to it (the count is
+    // one grouped read over the page's TripJoined trips).
+    private static string PageSql(string keyset) => $"""
+        WITH p AS (
+          SELECT n.* FROM "UserNotices" n
+          WHERE n."UserId" = @user{keyset}
+          ORDER BY n."UpdatedAt" DESC, n."Id" DESC
+          LIMIT @take),
+        j AS (
+          SELECT m."TripId", count(*)::int AS "Joined" FROM "TripMembers" m
+          WHERE m."Status" = '{TripMemberStatuses.Joined}'
+            AND m."TripId" IN (SELECT p."TripId" FROM p WHERE p."Kind" = '{NoticeKinds.TripJoined}')
+          GROUP BY m."TripId")
         SELECT n."Id", n."Kind", n."TripId", t."Title" AS "TripTitle", n."ActorUserId", a."Name" AS "ActorName", n."RefId", n."Amount",
-               n."Count", n."CreatedAt", n."UpdatedAt", n."ReadAt"
-        FROM "UserNotices" n
+               n."Count", n."CreatedAt", n."UpdatedAt", n."ReadAt", e."Title" AS "RefTitle",
+               CASE WHEN n."Kind" = '{NoticeKinds.TripJoined}' AND t."Id" IS NOT NULL THEN 1 + COALESCE(j."Joined", 0) END AS "Travellers"
+        FROM p n
         LEFT JOIN "Trips" t ON t."Id" = n."TripId"
         LEFT JOIN "Users" a ON a."Id" = n."ActorUserId"
-        WHERE n."UserId" = @user
-        """;
-
-    internal const string FirstPageSql = PageColumns + """
-
+        LEFT JOIN "TripExpenses" e ON e."Id" = n."RefId" AND e."TripId" = n."TripId" AND e."DeletedAt" IS NULL
+          AND n."Kind" IN ('{NoticeKinds.ExpenseAdded}', '{NoticeKinds.ShareChanged}')
+        LEFT JOIN j ON j."TripId" = n."TripId"
         ORDER BY n."UpdatedAt" DESC, n."Id" DESC
-        LIMIT @take
         """;
 
-    internal const string NextPageSql = PageColumns + """
+    internal static readonly string FirstPageSql = PageSql(string.Empty);
 
-          AND (n."UpdatedAt", n."Id") < (@at, @id)
-        ORDER BY n."UpdatedAt" DESC, n."Id" DESC
-        LIMIT @take
-        """;
+    internal static readonly string NextPageSql = PageSql("""
+
+            AND (n."UpdatedAt", n."Id") < (@at, @id)
+        """.TrimEnd());
 
     internal const string UnreadSql = """
         SELECT count(*)::int AS "Value" FROM "UserNotices" WHERE "UserId" = @user AND "ReadAt" IS NULL
@@ -100,6 +110,8 @@ public sealed class NoticeReader(ApplicationDbContext db)
             ActorName = r.ActorName,
             RefId = r.RefId,
             Amount = r.Amount,
+            RefTitle = r.RefTitle,
+            Travellers = r.Travellers,
             Count = r.Count,
             CreatedAt = DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc),
             UpdatedAt = DateTime.SpecifyKind(r.UpdatedAt, DateTimeKind.Utc),
@@ -125,5 +137,7 @@ public sealed class NoticeReader(ApplicationDbContext db)
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
         public DateTime? ReadAt { get; set; }
+        public string? RefTitle { get; set; }
+        public int? Travellers { get; set; }
     }
 }

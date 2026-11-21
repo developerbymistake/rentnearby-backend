@@ -572,4 +572,26 @@ public class Be1BuddyIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.False(await ctx.UserBlocks.AnyAsync(b => b.BlockerId == p[0] || b.BlockedId == p[0]));
         Assert.False(await ctx.Set<UserNotice>().AnyAsync(n => n.UserId == p[1]));
     }
+
+    [IntegrationFact]
+    public async Task Account_deletion_holds_the_pair_locks_of_his_buddies_and_open_requests()
+    {
+        var p = await PeopleAsync(3);
+        await using (var seed = CreateContext())
+        {
+            await BuddySeed.BuddiesAsync(seed, p[0], [p[1]]);
+            await BuddySeed.RequestsAsync(seed, p[2], [p[0]]);
+        }
+        await using var deleting = CreateContext();
+        await using var tx = await deleting.Database.BeginTransactionAsync();
+        await new BuddyAccountDeletion(deleting).LockAsync(p[0]);
+
+        await using var other = CreateContext();
+        await using var otherTx = await other.Database.BeginTransactionAsync();
+        var locked = await other.Database.SqlQueryRaw<bool>(
+            "SELECT pg_try_advisory_xact_lock(hashtextextended(@k, 0)) AS \"Value\"",
+            new Npgsql.NpgsqlParameter("k", BuddyPairs.PairLockKey(p[0], p[2]))).ToListAsync();
+        Assert.False(locked[0]);
+        await tx.RollbackAsync();
+    }
 }

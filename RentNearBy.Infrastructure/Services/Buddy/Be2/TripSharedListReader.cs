@@ -42,7 +42,7 @@ public sealed class TripSharedListReader(ApplicationDbContext db, ITripMoneyCard
 
     private static readonly string InvitesSql = $"""
         SELECT m."Id" AS "MemberId", m."InviteExpiresAt", t."Title", t."StartDate", t."EndDate", t."DayCount",
-               t."PlanJson"::text AS "PlanJson", t."CityName", COALESCE(o."Name", '') AS "OwnerName"
+               jsonb_build_object('legs', t."PlanJson"->'legs')::text AS "PlanJson", t."CityName", COALESCE(o."Name", '') AS "OwnerName"
         FROM "TripMembers" m
         JOIN "Trips" t ON t."Id" = m."TripId"
         JOIN "Users" o ON o."Id" = t."OwnerUserId"
@@ -122,7 +122,7 @@ public sealed class TripSharedListReader(ApplicationDbContext db, ITripMoneyCard
         if (page.Count == 0) return [];
         var trips = page.Select(r => r.ToTrip()).ToList();
         var ids = trips.Select(t => t.Id).ToList();
-        var enquiries = await db.TripEnquiries.AsNoTracking().Where(e => e.TripId != null && ids.Contains(e.TripId.Value)).ToListAsync(ct);
+        var enquiries = await ViewerEnquiries(db.TripEnquiries.Where(e => e.TripId != null && ids.Contains(e.TripId.Value))).ToListAsync(ct);
         var byTrip = enquiries.ToLookup(e => e.TripId!.Value);
         var taxis = await TripTaxiRequestReads.ReadManyAsync(db, trips, ct);
         var cards = await money.GetCardsAsync(ids, callerId, ct);

@@ -11,6 +11,9 @@ public class NoticeItemDto
     public string? ActorName { get; set; }
     public Guid? RefId { get; set; }
     public int? Amount { get; set; }
+    // ExpenseAdded, ShareChanged: live expense title (null once deleted). TripJoined: owner + joined viewers, live.
+    public string? RefTitle { get; set; }
+    public int? Travellers { get; set; }
     public int Count { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

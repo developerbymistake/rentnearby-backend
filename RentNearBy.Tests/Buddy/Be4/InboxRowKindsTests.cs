@@ -77,7 +77,7 @@ public class InboxRowKindsTests
         var dto = NoticeReader.ToDto(new NoticeReader.Row
         {
             Id = Guid.NewGuid(), Kind = NoticeKinds.ExpenseAdded, TripId = Trip, TripTitle = "Goa", ActorUserId = Owner, ActorName = "Rahul",
-            RefId = Expense, Amount = 6400, Count = 3, CreatedAt = now, UpdatedAt = now,
+            RefId = Expense, Amount = 6400, Count = 3, CreatedAt = now, UpdatedAt = now, RefTitle = "Taxi", Travellers = null,
         });
         Assert.Equal("/trip-expenses", dto.Route);
         var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -89,11 +89,32 @@ public class InboxRowKindsTests
         Assert.Equal(6400, root.GetProperty("amount").GetInt32());
         Assert.Equal(3, root.GetProperty("count").GetInt32());
         Assert.Equal("Rahul", root.GetProperty("actorName").GetString());
+        Assert.Equal("Taxi", root.GetProperty("refTitle").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("travellers").ValueKind);
 
         var buddy = NoticeReader.ToDto(new NoticeReader.Row { Id = Guid.NewGuid(), Kind = NoticeKinds.BuddyAccepted, TripId = NoticeKinds.NoTrip, ActorUserId = Aman, Count = 2, CreatedAt = now, UpdatedAt = now });
         Assert.Null(buddy.TripId);
         Assert.Equal("/buddies", buddy.Route);
         Assert.Equal("buddies", buddy.Args["tab"]);
+
+        var joined = NoticeReader.ToDto(new NoticeReader.Row { Id = Guid.NewGuid(), Kind = NoticeKinds.TripJoined, TripId = Trip, ActorUserId = Aman, Count = 1, Travellers = 2, CreatedAt = now, UpdatedAt = now });
+        Assert.Equal(2, joined.Travellers);
+        Assert.Null(joined.RefTitle);
+    }
+
+    [Fact]
+    public void Page_sql_joins_expense_title_and_one_grouped_traveller_count()
+    {
+        foreach (var sql in new[] { NoticeReader.FirstPageSql, NoticeReader.NextPageSql })
+        {
+            Assert.Contains("LEFT JOIN \"TripExpenses\" e ON e.\"Id\" = n.\"RefId\"", sql);
+            Assert.Contains("e.\"DeletedAt\" IS NULL", sql);
+            Assert.Contains("GROUP BY m.\"TripId\"", sql);
+            Assert.Contains("LIMIT @take", sql);
+            Assert.DoesNotContain("LATERAL", sql);
+        }
+        Assert.Contains("(n.\"UpdatedAt\", n.\"Id\") < (@at, @id)", NoticeReader.NextPageSql);
+        Assert.DoesNotContain("@at", NoticeReader.FirstPageSql);
     }
 
     [Fact]

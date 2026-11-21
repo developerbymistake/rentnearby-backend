@@ -21,7 +21,21 @@ public sealed class BuddyAccountDeletion(ApplicationDbContext db) : IAccountDele
 
     private const string DeleteBlocksSql = """DELETE FROM "UserBlocks" WHERE "BlockerId" = @me OR "BlockedId" = @me""";
 
+    // Everyone he shares a pair lock with: buddies (B10, block, S2 invites) and open requests either way (accept, decline, cancel).
+    internal static readonly string PartnersSql = $"""
+        SELECT b."BuddyUserId" AS "Value" FROM "Buddies" b WHERE b."UserId" = @me
+        UNION SELECT r."ToUserId" FROM "BuddyRequests" r WHERE r."FromUserId" = @me AND r."Status" = '{BuddyRequestStatuses.Pending}'
+        UNION SELECT r."FromUserId" FROM "BuddyRequests" r WHERE r."ToUserId" = @me AND r."Status" = '{BuddyRequestStatuses.Pending}'
+        """;
+
     public int Order => 20;
+
+    // Read without locks, then every pair lock in one sorted statement (BuddyLocks.LockPairsAsync), before the Users row lock.
+    public async Task LockAsync(Guid userId, CancellationToken ct = default)
+    {
+        var partners = await db.Database.SqlQueryRaw<Guid>(PartnersSql, Be1Sql.Uuid("me", userId)).ToListAsync(ct);
+        if (partners.Count > 0) await BuddyLocks.LockPairsAsync(db, userId, partners, ct);
+    }
 
     public Task<IReadOnlyList<AccountDeletionBlock>> CheckAsync(Guid userId, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<AccountDeletionBlock>>([]);

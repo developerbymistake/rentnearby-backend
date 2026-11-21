@@ -67,9 +67,9 @@ public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access
         if (TripSharingRules.ETagMatches(ifNoneMatch, etag))
             return SharingResult<TripViewResult>.Success(new TripViewResult(null, etag, true));
 
-        var trip = await db.Trips.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tripId, ct);
+        var trip = await ViewerTrip(db.Trips.Where(t => t.Id == tripId)).FirstOrDefaultAsync(ct);
         if (trip is null) return SharingResult<TripViewResult>.Fail(BuddyErrorTypes.TripNotFound);
-        var enquiries = await db.TripEnquiries.AsNoTracking().Where(e => e.TripId == tripId).ToListAsync(ct);
+        var enquiries = await ViewerEnquiries(db.TripEnquiries.Where(e => e.TripId == tripId)).ToListAsync(ct);
         var taxi = await TripTaxiRequestReads.ReadAsync(db, trip, ct);
         var card = (await money.GetCardsAsync([tripId], callerId, ct)).GetValueOrDefault(tripId);
 

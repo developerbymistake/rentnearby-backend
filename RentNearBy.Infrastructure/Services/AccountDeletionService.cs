@@ -26,7 +26,13 @@ public class AccountDeletionService(
     {
         using var tx = await context.Database.BeginTransactionAsync();
 
-        // Owner lock first, same order as every grant/refund/role path (Users, then plans/purchases/listings).
+        // Buddy pair locks come before any row lock (contract 5.1), so a buddy accept/request that already holds a pair
+        // lock and waits on the Users row (FK) cannot deadlock with this deletion.
+        var participants = services.GetServices<IAccountDeletionParticipant>().OrderBy(p => p.Order).ToList();
+        foreach (var participant in participants)
+            await participant.LockAsync(userId);
+
+        // Owner lock next, same order as every grant/refund/role path (Users, then plans/purchases/listings).
         await context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Users\" WHERE \"Id\" = {userId} FOR UPDATE");
 
         var user = await context.Users.AsNoTracking()
@@ -37,7 +43,6 @@ public class AccountDeletionService(
         // Owner rule O17: nothing is deleted while anything is active. Read without row locks; a commitment that
         // lands after this read is closed by the closures below, as before the guard existed.
         var blocks = AccountDeletionRules.Blocks(await ReadActivityAsync(userId)).ToList();
-        var participants = services.GetServices<IAccountDeletionParticipant>().OrderBy(p => p.Order).ToList();
         foreach (var participant in participants)
             blocks.AddRange(await participant.CheckAsync(userId));
         if (blocks.Count > 0)
