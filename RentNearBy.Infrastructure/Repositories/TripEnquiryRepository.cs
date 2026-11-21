@@ -160,12 +160,37 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
     }
 
     public async Task<int> TryTransitionAsync(Guid id, string[] fromStatuses, string toStatus, string? failReason, DateTime nowUtc)
-        => await _dbSet
+    {
+        // Owner calendar (contract 8.1): a move into or out of ConfirmedByBoth goes through a tracked save, so the save hook writes
+        // the Auto entry in the same transaction. Today's callers never touch a confirmed row (AF5); this keeps it true for new ones.
+        if (toStatus == TripEnquiryStatuses.ConfirmedByBoth || fromStatuses.Contains(TripEnquiryStatuses.ConfirmedByBoth))
+            return await TransitionTrackedAsync(id, fromStatuses, toStatus, failReason, nowUtc);
+        return await _dbSet
             .Where(e => e.Id == id && fromStatuses.Contains(e.Status))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(e => e.Status, toStatus)
                 .SetProperty(e => e.FailReason, failReason)
                 .SetProperty(e => e.UpdatedAt, nowUtc));
+    }
+
+    private async Task<int> TransitionTrackedAsync(Guid id, string[] fromStatuses, string toStatus, string? failReason, DateTime nowUtc)
+    {
+        var row = await _dbSet.FirstOrDefaultAsync(e => e.Id == id && fromStatuses.Contains(e.Status));
+        if (row == null) return 0;
+        row.Status = toStatus;
+        row.FailReason = failReason;
+        row.UpdatedAt = nowUtc;
+        try
+        {
+            await _context.SaveChangesAsync();
+            return 1;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _context.Entry(row).State = EntityState.Detached;
+            return 0;
+        }
+    }
 
     // Two index range scans (ix_tripenquiries_expires, ix_tripenquiries_checkin_unconfirmed) joined by UNION instead of
     // one OR that no single index serves; the set shrinks as rows expire.

@@ -17,7 +17,8 @@ public sealed class TaxiBookingService(
     ITaxiPushWriter pushes,
     IDueActionScheduler scheduler,
     ILogger<TaxiBookingService> logger,
-    TaxiRequestMetrics? metrics = null)
+    TaxiRequestMetrics? metrics = null,
+    RentNearBy.Infrastructure.Services.Owner.IOwnerCalendarSync? calendar = null)
 {
     private const int TripNameMax = 80, NameMax = 120;
 
@@ -196,6 +197,7 @@ public sealed class TaxiBookingService(
         var booking = await BuildBookingAsync(request, offer, range, ct);
         db.Set<TaxiBooking>().Add(booking);
         await db.SaveChangesAsync(ct);
+        if (calendar is not null) await calendar.SyncTaxiBookingAsync(db, booking.Id, ct);
 
         await scheduler.CancelForRequestAsync(db, request.Id, DueActionKinds.All, ct);
         await scheduler.CancelAsync(db, DueActionKinds.ConfirmExpire, offer.Id, ct);

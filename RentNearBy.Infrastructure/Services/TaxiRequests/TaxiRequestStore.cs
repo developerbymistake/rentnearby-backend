@@ -38,7 +38,8 @@ public sealed class TaxiRequestStore(
     IDueActionsSignal dueSignal,
     IMatcherSignal matcherSignal,
     ITaxiRequestEvents events,
-    ILogger<TaxiRequestStore> logger)
+    ILogger<TaxiRequestStore> logger,
+    RentNearBy.Infrastructure.Services.Owner.IOwnerCalendarSync? calendar = null)
 {
     public Task LockTripAsync(ApplicationDbContext db, Guid tripId, CancellationToken ct = default)
         => db.Database.ExecuteSqlRawAsync(TaxiRequestStoreSql.LockTrip, [Uuid("id", tripId)], ct);
@@ -66,9 +67,14 @@ public sealed class TaxiRequestStore(
         string? endReason = null, string? chip = null, CancellationToken ct = default)
         => MoveOfferCoreAsync(db, offerId, from, to, endReason, chip, bumpVersion: true, ct);
 
-    public Task<TaxiBookingMove?> TryMoveBookingAsync(ApplicationDbContext db, Guid bookingId, IReadOnlyCollection<string> from, string to,
+    // Owner calendar (contract 7.4): the driver's Auto entry follows the booking in the same transaction.
+    public async Task<TaxiBookingMove?> TryMoveBookingAsync(ApplicationDbContext db, Guid bookingId, IReadOnlyCollection<string> from, string to,
         string? cancelledBy = null, string? chip = null, string? completedBy = null, CancellationToken ct = default)
-        => MoveBookingCoreAsync(db, bookingId, from, to, cancelledBy, chip, completedBy, bumpVersion: true, ct);
+    {
+        var moved = await MoveBookingCoreAsync(db, bookingId, from, to, cancelledBy, chip, completedBy, bumpVersion: true, ct);
+        if (moved is not null && calendar is not null) await calendar.SyncTaxiBookingAsync(db, moved.BookingId, ct);
+        return moved;
+    }
 
     public async Task<IReadOnlyList<TaxiClosedOffer>> CloseOffersAsync(ApplicationDbContext db, Guid requestId, IReadOnlyCollection<string> from, string to,
         string? endReason, Guid? exceptOfferId = null, CancellationToken ct = default)
@@ -95,6 +101,7 @@ public sealed class TaxiRequestStore(
         var bookingRows = await db.Database.SqlQueryRaw<CancelledBookingRow>(TaxiRequestStoreSql.CancelActiveBookings,
             Uuid("id", requestId), Text("cancelledBy", cancelledBy ?? BookingCancelledBy.System), Text("chip", chip)).ToListAsync(ct);
         var booking = bookingRows.Count == 0 ? null : new TaxiCancelledBooking(bookingRows[0].Id, bookingRows[0].DriverListingId, bookingRows[0].DriverUserId);
+        if (booking is not null && calendar is not null) await calendar.SyncTaxiBookingAsync(db, booking.BookingId, ct);
 
         return await FinishEndAsync(pushes, scheduler, db, move, closed, booking, cancelledBy, endReason, ct);
     }
