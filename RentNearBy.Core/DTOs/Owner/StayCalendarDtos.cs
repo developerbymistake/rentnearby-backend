@@ -5,7 +5,7 @@ namespace RentNearBy.Core.DTOs.Owner;
 // Stay Owner calendar (contract 2.1, 2.2). Owner-only: money notes, manual entries and block reasons never leave these DTOs.
 public sealed record StayCalendarEntryDto(
     Guid Id, string Kind, string? SourceType, Guid? SourceId, bool? SourceAvailable, bool TravellerRemoved,
-    DateOnly DateFrom, DateOnly DateTo, TimeOnly? TimeOfDay, string? FromPlace, string? ToPlace,
+    DateOnly DateFrom, DateOnly DateTo, string? TimeOfDay, string? FromPlace, string? ToPlace,
     string Label, string? Detail, string? Note, int? ListedTotal, int? AgreedTotal,
     short? Guests, short? Seats, string? RoomNames, IReadOnlyList<string> Places, string? CancelledBy, DateOnly? CancelledOn,
     int? FinalAmount, int? AdvanceReceived, bool PaidInFull, int Received, int? Balance, string Chip, int ChipAmount,
@@ -15,7 +15,7 @@ public sealed record StayCalendarEntryDto(
     {
         var money = CalendarEntryView.Money(r);
         return new(r.Id, r.Kind, r.SourceType, r.SourceId, r.SourceAvailable, CalendarEntryView.TravellerRemoved(r),
-            r.DateFrom, r.DateTo, r.TimeOfDay, r.FromPlace, r.ToPlace, r.Label, r.Detail, r.Note, r.ListedTotal, r.AgreedTotal,
+            r.DateFrom, r.DateTo, CalendarEntryView.Time(r), r.FromPlace, r.ToPlace, r.Label, r.Detail, r.Note, r.ListedTotal, r.AgreedTotal,
             r.Guests, r.Seats, r.RoomNames, CalendarEntryView.Places(r), r.CancelledBy, r.CancelledOn,
             r.FinalAmount, r.AdvanceReceived, r.PaidInFull, money.Received, money.Balance, money.Chip, money.ChipAmount,
             r.Cancelled, r.Version);

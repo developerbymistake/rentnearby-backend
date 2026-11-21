@@ -68,6 +68,9 @@ public static class CalendarEntryView
 
     public static bool TravellerRemoved(CalendarEntryRow row) => row.Kind == CalendarEntryKinds.Auto && row.TravellerUserId == null;
 
+    // Wire time is "HH:mm" (contract 0.3.2).
+    public static string? Time(CalendarEntryRow row) => row.TimeOfDay?.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
     public static IReadOnlyList<string> Places(CalendarEntryRow row)
     {
         if (string.IsNullOrWhiteSpace(row.PlacesJson)) return [];

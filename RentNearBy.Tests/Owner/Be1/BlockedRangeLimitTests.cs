@@ -57,6 +57,21 @@ public class BlockedRangeLimitTests
     }
 
     [Fact]
+    public void Reason_never_holds_a_phone_number()
+    {
+        Assert.Equal(OwnerErrorTypes.PhoneNotAllowed, BlockedRangeRules.Validate(D, D, "Call 98765 43210", D)!.Type);
+        Assert.Null(BlockedRangeRules.Validate(D, D, "Roof repair, Rs 25,000", D));
+    }
+
+    [Fact]
+    public void Entry_time_is_sent_as_hours_and_minutes()
+    {
+        var row = new CalendarEntryRow { Id = Guid.NewGuid(), Kind = CalendarEntryKinds.Manual, DateFrom = D, DateTo = D, Label = "Airport", TimeOfDay = new TimeOnly(9, 5, 30) };
+        Assert.Equal("09:05", RentNearBy.Core.DTOs.Owner.TaxiCalendarEntryDto.From(row).TimeOfDay);
+        Assert.Null(RentNearBy.Core.DTOs.Owner.StayCalendarEntryDto.From(Be1Kit.Manual(D, D.AddDays(1))).TimeOfDay);
+    }
+
+    [Fact]
     public void Overlap_is_any_shared_night()
     {
         Assert.True(BlockedRangeRules.Overlaps(D, D.AddDays(2), D.AddDays(2), D.AddDays(4)));

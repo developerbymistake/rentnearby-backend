@@ -15,6 +15,8 @@ public static class BlockedRangeRules
         if (nights < 1 || nights > OwnerLimits.BlockMaxNights || !startOk || to < today)
             return new CalendarRuleError(OwnerErrorTypes.BlockedRangeInvalid, OwnerErrorTypes.MessageOf(OwnerErrorTypes.BlockedRangeInvalid));
         if (reason is { Length: > OwnerLimits.ReasonMax }) return new CalendarRuleError(OwnerErrorTypes.BadRequest, ReasonTooLong);
+        if (PhoneGuard.HasPhone(reason))
+            return new CalendarRuleError(OwnerErrorTypes.PhoneNotAllowed, OwnerErrorTypes.MessageOf(OwnerErrorTypes.PhoneNotAllowed));
         return null;
     }
 
