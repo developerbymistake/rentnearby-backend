@@ -124,7 +124,7 @@ public static class MatcherSql
         UNION
         SELECT q."DispatchCityKey" AS "Value" FROM "TaxiRoutes" rt
         JOIN "TaxiRequests" q ON q."MatchToCityKey" = rt."ToCityKey" AND q."Status" IN ({Dispatching}) AND q."QueueExhaustedAt" IS NULL
-        WHERE rt."TaxiListingId" = ANY(@ids)
+        WHERE rt."TaxiListingId" = ANY(@ids) AND NOT rt."HiddenByPlan"
         """;
 
     // Contract AD health: Open or Collecting, no ringing offer, no accepted driver, no pending wait, for over 15 minutes. An

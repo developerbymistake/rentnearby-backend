@@ -59,6 +59,19 @@ public class StayListing
     public int TripEnquiriesReceived { get; set; }
     public int TripEnquiriesAnsweredIn24h { get; set; }
 
+    // Live edit of review fields on an Approved stay (contract 3.5): only the changed fields, until the admin decides.
+    public string? PendingEditJson { get; set; }
+    public DateTime? PendingEditAt { get; set; }
+    public string? PendingEditRejectReason { get; set; }
+    public string? PendingEditResult { get; set; }
+    public DateTime? PendingEditResultAt { get; set; }
+    // Daily save counters (IST day, contract 4.3).
+    public DateOnly? SpecialPriceSavesDay { get; set; }
+    public short SpecialPriceSavesCount { get; set; }
+    public DateOnly? PlanVisibleSavesDay { get; set; }
+    public short PlanVisibleSavesCount { get; set; }
+    public bool RemindersOn { get; set; } = true;
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsDeleted { get; set; } = false;

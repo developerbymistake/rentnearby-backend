@@ -434,7 +434,7 @@ public static class AdminTaxiRequestHandlers
         var answered = await AdminTaxiRequestQueries.AnsweredOffers(db, weekAgo).CountAsync(ct);
         var unanswered = await AdminTaxiRequestQueries.UnansweredOffers(db, weekAgo).CountAsync(ct);
 
-        var routesWithoutCity = await db.TaxiRoutes.AsNoTracking().CountAsync(r => r.FromCityKey == null || r.ToCityKey == null, ct);
+        var routesWithoutCity = await db.TaxiRoutes.AsNoTracking().IgnoreQueryFilters().CountAsync(r => r.FromCityKey == null || r.ToCityKey == null, ct);
 
         int? Seconds(string name) => heartbeats.AgeOf(name) is { } age ? (int)age.TotalSeconds : null;
 

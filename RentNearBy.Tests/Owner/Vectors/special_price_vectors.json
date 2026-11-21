@@ -1,0 +1,843 @@
+{
+  "version": 2,
+  "formula": "raw = base * (100 - percent) for Lower, base * (100 + percent) for Higher (integer); price = ((raw + 500) div 1000) * 10; clamp to 100..9900000. A rule covers a night d when from <= d <= to and it is not paused and not pausedByPlan. Nights = checkIn .. checkOut - 1 day. perNight = total / nights rounded to the nearest Rs 10 (a .5 tie rounds up) = ((total + 5 * nights) div (10 * nights)) * 10. chip = the biggest Lower percent covering a night, only when the sum over the nights of the signed percents (Lower minus, Higher plus) of the covering rules is below 0; else null. fullOnDates = a block [from, to] (inclusive nights) touches a night checkIn .. checkIn + nights - 1. partyQuote total = sum of units x total(basePrice); perNight of that total. stayCardChip30 = among active Lower rules with to >= today and from <= today + 30, the one with the earliest from (tie: bigger percent); its percent, else null.",
+  "adjust": [
+    {
+      "base": 3000,
+      "direction": "Lower",
+      "percent": 15,
+      "expected": 2550
+    },
+    {
+      "base": 4500,
+      "direction": "Lower",
+      "percent": 15,
+      "expected": 3830
+    },
+    {
+      "base": 4500,
+      "direction": "Higher",
+      "percent": 15,
+      "expected": 5180
+    },
+    {
+      "base": 1250,
+      "direction": "Lower",
+      "percent": 5,
+      "expected": 1190
+    },
+    {
+      "base": 1250,
+      "direction": "Higher",
+      "percent": 5,
+      "expected": 1310
+    },
+    {
+      "base": 999,
+      "direction": "Lower",
+      "percent": 50,
+      "expected": 500
+    },
+    {
+      "base": 110,
+      "direction": "Lower",
+      "percent": 50,
+      "expected": 100
+    },
+    {
+      "base": 100,
+      "direction": "Lower",
+      "percent": 50,
+      "expected": 100
+    },
+    {
+      "base": 3000,
+      "direction": "Higher",
+      "percent": 100,
+      "expected": 6000
+    },
+    {
+      "base": 9900000,
+      "direction": "Higher",
+      "percent": 5,
+      "expected": 9900000
+    },
+    {
+      "base": 5000000,
+      "direction": "Higher",
+      "percent": 100,
+      "expected": 9900000
+    },
+    {
+      "base": 2345,
+      "direction": "Lower",
+      "percent": 35,
+      "expected": 1520
+    },
+    {
+      "base": 2345,
+      "direction": "Higher",
+      "percent": 35,
+      "expected": 3170
+    },
+    {
+      "base": 1005,
+      "direction": "Lower",
+      "percent": 5,
+      "expected": 950
+    },
+    {
+      "base": 1050,
+      "direction": "Lower",
+      "percent": 50,
+      "expected": 530
+    },
+    {
+      "base": 1090,
+      "direction": "Higher",
+      "percent": 45,
+      "expected": 1580
+    },
+    {
+      "base": 100,
+      "direction": "Higher",
+      "percent": 5,
+      "expected": 110
+    },
+    {
+      "base": 105,
+      "direction": "Lower",
+      "percent": 5,
+      "expected": 100
+    },
+    {
+      "base": 3333,
+      "direction": "Lower",
+      "percent": 10,
+      "expected": 3000
+    },
+    {
+      "base": 7777,
+      "direction": "Higher",
+      "percent": 25,
+      "expected": 9720
+    }
+  ],
+  "totals": [
+    {
+      "name": "no rule",
+      "base": 3000,
+      "checkIn": "2026-11-01",
+      "checkOut": "2026-11-03",
+      "rules": [],
+      "nights": [
+        {
+          "date": "2026-11-01",
+          "price": 3000
+        },
+        {
+          "date": "2026-11-02",
+          "price": 3000
+        }
+      ],
+      "total": 6000
+    },
+    {
+      "name": "all nights inside higher",
+      "base": 3000,
+      "checkIn": "2026-11-07",
+      "checkOut": "2026-11-09",
+      "rules": [
+        {
+          "from": "2026-11-06",
+          "to": "2026-11-12",
+          "direction": "Higher",
+          "percent": 20
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-11-07",
+          "price": 3600
+        },
+        {
+          "date": "2026-11-08",
+          "price": 3600
+        }
+      ],
+      "total": 7200
+    },
+    {
+      "name": "check-out day is not a night (rule starts on check-out)",
+      "base": 3000,
+      "checkIn": "2026-11-04",
+      "checkOut": "2026-11-06",
+      "rules": [
+        {
+          "from": "2026-11-06",
+          "to": "2026-11-12",
+          "direction": "Higher",
+          "percent": 20
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-11-04",
+          "price": 3000
+        },
+        {
+          "date": "2026-11-05",
+          "price": 3000
+        }
+      ],
+      "total": 6000
+    },
+    {
+      "name": "first night of rule only",
+      "base": 3000,
+      "checkIn": "2026-11-05",
+      "checkOut": "2026-11-07",
+      "rules": [
+        {
+          "from": "2026-11-06",
+          "to": "2026-11-12",
+          "direction": "Higher",
+          "percent": 20
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-11-05",
+          "price": 3000
+        },
+        {
+          "date": "2026-11-06",
+          "price": 3600
+        }
+      ],
+      "total": 6600
+    },
+    {
+      "name": "last night of rule included",
+      "base": 3000,
+      "checkIn": "2026-11-12",
+      "checkOut": "2026-11-14",
+      "rules": [
+        {
+          "from": "2026-11-06",
+          "to": "2026-11-12",
+          "direction": "Higher",
+          "percent": 20
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-11-12",
+          "price": 3600
+        },
+        {
+          "date": "2026-11-13",
+          "price": 3000
+        }
+      ],
+      "total": 6600
+    },
+    {
+      "name": "night after rule end is base",
+      "base": 3000,
+      "checkIn": "2026-11-13",
+      "checkOut": "2026-11-14",
+      "rules": [
+        {
+          "from": "2026-11-06",
+          "to": "2026-11-12",
+          "direction": "Higher",
+          "percent": 20
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-11-13",
+          "price": 3000
+        }
+      ],
+      "total": 3000
+    },
+    {
+      "name": "partial nights lower",
+      "base": 4500,
+      "checkIn": "2026-06-19",
+      "checkOut": "2026-06-22",
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 15
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-06-19",
+          "price": 3830
+        },
+        {
+          "date": "2026-06-20",
+          "price": 3830
+        },
+        {
+          "date": "2026-06-21",
+          "price": 4500
+        }
+      ],
+      "total": 12160
+    },
+    {
+      "name": "paused rule ignored",
+      "base": 4500,
+      "checkIn": "2026-06-12",
+      "checkOut": "2026-06-14",
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 15,
+          "paused": true
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-06-12",
+          "price": 4500
+        },
+        {
+          "date": "2026-06-13",
+          "price": 4500
+        }
+      ],
+      "total": 9000
+    },
+    {
+      "name": "plan-paused rule ignored",
+      "base": 4500,
+      "checkIn": "2026-06-12",
+      "checkOut": "2026-06-14",
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 15,
+          "pausedByPlan": true
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-06-12",
+          "price": 4500
+        },
+        {
+          "date": "2026-06-13",
+          "price": 4500
+        }
+      ],
+      "total": 9000
+    },
+    {
+      "name": "two rules, stay spans both",
+      "base": 3200,
+      "checkIn": "2026-06-20",
+      "checkOut": "2026-06-22",
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 15
+        },
+        {
+          "from": "2026-06-21",
+          "to": "2026-06-25",
+          "direction": "Higher",
+          "percent": 10
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-06-20",
+          "price": 2720
+        },
+        {
+          "date": "2026-06-21",
+          "price": 3520
+        }
+      ],
+      "total": 6240
+    },
+    {
+      "name": "one night",
+      "base": 1250,
+      "checkIn": "2026-06-10",
+      "checkOut": "2026-06-11",
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 15
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-06-10",
+          "price": 1060
+        }
+      ],
+      "total": 1060
+    },
+    {
+      "name": "month and year edge",
+      "base": 2000,
+      "checkIn": "2026-12-30",
+      "checkOut": "2027-01-02",
+      "rules": [
+        {
+          "from": "2026-12-31",
+          "to": "2027-01-01",
+          "direction": "Higher",
+          "percent": 50
+        }
+      ],
+      "nights": [
+        {
+          "date": "2026-12-30",
+          "price": 2000
+        },
+        {
+          "date": "2026-12-31",
+          "price": 3000
+        },
+        {
+          "date": "2027-01-01",
+          "price": 3000
+        }
+      ],
+      "total": 8000
+    }
+  ],
+  "perNight": [
+    {
+      "total": 12160,
+      "nights": 3,
+      "expected": 4050
+    },
+    {
+      "total": 6150,
+      "nights": 2,
+      "expected": 3080
+    },
+    {
+      "total": 7000,
+      "nights": 3,
+      "expected": 2330
+    },
+    {
+      "total": 8000,
+      "nights": 3,
+      "expected": 2670
+    },
+    {
+      "total": 6240,
+      "nights": 2,
+      "expected": 3120
+    },
+    {
+      "total": 1060,
+      "nights": 1,
+      "expected": 1060
+    }
+  ],
+  "chip": [
+    {
+      "name": "lower covers one night of three",
+      "checkIn": "2026-06-19",
+      "nights": 3,
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-19",
+          "direction": "Lower",
+          "percent": 15
+        }
+      ],
+      "expectedPercent": 15
+    },
+    {
+      "name": "higher never",
+      "checkIn": "2026-11-07",
+      "nights": 2,
+      "rules": [
+        {
+          "from": "2026-11-06",
+          "to": "2026-11-12",
+          "direction": "Higher",
+          "percent": 20
+        }
+      ],
+      "expectedPercent": null
+    },
+    {
+      "name": "paused never",
+      "checkIn": "2026-06-12",
+      "nights": 2,
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 15,
+          "paused": true
+        }
+      ],
+      "expectedPercent": null
+    },
+    {
+      "name": "plan-paused never",
+      "checkIn": "2026-06-12",
+      "nights": 2,
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 15,
+          "pausedByPlan": true
+        }
+      ],
+      "expectedPercent": null
+    },
+    {
+      "name": "rule ended the day before check-in",
+      "checkIn": "2026-06-21",
+      "nights": 2,
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 15
+        }
+      ],
+      "expectedPercent": null
+    },
+    {
+      "name": "rule starts on check-out day",
+      "checkIn": "2026-06-08",
+      "nights": 2,
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 15
+        }
+      ],
+      "expectedPercent": null
+    },
+    {
+      "name": "lower outweighs higher",
+      "checkIn": "2026-06-20",
+      "nights": 2,
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 30
+        },
+        {
+          "from": "2026-06-21",
+          "to": "2026-06-25",
+          "direction": "Higher",
+          "percent": 10
+        }
+      ],
+      "expectedPercent": 30
+    },
+    {
+      "name": "higher outweighs lower",
+      "checkIn": "2026-06-20",
+      "nights": 2,
+      "rules": [
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-20",
+          "direction": "Lower",
+          "percent": 10
+        },
+        {
+          "from": "2026-06-21",
+          "to": "2026-06-25",
+          "direction": "Higher",
+          "percent": 30
+        }
+      ],
+      "expectedPercent": null
+    },
+    {
+      "name": "no rule",
+      "checkIn": "2026-06-20",
+      "nights": 2,
+      "rules": [],
+      "expectedPercent": null
+    }
+  ],
+  "fullOnDates": [
+    {
+      "name": "touches the first blocked night",
+      "checkIn": "2026-12-08",
+      "nights": 3,
+      "blocks": [
+        {
+          "from": "2026-12-10",
+          "to": "2026-12-12"
+        }
+      ],
+      "expected": true
+    },
+    {
+      "name": "touches the last blocked night",
+      "checkIn": "2026-12-12",
+      "nights": 2,
+      "blocks": [
+        {
+          "from": "2026-12-10",
+          "to": "2026-12-12"
+        }
+      ],
+      "expected": true
+    },
+    {
+      "name": "check-out on the first blocked night",
+      "checkIn": "2026-12-08",
+      "nights": 2,
+      "blocks": [
+        {
+          "from": "2026-12-10",
+          "to": "2026-12-12"
+        }
+      ],
+      "expected": false
+    },
+    {
+      "name": "starts the day after the last blocked night",
+      "checkIn": "2026-12-13",
+      "nights": 2,
+      "blocks": [
+        {
+          "from": "2026-12-10",
+          "to": "2026-12-12"
+        }
+      ],
+      "expected": false
+    },
+    {
+      "name": "block ended yesterday",
+      "checkIn": "2026-12-13",
+      "nights": 1,
+      "blocks": [
+        {
+          "from": "2026-12-10",
+          "to": "2026-12-12"
+        }
+      ],
+      "expected": false
+    },
+    {
+      "name": "inside the block",
+      "checkIn": "2026-12-11",
+      "nights": 1,
+      "blocks": [
+        {
+          "from": "2026-12-10",
+          "to": "2026-12-12"
+        }
+      ],
+      "expected": true
+    },
+    {
+      "name": "no blocks",
+      "checkIn": "2026-12-11",
+      "nights": 2,
+      "blocks": [],
+      "expected": false
+    }
+  ],
+  "partyQuote": [
+    {
+      "name": "two room types, one diwali night",
+      "rooms": [
+        {
+          "basePrice": 3000,
+          "units": 1
+        },
+        {
+          "basePrice": 4500,
+          "units": 2
+        }
+      ],
+      "checkIn": "2026-11-07",
+      "nights": 3,
+      "rules": [
+        {
+          "from": "2026-11-09",
+          "to": "2026-11-12",
+          "direction": "Higher",
+          "percent": 20
+        }
+      ],
+      "expectedTotal": 38400,
+      "expectedPerNight": 12800
+    },
+    {
+      "name": "two room types, no rule",
+      "rooms": [
+        {
+          "basePrice": 2000,
+          "units": 1
+        },
+        {
+          "basePrice": 3500,
+          "units": 1
+        }
+      ],
+      "checkIn": "2026-11-01",
+      "nights": 2,
+      "rules": [],
+      "expectedTotal": 11000,
+      "expectedPerNight": 5500
+    },
+    {
+      "name": "one room type, lower all nights",
+      "rooms": [
+        {
+          "basePrice": 1250,
+          "units": 3
+        }
+      ],
+      "checkIn": "2026-06-10",
+      "nights": 2,
+      "rules": [
+        {
+          "from": "2026-06-01",
+          "to": "2026-06-30",
+          "direction": "Lower",
+          "percent": 15
+        }
+      ],
+      "expectedTotal": 6360,
+      "expectedPerNight": 3180
+    }
+  ],
+  "stayCardChip30": [
+    {
+      "name": "lower rule active today",
+      "today": "2026-06-01",
+      "rules": [
+        {
+          "from": "2026-05-25",
+          "to": "2026-06-05",
+          "direction": "Lower",
+          "percent": 15
+        }
+      ],
+      "expected": 15
+    },
+    {
+      "name": "lower rule starts in 30 days",
+      "today": "2026-06-01",
+      "rules": [
+        {
+          "from": "2026-07-01",
+          "to": "2026-07-05",
+          "direction": "Lower",
+          "percent": 20
+        }
+      ],
+      "expected": 20
+    },
+    {
+      "name": "lower rule starts in 31 days",
+      "today": "2026-06-01",
+      "rules": [
+        {
+          "from": "2026-07-02",
+          "to": "2026-07-05",
+          "direction": "Lower",
+          "percent": 20
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "higher rule never",
+      "today": "2026-06-01",
+      "rules": [
+        {
+          "from": "2026-06-02",
+          "to": "2026-06-05",
+          "direction": "Higher",
+          "percent": 20
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "lower rule ended yesterday",
+      "today": "2026-06-01",
+      "rules": [
+        {
+          "from": "2026-05-20",
+          "to": "2026-05-31",
+          "direction": "Lower",
+          "percent": 15
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "paused lower rule never",
+      "today": "2026-06-01",
+      "rules": [
+        {
+          "from": "2026-06-02",
+          "to": "2026-06-05",
+          "direction": "Lower",
+          "percent": 15,
+          "paused": true
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "earliest of two lower rules",
+      "today": "2026-06-01",
+      "rules": [
+        {
+          "from": "2026-06-20",
+          "to": "2026-06-25",
+          "direction": "Lower",
+          "percent": 40
+        },
+        {
+          "from": "2026-06-10",
+          "to": "2026-06-12",
+          "direction": "Lower",
+          "percent": 10
+        }
+      ],
+      "expected": 10
+    }
+  ]
+}

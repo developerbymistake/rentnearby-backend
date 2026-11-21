@@ -81,7 +81,12 @@ public class RoomsPlotsRemovalGuardTests
 
     [Fact]
     public void PlanFeatureKeys_Unchanged()
-        => Assert.Equal(new[] { PlanFeatureKeys.ListingLimit, PlanFeatureKeys.Priority, PlanFeatureKeys.Featured, PlanFeatureKeys.JobsPosts }, PlanFeatureKeys.All);
+    {
+        Assert.Equal(new[] { PlanFeatureKeys.ListingLimit, PlanFeatureKeys.Priority, PlanFeatureKeys.Featured, PlanFeatureKeys.JobsPosts }, PlanFeatureKeys.All.Take(4));
+        Assert.Equal(16, PlanFeatureKeys.All.Length);
+        Assert.DoesNotContain(PlanFeatureKeys.All, k => k.Contains("Room", StringComparison.Ordinal) && k != PlanFeatureKeys.RoomTypes);
+        Assert.DoesNotContain(PlanFeatureKeys.All, k => k.Contains("Plot", StringComparison.Ordinal));
+    }
 
     [Fact]
     public void LiveSlotService_KeepsOnlyRankMethods()
@@ -413,8 +418,8 @@ public class RoomsPlotsRemovalGuardTests
     [Fact]
     public void UserNotificationRoutes_OwnedByKind()
     {
-        Assert.Equal(new[] { "/my-stays", "/stay-enquiries" }, UserNotificationRoutes.OwnedByKind(ListingKinds.Stay));
-        Assert.Equal(new[] { "/my-taxi", "/trip-leads", "/taxi-request-ring", "/taxi-requests", "/taxi-request-detail", "/taxi-bookings", "/taxi-rating", "/taxi-ready" }, UserNotificationRoutes.OwnedByKind(ListingKinds.Taxi));
+        Assert.Equal(new[] { "/my-stays", "/stay-enquiries", "/stay-calendar", "/stay-special-prices", "/stay-plan-visible" }, UserNotificationRoutes.OwnedByKind(ListingKinds.Stay));
+        Assert.Equal(new[] { "/my-taxi", "/trip-leads", "/taxi-request-ring", "/taxi-requests", "/taxi-request-detail", "/taxi-bookings", "/taxi-rating", "/taxi-ready", "/taxi-plan-visible" }, UserNotificationRoutes.OwnedByKind(ListingKinds.Taxi));
         Assert.Empty(UserNotificationRoutes.OwnedByKind("Room"));
         Assert.Empty(UserNotificationRoutes.OwnedByKind("Plot"));
     }

@@ -86,6 +86,18 @@ public static class NotificationTypes
     public const string TripPaymentReceived = "TripPaymentReceived";
     public const string TripPaymentWithdrawn = "TripPaymentWithdrawn";
     public const string TripPaymentNotReceived = "TripPaymentNotReceived";
+    // Owner roles (contract 5.3, R-0): outbox pushes with NotificationId null; the stored ones live in UserNotices.
+    public const string StayEditApproved = "StayEditApproved";
+    public const string StayEditRejected = "StayEditRejected";
+    public const string FestivalReminder = "FestivalReminder";
+    public const string PlanLimitsChanged = "PlanLimitsChanged";
+    public const string OwnerMorningReminder = "OwnerMorningReminder";
+    public const string PlansStarting = "PlansStarting";
+
+    public static readonly IReadOnlyList<string> OwnerPushKinds =
+    [
+        StayEditApproved, StayEditRejected, FestivalReminder, PlanLimitsChanged, OwnerMorningReminder, PlansStarting,
+    ];
 
     public static readonly IReadOnlyList<string> BuddyPushKinds =
     [
@@ -174,6 +186,12 @@ public static class NotificationTypes
         [TripPaymentReceived] = "trip_payment_received",
         [TripPaymentWithdrawn] = "trip_payment_withdrawn",
         [TripPaymentNotReceived] = "trip_payment_not_received",
+        [StayEditApproved] = "stay_edit_approved",
+        [StayEditRejected] = "stay_edit_rejected",
+        [FestivalReminder] = "festival_reminder",
+        [PlanLimitsChanged] = "plan_limits_changed",
+        [OwnerMorningReminder] = "owner_morning_reminder",
+        [PlansStarting] = "plans_starting",
     };
 
     public static string ToWireValue(string type) => WireValues.TryGetValue(type, out var wire) ? wire : type;

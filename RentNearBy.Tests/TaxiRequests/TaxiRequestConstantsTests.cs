@@ -19,7 +19,7 @@ public class TaxiRequestConstantsTests
     [InlineData(typeof(BookingCancelledBy), new[] { "Traveller", "Driver", "Admin", "System" })]
     [InlineData(typeof(BookingCompletedBy), new[] { "Auto", "Traveller", "Driver" })]
     [InlineData(typeof(RequestEndReasons), new[] { "TravellerCancelled", "PickupChanged", "BookingCancelledByTraveller", "DriverLeftTrip", "AdminCancelled", "AccountClosed", "AllDriversBusy", "NotBooked", "NoReadyDriver" })]
-    [InlineData(typeof(OfferEndReasons), new[] { "Expired", "Filled", "ConfirmTimeout", "DeclinedBooking", "RequestCancelled", "RequestExpired", "Booked", "DriverOffline", "ListingRemoved", "RouteRemoved" })]
+    [InlineData(typeof(OfferEndReasons), new[] { "Expired", "Filled", "ConfirmTimeout", "DeclinedBooking", "RequestCancelled", "RequestExpired", "Booked", "DriverOffline", "ListingRemoved", "RouteRemoved", "RoutePausedByPlan", "ListingInReview" })]
     [InlineData(typeof(ReasonChips), new[] { "ChangedPlan", "NotReachable", "PriceNotAgreed", "VehicleIssue", "Other" })]
     [InlineData(typeof(PlanLockReasons), new[] { "TaxiRequestActive", "TaxiBookingActive", "StayBookingActive" })]
     [InlineData(typeof(DueActionKinds), new[] { "OfferExpire", "ConfirmExpire", "RequestWaitExpire", "RequestStaleExpire", "BookingStart", "BookingAutoComplete", "ChooseReminderFirst", "ChooseReminderSecond" })]

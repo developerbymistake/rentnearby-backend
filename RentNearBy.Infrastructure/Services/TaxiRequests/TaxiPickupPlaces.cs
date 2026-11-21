@@ -49,6 +49,7 @@ public sealed class TaxiPickupPlaces
         FROM "TaxiRoutes" rt
         JOIN "TaxiListings" l ON l."Id" = rt."TaxiListingId"
         WHERE rt."ToCityKey" = @to AND rt."FromCityKey" IS NOT NULL AND rt."FromCityKey" <> rt."ToCityKey"
+        AND NOT rt."HiddenByPlan"
         AND {TaxiCandidateQuery.ListRule}
         GROUP BY rt."FromCityKey"
         """;
@@ -57,7 +58,7 @@ public sealed class TaxiPickupPlaces
         SELECT count(DISTINCT l."Id")::int AS "Value"
         FROM "TaxiRoutes" rt
         JOIN "TaxiListings" l ON l."Id" = rt."TaxiListingId"
-        WHERE rt."ToCityKey" = @to
+        WHERE rt."ToCityKey" = @to AND NOT rt."HiddenByPlan"
         AND {TaxiCandidateQuery.ListRule}
         """;
 

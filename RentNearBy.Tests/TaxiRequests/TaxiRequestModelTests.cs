@@ -365,7 +365,7 @@ public class TaxiRequestModelTests
         Column<TaxiRoute>(nameof(TaxiRoute.FromCityKey), "bigint", true);
         Column<TaxiRoute>(nameof(TaxiRoute.ToCityKey), "bigint", true);
         var ix = Index<TaxiRoute>("ix_taxiroutes_to_from_city");
-        AssertPlain(ix, ["ToCityKey", "FromCityKey"], "\"ToCityKey\" IS NOT NULL AND \"FromCityKey\" IS NOT NULL");
+        AssertPlain(ix, ["ToCityKey", "FromCityKey"], "\"ToCityKey\" IS NOT NULL AND \"FromCityKey\" IS NOT NULL AND NOT \"HiddenByPlan\"");
         Assert.Equal(["TaxiListingId"], ix.GetIncludeProperties()!.ToArray());
     }
 

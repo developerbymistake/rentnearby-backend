@@ -157,8 +157,15 @@ public static class OfferEndReasons
     public const string ListingRemoved = "ListingRemoved";
     // O12: the driver removed the route the request matched through.
     public const string RouteRemoved = "RouteRemoved";
+    // Owner roles: a route hidden by the plan (7.2) and a live taxi sent back to review (AU-6). Never a missed ring.
+    public const string RoutePausedByPlan = "RoutePausedByPlan";
+    public const string ListingInReview = "ListingInReview";
 
-    public static readonly IReadOnlyList<string> All = [Expired, Filled, ConfirmTimeout, DeclinedBooking, RequestCancelled, RequestExpired, Booked, DriverOffline, ListingRemoved, RouteRemoved];
+    public static readonly IReadOnlyList<string> All =
+    [
+        Expired, Filled, ConfirmTimeout, DeclinedBooking, RequestCancelled, RequestExpired, Booked, DriverOffline, ListingRemoved, RouteRemoved,
+        RoutePausedByPlan, ListingInReview,
+    ];
     public static readonly string SqlList = TaxiSql.List(All);
 
     // Body of the visible ring end push (contract 10.2); null = no ring end push for this reason.

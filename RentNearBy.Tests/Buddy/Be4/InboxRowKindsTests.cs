@@ -29,7 +29,7 @@ public class InboxRowKindsTests
             Assert.Contains($"'{k}'", NoticeKinds.SqlList);
             Assert.True(k.Length <= 20);
         });
-        Assert.Equal(14, NoticeKinds.All.Count);
+        Assert.Equal(14 + NoticeKinds.Owner.Count, NoticeKinds.All.Count);
         Assert.Equal(NoticeKinds.All.Count, NoticeKinds.All.Distinct().Count());
         Assert.Contains(NoticeKinds.ExpenseAdded, NoticeKinds.WithAmount);
         Assert.Contains(NoticeKinds.ShareChanged, NoticeKinds.WithAmount);

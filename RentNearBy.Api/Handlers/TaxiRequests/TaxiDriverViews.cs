@@ -279,7 +279,7 @@ public static class TaxiDriverViews
     {
         var listing = await db.TaxiListings.AsNoTracking().FirstOrDefaultAsync(l => l.UserId == driverUserId && !l.IsDeleted, ct);
         var hasToken = await db.DeviceTokens.AsNoTracking().AnyAsync(t => t.UserId == driverUserId && t.IsValid, ct);
-        var unresolved = listing is null ? 0 : await db.TaxiRoutes.AsNoTracking()
+        var unresolved = listing is null ? 0 : await db.TaxiRoutes.AsNoTracking().IgnoreQueryFilters()
             .CountAsync(r => r.TaxiListingId == listing.Id && (r.FromCityKey == null || r.ToCityKey == null), ct);
         return BuildReadiness(listing, hasToken, unresolved);
     }

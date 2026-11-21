@@ -6,6 +6,7 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Models.Owner;
 using RentNearBy.Core.Utils;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -154,8 +155,6 @@ public static class DataSeeder
 
         foreach (var (index, kind, code) in features)
         {
-            var isStay = kind == ListingKinds.Stay;
-
             var free = new Plan
             {
                 Id = PlanId(index, 1),
@@ -170,10 +169,9 @@ public static class DataSeeder
                 CreatedAt = now,
                 UpdatedAt = now,
             };
-            free.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.ListingLimit, Value = 1 });
-            free.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Priority, Value = 0 });
-            free.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Featured, Value = 0 });
-            if (isStay) free.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.JobsPosts, Value = 1 });
+            // One row per plan key of the kind (PlanKeyCatalog, contract 1.4); a key that is not for the kind gets no row.
+            foreach (var key in PlanKeyCatalog.For(kind))
+                free.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = key.Key, Value = key.SeedFor(kind)!.Free });
 
             var plus = new Plan
             {
@@ -190,10 +188,8 @@ public static class DataSeeder
                 CreatedAt = now,
                 UpdatedAt = now,
             };
-            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.ListingLimit, Value = 1 });
-            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Priority, Value = 1 });
-            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.Featured, Value = 1 });
-            if (isStay) plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = PlanFeatureKeys.JobsPosts, Value = 4 });
+            foreach (var key in PlanKeyCatalog.For(kind))
+                plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = key.Key, Value = key.SeedFor(kind)!.Plus });
 
             var (m1, m3, m12) = kind switch
             {

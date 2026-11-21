@@ -55,6 +55,12 @@ public class TaxiListing
     // Rings that timed out without a timely shown ack, in a row; at the limit the driver leaves the pool.
     public short RingMissStreak { get; set; }
 
+    // Copied from the owner's plan by PlanSlotService like PriorityRank; the fair queue reads it, never UserPlans.
+    public short RingWeight { get; set; } = 1;
+    public DateOnly? PlanVisibleSavesDay { get; set; }
+    public short PlanVisibleSavesCount { get; set; }
+    public bool RemindersOn { get; set; } = true;
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsDeleted { get; set; } = false;

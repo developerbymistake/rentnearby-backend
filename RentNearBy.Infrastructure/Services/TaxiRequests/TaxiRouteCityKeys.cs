@@ -295,6 +295,7 @@ public sealed class TaxiRouteCityKeyStore(IServiceScopeFactory scopes, ILogger<T
             var from = w.FromCityKey;
             var to = w.ToCityKey;
             changed += await db.TaxiRoutes
+                .IgnoreQueryFilters()
                 .Where(x => x.Id == r.Id && !x.CityKeysChosen
                     && x.FromLatitude == r.FromLatitude && x.FromLongitude == r.FromLongitude
                     && x.ToLatitude == r.ToLatitude && x.ToLongitude == r.ToLongitude)

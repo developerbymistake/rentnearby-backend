@@ -1,13 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
 // The one seam that reads limits: one indexed UserPlans query + cached catalog + cached payment flag.
-// Payment ON: the active plan's features, else the default plan's. Payment OFF (free mode): element-wise
-// max(default, active plan) with ListingLimit raised to FreeModeListingLimit, and IsPaid = false.
+// Payment ON: the active plan's features, else the default plan's. Payment OFF (contract 3.1): Plus numbers for limit keys,
+// Free for ranking keys, max with an active plan, ListingLimit raised to FreeModeListingLimit, and IsPaid = false.
 public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache catalog, IPaymentFeatureReader payment)
     : IPlanEntitlementService
 {
@@ -56,7 +57,9 @@ public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache c
         }
         else
         {
-            values = active != null ? PlanFeatureValues.Max(defaults, active.Values) : defaults;
+            // Payment OFF: Plus numbers for every limit key, Free for every ranking key; a grant keeps its own values.
+            var off = PlanFeatureValues.OffValues(snapshot, featureKey);
+            values = active != null ? PlanFeatureValues.Max(off, active.Values) : off;
             values = values with { ListingLimit = Math.Max(values.ListingLimit, flag.FreeModeListingLimit ?? 0) };
         }
 
@@ -75,6 +78,20 @@ public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache c
             IsFeatured: values.Featured,
             JobsPosts: Math.Max(0, values.JobsPosts),
             PaymentEnabled: flag.Enabled,
-            FreeDays: flag.FreeDays);
+            FreeDays: flag.FreeDays,
+            Photos: Clamp(PlanFeatureKeys.Photos, values.Photos),
+            RoomTypes: Clamp(PlanFeatureKeys.RoomTypes, values.RoomTypes),
+            Routes: Clamp(PlanFeatureKeys.Routes, values.Routes),
+            RingWeight: Clamp(PlanFeatureKeys.RingWeight, values.RingWeight),
+            CalendarEntries: Clamp(PlanFeatureKeys.CalendarEntries, values.CalendarEntries),
+            BlockedRanges: Clamp(PlanFeatureKeys.BlockedRanges, values.BlockedRanges),
+            UpcomingDays: Clamp(PlanFeatureKeys.UpcomingDays, values.UpcomingDays),
+            MonthsAhead: Clamp(PlanFeatureKeys.MonthsAhead, values.MonthsAhead),
+            MonthSummary: values.MonthSummary,
+            Reminders: values.Reminders,
+            SpecialPrices: Clamp(PlanFeatureKeys.SpecialPrices, values.SpecialPrices),
+            DemandCount: values.DemandCount);
     }
+
+    private static int Clamp(string key, int value) => PlanKeyCatalog.Of(key).Clamp(value);
 }

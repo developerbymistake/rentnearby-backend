@@ -313,8 +313,9 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                     CROSS JOIN LATERAL (
                         SELECT (ST_DWithin(r."FromPoint", q.f, {radius}::float8) AND ST_DWithin(r."ToPoint", q.t, {radius}::float8)) AS direct
                     ) m
-                    WHERE (ST_DWithin(r."FromPoint", q.f, {radius}::float8) AND ST_DWithin(r."ToPoint", q.t, {radius}::float8))
-                       OR (ST_DWithin(r."FromPoint", q.t, {radius}::float8) AND ST_DWithin(r."ToPoint", q.f, {radius}::float8))
+                    WHERE NOT r."HiddenByPlan"
+                      AND ((ST_DWithin(r."FromPoint", q.f, {radius}::float8) AND ST_DWithin(r."ToPoint", q.t, {radius}::float8))
+                       OR (ST_DWithin(r."FromPoint", q.t, {radius}::float8) AND ST_DWithin(r."ToPoint", q.f, {radius}::float8)))
                 ),
                 best AS (
                     SELECT DISTINCT ON ("TaxiListingId") *
@@ -331,7 +332,7 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                        d."Name"      AS "DistrictName",
                        t."MinFare",
                        t."CreatedAt",
-                       (SELECT COUNT(*) FROM "TaxiRoutes" rc WHERE rc."TaxiListingId" = t."Id") AS "RouteCount",
+                       (SELECT COUNT(*) FROM "TaxiRoutes" rc WHERE rc."TaxiListingId" = t."Id" AND NOT rc."HiddenByPlan") AS "RouteCount",
                        b."Fare"      AS "MatchedFare",
                        b."FromName"  AS "MatchedFromName",
                        b."ToName"    AS "MatchedToName",

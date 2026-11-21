@@ -461,6 +461,7 @@ app.MapGroup("/api/v1/trips")
 
 app.MapTaxiRequests();
 app.MapBuddyFeature();
+app.MapOwnerFeature();
 
 app.MapHub<BannerHub>("/hubs/banner");
 app.MapHub<ChatHub>("/hubs/chat");

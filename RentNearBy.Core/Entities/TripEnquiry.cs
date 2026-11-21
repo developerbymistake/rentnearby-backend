@@ -29,6 +29,9 @@ public class TripEnquiry
     public bool IsUrgent { get; set; }
     public Guid? AcceptedOfferId { get; set; }
     public int? AgreedTotal { get; set; }
+    // Stay only: price function total for the asked nights, written by the server at create, never changed (contract 8.2, AU-14a).
+    public int? ListedStayTotal { get; set; }
+    public string? ListedStayBreakdownJson { get; set; }
     public DateTime? ConfirmedByTravellerAt { get; set; }
     public DateTime? ConfirmedByOwnerAt { get; set; }
 

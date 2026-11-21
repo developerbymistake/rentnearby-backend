@@ -19,7 +19,7 @@ public class AccountDeletionGuardIntegrationTests(TestDatabase db) : Integration
     // Row purge only; Cloudinary is never called here.
     private sealed class RowPurge(ApplicationDbContext db) : IListingPurgeService
     {
-        private readonly ListingPurgeService _inner = new(db, null!, NullLogger<ListingPurgeService>.Instance);
+        private readonly ListingPurgeService _inner = new(db, null!, new RentNearBy.Infrastructure.Services.Owner.NullOwnerListingPurge(), NullLogger<ListingPurgeService>.Instance);
 
         public async Task<(IReadOnlyList<Guid> StayIds, IReadOnlyList<Guid> TaxiIds)> PurgeUserListingsAsync(Guid userId)
             => (await _inner.DeleteUserListingRowsAsync(userId, ListingKinds.Stay), await _inner.DeleteUserListingRowsAsync(userId, ListingKinds.Taxi));

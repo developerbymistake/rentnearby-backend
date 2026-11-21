@@ -34,6 +34,7 @@ public static class TaxiCandidateQuery
 
     public static readonly string RouteRule = """
         EXISTS (SELECT 1 FROM "TaxiRoutes" rt WHERE rt."TaxiListingId" = l."Id" AND rt."ToCityKey" = r."MatchToCityKey"
+                AND NOT rt."HiddenByPlan"
                 AND (r."MatchFromCityKey" IS NULL OR rt."FromCityKey" = r."MatchFromCityKey"))
         """;
 
@@ -77,7 +78,7 @@ public static class TaxiCandidateQuery
     // A driver belongs to a city's pool when he can serve the to-city of any request the city is dispatching.
     public static readonly string CityPoolRule = $"""
         EXISTS (SELECT 1 FROM "TaxiRoutes" prt JOIN "TaxiRequests" q ON q."MatchToCityKey" = prt."ToCityKey"
-                WHERE prt."TaxiListingId" = l."Id" AND q."DispatchCityKey" = @city AND q."Status" IN ({DispatchingList}))
+                WHERE prt."TaxiListingId" = l."Id" AND NOT prt."HiddenByPlan" AND q."DispatchCityKey" = @city AND q."Status" IN ({DispatchingList}))
         """;
 
     // New state rows start with SeenSeq -1 so the fair queue never counts them as continuing (floor rule, 2.6).

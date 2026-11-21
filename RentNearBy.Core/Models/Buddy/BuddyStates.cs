@@ -141,11 +141,20 @@ public static class NoticeKinds
     public const string PlanUpdated = "PlanUpdated";
     public const string ExpenseAdded = "ExpenseAdded";
     public const string ShareChanged = "ShareChanged";
+    // Owner roles (contract 5.3, R-0). TripId is the entity slot: NoTrip, or the festival id for FestivalReminder.
+    public const string StayEditApproved = "StayEditApproved";
+    public const string StayEditRejected = "StayEditRejected";
+    public const string FestivalReminder = "FestivalReminder";
+    public const string PlanLimitsChanged = "PlanLimitsChanged";
+    public const string PlansStarting = "PlansStarting";
+
+    public static readonly IReadOnlyList<string> Owner = [StayEditApproved, StayEditRejected, FestivalReminder, PlanLimitsChanged, PlansStarting];
 
     public static readonly IReadOnlyList<string> All =
     [
         BuddyRequest, TripInvite, PaymentSaidPaid, SettleReminder, PaymentNotReceived, ExpensesChanged, TripRemoved, TripDeleted,
         BuddyAccepted, NewBuddy, TripJoined, PlanUpdated, ExpenseAdded, ShareChanged,
+        StayEditApproved, StayEditRejected, FestivalReminder, PlanLimitsChanged, PlansStarting,
     ];
     public static readonly IReadOnlyList<string> WithAmount = [PaymentSaidPaid, SettleReminder, PaymentNotReceived, ExpenseAdded, ShareChanged];
     // Rows of a viewer that go when he is removed from the trip (or leaves, plan rows only).

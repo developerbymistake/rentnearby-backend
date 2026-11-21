@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Owner;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 
@@ -8,7 +9,7 @@ namespace RentNearBy.Infrastructure.Services;
 
 // Opens no transaction: the caller owns it. Role-change photo deletion runs after the caller's commit.
 public class ListingPurgeService(
-    ApplicationDbContext context, IPhotoService photoService, ILogger<ListingPurgeService> logger)
+    ApplicationDbContext context, IPhotoService photoService, IOwnerListingPurge ownerPurge, ILogger<ListingPurgeService> logger)
     : IListingPurgeService
 {
     public async Task<(IReadOnlyList<Guid> StayIds, IReadOnlyList<Guid> TaxiIds)> PurgeUserListingsAsync(Guid userId)
@@ -61,15 +62,21 @@ public class ListingPurgeService(
             .Select(s => s.Id)
             .ToListAsync();
 
+        // Owner tables first (calendar entries with money notes, blocked ranges, special prices, weekly stats), contract 6.2 step 6.
+        await ownerPurge.PurgeAsync(ListingKinds.Stay, stayIds);
+
         await context.StayJobs
             .Where(j => j.UserId == userId)
             .ExecuteDeleteAsync();
 
+        // Hidden rows too (contract 3.3): the purge is on the allow-list that lifts the HiddenByPlan filter.
         await context.StayPhotos
+            .IgnoreQueryFilters()
             .Where(p => context.StayListings.Any(s => s.Id == p.StayListingId && s.UserId == userId))
             .ExecuteDeleteAsync();
 
         await context.StayRooms
+            .IgnoreQueryFilters()
             .Where(r => context.StayListings.Any(s => s.Id == r.StayListingId && s.UserId == userId))
             .ExecuteDeleteAsync();
 
@@ -88,7 +95,10 @@ public class ListingPurgeService(
             .Select(t => t.Id)
             .ToListAsync();
 
+        await ownerPurge.PurgeAsync(ListingKinds.Taxi, taxiIds);
+
         await context.TaxiRoutes
+            .IgnoreQueryFilters()
             .Where(r => context.TaxiListings.Any(t => t.Id == r.TaxiListingId && t.UserId == userId))
             .ExecuteDeleteAsync();
 

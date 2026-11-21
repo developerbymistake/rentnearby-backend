@@ -1,27 +1,86 @@
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 
 namespace RentNearBy.Core.Interfaces;
 
 public sealed record CatalogPrice(Guid Id, short CycleMonths, int PriceInr, string? RazorpayPlanId, bool IsEnabled,
     string? PlayBasePlanId, string? PlayTrialOfferId);
 
-// Typed view of a plan's PlanFeatures; a missing key reads as 0.
-public sealed record PlanFeatureValues(int ListingLimit, int Priority, bool Featured, int JobsPosts)
+// Typed view of a plan's PlanFeatures. A missing legacy key (the first four) reads as 0; a missing newer key reads as its
+// Free value, which is also the parameter default, so a plan saved before a key existed never drops below Free.
+public sealed record PlanFeatureValues(
+    int ListingLimit,
+    int Priority,
+    bool Featured,
+    int JobsPosts,
+    int Photos = 2,
+    int RoomTypes = 2,
+    int Routes = 1,
+    int RingWeight = 1,
+    int CalendarEntries = 4,
+    int BlockedRanges = 1,
+    int UpcomingDays = 15,
+    int MonthsAhead = 0,
+    bool MonthSummary = false,
+    bool Reminders = false,
+    int SpecialPrices = 1,
+    bool DemandCount = false)
 {
-    public static PlanFeatureValues From(IReadOnlyDictionary<string, int> features) => new(
-        features.GetValueOrDefault(PlanFeatureKeys.ListingLimit),
-        features.GetValueOrDefault(PlanFeatureKeys.Priority),
-        features.GetValueOrDefault(PlanFeatureKeys.Featured) > 0,
-        features.GetValueOrDefault(PlanFeatureKeys.JobsPosts));
-
-    public static PlanFeatureValues Max(PlanFeatureValues a, PlanFeatureValues b) => new(
-        Math.Max(a.ListingLimit, b.ListingLimit),
-        Math.Max(a.Priority, b.Priority),
-        a.Featured || b.Featured,
-        Math.Max(a.JobsPosts, b.JobsPosts));
-
     // Used only if a feature has no default plan row (unseeded database).
     public static readonly PlanFeatureValues Fallback = new(1, 0, false, 1);
+
+    public int Get(string key) => key switch
+    {
+        PlanFeatureKeys.ListingLimit => ListingLimit,
+        PlanFeatureKeys.Priority => Priority,
+        PlanFeatureKeys.Featured => Featured ? 1 : 0,
+        PlanFeatureKeys.JobsPosts => JobsPosts,
+        PlanFeatureKeys.Photos => Photos,
+        PlanFeatureKeys.RoomTypes => RoomTypes,
+        PlanFeatureKeys.Routes => Routes,
+        PlanFeatureKeys.RingWeight => RingWeight,
+        PlanFeatureKeys.CalendarEntries => CalendarEntries,
+        PlanFeatureKeys.BlockedRanges => BlockedRanges,
+        PlanFeatureKeys.UpcomingDays => UpcomingDays,
+        PlanFeatureKeys.MonthsAhead => MonthsAhead,
+        PlanFeatureKeys.MonthSummary => MonthSummary ? 1 : 0,
+        PlanFeatureKeys.Reminders => Reminders ? 1 : 0,
+        PlanFeatureKeys.SpecialPrices => SpecialPrices,
+        PlanFeatureKeys.DemandCount => DemandCount ? 1 : 0,
+        _ => throw new ArgumentOutOfRangeException(nameof(key), key, "Unknown plan feature key"),
+    };
+
+    public static PlanFeatureValues Build(Func<string, int> read) => new(
+        read(PlanFeatureKeys.ListingLimit),
+        read(PlanFeatureKeys.Priority),
+        read(PlanFeatureKeys.Featured) > 0,
+        read(PlanFeatureKeys.JobsPosts),
+        read(PlanFeatureKeys.Photos),
+        read(PlanFeatureKeys.RoomTypes),
+        read(PlanFeatureKeys.Routes),
+        read(PlanFeatureKeys.RingWeight),
+        read(PlanFeatureKeys.CalendarEntries),
+        read(PlanFeatureKeys.BlockedRanges),
+        read(PlanFeatureKeys.UpcomingDays),
+        read(PlanFeatureKeys.MonthsAhead),
+        read(PlanFeatureKeys.MonthSummary) > 0,
+        read(PlanFeatureKeys.Reminders) > 0,
+        read(PlanFeatureKeys.SpecialPrices),
+        read(PlanFeatureKeys.DemandCount) > 0);
+
+    public static PlanFeatureValues From(IReadOnlyDictionary<string, int> features) => Build(k =>
+        features.TryGetValue(k, out var v) ? v : PlanFeatureKeys.Legacy.Contains(k) ? 0 : Fallback.Get(k));
+
+    public static PlanFeatureValues Max(PlanFeatureValues a, PlanFeatureValues b) => Build(k => Math.Max(a.Get(k), b.Get(k)));
+
+    // Payment OFF: every Limit key takes the highest value over the enabled plans of the kind (default included),
+    // every Ranking and Stored key the default plan's value. Nobody is ranked above anybody while nothing can be bought.
+    public static PlanFeatureValues OffValues(PlanCatalogSnapshot snapshot, string featureKey)
+    {
+        var defaults = snapshot.DefaultValues(featureKey);
+        var enabled = snapshot.PlansOf(featureKey).Where(p => p.IsEnabled || p.IsDefault).Select(p => p.Values).Append(defaults).ToList();
+        return Build(k => PlanKeyCatalog.Of(k).Kind == PlanKeyKind.Limit ? enabled.Max(v => v.Get(k)) : defaults.Get(k));
+    }
 }
 
 public sealed record CatalogPlan(

@@ -245,7 +245,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 LEFT JOIN LATERAL (
                     SELECT p."PhotoUrl"
                     FROM "StayPhotos" p
-                    WHERE p."StayListingId" = s."Id"
+                    WHERE p."StayListingId" = s."Id" AND NOT p."HiddenByPlan"
                     ORDER BY p."PhotoOrder"
                     LIMIT 1
                 ) p ON TRUE
@@ -257,7 +257,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                                     ORDER BY r."RoomIndex")::text AS "RoomsJson",
                            bool_or(r."Floor" = 0) AS "HasGroundFloorRoom"
                     FROM "StayRooms" r
-                    WHERE r."StayListingId" = s."Id"
+                    WHERE r."StayListingId" = s."Id" AND NOT r."HiddenByPlan"
                 ) rm ON TRUE
                 WHERE s."Status" = 'Approved'
                   AND s."AcceptingGuests" = TRUE
@@ -345,7 +345,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 LEFT JOIN LATERAL (
                     SELECT p."PhotoUrl"
                     FROM "StayPhotos" p
-                    WHERE p."StayListingId" = s."Id"
+                    WHERE p."StayListingId" = s."Id" AND NOT p."HiddenByPlan"
                     ORDER BY p."PhotoOrder"
                     LIMIT 1
                 ) p ON TRUE
@@ -354,7 +354,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                                     ORDER BY r."RoomIndex")::text AS "RoomsJson",
                            bool_or(r."Floor" = 0) AS "HasGroundFloorRoom"
                     FROM "StayRooms" r
-                    WHERE r."StayListingId" = s."Id"
+                    WHERE r."StayListingId" = s."Id" AND NOT r."HiddenByPlan"
                 ) rm ON TRUE
                 WHERE s."Status" = 'Approved'
                   AND s."AcceptingGuests" = TRUE

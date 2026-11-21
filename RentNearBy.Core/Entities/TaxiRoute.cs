@@ -28,4 +28,6 @@ public class TaxiRoute
 
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    // Hidden by the owner's plan, never deleted (contract 3.3); hidden rows hold RouteIndex 101 and up and never ring.
+    public bool HiddenByPlan { get; set; }
 }

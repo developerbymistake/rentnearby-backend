@@ -14,10 +14,12 @@ public static class RetentionSchedule
         new RetentionSlot(RetentionGroups.Sessions, new TimeOnly(2, 0), new TimeOnly(2, 20)),
         new RetentionSlot(RetentionGroups.Devices, new TimeOnly(2, 20), new TimeOnly(2, 40)),
         new RetentionSlot(RetentionGroups.TripEnquiries, new TimeOnly(2, 40), new TimeOnly(3, 15)),
-        new RetentionSlot(RetentionGroups.Chat, new TimeOnly(3, 15), new TimeOnly(4, 30)),
+        new RetentionSlot(RetentionGroups.Chat, new TimeOnly(3, 15), new TimeOnly(4, 10)),
+        new RetentionSlot(RetentionGroups.OwnerCalendar, new TimeOnly(4, 10), new TimeOnly(4, 30)),
     };
 
     // Run order across all groups; inside a group the order matters (due actions and taxi requests first, offers before enquiries, chat after enquiries).
+// The six owner calendar rules (group D, lane BE1) run last, in their own slot.
     public static IReadOnlyList<string> RuleOrder { get; } = new[]
     {
         "NotificationEvents", "UserNotices", "NotificationLogs", "TripPushLogs",
@@ -28,6 +30,7 @@ public static class RetentionSchedule
         "DueActions", "TaxiRequests",
         "TripOffers", "TripEnquiries", "TripEnquiryOrphans",
         "Chat",
+        "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats",
     };
 
     public static int OrderOf(string ruleName)

@@ -7,8 +7,27 @@ public static class PlanFeatureKeys
     public const string Priority = "Priority";
     public const string Featured = "Featured";
     public const string JobsPosts = "JobsPosts";
+    public const string Photos = "Photos";
+    public const string RoomTypes = "RoomTypes";
+    public const string Routes = "Routes";
+    public const string RingWeight = "RingWeight";
+    public const string CalendarEntries = "CalendarEntries";
+    public const string BlockedRanges = "BlockedRanges";
+    public const string UpcomingDays = "UpcomingDays";
+    public const string MonthsAhead = "MonthsAhead";
+    public const string MonthSummary = "MonthSummary";
+    public const string Reminders = "Reminders";
+    public const string SpecialPrices = "SpecialPrices";
+    public const string DemandCount = "DemandCount";
 
-    public static readonly string[] All = [ListingLimit, Priority, Featured, JobsPosts];
+    public static readonly string[] All =
+    [
+        ListingLimit, Priority, Featured, JobsPosts, Photos, RoomTypes, Routes, RingWeight, CalendarEntries, BlockedRanges,
+        UpcomingDays, MonthsAhead, MonthSummary, Reminders, SpecialPrices, DemandCount,
+    ];
+
+    // Keys that existed before the owner roles work: a missing stored row reads as 0. Newer keys read the Fallback value.
+    public static readonly string[] Legacy = [ListingLimit, Priority, Featured, JobsPosts];
 }
 
 // Plans are scoped by listing kind; a role's feature is UserRoles.ListingKindOf(roleId).

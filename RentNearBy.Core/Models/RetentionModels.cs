@@ -63,8 +63,9 @@ public static class RetentionGroups
     public const string TripHousekeeping = "B.Housekeeping";
     public const string TripEnquiries = "B.Enquiries";
     public const string Sessions = "C.Sessions";
+    public const string OwnerCalendar = "D.OwnerCalendar";
 
-    public static readonly IReadOnlyList<string> All = new[] { Notifications, TripHousekeeping, Sessions, Devices, TripEnquiries, Chat };
+    public static readonly IReadOnlyList<string> All = new[] { Notifications, TripHousekeeping, Sessions, Devices, TripEnquiries, Chat, OwnerCalendar };
 }
 
 public enum RetentionStatus { Completed, SlotEnd, Busy, GuardStop, Disabled, LockBusy, Error }

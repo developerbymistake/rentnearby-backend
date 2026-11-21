@@ -32,6 +32,16 @@ public static class UserNotificationRoutes
     public const string TripView = "/trip-view";
     public const string TripExpenses = "/trip-expenses";
 
+    // Owner roles (AU-15). /my-taxi with { section: "routes" } and /main with { tab: "home" } reuse existing route names.
+    public const string StayCalendar = "/stay-calendar";
+    public const string StaySpecialPrices = "/stay-special-prices";
+    public const string StayPlanVisible = "/stay-plan-visible";
+    public const string TaxiPlanVisible = "/taxi-plan-visible";
+    public const string TaxiRoutesAndFares = MyTaxi;
+    public const string OwnerHome = "/main";
+    public const string TripSettle = "/trip-settle";
+    public const string TripReplies = "/trip-replies";
+
     public static readonly IReadOnlyList<string> TaxiDriverRoutes = [TaxiRequestRing, TaxiRequests, TaxiRequestDetail, TaxiBookings, TaxiRating, TaxiReady];
     public static readonly IReadOnlyList<string> TravellerTaxiRoutes = [TripName, TripCustomize, TripOverview, TripTaxiRequest, TripTaxiStatus];
 
@@ -45,8 +55,8 @@ public static class UserNotificationRoutes
     // Inbox routes a role change deletes for the kind being left: its listing screen plus its trip owner screen.
     public static IReadOnlyList<string> OwnedByKind(string listingKind) => listingKind switch
     {
-        ListingKinds.Stay => [MyStays, StayEnquiries],
-        ListingKinds.Taxi => [MyTaxi, TripLeads, .. TaxiDriverRoutes],
+        ListingKinds.Stay => [MyStays, StayEnquiries, StayCalendar, StaySpecialPrices, StayPlanVisible],
+        ListingKinds.Taxi => [MyTaxi, TripLeads, .. TaxiDriverRoutes, TaxiPlanVisible],
         _ => [],
     };
 }

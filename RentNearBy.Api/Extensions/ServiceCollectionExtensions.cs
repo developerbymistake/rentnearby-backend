@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using RentNearBy.Api.Services;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.Owner;
 using RentNearBy.Infrastructure.Services.Retention;
 using StackExchange.Redis;
 
@@ -26,8 +28,13 @@ public static class ServiceCollectionExtensions
         // fields to leak state between requests, and every consumer (all handlers, all 10
         // background workers via IServiceScopeFactory.CreateScope(), AccountDeletionService,
         // the plan services) resolves it as Scoped, never captured by a Singleton.
-        services.AddDbContextPool<ApplicationDbContext>(options =>
-            options.UseNpgsql(connectionString, o => o.UseNetTopologySuite()));
+        // The owner calendar sync interceptor is a singleton on the pooled options (contract 8.1). The HiddenByPlan query filter on
+        // TaxiRoutes makes EF warn about the required TaxiRouteGeometry end; geometry rows are read by route id only.
+        services.AddSingleton<OwnerCalendarSyncInterceptor>();
+        services.AddDbContextPool<ApplicationDbContext>((sp, options) =>
+            options.UseNpgsql(connectionString, o => o.UseNetTopologySuite())
+                .AddInterceptors(sp.GetRequiredService<OwnerCalendarSyncInterceptor>())
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning)));
 
         services.AddMemoryCache();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -233,6 +240,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<PlanPurchaseAdminWorkerService>();
 
         services.AddBuddyFeature(configuration);
+        services.AddOwnerFeature(configuration);
         return services;
     }
 

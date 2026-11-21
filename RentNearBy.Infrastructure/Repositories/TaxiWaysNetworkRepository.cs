@@ -55,6 +55,7 @@ public class TaxiWaysNetworkRepository(ApplicationDbContext context) : ITaxiWays
                 LEFT JOIN "TaxiVehicleTypes" v ON v."Id" = t."VehicleTypeId"
                 LEFT JOIN "Cities" c ON c."Id" = t."CityId"
                 LEFT JOIN "TaxiRouteGeometries" g ON g."RouteId" = r."Id" AND g."Status" = 'Ok'
+                WHERE NOT r."HiddenByPlan"
                 ORDER BY r."Id"
                 """)
             .ToListAsync(ct);

@@ -1201,7 +1201,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Taxi request matcher and pickup list: routes by resolved city keys.
             e.HasIndex(r => new { r.ToCityKey, r.FromCityKey }, "ix_taxiroutes_to_from_city")
              .IncludeProperties(r => r.TaxiListingId)
-             .HasFilter("\"ToCityKey\" IS NOT NULL AND \"FromCityKey\" IS NOT NULL");
+             .HasFilter("\"ToCityKey\" IS NOT NULL AND \"FromCityKey\" IS NOT NULL AND NOT \"HiddenByPlan\"");
 
             // Both ends as geography for the route search (TaxiListingRepository.SearchByRoutePagedAsync).
             e.Property<NetTopologySuite.Geometries.Point?>("FromPoint")
@@ -1633,6 +1633,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         TaxiWaysModel.Configure(modelBuilder);
         TaxiRequestModel.Configure(modelBuilder);
         BuddyFeatureModel.Configure(modelBuilder);
+        OwnerFeatureModel.Configure(modelBuilder);
 
     }
 

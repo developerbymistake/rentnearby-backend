@@ -8,10 +8,10 @@ public class RetentionScheduleTests
     private static readonly IReadOnlySet<string> None = new HashSet<string>();
 
     [Fact]
-    public void Slots_are_six_back_to_back_and_never_overlap()
+    public void Slots_are_seven_back_to_back_and_never_overlap()
     {
         var slots = RetentionSchedule.Slots;
-        Assert.Equal(6, slots.Count);
+        Assert.Equal(7, slots.Count);
         for (var i = 0; i < slots.Count; i++)
         {
             Assert.True(slots[i].StartIst < slots[i].EndIst);
@@ -43,7 +43,9 @@ public class RetentionScheduleTests
     [InlineData(2, 20, "A.Devices")]
     [InlineData(2, 40, "B.Enquiries")]
     [InlineData(3, 15, "A.Chat")]
-    [InlineData(4, 29, "A.Chat")]
+    [InlineData(4, 9, "A.Chat")]
+    [InlineData(4, 10, "D.OwnerCalendar")]
+    [InlineData(4, 29, "D.OwnerCalendar")]
     public void DueSlot_picks_the_slot_that_holds_the_time(int h, int m, string group)
     {
         var now = IstTime.AtUtc(Day, h, m);
@@ -78,12 +80,14 @@ public class RetentionScheduleTests
     }
 
     [Fact]
-    public void Rule_order_puts_offers_before_enquiries_and_chat_last()
+    public void Rule_order_puts_offers_before_enquiries_chat_after_them_and_the_owner_calendar_last()
     {
         var o = RetentionSchedule.RuleOrder;
         Assert.True(o.ToList().IndexOf("TripOffers") < o.ToList().IndexOf("TripEnquiries"));
-        Assert.Equal("Chat", o[^1]);
-        Assert.Equal(22, o.Distinct().Count());
+        Assert.True(o.ToList().IndexOf("TripEnquiries") < o.ToList().IndexOf("Chat"));
+        Assert.Equal(new[] { "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats" },
+            o.Skip(o.ToList().IndexOf("Chat") + 1));
+        Assert.Equal(28, o.Distinct().Count());
         Assert.Equal(o.Count, RetentionSchedule.OrderOf("Nope"));
     }
 }

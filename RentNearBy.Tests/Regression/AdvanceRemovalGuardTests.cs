@@ -76,12 +76,22 @@ public class AdvanceRemovalGuardTests
         "known-in-advance",
     ];
 
+    // Owner roles money notes (doc 6.2): the owner's own record of an advance he received, never a payment. Only these forms,
+    // only in owner files (folders named Owner, files named Owner*).
+    private static readonly Regex OwnerMoneyNote = new(
+        @"AdvanceReceived|advanceReceived|AdvanceAboveFinal|advanceAboveFinal|ck_calendarentries_advance|Advance cannot be more than the final amount\.|advance against final", RegexOptions.Compiled);
+
+    private static bool IsOwnerFile(string path)
+        => path.Replace('\\', '/').Contains("/Owner/", StringComparison.Ordinal) || Path.GetFileName(path).StartsWith("Owner", StringComparison.Ordinal);
+
+    private static string WithoutOwnerMoneyNote(string file, string line) => IsOwnerFile(file) ? OwnerMoneyNote.Replace(line, string.Empty) : line;
+
     [Fact]
     public void Production_source_has_no_advance_proof_or_hold_words_outside_the_allow_list()
     {
         var hits = TaxiSource.ProductionFiles()
             .SelectMany(f => File.ReadAllLines(f).Select((line, i) => (File: f, No: i + 1, Line: line)))
-            .Where(x => Banned.IsMatch(x.Line) && !Allowed.Any(a => x.Line.Contains(a, StringComparison.Ordinal)))
+            .Where(x => Banned.IsMatch(WithoutOwnerMoneyNote(x.File, x.Line)) && !Allowed.Any(a => x.Line.Contains(a, StringComparison.Ordinal)))
             .Select(x => $"{Path.GetFileName(x.File)}:{x.No}: {x.Line.Trim()}")
             .ToList();
         Assert.True(hits.Count == 0, string.Join(Environment.NewLine, hits));

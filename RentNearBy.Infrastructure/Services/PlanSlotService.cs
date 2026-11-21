@@ -66,7 +66,7 @@ public class PlanSlotService(
         var t = Table(kind);
         var snapshot = await catalog.GetAsync();
         var flag = await payment.GetAsync();
-        var defaults = snapshot.DefaultValues(kind);
+        var defaults = flag.Enabled ? snapshot.DefaultValues(kind) : PlanFeatureValues.OffValues(snapshot, kind);
 
         var values = new StringBuilder();
         values.Append("('00000000-0000-0000-0000-000000000000'::uuid, 0::smallint, false)");

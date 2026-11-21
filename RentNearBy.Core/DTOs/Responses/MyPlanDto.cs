@@ -39,4 +39,16 @@ public class MyPlanLimitsDto
     public int Priority { get; set; }
     public bool Featured { get; set; }
     public int JobsPosts { get; set; }
+    public int Photos { get; set; }
+    public int RoomTypes { get; set; }
+    public int Routes { get; set; }
+    public int RingWeight { get; set; }
+    public int CalendarEntries { get; set; }
+    public int BlockedRanges { get; set; }
+    public int UpcomingDays { get; set; }
+    public int MonthsAhead { get; set; }
+    public bool MonthSummary { get; set; }
+    public bool Reminders { get; set; }
+    public int SpecialPrices { get; set; }
+    public bool DemandCount { get; set; }
 }

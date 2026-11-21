@@ -12,4 +12,6 @@ public class StayRoom
     public short? Floor { get; set; }      // 0 = Ground, 3 = "3+"; null = not set
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    // Hidden by the owner's plan, never deleted (contract 3.3); hidden rows hold RoomIndex 101 and up.
+    public bool HiddenByPlan { get; set; }
 }

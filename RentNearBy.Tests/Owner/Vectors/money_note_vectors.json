@@ -1,0 +1,215 @@
+{
+  "version": 1,
+  "source": "OWNER_ROLES_FEATURE.md 6.2",
+  "rules": "received = paidInFull ? final : (advance ?? 0); balance = final - received (null without final, never below 0); chip: balance > 0 ToCollect(balance), balance == 0 with final PaidInFull(final), no final and received > 0 Received(received), else None(0). Validation order: final outside 1..9900000 or advance outside 0..9900000 = amountRange; paidInFull without final = finalNeeded; advance > final = advanceAboveFinal. Messages: amountRange 'Enter an amount between Rs 1 and Rs 99,00,000.', finalNeeded 'Add the final amount first.', advanceAboveFinal 'Advance cannot be more than the final amount.'",
+  "cases": [
+    {
+      "name": "empty",
+      "finalAmount": null,
+      "advanceReceived": null,
+      "paidInFull": false,
+      "expected": {
+        "received": 0,
+        "balance": null,
+        "chip": "None",
+        "chipAmount": 0,
+        "error": null
+      }
+    },
+    {
+      "name": "final only",
+      "finalAmount": 6000,
+      "advanceReceived": null,
+      "paidInFull": false,
+      "expected": {
+        "received": 0,
+        "balance": 6000,
+        "chip": "ToCollect",
+        "chipAmount": 6000,
+        "error": null
+      }
+    },
+    {
+      "name": "final and advance",
+      "finalAmount": 6000,
+      "advanceReceived": 2000,
+      "paidInFull": false,
+      "expected": {
+        "received": 2000,
+        "balance": 4000,
+        "chip": "ToCollect",
+        "chipAmount": 4000,
+        "error": null
+      }
+    },
+    {
+      "name": "advance equals final",
+      "finalAmount": 6000,
+      "advanceReceived": 6000,
+      "paidInFull": false,
+      "expected": {
+        "received": 6000,
+        "balance": 0,
+        "chip": "PaidInFull",
+        "chipAmount": 6000,
+        "error": null
+      }
+    },
+    {
+      "name": "paid in full",
+      "finalAmount": 6000,
+      "advanceReceived": null,
+      "paidInFull": true,
+      "expected": {
+        "received": 6000,
+        "balance": 0,
+        "chip": "PaidInFull",
+        "chipAmount": 6000,
+        "error": null
+      }
+    },
+    {
+      "name": "paid in full ignores advance",
+      "finalAmount": 6000,
+      "advanceReceived": 2000,
+      "paidInFull": true,
+      "expected": {
+        "received": 6000,
+        "balance": 0,
+        "chip": "PaidInFull",
+        "chipAmount": 6000,
+        "error": null
+      }
+    },
+    {
+      "name": "advance without final",
+      "finalAmount": null,
+      "advanceReceived": 2000,
+      "paidInFull": false,
+      "expected": {
+        "received": 2000,
+        "balance": null,
+        "chip": "Received",
+        "chipAmount": 2000,
+        "error": null
+      }
+    },
+    {
+      "name": "advance zero without final",
+      "finalAmount": null,
+      "advanceReceived": 0,
+      "paidInFull": false,
+      "expected": {
+        "received": 0,
+        "balance": null,
+        "chip": "None",
+        "chipAmount": 0,
+        "error": null
+      }
+    },
+    {
+      "name": "final with zero advance",
+      "finalAmount": 3600,
+      "advanceReceived": 0,
+      "paidInFull": false,
+      "expected": {
+        "received": 0,
+        "balance": 3600,
+        "chip": "ToCollect",
+        "chipAmount": 3600,
+        "error": null
+      }
+    },
+    {
+      "name": "advance above final",
+      "finalAmount": 6000,
+      "advanceReceived": 7000,
+      "paidInFull": false,
+      "expected": {
+        "received": 7000,
+        "balance": 0,
+        "chip": "PaidInFull",
+        "chipAmount": 6000,
+        "error": "advanceAboveFinal"
+      }
+    },
+    {
+      "name": "paid in full without final",
+      "finalAmount": null,
+      "advanceReceived": null,
+      "paidInFull": true,
+      "expected": {
+        "received": 0,
+        "balance": null,
+        "chip": "None",
+        "chipAmount": 0,
+        "error": "finalNeeded"
+      }
+    },
+    {
+      "name": "final zero",
+      "finalAmount": 0,
+      "advanceReceived": null,
+      "paidInFull": false,
+      "expected": {
+        "received": 0,
+        "balance": 0,
+        "chip": "PaidInFull",
+        "chipAmount": 0,
+        "error": "amountRange"
+      }
+    },
+    {
+      "name": "final above max",
+      "finalAmount": 9900001,
+      "advanceReceived": null,
+      "paidInFull": false,
+      "expected": {
+        "received": 0,
+        "balance": 9900001,
+        "chip": "ToCollect",
+        "chipAmount": 9900001,
+        "error": "amountRange"
+      }
+    },
+    {
+      "name": "advance negative",
+      "finalAmount": null,
+      "advanceReceived": -1,
+      "paidInFull": false,
+      "expected": {
+        "received": -1,
+        "balance": null,
+        "chip": "None",
+        "chipAmount": 0,
+        "error": "amountRange"
+      }
+    },
+    {
+      "name": "final at max",
+      "finalAmount": 9900000,
+      "advanceReceived": 9900000,
+      "paidInFull": false,
+      "expected": {
+        "received": 9900000,
+        "balance": 0,
+        "chip": "PaidInFull",
+        "chipAmount": 9900000,
+        "error": null
+      }
+    },
+    {
+      "name": "final at min",
+      "finalAmount": 1,
+      "advanceReceived": null,
+      "paidInFull": false,
+      "expected": {
+        "received": 0,
+        "balance": 1,
+        "chip": "ToCollect",
+        "chipAmount": 1,
+        "error": null
+      }
+    }
+  ]
+}

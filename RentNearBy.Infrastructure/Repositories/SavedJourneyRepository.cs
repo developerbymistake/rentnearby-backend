@@ -95,8 +95,9 @@ public class SavedJourneyRepository(ApplicationDbContext context) : ISavedJourne
             best AS (
                 SELECT DISTINCT ON (r."TaxiListingId") r."TaxiListingId" AS "TaxiId", r."Id" AS "RouteId", r."Fare"
                 FROM "TaxiRoutes" r CROSS JOIN q
-                WHERE (ST_DWithin(r."FromPoint", q.f, {radius}::float8) AND ST_DWithin(r."ToPoint", q.t, {radius}::float8))
-                   OR (ST_DWithin(r."FromPoint", q.t, {radius}::float8) AND ST_DWithin(r."ToPoint", q.f, {radius}::float8))
+                WHERE NOT r."HiddenByPlan"
+                  AND ((ST_DWithin(r."FromPoint", q.f, {radius}::float8) AND ST_DWithin(r."ToPoint", q.t, {radius}::float8))
+                   OR (ST_DWithin(r."FromPoint", q.t, {radius}::float8) AND ST_DWithin(r."ToPoint", q.f, {radius}::float8)))
                 ORDER BY r."TaxiListingId", r."Fare"
             )
             SELECT b."TaxiId", b."RouteId", b."Fare"
@@ -122,7 +123,7 @@ public class SavedJourneyRepository(ApplicationDbContext context) : ISavedJourne
             FROM "TaxiRoutes" r CROSS JOIN q
             JOIN "TaxiListings" t ON t."Id" = r."TaxiListingId"
               AND t."Status" = 'Approved' AND t."IsAvailable" = TRUE AND t."IsDeleted" = FALSE
-            WHERE r."TaxiListingId" = {taxiId}
+            WHERE r."TaxiListingId" = {taxiId} AND NOT r."HiddenByPlan"
               AND ((ST_DWithin(r."FromPoint", q.f, {radius}::float8) AND ST_DWithin(r."ToPoint", q.t, {radius}::float8))
                 OR (ST_DWithin(r."FromPoint", q.t, {radius}::float8) AND ST_DWithin(r."ToPoint", q.f, {radius}::float8)))
             ORDER BY r."Fare"

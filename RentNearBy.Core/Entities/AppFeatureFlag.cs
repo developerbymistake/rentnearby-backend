@@ -19,4 +19,7 @@ public class AppFeatureFlag
     public Admin? UpdatedByAdmin { get; set; }
     public DateTime UpdatedAt { get; set; }
     public string? Reason { get; set; }
+    // Payment row only: the announced start date (AU-17) and when payment was last switched on (AU-18).
+    public DateOnly? AnnounceDate { get; set; }
+    public DateTime? PaymentEnabledAt { get; set; }
 }

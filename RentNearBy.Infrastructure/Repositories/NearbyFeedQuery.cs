@@ -60,7 +60,7 @@ public sealed class NearbyFeedQuery(ApplicationDbContext context) : INearbyFeedQ
                 }
                 if (!string.IsNullOrEmpty(f.Meals))
                 {
-                    sql.Append(" AND EXISTS (SELECT 1 FROM \"StayRooms\" r WHERE r.\"StayListingId\" = s.\"Id\" AND r.\"Meals\" = @meals)");
+                    sql.Append(" AND EXISTS (SELECT 1 FROM \"StayRooms\" r WHERE r.\"StayListingId\" = s.\"Id\" AND NOT r.\"HiddenByPlan\" AND r.\"Meals\" = @meals)");
                     ps.Add(new NpgsqlParameter("meals", f.Meals));
                 }
                 break;

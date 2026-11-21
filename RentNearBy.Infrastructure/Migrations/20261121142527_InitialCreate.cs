@@ -139,6 +139,26 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "FestivalDates",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Name = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                    DateFrom = table.Column<DateOnly>(type: "date", nullable: false),
+                    DateTo = table.Column<DateOnly>(type: "date", nullable: false),
+                    StateName = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_FestivalDates", x => x.Id);
+                    table.CheckConstraint("ck_festivaldates_dates", "\"DateTo\" >= \"DateFrom\" AND \"DateTo\" - \"DateFrom\" <= 29");
+                    table.CheckConstraint("ck_festivaldates_name", "length(btrim(\"Name\")) >= 1");
+                });
+
+            migrationBuilder.CreateTable(
                 name: "JobDepartments",
                 columns: table => new
                 {
@@ -221,6 +241,39 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_OutboxMessages", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "OwnerReminderRuns",
+                columns: table => new
+                {
+                    RunDate = table.Column<DateOnly>(type: "date", nullable: false),
+                    ListingKind = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: false),
+                    StartedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    FinishedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LastListingId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Sent = table.Column<int>(type: "integer", nullable: false, defaultValue: 0)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_OwnerReminderRuns", x => new { x.RunDate, x.ListingKind });
+                    table.CheckConstraint("ck_ownerreminderruns_listingkind", "\"ListingKind\" IN ('Stay', 'Taxi')");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "OwnerWeeklyStats",
+                columns: table => new
+                {
+                    ListingKind = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: false),
+                    ListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Day = table.Column<DateOnly>(type: "date", nullable: false),
+                    Shown = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    RequestsNoRoute = table.Column<int>(type: "integer", nullable: false, defaultValue: 0)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_OwnerWeeklyStats", x => new { x.ListingKind, x.ListingId, x.Day });
+                    table.CheckConstraint("ck_ownerweeklystats_listingkind", "\"ListingKind\" IN ('Stay', 'Taxi')");
                 });
 
             migrationBuilder.CreateTable(
@@ -487,7 +540,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     PaymentProvider = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "Play"),
                     UpdatedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    Reason = table.Column<string>(type: "text", nullable: true)
+                    Reason = table.Column<string>(type: "text", nullable: true),
+                    AnnounceDate = table.Column<DateOnly>(type: "date", nullable: true),
+                    PaymentEnabledAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -976,6 +1031,70 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "CalendarEntries",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    OwnerUserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ListingKind = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: false),
+                    ListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Kind = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: false),
+                    SourceType = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: true),
+                    SourceId = table.Column<Guid>(type: "uuid", nullable: true),
+                    TravellerUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    DateFrom = table.Column<DateOnly>(type: "date", nullable: false),
+                    DateTo = table.Column<DateOnly>(type: "date", nullable: false),
+                    TimeOfDay = table.Column<TimeOnly>(type: "time", nullable: true),
+                    FromPlace = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: true),
+                    ToPlace = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: true),
+                    Label = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: false),
+                    Detail = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: true),
+                    Note = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    ListedTotal = table.Column<int>(type: "integer", nullable: true),
+                    AgreedTotal = table.Column<int>(type: "integer", nullable: true),
+                    Guests = table.Column<short>(type: "smallint", nullable: true),
+                    Seats = table.Column<short>(type: "smallint", nullable: true),
+                    RoomNames = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: true),
+                    PlacesJson = table.Column<string>(type: "jsonb", nullable: true),
+                    CancelledBy = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: true),
+                    CancelledOn = table.Column<DateOnly>(type: "date", nullable: true),
+                    FinalAmount = table.Column<int>(type: "integer", nullable: true),
+                    AdvanceReceived = table.Column<int>(type: "integer", nullable: true),
+                    PaidInFull = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    Cancelled = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    Version = table.Column<int>(type: "integer", nullable: false, defaultValue: 1),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CalendarEntries", x => x.Id);
+                    table.CheckConstraint("ck_calendarentries_advance", "\"AdvanceReceived\" IS NULL OR (\"AdvanceReceived\" BETWEEN 0 AND 9900000 AND (\"FinalAmount\" IS NULL OR \"AdvanceReceived\" <= \"FinalAmount\"))");
+                    table.CheckConstraint("ck_calendarentries_autosnap", "\"Kind\" = 'Auto' OR (\"Guests\" IS NULL AND \"Seats\" IS NULL AND \"RoomNames\" IS NULL AND \"PlacesJson\" IS NULL AND \"CancelledBy\" IS NULL)");
+                    table.CheckConstraint("ck_calendarentries_cancelledby", "\"CancelledBy\" IS NULL OR \"CancelledBy\" IN ('Traveller', 'Owner', 'Driver', 'Admin', 'System')");
+                    table.CheckConstraint("ck_calendarentries_dates", "\"DateTo\" >= \"DateFrom\"");
+                    table.CheckConstraint("ck_calendarentries_final", "\"FinalAmount\" IS NULL OR \"FinalAmount\" BETWEEN 1 AND 9900000");
+                    table.CheckConstraint("ck_calendarentries_kind", "\"Kind\" IN ('Auto', 'Manual')");
+                    table.CheckConstraint("ck_calendarentries_listingkind", "\"ListingKind\" IN ('Stay', 'Taxi')");
+                    table.CheckConstraint("ck_calendarentries_manual", "\"Kind\" <> 'Manual' OR (length(btrim(\"Label\")) >= 1 AND NOT \"Cancelled\" AND (\"ListingKind\" <> 'Stay' OR (\"DateTo\" > \"DateFrom\" AND \"DateTo\" - \"DateFrom\" <= 60)) AND (\"ListingKind\" <> 'Taxi' OR \"DateTo\" = \"DateFrom\"))");
+                    table.CheckConstraint("ck_calendarentries_paid", "NOT \"PaidInFull\" OR \"FinalAmount\" IS NOT NULL");
+                    table.CheckConstraint("ck_calendarentries_source", "((\"Kind\" = 'Auto') = (\"SourceType\" IS NOT NULL AND \"SourceId\" IS NOT NULL)) AND (\"SourceType\" IS NULL OR \"SourceType\" IN ('StayEnquiry', 'TaxiBooking', 'TaxiLead'))");
+                    table.CheckConstraint("ck_calendarentries_time", "\"TimeOfDay\" IS NULL OR (\"ListingKind\" = 'Taxi' AND \"Kind\" = 'Manual')");
+                    table.ForeignKey(
+                        name: "FK_CalendarEntries_Users_OwnerUserId",
+                        column: x => x.OwnerUserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_CalendarEntries_Users_TravellerUserId",
+                        column: x => x.TravellerUserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "DeviceTokens",
                 columns: table => new
                 {
@@ -991,6 +1110,32 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.PrimaryKey("PK_DeviceTokens", x => x.Id);
                     table.ForeignKey(
                         name: "FK_DeviceTokens_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "FestivalReminderSent",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    FestivalDateId = table.Column<Guid>(type: "uuid", nullable: false),
+                    FestivalDateTo = table.Column<DateOnly>(type: "date", nullable: false),
+                    SentAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_FestivalReminderSent", x => new { x.UserId, x.FestivalDateId });
+                    table.ForeignKey(
+                        name: "FK_FestivalReminderSent_FestivalDates_FestivalDateId",
+                        column: x => x.FestivalDateId,
+                        principalTable: "FestivalDates",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_FestivalReminderSent_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
                         principalColumn: "Id",
@@ -1226,6 +1371,16 @@ namespace RentNearBy.Infrastructure.Migrations
                     WhatsAppNumber = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
                     TripEnquiriesReceived = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     TripEnquiriesAnsweredIn24h = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    PendingEditJson = table.Column<string>(type: "jsonb", nullable: true),
+                    PendingEditAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    PendingEditRejectReason = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    PendingEditResult = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: true),
+                    PendingEditResultAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    SpecialPriceSavesDay = table.Column<DateOnly>(type: "date", nullable: true),
+                    SpecialPriceSavesCount = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
+                    PlanVisibleSavesDay = table.Column<DateOnly>(type: "date", nullable: true),
+                    PlanVisibleSavesCount = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
+                    RemindersOn = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
@@ -1237,6 +1392,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_StayListings", x => x.Id);
                     table.CheckConstraint("ck_staylistings_min_price_range", "\"MinPricePerNight\" IS NULL OR (\"MinPricePerNight\" >= 100 AND \"MinPricePerNight\" <= 9900000)");
+                    table.CheckConstraint("ck_staylistings_pendingeditresult", "\"PendingEditResult\" IS NULL OR \"PendingEditResult\" IN ('Approved', 'Rejected')");
                     table.CheckConstraint("ck_staylistings_status", "\"Status\" IN ('Draft', 'PendingReview', 'Approved', 'Rejected')");
                     table.ForeignKey(
                         name: "FK_StayListings_Admins_ReviewedByAdminId",
@@ -1317,6 +1473,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     RingReadyBuild = table.Column<int>(type: "integer", nullable: true),
                     RingNotificationsOn = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     RingMissStreak = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
+                    RingWeight = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)1),
+                    PlanVisibleSavesDay = table.Column<DateOnly>(type: "date", nullable: true),
+                    PlanVisibleSavesCount = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
+                    RemindersOn = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
@@ -1333,6 +1493,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.CheckConstraint("ck_taxilistings_min_fare_range", "\"MinFare\" IS NULL OR (\"MinFare\" >= 100 AND \"MinFare\" <= 9900000)");
                     table.CheckConstraint("ck_taxilistings_plate", "\"NumberPlate\" IS NULL OR \"NumberPlate\" ~ '^([A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}|[0-9]{2}BH[0-9]{4}[A-Z]{1,2})$'");
                     table.CheckConstraint("ck_taxilistings_ringmiss", "\"RingMissStreak\" >= 0");
+                    table.CheckConstraint("ck_taxilistings_ringweight", "\"RingWeight\" BETWEEN 1 AND 5");
                     table.CheckConstraint("ck_taxilistings_seats", "\"Seats\" IS NULL OR \"Seats\" IN (4, 6, 7, 12)");
                     table.CheckConstraint("ck_taxilistings_status", "\"Status\" IN ('Draft', 'PendingReview', 'Approved', 'Rejected')");
                     table.ForeignKey(
@@ -1432,7 +1593,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_UserNotices", x => x.Id);
                     table.CheckConstraint("ck_usernotices_count", "\"Count\" >= 1");
-                    table.CheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged')");
+                    table.CheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged', 'StayEditApproved', 'StayEditRejected', 'FestivalReminder', 'PlanLimitsChanged', 'PlansStarting')");
                     table.ForeignKey(
                         name: "FK_UserNotices_Users_UserId",
                         column: x => x.UserId,
@@ -1531,6 +1692,31 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "StayBlockedRanges",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    StayListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    DateFrom = table.Column<DateOnly>(type: "date", nullable: false),
+                    DateTo = table.Column<DateOnly>(type: "date", nullable: false),
+                    Reason = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: true),
+                    Version = table.Column<int>(type: "integer", nullable: false, defaultValue: 1),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayBlockedRanges", x => x.Id);
+                    table.CheckConstraint("ck_stayblockedranges_dates", "\"DateTo\" >= \"DateFrom\" AND \"DateTo\" - \"DateFrom\" <= 89");
+                    table.ForeignKey(
+                        name: "FK_StayBlockedRanges_StayListings_StayListingId",
+                        column: x => x.StayListingId,
+                        principalTable: "StayListings",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "StayPhotos",
                 columns: table => new
                 {
@@ -1539,7 +1725,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     PhotoUrl = table.Column<string>(type: "text", nullable: false),
                     FilePath = table.Column<string>(type: "text", nullable: false),
                     PhotoOrder = table.Column<int>(type: "integer", nullable: false),
-                    UploadedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    UploadedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    HiddenByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false)
                 },
                 constraints: table =>
                 {
@@ -1565,7 +1752,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     Meals = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: false),
                     Floor = table.Column<short>(type: "smallint", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    HiddenByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false)
                 },
                 constraints: table =>
                 {
@@ -1575,6 +1763,38 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.CheckConstraint("ck_stayrooms_room_name", "\"RoomName\" IN ('Standard', 'Deluxe', 'Premium', 'Suite', 'Family Room', 'Executive', 'Dormitory')");
                     table.ForeignKey(
                         name: "FK_StayRooms_StayListings_StayListingId",
+                        column: x => x.StayListingId,
+                        principalTable: "StayListings",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "StaySpecialPrices",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    StayListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    DateFrom = table.Column<DateOnly>(type: "date", nullable: false),
+                    DateTo = table.Column<DateOnly>(type: "date", nullable: false),
+                    Direction = table.Column<string>(type: "character varying(6)", maxLength: 6, nullable: false),
+                    Percent = table.Column<short>(type: "smallint", nullable: false),
+                    FestivalDateId = table.Column<Guid>(type: "uuid", nullable: true),
+                    LabelCopy = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                    IsPaused = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    PausedByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    Version = table.Column<int>(type: "integer", nullable: false, defaultValue: 1),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StaySpecialPrices", x => x.Id);
+                    table.CheckConstraint("ck_stayspecialprices_dates", "\"DateTo\" >= \"DateFrom\" AND \"DateTo\" - \"DateFrom\" <= 59");
+                    table.CheckConstraint("ck_stayspecialprices_direction", "\"Direction\" IN ('Lower', 'Higher')");
+                    table.CheckConstraint("ck_stayspecialprices_percent", "\"Percent\" % 5 = 0 AND ((\"Direction\" = 'Lower' AND \"Percent\" BETWEEN 5 AND 50) OR (\"Direction\" = 'Higher' AND \"Percent\" BETWEEN 5 AND 100))");
+                    table.ForeignKey(
+                        name: "FK_StaySpecialPrices_StayListings_StayListingId",
                         column: x => x.StayListingId,
                         principalTable: "StayListings",
                         principalColumn: "Id",
@@ -1603,6 +1823,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     TripType = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    HiddenByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     FromPoint = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"FromLongitude\"::float8, \"FromLatitude\"::float8), 4326)::geography", stored: true),
                     ToPoint = table.Column<Point>(type: "geography(Point, 4326)", nullable: true, computedColumnSql: "ST_SetSRID(ST_MakePoint(\"ToLongitude\"::float8, \"ToLatitude\"::float8), 4326)::geography", stored: true)
                 },
@@ -2308,6 +2529,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     IsUrgent = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     AcceptedOfferId = table.Column<Guid>(type: "uuid", nullable: true),
                     AgreedTotal = table.Column<int>(type: "integer", nullable: true),
+                    ListedStayTotal = table.Column<int>(type: "integer", nullable: true),
+                    ListedStayBreakdownJson = table.Column<string>(type: "jsonb", nullable: true),
                     ConfirmedByTravellerAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     ConfirmedByOwnerAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     DriverFareEditCount = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
@@ -2336,6 +2559,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.PrimaryKey("PK_TripEnquiries", x => x.Id);
                     table.CheckConstraint("ck_tripenquiries_amounts", "(\"AgreedTotal\" IS NULL OR \"AgreedTotal\" >= 0) AND (\"DriverFare\" IS NULL OR \"DriverFare\" >= 0) AND (\"AgreedFare\" IS NULL OR \"AgreedFare\" >= 0) AND (\"ListedRateSnapshot\" IS NULL OR \"ListedRateSnapshot\" >= 0)");
                     table.CheckConstraint("ck_tripenquiries_kind", "\"Kind\" IN ('Stay','Taxi')");
+                    table.CheckConstraint("ck_tripenquiries_listedstaytotal", "\"ListedStayTotal\" IS NULL OR (\"Kind\" = 'Stay' AND \"ListedStayTotal\" >= 100)");
                     table.CheckConstraint("ck_tripenquiries_status", "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller','NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Failed','Closed')");
                     table.ForeignKey(
                         name: "FK_TripEnquiries_Conversations_ConversationId",
@@ -2563,6 +2787,46 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"Status\" = 'Pending'");
 
             migrationBuilder.CreateIndex(
+                name: "ix_calendarentries_dateto",
+                table: "CalendarEntries",
+                column: "DateTo");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_calendarentries_listing_datefrom",
+                table: "CalendarEntries",
+                columns: new[] { "ListingKind", "ListingId", "DateFrom", "Id" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_calendarentries_listing_dateto",
+                table: "CalendarEntries",
+                columns: new[] { "ListingKind", "ListingId", "DateTo", "Id" })
+                .Annotation("Npgsql:IndexInclude", new[] { "DateFrom", "Kind", "Cancelled" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_calendarentries_manual_active",
+                table: "CalendarEntries",
+                columns: new[] { "ListingKind", "ListingId", "DateTo", "Id" },
+                filter: "\"Kind\" = 'Manual'");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_calendarentries_owner",
+                table: "CalendarEntries",
+                column: "OwnerUserId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_calendarentries_traveller",
+                table: "CalendarEntries",
+                column: "TravellerUserId",
+                filter: "\"TravellerUserId\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ux_calendarentries_source",
+                table: "CalendarEntries",
+                columns: new[] { "SourceType", "SourceId" },
+                unique: true,
+                filter: "\"Kind\" = 'Auto'");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_cities_citykey_unique",
                 table: "Cities",
                 column: "CityKey",
@@ -2746,6 +3010,27 @@ namespace RentNearBy.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "ix_festivaldates_active_from",
+                table: "FestivalDates",
+                columns: new[] { "IsActive", "DateFrom" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_festivaldates_from_id",
+                table: "FestivalDates",
+                columns: new[] { "DateFrom", "Id" },
+                descending: new[] { true, false });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_festivalremindersent_dateto",
+                table: "FestivalReminderSent",
+                column: "FestivalDateTo");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_festivalremindersent_festival",
+                table: "FestivalReminderSent",
+                column: "FestivalDateId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_JobDepartments_Name",
                 table: "JobDepartments",
                 column: "Name",
@@ -2903,6 +3188,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "OutboxMessages",
                 column: "Key",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_ownerweeklystats_day",
+                table: "OwnerWeeklyStats",
+                column: "Day");
 
             migrationBuilder.CreateIndex(
                 name: "IX_PaymentEvents_EventId",
@@ -3213,6 +3503,17 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
+                name: "ix_stayblockedranges_dateto",
+                table: "StayBlockedRanges",
+                column: "DateTo");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_stayblockedranges_stay_dateto",
+                table: "StayBlockedRanges",
+                columns: new[] { "StayListingId", "DateTo", "Id" })
+                .Annotation("Npgsql:IndexInclude", new[] { "DateFrom" });
+
+            migrationBuilder.CreateIndex(
                 name: "ix_stayjobs_active_stay",
                 table: "StayJobs",
                 column: "StayListingId",
@@ -3303,6 +3604,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 .Annotation("Npgsql:IndexMethod", "gist");
 
             migrationBuilder.CreateIndex(
+                name: "ix_staylistings_pendingedit",
+                table: "StayListings",
+                columns: new[] { "PendingEditAt", "Id" },
+                filter: "\"PendingEditJson\" IS NOT NULL AND \"IsDeleted\" = false");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_staylistings_recent_active",
                 table: "StayListings",
                 columns: new[] { "PriorityRank", "CreatedAt" },
@@ -3369,6 +3676,28 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "StayRooms",
                 columns: new[] { "StayListingId", "RoomIndex" },
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_stayspecialprices_active_from",
+                table: "StaySpecialPrices",
+                columns: new[] { "DateFrom", "Id" },
+                filter: "NOT \"IsPaused\" AND NOT \"PausedByPlan\"");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_stayspecialprices_bigoff",
+                table: "StaySpecialPrices",
+                columns: new[] { "StayListingId", "DateTo" },
+                filter: "\"Direction\" = 'Lower' AND \"Percent\" >= 40 AND NOT \"IsPaused\" AND NOT \"PausedByPlan\"");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_stayspecialprices_dateto",
+                table: "StaySpecialPrices",
+                column: "DateTo");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_stayspecialprices_stay_dateto",
+                table: "StaySpecialPrices",
+                columns: new[] { "StayListingId", "DateTo", "Id" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_StayTypes_Name",
@@ -3538,6 +3867,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"ClosedAt\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
+                name: "ix_taxirequests_created",
+                table: "TaxiRequests",
+                column: "CreatedAt")
+                .Annotation("Npgsql:IndexInclude", new[] { "MatchFromCityKey", "MatchToCityKey" });
+
+            migrationBuilder.CreateIndex(
                 name: "ix_taxirequests_dispatch",
                 table: "TaxiRequests",
                 columns: new[] { "DispatchCityKey", "CreatedAt", "Id" },
@@ -3584,7 +3919,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_taxiroutes_to_from_city",
                 table: "TaxiRoutes",
                 columns: new[] { "ToCityKey", "FromCityKey" },
-                filter: "\"ToCityKey\" IS NOT NULL AND \"FromCityKey\" IS NOT NULL")
+                filter: "\"ToCityKey\" IS NOT NULL AND \"FromCityKey\" IS NOT NULL AND NOT \"HiddenByPlan\"")
                 .Annotation("Npgsql:IndexInclude", new[] { "TaxiListingId" });
 
             migrationBuilder.CreateIndex(
@@ -4133,6 +4468,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "BuddyRequests");
 
             migrationBuilder.DropTable(
+                name: "CalendarEntries");
+
+            migrationBuilder.DropTable(
                 name: "CouponRedemptions");
 
             migrationBuilder.DropTable(
@@ -4148,6 +4486,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "DueActions");
 
             migrationBuilder.DropTable(
+                name: "FestivalReminderSent");
+
+            migrationBuilder.DropTable(
                 name: "ListingReports");
 
             migrationBuilder.DropTable(
@@ -4161,6 +4502,12 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "OutboxMessages");
+
+            migrationBuilder.DropTable(
+                name: "OwnerReminderRuns");
+
+            migrationBuilder.DropTable(
+                name: "OwnerWeeklyStats");
 
             migrationBuilder.DropTable(
                 name: "PaymentEvents");
@@ -4181,6 +4528,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "Sessions");
 
             migrationBuilder.DropTable(
+                name: "StayBlockedRanges");
+
+            migrationBuilder.DropTable(
                 name: "StayJobs");
 
             migrationBuilder.DropTable(
@@ -4188,6 +4538,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "StayRooms");
+
+            migrationBuilder.DropTable(
+                name: "StaySpecialPrices");
 
             migrationBuilder.DropTable(
                 name: "TaxiDispatchCities");
@@ -4242,6 +4595,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "PlanPurchases");
+
+            migrationBuilder.DropTable(
+                name: "FestivalDates");
 
             migrationBuilder.DropTable(
                 name: "ReportReasons");
