@@ -32,7 +32,9 @@ public class Be1CalendarIntegrationTests(TestDatabase db) : IntegrationTestBase(
 
     private static OwnerCalendarWriter Writer(ApplicationDbContext c) => new(c, NullLogger<OwnerCalendarWriter>.Instance);
 
-    private static OwnerCalendarReader Reader(ApplicationDbContext c) => new(c, null!, new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()));
+    private static OwnerCalendarReader Reader(ApplicationDbContext c)
+        => new(c, null!, new RentNearBy.Infrastructure.Services.Owner.Be2.FestivalCache(
+            new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions())));
 
     private static ManualEntryInput StayInput(int fromDays, int nights = 1, string label = "Phone booking")
         => new(label, TodayIst.AddDays(fromDays), TodayIst.AddDays(fromDays + nights), null, null, null, null, default);
@@ -377,6 +379,34 @@ public class Be1CalendarIntegrationTests(TestDatabase db) : IntegrationTestBase(
         await QueryAssert.SameCountAsync(Db, Seed, c => new BlockedRangeService(c, NullLogger<BlockedRangeService>.Instance).ListAsync(Ctx(owner, plus)), budget: 1);
     }
 
+    // REVIEW_SAFETY B2: account deletion holds Users FOR UPDATE and then deletes the listing; a calendar create must wait on the Users
+    // row BEFORE it locks the listing, so the two cannot form a cycle.
+    [IntegrationFact]
+    public async Task Calendar_create_waits_on_the_users_row_before_it_locks_the_listing()
+    {
+        OwnerSeed.OwnerRow owner;
+        await using (var c = CreateContext()) owner = await OwnerSeed.StayOwnerAsync(c);
+
+        await using var holder = CreateContext();
+        await using var hold = await holder.Database.BeginTransactionAsync();
+        await holder.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Users\" WHERE \"Id\" = {owner.UserId} FOR UPDATE");
+
+        await using var writing = CreateContext();
+        var create = Writer(writing).CreateAsync(Ctx(owner, Be1Kit.Plus(ListingKinds.Stay)), Guid.NewGuid(), StayInput(20));
+        await Task.Delay(500);
+        Assert.False(create.IsCompleted);
+
+        await using (var probe = CreateContext())
+        {
+            await using var probeTx = await probe.Database.BeginTransactionAsync();
+            await probe.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"StayListings\" WHERE \"Id\" = {owner.ListingId} FOR UPDATE NOWAIT");
+            await probeTx.RollbackAsync();
+        }
+
+        await hold.RollbackAsync();
+        Assert.True((await create).Ok);
+    }
+
     [IntegrationFact]
     public async Task Create_and_block_writes_have_fixed_query_counts()
     {
@@ -387,7 +417,8 @@ public class Be1CalendarIntegrationTests(TestDatabase db) : IntegrationTestBase(
             owner = await OwnerSeed.StayOwnerAsync(c);
             await OwnerSeed.ManualEntriesAsync(c, owner, Math.Min(n, 40), TodayIst.AddDays(1));
         }
-        // C5 <= 5 and K2 <= 4 with the context statement; BEGIN / COMMIT are not counted as statements of the method.
+        // C5 <= 6 (Users KEY SHARE added before the listing lock, REVIEW_SAFETY B2) and K2 <= 4 with the context statement;
+        // BEGIN / COMMIT are not counted as statements of the method.
         await QueryAssert.SameCountAsync(Db, Seed, c => Writer(c).CreateAsync(Ctx(owner, plus), Guid.NewGuid(), StayInput(60)), budget: 6);
         await QueryAssert.SameCountAsync(Db, Seed,
             c => new BlockedRangeService(c, NullLogger<BlockedRangeService>.Instance).CreateAsync(Ctx(owner, plus), Guid.NewGuid(), TodayIst.AddDays(100), TodayIst.AddDays(101), null, false),

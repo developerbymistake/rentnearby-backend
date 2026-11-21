@@ -30,9 +30,14 @@ public static class OwnerHiddenCounts
         public DateTime? PaymentEnabledAt { get; set; }
     }
 
-    private static readonly string Flag = $"""
-          (SELECT f."AnnounceDate" FROM "AppFeatureFlags" f WHERE f."FeatureKey" = '{AppFeatureKeys.PaymentEnabled}' LIMIT 1) AS "AnnounceDate",
-          (SELECT f."PaymentEnabledAt" FROM "AppFeatureFlags" f WHERE f."FeatureKey" = '{AppFeatureKeys.PaymentEnabled}' LIMIT 1) AS "PaymentEnabledAt"
+    // The payment flag row is read once for both columns.
+    private const string Flag = """
+          pf."AnnounceDate", pf."PaymentEnabledAt"
+        """;
+
+    private static readonly string FlagJoin = $"""
+        LEFT JOIN LATERAL (SELECT f."AnnounceDate", f."PaymentEnabledAt" FROM "AppFeatureFlags" f
+                           WHERE f."FeatureKey" = '{AppFeatureKeys.PaymentEnabled}' LIMIT 1) pf ON true
         """;
 
     public static readonly string StaySql = $"""
@@ -47,6 +52,7 @@ public static class OwnerHiddenCounts
         {Flag}
         FROM (SELECT 1) one
         LEFT JOIN LATERAL (SELECT s."Id" FROM "StayListings" s WHERE s."UserId" = @me AND s."IsDeleted" = false LIMIT 1) l ON true
+        {FlagJoin}
         """;
 
     public static readonly string TaxiSql = $"""
@@ -57,6 +63,7 @@ public static class OwnerHiddenCounts
         {Flag}
         FROM (SELECT 1) one
         LEFT JOIN LATERAL (SELECT t."Id" FROM "TaxiListings" t WHERE t."UserId" = @me AND t."IsDeleted" = false LIMIT 1) l ON true
+        {FlagJoin}
         """;
 
     public static async Task<Counts> ReadAsync(ApplicationDbContext db, Guid userId, string kind, DateOnly todayIst, CancellationToken ct = default)

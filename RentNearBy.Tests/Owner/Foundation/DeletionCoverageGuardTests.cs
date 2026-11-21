@@ -24,13 +24,32 @@ public class DeletionCoverageGuardTests
     private static IEnumerable<IEntityType> Tables(IModel model)
         => model.GetEntityTypes().Where(e => e.GetTableName() != null && e.BaseType == null && !e.IsOwned());
 
+    // FK-less person or listing columns whose names do not end in UserId / ListingId (REVIEW_SAFETY B1).
+    private static readonly HashSet<string> PersonColumns = new(StringComparer.Ordinal)
+    {
+        "BlockerId", "BlockedId", "SenderId", "RenterId", "OwnerId", "PairLowId", "PairHighId",
+    };
+
+    public static bool IsPersonOrListingColumn(string name)
+        => name.EndsWith("UserId", StringComparison.Ordinal) || name.EndsWith("ListingId", StringComparison.Ordinal)
+           || name.EndsWith("TaxiId", StringComparison.Ordinal) || PersonColumns.Contains(name);
+
     private static bool HasUserOrListingKey(IEntityType e)
     {
         var fkProps = e.GetForeignKeys().SelectMany(f => f.Properties).Select(p => p.Name).ToHashSet();
         return e.GetForeignKeys().Any(f => Principals.Contains(f.PrincipalEntityType.ClrType))
-            || e.GetProperties().Any(p => !fkProps.Contains(p.Name)
-                && (p.Name.EndsWith("UserId", StringComparison.Ordinal) || p.Name.EndsWith("ListingId", StringComparison.Ordinal)));
+            || e.GetProperties().Any(p => !fkProps.Contains(p.Name) && IsPersonOrListingColumn(p.Name));
     }
+
+    [Theory]
+    [InlineData("BlockerId", true)]
+    [InlineData("SenderId", true)]
+    [InlineData("Backup1TaxiId", true)]
+    [InlineData("TravellerUserId", true)]
+    [InlineData("DriverListingId", true)]
+    [InlineData("TripId", false)]
+    [InlineData("ReasonId", false)]
+    public void Person_column_names_are_seen(string name, bool expected) => Assert.Equal(expected, IsPersonOrListingColumn(name));
 
     [Fact]
     public void Every_table_with_a_user_or_listing_key_has_a_decided_mode()

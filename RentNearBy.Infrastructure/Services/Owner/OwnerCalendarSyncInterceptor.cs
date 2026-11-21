@@ -70,11 +70,16 @@ public sealed class OwnerCalendarSyncInterceptor(IOwnerCalendarSync sync) : Save
 
     // Pure part, unit tested: the enquiries of this save the calendar follows.
     // A new enquiry that is not confirmed has no Auto entry yet, so it needs no sync (status null = not known, watched).
-    public static bool IsWatched(EntityState state, string kind, Func<string, bool> isModified, string? status = null)
+    // A changed enquiry that neither was nor is confirmed has no live Auto entry either. A Status marked modified with the same
+    // original and current value means the row was attached by Update and its originals are unknown: watched.
+    public static bool IsWatched(EntityState state, string kind, Func<string, bool> isModified, string? status = null, string? originalStatus = null)
     {
         if (kind is not (TripEnquiryKinds.Stay or TripEnquiryKinds.Taxi)) return false;
         if (state == EntityState.Added) return status is null or TripEnquiryStatuses.ConfirmedByBoth;
-        return state == EntityState.Modified && WatchedProperties.Any(isModified);
+        if (state != EntityState.Modified || !WatchedProperties.Any(isModified)) return false;
+        if (status is null || originalStatus is null) return true;
+        if (status == TripEnquiryStatuses.ConfirmedByBoth || originalStatus == TripEnquiryStatuses.ConfirmedByBoth) return true;
+        return isModified(nameof(TripEnquiry.Status)) && status == originalStatus;
     }
 
     private State? Collect(DbContext? context)
@@ -82,11 +87,25 @@ public sealed class OwnerCalendarSyncInterceptor(IOwnerCalendarSync sync) : Save
         if (!IsActive || context is not ApplicationDbContext) return null;
         if (_states.TryGetValue(context, out var existing) && existing.Running) return null;
 
+        // EF has detected changes before SavingChanges; do not run detection a second time for the whole context.
         List<TripEnquiry>? found = null;
-        foreach (var entry in context.ChangeTracker.Entries<TripEnquiry>())
+        var tracker = context.ChangeTracker;
+        var autoDetect = tracker.AutoDetectChangesEnabled;
+        tracker.AutoDetectChangesEnabled = false;
+        try
         {
-            if (!IsWatched(entry.State, entry.Entity.Kind, p => entry.Property(p).IsModified, entry.Entity.Status)) continue;
-            (found ??= []).Add(entry.Entity);
+            foreach (var entry in tracker.Entries<TripEnquiry>())
+            {
+                var original = entry.State == EntityState.Modified
+                    ? entry.Property(e => e.Status).OriginalValue
+                    : null;
+                if (!IsWatched(entry.State, entry.Entity.Kind, p => entry.Property(p).IsModified, entry.Entity.Status, original)) continue;
+                (found ??= []).Add(entry.Entity);
+            }
+        }
+        finally
+        {
+            tracker.AutoDetectChangesEnabled = autoDetect;
         }
         if (found == null) return null;
 

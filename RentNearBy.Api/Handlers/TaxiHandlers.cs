@@ -958,7 +958,7 @@ public static class TaxiHandlers
     // Soft delete (contract 6.2): the closure cancels active bookings; the owner tables go through the purge seam in the same
     // transaction. 200 { cancelledBookings } (old builds ignore the body).
     public static async Task<IResult> DeleteMine(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IListingPurgeService listingPurge, IServiceProvider sp,
         ITripEnquiryClosure tripClosure, ApplicationDbContext db, IOwnerListingPurge ownerPurge)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -966,8 +966,6 @@ public static class TaxiHandlers
 
         var taxi = await unitOfWork.Taxis.GetLiveByUserAsync(userId);
         if (taxi == null) return NotFoundResponse(TaxiNotFound);
-
-        await photoService.DeleteRoomPhotosAsync(userId, taxi.Id);
 
         var now = DateTime.UtcNow;
         taxi.IsDeleted = true;
@@ -1003,6 +1001,8 @@ public static class TaxiHandlers
 
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(taxi.Id, ListingKinds.Taxi);
         await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
+        // Never inline (NFR 4.2): photo files go after the commit, best effort; a 409 above keeps them.
+        await listingPurge.DeleteListingPhotosBestEffortAsync(userId, [taxi.Id]);
 
         return OkResponse(new { cancelledBookings });
     }

@@ -27,6 +27,19 @@ public static class OwnerLocks
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown listing kind"),
     };
 
+    // Level 2 in share mode: a writer whose insert carries an FK to Users (CalendarEntries.OwnerUserId) takes the KEY SHARE lock the
+    // FK would take anyway, but before the listing lock, so it cannot form a cycle with account deletion (Users FOR UPDATE, then
+    // the listing). false = the user is gone.
+    public static async Task<bool> KeyShareUserAsync(ApplicationDbContext db, Guid userId, CancellationToken ct = default)
+    {
+        if (db.Database.CurrentTransaction == null)
+            throw new InvalidOperationException("Owner locks require an open transaction.");
+        var rows = await db.Database
+            .SqlQueryRaw<IdRow>("SELECT \"Id\" FROM \"Users\" WHERE \"Id\" = {0} FOR KEY SHARE", userId)
+            .ToListAsync(ct);
+        return rows.Count == 1;
+    }
+
     private static async Task<bool> LockAsync(ApplicationDbContext db, string table, Guid id, CancellationToken ct)
     {
         if (db.Database.CurrentTransaction == null)

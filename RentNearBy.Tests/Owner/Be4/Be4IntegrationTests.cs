@@ -99,7 +99,7 @@ public class Be4IntegrationTests(TestDatabase db) : IntegrationTestBase(db)
     }
 
     [IntegrationFact]
-    public async Task Seeker_feed_query_count_is_three_with_a_trip()
+    public async Task Seeker_feed_query_count_is_four_with_a_trip()
     {
         Guid user = Guid.Empty;
         await QueryAssert.SameCountAsync(Db,
@@ -109,7 +109,7 @@ public class Be4IntegrationTests(TestDatabase db) : IntegrationTestBase(db)
                 for (var i = 0; i < Math.Min(n, TripLimits.MaxTripsPerUser); i++) await BuddySeed.TripAsync(c, user);
             },
             c => new SeekerFeedReader(c, Clock).ReadAsync(user),
-            budget: 3);
+            budget: 4);
     }
 
     [IntegrationFact]

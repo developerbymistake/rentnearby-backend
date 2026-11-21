@@ -18,6 +18,7 @@ namespace RentNearBy.Infrastructure.Services.Owner.Be4;
 // PlansStarting notice and one push, once per announce date. Per kind and batch of owners (keyset by UserId), one transaction:
 // (1) notice upsert (a row of another date is moved to the new date and made unread; the same date writes nothing) RETURNING,
 // (2) ONE outbox insert for the returned owners with a valid token. The date rides in the row's Amount as yyyymmdd (a number, no text).
+// An owner already announced for this date is not selected, so a repeat run locks and writes no notice row.
 public sealed class OwnerPlansAnnounceJob(
     ApplicationDbContext db,
     IOwnerNotifier notifier,
@@ -38,13 +39,16 @@ public sealed class OwnerPlansAnnounceJob(
 
     internal static string BatchSql(string kind) => $"""
         WITH c AS (
-            SELECT l."UserId"
+            SELECT DISTINCT l."UserId"
             FROM {Table(kind)} l
             JOIN "Users" u ON u."Id" = l."UserId" AND u."IsActive"
             WHERE l."UserId" > @after AND NOT l."IsDeleted" AND l."Status" <> 'Draft'
               AND NOT EXISTS (SELECT 1 FROM "UserPlans" p
                               WHERE p."UserId" = l."UserId" AND p."FeatureKey" = '{kind}' AND p."Status" = '{UserPlanStatuses.Active}'
                                 AND p."EndsAt" > now() AND p."Source" = '{UserPlanSources.AdminGrant}')
+              AND NOT EXISTS (SELECT 1 FROM "UserNotices" an
+                              WHERE an."UserId" = l."UserId" AND an."Kind" = '{NoticeKinds.PlansStarting}' AND an."TripId" = @noTrip
+                                AND an."Amount" = @dateNumber)
             ORDER BY l."UserId"
             LIMIT @n),
         ins AS (

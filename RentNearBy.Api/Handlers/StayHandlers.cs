@@ -1137,7 +1137,7 @@ public static class StayHandlers
     // keeps the listing row, so nothing cascades), a waiting change is dropped, and the answer counts the confirmed bookings the
     // closure cancelled. 200 with a body (old builds ignore it).
     public static async Task<IResult> DeleteMine(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp,
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IListingPurgeService listingPurge, IServiceProvider sp,
         ITripEnquiryClosure tripClosure, ApplicationDbContext db, IOwnerListingPurge ownerPurge)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -1145,8 +1145,6 @@ public static class StayHandlers
 
         var stay = await unitOfWork.Stays.GetLiveByUserAsync(userId);
         if (stay == null) return NotFoundResponse(StayNotFound);
-
-        await photoService.DeleteRoomPhotosAsync(userId, stay.Id);
 
         stay.IsDeleted = true;
         stay.DeletedAt = DateTime.UtcNow;
@@ -1166,6 +1164,7 @@ public static class StayHandlers
             await unitOfWork.SaveChangesAsync();
             await ownerPurge.PurgeAsync(ListingKinds.Stay, [stay.Id]);
             tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, [stay.Id]);
+            await unitOfWork.StayJobs.CloseActiveForStayAsync(stay.Id);
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
@@ -1180,9 +1179,10 @@ public static class StayHandlers
         }
         await tripClosure.AfterCommitAsync(tripPushes);
 
-        await unitOfWork.StayJobs.CloseActiveForStayAsync(stay.Id);
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(stay.Id, ListingKinds.Stay);
         await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
+        // Never inline (NFR 4.2): photo files go after the commit, best effort; a 409 above keeps them.
+        await listingPurge.DeleteListingPhotosBestEffortAsync(userId, [stay.Id]);
 
         return OkResponse(new { cancelledBookings });
     }

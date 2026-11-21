@@ -40,6 +40,23 @@ public sealed class OwnerNotifier(ApplicationDbContext db, INoticeWriter notices
     public Task ClearAsync(string kind, Guid entityId, IReadOnlyCollection<Guid> userIds, CancellationToken ct = default)
         => userIds.Count == 0 ? Task.CompletedTask : notices.DeleteAsync(kind, entityId, userIds, ct);
 
+    internal const string ClearManySql = """
+        DELETE FROM "UserNotices" WHERE "UserId" = @user AND "Kind" = @kind AND "TripId" = ANY(@entities)
+        """;
+
+    public Task ClearManyAsync(string kind, IReadOnlyCollection<Guid> entityIds, Guid userId, CancellationToken ct = default)
+    {
+        var ids = entityIds.Distinct().ToArray();
+        if (ids.Length == 0) return Task.CompletedTask;
+        if (ids.Length == 1) return ClearAsync(kind, ids[0], [userId], ct);
+        return db.Database.ExecuteSqlRawAsync(ClearManySql,
+        [
+            new NpgsqlParameter("user", NpgsqlDbType.Uuid) { Value = userId },
+            new NpgsqlParameter("kind", NpgsqlDbType.Varchar) { Value = kind },
+            new NpgsqlParameter("entities", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = ids },
+        ], ct);
+    }
+
     public async Task PushAsync(IReadOnlyCollection<OwnerPush> pushes, CancellationToken ct = default)
     {
         var rows = pushes.GroupBy(p => p.Key).Select(g => g.Last()).ToList();

@@ -66,18 +66,18 @@ public sealed class OwnerCalendarSync : IOwnerCalendarSync
         ORDER BY 1
         """;
 
-    public async Task SyncEnquiryAsync(ApplicationDbContext db, Guid enquiryId, CancellationToken ct = default)
+    public async Task<int> SyncEnquiryAsync(ApplicationDbContext db, Guid enquiryId, CancellationToken ct = default)
     {
         var facts = await db.Database.SqlQueryRaw<EnquiryFacts>(EnquiryFactsSql, Uuid("id", enquiryId)).ToListAsync(ct);
-        if (facts.Count == 0 || CalendarAutoText.ForEnquiry(facts[0]) is not { } plan) return;
-        await WriteAsync(db, plan, ct);
+        if (facts.Count == 0 || CalendarAutoText.ForEnquiry(facts[0]) is not { } plan) return 0;
+        return await WriteAsync(db, plan, ct);
     }
 
-    public async Task SyncTaxiBookingAsync(ApplicationDbContext db, Guid bookingId, CancellationToken ct = default)
+    public async Task<int> SyncTaxiBookingAsync(ApplicationDbContext db, Guid bookingId, CancellationToken ct = default)
     {
         var facts = await db.Database.SqlQueryRaw<BookingFacts>(BookingFactsSql, Uuid("id", bookingId)).ToListAsync(ct);
-        if (facts.Count == 0) return;
-        await WriteAsync(db, CalendarAutoText.ForBooking(facts[0]), ct);
+        if (facts.Count == 0) return 0;
+        return await WriteAsync(db, CalendarAutoText.ForBooking(facts[0]), ct);
     }
 
     public async Task<IReadOnlyList<DateOnly>> ManualDatesAsync(ApplicationDbContext db, Guid taxiListingId, DateOnly from, DateOnly to, CancellationToken ct = default)

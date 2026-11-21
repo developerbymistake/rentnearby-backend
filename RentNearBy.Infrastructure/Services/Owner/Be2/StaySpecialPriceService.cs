@@ -436,12 +436,8 @@ public sealed class StaySpecialPriceService(
     }
 
     // 13.8 delete-on-act: a saved rule touching a festival drops the owner's FestivalReminder notice of that festival.
-    private async Task ClearFestivalNoticesAsync(Guid me, DateOnly from, DateOnly to, IReadOnlyList<FestivalDto> stateFestivals, CancellationToken ct)
-    {
-        // A rule touches at most a handful of festivals; one statement per festival (the seam takes one entity id).
-        foreach (var festivalId in StaySpecialPriceRules.TouchingFestivals(from, to, stateFestivals)) // batch-loop
-            await notifier.ClearAsync(NoticeKinds.FestivalReminder, festivalId, [me], ct); // batch-loop
-    }
+    private Task ClearFestivalNoticesAsync(Guid me, DateOnly from, DateOnly to, IReadOnlyList<FestivalDto> stateFestivals, CancellationToken ct)
+        => notifier.ClearManyAsync(NoticeKinds.FestivalReminder, StaySpecialPriceRules.TouchingFestivals(from, to, stateFestivals), me, ct);
 
     private static Be2Result<T> SavesRefusal<T>(SpecialPriceLockRow lockRow, DateOnly today)
         => Be2Result<T>.Fail(OwnerErrorTypes.SpecialPriceSavesLimit,

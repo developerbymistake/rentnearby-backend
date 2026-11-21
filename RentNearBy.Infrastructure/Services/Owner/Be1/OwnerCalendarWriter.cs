@@ -11,9 +11,10 @@ namespace RentNearBy.Infrastructure.Services.Owner.Be1;
 
 public sealed record CalendarEntryWrite(CalendarEntryRow Entry, IReadOnlyList<MeterDto> Meters, CalendarOverlapDto Overlap);
 
-// C5 to C7 and C11 (contract 2.1, 3.2, 4.1, 4.2). Create: the client id is the op id; the listing row lock (level 5) serialises the
-// limit check, so two phones saving the last free slot get one 200 and one 409. Edit and delete are version-guarded or idempotent
-// single statements; editing is never limited, but the dates must stay inside the plan window.
+// C5 to C7 and C11 (contract 2.1, 3.2, 4.1, 4.2). Create: the client id is the op id; the owner's Users row in KEY SHARE (level 2,
+// before the listing, so it cannot deadlock with account deletion) then the listing row lock (level 5) serialises the limit check,
+// so two phones saving the last free slot get one 200 and one 409. Edit and delete are version-guarded or idempotent single statements;
+// editing is never limited, but the dates must stay inside the plan window.
 public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCalendarWriter> logger)
 {
     public async Task<Be1Result<CalendarEntryWrite>> CreateAsync(OwnerContext ctx, Guid id, ManualEntryInput input, CancellationToken ct = default)
@@ -25,7 +26,8 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
         return await PgRetry.OnceAsync<Be1Result<CalendarEntryWrite>>(db, async c =>
         {
             await using var tx = await db.Database.BeginTransactionAsync(c);
-            if (!await OwnerLocks.LockListingAsync(db, ctx.Kind, ctx.ListingId, c)) return Be1Error.Of(OwnerErrorTypes.ListingNotFound);
+            if (!await OwnerLocks.KeyShareUserAsync(db, ctx.UserId, c)
+                || !await OwnerLocks.LockListingAsync(db, ctx.Kind, ctx.ListingId, c)) return Be1Error.Of(OwnerErrorTypes.ListingNotFound);
 
             var check = (await db.Database.SqlQueryRaw<CalendarCreateCheckRow>(CreateCheck,
                 [.. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Uuid("id", id)]).ToListAsync(c))[0];

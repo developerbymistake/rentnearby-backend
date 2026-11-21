@@ -22,7 +22,7 @@ public sealed class FestivalService(ApplicationDbContext db, FestivalCache cache
         var f = from ?? today;
         var t = to ?? windowTo;
         if (t < f || t.DayNumber - f.DayNumber > MaxRangeDays) return Be2Result<FestivalListDto>.Fail(OwnerErrorTypes.BadRequest, "Pick a shorter date range.");
-        var state = string.IsNullOrWhiteSpace(stateName) ? null : stateName.Trim();
+        var state = await cache.KnownStateAsync(db, stateName, ct);
         if (f >= windowFrom && t <= windowTo)
             return new(new FestivalListDto(FestivalCache.Slice(await cache.GetAsync(db, state, today, ct), f, t)));
         return new(new FestivalListDto(await FestivalCache.Query(db, state, f, t).ToListAsync(ct)));

@@ -1,9 +1,10 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
+using Npgsql;
 using RentNearBy.Core.DTOs.Owner;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Owner;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.Owner.Be2;
 using static RentNearBy.Infrastructure.Services.Owner.Be1.OwnerCalendarSql;
 
 namespace RentNearBy.Infrastructure.Services.Owner.Be1;
@@ -30,10 +31,8 @@ public sealed record CalendarSummary(string Month, long FinalTotal, long Receive
 
 // C1 to C4, C9, C10 (contract 2.1). Reads take no lock; every list is one projected statement on a calendar index after the
 // owner context statement (which carries the active manual, block and special price counts as scalar subqueries).
-public sealed class OwnerCalendarReader(ApplicationDbContext db, OwnerContextReader contexts, IMemoryCache cache)
+public sealed class OwnerCalendarReader(ApplicationDbContext db, OwnerContextReader contexts, FestivalCache festivalCache)
 {
-    private static readonly TimeSpan FestivalTtl = TimeSpan.FromMinutes(10);
-    private const int FestivalBackDays = 100, FestivalAheadDays = 400;
 
     public Task<OwnerContext?> ContextAsync(Guid userId, string kind, CancellationToken ct = default)
         => contexts.LoadAsync(userId, kind, ContextExtras(kind), null, ct);
@@ -86,10 +85,13 @@ public sealed class OwnerCalendarReader(ApplicationDbContext db, OwnerContextRea
         var window = ctx.Window;
         var first = cursor == null;
         var limit = ctx.Limits.CalendarEntries;
-        var list = (await db.Database.SqlQueryRaw<CalendarListRow>(Upcoming,
-            [.. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("upcomingTo", window.UpcomingTo), Int("limit", limit),
-             Date("cd", cursor?.Date), Uuid("cid", cursor?.Id), Int("take", OwnerLimits.PageSize + 1), Bool("first", first)])
-            .ToListAsync(ct))[0];
+        List<NpgsqlParameter> args =
+        [
+            .. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("upcomingTo", window.UpcomingTo), Int("limit", limit),
+            Int("take", OwnerLimits.PageSize + 1), Bool("first", first),
+        ];
+        if (cursor is { } after) args.AddRange([Date("cd", after.Date), Uuid("cid", after.Id)]);
+        var list = (await db.Database.SqlQueryRaw<CalendarListRow>(first ? Upcoming : UpcomingAfter, [.. args]).ToListAsync(ct))[0];
         var rows = CalendarEntryView.ParseRows(list.Items);
         var (page, next) = Cut(rows, r => OwnerCursors.EncodeDate(r.DateFrom, r.Id));
         return new CalendarUpcoming(page, next,
@@ -100,10 +102,12 @@ public sealed class OwnerCalendarReader(ApplicationDbContext db, OwnerContextRea
 
     public async Task<CalendarPage> PastAsync(OwnerContext ctx, (DateOnly Date, Guid Id)? cursor, CancellationToken ct = default)
     {
-        var rows = await db.Database.SqlQueryRaw<CalendarEntryRow>(Past,
-            [.. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("pastFrom", ctx.Window.PastFrom),
-             Date("cd", cursor?.Date), Uuid("cid", cursor?.Id), Int("take", OwnerLimits.PageSize + 1)])
-            .ToListAsync(ct);
+        List<NpgsqlParameter> args =
+        [
+            .. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("pastFrom", ctx.Window.PastFrom), Int("take", OwnerLimits.PageSize + 1),
+        ];
+        if (cursor is { } before) args.AddRange([Date("cd", before.Date), Uuid("cid", before.Id)]);
+        var rows = await db.Database.SqlQueryRaw<CalendarEntryRow>(cursor == null ? Past : PastBefore, [.. args]).ToListAsync(ct);
         var (page, next) = Cut(rows, r => OwnerCursors.EncodeDate(r.DateTo, r.Id));
         return new CalendarPage(page, next);
     }
@@ -139,16 +143,11 @@ public sealed class OwnerCalendarReader(ApplicationDbContext db, OwnerContextRea
         return Be1Result<CalendarPage>.Success(new CalendarPage(page, next));
     }
 
-    // Festivals of the owner's state (or all India) from today - 100 to today + 400 days, kept in memory for 10 minutes.
+    // Festivals of the owner's state (or all India) through the one F1 cache, so an admin change is seen at once.
     private async Task<IReadOnlyList<FestivalRow>> FestivalsAsync(string? stateName, DateOnly today, CancellationToken ct)
-    {
-        var key = $"owner:calendar:festivals:{today:yyyyMMdd}:{stateName ?? "*"}";
-        if (cache.TryGetValue(key, out IReadOnlyList<FestivalRow>? cached) && cached != null) return cached;
-        var rows = await db.Database.SqlQueryRaw<FestivalRow>(Festivals,
-            Date("from", today.AddDays(-FestivalBackDays)), Date("to", today.AddDays(FestivalAheadDays)), Text("state", stateName)).ToListAsync(ct);
-        cache.Set(key, (IReadOnlyList<FestivalRow>)rows, FestivalTtl);
-        return rows;
-    }
+        => (await festivalCache.GetAsync(db, stateName, today, ct))
+            .Select(f => new FestivalRow { Id = f.Id, Name = f.Name, DateFrom = f.DateFrom, DateTo = f.DateTo })
+            .ToList();
 
     private static (List<T> Page, string? Next) Cut<T>(List<T> rows, Func<T, string> cursorOf)
     {

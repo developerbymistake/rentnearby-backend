@@ -74,6 +74,18 @@ public class OwnerSeamsTests
         => Assert.Equal(expected, OwnerCalendarSyncInterceptor.IsWatched(state, TripEnquiryKinds.Stay, p => p == nameof(TripEnquiry.Status), status));
 
     [Theory]
+    [InlineData(TripEnquiryStatuses.Asked, TripEnquiryStatuses.Offered, true, false)]
+    [InlineData(TripEnquiryStatuses.Offered, TripEnquiryStatuses.Expired, true, false)]
+    [InlineData(TripEnquiryStatuses.Asked, TripEnquiryStatuses.Asked, false, false)]
+    [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripEnquiryStatuses.CancelledByTraveller, true, true)]
+    [InlineData(TripEnquiryStatuses.Offered, TripEnquiryStatuses.ConfirmedByBoth, true, true)]
+    [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripEnquiryStatuses.ConfirmedByBoth, false, true)]
+    [InlineData(TripEnquiryStatuses.CancelledByTraveller, TripEnquiryStatuses.CancelledByTraveller, true, true)]
+    public void Interceptor_skips_a_change_that_never_touches_a_confirmed_booking(string original, string current, bool statusModified, bool expected)
+        => Assert.Equal(expected, OwnerCalendarSyncInterceptor.IsWatched(EntityState.Modified, TripEnquiryKinds.Stay,
+            p => p == nameof(TripEnquiry.CheckIn) || (statusModified && p == nameof(TripEnquiry.Status)), current, original));
+
+    [Theory]
     [InlineData(nameof(TripEnquiry.Status), true)]
     [InlineData(nameof(TripEnquiry.CheckIn), true)]
     [InlineData(nameof(TripEnquiry.CheckOut), true)]

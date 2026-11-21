@@ -48,6 +48,7 @@ public sealed class PlanLimitsReconcile(
         public Guid UserId { get; set; }
         public Guid? DistrictId { get; set; }
         public bool Differs { get; set; }
+        public bool RoomsDiffer { get; set; }
         public bool HasLiveOffer { get; set; }
         public int HiddenBefore { get; set; }
     }
@@ -268,8 +269,13 @@ public sealed class PlanLimitsReconcile(
         if (kind == ListingKinds.Stay)
         {
             await db.Database.ExecuteSqlRawAsync(StayPhotosBatchSql(cte), Clone(p), ct);
-            await db.Database.ExecuteSqlRawAsync("""UPDATE "StayRooms" SET "RoomIndex" = "RoomIndex" + 1000 WHERE "StayListingId" = ANY(@ids)""", [Ids(ids)], ct);
-            await db.Database.ExecuteSqlRawAsync(StayRoomsBatchSql(cte), Clone(p), ct);
+            // Rooms are renumbered (shift, then rewrite) only for listings whose visible room count differs.
+            var roomIds = rows.Where(r => r.RoomsDiffer).Select(r => r.Id).ToArray();
+            if (roomIds.Length > 0)
+            {
+                await db.Database.ExecuteSqlRawAsync("""UPDATE "StayRooms" SET "RoomIndex" = "RoomIndex" + 1000 WHERE "StayListingId" = ANY(@ids)""", [Ids(roomIds)], ct);
+                await db.Database.ExecuteSqlRawAsync(StayRoomsBatchSql(cte), [Ids(roomIds), Bool("hide", hide), Date("today", today)], ct);
+            }
             await db.Database.ExecuteSqlRawAsync(StayRulesBatchSql(cte), Clone(p), ct);
             await db.Database.ExecuteSqlRawAsync("""
                 UPDATE "StayListings" s SET "MinPricePerNight" =
@@ -390,20 +396,28 @@ public sealed class PlanLimitsReconcile(
         var table = stay ? "\"StayListings\"" : "\"TaxiListings\"";
         var counts = stay
             ? """
-              (SELECT count(*) FROM "StayPhotos" p WHERE p."StayListingId" = l."Id") AS photos,
-              (SELECT count(*) FROM "StayPhotos" p WHERE p."StayListingId" = l."Id" AND NOT p."HiddenByPlan") AS photos_vis,
-              (SELECT count(*) FROM "StayRooms" r WHERE r."StayListingId" = l."Id") AS rooms,
-              (SELECT count(*) FROM "StayRooms" r WHERE r."StayListingId" = l."Id" AND NOT r."HiddenByPlan") AS rooms_vis,
-              (SELECT count(*) FROM "StaySpecialPrices" sp WHERE sp."StayListingId" = l."Id" AND sp."DateTo" >= @today) AS rules,
-              (SELECT count(*) FROM "StaySpecialPrices" sp WHERE sp."StayListingId" = l."Id" AND sp."DateTo" >= @today AND NOT sp."PausedByPlan") AS rules_live,
+              pc.photos, pc.photos_vis, rc.rooms, rc.rooms_vis, sc.rules, sc.rules_live,
               0::bigint AS routes, 0::bigint AS routes_vis, false AS live_offer
               """
             : $"""
               0::bigint AS photos, 0::bigint AS photos_vis, 0::bigint AS rooms, 0::bigint AS rooms_vis, 0::bigint AS rules, 0::bigint AS rules_live,
-              (SELECT count(*) FROM "TaxiRoutes" r WHERE r."TaxiListingId" = l."Id") AS routes,
-              (SELECT count(*) FROM "TaxiRoutes" r WHERE r."TaxiListingId" = l."Id" AND NOT r."HiddenByPlan") AS routes_vis,
-              EXISTS (SELECT 1 FROM "TaxiRequestOffers" o WHERE o."DriverListingId" = l."Id"
-                      AND o."Status" IN ('{OfferStates.Ringing}', '{OfferStates.Accepted}')) AS live_offer
+              tc.routes, tc.routes_vis,
+              (EXISTS (SELECT 1 FROM "TaxiRequestOffers" o WHERE o."DriverListingId" = l."Id" AND o."Status" = '{OfferStates.Ringing}')
+               OR EXISTS (SELECT 1 FROM "TaxiRequestOffers" o WHERE o."DriverListingId" = l."Id" AND o."Status" = '{OfferStates.Accepted}')) AS live_offer
+              """;
+        // One pass per child table: the total and the visible count together (count FILTER).
+        var countJoins = stay
+            ? """
+              LEFT JOIN LATERAL (SELECT count(*) AS photos, count(*) FILTER (WHERE NOT p."HiddenByPlan") AS photos_vis
+                                 FROM "StayPhotos" p WHERE p."StayListingId" = l."Id") pc ON true
+              LEFT JOIN LATERAL (SELECT count(*) AS rooms, count(*) FILTER (WHERE NOT r."HiddenByPlan") AS rooms_vis
+                                 FROM "StayRooms" r WHERE r."StayListingId" = l."Id") rc ON true
+              LEFT JOIN LATERAL (SELECT count(*) AS rules, count(*) FILTER (WHERE NOT sp."PausedByPlan") AS rules_live
+                                 FROM "StaySpecialPrices" sp WHERE sp."StayListingId" = l."Id" AND sp."DateTo" >= @today) sc ON true
+              """
+            : """
+              LEFT JOIN LATERAL (SELECT count(*) AS routes, count(*) FILTER (WHERE NOT r."HiddenByPlan") AS routes_vis
+                                 FROM "TaxiRoutes" r WHERE r."TaxiListingId" = l."Id") tc ON true
               """;
         var photos = stay ? $"CASE WHEN @hide THEN {PlanKeySql.Column(PlanFeatureKeys.Photos)} ELSE 2147483647 END" : "0";
         var rooms = stay ? $"CASE WHEN @hide THEN {PlanKeySql.Column(PlanFeatureKeys.RoomTypes)} ELSE 2147483647 END" : "0";
@@ -418,12 +432,14 @@ public sealed class PlanLimitsReconcile(
                 LEFT JOIN LATERAL (SELECT u."PlanId" FROM "UserPlans" u WHERE u."UserId" = l."UserId" AND u."FeatureKey" = '{kind}'
                     AND u."Status" = 'Active' AND u."EndsAt" > now() ORDER BY u."EndsAt" DESC LIMIT 1) up ON true
                 JOIN {PlanKeySql.DefaultName} ON {PlanKeySql.Join("up")}
+                {countJoins}
                 WHERE l."IsDeleted" = false AND l."Id" > @after
                 ORDER BY l."Id"
                 LIMIT {Batch})
             SELECT "Id", "UserId", "DistrictId",
                    (photos_vis <> LEAST(photos, {Strip(photos)}) OR rooms_vis <> LEAST(rooms, {Strip(rooms)})
                     OR rules_live <> LEAST(rules, {Strip(rules)}) OR routes_vis <> LEAST(routes, {Strip(routes)})) AS "Differs",
+                   (rooms_vis <> LEAST(rooms, {Strip(rooms)})) AS "RoomsDiffer",
                    live_offer AS "HasLiveOffer",
                    ((photos - photos_vis) + (rooms - rooms_vis) + (rules - rules_live) + (routes - routes_vis))::int AS "HiddenBefore"
             FROM page ORDER BY "Id"

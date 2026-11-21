@@ -24,9 +24,9 @@ public sealed class NullOwnerCalendarSync : IOwnerCalendarSync
 {
     private static readonly IReadOnlyList<DateOnly> NoDates = [];
 
-    public Task SyncEnquiryAsync(ApplicationDbContext db, Guid enquiryId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<int> SyncEnquiryAsync(ApplicationDbContext db, Guid enquiryId, CancellationToken ct = default) => Task.FromResult(0);
 
-    public Task SyncTaxiBookingAsync(ApplicationDbContext db, Guid bookingId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<int> SyncTaxiBookingAsync(ApplicationDbContext db, Guid bookingId, CancellationToken ct = default) => Task.FromResult(0);
 
     public Task<IReadOnlyList<DateOnly>> ManualDatesAsync(
         ApplicationDbContext db, Guid taxiListingId, DateOnly from, DateOnly to, CancellationToken ct = default) => Task.FromResult(NoDates);

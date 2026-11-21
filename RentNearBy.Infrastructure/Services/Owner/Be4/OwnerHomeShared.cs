@@ -5,6 +5,7 @@ using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Owner;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.Owner.Be2;
 using static RentNearBy.Infrastructure.Services.Owner.Be4.OwnerJobSql;
 
 namespace RentNearBy.Infrastructure.Services.Owner.Be4;
@@ -25,7 +26,9 @@ public static class OwnerHomeShared
             WHERE v."ListingKind" = @kind AND v."ListingId" = @listing AND v."Kind" = 'Manual' AND v."DateTo" >= @today
             ORDER BY v."DateTo", v."Id" LIMIT @manualLimit),
         w AS (
-            SELECT e.* FROM "CalendarEntries" e
+            SELECT e."Id", e."Kind", e."DateFrom", e."DateTo", e."TimeOfDay", e."Label", e."Detail", e."FromPlace", e."ToPlace",
+                   e."FinalAmount", e."AdvanceReceived", e."PaidInFull", e."Cancelled", e."TravellerUserId"
+            FROM "CalendarEntries" e
             WHERE e."ListingKind" = @kind AND e."ListingId" = @listing AND e."DateTo" >= @today AND e."DateFrom" <= @upTo
               AND (e."Kind" = 'Auto' OR e."Id" IN (SELECT vis."Id" FROM vis))),
         s AS (
@@ -133,9 +136,43 @@ public static class OwnerHomeShared
         return row is null || row.Days == 0 ? (null, null) : (row.Shown, row.NoRoute);
     }
 
-    public static async Task<OwnerFestivalFacts?> FestivalAsync(
-        ApplicationDbContext db, string kind, Guid listingId, string? stateName, DateOnly today, CancellationToken ct)
+    // Statement 5, cache first (contract 2.6 point 5): the candidates come from the F1 cache; a taxi needs no statement, a stay runs
+    // one only when a candidate exists (the first candidate without a special price touching its dates). No cache = the SQL above.
+    internal const string FirstFreeFestivalSql = """
+        SELECT f.id AS "Value"
+        FROM unnest(@ids, @froms, @tos) WITH ORDINALITY AS f(id, dfrom, dto, ord)
+        WHERE NOT EXISTS (SELECT 1 FROM "StaySpecialPrices" r WHERE r."StayListingId" = @listing AND r."DateFrom" <= f.dto AND r."DateTo" >= f.dfrom)
+        ORDER BY f.ord
+        LIMIT 1
+        """;
+
+    public static IReadOnlyList<FestivalCache.Row> Candidates(IReadOnlyList<FestivalCache.Row> rows, string kind, DateOnly today)
     {
+        var leadTo = today.AddDays(kind == ListingKinds.Stay ? OwnerLimits.FestivalStayLeadDays : OwnerLimits.FestivalTaxiLeadDays);
+        return rows.Where(f => f.DateFrom >= today && f.DateFrom <= leadTo).OrderBy(f => f.DateFrom).ThenBy(f => f.Id).ToList();
+    }
+
+    public static async Task<OwnerFestivalFacts?> FestivalAsync(
+        ApplicationDbContext db, string kind, Guid listingId, string? stateName, DateOnly today, CancellationToken ct, FestivalCache? festivals = null)
+    {
+        if (festivals != null)
+        {
+            var candidates = Candidates(await festivals.GetRowsAsync(db, stateName, today, ct), kind, today);
+            if (candidates.Count == 0) return null;
+            var chosen = candidates[0];
+            if (kind == ListingKinds.Stay)
+            {
+                var free = await db.Database.SqlQueryRaw<Guid>(FirstFreeFestivalSql,
+                    new Npgsql.NpgsqlParameter("ids", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Uuid) { Value = candidates.Select(f => f.Id).ToArray() },
+                    new Npgsql.NpgsqlParameter("froms", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Date) { Value = candidates.Select(f => f.DateFrom).ToArray() },
+                    new Npgsql.NpgsqlParameter("tos", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Date) { Value = candidates.Select(f => f.DateTo).ToArray() },
+                    Uuid("listing", listingId)).ToListAsync(ct);
+                if (free.Count == 0) return null;
+                chosen = candidates.First(f => f.Id == free[0]);
+            }
+            return new OwnerFestivalFacts(chosen.Id, chosen.Name, chosen.DateFrom, chosen.DateTo, chosen.StateName, chosen.DateFrom.DayNumber - today.DayNumber);
+        }
+
         var lead = kind == ListingKinds.Stay ? OwnerLimits.FestivalStayLeadDays : OwnerLimits.FestivalTaxiLeadDays;
         var row = (await db.Database.SqlQueryRaw<FestivalRow>(FestivalSql(kind),
             Date("today", today), Date("leadTo", today.AddDays(lead)), NullableText("state", stateName), Uuid("listing", listingId))

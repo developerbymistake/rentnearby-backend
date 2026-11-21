@@ -23,6 +23,13 @@ public interface IOwnerNotifier
 
     Task ClearAsync(string kind, Guid entityId, IReadOnlyCollection<Guid> userIds, CancellationToken ct = default);
 
+    // One user's notices of one kind for several entities; the real notifier does it in one statement.
+    async Task ClearManyAsync(string kind, IReadOnlyCollection<Guid> entityIds, Guid userId, CancellationToken ct = default)
+    {
+        foreach (var entityId in entityIds.Distinct()) // batch-loop
+            await ClearAsync(kind, entityId, [userId], ct); // batch-loop
+    }
+
     // A row is written only for a user with a valid device token (EXISTS in the same statement); duplicate keys are dropped.
     Task PushAsync(IReadOnlyCollection<OwnerPush> pushes, CancellationToken ct = default);
 

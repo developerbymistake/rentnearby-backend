@@ -68,12 +68,17 @@ public static class OwnerCalendarSql
                NULL::bigint AS "AutoBeyond", NULL::date AS "AutoBeyondFirst"
         """;
 
-    // C2: one keyset page of upcoming entries; the counts are computed on the first page only.
-    public static readonly string Upcoming = $"""
+    // C2: one keyset page of upcoming entries; the counts are computed on the first page only. The first page has no row
+    // comparison, a later page a plain one, so the cursor is an index condition (no "@cd IS NULL OR" form).
+    public static readonly string Upcoming = UpcomingSql(afterCursor: false);
+
+    public static readonly string UpcomingAfter = UpcomingSql(afterCursor: true);
+
+    private static string UpcomingSql(bool afterCursor) => $"""
         SELECT COALESCE((SELECT json_agg(x ORDER BY x."DateFrom", x."Id") FROM (
                    SELECT {Columns()} FROM "CalendarEntries" c
                    WHERE c."ListingKind" = @k AND c."ListingId" = @l AND c."DateTo" >= @today AND c."DateFrom" <= @upcomingTo AND {Visible()}
-                     AND (@cd IS NULL OR (c."DateFrom", c."Id") > (@cd, @cid))
+                     {(afterCursor ? "AND (c.\"DateFrom\", c.\"Id\") > (@cd, @cid)" : "")}
                    ORDER BY c."DateFrom", c."Id" LIMIT @take) x), '[]')::text AS "Items",
                CASE WHEN @first THEN (SELECT count(*) FROM ({VisibleManualSet}) w WHERE w."DateFrom" > @upcomingTo) END AS "VisibleBeyond",
                CASE WHEN @first THEN (SELECT count(*) FROM "CalendarEntries" a
@@ -83,10 +88,14 @@ public static class OwnerCalendarSql
         """;
 
     // C3: entries that ended in the last 90 days, newest first (backward scan of ix_calendarentries_listing_dateto).
-    public static readonly string Past = $"""
+    public static readonly string Past = PastSql(beforeCursor: false);
+
+    public static readonly string PastBefore = PastSql(beforeCursor: true);
+
+    private static string PastSql(bool beforeCursor) => $"""
         SELECT {Columns()} FROM "CalendarEntries" c
         WHERE c."ListingKind" = @k AND c."ListingId" = @l AND c."DateTo" < @today AND c."DateTo" >= @pastFrom
-          AND (@cd IS NULL OR (c."DateTo", c."Id") < (@cd, @cid))
+          {(beforeCursor ? "AND (c.\"DateTo\", c.\"Id\") < (@cd, @cid)" : "")}
         ORDER BY c."DateTo" DESC, c."Id" DESC LIMIT @take
         """;
 
@@ -173,12 +182,6 @@ public static class OwnerCalendarSql
     public static string Reminder(string kind) => kind == ListingKinds.Stay
         ? """UPDATE "StayListings" SET "RemindersOn" = @on WHERE "Id" = @l"""
         : """UPDATE "TaxiListings" SET "RemindersOn" = @on WHERE "Id" = @l""";
-
-    public const string Festivals = """
-        SELECT f."Id", f."Name", f."DateFrom", f."DateTo" FROM "FestivalDates" f
-        WHERE f."IsActive" AND f."DateTo" >= @from AND f."DateFrom" <= @to AND (f."StateName" IS NULL OR f."StateName" = @state)
-        ORDER BY f."DateFrom", f."Id"
-        """;
 
     public const string Blocks = """
         SELECT b."Id", b."StayListingId", b."DateFrom", b."DateTo", b."Reason", b."Version" FROM "StayBlockedRanges" b

@@ -257,6 +257,60 @@ public class Be3IntegrationTests(TestDatabase db) : IntegrationTestBase(db)
     }
 
     // 11.3: M3 extra statement and the hub counts stay one statement for 3 and for 30 rows.
+    // Writes the real notice and outbox rows, then fails: the business change and the outbox row must roll back together (NFR 1.5).
+    private sealed class FailAfterPushNotifier(IOwnerNotifier inner) : IOwnerNotifier
+    {
+        public Task StoreAsync(IReadOnlyCollection<NoticeUpsert> notices, CancellationToken ct = default) => inner.StoreAsync(notices, ct);
+        public Task ClearAsync(string kind, Guid entityId, IReadOnlyCollection<Guid> userIds, CancellationToken ct = default) => inner.ClearAsync(kind, entityId, userIds, ct);
+        public async Task PushAsync(IReadOnlyCollection<OwnerPush> pushes, CancellationToken ct = default)
+        {
+            await inner.PushAsync(pushes, ct);
+            throw new InvalidOperationException("push failed after the outbox insert");
+        }
+        public void Wake() { }
+    }
+
+    [IntegrationFact]
+    public async Task Stay_change_approve_and_its_outbox_row_commit_together_or_not_at_all()
+    {
+        OwnerSeed.OwnerRow owner;
+        DateTime pendingAt;
+        await using (var c = CreateContext())
+        {
+            owner = await OwnerSeed.StayOwnerAsync(c);
+            var now = DateTime.UtcNow;
+            c.DeviceTokens.Add(new RentNearBy.Core.Entities.DeviceToken
+            {
+                Id = Guid.NewGuid(), UserId = owner.UserId, Token = "tok-" + Guid.NewGuid().ToString("N"), IsValid = true, CreatedAt = now, UpdatedAt = now,
+            });
+            var stay = await c.StayListings.SingleAsync(s => s.Id == owner.ListingId);
+            var asked = new StayReviewValues("Pine View Stay", stay.RegistrationTypeId, stay.RegistrationTypeName, stay.RegistrationOtherName,
+                stay.RegistrationNumber, stay.Gstin, stay.Latitude, stay.Longitude, stay.Address, stay.DistrictId, null, stay.CityId, null);
+            stay.PendingEditJson = StayPendingEditJson.Write(new StayPendingEdit([StayReviewFields.Name], asked));
+            stay.PendingEditAt = now;
+            await c.SaveChangesAsync();
+            pendingAt = (await c.StayListings.AsNoTracking().SingleAsync(s => s.Id == owner.ListingId)).PendingEditAt!.Value;
+        }
+
+        await using (var c = CreateContext())
+        {
+            var real = new RentNearBy.Infrastructure.Services.Owner.Be4.OwnerNotifier(c, new RentNearBy.Infrastructure.Services.Buddy.Be4.NoticeWriter(c));
+            var service = new StayPendingEditService(c, new FailAfterPushNotifier(real), TimeProvider.System, NullLogger<StayPendingEditService>.Instance);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApproveAsync(owner.ListingId, pendingAt));
+        }
+
+        await using (var c = CreateContext())
+        {
+            var stay = await c.StayListings.AsNoTracking().SingleAsync(s => s.Id == owner.ListingId);
+            Assert.NotNull(stay.PendingEditJson);
+            Assert.Equal("Lake View Stay", stay.Name);
+            Assert.Null(stay.PendingEditResult);
+            var outbox = await c.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM \"OutboxMessages\" WHERE \"Key\" LIKE {"stayedit:" + owner.ListingId + ":%"}").SingleAsync();
+            Assert.Equal(0, outbox);
+            Assert.False(await c.Set<RentNearBy.Core.Entities.Buddy.UserNotice>().AnyAsync(n => n.UserId == owner.UserId && n.Kind == NoticeKinds.StayEditApproved));
+        }
+    }
+
     [IntegrationFact]
     public async Task Hidden_counts_QueryCount_IsFixed()
     {

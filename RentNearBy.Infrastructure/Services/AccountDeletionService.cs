@@ -23,7 +23,25 @@ public class AccountDeletionService(
     IServiceProvider services)
     : IAccountDeletionService
 {
+    private bool _committed;
+
+    // A deadlock (40P01) or serialization failure before the commit is retried once in a fresh scope: a new context, closure and
+    // participants, so nothing collected by the failed attempt is reused (lock order 4.1, REVIEW_SAFETY B2).
     public async Task<AccountDeletionResult> DeleteAccountAsync(Guid userId)
+    {
+        try
+        {
+            return await DeleteOnceAsync(userId);
+        }
+        catch (Exception ex) when (!_committed && TaxiRequests.PgRetry.IsRetryable(ex))
+        {
+            await using var scope = services.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope();
+            var fresh = scope.ServiceProvider.GetRequiredService<IAccountDeletionService>();
+            return fresh is AccountDeletionService again ? await again.DeleteOnceAsync(userId) : await fresh.DeleteAccountAsync(userId);
+        }
+    }
+
+    internal async Task<AccountDeletionResult> DeleteOnceAsync(Guid userId)
     {
         using var tx = await context.Database.BeginTransactionAsync();
 
@@ -176,6 +194,7 @@ public class AccountDeletionService(
             .ExecuteDeleteAsync();
 
         await tx.CommitAsync();
+        _committed = true;
 
         foreach (var participant in participants)
             await participant.AfterCommitAsync(userId);

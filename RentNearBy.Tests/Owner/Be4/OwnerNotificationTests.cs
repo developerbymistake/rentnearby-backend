@@ -216,6 +216,17 @@ public class OwnerJobRulesTests
         Assert.False(PaymentAnnounceRules.IsFarEnough(Be4Facts.Today.AddDays(6), Be4Facts.Today));
     }
 
+    [Theory]
+    [InlineData(ListingKinds.Stay)]
+    [InlineData(ListingKinds.Taxi)]
+    public void Announce_batch_skips_owners_already_announced_for_the_date(string kind)
+    {
+        var sql = OwnerPlansAnnounceJob.BatchSql(kind);
+        Assert.Contains("SELECT DISTINCT l.\"UserId\"", sql);
+        Assert.Contains($"an.\"Kind\" = '{NoticeKinds.PlansStarting}' AND an.\"TripId\" = @noTrip", sql);
+        Assert.Contains("an.\"Amount\" = @dateNumber", sql);
+    }
+
     [Fact]
     public void Announce_pushes_use_free_values_and_the_trial_days()
     {

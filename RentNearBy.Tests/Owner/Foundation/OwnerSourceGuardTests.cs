@@ -18,6 +18,7 @@ internal static class OwnerSources
     // Services and handlers of this work (the pushes, loops and module rules apply here).
     public static IReadOnlyList<string> Code() => Files(
         ["RentNearBy.Infrastructure", "Services", "Owner"],
+        ["RentNearBy.Infrastructure", "Services", "Retention", "Owner"],
         ["RentNearBy.Api", "Handlers", "Owner"],
         ["RentNearBy.Api", "Endpoints", "Owner"]);
 

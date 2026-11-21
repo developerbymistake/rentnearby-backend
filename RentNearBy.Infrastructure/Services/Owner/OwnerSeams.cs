@@ -7,10 +7,11 @@ namespace RentNearBy.Infrastructure.Services.Owner;
 public interface IOwnerCalendarSync
 {
     // Upsert or cancel the Auto entry of one Stay enquiry or confirmed taxi lead. Idempotent, order-free, never touches money columns.
-    Task SyncEnquiryAsync(ApplicationDbContext db, Guid enquiryId, CancellationToken ct = default);
+    // Returns the calendar rows written (0 = nothing to write for this source).
+    Task<int> SyncEnquiryAsync(ApplicationDbContext db, Guid enquiryId, CancellationToken ct = default);
 
     // Upsert or cancel the Auto entry of one taxi booking (called after each of the three TaxiBookings writers).
-    Task SyncTaxiBookingAsync(ApplicationDbContext db, Guid bookingId, CancellationToken ct = default);
+    Task<int> SyncTaxiBookingAsync(ApplicationDbContext db, Guid bookingId, CancellationToken ct = default);
 
     // Dates of the driver's manual entries inside [from, to] (amber line of UC-T-38); one indexed read.
     Task<IReadOnlyList<DateOnly>> ManualDatesAsync(ApplicationDbContext db, Guid taxiListingId, DateOnly from, DateOnly to, CancellationToken ct = default);

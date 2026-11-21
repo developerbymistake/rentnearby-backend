@@ -10,8 +10,8 @@ using RentNearBy.Infrastructure.Services.Buddy.Be2;
 
 namespace RentNearBy.Infrastructure.Services.Owner.Be4;
 
-// GET /home/seeker-feed (contract 2.6 H2, AU-20). Budget 3, the same for 0, 1 and 3 trips: (1) TripSlots (count, limit, list);
-// (2) the chosen trip by id with its enquiries in one statement; (3) the trip's taxi request summary (only when a trip is chosen).
+// GET /home/seeker-feed (contract 2.6 H2, AU-20). Budget 4, the same for 0, 1 and 3 trips: (1) TripSlots (count, limit, list);
+// (2) the chosen trip by id; (3) its enquiries; (4) the trip's taxi request summary (only when a trip is chosen).
 // Progress is TripEasyRows output (the same rows as the trip screen); the status line comes from the same enquiry rows.
 public sealed class SeekerFeedReader(ApplicationDbContext db, TimeProvider clock)
 {
@@ -24,16 +24,14 @@ public sealed class SeekerFeedReader(ApplicationDbContext db, TimeProvider clock
         var chosen = SeekerStatusRules.Choose(slots.Trips, t => t.StartDate, t => t.EndDate, t => t.Id, today);
         if (chosen is null) return dto;
 
-        var loaded = await db.Trips.AsNoTracking()
-            .Where(t => t.Id == chosen.Id)
-            .Select(t => new { Trip = t, Enquiries = db.TripEnquiries.Where(e => e.TripId == t.Id).ToList() })
-            .FirstOrDefaultAsync(ct);
-        if (loaded is null) return dto;
+        // Trip and enquiries are two statements: one joined statement would send the trip row (with PlanJson) once per enquiry.
+        var trip = await db.Trips.AsNoTracking().FirstOrDefaultAsync(t => t.Id == chosen.Id, ct);
+        if (trip is null) return dto;
+        var enquiries = await db.TripEnquiries.AsNoTracking().Where(e => e.TripId == trip.Id).ToListAsync(ct);
 
-        var trip = loaded.Trip;
         var taxi = await TripTaxiRequestReads.ReadAsync(db, trip, ct);
-        dto.TripCard = TripCard(trip, TripPlanReader.Read(trip), loaded.Enquiries, taxi, today);
-        dto.Status = Status(trip.Id, loaded.Enquiries);
+        dto.TripCard = TripCard(trip, TripPlanReader.Read(trip), enquiries, taxi, today);
+        dto.Status = Status(trip.Id, enquiries);
         return dto;
     }
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
 using NpgsqlTypes;
 using RentNearBy.Core.DTOs.Owner;
@@ -13,8 +14,11 @@ namespace RentNearBy.Infrastructure.Services.Owner.Be4;
 
 // Admin reads of this work (section 9, AU-24): rows hidden by the plan with their flag (A4), hidden and visible counts (A6),
 // the special prices report (A5) and the payment switch preview (A7). Never a calendar row, money note or block reason (A8).
-public sealed class AdminOwnerReads(ApplicationDbContext db, TimeProvider clock)
+public sealed class AdminOwnerReads(ApplicationDbContext db, TimeProvider clock, IMemoryCache? cache = null)
 {
+    // A7 preview is a full pass over both listing tables; it is kept 5 minutes per day and Free values (a catalog edit is a new key).
+    public static readonly TimeSpan PreviewTtl = TimeSpan.FromMinutes(5);
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     // A4: every photo and room of a stay, hidden ones too, each with hiddenByPlan (one statement).
@@ -142,10 +146,14 @@ public sealed class AdminOwnerReads(ApplicationDbContext db, TimeProvider clock)
         var today = IstTime.TodayIst(clock.GetUtcNow().UtcDateTime);
         var stay = snapshot.DefaultValues(ListingKinds.Stay);
         var taxi = snapshot.DefaultValues(ListingKinds.Taxi);
+        var key = $"owner:admin:preview:{today:yyyyMMdd}:{stay.Photos}:{stay.RoomTypes}:{stay.SpecialPrices}:{taxi.Routes}";
+        if (cache != null && cache.TryGetValue(key, out int hit)) return hit;
         var value = (await db.Database.SqlQueryRaw<long>(PreviewSql,
             Int("freePhotos", stay.Photos), Int("freeRooms", stay.RoomTypes), Int("freeSpecial", stay.SpecialPrices),
             Int("freeRoutes", taxi.Routes), Date("today", today)).ToListAsync(ct)).FirstOrDefault();
-        return (int)Math.Min(value, int.MaxValue);
+        var count = (int)Math.Min(value, int.MaxValue);
+        cache?.Set(key, count, PreviewTtl);
+        return count;
     }
 
     private static List<T> Parse<T>(string? json)
