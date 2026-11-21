@@ -317,8 +317,8 @@ public sealed class PlanLimitsReconcile(
 
     // PlansStarting rows go for everyone at the switch (AU-16); owners who lost something get PlanLimitsChanged instead.
     private Task<int> ClearPlansStartingAsync(CancellationToken ct)
-        => db.Database.ExecuteSqlRawAsync("""DELETE FROM "UserNotices" WHERE "Kind" = @k""",
-            [new NpgsqlParameter("k", NpgsqlDbType.Varchar) { Value = NoticeKinds.PlansStarting }], ct);
+        => db.Database.ExecuteSqlRawAsync("""DELETE FROM "UserNotices" WHERE "TripId" = @t AND "Kind" = @k""",
+            [Uuid("t", NoticeKinds.NoTrip), new NpgsqlParameter("k", NpgsqlDbType.Varchar) { Value = NoticeKinds.PlansStarting }], ct);
 
     private async Task<ListingRow?> LiveListingAsync(string table, Guid userId, CancellationToken ct)
     {

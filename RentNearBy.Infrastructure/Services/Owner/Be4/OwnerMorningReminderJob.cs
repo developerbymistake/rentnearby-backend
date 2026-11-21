@@ -106,10 +106,10 @@ public abstract class OwnerMorningReminderJob(
                 await using var tx = await db.Database.BeginTransactionAsync(c);
                 var listings = await db.Database.SqlQueryRaw<ListingRow>(sql, Uuid("after", cursor), Int("n", batch), Date("today", today)).ToListAsync(c);
                 var pushes = Plan(listings, today);
-                await notifier.PushAsync(pushes, c);
                 if (listings.Count > 0)
                     await db.Database.ExecuteSqlRawAsync(StepRunSql,
                         [Uuid("last", listings[^1].ListingId), Int("sent", pushes.Count), Date("day", today), Text("kind", Kind)], c);
+                await notifier.PushAsync(pushes, c);
                 await tx.CommitAsync(c);
                 return (listings, pushes.Count);
             }, ct, logger);

@@ -65,6 +65,15 @@ public class OwnerSeamsTests
         => Assert.Equal(expected, OwnerCalendarSyncInterceptor.IsWatched(state, kind, p => watchedChanged && p == nameof(TripEnquiry.Status)));
 
     [Theory]
+    [InlineData(EntityState.Added, TripEnquiryStatuses.Asked, false)]
+    [InlineData(EntityState.Added, TripEnquiryStatuses.BookedByTraveller, false)]
+    [InlineData(EntityState.Added, TripEnquiryStatuses.ConfirmedByBoth, true)]
+    [InlineData(EntityState.Modified, TripEnquiryStatuses.Asked, true)]
+    [InlineData(EntityState.Modified, TripEnquiryStatuses.CancelledByTraveller, true)]
+    public void Interceptor_skips_a_new_enquiry_that_is_not_confirmed(EntityState state, string status, bool expected)
+        => Assert.Equal(expected, OwnerCalendarSyncInterceptor.IsWatched(state, TripEnquiryKinds.Stay, p => p == nameof(TripEnquiry.Status), status));
+
+    [Theory]
     [InlineData(nameof(TripEnquiry.Status), true)]
     [InlineData(nameof(TripEnquiry.CheckIn), true)]
     [InlineData(nameof(TripEnquiry.CheckOut), true)]

@@ -69,10 +69,12 @@ public sealed class OwnerCalendarSyncInterceptor(IOwnerCalendarSync sync) : Save
     public override void SaveChangesCanceled(DbContextEventData eventData) => AbandonAsync(eventData.Context).GetAwaiter().GetResult();
 
     // Pure part, unit tested: the enquiries of this save the calendar follows.
-    public static bool IsWatched(EntityState state, string kind, Func<string, bool> isModified)
+    // A new enquiry that is not confirmed has no Auto entry yet, so it needs no sync (status null = not known, watched).
+    public static bool IsWatched(EntityState state, string kind, Func<string, bool> isModified, string? status = null)
     {
         if (kind is not (TripEnquiryKinds.Stay or TripEnquiryKinds.Taxi)) return false;
-        return state == EntityState.Added || (state == EntityState.Modified && WatchedProperties.Any(isModified));
+        if (state == EntityState.Added) return status is null or TripEnquiryStatuses.ConfirmedByBoth;
+        return state == EntityState.Modified && WatchedProperties.Any(isModified);
     }
 
     private State? Collect(DbContext? context)
@@ -83,7 +85,7 @@ public sealed class OwnerCalendarSyncInterceptor(IOwnerCalendarSync sync) : Save
         List<TripEnquiry>? found = null;
         foreach (var entry in context.ChangeTracker.Entries<TripEnquiry>())
         {
-            if (!IsWatched(entry.State, entry.Entity.Kind, p => entry.Property(p).IsModified)) continue;
+            if (!IsWatched(entry.State, entry.Entity.Kind, p => entry.Property(p).IsModified, entry.Entity.Status)) continue;
             (found ??= []).Add(entry.Entity);
         }
         if (found == null) return null;

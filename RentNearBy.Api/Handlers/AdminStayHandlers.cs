@@ -76,7 +76,6 @@ public static class AdminStayHandlers
     private static async Task<(IReadOnlyList<StayListing> Items, bool HasMore)> BigOffPageAsync(ApplicationDbContext db, string status, int page, int pageSize)
     {
         var today = IstTime.TodayIst(DateTime.UtcNow);
-        var bigOff = RentNearBy.Core.Models.Owner.OwnerLimits.SpecialBigOffPercent;
         var items = await db.StayListings
             .AsNoTracking()
             .Include(s => s.User)
@@ -86,7 +85,7 @@ public static class AdminStayHandlers
             .Include(s => s.Rooms.OrderBy(r => r.RoomIndex))
             .Where(s => !s.IsDeleted && s.Status == status)
             .Where(s => db.Set<RentNearBy.Core.Entities.Owner.StaySpecialPrice>().Any(r => r.StayListingId == s.Id
-                && r.Direction == RentNearBy.Core.Models.Owner.SpecialPriceDirections.Lower && r.Percent >= bigOff
+                && r.Direction == RentNearBy.Core.Models.Owner.SpecialPriceDirections.Lower && r.Percent >= RentNearBy.Core.Models.Owner.OwnerLimits.SpecialBigOffPercent
                 && !r.IsPaused && !r.PausedByPlan && r.DateTo >= today))
             .OrderByDescending(s => s.SubmittedAt)
             .ThenByDescending(s => s.Id)
