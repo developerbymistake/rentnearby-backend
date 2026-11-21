@@ -122,7 +122,7 @@ public sealed class StaySpecialPriceService(
                 return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.SpecialPriceInvalid, invalid);
             if (StaySpecialPriceRules.SavesLimitReached(lockRow.SavesDay, lockRow.SavesCount, ctx.Today))
                 return SavesRefusal<SpecialPriceWriteDto>(lockRow, ctx.Today);
-            if (check.Active >= ctx.Limits.SpecialPrices)
+            if (StaySpecialPriceRules.LimitReached(check.Active, ctx.Limits.SpecialPrices))
                 return LimitRefusal<SpecialPriceWriteDto>(check.Active, ctx);
             if (check.OverlapId is { } overlapId)
                 return Overlap<SpecialPriceWriteDto>(overlapId, check);
@@ -172,7 +172,8 @@ public sealed class StaySpecialPriceService(
             if (lockRow == null) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.ListingNotFound);
             var savesLeft = StaySpecialPriceRules.SavesLeft(lockRow.SavesDay, lockRow.SavesCount, ctx.Today);
             var row = await FindAsync(id, c);
-            if (row == null || row.StayListingId != ctx.ListingId) return Be2Result<SpecialPriceWriteDto>.Missing(NotFoundMessage);
+            if (row == null || row.StayListingId != ctx.ListingId || !StaySpecialPriceRules.IsActive(row.DateTo, ctx.Today))
+                return Be2Result<SpecialPriceWriteDto>.Missing(NotFoundMessage);
             var check = await CheckAsync(ctx.ListingId, ctx.Today, id, request.DateFrom, request.DateTo, c);
             var meters = Meters(check.Active, ctx.Limits.SpecialPrices);
 
@@ -295,7 +296,7 @@ public sealed class StaySpecialPriceService(
                        (SELECT count(*)::int FROM "StaySpecialPrices" a WHERE a."StayListingId" = {ctx.ListingId} AND a."DateTo" >= {ctx.Today}) AS "Active"
                 FROM upd u
                 """).ToListAsync(c);
-            if (updated.Count == 0) return await StaleAsync(id, c);
+            if (updated.Count == 0) return await LostRaceAsync(id, ctx, savesLeft, current => current.IsPaused == request.Paused, c);
             await tx.CommitAsync(c);
             return new Be2Result<SpecialPriceWriteDto>(
                 new SpecialPriceWriteDto(ToItem(updated[0]), Meters(updated[0].Active, ctx.Limits.SpecialPrices), Math.Max(0, savesLeft - 1)),
@@ -355,7 +356,7 @@ public sealed class StaySpecialPriceService(
                 FROM upd u
                 WHERE u."Id" = {id}
                 """).ToListAsync(c);
-            if (updated.Count == 0) return await StaleAsync(id, c);
+            if (updated.Count == 0) return await LostRaceAsync(id, ctx, savesLeft, current => !current.PausedByPlan, c);
             await tx.CommitAsync(c);
             return new Be2Result<SpecialPriceWriteDto>(
                 new SpecialPriceWriteDto(ToItem(updated[0]), Meters(updated[0].Active, ctx.Limits.SpecialPrices), Math.Max(0, savesLeft - 1)),
@@ -421,10 +422,18 @@ public sealed class StaySpecialPriceService(
     private Task<int> ActiveCountAsync(Guid stayId, DateOnly today, CancellationToken ct)
         => db.Set<StaySpecialPrice>().CountAsync(p => p.StayListingId == stayId && p.DateTo >= today, ct);
 
-    private async Task<Be2Result<SpecialPriceWriteDto>> StaleAsync(Guid id, CancellationToken ct)
-        => await FindAsync(id, ct) is { } current
-            ? Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.StaleEdit, new StaleEditDto<SpecialPriceItemDto>(ToItem(current)))
-            : Be2Result<SpecialPriceWriteDto>.Missing(NotFoundMessage);
+    // The rule read with the lock can be older than the lock (LockAsync), so the guarded write found another version. Read under
+    // the lock: already in the asked state = a replay (4.2, the same tap from two phones), else the stored row as StaleEdit.
+    private async Task<Be2Result<SpecialPriceWriteDto>> LostRaceAsync(
+        Guid id, OwnerContext ctx, int savesLeft, Func<SpecialPriceRow, bool> alreadyDone, CancellationToken ct)
+    {
+        if (await FindAsync(id, ct) is not { } current || current.StayListingId != ctx.ListingId)
+            return Be2Result<SpecialPriceWriteDto>.Missing(NotFoundMessage);
+        if (!alreadyDone(current))
+            return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.StaleEdit, new StaleEditDto<SpecialPriceItemDto>(ToItem(current)));
+        var active = await ActiveCountAsync(ctx.ListingId, ctx.Today, ct);
+        return new(new SpecialPriceWriteDto(ToItem(current), Meters(active, ctx.Limits.SpecialPrices), savesLeft), Replay: true);
+    }
 
     // 13.8 delete-on-act: a saved rule touching a festival drops the owner's FestivalReminder notice of that festival.
     private async Task ClearFestivalNoticesAsync(Guid me, DateOnly from, DateOnly to, IReadOnlyList<FestivalDto> stateFestivals, CancellationToken ct)

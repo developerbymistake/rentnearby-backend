@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using NpgsqlTypes;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Interfaces.Owner;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
@@ -12,21 +15,50 @@ public class ListingPurgeService(
     ApplicationDbContext context, IPhotoService photoService, IOwnerListingPurge ownerPurge, ILogger<ListingPurgeService> logger)
     : IListingPurgeService
 {
+    // Photo files are deleted by the caller after its commit (DeleteAllUserPhotosBestEffortAsync), never inside the transaction.
     public async Task<(IReadOnlyList<Guid> StayIds, IReadOnlyList<Guid> TaxiIds)> PurgeUserListingsAsync(Guid userId)
     {
-        await photoService.DeleteAllUserPhotosAsync(userId);
-
         var stayIds = await DeleteStayRowsAsync(userId);
         var taxiIds = await DeleteTaxiRowsAsync(userId);
         return (stayIds, taxiIds);
     }
 
-    public Task<IReadOnlyList<Guid>> DeleteUserListingRowsAsync(Guid userId, string listingKind) => listingKind switch
+    // Role purge (correction and admin role change): the kind's rows, then the owner notices and festival marks of the role (AU-25).
+    public async Task<IReadOnlyList<Guid>> DeleteUserListingRowsAsync(Guid userId, string listingKind)
     {
-        ListingKinds.Stay => DeleteStayRowsAsync(userId),
-        ListingKinds.Taxi => DeleteTaxiRowsAsync(userId),
-        _ => throw new ArgumentOutOfRangeException(nameof(listingKind), listingKind, "Unknown listing kind"),
-    };
+        var ids = listingKind switch
+        {
+            ListingKinds.Stay => await DeleteStayRowsAsync(userId),
+            ListingKinds.Taxi => await DeleteTaxiRowsAsync(userId),
+            _ => throw new ArgumentOutOfRangeException(nameof(listingKind), listingKind, "Unknown listing kind"),
+        };
+        await context.Database.ExecuteSqlRawAsync(OwnerRoleNoticesSql,
+            new NpgsqlParameter("user", NpgsqlDbType.Uuid) { Value = userId },
+            new NpgsqlParameter("kinds", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = NoticeKinds.Owner.ToArray() });
+        await context.Database.ExecuteSqlRawAsync(FestivalMarksSql, new NpgsqlParameter("user", NpgsqlDbType.Uuid) { Value = userId });
+        return ids;
+    }
+
+    internal const string OwnerRoleNoticesSql = """
+        DELETE FROM "UserNotices" WHERE "UserId" = @user AND "Kind" = ANY(@kinds)
+        """;
+
+    internal const string FestivalMarksSql = """
+        DELETE FROM "FestivalReminderSent" WHERE "UserId" = @user
+        """;
+
+    // After the account deletion commit: a Cloudinary failure only orphans files and is logged, it never surfaces.
+    public async Task DeleteAllUserPhotosBestEffortAsync(Guid userId)
+    {
+        try
+        {
+            await photoService.DeleteAllUserPhotosAsync(userId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Cloudinary photo cleanup failed for deleted user {UserId}", userId);
+        }
+    }
 
     // Runs after the caller's commit: a Cloudinary failure only orphans files, it must never surface.
     public async Task DeleteListingPhotosBestEffortAsync(Guid userId, IReadOnlyList<Guid> listingIds)

@@ -43,7 +43,9 @@ public sealed class MoneyAccountDeletion(ApplicationDbContext db, ITripLedger le
         return trips
             .Where(t => t.IsOwner || (snapshots.TryGetValue(t.Id, out var s) && HasMoneyToSettle(s, userId)))
             .Select(t => new AccountDeletionBlock(
-                AccountDeletionReasons.SharedTripOpenBalance, string.Format(AccountDeletionReasons.SharedTripOpenBalanceMessage, t.Title)))
+                AccountDeletionReasons.SharedTripOpenBalance, string.Format(AccountDeletionReasons.SharedTripOpenBalanceMessage, t.Title),
+                AccountDeletionActions.SettleUp, t.Id, AccountDeletionSides.Traveller, AccountDeletionRules.ReasonKeyOf(AccountDeletionReasons.SharedTripOpenBalance),
+                UserNotificationRoutes.TripSettle, $"{{\"tripId\":\"{t.Id}\"}}", t.Title))
             .ToList();
     }
 

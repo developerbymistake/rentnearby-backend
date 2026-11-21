@@ -16,5 +16,7 @@ public class UpdatePaymentFeatureRequestValidator : AbstractValidator<UpdatePaym
             .WithMessage("Cannot both set and clear FreeModeListingLimit");
         RuleFor(x => x.Provider).Must(p => PaymentProviders.Selectable.Contains(p)).When(x => x.Provider != null)
             .WithMessage($"Provider must be one of: {string.Join(", ", PaymentProviders.Selectable)}");
+        RuleFor(x => x).Must(x => !(x.ClearAnnounceDate && x.AnnounceDate.HasValue))
+            .WithMessage("Cannot both set and clear AnnounceDate");
     }
 }

@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Entities.Owner;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Interfaces.Buddy;
@@ -148,6 +149,13 @@ public class AccountDeletionService(
             .Where(t => t.UserId == userId && !t.IsDeleted && t.DistrictId != null)
             .Select(t => t.DistrictId!.Value).Distinct().ToListAsync();
 
+        // Other owners' calendar rows of his bookings stay until their own clean-up and read "Traveller removed" (contract 6.2 step 5).
+        await context.Set<CalendarEntry>()
+            .Where(e => e.TravellerUserId == userId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.Label, string.Empty)
+                .SetProperty(e => e.TravellerUserId, (Guid?)null));
+
         var (stayIds, taxiIds) = await listingPurgeService.PurgeUserListingsAsync(userId);
         tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, stayIds));
         tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, taxiIds));
@@ -174,58 +182,96 @@ public class AccountDeletionService(
 
         await BustListingCachesAsync(stayDistricts, taxiDistricts);
         await tripClosure.AfterCommitAsync(tripPushes);
+        // Never inline (NFR 4.2): photo files go after the commit, best effort; a failure only orphans files.
+        await listingPurgeService.DeleteAllUserPhotosBestEffortAsync(userId);
         return AccountDeletionResult.Done;
     }
 
-    private async Task<AccountActivity> ReadActivityAsync(Guid userId)
+    // AU-2: the seven checks of O17 in ONE statement, each branch the oldest item of its kind and side with the count of that kind and
+    // side folded in as a window count. Driver-side taxi rows are keyed by listing (deleted listings included).
+    internal static readonly string ActivitySql = $"""
+        WITH my_taxis AS (SELECT t."Id" FROM "TaxiListings" t WHERE t."UserId" = @user)
+        (SELECT '{AccountDeletionReasons.ActiveTaxiBooking}' AS "Code", '{AccountDeletionSides.Traveller}' AS "Side", b."RequestId" AS "Id",
+                b."TripId" AS "TripId", false AS "IsLead", NULL::text AS "ListingKind", b."BookedAt" AS "CreatedAt", count(*) OVER ()::int AS "Count"
+         FROM "TaxiBookings" b WHERE b."TravellerUserId" = @user AND b."Status" IN ('{BookingStates.Booked}', '{BookingStates.InProgress}')
+         ORDER BY b."BookedAt", b."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.ActiveTaxiBooking}', '{AccountDeletionSides.Driver}', b."Id", b."TripId", false, NULL, b."BookedAt", count(*) OVER ()::int
+         FROM "TaxiBookings" b WHERE b."DriverListingId" IN (SELECT "Id" FROM my_taxis) AND b."Status" IN ('{BookingStates.Booked}', '{BookingStates.InProgress}')
+         ORDER BY b."BookedAt", b."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.ActiveTaxiBooking}', '{AccountDeletionSides.Traveller}', e."Id", e."TripId", true, NULL, e."CreatedAt", count(*) OVER ()::int
+         FROM "TripEnquiries" e WHERE e."TravellerUserId" = @user AND e."Kind" = '{TripEnquiryKinds.Taxi}'
+           AND e."Status" IN ('{TripEnquiryStatuses.ConfirmedByBoth}', '{TripEnquiryStatuses.BookedByTraveller}') AND (e."CheckOut" IS NULL OR e."CheckOut" >= @today)
+         ORDER BY e."CreatedAt", e."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.ActiveTaxiBooking}', '{AccountDeletionSides.Driver}', e."Id", e."TripId", true, NULL, e."CreatedAt", count(*) OVER ()::int
+         FROM "TripEnquiries" e WHERE e."OwnerUserId" = @user AND e."Kind" = '{TripEnquiryKinds.Taxi}'
+           AND e."Status" IN ('{TripEnquiryStatuses.ConfirmedByBoth}', '{TripEnquiryStatuses.BookedByTraveller}') AND (e."CheckOut" IS NULL OR e."CheckOut" >= @today)
+         ORDER BY e."CreatedAt", e."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.ActiveStayBooking}', '{AccountDeletionSides.Host}', e."Id", e."TripId", false, NULL, e."CreatedAt", count(*) OVER ()::int
+         FROM "TripEnquiries" e WHERE e."OwnerUserId" = @user AND e."Kind" = '{TripEnquiryKinds.Stay}'
+           AND e."Status" IN ('{TripEnquiryStatuses.ConfirmedByBoth}', '{TripEnquiryStatuses.BookedByTraveller}') AND (e."CheckOut" IS NULL OR e."CheckOut" >= @today)
+         ORDER BY e."CreatedAt", e."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.ActiveStayBooking}', '{AccountDeletionSides.Traveller}', e."Id", e."TripId", false, NULL, e."CreatedAt", count(*) OVER ()::int
+         FROM "TripEnquiries" e WHERE e."TravellerUserId" = @user AND e."Kind" = '{TripEnquiryKinds.Stay}'
+           AND e."Status" IN ('{TripEnquiryStatuses.ConfirmedByBoth}', '{TripEnquiryStatuses.BookedByTraveller}') AND (e."CheckOut" IS NULL OR e."CheckOut" >= @today)
+         ORDER BY e."CreatedAt", e."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.SelectedTaxiOffer}', '{AccountDeletionSides.Driver}', o."Id", NULL::uuid, false, NULL, o."OfferedAt", count(*) OVER ()::int
+         FROM "TaxiRequestOffers" o WHERE o."DriverListingId" IN (SELECT "Id" FROM my_taxis) AND o."Status" = '{OfferStates.Selected}'
+         ORDER BY o."OfferedAt", o."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.OpenTaxiRequest}', '{AccountDeletionSides.Traveller}', r."Id", r."TripId", false, NULL, r."CreatedAt", count(*) OVER ()::int
+         FROM "TaxiRequests" r WHERE r."TravellerUserId" = @user
+           AND r."Status" IN ('{RequestStates.Open}', '{RequestStates.Collecting}', '{RequestStates.Selected}')
+         ORDER BY r."CreatedAt", r."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.OpenTaxiRequest}', '{AccountDeletionSides.Traveller}', e."Id", e."TripId", true, NULL, e."CreatedAt", count(*) OVER ()::int
+         FROM "TripEnquiries" e WHERE e."TravellerUserId" = @user AND e."Kind" = '{TripEnquiryKinds.Taxi}'
+           AND e."Status" IN ('{TripEnquiryStatuses.Asked}', '{TripEnquiryStatuses.FareSent}')
+         ORDER BY e."CreatedAt", e."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.OpenStayEnquiry}', '{AccountDeletionSides.Host}', e."Id", e."TripId", false, NULL, e."CreatedAt", count(*) OVER ()::int
+         FROM "TripEnquiries" e WHERE e."OwnerUserId" = @user AND e."Kind" = '{TripEnquiryKinds.Stay}'
+           AND e."Status" IN ('{TripEnquiryStatuses.Asked}', '{TripEnquiryStatuses.Offered}', '{TripEnquiryStatuses.Countered}')
+         ORDER BY e."CreatedAt", e."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.OpenStayEnquiry}', '{AccountDeletionSides.Traveller}', e."Id", e."TripId", false, NULL, e."CreatedAt", count(*) OVER ()::int
+         FROM "TripEnquiries" e WHERE e."TravellerUserId" = @user AND e."Kind" = '{TripEnquiryKinds.Stay}'
+           AND e."Status" IN ('{TripEnquiryStatuses.Asked}', '{TripEnquiryStatuses.Offered}', '{TripEnquiryStatuses.Countered}')
+         ORDER BY e."CreatedAt", e."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.LiveListing}', '{AccountDeletionSides.Driver}', t."Id", NULL::uuid, false, '{ListingKinds.Taxi}', t."CreatedAt", count(*) OVER ()::int
+         FROM "TaxiListings" t WHERE t."UserId" = @user AND NOT t."IsDeleted" AND t."Status" = '{TaxiStatuses.Approved}' AND t."IsAvailable"
+         ORDER BY t."CreatedAt", t."Id" LIMIT 1)
+        UNION ALL
+        (SELECT '{AccountDeletionReasons.LiveListing}', '{AccountDeletionSides.Host}', s."Id", NULL::uuid, false, '{ListingKinds.Stay}', s."CreatedAt", count(*) OVER ()::int
+         FROM "StayListings" s WHERE s."UserId" = @user AND NOT s."IsDeleted" AND s."Status" = '{StayStatuses.Approved}' AND s."AcceptingGuests"
+         ORDER BY s."CreatedAt", s."Id" LIMIT 1)
+        """;
+
+    private async Task<IReadOnlyList<AccountActivityItem>> ReadActivityAsync(Guid userId)
     {
         var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
-        var enquiries = context.TripEnquiries.AsNoTracking();
-        var bookedEnquiry = TripEnquiryStatuses.Booked;
-        var unconfirmed = TripEnquiryStatuses.Unconfirmed;
-        string[] openLead = [TripEnquiryStatuses.Asked, TripEnquiryStatuses.FareSent];
+        var rows = await context.Database.SqlQueryRaw<ActivityRow>(ActivitySql,
+            new Npgsql.NpgsqlParameter("user", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = userId },
+            new Npgsql.NpgsqlParameter("today", NpgsqlTypes.NpgsqlDbType.Date) { Value = today }).ToListAsync();
+        return rows.Select(r => new AccountActivityItem(r.Code, r.Side, r.Id, r.Count, r.CreatedAt, r.TripId, r.IsLead, r.ListingKind)).ToList();
+    }
 
-        // Driver-side taxi rows are keyed by listing (indexed), deleted listings included.
-        var taxiIds = await context.TaxiListings.AsNoTracking()
-            .Where(t => t.UserId == userId).Select(t => t.Id).ToListAsync();
-
-        var activeTaxiBooking =
-            await context.Set<TaxiBooking>().AsNoTracking().AnyAsync(b =>
-                BookingStates.Active.Contains(b.Status) && b.TravellerUserId == userId)
-            || (taxiIds.Count > 0 && await context.Set<TaxiBooking>().AsNoTracking().AnyAsync(b =>
-                BookingStates.Active.Contains(b.Status) && taxiIds.Contains(b.DriverListingId)))
-            || await enquiries.AnyAsync(e =>
-                e.Kind == TripEnquiryKinds.Taxi && bookedEnquiry.Contains(e.Status)
-                && (e.CheckOut == null || e.CheckOut >= today)
-                && (e.TravellerUserId == userId || e.OwnerUserId == userId));
-
-        var activeStayBooking = await enquiries.AnyAsync(e =>
-            e.Kind == TripEnquiryKinds.Stay && bookedEnquiry.Contains(e.Status)
-            && (e.CheckOut == null || e.CheckOut >= today)
-            && (e.TravellerUserId == userId || e.OwnerUserId == userId));
-
-        var selectedTaxiOffer = taxiIds.Count > 0 && await context.Set<TaxiRequestOffer>().AsNoTracking().AnyAsync(o =>
-            o.Status == OfferStates.Selected && taxiIds.Contains(o.DriverListingId));
-
-        string[] openRequest = [RequestStates.Open, RequestStates.Collecting, RequestStates.Selected];
-        var openTaxiRequest =
-            await context.Set<TaxiRequest>().AsNoTracking().AnyAsync(r =>
-                r.TravellerUserId == userId && openRequest.Contains(r.Status))
-            || await enquiries.AnyAsync(e =>
-                e.Kind == TripEnquiryKinds.Taxi && e.TravellerUserId == userId && openLead.Contains(e.Status));
-
-        var openStayEnquiry = await enquiries.AnyAsync(e =>
-            e.Kind == TripEnquiryKinds.Stay && unconfirmed.Contains(e.Status)
-            && (e.TravellerUserId == userId || e.OwnerUserId == userId));
-
-        var liveListing =
-            await context.TaxiListings.AsNoTracking().AnyAsync(t =>
-                t.UserId == userId && !t.IsDeleted && t.Status == TaxiStatuses.Approved && t.IsAvailable)
-            || await context.StayListings.AsNoTracking().AnyAsync(s =>
-                s.UserId == userId && !s.IsDeleted && s.Status == StayStatuses.Approved && s.AcceptingGuests);
-
-        return new AccountActivity(activeTaxiBooking, activeStayBooking, selectedTaxiOffer,
-            openTaxiRequest, openStayEnquiry, liveListing);
+    internal sealed class ActivityRow
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Side { get; set; } = string.Empty;
+        public Guid Id { get; set; }
+        public Guid? TripId { get; set; }
+        public bool IsLead { get; set; }
+        public string? ListingKind { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public int Count { get; set; }
     }
 
     // Same caches the stay/taxi delete paths clear: the feeds, the trip supply counts and the taxi ways version.

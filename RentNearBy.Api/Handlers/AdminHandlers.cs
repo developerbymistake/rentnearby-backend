@@ -12,6 +12,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Models.Owner;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.Buddy.Be1;
 using RentNearBy.Infrastructure.Extensions;
@@ -514,16 +515,23 @@ public static class AdminHandlers
     // Single global row (RentNearBy.Core.Models.AppFeatureKeys.PaymentEnabled) in the generic
     // AppFeatureFlag table; also holds the free-mode listing limit.
 
-    public static async Task<IResult> GetPaymentFeature(IUnitOfWork unitOfWork)
+    public static async Task<IResult> GetPaymentFeature(
+        IUnitOfWork unitOfWork, RentNearBy.Infrastructure.Services.Owner.Be4.AdminOwnerReads ownerReads, IPlanCatalogCache catalog)
     {
         var flag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.PaymentEnabled);
         if (flag == null) return NotFoundResponse("Payment feature flag not found");
 
-        return OkResponse(ToPaymentFeatureDto(flag));
+        // AU-18: owners who would lose something if payment went ON now (context of the confirm dialog), read only.
+        var preview = flag.IsEnabled ? 0 : await ownerReads.OwnersAffectedPreviewAsync(await catalog.GetAsync());
+        return OkResponse(ToPaymentFeatureDto(flag, preview));
     }
 
-    private static object ToPaymentFeatureDto(AppFeatureFlag flag) => new
+    private static object ToPaymentFeatureDto(AppFeatureFlag flag, int? ownersAffectedPreview = null, bool reconcileRequested = false) => new
     {
+        announceDate = flag.AnnounceDate,
+        paymentEnabledAt = flag.PaymentEnabledAt,
+        ownersAffectedPreview,
+        reconcileRequested,
         isEnabled = flag.IsEnabled,
         freeDurationDays = flag.FreeDurationDays ?? 30,
         freeModeListingLimit = flag.FreeModeListingLimit,
@@ -535,7 +543,8 @@ public static class AdminHandlers
 
     public static async Task<IResult> UpdatePaymentFeature(
         UpdatePaymentFeatureRequest request, IValidator<UpdatePaymentFeatureRequest> validator,
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPaymentFeatureReader paymentReader)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPaymentFeatureReader paymentReader,
+        RentNearBy.Core.Interfaces.Owner.IPlanReconcileSignal reconcileSignal)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -543,7 +552,16 @@ public static class AdminHandlers
         var flag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.PaymentEnabled);
         if (flag == null) return NotFoundResponse("Payment feature flag not found");
 
+        // AU-17: the announce date is at least 7 days ahead (the job sends the notice); ClearAnnounceDate removes it and sends nothing.
+        if (request.AnnounceDate is { } announce && !PaymentAnnounceRules.IsFarEnough(announce, IstTime.TodayIst(DateTime.UtcNow)))
+            return ErrorResponse(400, OwnerErrorTypes.MessageOf(OwnerErrorTypes.AnnounceTooSoon), OwnerErrorTypes.AnnounceTooSoon);
+        if (request.ClearAnnounceDate) flag.AnnounceDate = null;
+        else if (request.AnnounceDate.HasValue) flag.AnnounceDate = request.AnnounceDate.Value;
+
+        // AU-18 / 3.4: a flip of isEnabled stamps PaymentEnabledAt and requests the limits reconcile after the commit.
+        var flipped = request.IsEnabled.HasValue && request.IsEnabled.Value != flag.IsEnabled;
         if (request.IsEnabled.HasValue) flag.IsEnabled = request.IsEnabled.Value;
+        if (flipped) flag.PaymentEnabledAt = flag.IsEnabled ? DateTime.UtcNow : null;
         if (request.FreeDurationDays.HasValue) flag.FreeDurationDays = request.FreeDurationDays.Value;
         if (request.ClearFreeModeListingLimit) flag.FreeModeListingLimit = null;
         else if (request.FreeModeListingLimit.HasValue) flag.FreeModeListingLimit = request.FreeModeListingLimit.Value;
@@ -558,8 +576,9 @@ public static class AdminHandlers
         await unitOfWork.SaveChangesAsync();
 
         paymentReader.Invalidate();
+        if (flipped) reconcileSignal.Request();
 
-        return OkResponse(ToPaymentFeatureDto(flag));
+        return OkResponse(ToPaymentFeatureDto(flag, reconcileRequested: flipped));
     }
 
     // ── Trip bookings master switch (AppFeatureKeys.TripExecutionEnabled row, default off) ───────────────
@@ -909,6 +928,8 @@ public static class AdminHandlers
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return NotFoundResponse("User not found");
 
+        var taxiClosure = sp.GetRequiredService<RentNearBy.Infrastructure.Services.TaxiRequests.TaxiRequestClosure>();
+        var taxiSignals = RentNearBy.Infrastructure.Services.TaxiRequests.TaxiClosureResult.Empty;
         var now = DateTime.UtcNow;
         List<Guid?> stayDistrictIds, taxiDistrictIds;
         await using (var tx = await db.Database.BeginTransactionAsync())
@@ -927,6 +948,9 @@ public static class AdminHandlers
 
             var taxiQuery = db.TaxiListings.Where(t => t.UserId == id && !t.IsDeleted && t.Status == TaxiStatuses.Approved);
             taxiDistrictIds = await taxiQuery.Select(t => t.DistrictId).Distinct().ToListAsync();
+            // AU-27: a suspended driver's ringing offers end ("You are offline") before his listing goes unavailable.
+            if (!request.IsActive && await taxiQuery.Select(t => (Guid?)t.Id).FirstOrDefaultAsync() is { } driverListingId)
+                taxiSignals = await taxiClosure.DriverOfflineAsync(db, driverListingId);
             await taxiQuery.ExecuteUpdateAsync(s => s
                 .SetProperty(x => x.IsAvailable, request.IsActive)
                 .SetProperty(x => x.UpdatedAt, now));
@@ -943,10 +967,14 @@ public static class AdminHandlers
 
                 // Stop Google renewals so a blocked user is not billed for an account they cannot use; no refund.
                 await playSubscriptions.QueueCancelForUserAsync(id, "Account deactivated");
+
+                // Owner contract 6.1: sessions revoked by the server take the device tokens with them.
+                await RentNearBy.Infrastructure.Services.Owner.Be4.DeviceTokenCleanup.DeleteAllAsync(db, id);
             }
 
             await tx.CommitAsync();
         }
+        await taxiClosure.AfterCommitAsync(taxiSignals, poolChanged: true);
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         foreach (var districtId in stayDistrictIds)

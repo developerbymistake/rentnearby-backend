@@ -214,7 +214,6 @@ public static class TripOwnerHandlers
                     lines,
                     total,
                     listedPerNight = listed,
-                    listedStayTotal = e.ListedStayTotal,
                     inclusions = offer.Inclusions,
                     balanceNote = offer.BalanceNote,
                     cancellationText = offer.CancellationText,

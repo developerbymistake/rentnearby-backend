@@ -49,7 +49,6 @@ public class Be2IntegrationTests(TestDatabase db) : IntegrationTestBase(db)
     // ---------- P2 ----------
 
     [IntegrationFact]
-    [PlanKeyTest(PlanFeatureKeys.SpecialPrices)]
     public async Task SpecialPrices_SecondOnFree_Refused_and_while_payment_off_the_plus_number_applies()
     {
         var owner = await StayAsync();

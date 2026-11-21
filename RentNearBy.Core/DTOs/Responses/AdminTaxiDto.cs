@@ -18,4 +18,7 @@ public class AdminTaxiDto : TaxiOwnerDto
     public int? OffersMissed { get; set; }
     public int? OffersAccepted { get; set; }
     public bool? RingReady { get; set; }
+    // Owner roles A4: every route, hidden ones included, each with hiddenByPlan, and the plan line; detail only.
+    public Owner.AdminPlanRowsDto? PlanRows { get; set; }
+    public string? PlanState { get; set; }
 }

@@ -6,6 +6,7 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 using RentNearBy.Infrastructure.Data;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -32,6 +33,9 @@ public static class AdminPlanHandlers
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
         if (request.Prices == null || request.Prices.Count == 0)
             return BadRequestResponse("A paid plan needs at least one price.");
+
+        var snapshotForCheck = await catalog.GetAsync();
+        if (BelowFreeRefusal(request.FeatureKey, isDefault: false, ToValues(request), snapshotForCheck, null) is { } refusal) return refusal;
 
         var code = NormalizeCode(request.Code);
         if (await unitOfWork.Plans.CodeExistsAsync(request.FeatureKey, code, null))
@@ -105,6 +109,12 @@ public static class AdminPlanHandlers
             return BadRequestResponse("A paid plan needs at least one price.");
         }
 
+        // A key the request leaves out keeps its stored value (section 9 A1); Plus never below Free for a limit key, both directions.
+        var merged = PlanValueRules.Merge(plan.Features.ToDictionary(f => f.Key, f => f.Value),
+            (request.Features ?? []).Select(f => (f.Key, f.Value)));
+        if (BelowFreeRefusal(plan.FeatureKey, plan.IsDefault, PlanFeatureValues.From(merged), await catalog.GetAsync(), plan.Id) is { } refusal)
+            return refusal;
+
         var code = NormalizeCode(request.Code);
         if (await unitOfWork.Plans.CodeExistsAsync(plan.FeatureKey, code, plan.Id))
             return ConflictResponse("A plan with this code already exists for this feature.", "PlanCodeExists");
@@ -120,7 +130,7 @@ public static class AdminPlanHandlers
         plan.SortOrder = request.SortOrder;
         plan.PlayProductId = playProductId;
         plan.UpdatedAt = DateTime.UtcNow;
-        unitOfWork.Plans.ReplaceDetails(plan, ToFeatures(request), ToPrices(request));
+        unitOfWork.Plans.ReplaceDetails(plan, merged.Select(kv => new PlanFeature { Id = Guid.NewGuid(), Key = kv.Key, Value = kv.Value }), ToPrices(request));
 
         catalog.Invalidate();
         await unitOfWork.BeginTransactionAsync();
@@ -161,6 +171,25 @@ public static class AdminPlanHandlers
 
         return OkResponse(ToDto(plan, await PlayPricesAsync(db)));
     }
+
+    private static PlanFeatureValues ToValues(UpsertPlanRequest request)
+        => PlanFeatureValues.From((request.Features ?? []).GroupBy(f => f.Key).ToDictionary(g => g.Key, g => g.Last().Value));
+
+    // 400 PlanValueBelowFree { key, free, plus } when a limit key of a paid plan would sit below the default (Free) plan.
+    private static IResult? BelowFreeRefusal(string featureKey, bool isDefault, PlanFeatureValues values, PlanCatalogSnapshot snapshot, Guid? planId)
+    {
+        if (isDefault)
+        {
+            foreach (var other in snapshot.PlansOf(featureKey).Where(p => !p.IsDefault && p.Id != planId))
+                if (PlanValueRules.BelowFree(featureKey, values, other.Values) is { } hit) return Refusal(hit);
+            return null;
+        }
+        return PlanValueRules.BelowFree(featureKey, snapshot.DefaultValues(featureKey), values) is { } below ? Refusal(below) : null;
+    }
+
+    private static IResult Refusal(PlanValueBelowFree hit)
+        => ErrorResponse(OwnerErrorTypes.StatusOf(OwnerErrorTypes.PlanValueBelowFree), OwnerErrorTypes.MessageOf(OwnerErrorTypes.PlanValueBelowFree),
+            OwnerErrorTypes.PlanValueBelowFree, new { key = hit.Key, free = hit.Free, plus = hit.Plus });
 
     private const string PlayIdExistsMessage = "This Google Play product or base plan id is already used by another plan.";
 

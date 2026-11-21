@@ -82,7 +82,8 @@ public static class AdminTaxiHandlers
 
     // Survives IsDeleted so a reported taxi can still be reviewed after it was deleted.
     public static async Task<IResult> GetTaxiById(
-        Guid id, IUnitOfWork unitOfWork, IIdentityCipher cipher, ILoggerFactory loggerFactory, ApplicationDbContext db, ICityResolver resolver)
+        Guid id, IUnitOfWork unitOfWork, IIdentityCipher cipher, ILoggerFactory loggerFactory, ApplicationDbContext db, ICityResolver resolver,
+        RentNearBy.Infrastructure.Services.Owner.Be4.AdminOwnerReads? ownerReads = null, IPlanEntitlementService? entitlements = null)
     {
         var taxi = await unitOfWork.Taxis.GetByIdForAdminAsync(id);
         if (taxi == null) return NotFoundResponse(TaxiNotFound);
@@ -95,6 +96,13 @@ public static class AdminTaxiHandlers
         dto.OffersAccepted = await AdminTaxiRequestQueries.DriverAnsweredOffers(db, id).CountAsync();
         var hasToken = await db.DeviceTokens.AsNoTracking().AnyAsync(t => t.UserId == taxi.UserId && t.IsValid);
         dto.RingReady = AdminTaxiRequestRules.RingReady(taxi, hasToken);
+        // Owner roles A4 (o_pl_19): hidden routes are shown to the admin with their flag, plus the plan line.
+        if (ownerReads != null && entitlements != null)
+        {
+            dto.PlanRows = await ownerReads.TaxiRowsAsync(taxi.Id);
+            var limits = await entitlements.GetLimitsAsync(taxi.UserId, ListingKinds.Taxi);
+            dto.PlanState = RentNearBy.Core.Models.Owner.AdminPlanStateRules.Line(limits, dto.PlanRows.Routes.Count(r => r.HiddenByPlan));
+        }
         return OkResponse(dto);
     }
 

@@ -259,6 +259,7 @@ public static class AdminRoleHandlers
             await unitOfWork.SaveChangesAsync();
 
             await unitOfWork.Sessions.RevokeAllUserSessionsAsync(user.Id);
+            await RentNearBy.Infrastructure.Services.Owner.Be4.DeviceTokenCleanup.DeleteAllAsync(db, user.Id);
 
             await unitOfWork.CommitTransactionAsync();
 

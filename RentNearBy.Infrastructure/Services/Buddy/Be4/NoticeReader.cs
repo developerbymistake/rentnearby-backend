@@ -25,13 +25,20 @@ public sealed class NoticeReader(ApplicationDbContext db)
             AND m."TripId" IN (SELECT p."TripId" FROM p WHERE p."Kind" = '{NoticeKinds.TripJoined}')
           GROUP BY m."TripId")
         SELECT n."Id", n."Kind", n."TripId", t."Title" AS "TripTitle", n."ActorUserId", a."Name" AS "ActorName", n."RefId", n."Amount",
-               n."Count", n."CreatedAt", n."UpdatedAt", n."ReadAt", e."Title" AS "RefTitle",
+               n."Count", n."CreatedAt", n."UpdatedAt", n."ReadAt",
+               COALESCE(e."Title", f."Name",
+                        CASE WHEN n."Kind" = '{NoticeKinds.StayEditApproved}' THEN s."Name"
+                             WHEN n."Kind" = '{NoticeKinds.StayEditRejected}' THEN s."PendingEditRejectReason" END) AS "RefTitle",
+               f."DateFrom" AS "RefDateFrom", f."DateTo" AS "RefDateTo", me."RoleId" AS "ViewerRoleId",
                CASE WHEN n."Kind" = '{NoticeKinds.TripJoined}' AND t."Id" IS NOT NULL THEN 1 + COALESCE(j."Joined", 0) END AS "Travellers"
         FROM p n
         LEFT JOIN "Trips" t ON t."Id" = n."TripId"
         LEFT JOIN "Users" a ON a."Id" = n."ActorUserId"
+        LEFT JOIN "Users" me ON me."Id" = @user
         LEFT JOIN "TripExpenses" e ON e."Id" = n."RefId" AND e."TripId" = n."TripId" AND e."DeletedAt" IS NULL
           AND n."Kind" IN ('{NoticeKinds.ExpenseAdded}', '{NoticeKinds.ShareChanged}')
+        LEFT JOIN "FestivalDates" f ON f."Id" = n."RefId" AND n."Kind" = '{NoticeKinds.FestivalReminder}'
+        LEFT JOIN "StayListings" s ON s."Id" = n."RefId" AND n."Kind" IN ('{NoticeKinds.StayEditApproved}', '{NoticeKinds.StayEditRejected}')
         LEFT JOIN j ON j."TripId" = n."TripId"
         ORDER BY n."UpdatedAt" DESC, n."Id" DESC
         """;
@@ -99,7 +106,9 @@ public sealed class NoticeReader(ApplicationDbContext db)
 
     public static NoticeItemDto ToDto(Row r)
     {
-        var route = NoticeRoutes.For(r.Kind, r.TripId, r.RefId);
+        var route = NoticeRoutes.For(r.Kind, r.TripId, r.RefId, ViewerKind(r.ViewerRoleId));
+        if (r.Kind == NoticeKinds.FestivalReminder && r.RefDateFrom is { } from && r.RefDateTo is { } to && route.Args.ContainsKey("festivalId"))
+            route = route with { Args = new Dictionary<string, string>(route.Args) { ["dateFrom"] = from.ToString("yyyy-MM-dd"), ["dateTo"] = to.ToString("yyyy-MM-dd") } };
         return new NoticeItemDto
         {
             Id = r.Id,
@@ -111,6 +120,8 @@ public sealed class NoticeReader(ApplicationDbContext db)
             RefId = r.RefId,
             Amount = r.Amount,
             RefTitle = r.RefTitle,
+            RefDateFrom = r.RefDateFrom,
+            RefDateTo = r.RefDateTo,
             Travellers = r.Travellers,
             Count = r.Count,
             CreatedAt = DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc),
@@ -122,6 +133,10 @@ public sealed class NoticeReader(ApplicationDbContext db)
     }
 
     private static NpgsqlParameter User(Guid userId) => new("user", NpgsqlDbType.Uuid) { Value = userId };
+
+    // The owner kinds route by the viewer's listing kind; a Seeker or an unknown role routes as a stay (never throws).
+    public static string? ViewerKind(Guid? roleId)
+        => roleId == UserRoles.TaxiDriverId ? ListingKinds.Taxi : roleId == UserRoles.StayOwnerId ? ListingKinds.Stay : null;
 
     public sealed class Row
     {
@@ -138,6 +153,9 @@ public sealed class NoticeReader(ApplicationDbContext db)
         public DateTime UpdatedAt { get; set; }
         public DateTime? ReadAt { get; set; }
         public string? RefTitle { get; set; }
+        public DateOnly? RefDateFrom { get; set; }
+        public DateOnly? RefDateTo { get; set; }
+        public Guid? ViewerRoleId { get; set; }
         public int? Travellers { get; set; }
     }
 }

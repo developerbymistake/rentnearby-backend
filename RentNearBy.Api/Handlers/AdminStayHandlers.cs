@@ -42,14 +42,19 @@ public static class AdminStayHandlers
     }
 
     public static async Task<IResult> GetStays(
-        IUnitOfWork unitOfWork, ApplicationDbContext db,
-        int page = 1, int pageSize = 20, string status = StayStatuses.PendingReview)
+        IUnitOfWork unitOfWork, ApplicationDbContext db, RentNearBy.Infrastructure.Services.Owner.Be4.AdminOwnerReads ownerReads,
+        int page = 1, int pageSize = 20, string status = StayStatuses.PendingReview, int? specialOffAtLeast = null)
     {
         if (!StayStatuses.All.Contains(status)) return BadRequestResponse("Invalid status");
+        // Owner roles A5 / R-7: only 40 is accepted, the partial index ix_stayspecialprices_bigoff is fixed at 40.
+        if (specialOffAtLeast is { } off && off != RentNearBy.Core.Models.Owner.OwnerLimits.SpecialBigOffPercent)
+            return BadRequestResponse("specialOffAtLeast accepts only 40");
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
 
-        var result = await unitOfWork.Stays.GetAdminPagedAsync(status, page, pageSize);
+        var result = specialOffAtLeast is null
+            ? await unitOfWork.Stays.GetAdminPagedAsync(status, page, pageSize)
+            : await BigOffPageAsync(db, status, page, pageSize);
 
         // The paged query has no Photos include; Step1Done/Percent need them.
         var ids = result.Items.Select(s => s.Id).ToList();
@@ -61,14 +66,49 @@ public static class AdminStayHandlers
             stay.Photos = photosByStay[stay.Id].OrderBy(p => p.PhotoOrder).ToList();
 
         var items = result.Items.Select(s => ToAdminStayDto(s, includePhotos: false)).ToList();
+        var maxLower = await ownerReads.MaxLowerPercentAsync(ids);
+        foreach (var item in items)
+            item.MaxLowerPercent = maxLower.TryGetValue(item.Id, out var percent) ? percent : null;
         return OkResponse(new { items, hasMore = result.HasMore });
     }
 
-    public static async Task<IResult> GetStayById(Guid id, IUnitOfWork unitOfWork)
+    // A5: the same page shape as GetAdminPagedAsync, filtered to stays with an active "Lower" special price of 40% or more.
+    private static async Task<(IReadOnlyList<StayListing> Items, bool HasMore)> BigOffPageAsync(ApplicationDbContext db, string status, int page, int pageSize)
+    {
+        var today = IstTime.TodayIst(DateTime.UtcNow);
+        var bigOff = RentNearBy.Core.Models.Owner.OwnerLimits.SpecialBigOffPercent;
+        var items = await db.StayListings
+            .AsNoTracking()
+            .Include(s => s.User)
+            .Include(s => s.StayType)
+            .Include(s => s.District)
+            .Include(s => s.City)
+            .Include(s => s.Rooms.OrderBy(r => r.RoomIndex))
+            .Where(s => !s.IsDeleted && s.Status == status)
+            .Where(s => db.Set<RentNearBy.Core.Entities.Owner.StaySpecialPrice>().Any(r => r.StayListingId == s.Id
+                && r.Direction == RentNearBy.Core.Models.Owner.SpecialPriceDirections.Lower && r.Percent >= bigOff
+                && !r.IsPaused && !r.PausedByPlan && r.DateTo >= today))
+            .OrderByDescending(s => s.SubmittedAt)
+            .ThenByDescending(s => s.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize + 1)
+            .ToListAsync();
+        var hasMore = items.Count > pageSize;
+        return (hasMore ? items.Take(pageSize).ToList() : items, hasMore);
+    }
+
+    public static async Task<IResult> GetStayById(
+        Guid id, IUnitOfWork unitOfWork, RentNearBy.Infrastructure.Services.Owner.Be4.AdminOwnerReads ownerReads, IPlanEntitlementService entitlements)
     {
         var stay = await unitOfWork.Stays.GetByIdForAdminAsync(id);
         if (stay == null || stay.IsDeleted) return NotFoundResponse("Stay not found");
-        return OkResponse(ToAdminStayDto(stay, includePhotos: true));
+        var dto = ToAdminStayDto(stay, includePhotos: true);
+        // Owner roles A4 (o_pl_19): hidden rows are shown to the admin with their flag, plus the plan line.
+        dto.PlanRows = await ownerReads.StayRowsAsync(stay.Id);
+        var limits = await entitlements.GetLimitsAsync(stay.UserId, ListingKinds.Stay);
+        dto.PlanState = RentNearBy.Core.Models.Owner.AdminPlanStateRules.Line(
+            limits, dto.PlanRows.Photos.Count(p => p.HiddenByPlan) + dto.PlanRows.Rooms.Count(r => r.HiddenByPlan));
+        return OkResponse(dto);
     }
 
     private static NotificationEvent BuildStayNotification(Guid userId, string type, string title, string body) => new()

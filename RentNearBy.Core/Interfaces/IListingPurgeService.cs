@@ -8,4 +8,7 @@ public interface IListingPurgeService
     Task<IReadOnlyList<Guid>> DeleteUserListingRowsAsync(Guid userId, string listingKind);
 
     Task DeleteListingPhotosBestEffortAsync(Guid userId, IReadOnlyList<Guid> listingIds);
+
+    // After the account deletion commit (NFR 4.2: never inline); a failure only orphans files.
+    Task DeleteAllUserPhotosBestEffortAsync(Guid userId) => Task.CompletedTask;
 }

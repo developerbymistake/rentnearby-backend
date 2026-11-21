@@ -14,6 +14,10 @@ public class NoticeItemDto
     // ExpenseAdded, ShareChanged: live expense title (null once deleted). TripJoined: owner + joined viewers, live.
     public string? RefTitle { get; set; }
     public int? Travellers { get; set; }
+    // Owner roles FestivalReminder: the festival's dates (live, null once the row is gone). RefTitle carries the festival name,
+    // the stay name (StayEditApproved) or the reason (StayEditRejected).
+    public DateOnly? RefDateFrom { get; set; }
+    public DateOnly? RefDateTo { get; set; }
     public int Count { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

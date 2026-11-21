@@ -7,6 +7,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.Owner.Be4;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -262,25 +263,38 @@ public static class AuthHandlers
         return OkResponse(await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache, usernames));
     }
 
-    public static async Task<IResult> Logout(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> Logout(ClaimsPrincipal principal, IUnitOfWork unitOfWork, Infrastructure.Data.ApplicationDbContext db)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var sessionIdClaim = principal.FindFirst("session_id")?.Value;
-        if (Guid.TryParse(sessionIdClaim, out var sessionId))
+        // Owner contract 6.1: one session per user, so logout also deletes every device token of the user in the same transaction
+        // as the session revoke. A forced logout whose unregister call never reached the server still stops every push.
+        await unitOfWork.BeginTransactionAsync();
+        try
         {
-            var session = await unitOfWork.Sessions.GetByIdAsync(sessionId);
-            if (session != null && session.UserId == userId)
+            var sessionIdClaim = principal.FindFirst("session_id")?.Value;
+            if (Guid.TryParse(sessionIdClaim, out var sessionId))
             {
-                // Soft-revoke (not delete) so the row survives as the user's last-known session
-                // for support/audit purposes — DeleteAllUserSessionsAsync on the next login still
-                // wipes it, so this never accumulates beyond one row per user (see CreateSessionAndRespond).
-                session.IsActive = false;
-                session.LoggedOutAt = DateTime.UtcNow;
-                await unitOfWork.Sessions.UpdateAsync(session);
-                await unitOfWork.SaveChangesAsync();
+                var session = await unitOfWork.Sessions.GetByIdAsync(sessionId);
+                if (session != null && session.UserId == userId)
+                {
+                    // Soft-revoke (not delete) so the row survives as the user's last-known session
+                    // for support/audit purposes — DeleteAllUserSessionsAsync on the next login still
+                    // wipes it, so this never accumulates beyond one row per user (see CreateSessionAndRespond).
+                    session.IsActive = false;
+                    session.LoggedOutAt = DateTime.UtcNow;
+                    await unitOfWork.Sessions.UpdateAsync(session);
+                    await unitOfWork.SaveChangesAsync();
+                }
             }
+            await DeviceTokenCleanup.DeleteAllAsync(db, userId);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
         }
         return OkResponse(new { message = "Logged out successfully" });
     }

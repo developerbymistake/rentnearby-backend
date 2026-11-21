@@ -7,4 +7,6 @@ public record UpdatePaymentFeatureRequest(
     string? Reason,
     int? FreeModeListingLimit = null,
     bool ClearFreeModeListingLimit = false,
-    string? Provider = null);
+    string? Provider = null,
+    DateOnly? AnnounceDate = null,
+    bool ClearAnnounceDate = false);

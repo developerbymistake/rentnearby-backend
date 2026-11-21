@@ -1,6 +1,7 @@
 using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 
 namespace RentNearBy.Api.Validators;
 
@@ -31,6 +32,20 @@ public class UpsertPlanRequestValidator : AbstractValidator<UpsertPlanRequest>
         RuleFor(x => x.Features)
             .Must(fs => fs == null || fs.Select(f => f.Key).Distinct().Count() == fs.Count)
             .WithMessage("Each feature key can appear once");
+        // Section 9 A1: each value inside its key's Min..Max and only keys of the plan's kind (PlanKeyCatalog).
+        RuleFor(x => x).Custom((x, ctx) =>
+        {
+            if (!PlanFeatures.IsValid(x.FeatureKey)) return;
+            foreach (var f in x.Features ?? [])
+            {
+                if (!PlanFeatureKeys.All.Contains(f.Key)) continue;
+                if (PlanValueRules.KeyError(x.FeatureKey, f.Key, f.Value) is { } error)
+                {
+                    ctx.AddFailure(nameof(x.Features), error);
+                    return;
+                }
+            }
+        });
 
         RuleForEach(x => x.Prices).ChildRules(p =>
         {

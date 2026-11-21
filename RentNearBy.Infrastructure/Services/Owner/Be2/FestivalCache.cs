@@ -21,8 +21,9 @@ public sealed class FestivalCache(IMemoryCache cache)
 
     public static (DateOnly From, DateOnly To) Window(DateOnly today) => (today.AddDays(-BackDays), today.AddDays(AheadDays));
 
+    // Keyed by the exact name the statement compares, so another spelling never fills the key of a real state.
     public string Key(string? stateName, DateOnly today)
-        => $"owner:festivals:{Interlocked.Read(ref _version)}:{today:yyyyMMdd}:{(stateName ?? "*").Trim().ToLowerInvariant()}";
+        => $"owner:festivals:{Interlocked.Read(ref _version)}:{today:yyyyMMdd}:{stateName?.Trim() ?? "*"}";
 
     public async Task<IReadOnlyList<FestivalDto>> GetAsync(ApplicationDbContext db, string? stateName, DateOnly today, CancellationToken ct = default)
     {

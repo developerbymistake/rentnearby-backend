@@ -18,9 +18,13 @@ public static class AdminUserPlanHandlers
 {
     private const int HistoryLimit = 50;
 
-    public static async Task<IResult> GetUserPlans(Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IPlanCatalogCache catalog)
+    public static async Task<IResult> GetUserPlans(
+        Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IPlanCatalogCache catalog,
+        IPlanEntitlementService entitlements, RentNearBy.Infrastructure.Services.Owner.Be4.AdminOwnerReads ownerReads)
     {
-        if (await unitOfWork.Users.GetByIdAsync(id) == null) return NotFoundResponse("User not found");
+        var user = await unitOfWork.Users.GetByIdAsync(id);
+        if (user == null) return NotFoundResponse("User not found");
+        var kind = UserRoles.ListingKindOf(user.RoleId);
 
         var history = await unitOfWork.UserPlans.GetHistoryAsync(id, HistoryLimit);
         var purchases = await unitOfWork.PlanPurchases.GetHistoryAsync(id, HistoryLimit);
@@ -39,8 +43,16 @@ public static class AdminUserPlanHandlers
         var snapshot = await catalog.GetAsync();
         UserPlanDto Map(UserPlan p) => ToDto(p, p.PlaySubscriptionId is { } sid ? subsById.GetValueOrDefault(sid) : null, snapshot);
 
+        // A6 (AU-21): limits of his role, hidden rows and visible counts (one statement for the counts).
+        var limits = kind == null ? null : await entitlements.GetLimitsAsync(id, kind);
+        var counts = kind == null ? ((RentNearBy.Core.DTOs.Owner.OwnerHiddenDto, RentNearBy.Core.DTOs.Owner.AdminPlanUsageDto)?)null
+            : await ownerReads.CountsAsync(id);
+
         return OkResponse(new AdminUserPlansDto
         {
+            Limits = limits == null ? null : RentNearBy.Infrastructure.Services.Owner.Be4.OwnerHomeShared.LimitsDto(limits),
+            Hidden = counts?.Item1,
+            Usage = counts?.Item2,
             Current = current == null ? null : Map(current),
             History = history.Select(Map).ToList(),
             Purchases = await AdminPurchaseHandlers.ToDtosAsync(db, purchases),

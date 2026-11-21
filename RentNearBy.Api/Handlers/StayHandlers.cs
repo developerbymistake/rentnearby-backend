@@ -266,6 +266,7 @@ public static class StayHandlers
         items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
         items = Dated(sp.GetService<IStayDatedPricing>(), items, checkIn, nights, guests, rooms, groundFloor);
         if (principal.Identity?.IsAuthenticated != true) RedactForAnonymous(items);
+        if (principal.FindFirst(ClaimTypes.Role)?.Value != UserRoles.StayOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.AddListed(items.Select(s => s.Id));
         return OkResponse(new { items = StayGeoRefine.WithMapThumbs(items) });
     }
 
@@ -431,6 +432,7 @@ public static class StayHandlers
         }
         if (sp.GetService<IStayDetailPricing>() is { } pricing)
             await pricing.ApplyAsync(dto, checkIn, nights ?? 1, IstTime.TodayIst(DateTime.UtcNow), ct);
+        if (!isOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.Add(stay.Id, stay.UserId, hasUser ? userId : null);
         return OkResponse(dto);
     }
 

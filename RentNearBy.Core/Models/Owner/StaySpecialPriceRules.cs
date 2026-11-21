@@ -38,6 +38,9 @@ public static class StaySpecialPriceRules
 
     public static bool IsLive(bool isPaused, bool pausedByPlan) => !isPaused && !pausedByPlan;
 
+    // 3.2 SpecialPrices: active rules incl. paused and plan-paused against the plan number (create only; an edit is never limited).
+    public static bool LimitReached(int active, int limit) => active >= limit;
+
     public static int SavesUsed(DateOnly? day, int count, DateOnly today) => day == today ? count : 0;
 
     public static bool SavesLimitReached(DateOnly? day, int count, DateOnly today) => SavesUsed(day, count, today) >= OwnerLimits.SpecialSavesPerDay;
