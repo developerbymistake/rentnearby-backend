@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using RentNearBy.Core.DTOs.Owner;
+
 namespace RentNearBy.Core.DTOs.Responses;
 
 public class StayBrowseDto
@@ -16,4 +19,7 @@ public class StayBrowseDto
     public short PriorityRank { get; set; }
     public bool IsFeatured { get; set; }
     public DateTime CreatedAt { get; set; }
+    // Owner roles T3: "N% off" when a live Lower rule runs within the next 30 days; the base FROM price never changes.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PriceChipDto? PriceChip { get; set; }
 }

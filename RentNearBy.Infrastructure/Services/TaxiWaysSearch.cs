@@ -271,7 +271,7 @@ public class TaxiWaysSearch(
         var stays = await CityListings.CollectAsync<StayNearbyDto>(
             async (take, skip) => (await uow.Stays.GetNearbyAsync(to.Lat, to.Lng, radiusKm, null, null, take, skip)).ToList(),
             rows => InCityAsync(snapshot, rows, st => ((double)st.Latitude, (double)st.Longitude), cityKey, o));
-        block.Stays = stays.Items.Take(o.MaxStays).ToList();
+        block.Stays = RentNearBy.Infrastructure.Services.Owner.Be2.StayPriceFacts.Strip(stays.Items.Take(o.MaxStays).ToList());
         if (taxis.Capped || stays.Capped) logger.LogWarning("taxi.ways.dest.capped {CityKey} {Max}", cityKey, CityListings.MaxCityFetch);
         return block;
     }

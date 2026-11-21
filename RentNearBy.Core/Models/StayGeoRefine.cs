@@ -1,15 +1,17 @@
 using RentNearBy.Core.DTOs.Responses;
+using RentNearBy.Core.Models.Owner;
 
 namespace RentNearBy.Core.Models;
 
 // Stay nearby/nearest over a cached cell candidate set (GeoCacheKey): each caller gets the exact cut and distances of its own point.
+// The result is shown in 5 km bands, paid rank first inside a band, then nearest (owner roles T7, StayBandRank).
 public static class StayGeoRefine
 {
     public static List<StayNearbyDto> WithinRadius(IReadOnlyList<StayNearbyDto> candidates, double lat, double lng, double radiusKm)
-        => Pick(candidates, GeoCacheKey.WithinRadius(Points(candidates), lat, lng, radiusKm));
+        => StayBandRank.Order(Pick(candidates, GeoCacheKey.WithinRadius(Points(candidates), lat, lng, radiusKm)));
 
     public static List<StayNearbyDto> Nearest(IReadOnlyList<StayNearbyDto> candidates, double lat, double lng, int count)
-        => Pick(candidates, GeoCacheKey.Nearest(Points(candidates), lat, lng, count));
+        => StayBandRank.Order(Pick(candidates, GeoCacheKey.Nearest(Points(candidates), lat, lng, count)));
 
     // Map sheets download small images: Cloudinary urls get the thumbnail transform, others stay as they are.
     public static List<StayNearbyDto> WithMapThumbs(List<StayNearbyDto> items)

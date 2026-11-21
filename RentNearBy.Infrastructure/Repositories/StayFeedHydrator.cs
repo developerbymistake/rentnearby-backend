@@ -1,7 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Core.DTOs.Owner;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Entities.Owner;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
@@ -14,10 +17,15 @@ public static class StayFeedHydrator
         var result = new Dictionary<Guid, StayFeedItemDto>();
         if (rows.Count == 0) return result;
         var ids = rows.Select(r => r.Id).Distinct().ToList();
+        var today = IstTime.TodayIst(DateTime.UtcNow);
+        var horizon = today.AddDays(OwnerLimits.StaysChipWithinDays);
+        var rules = db.Set<StaySpecialPrice>();
 
-        var items = await db.StayListings.AsNoTracking()
+        var loaded = await db.StayListings.AsNoTracking()
             .Where(s => ids.Contains(s.Id) && !s.IsDeleted)
-            .Select(s => new StayFeedItemDto
+            .Select(s => new
+            {
+                Item = new StayFeedItemDto
             {
                 Id = s.Id,
                 UserId = s.UserId,
@@ -36,8 +44,21 @@ public static class StayFeedHydrator
                 PriorityRank = s.PriorityRank,
                 IsFeatured = s.IsFeatured,
                 CreatedAt = s.CreatedAt,
+            },
+                // T3: the chip of the live Lower rule running within the next 30 days, same statement.
+                Chip = rules
+                    .Where(r => r.StayListingId == s.Id && r.Direction == SpecialPriceDirections.Lower && !r.IsPaused && !r.PausedByPlan
+                        && r.DateTo >= today && r.DateFrom <= horizon)
+                    .OrderBy(r => r.DateFrom).ThenByDescending(r => r.Percent)
+                    .Select(r => (int?)r.Percent)
+                    .FirstOrDefault(),
             })
             .ToListAsync();
+        var items = loaded.Select(x =>
+        {
+            x.Item.PriceChip = PriceChipDto.Of(x.Chip);
+            return x.Item;
+        }).ToList();
 
         var meters = rows.GroupBy(r => r.Id).ToDictionary(g => g.Key, g => g.First().DistanceMeters);
         foreach (var item in items)

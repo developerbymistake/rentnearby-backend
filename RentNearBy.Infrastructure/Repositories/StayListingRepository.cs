@@ -1,11 +1,14 @@
-using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.DTOs.Owner;
+using RentNearBy.Core.Entities.Owner;
+using RentNearBy.Core.Models.Owner;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.Owner.Be2;
 
 namespace RentNearBy.Infrastructure.Repositories;
 
@@ -31,6 +34,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
 
     public async Task<bool> HasEverApprovedAsync(Guid userId)
         => await _dbSet.AnyAsync(s => s.UserId == userId && s.EverApproved);
+
+    public async Task<bool> HasDeletedAsync(Guid userId)
+        => await _dbSet.AnyAsync(x => x.UserId == userId && x.IsDeleted);
 
     public async Task<bool> HasSubmittedHistoryAsync(Guid userId)
         => await _dbSet.AnyAsync(s => s.UserId == userId
@@ -76,35 +82,63 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
             .Include(s => s.Photos.OrderBy(p => p.PhotoOrder))
             .FirstOrDefaultAsync(s => s.Id == id);
 
-    private static readonly Expression<Func<StayListing, StayBrowseDto>> BrowseProjection = s => new StayBrowseDto
+    private sealed class BrowseRow
     {
-        Id = s.Id,
-        UserId = s.UserId,
-        Name = s.Name,
-        StayTypeId = s.StayTypeId,
-        StayTypeName = s.StayType != null ? s.StayType.Name : null,
-        ThumbnailUrl = s.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
-        CityName = s.City != null ? s.City.Name : null,
-        DistrictName = s.District != null ? s.District.Name : null,
-        MinPricePerNight = s.MinPricePerNight,
-        MealsChip = s.Rooms.Any(r => r.Meals == StayMeals.AllMeals) ? "All meals"
-            : s.Rooms.Any(r => r.Meals == StayMeals.Breakfast) ? "Breakfast"
-            : null,
-        RoomNameChip = s.Rooms.OrderBy(r => r.PricePerNight).Select(r => r.RoomName).FirstOrDefault(),
-        PriorityRank = s.PriorityRank,
-        IsFeatured = s.IsFeatured,
-        CreatedAt = s.CreatedAt,
-    };
+        public StayBrowseDto Dto { get; set; } = null!;
+        public int? Chip { get; set; }
+    }
+
+    // T3 (owner roles): the card chip is the percent of the live Lower rule that runs within the next 30 days (first start, then
+    // the bigger percent), read in the same statement; the base FROM price never changes.
+    private IQueryable<BrowseRow> ProjectBrowse(IQueryable<StayListing> query)
+    {
+        var today = IstTime.TodayIst(DateTime.UtcNow);
+        var horizon = today.AddDays(OwnerLimits.StaysChipWithinDays);
+        var rules = context.Set<StaySpecialPrice>();
+        return query.Select(s => new BrowseRow
+        {
+            Dto = new StayBrowseDto
+            {
+                Id = s.Id,
+                UserId = s.UserId,
+                Name = s.Name,
+                StayTypeId = s.StayTypeId,
+                StayTypeName = s.StayType != null ? s.StayType.Name : null,
+                ThumbnailUrl = s.Photos.OrderBy(p => p.PhotoOrder).Select(p => p.PhotoUrl).FirstOrDefault(),
+                CityName = s.City != null ? s.City.Name : null,
+                DistrictName = s.District != null ? s.District.Name : null,
+                MinPricePerNight = s.MinPricePerNight,
+                MealsChip = s.Rooms.Any(r => r.Meals == StayMeals.AllMeals) ? "All meals"
+                    : s.Rooms.Any(r => r.Meals == StayMeals.Breakfast) ? "Breakfast"
+                    : null,
+                RoomNameChip = s.Rooms.OrderBy(r => r.PricePerNight).Select(r => r.RoomName).FirstOrDefault(),
+                PriorityRank = s.PriorityRank,
+                IsFeatured = s.IsFeatured,
+                CreatedAt = s.CreatedAt,
+            },
+            Chip = rules
+                .Where(r => r.StayListingId == s.Id && r.Direction == SpecialPriceDirections.Lower && !r.IsPaused && !r.PausedByPlan
+                    && r.DateTo >= today && r.DateFrom <= horizon)
+                .OrderBy(r => r.DateFrom).ThenByDescending(r => r.Percent)
+                .Select(r => (int?)r.Percent)
+                .FirstOrDefault(),
+        });
+    }
+
+    private static List<StayBrowseDto> WithChips(List<BrowseRow> rows)
+    {
+        foreach (var r in rows) r.Dto.PriceChip = PriceChipDto.Of(r.Chip);
+        return rows.Select(r => r.Dto).ToList();
+    }
 
     // District-free Home "Recently added", paid rank first (ix_staylistings_recent_active).
     public async Task<List<StayBrowseDto>> GetRecentProjectedAsync(int limit)
-        => await _dbSet.AsNoTracking()
+        => WithChips(await ProjectBrowse(_dbSet.AsNoTracking()
             .Where(s => s.Status == StayStatuses.Approved && s.AcceptingGuests && !s.IsDeleted)
             .OrderByDescending(s => s.PriorityRank)
             .ThenByDescending(s => s.CreatedAt)
-            .Take(limit)
-            .Select(BrowseProjection)
-            .ToListAsync();
+            .Take(limit))
+            .ToListAsync());
 
     public async Task<BrowsePage<StayBrowseDto>> BrowsePagedAsync(
         Guid districtId, Guid? cityId, string? meals, Guid? stayTypeId, string sortBy, int page, int pageSize, string? cursor)
@@ -128,21 +162,20 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
             var byPrice = sortBy == "price_asc"
                 ? cityFirst.ThenBy(s => s.MinPricePerNight).ThenBy(s => s.Id)
                 : cityFirst.ThenByDescending(s => s.MinPricePerNight).ThenByDescending(s => s.Id);
-            var priced = await byPrice.Skip((page - 1) * pageSize).Take(pageSize + 1).Select(BrowseProjection).ToListAsync();
+            var priced = WithChips(await ProjectBrowse(byPrice.Skip((page - 1) * pageSize).Take(pageSize + 1)).ToListAsync());
             return BrowseCursor.OffsetPage(priced, pageSize);
         }
 
         if (string.IsNullOrEmpty(cursor) && page > 1)
         {
-            var offset = await query
+            var offset = WithChips(await ProjectBrowse(query
                 .OrderByDescending(s => s.PriorityRank)
                 .ThenBy(s => cityId != null && s.CityId == cityId ? 0 : 1)
                 .ThenByDescending(s => s.CreatedAt)
                 .ThenByDescending(s => s.Id)
                 .Skip((page - 1) * pageSize)
-                .Take(pageSize + 1)
-                .Select(BrowseProjection)
-                .ToListAsync();
+                .Take(pageSize + 1))
+                .ToListAsync());
             return BrowseCursor.OffsetPage(offset, pageSize);
         }
 
@@ -176,12 +209,11 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 phaseQuery = phaseQuery.Where(s => s.CreatedAt <= at && (s.CreatedAt < at || s.Id.CompareTo(aid) < 0));
             }
 
-            var rows = await phaseQuery
+            var rows = WithChips(await ProjectBrowse(phaseQuery
                 .OrderByDescending(s => s.CreatedAt)
                 .ThenByDescending(s => s.Id)
-                .Take(need)
-                .Select(BrowseProjection)
-                .ToListAsync();
+                .Take(need))
+                .ToListAsync());
             items.AddRange(rows);
             itemPhases.AddRange(Enumerable.Repeat(phase, rows.Count));
             afterAt = null;
@@ -195,7 +227,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
         string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured,
         int? MaxGuests, string? Meals, TimeOnly? CheckInTime, int RoomCount, string? RoomsJson, bool HasGroundFloorRoom,
-        string? CityName, string? DistrictName);
+        string? CityName, string? DistrictName, string? RulesJson, string? BlocksJson);
 
     private static string? CheckInText(TimeOnly? t) => t?.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
@@ -213,6 +245,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
     {
         int? limit = take > 0 ? take : null;
         var (minLat, maxLat, minLng, maxLng) = GetBoundingBox(latitude, longitude, radiusKm);
+        var today = IstTime.TodayIst(DateTime.UtcNow);
 
         var box = await context.Database
             .SqlQuery<BoxQueryResult>($"""
@@ -236,7 +269,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     rm."RoomsJson",
                     COALESCE(rm."HasGroundFloorRoom", FALSE) AS "HasGroundFloorRoom",
                     c."Name" AS "CityName",
-                    d."Name" AS "DistrictName"
+                    d."Name" AS "DistrictName",
+                    sr."RulesJson",
+                    sb."BlocksJson"
                 FROM "StayListings" s
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
                 LEFT JOIN "StayTypes" t ON t."Id" = s."StayTypeId"
@@ -259,6 +294,17 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     FROM "StayRooms" r
                     WHERE r."StayListingId" = s."Id" AND NOT r."HiddenByPlan"
                 ) rm ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT json_agg(json_build_object('from', sp."DateFrom", 'to', sp."DateTo", 'lower', sp."Direction" = 'Lower', 'percent', sp."Percent")
+                                    ORDER BY sp."DateFrom")::text AS "RulesJson"
+                    FROM "StaySpecialPrices" sp
+                    WHERE sp."StayListingId" = s."Id" AND sp."DateTo" >= {today} AND NOT sp."IsPaused" AND NOT sp."PausedByPlan"
+                ) sr ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT json_agg(json_build_object('from', sb."DateFrom", 'to', sb."DateTo") ORDER BY sb."DateFrom")::text AS "BlocksJson"
+                    FROM "StayBlockedRanges" sb
+                    WHERE sb."StayListingId" = s."Id" AND sb."DateTo" >= {today}
+                ) sb ON TRUE
                 WHERE s."Status" = 'Approved'
                   AND s."AcceptingGuests" = TRUE
                   AND s."IsDeleted" = FALSE
@@ -303,6 +349,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 CityName = x.Row.CityName,
                 DistrictName = x.Row.DistrictName,
                 Rooms = StayNearbyRooms.Parse(x.Row.RoomsJson),
+                Rules = StayPriceFacts.ParseRules(x.Row.RulesJson),
+                Blocks = StayPriceFacts.ParseBlocks(x.Row.BlocksJson),
             })
             .ToList();
     }
@@ -310,12 +358,13 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
     private record KnnQueryResult(
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
         string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured, double DistanceMeters,
-        string? RoomsJson, bool HasGroundFloorRoom, string? CityName, string? DistrictName);
+        string? RoomsJson, bool HasGroundFloorRoom, string? CityName, string? DistrictName, string? RulesJson, string? BlocksJson);
 
     public async Task<IEnumerable<StayNearbyDto>> GetNearestAsync(
         double latitude, double longitude, int count, Guid? districtId, Guid? stayTypeId, double? maxKm = null)
     {
         double? maxMeters = maxKm is { } km ? km * 1000 : null;
+        var today = IstTime.TodayIst(DateTime.UtcNow);
         // <-> is KNN-index-assisted by ix_staylistings_location_gist; the n rows are re-sorted paid rank first.
         var rows = await context.Database
             .SqlQuery<KnnQueryResult>($"""
@@ -336,7 +385,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     rm."RoomsJson",
                     COALESCE(rm."HasGroundFloorRoom", FALSE) AS "HasGroundFloorRoom",
                     c."Name" AS "CityName",
-                    d."Name" AS "DistrictName"
+                    d."Name" AS "DistrictName",
+                    sr."RulesJson",
+                    sb."BlocksJson"
                 FROM "StayListings" s
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
                 LEFT JOIN "StayTypes" t ON t."Id" = s."StayTypeId"
@@ -356,6 +407,17 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     FROM "StayRooms" r
                     WHERE r."StayListingId" = s."Id" AND NOT r."HiddenByPlan"
                 ) rm ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT json_agg(json_build_object('from', sp."DateFrom", 'to', sp."DateTo", 'lower', sp."Direction" = 'Lower', 'percent', sp."Percent")
+                                    ORDER BY sp."DateFrom")::text AS "RulesJson"
+                    FROM "StaySpecialPrices" sp
+                    WHERE sp."StayListingId" = s."Id" AND sp."DateTo" >= {today} AND NOT sp."IsPaused" AND NOT sp."PausedByPlan"
+                ) sr ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT json_agg(json_build_object('from', sb."DateFrom", 'to', sb."DateTo") ORDER BY sb."DateFrom")::text AS "BlocksJson"
+                    FROM "StayBlockedRanges" sb
+                    WHERE sb."StayListingId" = s."Id" AND sb."DateTo" >= {today}
+                ) sb ON TRUE
                 WHERE s."Status" = 'Approved'
                   AND s."AcceptingGuests" = TRUE
                   AND s."IsDeleted" = FALSE
@@ -391,6 +453,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 CityName = r.CityName,
                 DistrictName = r.DistrictName,
                 Rooms = StayNearbyRooms.Parse(r.RoomsJson),
+                Rules = StayPriceFacts.ParseRules(r.RulesJson),
+                Blocks = StayPriceFacts.ParseBlocks(r.BlocksJson),
             })
             .ToList();
     }

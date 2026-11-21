@@ -1,8 +1,10 @@
 using System.Text.Json;
+using RentNearBy.Core.DTOs.Owner;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 
 namespace RentNearBy.Api.Handlers;
 
@@ -71,6 +73,9 @@ public static class TripEnquiryDtoBuilder
             ExpiresAt = e.ExpiresAt,
             IsUrgent = e.IsUrgent,
             AgreedTotal = e.AgreedTotal,
+            ListedStayTotal = ownerViewer && !isTaxi ? e.ListedStayTotal : null,
+            ListedBreakdown = ownerViewer && !isTaxi ? ReadBreakdown(e.ListedStayBreakdownJson) : null,
+            ListedPerNight = ListedPerNightFor(e, travellerViewer),
             AcceptedOffer = accepted == null ? null : ToOfferDto(accepted, e),
             OpenOffer = open == null ? null : ToOfferDto(open, e),
             OfferCount = ordered.Count,
@@ -247,6 +252,19 @@ public static class TripEnquiryDtoBuilder
         => newestFirst.FirstOrDefault(o => o.Status == TripOfferStatuses.Pending && o.Kind == kind);
 
     public static TripEnquiryContext ReadContext(string? json) => TripEnquiryContexts.Read(json);
+
+    // T5: the traveller sees the listed price per night only while his enquiry is Asked (an offer replaces it).
+    public static int? ListedPerNightFor(TripEnquiry e, bool travellerViewer)
+        => travellerViewer && e.Kind == TripEnquiryKinds.Stay && e.Status == TripEnquiryStatuses.Asked && e.ListedStayTotal is { } total
+            ? StaySpecialPriceMath.PerNight(total, Math.Max(1, TripExecutionRules.Nights(e.CheckIn, e.CheckOut)))
+            : null;
+
+    public static List<ListedBreakdownLineDto>? ReadBreakdown(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<List<ListedBreakdownLineDto>>(json, TripJson.Options); }
+        catch (JsonException) { return null; }
+    }
 
     public static List<TripOfferLine> ReadLines(string? json)
     {

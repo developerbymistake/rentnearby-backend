@@ -27,6 +27,11 @@ public class TripEnquiryDto
     public DateTime ExpiresAt { get; set; }
     public bool IsUrgent { get; set; }
     public int? AgreedTotal { get; set; }
+    // Owner roles T5 / AU-14a. Host only: the listed total snapshot taken when the traveller asked and its night segments.
+    public int? ListedStayTotal { get; set; }
+    public List<RentNearBy.Core.DTOs.Owner.ListedBreakdownLineDto>? ListedBreakdown { get; set; }
+    // Traveller only, status Asked: the listed total per night for his dates; never beside an offer.
+    public int? ListedPerNight { get; set; }
     public TripOfferDto? AcceptedOffer { get; set; }
     // Newest Pending row of kind Offer only; counters, revised offers and change requests have their own fields.
     public TripOfferDto? OpenOffer { get; set; }

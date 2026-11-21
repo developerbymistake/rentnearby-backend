@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using RentNearBy.Core.DTOs.Owner;
+
 namespace RentNearBy.Core.DTOs.Responses;
 
 public class StayNearbyDto
@@ -33,6 +36,22 @@ public class StayNearbyDto
     public int? QuotePerNight { get; set; }
     public int? QuoteTotal { get; set; }
     public List<StayQuoteLineDto>? QuoteLines { get; set; }
+    // Owner roles T1: cache-only active rules and blocks (contract 8.3); the dated-price pass sets them to null, so no response holds them.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<StayRuleRow>? Rules { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<StayBlockRow>? Blocks { get; set; }
+    // Set per request only with ?checkIn (absent otherwise): the price for his dates, the base price and "Full on your dates".
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DatesTotal { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DatesPerNight { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? BasePerNight { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PriceChipDto? PriceChip { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? FullOnDates { get; set; }
 }
 
 public class StayNearbyRoomDto

@@ -1,5 +1,6 @@
 using RentNearBy.Api.Handlers;
 using RentNearBy.Core.DTOs.Responses;
+using RentNearBy.Core.Models.Owner;
 
 namespace RentNearBy.Tests.Stays;
 
@@ -65,7 +66,7 @@ public class StayGeoRefineTests
                 var exact = rows
                     .Select(s => (Stay: s, D: GeoMath.HaversineKm(lat, lng, (double)s.Latitude, (double)s.Longitude)))
                     .Where(x => x.D <= radius)
-                    .OrderByDescending(x => x.Stay.PriorityRank).ThenBy(x => x.D)
+                    .OrderBy(x => StayBandRank.Band(x.D)).ThenByDescending(x => x.Stay.PriorityRank).ThenBy(x => x.D)
                     .Select(x => x.Stay.Id)
                     .ToList();
                 Assert.Equal(exact, StayGeoRefine.WithinRadius(candidates, lat, lng, radius).Select(s => s.Id).ToList());
@@ -92,7 +93,7 @@ public class StayGeoRefineTests
                 var exact = rows
                     .Select(s => (Stay: s, D: GeoMath.HaversineKm(lat, lng, (double)s.Latitude, (double)s.Longitude)))
                     .OrderBy(x => x.D).Take(count)
-                    .OrderByDescending(x => x.Stay.PriorityRank).ThenBy(x => x.D)
+                    .OrderBy(x => StayBandRank.Band(x.D)).ThenByDescending(x => x.Stay.PriorityRank).ThenBy(x => x.D)
                     .Select(x => x.Stay.Id)
                     .ToList();
                 Assert.Equal(exact, StayGeoRefine.Nearest(candidates, lat, lng, count).Select(s => s.Id).ToList());

@@ -11,9 +11,11 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.Owner.Be2;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -181,6 +183,11 @@ public static class TripEnquiryHandlers
 
         // One query each for the stays, the blocks and the traveller's own open rows (no per-listing lookups).
         var staysById = await LoadStaysAsync(db, toProcess);
+        // Owner roles T4: rooms, live rules and blocks of every asked stay in one statement. Nights touching a block skip the stay;
+        // a new row stores the listed total of the party for these nights (server only, never changed afterwards).
+        var priceFacts = await StayPriceFacts.LoadAsync(db, toProcess, TripExecutionRules.TodayIst(now));
+        var partyGuests = (plan.Settings?.Adults ?? 0) + (plan.Settings?.Kids ?? 0);
+        var askedNights = TripExecutionRules.Nights(checkIn, checkOut);
         var blockedOwners = await TripBulk.BlockedOwnersAsync(db, callerId, staysById.Values.Select(x => x.UserId).Distinct().ToList());
         var mineByListing = (await unitOfWork.TripEnquiries.GetOpenByTravellerListingsAsync(callerId, TripEnquiryKinds.Stay, toProcess))
             .ToLookup(x => x.ListingId);
@@ -205,6 +212,15 @@ public static class TripEnquiryHandlers
             if (same != null && same.CheckIn <= checkIn && checkOut <= same.CheckOut)
             {
                 items.Add(same);
+                continue;
+            }
+
+            if (priceFacts.TryGetValue(listingId, out var stayFacts) && StaySpecialPriceMath.TouchesBlock(checkIn, askedNights, stayFacts.Blocks))
+            {
+                if (requested.Count == 1 && preSkipped.Count == 0)
+                    return ErrorResponse(OwnerErrorTypes.StatusOf(OwnerErrorTypes.StayFullOnDates),
+                        OwnerErrorTypes.MessageOf(OwnerErrorTypes.StayFullOnDates), OwnerErrorTypes.StayFullOnDates);
+                skipped.Add(Skip(listingId, TripSkipReasons.NotAvailable));
                 continue;
             }
 
@@ -343,6 +359,9 @@ public static class TripEnquiryHandlers
                         return ErrorResponse(conv.Status, conv.Message ?? "Could not start the chat.", conv.ErrorType ?? "BadRequest");
                     }
 
+                    var listed = priceFacts.TryGetValue(stay.Id, out var facts)
+                        ? StayListedQuote.Compute(facts.Rooms, partyGuests > 0 ? partyGuests : null, checkIn, askedNights, facts.Rules)
+                        : null;
                     newRows.Add((new TripEnquiry
                     {
                         Id = Guid.NewGuid(),
@@ -364,6 +383,8 @@ public static class TripEnquiryHandlers
                         IsUrgent = isUrgent,
                         StepKey = request.StepKey,
                         ClientRequestId = staleIds.Contains(stay.Id) ? null : request.ClientRequestId,
+                        ListedStayTotal = listed?.Total,
+                        ListedStayBreakdownJson = listed == null ? null : JsonSerializer.Serialize(listed.Breakdown, TripJson.Options),
                         CreatedAt = now,
                         UpdatedAt = now,
                     }, stay, conv.Conversation));

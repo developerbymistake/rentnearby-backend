@@ -6,8 +6,10 @@ using RentNearBy.Api.Extensions;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Entities.Owner;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 using Microsoft.Extensions.Logging.Abstractions;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
@@ -212,6 +214,7 @@ public static class TripOwnerHandlers
                     lines,
                     total,
                     listedPerNight = listed,
+                    listedStayTotal = e.ListedStayTotal,
                     inclusions = offer.Inclusions,
                     balanceNote = offer.BalanceNote,
                     cancellationText = offer.CancellationText,
@@ -476,7 +479,7 @@ public static class TripOwnerHandlers
     // cannot replace another booked stay of the guest (the guest cancels it first).
     public static async Task<IResult> AcceptChange(
         Guid id, Guid offerId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
-        IRateLimitService rateLimiter, ITripChatService chat, ITripNotifier notifier, HttpContext httpContext)
+        IRateLimitService rateLimiter, ITripChatService chat, ITripNotifier notifier, HttpContext httpContext, bool? confirm = null)
     {
         var (error, e, callerId) = await LoadForOwnerAsync(id, principal, unitOfWork, db, rateLimiter, httpContext);
         if (error != null) return error;
@@ -507,6 +510,10 @@ public static class TripOwnerHandlers
             return ErrorResponse(422, "That date has passed.", TripEnquiryErrorTypes.DayInPast);
         if (await TripEnquiryHandlers.FailedNightsBlockAsync(db, e, checkIn, checkOut) is { } failedNights)
             return failedNights;
+        // Owner roles 8.4: new nights on one of his own blocks ask first ("These days are blocked by you. Accept anyway?").
+        if (confirm != true && await TouchesOwnBlockAsync(db, e.ListingId, checkIn, checkOut, todayIst))
+            return ErrorResponse(OwnerErrorTypes.StatusOf(OwnerErrorTypes.ChangeTouchesBlock),
+                OwnerErrorTypes.MessageOf(OwnerErrorTypes.ChangeTouchesBlock), OwnerErrorTypes.ChangeTouchesBlock);
 
         var blocking =(await unitOfWork.TripEnquiries.GetOpenByTripAsync(tripId, TripEnquiryKinds.Stay))
             .FirstOrDefault(o => o.Id != e.Id && TripEnquiryStatuses.IsBooked(o.Status)
@@ -593,6 +600,14 @@ public static class TripOwnerHandlers
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    // One indexed read (ix_stayblockedranges_stay_dateto): a block of the stay touching the nights checkIn .. checkOut - 1.
+    private static Task<bool> TouchesOwnBlockAsync(ApplicationDbContext db, Guid stayId, DateOnly checkIn, DateOnly checkOut, DateOnly today)
+    {
+        var lastNight = checkOut.AddDays(-1);
+        return db.Set<StayBlockedRange>().AsNoTracking()
+            .AnyAsync(b => b.StayListingId == stayId && b.DateTo >= today && b.DateTo >= checkIn && b.DateFrom <= lastNight);
+    }
 
     // Caller, rate limit, enquiry (tracked), and the owner side check. One place so no host action skips a step.
     private static async Task<(IResult? Error, TripEnquiry? Enquiry, Guid CallerId)> LoadForOwnerAsync(

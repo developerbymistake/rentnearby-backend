@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using RentNearBy.Core.DTOs.Owner;
+
 namespace RentNearBy.Core.DTOs.Responses;
 
 // Anonymous GET /stays/by-slug/{slug}. Deliberately excludes Address,
@@ -25,4 +28,11 @@ public class StayPublicSlugDto
     public StayRulesDto? Rules { get; set; }
     public int? MinPricePerNight { get; set; }
     public DateTime CreatedAt { get; set; }
+    // Owner roles T2: only with ?checkIn. The lowest room price for his dates, the chip "N% off" and "Full on your dates".
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DatesFromPerNight { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PriceChipDto? PriceChip { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? FullOnDates { get; set; }
 }
