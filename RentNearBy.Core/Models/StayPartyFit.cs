@@ -17,15 +17,16 @@ public static class StayPartyFit
 
     // Cheapest unit counts over the room types: sum(units) = roomsWanted (null = any count from 1 to guests),
     // sum(units x capacity) >= guests; ties: fewer rooms, then more units on earlier types. Guests spread by capacity
-    // (MoneySplit.SpreadGuests). Exact enumeration of compositions: O(C(r + k - 1, k - 1)) with k <= StayLimits.MaxRooms.
+    // (MoneySplit.SpreadGuests). Exact enumeration of compositions: O(C(r + k - 1, k - 1)) with k <= 4 capacities (Dominant).
     public static StayFitQuote Quote(IReadOnlyList<StayFitRoom> rooms, int guests, int? roomsWanted, bool groundFloorOnly, int nights = 1)
     {
-        var pool = rooms.Where(r => !groundFloorOnly || r.Floor == StayNearbyRooms.GroundFloor).ToList();
+        var all = rooms.Where(r => !groundFloorOnly || r.Floor == StayNearbyRooms.GroundFloor).ToList();
         guests = Math.Clamp(guests, 1, MaxGuests);
-        if (pool.Count == 0) return new StayFitQuote(false, [], null, null);
+        if (all.Count == 0) return new StayFitQuote(false, [], null, null);
+        var priced = all.All(r => r.PricePerNight is > 0);
+        var pool = Dominant(all, priced);
 
         var caps = pool.Select(r => CapacityOf(r.MaxGuests)).ToList();
-        var priced = pool.All(r => r.PricePerNight is > 0);
         var prices = pool.Select(r => priced ? (long)r.PricePerNight!.Value : 0L).ToList();
 
         int[]? best = null;
@@ -51,6 +52,18 @@ public static class StayPartyFit
 
         if (best == null) return new StayFitQuote(false, [], null, null);
         return Build(pool, best, caps, guests, priced, nights);
+    }
+
+    // With room types up to the plan ceiling of 8 the enumeration would grow to millions of walks per stay. Room types of the
+    // same capacity are interchangeable for the quote, so only the cheapest one of each capacity (the earliest on a tie) can carry
+    // units in the cheapest, earliest-heavy answer; the others always get 0. At most 4 capacities stay, in their original order.
+    public static List<StayFitRoom> Dominant(IReadOnlyList<StayFitRoom> list, bool priced)
+    {
+        var keep = list.Select((r, i) => (Room: r, Index: i))
+            .GroupBy(x => CapacityOf(x.Room.MaxGuests))
+            .Select(g => g.OrderBy(x => priced ? x.Room.PricePerNight!.Value : 0).ThenBy(x => x.Index).First().Index)
+            .ToHashSet();
+        return list.Where((_, i) => keep.Contains(i)).ToList();
     }
 
     // Unit counts u_i (sum = rooms, sum u_i x caps_i >= guests) minimising (deviation from baseline, cost),

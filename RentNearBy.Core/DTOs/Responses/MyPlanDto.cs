@@ -22,6 +22,12 @@ public class MyPlanDto
     // Non-null exactly when Play is.
     public string? ManageUrl { get; set; }
     public MyPlanPlayDto? Play { get; set; }
+    // Owner roles M3 (contract 2.4, AU-18, AU-21): rows hidden by the plan (PausedByPlanCount = their sum), visible usage for the
+    // Profile line, and the payment start facts.
+    public Owner.PlanHiddenDto Hidden { get; set; } = Owner.PlanHiddenDto.None;
+    public Owner.PlanUsageDto Usage { get; set; } = new(0, 0, 0);
+    public DateOnly? PaymentStartsOn { get; set; }
+    public bool PlansStartedToday { get; set; }
 }
 
 public class MyPlanRefDto

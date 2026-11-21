@@ -39,4 +39,16 @@ public class TaxiOwnerDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public int PendingReportCount { get; set; }   // set by the handler, not mapped
+
+    // Owner roles M2 (contract 2.4, AU-9, AU-21, R-10); Routes above stay the visible routes, hidden ones only in HiddenRoutes.
+    public List<TaxiRouteDto> HiddenRoutes { get; set; } = new();
+    public List<Owner.MeterDto> Meters { get; set; } = new();
+    public Owner.MeterDto? RoutesMeter { get; set; }
+    public int ActiveBookingCount { get; set; }
+    public int RingWeight { get; set; } = 1;
+    public bool RemindersOn { get; set; }
+    public bool PaymentEnabled { get; set; }
+    public bool CanUpgrade { get; set; }
+    public bool IsFeatured { get; set; }
+    public int ReportCount { get; set; }
 }

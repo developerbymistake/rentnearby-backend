@@ -346,7 +346,8 @@ public class TaxiRouteCityKeyTests
     // A same-name copy of a stored key into a read model ("FromCityKey = r.FromCityKey" in a DTO projection). Only the read-model
     // files below may do it; anywhere else the same line is a write (for example route.FromCityKey = request.FromCityKey).
     private static readonly Regex Copy = new(@"\b(From|To)CityKey\s*=\s*[\w.]*\.\1CityKey\b", RegexOptions.Compiled);
-    private static readonly HashSet<string> ReadModelFiles = ["RentNearBy.Api/Mappings/DtoMappings.cs"];
+    private static readonly HashSet<string> ReadModelFiles =
+        ["RentNearBy.Api/Mappings/DtoMappings.cs", "RentNearBy.Infrastructure/Services/Owner/Be3/TaxiHubReader.cs"];
 
     internal static bool IsWrite(string rel, string line)
         => Write.IsMatch(ReadModelFiles.Contains(rel) ? Copy.Replace(line, "") : line);

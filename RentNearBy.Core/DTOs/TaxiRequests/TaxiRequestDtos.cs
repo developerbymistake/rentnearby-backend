@@ -117,6 +117,9 @@ public class TaxiRequestDriverDto
     public int RidesCompleted { get; set; }
     public bool CanSelect { get; set; }
     public DateTime? ConfirmBy { get; set; }
+    // T6 / 7.3: the driver's Featured tag from his plan (TaxiListings.IsFeatured); the order is unchanged. Left out when false.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsFeatured { get; set; }
 }
 
 public class TaxiRequestBookingDto

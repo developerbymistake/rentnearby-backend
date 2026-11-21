@@ -110,8 +110,9 @@ public sealed class TaxiRequestClosure(
     // and bookings stay: the driver made a promise. routes = his routes as they will be saved (keys already resolved).
     // The driver ring lock is taken after the request locks (the select order) and the offers are read again under it, so
     // a ring a matcher pass inserted for the old routes is seen (MatcherSql.InsertOffer re-checks the routes after commit).
+    // reason: RouteRemoved for an owner save, RoutePausedByPlan when the plan hides routes (contract 3.3, 7.2).
     public async Task<TaxiClosureResult> RoutesChangedAsync(ApplicationDbContext db, Guid driverListingId,
-        IReadOnlyList<RouteServeKeys> routes, CancellationToken ct = default)
+        IReadOnlyList<RouteServeKeys> routes, CancellationToken ct = default, string reason = OfferEndReasons.RouteRemoved)
     {
         var locked = new Dictionary<Guid, TaxiRequest?>();
         await LockRequestsAsync(db, Gone(await RouteOffersAsync(db, driverListingId, ct), routes), locked, ct);
@@ -123,11 +124,28 @@ public sealed class TaxiRequestClosure(
         foreach (var o in gone.OrderBy(o => o.RequestId))
         {
             if (locked[o.RequestId] is not { } request) continue;
-            if (await CloseOfferAsync(db, request, o.Id, RingingOrAccepted, OfferEndReasons.RouteRemoved, tellTraveller: false, ct))
+            if (await CloseOfferAsync(db, request, o.Id, RingingOrAccepted, reason, tellTraveller: false, ct))
             {
                 acc.Touch(request);
                 acc.Freed.Add(driverListingId);
             }
+        }
+        return await acc.BuildAsync(db, ct);
+    }
+
+    // AU-6: a live taxi sent back to review (plate, plate photo, licence, date of birth). Only ringing offers close
+    // (ListingInReview, ring end "This request is closed", never a missed ring); accepted, selected and bookings stay.
+    public async Task<TaxiClosureResult> ListingInReviewAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct = default)
+    {
+        var offers = await RowsAsync(db, RingingOffersOfDriverSql, ct, Uuid("id", driverListingId));
+        var acc = new Accumulator();
+        foreach (var requestId in RequestOrder(offers, []))
+        {
+            var request = await store.LockRequestAsync(db, requestId, ct);
+            if (request is null) continue;
+            foreach (var o in offers.Where(o => o.RequestId == requestId))
+                if (await CloseOfferAsync(db, request, o.Id, RingingOnly, OfferEndReasons.ListingInReview, tellTraveller: false, ct))
+                    acc.Touch(request);
         }
         return await acc.BuildAsync(db, ct);
     }

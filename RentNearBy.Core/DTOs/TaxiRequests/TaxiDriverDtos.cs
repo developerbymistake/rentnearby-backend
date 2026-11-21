@@ -79,6 +79,9 @@ public class DriverOfferDto
     public DriverTravellerDto? Traveller { get; set; }
     public DriverDatesConflictDto? DatesConflict { get; set; }
     public DriverTripDto? Trip { get; set; }
+    // 7.4 / AU-10: his manual trip dates inside the request's dates (detail of a ringing, accepted or selected offer; null elsewhere).
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<DateOnly>? ManualTripOn { get; set; }
 }
 
 public class DriverOfferCountsDto

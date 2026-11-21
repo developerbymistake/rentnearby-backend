@@ -175,6 +175,8 @@ public static class OfferEndReasons
         RequestCancelled => "The traveller cancelled the request",
         DriverOffline => "You are offline",
         RouteRemoved => "You removed this route",
+        RoutePausedByPlan => "This route is paused on Free.",
+        ListingInReview => "This request is closed",
         RingEndReasons.Accepted => "You accepted this request",
         RingEndReasons.Declined => "You declined this request",
         RingEndReasons.Closed => "This request is closed",

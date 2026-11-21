@@ -21,11 +21,16 @@ public static class StayJobRules
     public const int PhoneLength = 10;
     public const string PhonePattern = @"^[6-9]\d{9}$";
 
-    // The cap comes from the owner's plan (PlanFeatureKeys.JobsPosts).
-    public static string LimitMessage(int maxActive) => maxActive <= 1
-        ? "You can have 1 active job. Close it or upgrade to add more."
-        : $"You can have up to {maxActive} active jobs. Close one or upgrade to add more.";
+    // The cap comes from the owner's plan (PlanFeatureKeys.JobsPosts); the two lines of doc 8.8 (upgrade possible or not).
+    public static string LimitMessage(int maxActive, bool canUpgrade)
+        => Owner.OwnerErrorTypes.LimitMessage(Owner.OwnerErrorTypes.StayJobLimit, maxActive, canUpgrade);
+
+    // error.data of StayJobLimit: the one limit shape { key, limit, used, canUpgrade } plus the old "active" field.
+    public static StayJobLimitData LimitData(int maxActive, int active, bool canUpgrade)
+        => new(PlanFeatureKeys.JobsPosts, maxActive, active, canUpgrade, active);
 }
+
+public sealed record StayJobLimitData(string Key, int Limit, int Used, bool CanUpgrade, int Active);
 
 public static class StayJobErrorTypes
 {

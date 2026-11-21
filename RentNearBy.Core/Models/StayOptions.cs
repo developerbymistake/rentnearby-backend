@@ -70,8 +70,9 @@ public static class StayFacilities
 
 public static class StayLimits
 {
-    public const int MaxRooms = 2;
-    public const int MaxPhotos = 5;
+    // Hard ceilings above every plan value (contract 1.5, F5); the plan keys RoomTypes and Photos limit below them.
+    public const int MaxRooms = Owner.OwnerLimits.RoomsCeiling;
+    public const int MaxPhotos = Owner.OwnerLimits.PhotosCeiling;
     public const int MinPrice = 100;
     public const int MaxPrice = 9_900_000;
 

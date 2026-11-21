@@ -21,5 +21,6 @@ public class UserDto
     public bool RoleCorrectionUsed { get; set; }
     public bool CanCorrectRole { get; set; }   // one-time self-service change while the stay/taxi was never submitted
     public bool RoleLocked { get; set; }   // stay/taxi under review, approved, or ever approved
+    public bool ListingDeleted { get; set; }   // R-11: Stay Owner / Taxi Driver with no live listing and a deleted one
     public DateTime CreatedAt { get; set; }
 }

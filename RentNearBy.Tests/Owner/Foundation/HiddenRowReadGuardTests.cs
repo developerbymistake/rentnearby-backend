@@ -25,6 +25,7 @@ public class HiddenRowReadGuardTests
         "OwnerFeatureModel.cs", "ListingPurgeService.cs", "OwnerListingPurge.cs", "TaxiRouteCityKeys.cs", "AdminTaxiRequestHandlers.cs", "TaxiDriverViews.cs",
         "StayHandlers.cs", "TaxiHandlers.cs", "PlanRows.cs", "PlanVisibleService.cs", "PlanLimitsReconcile.cs", "PlanSlotService.cs", "OwnerHiddenCounts.cs",
         "AdminStayHandlers.cs", "AdminTaxiHandlers.cs", "AdminStayEditHandlers.cs", "AdminUserPlanHandlers.cs", "StayPendingEditService.cs",
+        "StayHubReader.cs", "TaxiHubReader.cs",
     ];
 
     [Fact]

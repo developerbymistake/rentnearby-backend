@@ -318,7 +318,8 @@ public class TaxiDispatchTimersTests
         var ringLock = body.IndexOf("await db.Database.ExecuteSqlRawAsync(MatcherSql.LockDriverRing, [Uuid(\"driver\", driverListingId)], ct);", StringComparison.Ordinal);
         var reread = body.IndexOf("var gone = Gone(await RouteOffersAsync(db, driverListingId, ct), routes);", StringComparison.Ordinal);
         Assert.True(firstLocks > 0 && ringLock > firstLocks && reread > ringLock, "Request locks, then the ring lock, then the offers again");
-        Assert.Contains("CloseOfferAsync(db, request, o.Id, RingingOrAccepted, OfferEndReasons.RouteRemoved, tellTraveller: false, ct)", body);
+        Assert.Contains("CloseOfferAsync(db, request, o.Id, RingingOrAccepted, reason, tellTraveller: false, ct)", body);
+        Assert.Contains("string reason = OfferEndReasons.RouteRemoved)", Source("RentNearBy.Infrastructure", "Services", "TaxiRequests", "TaxiRequestClosure.cs"));
         Assert.Contains("acc.Freed.Add(driverListingId);", body);
         Assert.Equal("You removed this route", OfferEndReasons.RingEndBody(OfferEndReasons.RouteRemoved));
     }

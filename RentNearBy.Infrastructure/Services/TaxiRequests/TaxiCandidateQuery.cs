@@ -7,7 +7,7 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services.TaxiRequests;
 
-public sealed record TaxiPoolDriver(Guid DriverListingId, Guid DriverUserId, int Seats, long Pass, long SeenSeq, DateTime? LastOfferedAt, bool Free);
+public sealed record TaxiPoolDriver(Guid DriverListingId, Guid DriverUserId, int Seats, long Pass, long SeenSeq, DateTime? LastOfferedAt, bool Free, int Weight = 1);
 
 public sealed record TaxiCandidatePair(Guid RequestId, Guid DriverListingId, bool Free);
 
@@ -92,7 +92,7 @@ public static class TaxiCandidateQuery
 
     public static readonly string PoolSql = $"""
         SELECT l."Id" AS "DriverListingId", l."UserId" AS "DriverUserId", COALESCE(l."Seats", 0)::int AS "Seats",
-               ds."Pass", ds."SeenSeq", ds."LastOfferedAt", ({FreeRule}) AS "Free"
+               ds."Pass", ds."SeenSeq", ds."LastOfferedAt", ({FreeRule}) AS "Free", l."RingWeight"::int AS "RingWeight"
         FROM "DriverDispatchStates" ds
         JOIN "TaxiListings" l ON l."Id" = ds."DriverListingId"
         WHERE ds."CityKey" = @city
@@ -159,7 +159,7 @@ public static class TaxiCandidateQuery
     public static async Task<IReadOnlyList<TaxiPoolDriver>> LoadPoolAsync(ApplicationDbContext db, long cityKey, CancellationToken ct = default)
     {
         var rows = await db.Database.SqlQueryRaw<PoolRow>(PoolSql, City(cityKey)).ToListAsync(ct);
-        return rows.Select(r => new TaxiPoolDriver(r.DriverListingId, r.DriverUserId, r.Seats, r.Pass, r.SeenSeq, r.LastOfferedAt, r.Free)).ToList();
+        return rows.Select(r => new TaxiPoolDriver(r.DriverListingId, r.DriverUserId, r.Seats, r.Pass, r.SeenSeq, r.LastOfferedAt, r.Free, r.RingWeight)).ToList();
     }
 
     // Every (request, driver) pair that passes all rules of 2.5 for the given requests.
@@ -190,6 +190,7 @@ public static class TaxiCandidateQuery
         public long SeenSeq { get; set; }
         public DateTime? LastOfferedAt { get; set; }
         public bool Free { get; set; }
+        public int RingWeight { get; set; } = 1;
     }
 
     private sealed class PairRow

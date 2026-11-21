@@ -45,4 +45,20 @@ public class StayOwnerDto
     public string? UpiId { get; set; }
     public string? WhatsAppNumber { get; set; }
     public int PendingReportCount { get; set; }   // set by the handler, not mapped
+
+    // Owner roles M1 (contract 2.4, AU-5, AU-9, AU-21, R-10); filled by the handler on the hub read and the live-edit writes.
+    // Rooms and Photos above stay "what I can see and edit"; rows hidden by the plan are only in the two hidden arrays.
+    public List<StayRoomDto> HiddenRooms { get; set; } = new();
+    public List<Owner.HiddenPhotoDto> HiddenPhotos { get; set; } = new();
+    public List<Owner.MeterDto> Meters { get; set; } = new();
+    public Owner.StayPendingEditDto? PendingEdit { get; set; }
+    public Owner.StayEditResultDto? LastEditResult { get; set; }
+    public int ConfirmedBookingCount { get; set; }
+    public bool RemindersOn { get; set; }
+    public bool PaymentEnabled { get; set; }
+    public bool CanUpgrade { get; set; }
+    public bool IsFeatured { get; set; }
+    public int ReportCount { get; set; }
+    public Owner.StayCalendarRowDto? CalendarRow { get; set; }
+    public Owner.StaySpecialPricesRowDto? SpecialPricesRow { get; set; }
 }

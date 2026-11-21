@@ -11,6 +11,8 @@ public interface ITaxiListingRepository : IRepository<TaxiListing>
     // Both include soft-deleted rows.
     Task<bool> HasEverApprovedAsync(Guid userId);
     Task<bool> HasSubmittedHistoryAsync(Guid userId);
+    // R-11: a soft-deleted listing of this kind exists (the owner keeps the empty hub after a delete).
+    Task<bool> HasDeletedAsync(Guid userId);
     Task<int> TouchAllByUserAsync(Guid userId);
     // !IsDeleted only; the handler applies the public-or-owner rule.
     Task<TaxiListing?> GetByIdWithAllAsync(Guid id);

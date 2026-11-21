@@ -14,7 +14,7 @@ public static class TaxiEndpoints
         group.MapGet("/by-slug/{slug}", TaxiHandlers.GetBySlug);
         group.MapTaxiWaysEndpoints();
 
-        group.MapGet("/me", TaxiHandlers.GetMine).RequireAuthorization("CanListTaxis");
+        // GET /me is mapped ungated by lane BE3 (Endpoints/Owner/PlanVisibleEndpoints.cs, contract R-5).
         group.MapPut("/me/basic", TaxiHandlers.UpsertBasic).RequireAuthorization("CanListTaxis");
         group.MapPost("/me/plate-photo", TaxiHandlers.UploadPlatePhoto).RequireAuthorization("CanListTaxis").DisableAntiforgery();
         group.MapPut("/me/routes", TaxiHandlers.UpsertRoutes).RequireAuthorization("CanListTaxis");

@@ -14,7 +14,7 @@ public static class StayEndpoints
         group.MapGet("/feed", StayFeedHandlers.GetFeed);
         group.MapGet("/by-slug/{slug}", StayHandlers.GetBySlug);
 
-        group.MapGet("/me", StayHandlers.GetMine).RequireAuthorization("CanListStays");
+        // GET /me is mapped ungated by lane BE3 (Endpoints/Owner/PlanVisibleEndpoints.cs, contract R-5).
         group.MapPut("/me/basic", StayHandlers.UpsertBasic).RequireAuthorization("CanListStays");
         group.MapPost("/me/photos", StayHandlers.UploadPhoto).RequireAuthorization("CanListStays").DisableAntiforgery();
         group.MapDelete("/me/photos/{photoId:guid}", StayHandlers.DeletePhoto).RequireAuthorization("CanListStays");

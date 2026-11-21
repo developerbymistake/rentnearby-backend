@@ -137,7 +137,7 @@ public static class TaxiDriverRequestHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         if (await TaxiRateLimits.ReadAsync(limiter, http, userId) is { } limited) return limited;
         if (await CheckOfferAsync(db, offerId, userId, ct) is { } denied) return denied;
-        return await OfferResponseAsync(db, offerId, withTrip: true, ct);
+        return await OfferResponseAsync(db, offerId, withTrip: true, ct, http.RequestServices);
     }
 
     // D3
@@ -149,7 +149,7 @@ public static class TaxiDriverRequestHandlers
         {
             if (await CheckOfferAsync(db, offerId, userId, ct) is { } denied) return denied;
             var result = await offers.AcceptAsync(offerId, userId, body?.DeviceToken, ct);
-            return result.Ok ? await OfferResponseAsync(db, offerId, withTrip: true, ct) : Refusal(result);
+            return result.Ok ? await OfferResponseAsync(db, offerId, withTrip: true, ct, http.RequestServices) : Refusal(result);
         });
     }
 
@@ -322,9 +322,18 @@ public static class TaxiDriverRequestHandlers
         return OwnerCheck(owners, userId);
     }
 
-    private static async Task<IResult> OfferResponseAsync(ApplicationDbContext db, Guid offerId, bool withTrip, CancellationToken ct)
+    private static async Task<IResult> OfferResponseAsync(ApplicationDbContext db, Guid offerId, bool withTrip, CancellationToken ct,
+        IServiceProvider? services = null)
     {
         var dto = await TaxiDriverViews.LoadOfferAsync(db, offerId, withTrip, ct);
-        return dto is null ? Refuse(TaxiRequestErrorTypes.OfferNotFound) : OkResponse(dto);
+        if (dto is null) return Refuse(TaxiRequestErrorTypes.OfferNotFound);
+        // UC-T-38 / 7.4: the dates of his own manual trips inside the request's dates (amber line; a manual trip never blocks a ring).
+        if (withTrip && services?.GetService<RentNearBy.Infrastructure.Services.Owner.IOwnerCalendarSync>() is { } calendar
+            && dto.State is OfferStates.Ringing or OfferStates.Accepted or OfferStates.Selected)
+        {
+            var listingId = await db.Set<TaxiRequestOffer>().AsNoTracking().Where(o => o.Id == offerId).Select(o => o.DriverListingId).FirstAsync(ct);
+            dto.ManualTripOn = [.. await calendar.ManualDatesAsync(db, listingId, dto.DateFrom, dto.DateTo, ct)];
+        }
+        return OkResponse(dto);
     }
 }

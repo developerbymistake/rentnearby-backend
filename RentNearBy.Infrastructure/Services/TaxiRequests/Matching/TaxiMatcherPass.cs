@@ -99,7 +99,7 @@ public sealed record MatcherInput(PickInput Pick, IReadOnlyDictionary<Guid, Fair
         var drivers = data.Pool.ToDictionary(p => p.DriverListingId, p => new FairQueueDriver(
             p.DriverListingId, p.DriverUserId, p.Pass, p.SeenSeq, p.LastOfferedAt,
             HasLiveRing: !p.Free, HasPendingSelection: false, p.Seats,
-            routes.TryGetValue(p.DriverListingId, out var pairs) ? pairs : [], []));
+            routes.TryGetValue(p.DriverListingId, out var pairs) ? pairs : [], [], p.Weight));
 
         return new MatcherInput(new PickInput(data.City, requests, drivers.Values.ToList()), drivers, hidden);
     }

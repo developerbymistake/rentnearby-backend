@@ -12,7 +12,7 @@ namespace RentNearBy.Api.Handlers.TaxiRequests;
 // One offer with the driver facts the card needs (read live from the listing).
 public sealed record TaxiViewOffer(
     Guid Id, string Status, int SeqNo, DateTime? ConfirmBy, string DriverName, string? ContactPhone, string Vehicle,
-    int Seats, int RatingSum, int RatingCount, int RidesCompleted);
+    int Seats, int RatingSum, int RatingCount, int RidesCompleted, bool IsFeatured = false);
 
 public sealed record TaxiViewBooking(Guid Id, string Status, DateOnly DateFrom, DateOnly DateTo, DateTime? StartedAt = null);
 
@@ -99,6 +99,7 @@ public sealed class TaxiRequestViews(ApplicationDbContext db)
             RidesCompleted = o.RidesCompleted,
             CanSelect = requestState == RequestStates.Collecting && o.Status == OfferStates.Accepted,
             ConfirmBy = o.Status == OfferStates.Selected ? o.ConfirmBy : null,
+            IsFeatured = o.IsFeatured,
         };
     }
 
@@ -155,10 +156,11 @@ public sealed class TaxiRequestViews(ApplicationDbContext db)
                 Sum = l != null ? l.RatingSum : 0,
                 Count = l != null ? l.RatingCount : 0,
                 Rides = l != null ? l.RidesCompleted : 0,
+                Featured = l != null && l.IsFeatured,
             }).ToListAsync(ct);
 
         var offers = offerRows.Select(o => new TaxiViewOffer(o.Id, o.Status, o.SeqNo, o.ConfirmBy, o.Name ?? string.Empty, o.Phone,
-            o.Vehicle ?? string.Empty, o.Seats ?? 0, o.Sum, o.Count, o.Rides)).ToList();
+            o.Vehicle ?? string.Empty, o.Seats ?? 0, o.Sum, o.Count, o.Rides, o.Featured)).ToList();
 
         var booking = await db.Set<TaxiBooking>().AsNoTracking()
             .Where(b => b.RequestId == request.Id)

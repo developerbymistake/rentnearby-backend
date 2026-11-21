@@ -49,7 +49,8 @@ public static class TaxiVehicleCategories
 
 public static class TaxiLimits
 {
-    public const int MaxRoutes = 10;
+    // Hard ceiling above every plan value (contract 1.5); the plan key Routes limits below it.
+    public const int MaxRoutes = Owner.OwnerLimits.RoutesCeiling;
     public const int MinFare = 100;
     public const int MaxFare = 9_900_000;
     public const double MinEndpointDistanceMeters = 500;

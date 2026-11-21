@@ -34,7 +34,8 @@ public sealed record FairQueueDriver(
     bool HasPendingSelection,
     int Seats,
     IReadOnlyList<TaxiRoutePair> Routes,
-    IReadOnlyList<TaxiDateRange> Occupied)
+    IReadOnlyList<TaxiDateRange> Occupied,
+    int Weight = 1)
 {
     public bool IsFree => !HasLiveRing && !HasPendingSelection;
 }
@@ -73,8 +74,9 @@ public static class TaxiFairQueue
     public const long Stride = TaxiDispatchRules.FairQueueStride;
     public const int MaxOffersPerPass = 200;
 
-    // Decision 18 hook: equal weights in release 1.
-    public static long WeightOf(FairQueueDriver driver) => 1;
+    // Ring turn weight from the owner's plan (TaxiListings.RingWeight, contract 7.1): weight w moves the pass on by Stride / w,
+    // so it gets about w turns for one turn of weight 1. All weights 1 = the release 1 order.
+    public static long WeightOf(FairQueueDriver driver) => Math.Clamp(driver.Weight, 1, 5);
 
     // Live rings (ringing + new) never pass min(3, target - accepted) (contract 12, decision 8).
     public static int RingsNeeded(int acceptTarget, int acceptedCount, int ringing)

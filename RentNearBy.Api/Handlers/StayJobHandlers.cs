@@ -170,8 +170,10 @@ public static class StayJobHandlers
         var items = await unitOfWork.StayJobs.GetOwnerListAsync(userId);
         var activeCount = items.Count(j => j.Status == StayJobStatuses.Active);
         var stayStatus = await unitOfWork.Stays.GetStatusByUserAsync(userId);
-        var maxActive = (await entitlements.GetLimitsAsync(userId, ListingKinds.Stay)).JobsPosts;
+        var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
+        var maxActive = limits.JobsPosts;
 
+        // AU-22: jobs above the cap after Plus ends are never closed; only a new post is refused.
         return OkResponse(new MyStayJobsDto
         {
             Items = items,
@@ -179,6 +181,9 @@ public static class StayJobHandlers
             MaxActive = maxActive,
             StayStatus = stayStatus,
             CanPost = stayStatus == StayStatuses.Approved && activeCount < maxActive,
+            PaymentEnabled = limits.PaymentEnabled,
+            CanUpgrade = limits.CanUpgrade,
+            OverCap = activeCount > maxActive,
         });
     }
 
@@ -232,13 +237,14 @@ public static class StayJobHandlers
         {
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"StayListings\" WHERE \"Id\" = {stay.Id} FOR UPDATE");
 
-            var maxActive = (await entitlements.GetLimitsAsync(userId, ListingKinds.Stay)).JobsPosts;
+            var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
+            var maxActive = limits.JobsPosts;
             var active = await unitOfWork.StayJobs.CountActiveByUserAsync(userId);
             if (active >= maxActive)
             {
                 await unitOfWork.RollbackTransactionAsync();
-                return ErrorResponse(409, StayJobRules.LimitMessage(maxActive), StayJobErrorTypes.StayJobLimit,
-                    new { limit = maxActive, active, canUpgrade = true });
+                return ErrorResponse(409, StayJobRules.LimitMessage(maxActive, limits.CanUpgrade), StayJobErrorTypes.StayJobLimit,
+                    StayJobRules.LimitData(maxActive, active, limits.CanUpgrade));
             }
 
             await unitOfWork.StayJobs.AddAsync(job);

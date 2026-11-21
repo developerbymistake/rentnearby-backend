@@ -1,6 +1,7 @@
 using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 
 namespace RentNearBy.Api.Validators;
 
@@ -48,7 +49,11 @@ public class UpsertStayRoomsRequestValidator : AbstractValidator<UpsertStayRooms
         RuleFor(x => x.Rooms)
             .Must(r => r!.Select(i => i?.RoomName).Distinct().Count() == r!.Count)
             .OverridePropertyName(nameof(StayRoomInput.RoomName))
-            .WithMessage("Each room needs a different name")
+            .WithMessage(x => OwnerErrorTypes.RoomTypeDuplicateMessage(FirstDuplicate(x.Rooms!)))
+            .WithErrorCode(OwnerErrorTypes.RoomTypeDuplicate)
             .When(x => x.Rooms != null && x.Rooms.Count > 1);
     }
+
+    private static string FirstDuplicate(IEnumerable<StayRoomInput?> rooms)
+        => rooms.GroupBy(r => r?.RoomName).FirstOrDefault(g => g.Count() > 1)?.Key ?? "room";
 }

@@ -10,11 +10,16 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
+using RentNearBy.Core.Models.TaxiRequests;
+using RentNearBy.Core.Interfaces.Owner;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.Owner.Be3;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using StackExchange.Redis;
+using RentNearBy.Api.Handlers.Owner;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -355,14 +360,19 @@ public static class TaxiHandlers
 
     // ---- Driver (CanListTaxis), always keyed on the caller's live taxi ----
 
-    public static async Task<IResult> GetMine(ClaimsPrincipal principal, IUnitOfWork unitOfWork, ICityResolver resolver)
+    // M2 (ungated, contract R-5): the driver's own taxi with the hub extras (hidden routes, meters, bookings, ring weight).
+    public static async Task<IResult> GetMine(ClaimsPrincipal principal, IUnitOfWork unitOfWork, ICityResolver resolver, TaxiHubReader hub)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
         var taxi = await unitOfWork.Taxis.GetLiveByUserAsync(userId);
         if (taxi == null) return OkResponse<TaxiOwnerDto?>(null);
-        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver, TaxiRouteCityKeys.RequestBudget));
+        var started = Stopwatch.GetTimestamp();
+        var dto = await ToOwnerDtoAsync(taxi, unitOfWork, resolver, TaxiRouteCityKeys.RequestBudget);
+        var left = TaxiRouteCityKeys.RequestBudget - Stopwatch.GetElapsedTime(started);
+        await hub.FillAsync(dto, taxi, resolver, left > TimeSpan.Zero ? left : TimeSpan.Zero);
+        return OkResponse(dto);
     }
 
     // Allowed in Draft, Rejected and Approved. On an Approved taxi a new plate, licence number or date of
@@ -475,6 +485,7 @@ public static class TaxiHandlers
                 IsAvailable = true,
                 PriorityRank = limits.PriorityRank,
                 IsFeatured = limits.IsFeatured,
+                RingWeight = (short)Math.Clamp(limits.RingWeight, 1, 5),
                 DrivingLicenceNumberEnc = dlEncNew!,
                 DateOfBirth = dobEff,
                 CreatedAt = now,
@@ -506,9 +517,22 @@ public static class TaxiHandlers
 
         if (!isNew)
         {
-            try { await unitOfWork.SaveChangesAsync(); }
-            catch (DbUpdateConcurrencyException) { return Concurrent(); }
-            catch (DbUpdateException) { return PlateTaken(); }
+            // AU-6: back to review closes his ringing offers (ListingInReview) in the same transaction, before the listing row is
+            // written (lock order request -> driver listing); accepted, selected and bookings stay.
+            var closure = sentBack ? sp.GetRequiredService<TaxiRequestClosure>() : null;
+            var closed = TaxiClosureResult.Empty;
+            await unitOfWork.BeginTransactionAsync();
+            try
+            {
+                if (closure != null) closed = await closure.ListingInReviewAsync(db, taxi.Id);
+                await unitOfWork.SaveChangesAsync();
+                await unitOfWork.CommitTransactionAsync();
+            }
+            catch (DbUpdateConcurrencyException) { await unitOfWork.RollbackTransactionAsync(); return Concurrent(); }
+            catch (Exception ex) when (PgRetry.IsRetryable(ex)) { await unitOfWork.RollbackTransactionAsync(); return Concurrent(); }
+            catch (DbUpdateException) { await unitOfWork.RollbackTransactionAsync(); return PlateTaken(); }
+            catch { await unitOfWork.RollbackTransactionAsync(); throw; }
+            if (closure != null) await closure.AfterCommitAsync(closed, poolChanged: true);
 
             if (wasApproved)
             {
@@ -581,12 +605,30 @@ public static class TaxiHandlers
         taxi.UpdatedAt = now;
         if (wasApproved) SendBackToReview(taxi, now);
 
-        try { await unitOfWork.SaveChangesAsync(); }
-        catch (DbUpdateConcurrencyException)
+        // AU-6: a live taxi sent back to review closes its ringing offers in the same transaction.
+        var closure = wasApproved ? sp.GetRequiredService<TaxiRequestClosure>() : null;
+        var closed = TaxiClosureResult.Empty;
+        var db = sp.GetRequiredService<ApplicationDbContext>();
+        await unitOfWork.BeginTransactionAsync();
+        try
         {
+            if (closure != null) closed = await closure.ListingInReviewAsync(db, taxi.Id);
+            await unitOfWork.SaveChangesAsync();
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch (Exception ex) when (ex is DbUpdateConcurrencyException || PgRetry.IsRetryable(ex))
+        {
+            await unitOfWork.RollbackTransactionAsync();
             try { await photoService.DeletePhotoAsync(filePath); } catch { }
             return Concurrent();
         }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            try { await photoService.DeletePhotoAsync(filePath); } catch { }
+            throw;
+        }
+        if (closure != null) await closure.AfterCommitAsync(closed, poolChanged: true);
 
         if (!string.IsNullOrEmpty(oldPath) && oldPath != filePath)
         {
@@ -611,7 +653,8 @@ public static class TaxiHandlers
         ICityResolver resolver,
         ITripCityCatalog catalog,
         ILoggerFactory loggerFactory,
-        IServiceProvider sp)
+        IServiceProvider sp,
+        IPlanEntitlementService entitlements)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -629,6 +672,11 @@ public static class TaxiHandlers
         if (taxi == null) return NotFoundResponse(TaxiNotFound);
         if (taxi.Status == TaxiStatuses.PendingReview) return LockedResponse();
         if (!TaxiSetupRules.Step1Done(taxi)) return StepLocked(1);
+        // Plan key Routes (contract 3.2, Q1): adding above the plan value is refused (409 TaxiRouteLimit); keeping or shrinking an
+        // over-limit set passes (7 routes kept while payment is OFF). Hidden routes are never loaded, so the replace keeps them.
+        var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Taxi);
+        if (!PlanRowChoice.SaveAllowed(request.Routes.Count, limits.Routes, taxi.Routes.Count))
+            return OwnerHttp.LimitReached(TaxiErrorTypes.TaxiRouteLimit, PlanFeatureKeys.Routes, taxi.Routes.Count, limits);
         // Resolved before any write, so a missing registration can never fail a route save after its commit.
         var pickupPlaces = sp.GetRequiredService<TaxiPickupPlaces>();
         var taxiRequests = sp.GetRequiredService<TaxiRequestClosure>();
@@ -907,9 +955,11 @@ public static class TaxiHandlers
         return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
     }
 
+    // Soft delete (contract 6.2): the closure cancels active bookings; the owner tables go through the purge seam in the same
+    // transaction. 200 { cancelledBookings } (old builds ignore the body).
     public static async Task<IResult> DeleteMine(
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp,
-        ITripEnquiryClosure tripClosure)
+        ITripEnquiryClosure tripClosure, ApplicationDbContext db, IOwnerListingPurge ownerPurge)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -927,11 +977,16 @@ public static class TaxiHandlers
         // The closure locks the taxi requests before the listing row is written (lock order request -> driver listing),
         // so a traveller confirming this driver at the same moment cannot deadlock the delete.
         IReadOnlyList<TripClosurePush> tripPushes;
+        int cancelledBookings;
+        string[] active = [.. BookingStates.Active];
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            cancelledBookings = await db.Set<RentNearBy.Core.Entities.TaxiRequests.TaxiBooking>().AsNoTracking()
+                .CountAsync(b => b.DriverListingId == taxi.Id && active.Contains(b.Status));
             tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, [taxi.Id]);
             await unitOfWork.SaveChangesAsync();
+            await ownerPurge.PurgeAsync(ListingKinds.Taxi, [taxi.Id]);
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateConcurrencyException)
@@ -949,7 +1004,7 @@ public static class TaxiHandlers
         await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(taxi.Id, ListingKinds.Taxi);
         await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
 
-        return NoContentResponse();
+        return OkResponse(new { cancelledBookings });
     }
 
     public static async Task<IResult> GetTaxiReports(

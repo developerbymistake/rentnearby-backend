@@ -29,6 +29,9 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
     public async Task<bool> HasEverApprovedAsync(Guid userId)
         => await _dbSet.AnyAsync(t => t.UserId == userId && t.EverApproved);
 
+    public async Task<bool> HasDeletedAsync(Guid userId)
+        => await _dbSet.AnyAsync(x => x.UserId == userId && x.IsDeleted);
+
     public async Task<bool> HasSubmittedHistoryAsync(Guid userId)
         => await _dbSet.AnyAsync(t => t.UserId == userId
             && (t.Status != TaxiStatuses.Draft || t.SubmittedAt != null || t.EverApproved));

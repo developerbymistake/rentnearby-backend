@@ -211,7 +211,27 @@ public class PlanPurchaseService(
             Priority = limits.PriorityRank,
             Featured = limits.IsFeatured,
             JobsPosts = limits.JobsPosts,
+            Photos = limits.Photos,
+            RoomTypes = limits.RoomTypes,
+            Routes = limits.Routes,
+            RingWeight = limits.RingWeight,
+            CalendarEntries = limits.CalendarEntries,
+            BlockedRanges = limits.BlockedRanges,
+            UpcomingDays = limits.UpcomingDays,
+            MonthsAhead = limits.MonthsAhead,
+            MonthSummary = limits.MonthSummary,
+            Reminders = limits.Reminders,
+            SpecialPrices = limits.SpecialPrices,
+            DemandCount = limits.DemandCount,
         };
+        // Owner roles M3: hidden rows, usage and the payment start facts in one statement (existing + 1).
+        var today = IstTime.TodayIst(DateTime.UtcNow);
+        var rows = await Owner.Be3.OwnerHiddenCounts.ReadAsync(db, userId, feature, today);
+        dto.Hidden = rows.Hidden;
+        dto.Usage = rows.Usage;
+        dto.PausedByPlanCount = rows.Hidden.Total;
+        dto.PaymentStartsOn = Owner.Be3.OwnerHiddenCounts.PaymentStartsOn(flag.Enabled, rows.AnnounceDate, today);
+        dto.PlansStartedToday = Owner.Be3.OwnerHiddenCounts.PlansStartedToday(flag.Enabled, rows.PaymentEnabledAt, today);
 
         if (flag.Enabled)
         {

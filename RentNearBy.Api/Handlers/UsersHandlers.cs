@@ -127,6 +127,7 @@ public static class UsersHandlers
             submittedHistory = await unitOfWork.Stays.HasSubmittedHistoryAsync(user.Id);
             everApproved = submittedHistory && await unitOfWork.Stays.HasEverApprovedAsync(user.Id);
             dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Stay, everApproved, dto.StayStatus);
+            dto.ListingDeleted = dto.StayStatus == null && await unitOfWork.Stays.HasDeletedAsync(user.Id);
         }
         if (user.RoleId == UserRoles.TaxiDriverId)
         {
@@ -134,6 +135,7 @@ public static class UsersHandlers
             submittedHistory = await unitOfWork.Taxis.HasSubmittedHistoryAsync(user.Id);
             everApproved = submittedHistory && await unitOfWork.Taxis.HasEverApprovedAsync(user.Id);
             dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Taxi, everApproved, dto.TaxiStatus);
+            dto.ListingDeleted = dto.TaxiStatus == null && await unitOfWork.Taxis.HasDeletedAsync(user.Id);
         }
         dto.CanCorrectRole = user.RoleConfirmedAt != null && !user.RoleCorrectionUsed
             && (user.RoleId == UserRoles.StayOwnerId || user.RoleId == UserRoles.TaxiDriverId)

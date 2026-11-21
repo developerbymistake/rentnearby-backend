@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Owner;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 
@@ -13,7 +14,8 @@ namespace RentNearBy.Infrastructure.Services;
 //   1. Expiry: each due Active plan is claimed with a conditional UPDATE ... RETURNING inside its own
 //      transaction under the owner lock, then its listing effects run (ranks back to free) and a PlanExpired inbox row is written. A renew that moved EndsAt first wins (0 rows).
 //   2. Reminder: one claim of ReminderSentAt per plan (7 days ahead, half the term for short plans).
-//   3. Daily: set-based rank reconcile per kind (drift repair).
+//   3. Daily (or at once on the payment switch): set-based rank reconcile per kind (drift repair), then the plan limits
+//      reconcile (rows hidden or shown by plan, contract 3.4).
 // Pushes go to notification.push after commit; caches are busted once per batch and kind.
 // Play-owned rows (PlaySubscriptionId set) are expired by the Play sync, not by this clock. Two safety nets
 // only: 72 h past EndsAt with Google unreachable (one sync first, claim only on ApiError), or a subscription
@@ -54,18 +56,38 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(Interval);
+        // Hourly, or at once when the payment switch flips (IPlanReconcileSignal, contract 3.4): then the limits reconcile runs now.
+        IPlanReconcileSignal? signal;
+        using (var scope = scopeFactory.CreateScope()) signal = scope.ServiceProvider.GetService<IPlanReconcileSignal>();
+        DateTime next;
         try
         {
-            do
+            while (!stoppingToken.IsCancellationRequested)
             {
                 await RunOnceAsync(stoppingToken);
+                next = DateTime.UtcNow + Interval;
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    var wait = next - DateTime.UtcNow;
+                    if (wait <= TimeSpan.Zero) break;
+                    var requested = signal != null
+                        ? await signal.WaitAsync(wait, stoppingToken)
+                        : await DelayAsync(wait, stoppingToken);
+                    if (!requested) continue;
+                    _lastReconcile = DateTime.MinValue;
+                    break;
+                }
             }
-            while (await timer.WaitForNextTickAsync(stoppingToken));
         }
         catch (OperationCanceledException)
         {
         }
+    }
+
+    private static async Task<bool> DelayAsync(TimeSpan wait, CancellationToken ct)
+    {
+        await Task.Delay(wait, ct);
+        return false;
     }
 
     private async Task RunOnceAsync(CancellationToken ct)
@@ -228,6 +250,7 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
                     plan.Id, plan.UserId, plan.FeatureKey, effects.Paused, effects.Reranked);
             }
 
+            await slots.AfterCommitAsync();
             await PlanNotifications.PublishAsync(publisher, notification, logger);
             return true;
         }
@@ -358,6 +381,12 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
                 {
                     logger.LogWarning("Rank reconcile fixed {Rows} {Kind} rows (drift)", result.Rows, kind);
                     await invalidator.BustDistrictsAsync(kind, result.DistrictIds);
+                }
+                var limits = await slots.ReconcileLimitsAsync(kind);
+                if (limits.Listings > 0)
+                {
+                    logger.LogInformation("Plan limits reconcile changed {Listings} {Kind} listings, notified {Notified}", limits.Listings, kind, limits.Notified);
+                    await invalidator.BustDistrictsAsync(kind, limits.DistrictIds);
                 }
             }
             catch (Exception ex)

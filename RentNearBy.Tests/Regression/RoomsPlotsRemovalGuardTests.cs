@@ -93,8 +93,9 @@ public class RoomsPlotsRemovalGuardTests
     {
         var names = typeof(ILiveSlotService).GetMethods().Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal);
 
+        // Owner roles (contract 3.4, 7.1): the plan rows reconcile, its after-commit wake and the ring weight overload of SetRankAsync.
         Assert.Equal(
-            new[] { "ApplyGrantEffectsAsync", "ExpireEffectsAsync", "LockOwnerAsync", "ReconcileRanksAsync", "SetRankAsync" },
+            new[] { "AfterCommitAsync", "ApplyGrantEffectsAsync", "ExpireEffectsAsync", "LockOwnerAsync", "ReconcileLimitsAsync", "ReconcileRanksAsync", "SetRankAsync", "SetRankAsync" },
             names);
         Assert.True(typeof(ILiveSlotService).IsAssignableFrom(typeof(PlanSlotService)));
     }
@@ -105,10 +106,9 @@ public class RoomsPlotsRemovalGuardTests
         var t = typeof(ILiveSlotService);
 
         Assert.Equal(typeof(Task), t.GetMethod(nameof(ILiveSlotService.LockOwnerAsync))!.ReturnType);
-        Assert.Equal(typeof(Task<int>), t.GetMethod(nameof(ILiveSlotService.SetRankAsync))!.ReturnType);
-        Assert.Equal(
-            new[] { typeof(Guid), typeof(string), typeof(short), typeof(bool) },
-            t.GetMethod(nameof(ILiveSlotService.SetRankAsync))!.GetParameters().Select(p => p.ParameterType));
+        var setRank = t.GetMethod(nameof(ILiveSlotService.SetRankAsync), [typeof(Guid), typeof(string), typeof(short), typeof(bool)]);
+        Assert.NotNull(setRank);
+        Assert.Equal(typeof(Task<int>), setRank!.ReturnType);
         Assert.Equal(typeof(Task), t.GetMethod(nameof(ILiveSlotService.ApplyGrantEffectsAsync))!.ReturnType);
         Assert.Equal(typeof(Task<ExpireEffectsResult>), t.GetMethod(nameof(ILiveSlotService.ExpireEffectsAsync))!.ReturnType);
         Assert.Equal(typeof(Task<RankReconcileResult>), t.GetMethod(nameof(ILiveSlotService.ReconcileRanksAsync))!.ReturnType);

@@ -16,4 +16,7 @@ public class StayRoomDto
     public int? PriceForDates { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? BasePrice { get; set; }
+    // Owner roles M1 (o_st_15): tonight's price with an active special price; owner reads only.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? PriceToday { get; set; }
 }
