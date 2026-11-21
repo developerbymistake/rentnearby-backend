@@ -19,10 +19,11 @@ public class ShownCounterTests
         => Assert.Equal("owner:shown:20261121", OwnerShownCounter.Key(Be4Facts.Today));
 
     [Fact]
-    public void Only_the_trip_stay_list_and_the_detail_count_and_never_the_owner_own_view()
+    public void Only_the_trip_stay_list_the_detail_and_the_share_link_count_and_never_the_owner_own_view()
     {
         var source = StaySource();
-        Assert.Equal(2, CountOf(source, "OwnerShownCounter"));
+        Assert.Equal(3, CountOf(source, "OwnerShownCounter"));
+        Assert.Contains("if (viewer != stay.UserId) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()", source);
         Assert.Contains("if (!isOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()", source);
         Assert.Contains("!= UserRoles.StayOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.AddListed", source);
     }

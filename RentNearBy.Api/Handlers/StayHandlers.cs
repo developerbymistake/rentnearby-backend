@@ -411,7 +411,7 @@ public static class StayHandlers
     // Share-link resolver. StayPublicSlugDto carries no owner fields, and the repository only
     // returns Approved, non-deleted stays, so unreviewed content never leaks through a slug.
     public static async Task<IResult> GetBySlug(
-        string slug, IUnitOfWork unitOfWork, IServiceProvider sp, DateOnly? checkIn = null, int? nights = null, CancellationToken ct = default)
+        string slug, IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, DateOnly? checkIn = null, int? nights = null, CancellationToken ct = default)
     {
         if (nights is < 1 or > 30) return BadRequestResponse("Nights must be 1 to 30");
         var stay = await unitOfWork.Stays.GetBySlugWithAllAsync(slug);
@@ -419,6 +419,8 @@ public static class StayHandlers
         var dto = stay.Adapt<StayPublicSlugDto>();
         if (sp.GetService<IStayDetailPricing>() is { } pricing)
             await pricing.ApplyAsync(dto, checkIn, nights ?? 1, IstTime.TodayIst(DateTime.UtcNow), ct);
+        var viewer = UsersHandlers.TryGetUserId(principal, out var viewerId) ? viewerId : (Guid?)null;
+        if (viewer != stay.UserId) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.Add(stay.Id, stay.UserId, viewer);
         return OkResponse(dto);
     }
 

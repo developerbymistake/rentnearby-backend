@@ -552,8 +552,10 @@ public static class AdminHandlers
         var flag = await unitOfWork.AppFeatureFlags.GetByKeyAsync(AppFeatureKeys.PaymentEnabled);
         if (flag == null) return NotFoundResponse("Payment feature flag not found");
 
-        // AU-17: the announce date is at least 7 days ahead (the job sends the notice); ClearAnnounceDate removes it and sends nothing.
-        if (request.AnnounceDate is { } announce && !PaymentAnnounceRules.IsFarEnough(announce, IstTime.TodayIst(DateTime.UtcNow)))
+        // AU-17: a new or changed announce date is at least 7 days ahead (the job sends the notice); the stored date sent back
+        // unchanged is accepted. ClearAnnounceDate removes it and sends nothing.
+        if (request.AnnounceDate is { } announce && announce != flag.AnnounceDate
+            && !PaymentAnnounceRules.IsFarEnough(announce, IstTime.TodayIst(DateTime.UtcNow)))
             return ErrorResponse(400, OwnerErrorTypes.MessageOf(OwnerErrorTypes.AnnounceTooSoon), OwnerErrorTypes.AnnounceTooSoon);
         if (request.ClearAnnounceDate) flag.AnnounceDate = null;
         else if (request.AnnounceDate.HasValue) flag.AnnounceDate = request.AnnounceDate.Value;
