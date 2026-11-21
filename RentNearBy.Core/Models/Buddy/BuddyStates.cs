@@ -135,10 +135,21 @@ public static class NoticeKinds
     public const string ExpensesChanged = "ExpensesChanged";
     public const string TripRemoved = "TripRemoved";
     public const string TripDeleted = "TripDeleted";
+    public const string BuddyAccepted = "BuddyAccepted";
+    public const string NewBuddy = "NewBuddy";
+    public const string TripJoined = "TripJoined";
+    public const string PlanUpdated = "PlanUpdated";
+    public const string ExpenseAdded = "ExpenseAdded";
+    public const string ShareChanged = "ShareChanged";
 
     public static readonly IReadOnlyList<string> All =
-        [BuddyRequest, TripInvite, PaymentSaidPaid, SettleReminder, PaymentNotReceived, ExpensesChanged, TripRemoved, TripDeleted];
-    public static readonly IReadOnlyList<string> WithAmount = [PaymentSaidPaid, SettleReminder, PaymentNotReceived];
+    [
+        BuddyRequest, TripInvite, PaymentSaidPaid, SettleReminder, PaymentNotReceived, ExpensesChanged, TripRemoved, TripDeleted,
+        BuddyAccepted, NewBuddy, TripJoined, PlanUpdated, ExpenseAdded, ShareChanged,
+    ];
+    public static readonly IReadOnlyList<string> WithAmount = [PaymentSaidPaid, SettleReminder, PaymentNotReceived, ExpenseAdded, ShareChanged];
+    // Rows of a viewer that go when he is removed from the trip (or leaves, plan rows only).
+    public static readonly IReadOnlyList<string> GoneOnRemove = [PlanUpdated, ExpenseAdded, ShareChanged];
     public static readonly string SqlList = BuddySql.List(All);
 
     public static readonly Guid NoTrip = Guid.Empty;

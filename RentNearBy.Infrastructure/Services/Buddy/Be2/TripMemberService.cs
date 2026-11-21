@@ -139,6 +139,7 @@ public sealed class TripMemberService(
             if (removed is null) return SharingResult<TripRemovedDto>.Fail(BuddyErrorTypes.NotOnTrip);
             var shares = (await db.Database.SqlQueryRaw<int>(ShareCountSql, Id("trip", tripId), Id("user", userId)).ToListAsync(c)).FirstOrDefault();
             await notices.UpsertAsync([new NoticeUpsert(userId, NoticeKinds.TripRemoved, tripId, ownerId)], c);
+            await notices.DeletePairsAsync(tripId, NoticeKinds.GoneOnRemove.Select(k => (k, userId)).ToList(), c);
             await notices.PushAsync([BuddyPushCopy.TripMemberRemoved(userId, removed.Id, removed.Version, tripId, trip.OwnerName, trip.Title)], c);
             await tx.CommitAsync(c);
             return SharingResult<TripRemovedDto>.Success(new TripRemovedDto { Status = TripMemberStatuses.Removed, SharesExpenses = shares });
@@ -162,6 +163,7 @@ public sealed class TripMemberService(
             if (trip is null || trip.OwnerUserId == callerId) return false;
             ownerId = trip.OwnerUserId;
             var changed = await db.Database.ExecuteSqlRawAsync(LeaveSql, [Id("trip", tripId), Id("user", callerId)], c);
+            if (changed > 0) await notices.DeleteAsync(NoticeKinds.PlanUpdated, tripId, [callerId], c);
             if (changed == 0)
             {
                 var status = (await db.Database.SqlQueryRaw<string>(MemberStatusSql, Id("trip", tripId), Id("user", callerId)).ToListAsync(c)).FirstOrDefault();

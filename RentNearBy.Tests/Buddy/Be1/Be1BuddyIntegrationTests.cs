@@ -220,6 +220,9 @@ public class Be1BuddyIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.True(second.Ok);
         Assert.Equal(p[1], second.Value!.Buddy.UserId);
         Assert.Single(kit.Notices.Pushes);
+        Assert.Equal(2, kit.Notices.Upserts.Count);
+        Assert.Contains(kit.Notices.Upserts, n => n.UserId == p[1] && n.Kind == NoticeKinds.BuddyAccepted && n.ActorUserId == p[0] && n.TripId == NoticeKinds.NoTrip);
+        Assert.Contains(kit.Notices.Upserts, n => n.UserId == p[0] && n.Kind == NoticeKinds.NewBuddy && n.ActorUserId == p[1] && n.TripId == NoticeKinds.NoTrip);
         Assert.Equal(2, await BuddyRowsAsync(p[0], p[1]));
         Assert.False(await ctx.Set<UserNotice>().AnyAsync(n => n.UserId == p[0]));
         Assert.Equal(BuddyErrorTypes.RequestEnded, (await kit.Requests.AcceptAsync(p[1], id)).ErrorType);

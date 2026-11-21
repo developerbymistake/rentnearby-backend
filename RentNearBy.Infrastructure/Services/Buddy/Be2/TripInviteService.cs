@@ -189,6 +189,7 @@ public sealed class TripInviteService(
                 return again?.Status == TripMemberStatuses.Joined ? Joined(again.TripId) : EndedResult<TripJoinedDto>(again);
             }
             await notices.DeleteAsync(NoticeKinds.TripInvite, row.TripId, [callerId], c);
+            await notices.UpsertAsync([new NoticeUpsert(row.OwnerUserId, NoticeKinds.TripJoined, row.TripId, callerId)], c);
             await notices.PushAsync([BuddyPushCopy.TripMemberJoined(row.OwnerUserId, memberId, version, row.TripId,
                 row.InviteeName, row.Title, row.JoinedViewers + 2)], c);
             await tx.CommitAsync(c);

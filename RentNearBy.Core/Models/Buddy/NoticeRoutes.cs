@@ -11,9 +11,13 @@ public static class NoticeRoutes
         return kind switch
         {
             NoticeKinds.BuddyRequest => new(UserNotificationRoutes.Buddies, Args(("tab", "requests"))),
+            NoticeKinds.BuddyAccepted or NoticeKinds.NewBuddy => new(UserNotificationRoutes.Buddies, Args(("tab", "buddies"))),
+            NoticeKinds.TripJoined => new(UserNotificationRoutes.TripTravellers, Args(("tripId", trip))),
+            NoticeKinds.PlanUpdated => new(UserNotificationRoutes.TripView, Args(("tripId", trip))),
             NoticeKinds.TripInvite => new(UserNotificationRoutes.TripInvite, Args(("memberId", refId?.ToString() ?? string.Empty))),
             NoticeKinds.PaymentSaidPaid => new(UserNotificationRoutes.TripExpenses, Args(("tripId", trip), ("tab", "balances"))),
             NoticeKinds.SettleReminder or NoticeKinds.PaymentNotReceived or NoticeKinds.ExpensesChanged
+                or NoticeKinds.ExpenseAdded or NoticeKinds.ShareChanged
                 => new(UserNotificationRoutes.TripExpenses, Args(("tripId", trip))),
             NoticeKinds.TripRemoved => new(UserNotificationRoutes.TripView, Args(("tripId", trip))),
             NoticeKinds.TripDeleted => new(UserNotificationRoutes.MyTrips, Args(("deletedTripId", trip))),

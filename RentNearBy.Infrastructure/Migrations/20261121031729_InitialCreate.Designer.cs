@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261120192158_InitialCreate")]
+    [Migration("20261121031729_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -927,7 +927,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_usernotices_count", "\"Count\" >= 1");
 
-                            t.HasCheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted')");
+                            t.HasCheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged')");
                         });
                 });
 

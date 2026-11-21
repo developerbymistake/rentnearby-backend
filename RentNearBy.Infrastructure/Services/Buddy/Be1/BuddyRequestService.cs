@@ -283,6 +283,11 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
         await db.Database.ExecuteSqlRawAsync(Be1Sql.InsertBuddiesSql,
             [Be1Sql.Uuid("a", accepterId), Be1Sql.Uuid("b", senderId), Be1Sql.Uuid("id", requestId)], ct);
         await Be1Sql.DeleteRequestNoticesAsync(db, [accepterId], ct);
+        await notices.UpsertAsync(
+        [
+            new NoticeUpsert(senderId, NoticeKinds.BuddyAccepted, NoticeKinds.NoTrip, accepterId),
+            new NoticeUpsert(accepterId, NoticeKinds.NewBuddy, NoticeKinds.NoTrip, senderId),
+        ], ct);
         await notices.PushAsync([BuddyPushCopy.BuddyRequestAccepted(senderId, requestId, accepterName)], ct);
         return true;
     }

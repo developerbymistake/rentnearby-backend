@@ -61,18 +61,35 @@ public static class TripPlanLock
         var y = b ?? [];
         if (x.Count != y.Count) return false;
         for (var i = 0; i < x.Count; i++)
-        {
-            var p = x[i];
-            var q = y[i];
-            if (p == null || q == null)
-            {
-                if (p != q) return false;
-                continue;
-            }
-            if (p.Day != q.Day || (p.Leg ?? 1) != (q.Leg ?? 1) || (p.RestDay == true) != (q.RestDay == true)) return false;
-            if (!SpotIds(p).SequenceEqual(SpotIds(q), StringComparer.Ordinal)) return false;
-        }
+            if (!SameDay(x[i], y[i])) return false;
         return true;
+    }
+
+    // The one day number whose places changed when nothing else did (same legs, day count and settings); else null.
+    public static int? OnlyChangedDay(TripPlan stored, TripPlan incoming)
+    {
+        if (!SameLegs(stored.Legs, incoming.Legs)) return null;
+        var a = stored.Settings;
+        var b = incoming.Settings;
+        if (a?.StartDate != b?.StartDate || a?.Adults != b?.Adults || a?.Kids != b?.Kids) return null;
+        var x = stored.Days ?? [];
+        var y = incoming.Days ?? [];
+        if (x.Count != y.Count) return null;
+        int? changed = null;
+        for (var i = 0; i < x.Count; i++)
+        {
+            if (SameDay(x[i], y[i])) continue;
+            if (changed is not null || x[i] == null || y[i] == null || x[i].Day != y[i].Day) return null;
+            changed = y[i].Day;
+        }
+        return changed is > 0 ? changed : null;
+    }
+
+    private static bool SameDay(TripDay? p, TripDay? q)
+    {
+        if (p == null || q == null) return p == q;
+        if (p.Day != q.Day || (p.Leg ?? 1) != (q.Leg ?? 1) || (p.RestDay == true) != (q.RestDay == true)) return false;
+        return SpotIds(p).SequenceEqual(SpotIds(q), StringComparer.Ordinal);
     }
 
     private static IEnumerable<string> SpotIds(TripDay day) => (day.Spots ?? []).Select(s => s?.Id ?? string.Empty);

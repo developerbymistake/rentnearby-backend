@@ -175,7 +175,8 @@ public class Be3IntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.Equal(new[] { 6168, 6166, 6166 }, first.Value!.Expense.Shares.Select(s => s.Share));
         Assert.Equal(_owner, first.Value.Expense.LeftoverUserId);
         Assert.Equal(1, first.Value.BalancesVersion);
-        Assert.Equal(2, w.Notices.Upserts.Count(n => n.Kind == NoticeKinds.ExpensesChanged));
+        Assert.Equal(2, w.Notices.Upserts.Count(n => n.Kind == NoticeKinds.ExpenseAdded && n.RefId == id && n.Amount == 6166));
+        Assert.DoesNotContain(w.Notices.Upserts, n => n.Kind == NoticeKinds.ExpensesChanged);
         Assert.DoesNotContain(w.Notices.Upserts, n => n.UserId == _owner);
         Assert.Equal(2, w.Notices.Pushes.Count);
         Assert.Single(w.Hints.TripExpensesChanged);

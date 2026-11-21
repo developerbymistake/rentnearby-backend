@@ -168,6 +168,32 @@ public static class TripExpenseRules
         return delta.Where(d => d.Key != ownerId && (d.Value.Paid != 0 || d.Value.Share != 0)).Select(d => d.Key).ToList();
     }
 
+    // One row per recipient for one money write: a create gives ExpenseAdded (his share), an edit that moves his share gives
+    // ShareChanged (the new share, the last such expense), anything else ExpensesChanged. Never two kinds for one person.
+    public static List<NoticeUpsert> MoneyNotices(
+        Guid tripId, Guid ownerId, IReadOnlyCollection<Guid> recipients, IReadOnlyList<(Guid ExpenseId, ExpenseFacts? Old, ExpenseFacts? Now)> changes)
+    {
+        var rows = new List<NoticeUpsert>(recipients.Count);
+        foreach (var u in recipients)
+        {
+            NoticeUpsert? row = null;
+            foreach (var (id, old, now) in changes)
+            {
+                if (now is null) continue;
+                var after = ShareOf(now, u);
+                if (old is null)
+                    row = new NoticeUpsert(u, NoticeKinds.ExpenseAdded, tripId, ownerId, id, after);
+                else if (ShareOf(old, u) != after)
+                    row = new NoticeUpsert(u, NoticeKinds.ShareChanged, tripId, ownerId, id, after ?? 0);
+            }
+            rows.Add(row ?? new NoticeUpsert(u, NoticeKinds.ExpensesChanged, tripId, ownerId));
+        }
+        return rows;
+    }
+
+    private static int? ShareOf(ExpenseFacts f, Guid userId)
+        => f.Shares.FirstOrDefault(s => s.UserId == userId) is { } s ? s.Share : null;
+
     // Edit, delete and share-with after a SaidPaid or Received payment need the owner's confirmation (4.8c, 4.8d).
     public static bool NeedsAcknowledge(bool moneyChanges, int saidPaidCount, int receivedCount, bool acknowledged)
         => moneyChanges && saidPaidCount + receivedCount > 0 && !acknowledged;

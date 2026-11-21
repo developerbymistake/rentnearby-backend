@@ -369,15 +369,44 @@ public class TripSharingIntegrationTests(TestDatabase db) : IntegrationTestBase(
     }
 
     [IntegrationFact]
-    public async Task Plan_saved_hook_writes_one_delayed_push_per_viewer_per_30_minutes()
+    public async Task Plan_saved_hook_writes_one_delayed_push_and_one_in_place_row_per_viewer()
     {
         await using var ctx = CreateContext();
         await SeedSharedTripAsync(ctx, 3);
-        await Hooks(ctx).OnPlanSavedAsync(_trip, _owner);
-        await Hooks(ctx).OnPlanSavedAsync(_trip, _owner);
+        await Hooks(ctx).OnPlanSavedAsync(_trip, _owner, 2);
+        await Hooks(ctx).OnPlanSavedAsync(_trip, _owner, 3);
         await using var check = CreateContext();
         var rows = await check.OutboxMessages.Where(o => o.Key.StartsWith("planupd:" + _trip.ToString("N"))).ToListAsync();
         Assert.Equal(_people.Count - 2, rows.Count);
-        Assert.False(await check.Set<UserNotice>().AnyAsync(n => n.TripId == _trip));
+        var notices = await check.Set<UserNotice>().Where(n => n.TripId == _trip && n.Kind == NoticeKinds.PlanUpdated).ToListAsync();
+        Assert.Equal(_people.Count - 2, notices.Count);
+        Assert.All(notices, n => { Assert.Equal(2, n.Count); Assert.Equal(3, n.Amount); Assert.Equal(_owner, n.ActorUserId); });
+        Assert.DoesNotContain(notices, n => n.UserId == _owner);
+    }
+
+    [IntegrationFact]
+    public async Task Join_upserts_one_TripJoined_row_for_the_owner_in_place()
+    {
+        await using var ctx = CreateContext();
+        await SeedSharedTripAsync(ctx, 3);
+        var joined = await Invites(ctx).AcceptAsync(_member, _people[^1]);
+        Assert.True(joined.Ok);
+        await using var check = CreateContext();
+        var row = Assert.Single(await check.Set<UserNotice>().Where(n => n.TripId == _trip && n.Kind == NoticeKinds.TripJoined).ToListAsync());
+        Assert.Equal(_owner, row.UserId);
+        Assert.Equal(_people[^1], row.ActorUserId);
+        Assert.Equal(1, row.Count);
+    }
+
+    [IntegrationFact]
+    public async Task Remove_deletes_the_removed_viewers_plan_and_money_rows()
+    {
+        await using var ctx = CreateContext();
+        await SeedSharedTripAsync(ctx, 3);
+        await BuddySeed.NoticesAsync(ctx, _viewer, [(NoticeKinds.PlanUpdated, _trip), (NoticeKinds.ExpenseAdded, _trip), (NoticeKinds.ShareChanged, _trip)]);
+        Assert.True((await Members(ctx).RemoveAsync(_trip, _owner, _viewer)).Ok);
+        await using var check = CreateContext();
+        var kinds = await check.Set<UserNotice>().Where(n => n.UserId == _viewer && n.TripId == _trip).Select(n => n.Kind).ToListAsync();
+        Assert.Equal([NoticeKinds.TripRemoved], kinds);
     }
 }

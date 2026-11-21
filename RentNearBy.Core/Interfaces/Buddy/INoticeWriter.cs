@@ -15,6 +15,8 @@ public interface INoticeWriter
 
     Task DeleteForTripAsync(Guid tripId, IReadOnlyCollection<string> exceptKinds, CancellationToken ct = default);
 
+    Task DeletePairsAsync(Guid tripId, IReadOnlyCollection<(string Kind, Guid UserId)> rows, CancellationToken ct = default);
+
     Task PushAsync(IReadOnlyCollection<PushSpec> pushes, CancellationToken ct = default);
 
     // After the caller's commit: wakes the outbox relay.

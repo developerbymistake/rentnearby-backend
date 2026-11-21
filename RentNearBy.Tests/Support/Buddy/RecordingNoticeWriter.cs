@@ -10,6 +10,7 @@ public sealed class RecordingNoticeWriter : INoticeWriter
     public List<(NoticeUpsert Notice, DateTime NotBeforeUtc)> ConditionalUpserts { get; } = [];
     public List<(string Kind, Guid TripId, IReadOnlyCollection<Guid>? UserIds)> Deletes { get; } = [];
     public List<(Guid TripId, IReadOnlyCollection<string> ExceptKinds)> TripDeletes { get; } = [];
+    public List<(Guid TripId, IReadOnlyCollection<(string Kind, Guid UserId)> Rows)> PairDeletes { get; } = [];
     public List<PushSpec> Pushes { get; } = [];
     public int Calls { get; private set; }
     public int Wakes { get; private set; }
@@ -40,6 +41,13 @@ public sealed class RecordingNoticeWriter : INoticeWriter
     {
         Calls++;
         TripDeletes.Add((tripId, exceptKinds.ToList()));
+        return Task.CompletedTask;
+    }
+
+    public Task DeletePairsAsync(Guid tripId, IReadOnlyCollection<(string Kind, Guid UserId)> rows, CancellationToken ct = default)
+    {
+        Calls++;
+        PairDeletes.Add((tripId, rows.ToList()));
         return Task.CompletedTask;
     }
 

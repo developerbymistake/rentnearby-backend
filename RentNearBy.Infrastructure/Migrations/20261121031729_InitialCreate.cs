@@ -1432,7 +1432,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_UserNotices", x => x.Id);
                     table.CheckConstraint("ck_usernotices_count", "\"Count\" >= 1");
-                    table.CheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted')");
+                    table.CheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged')");
                     table.ForeignKey(
                         name: "FK_UserNotices_Users_UserId",
                         column: x => x.UserId,

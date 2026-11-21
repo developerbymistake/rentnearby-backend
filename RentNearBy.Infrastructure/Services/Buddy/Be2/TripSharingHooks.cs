@@ -60,14 +60,15 @@ public sealed class TripSharingHooks(
         };
     }
 
-    // After the plan save commit: one coalesced, delayed push-only row per viewer (key bucket of 30 minutes). Never throws.
-    public async Task OnPlanSavedAsync(Guid tripId, Guid ownerId, CancellationToken ct = default)
+    // After the plan save commit: one PlanUpdated row per viewer upserted in place, plus the coalesced, delayed push. Never throws.
+    public async Task OnPlanSavedAsync(Guid tripId, Guid ownerId, int? changedDay = null, CancellationToken ct = default)
     {
         try
         {
             var viewers = await ReadViewersAsync(tripId, ownerId, ct);
             if (viewers.Count == 0) return;
             var now = clock.GetUtcNow().UtcDateTime;
+            await notices.UpsertAsync(viewers.Select(v => new NoticeUpsert(v.UserId, NoticeKinds.PlanUpdated, tripId, ownerId, null, changedDay)).ToList(), ct);
             await notices.PushAsync(viewers.Select(v => BuddyPushCopy.TripPlanUpdated(v.UserId, tripId, v.OwnerName, v.Title, now)).ToList(), ct);
             notices.Wake();
             await hints.TripViewChangedAsync(tripId, viewers.Select(v => v.UserId).ToList());

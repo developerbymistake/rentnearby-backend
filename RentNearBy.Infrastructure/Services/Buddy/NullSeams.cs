@@ -16,6 +16,8 @@ public sealed class NullNoticeWriter : INoticeWriter
 
     public Task DeleteForTripAsync(Guid tripId, IReadOnlyCollection<string> exceptKinds, CancellationToken ct = default) => Task.CompletedTask;
 
+    public Task DeletePairsAsync(Guid tripId, IReadOnlyCollection<(string Kind, Guid UserId)> rows, CancellationToken ct = default) => Task.CompletedTask;
+
     public Task PushAsync(IReadOnlyCollection<PushSpec> pushes, CancellationToken ct = default) => Task.CompletedTask;
 
     public void Wake()
@@ -43,7 +45,7 @@ public sealed class NullTripSharingHooks : ITripSharingHooks
     public Task<TripSharingBlockDto?> GetSharingAsync(Guid tripId, Guid ownerId, CancellationToken ct = default)
         => Task.FromResult<TripSharingBlockDto?>(null);
 
-    public Task OnPlanSavedAsync(Guid tripId, Guid ownerId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task OnPlanSavedAsync(Guid tripId, Guid ownerId, int? changedDay = null, CancellationToken ct = default) => Task.CompletedTask;
 
     public Task<int> OnTripDeletingAsync(Guid tripId, Guid ownerId, CancellationToken ct = default) => Task.FromResult(0);
 }

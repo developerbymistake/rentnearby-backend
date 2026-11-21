@@ -793,7 +793,7 @@ public static class TripHandlers
         {
             try
             {
-                await sharingHooks.OnPlanSavedAsync(trip.Id, userId);
+                await sharingHooks.OnPlanSavedAsync(trip.Id, userId, TripPlanLock.OnlyChangedDay(stored, plan));
             }
             catch (Exception ex)
             {

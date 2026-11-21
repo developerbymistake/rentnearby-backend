@@ -206,7 +206,7 @@ public sealed class TripExpenseService(
 
             var row = rows[0];
             var affected = moneyChanges ? TripExpenseRules.Affected(isCreate ? null : stored, facts, trip.OwnerUserId) : [];
-            var snapshot = moneyChanges ? await AfterMoneyWriteAsync(trip, travellers, canonical, expenseId, affected, c) : null;
+            var snapshot = moneyChanges ? await AfterMoneyWriteAsync(trip, travellers, canonical, expenseId, affected, [(expenseId, isCreate ? null : stored, facts)], c) : null;
             await tx.CommitAsync(c);
 
             var link = input.LinkKind is null ? null
@@ -258,7 +258,7 @@ public sealed class TripExpenseService(
             if (rows.Count == 0) return ExpenseResult<BalancesVersionDto>.Fail(BuddyErrorTypes.ExpenseVersionConflict);
 
             var affected = TripExpenseRules.Affected(stored, null, trip.OwnerUserId);
-            var snapshot = await AfterMoneyWriteAsync(trip, travellers, canonical, expenseId, affected, c);
+            var snapshot = await AfterMoneyWriteAsync(trip, travellers, canonical, expenseId, affected, [(expenseId, stored, null)], c);
             await tx.CommitAsync(c);
             done = new Committed(tripId, snapshot.Version, travellers, callerId, true);
             return ExpenseResult<BalancesVersionDto>.Ok(new BalancesVersionDto { BalancesVersion = snapshot.Version });
@@ -339,7 +339,8 @@ public sealed class TripExpenseService(
             ], c);
 
             var affected = plans.SelectMany(p => TripExpenseRules.Affected(p.Old, p.Now, trip.OwnerUserId)).Distinct().ToList();
-            var snapshot = await AfterMoneyWriteAsync(trip, travellers, canonical, plans[0].Row.Id, affected, c);
+            var snapshot = await AfterMoneyWriteAsync(trip, travellers, canonical, plans[0].Row.Id, affected,
+                plans.Select(p => (p.Row.Id, (ExpenseFacts?)p.Old, (ExpenseFacts?)p.Now)).ToList(), c);
             await tx.CommitAsync(c);
 
             var writtenById = written.ToDictionary(w => w.Id);
@@ -388,10 +389,11 @@ public sealed class TripExpenseService(
         return TripExpenseRules.Frozen(trip.EndDate, trip.CompletedAt, TodayIst) ? BuddyErrorTypes.TripExpensesFrozen : null;
     }
 
-    // Ledger refresh, ExpensesChanged notice + coalesced push for the people whose money changed, SettleReminder clean-up.
+    // Ledger refresh, one notice row (ExpenseAdded, ShareChanged or ExpensesChanged) + coalesced push for the people whose money
+    // changed, SettleReminder clean-up.
     private async Task<TripLedgerSnapshot> AfterMoneyWriteAsync(
         TripAccessInfo trip, IReadOnlyList<TripTraveller> travellers, IReadOnlyList<Guid> canonical, Guid changedExpenseId,
-        IReadOnlyCollection<Guid> affected, CancellationToken ct)
+        IReadOnlyCollection<Guid> affected, IReadOnlyList<(Guid ExpenseId, ExpenseFacts? Old, ExpenseFacts? Now)> changes, CancellationToken ct)
     {
         var snapshot = await ledger.RefreshStateAsync(trip.TripId, canonical, changedExpenseId, ct);
         var recipients = Recipients(affected, travellers, trip.OwnerUserId);
@@ -400,7 +402,7 @@ public sealed class TripExpenseService(
             var owner = travellers.FirstOrDefault(t => t.IsOwner);
             var ownerName = owner is null ? trip.OwnerName : MoneyPeople.PushName(owner, travellers);
             var nowUtc = time.GetUtcNow().UtcDateTime;
-            await notices.UpsertAsync(recipients.Select(u => new NoticeUpsert(u, NoticeKinds.ExpensesChanged, trip.TripId, trip.OwnerUserId)).ToList(), ct);
+            await notices.UpsertAsync(TripExpenseRules.MoneyNotices(trip.TripId, trip.OwnerUserId, recipients, changes), ct);
             await notices.PushAsync(recipients.Select(u => BuddyPushCopy.TripExpensesUpdated(u, trip.TripId, ownerName, trip.Title, nowUtc)).ToList(), ct);
         }
         var payers = snapshot.Open.Select(o => o.FromUserId).ToHashSet();
