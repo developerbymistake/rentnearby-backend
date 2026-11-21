@@ -76,6 +76,14 @@ public static class TripLimits
     public const int MaxDays = 14;
     public const int MaxLegs = 4;
     public const int MaxSpotsPerDay = 6;
+
+    // Trips a traveller holds at once: owned (any status) + joined as a viewer.
+    public const int MaxTripsPerUser = 3;
+}
+
+public static class TripSlotRules
+{
+    public static bool IsFull(int count) => count >= TripLimits.MaxTripsPerUser;
 }
 
 public static class TripCacheKeys

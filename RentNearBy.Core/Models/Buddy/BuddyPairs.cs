@@ -13,4 +13,6 @@ public static class BuddyPairs
     }
 
     public static string SenderLockKey(Guid userId) => $"buddy:sender:{userId:D}";
+
+    public static string TripSlotsLockKey(Guid userId) => $"trip:slots:{userId:D}";
 }

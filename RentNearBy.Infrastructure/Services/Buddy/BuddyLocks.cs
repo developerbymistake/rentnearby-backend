@@ -6,9 +6,12 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services.Buddy;
 
-// Contract 5.1 lock order: sender -> pair(s) -> trip row(s) -> rows. Transaction-scoped; call inside the caller's transaction.
+// Contract 5.1 lock order: trip-slots (caller only) -> sender -> pair(s) -> trip row(s) -> rows. Transaction-scoped; call inside the caller's transaction.
 public static class BuddyLocks
 {
+    public static Task LockTripSlotsAsync(ApplicationDbContext db, Guid userId, CancellationToken ct = default)
+        => LockKeysAsync(db, [BuddyPairs.TripSlotsLockKey(userId)], ct);
+
     public static Task LockSenderAsync(ApplicationDbContext db, Guid userId, CancellationToken ct = default)
         => LockKeysAsync(db, [BuddyPairs.SenderLockKey(userId)], ct);
 

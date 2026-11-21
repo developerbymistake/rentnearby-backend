@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
+using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
@@ -9,7 +10,7 @@ using static RentNearBy.Infrastructure.Services.Buddy.Be2.Be2Sql;
 
 namespace RentNearBy.Infrastructure.Services.Buddy.Be2;
 
-// S2, S3, S7, S8, S9 (contract 2.2). Lock order: pair locks -> trip row -> TripMembers -> UserNotices -> OutboxMessages.
+// S2, S3, S7, S8, S9 (contract 2.2). Lock order: trip-slots (S8 only) -> pair locks -> trip row -> TripMembers -> UserNotices -> OutboxMessages.
 public sealed class TripInviteService(
     ApplicationDbContext db, INoticeWriter notices, IBuddyLiveHints hints, TimeProvider clock, ILogger<TripInviteService> logger)
 {
@@ -161,7 +162,7 @@ public sealed class TripInviteService(
         SharingResult<TripInvitePreviewDto> Ended(InviteRow? r) => SharingResult<TripInvitePreviewDto>.Fail(BuddyErrorTypes.InviteEnded, EndedData(r, now));
     }
 
-    // S8: 200 also on a repeat. Only the trip lock; the conditional update serialises against cancel, block and expiry.
+    // S8: 200 also on a repeat. The caller's slot lock then the trip lock; the conditional update serialises against cancel, block and expiry.
     public async Task<SharingResult<TripJoinedDto>> AcceptAsync(Guid memberId, Guid callerId, CancellationToken ct = default)
     {
         var first = await ReadInviteLeanAsync(db, memberId, ct);
@@ -172,6 +173,7 @@ public sealed class TripInviteService(
         var result = await PgRetry.OnceAsync(db, async c =>
         {
             await using var tx = await db.Database.BeginTransactionAsync(c);
+            await BuddyLocks.LockTripSlotsAsync(db, callerId, c);
             var trip = await LockTripAsync(db, first.TripId, c);
             if (trip is null) return EndedResult<TripJoinedDto>(null);
             var row = await ReadInviteLeanAsync(db, memberId, c);
@@ -181,6 +183,9 @@ public sealed class TripInviteService(
             if (!TripSharingRules.IsWaitingInvite(row.Status, row.InviteExpiresAt, Now)) return EndedResult<TripJoinedDto>(row);
             if (row.JoinedViewers >= BuddyLimits.MaxViewers)
                 return SharingResult<TripJoinedDto>.Fail(BuddyErrorTypes.TripFull, new { seatsLeft = 0 });
+            // At the trip limit nothing is written: the invite keeps waiting until a slot is freed.
+            if (await TripSlots.ReadAsync(db, callerId, c) is { } slots && TripSlotRules.IsFull(slots.Count))
+                return SharingResult<TripJoinedDto>.Fail(BuddyErrorTypes.TripLimitReached, slots);
 
             var version = (await db.Database.SqlQueryRaw<int>(AcceptSql, Id("member", memberId)).ToListAsync(c)).FirstOrDefault();
             if (version == 0)

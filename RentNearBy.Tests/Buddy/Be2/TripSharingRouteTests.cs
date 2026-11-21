@@ -29,7 +29,7 @@ public class TripSharingRouteTests
     {
         string[] expected =
         [
-            "GET /api/v1/trips/shared", "GET /api/v1/trips/invite-options", "GET /api/v1/trips/invites/{memberId:guid}",
+            "GET /api/v1/trips/shared", "GET /api/v1/trips/slots", "GET /api/v1/trips/invite-options", "GET /api/v1/trips/invites/{memberId:guid}",
             "POST /api/v1/trips/invites/{memberId:guid}/accept", "POST /api/v1/trips/invites/{memberId:guid}/decline",
             "GET /api/v1/trips/{id:guid}/members", "DELETE /api/v1/trips/{id:guid}/members/{userId:guid}",
             "GET /api/v1/trips/{id:guid}/members/{userId:guid}/expense-count", "POST /api/v1/trips/{id:guid}/invites",

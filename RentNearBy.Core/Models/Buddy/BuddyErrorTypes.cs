@@ -18,6 +18,7 @@ public static class BuddyErrorTypes
     public const string InvalidReason = "InvalidReason";
     public const string TripNotFound = "TripNotFound";
     public const string TripFull = "TripFull";
+    public const string TripLimitReached = "TripLimitReached";
     public const string TripCompleted = "TripCompleted";
     public const string NoPlaces = "NoPlaces";
     public const string InviteEnded = "InviteEnded";
@@ -73,6 +74,7 @@ public static class BuddyErrorTypes
         [InvalidReason] = (400, "Pick a reason."),
         [TripNotFound] = (404, "Trip not found"),
         [TripFull] = (409, "This trip is full."),
+        [TripLimitReached] = (409, $"You can keep {TripLimits.MaxTripsPerUser} trips. Delete one to make room."),
         [TripCompleted] = (409, "This trip is complete. Plan changes are off."),
         [NoPlaces] = (400, "Add places to the plan first."),
         [InviteEnded] = (404, "This invite has ended."),

@@ -9,6 +9,7 @@ public static class TripSharingEndpoints
     public static RouteGroupBuilder MapTripSharingEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/shared", TripSharingHandlers.Shared).RequireAuthorization();
+        group.MapGet("/slots", TripSlotHandlers.Get).RequireAuthorization();
         group.MapGet("/invite-options", TripSharingHandlers.InviteOptions).RequireAuthorization();
         group.MapGet("/invites/{memberId:guid}", TripSharingHandlers.Preview).RequireAuthorization();
         group.MapPost("/invites/{memberId:guid}/accept", TripSharingHandlers.Accept).RequireAuthorization();

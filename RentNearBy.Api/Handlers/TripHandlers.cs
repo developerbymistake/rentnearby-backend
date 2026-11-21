@@ -22,6 +22,8 @@ using RentNearBy.Infrastructure.Services;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
+using BuddyErrorTypes = RentNearBy.Core.Models.Buddy.BuddyErrorTypes;
+using TripSlots = RentNearBy.Infrastructure.Services.Buddy.Be2.TripSlots;
 
 namespace RentNearBy.Api.Handlers;
 
@@ -431,19 +433,36 @@ public static class TripHandlers
 
         var trip = NewTrip(userId, request, plan, DateTime.UtcNow);
 
-        await unitOfWork.Trips.AddAsync(trip);
+        // Trip limit: the caller's slot lock serialises his creates and invite accepts, so the count cannot pass the limit.
+        await unitOfWork.BeginTransactionAsync();
         try
         {
+            if (await TripSlots.RefusalUnderLockAsync(db, userId) is { } full)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                // A parallel create with the same client id may have won while this one waited for the lock.
+                if (request.ClientTripId is { } sameId && await unitOfWork.Trips.FindByClientIdAsync(userId, sameId) is { } won)
+                    return OkResponse(await BuildDtoAsync(unitOfWork, journeys, db, won, userId, DateTime.UtcNow));
+                return ErrorResponse(409, BuddyErrorTypes.MessageOf(BuddyErrorTypes.TripLimitReached), BuddyErrorTypes.TripLimitReached, full);
+            }
+            await unitOfWork.Trips.AddAsync(trip);
             await unitOfWork.SaveChangesAsync();
+            await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateException ex) when (request.ClientTripId != null
             && ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: ClientIdIndex })
         {
             // Lost the race to a parallel create with the same client id: answer with the winner.
+            await unitOfWork.RollbackTransactionAsync();
             await unitOfWork.Trips.DeleteAsync(trip);
             var winner = await unitOfWork.Trips.FindByClientIdAsync(userId, request.ClientTripId.Value);
             if (winner == null) throw;
             return OkResponse(await BuildDtoAsync(unitOfWork, journeys, db, winner, userId, DateTime.UtcNow));
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
         }
 
         // The trip row must exist before a journey can point at it; a failure here is healed by the next save.
