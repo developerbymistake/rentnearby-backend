@@ -16,7 +16,7 @@ public static class Requests
         SortOrder: 1,
         Features:
         [
-            new PlanFeatureInput(PlanFeatureKeys.ListingLimit, 3),
+            new PlanFeatureInput(PlanFeatureKeys.ListingLimit, 1),
             new PlanFeatureInput(PlanFeatureKeys.Priority, 2),
             new PlanFeatureInput(PlanFeatureKeys.Featured, 1),
         ],

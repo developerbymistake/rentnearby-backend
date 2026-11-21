@@ -117,12 +117,12 @@ public class UpsertPlanRequestValidatorTests
 
     [Theory]
     [InlineData(0, true)]
-    [InlineData(10_000, true)]
-    [InlineData(10_001, false)]
+    [InlineData(999, true)]
+    [InlineData(1000, false)]
     [InlineData(-1, false)]
     public void Features_ValueRange(int value, bool valid)
     {
-        var result = Validate(WithFeatures(new PlanFeatureInput(PlanFeatureKeys.ListingLimit, value)));
+        var result = Validate(WithFeatures(new PlanFeatureInput(PlanFeatureKeys.Priority, value)));
 
         if (valid) result.ShouldNotHaveAnyValidationErrors();
         else ValidationAssert.HasErrorOn(result, "Features");
