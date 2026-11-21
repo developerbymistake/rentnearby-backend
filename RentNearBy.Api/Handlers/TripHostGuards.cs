@@ -26,13 +26,6 @@ public static class TripHostGuards
         return a.SequenceEqual(b);
     }
 
-    // Policy m12: the advance stays within the accepted offer's advance (a missing or zero one falls back to the agreed total).
-    public static int MaxAdvance(int? agreedTotal, int? offerAdvance)
-    {
-        var cap = agreedTotal is > 0 ? agreedTotal.Value : TripExecutionRules.MaxAmount;
-        return offerAdvance is > 0 ? Math.Min(cap, offerAdvance.Value) : cap;
-    }
-
     // The offered lines carry the whole party and the rooms (where the room is known) hold it.
     public static bool PartyFits(IReadOnlyList<TripOfferLine> lines, int party, IReadOnlyDictionary<string, int>? roomCaps)
     {

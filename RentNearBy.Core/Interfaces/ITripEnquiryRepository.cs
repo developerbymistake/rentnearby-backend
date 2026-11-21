@@ -37,15 +37,6 @@ public interface ITripEnquiryRepository : IRepository<TripEnquiry>
     // Driver Trip leads (Kind == Taxi, OwnerUserId == driverId); AsNoTracking, newest first.
     Task<(IReadOnlyList<TripEnquiry> Items, bool HasMore)> GetDriverPagedAsync(Guid driverId, string bucket, int page, int pageSize);
     Task<TripDriverCounts> GetDriverCountsAsync(Guid driverId);
-    // Set-based: ConfirmedByBoth + Pending/ProofSent + HoldUntil <= now -> Failed/HoldExpired. Returns rows affected.
-    Task<int> TryExpireHoldAsync(Guid id, DateTime nowUtc);
-    // Set-based: LastHostReminderAt = now, HostReminderCount = nextCount when the count still equals expectedCount.
-    Task<int> TryBumpReminderAsync(Guid id, int expectedCount, int nextCount, DateTime nowUtc);
-    // AsNoTracking; holds due to expire.
-    Task<IReadOnlyList<TripEnquiry>> GetDueHoldsAsync(DateTime nowUtc, int take);
-    // AsNoTracking keyset page by Id: proof sent, hold still running, ProofSentAt + HostReminderCount x interval <= now
-    // (the caller checks the exact HostReminderSchedule slot).
-    Task<(IReadOnlyList<TripEnquiry> Items, Guid? Next)> GetDueReminderAsync(DateTime nowUtc, Guid? after, int take);
     // AsNoTracking; taxi FareSent rows past ExpiresAt.
     Task<IReadOnlyList<TripEnquiry>> GetExpiredFareSentAsync(DateTime nowUtc, int take);
     // Live taxi listings only: (ContactPhone, WhatsAppNumber) per id.

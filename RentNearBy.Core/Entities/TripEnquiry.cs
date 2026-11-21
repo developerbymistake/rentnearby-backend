@@ -33,15 +33,6 @@ public class TripEnquiry
     public DateTime? ConfirmedByOwnerAt { get; set; }
 
     public short DriverFareEditCount { get; set; }
-    public string AdvanceStatus { get; set; } = TripAdvanceStatuses.None;
-    public int? AdvanceAmount { get; set; }
-    public DateTime? HoldUntil { get; set; }
-    public DateTime? AdvanceAskedAt { get; set; }
-    public DateTime? ProofSentAt { get; set; }
-    public DateTime? AdvanceReceivedAt { get; set; }
-    public DateTime? AdvanceNotYetAt { get; set; }
-    public DateTime? LastHostReminderAt { get; set; }
-    public short HostReminderCount { get; set; }
 
     public int? ListedRateSnapshot { get; set; }
     public int? DriverFare { get; set; }

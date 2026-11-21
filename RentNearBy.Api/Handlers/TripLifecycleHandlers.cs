@@ -41,7 +41,6 @@ public static class TripLifecycleHandlers
         total = shrunk.Total,
         listedPerNight = (int?)null,
         inclusions = shrunk.Inclusions,
-        advanceAmount = shrunk.AdvanceAmount,
         balanceNote = shrunk.BalanceNote,
         cancellationText = shrunk.CancellationText,
         gstInvoice = shrunk.GstInvoice,
@@ -725,8 +724,6 @@ public static class TripSummaryRecordBuilder
             RoomLines = lines,
             // The total belongs to the whole enquiry: shown once, on its first night.
             AgreedTotal = firstNight ? d.AgreedTotal : null,
-            AdvanceStatus = d.Advance.Status,
-            AdvanceAmount = d.Advance.Amount,
             CancellationText = offer?.CancellationText,
             GstInvoice = offer?.GstInvoice,
             ConfirmedBy = by,

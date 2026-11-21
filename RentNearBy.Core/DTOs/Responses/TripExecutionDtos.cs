@@ -46,7 +46,6 @@ public class TripEnquiryDto
     public int? WrongFirstDay { get; set; }
     public string? WrongDayCity { get; set; }
     public bool OutsideTrip { get; set; }
-    public TripAdvanceDto Advance { get; set; } = new();
     public TripTaxiDto? Taxi { get; set; }
     public TripPartyDto Traveller { get; set; } = new();
     public TripOwnerPartyDto Owner { get; set; } = new();
@@ -71,22 +70,6 @@ public class TripEnquiryContextDto
     public Guid? JourneyId { get; set; }
     // The car (journey leg) 1..3, never the city leg.
     public int? JourneyLegIndex { get; set; }
-}
-
-public class TripAdvanceDto
-{
-    public string Status { get; set; } = TripAdvanceStatuses.None;
-    public int? Amount { get; set; }
-    public DateTime? HoldUntil { get; set; }
-    public DateTime? AskedAt { get; set; }
-    public DateTime? ProofSentAt { get; set; }
-    public DateTime? ReceivedAt { get; set; }
-    public DateTime? NotYetAt { get; set; }
-    public DateTime? LastHostReminderAt { get; set; }
-    public DateTime? NextHostReminderAt { get; set; }
-    public int ReminderCount { get; set; }
-    // Paid advance the host owes back (paid beyond the agreed total, or a night the host failed); null when nothing.
-    public int? RefundDue { get; set; }
 }
 
 public class TripTaxiDto
@@ -145,7 +128,6 @@ public class TripOfferDto
     public List<TripOfferLine> Lines { get; set; } = new();
     public int Total { get; set; }
     public string? Inclusions { get; set; }
-    public int? AdvanceAmount { get; set; }
     public string? BalanceNote { get; set; }
     public string? CancellationText { get; set; }
     public bool? GstInvoice { get; set; }

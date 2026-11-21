@@ -53,7 +53,7 @@ public class StayListing
     public short PriorityRank { get; set; }
     public bool IsFeatured { get; set; }
 
-    // Trip execution. UpiId is never mapped into any DTO in Phase 1a.
+    // Contact details the owner may share in a stay chat; owner DTO only.
     public string? UpiId { get; set; }
     public string? WhatsAppNumber { get; set; }
     public int TripEnquiriesReceived { get; set; }

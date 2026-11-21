@@ -46,12 +46,6 @@ public static class TripExecutionEndpoints
         group.MapGet("/{tripId:guid}/summary", TripLifecycleHandlers.Summary).RequireAuthorization();
         group.MapPost("/enquiries/{id:guid}/report-traveller", TripLifecycleHandlers.ReportTraveller).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
 
-        // Stay advance: ask / received / not-yet are host-only, proof-sent is guest-only (checked in the handlers).
-        group.MapPost("/enquiries/{id:guid}/advance/ask", TripAdvanceHandlers.Ask).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
-        group.MapPost("/enquiries/{id:guid}/advance/proof-sent", TripAdvanceHandlers.ProofSent).Gated();
-        group.MapPost("/enquiries/{id:guid}/advance/received", TripAdvanceHandlers.Received).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
-        group.MapPost("/enquiries/{id:guid}/advance/not-yet", TripAdvanceHandlers.NotYet).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
-
         // Taxi: "I booked" by the traveller; the driver's Trip leads list and actions.
         group.MapPost("/{tripId:guid}/taxi-bookings", TripEnquiryHandlers.CreateTaxiBooking).Gated();
         // Journey leads come from /taxis/ways/ask, which has no planner gate: the driver side answers whatever the planner flag says.

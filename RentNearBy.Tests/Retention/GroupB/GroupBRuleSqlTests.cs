@@ -89,12 +89,13 @@ public class GroupBRuleSqlTests
         var sql = Rule(name).EligibleSql;
         foreach (var token in new[]
         {
-            "\"AdvanceStatus\" = 'None'", "\"ConfirmedByTravellerAt\" IS NULL", "\"ConfirmedByOwnerAt\" IS NULL", "\"BookedByTravellerAt\" IS NULL",
-            "\"AdvanceReceivedAt\" IS NULL", "\"AcceptedOfferId\" IS NULL", "FROM \"ListingReports\"", "r.\"Status\" = 'Pending'",
+            "\"ConfirmedByTravellerAt\" IS NULL", "\"ConfirmedByOwnerAt\" IS NULL", "\"BookedByTravellerAt\" IS NULL",
+            "\"AcceptedOfferId\" IS NULL", "FROM \"ListingReports\"", "r.\"Status\" = 'Pending'",
             "r.\"ResolvedAt\" >= @cutoff", "FROM \"TripProblemLogs\"", "FROM \"Trips\" tr", "tr.\"EndDate\" >= @today",
             "o.\"StepKey\" IS NOT DISTINCT FROM", "'ConfirmedByBoth','FareSent','BookedByTraveller'",
         })
             Assert.Contains(token, sql);
+        Assert.DoesNotContain("Advance", sql);
     }
 
     [Fact]
@@ -104,7 +105,8 @@ public class GroupBRuleSqlTests
         foreach (var open in new[] { "Asked", "Offered", "Countered", "ConfirmedByBoth", "FareSent", "BookedByTraveller" })
             Assert.DoesNotContain($"'{open}'", closed);
         Assert.DoesNotContain("Problem", closed);
-        Assert.Contains("'DriverDenied','HoldExpired','ListingRemoved'", closed);
+        Assert.Contains("'DriverDenied','ListingRemoved'", closed);
+        Assert.DoesNotContain("HoldExpired", closed);
     }
 
     [Fact]

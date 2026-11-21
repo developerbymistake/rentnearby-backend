@@ -47,10 +47,8 @@ public static class TripBookingStates
     }
 
 
-    // An advance counts as open only while the booking is still live: cancel, problem and replace never reset AdvanceStatus.
     public static bool IsOpenForCompletion(TripEnquiry e) =>
-        e.Status is TripEnquiryStatuses.Asked or TripEnquiryStatuses.Offered or TripEnquiryStatuses.Countered or TripEnquiryStatuses.FareSent
-        || (e.Status == TripEnquiryStatuses.ConfirmedByBoth && e.AdvanceStatus is TripAdvanceStatuses.Pending or TripAdvanceStatuses.ProofSent);
+        e.Status is TripEnquiryStatuses.Asked or TripEnquiryStatuses.Offered or TripEnquiryStatuses.Countered or TripEnquiryStatuses.FareSent;
 
     // Blocker 16.3 item 7: an active taxi request or booking keeps the trip open too.
     public static bool IsOpenForCompletion(TripTaxiRequestSummary? taxiRequest) => taxiRequest?.KeepsTripOpen == true;
@@ -572,7 +570,6 @@ public static class TripProblemSplit
         failed.AgreedTotal = e.AgreedTotal is { } all && keptTotal is { } k ? all - k : null;
         failed.Status = TripEnquiryStatuses.Failed;
         failed.FailReason = failReason;
-        SplitAdvance(e, failed, keptTotal);
 
         e.CheckOut = date;
         e.AgreedTotal = keptTotal;
@@ -580,27 +577,6 @@ public static class TripProblemSplit
         RebuildContext(e, d => d >= checkIn && d < date, (ctx, a, b) => TripEnquiryText.Build(ctx, a, b, b.DayNumber - a.DayNumber > 1));
         RebuildContext(failed, d => d >= date && d < checkOut, (ctx, a, b) => TripEnquiryText.Build(ctx, a, b, b.DayNumber - a.DayNumber > 1));
         return (e, failed);
-    }
-
-    // Paid money covers the kept nights first; the rest stays on the failed row as paid (refund due). An asked amount
-    // follows the kept total and the failed row asks nothing. Runs before e.AgreedTotal moves.
-    private static void SplitAdvance(TripEnquiry e, TripEnquiry failed, int? keptTotal)
-    {
-        if (e.AdvanceAmount is not { } advance || keptTotal is not { } kept) return;
-        if (!TripAdvanceSplit.MoneyMoved(e.AdvanceStatus))
-        {
-            e.AdvanceAmount = TripAdvanceSplit.Scaled(advance, e.AgreedTotal ?? kept, kept);
-            return;
-        }
-
-        var (parts, refund) = TripAdvanceSplit.Sequential(advance, [kept]);
-        e.AdvanceAmount = parts[0];
-        if (refund <= 0) return;
-        failed.AdvanceStatus = e.AdvanceStatus;
-        failed.AdvanceAmount = refund;
-        failed.AdvanceAskedAt = e.AdvanceAskedAt;
-        failed.ProofSentAt = e.ProofSentAt;
-        failed.AdvanceReceivedAt = e.AdvanceReceivedAt;
     }
 
     // The row's context keeps only the days it still covers, and its text follows its own dates.
@@ -631,8 +607,6 @@ public static class TripProblemSplit
         Nights = (short)TripExecutionRules.Nights(kept.CheckIn, kept.CheckOut),
         Total = kept.AgreedTotal ?? accepted.Total,
         Inclusions = accepted.Inclusions,
-        AdvanceAmount = TripAdvanceSplit.ForTerms(
-            accepted.AdvanceAmount, accepted.Total, kept.AgreedTotal ?? accepted.Total, kept.AdvanceStatus, kept.AdvanceAmount),
         BalanceNote = accepted.BalanceNote,
         CancellationText = accepted.CancellationText,
         GstInvoice = accepted.GstInvoice,
@@ -723,7 +697,6 @@ public static class TripProblemSplit
         ConversationId = e.ConversationId,
         ContextJson = e.ContextJson,
         ExpiresAt = e.ExpiresAt,
-        AdvanceStatus = TripAdvanceStatuses.None,
         ListedRateSnapshot = e.ListedRateSnapshot,
         DriverFare = e.DriverFare,
         TollExtra = e.TollExtra,

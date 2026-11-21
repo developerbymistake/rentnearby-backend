@@ -95,20 +95,6 @@ public static class TripEnquiryDtoBuilder
                 JourneyLegIndex = context.LegIndex,
             },
             IsSegment = TripSegmentRows.IsSegment(e),
-            Advance = new TripAdvanceDto
-            {
-                Status = e.AdvanceStatus,
-                Amount = e.AdvanceAmount,
-                HoldUntil = e.HoldUntil,
-                AskedAt = e.AdvanceAskedAt,
-                ProofSentAt = e.ProofSentAt,
-                ReceivedAt = e.AdvanceReceivedAt,
-                NotYetAt = e.AdvanceNotYetAt,
-                LastHostReminderAt = e.LastHostReminderAt,
-                NextHostReminderAt = TripAdvanceRules.NextHostReminder(e, nowUtc),
-                ReminderCount = e.HostReminderCount,
-                RefundDue = TripAdvanceSplit.RefundDue(e),
-            },
             Taxi = isTaxi ? BuildTaxi(e, context, days) : null,
             Traveller = new TripPartyDto
             {
@@ -239,7 +225,6 @@ public static class TripEnquiryDtoBuilder
         ProposedPerNight = ProposedPerNight(o, lines),
         Total = o.Total,
         Inclusions = o.Inclusions,
-        AdvanceAmount = o.AdvanceAmount,
         BalanceNote = o.BalanceNote,
         CancellationText = o.CancellationText,
         GstInvoice = o.GstInvoice,

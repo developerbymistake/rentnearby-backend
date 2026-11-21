@@ -80,7 +80,7 @@ public static class RetentionSql
 {
     public const string ClosedEnquiry =
         "(\"Status\" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') " +
-        "OR (\"Status\" = 'Failed' AND \"FailReason\" IN ('DriverDenied','HoldExpired','ListingRemoved')))";
+        "OR (\"Status\" = 'Failed' AND \"FailReason\" IN ('DriverDenied','ListingRemoved')))";
 }
 
 // Declarative rule. EligibleSql holds the protection predicate. OrderBy is a column name or a SQL expression.

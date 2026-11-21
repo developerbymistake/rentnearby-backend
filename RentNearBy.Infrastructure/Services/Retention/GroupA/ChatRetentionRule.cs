@@ -24,7 +24,7 @@ public sealed class ChatRetentionRule : IRetentionRule
             "e.\"Status\" IN " + TripEnquiryStatuses.OpenSqlList +
             " OR e.\"UpdatedAt\" >= @cutoff OR e.\"Status\" = 'Failed'" +
             " OR e.\"ConfirmedByTravellerAt\" IS NOT NULL OR e.\"ConfirmedByOwnerAt\" IS NOT NULL OR e.\"BookedByTravellerAt\" IS NOT NULL" +
-            " OR e.\"AdvanceReceivedAt\" IS NOT NULL OR e.\"AdvanceStatus\" <> 'None' OR e.\"AcceptedOfferId\" IS NOT NULL" +
+            " OR e.\"AcceptedOfferId\" IS NOT NULL" +
             " OR (e.\"TripId\" IS NOT NULL AND EXISTS (SELECT 1 FROM \"Trips\" tr WHERE tr.\"Id\" = e.\"TripId\" AND tr.\"Status\" <> 'Completed' AND (tr.\"EndDate\" IS NULL OR tr.\"EndDate\" >= @today))))) " +
         "AND NOT EXISTS (SELECT 1 FROM \"ListingReports\" r WHERE (r.\"Status\" <> 'Resolved' OR COALESCE(r.\"ResolvedAt\", r.\"CreatedAt\") >= @cutoff) AND (" +
             "r.\"TripEnquiryId\" IN (SELECT e2.\"Id\" FROM \"TripEnquiries\" e2 WHERE e2.\"ConversationId\" = c.\"Id\")" +

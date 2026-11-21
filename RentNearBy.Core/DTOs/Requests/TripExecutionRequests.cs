@@ -62,14 +62,6 @@ public class CreateTaxiBookingRequest
     public int? JourneyLegIndex { get; set; }
 }
 
-public class AskAdvanceRequest
-{
-    public int Amount { get; set; }
-    public DateTime HoldUntil { get; set; }
-    public string UpiId { get; set; } = string.Empty;
-    public string WhatsAppNumber { get; set; } = string.Empty;
-}
-
 public class DriverFareRequest
 {
     public int Fare { get; set; }
@@ -101,7 +93,6 @@ public interface ITripOfferFields
     DateOnly CheckIn { get; }
     DateOnly CheckOut { get; }
     List<TripOfferLine> Lines { get; }
-    int? AdvanceAmount { get; }
     string? BalanceNote { get; }
     string? CancellationText { get; }
     string? Inclusions { get; }
@@ -112,7 +103,6 @@ public class SendTripOfferRequest : ITripOfferFields
     public DateOnly CheckIn { get; set; }
     public DateOnly CheckOut { get; set; }
     public List<TripOfferLine> Lines { get; set; } = new();
-    public int? AdvanceAmount { get; set; }
     public string? BalanceNote { get; set; }
     public string? CancellationText { get; set; }
     public bool? GstInvoice { get; set; }
@@ -134,7 +124,6 @@ public class RevisedOfferRequest : ITripOfferFields
     public DateOnly CheckIn { get; set; }
     public DateOnly CheckOut { get; set; }
     public List<TripOfferLine> Lines { get; set; } = new();
-    public int? AdvanceAmount { get; set; }
     public string? BalanceNote { get; set; }
     public string? CancellationText { get; set; }
     public bool? GstInvoice { get; set; }

@@ -4,12 +4,12 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Validators;
 
-public class UpdateStayAdvanceDetailsRequestValidator : AbstractValidator<UpdateStayAdvanceDetailsRequest>
+public class UpdateStayShareDetailsRequestValidator : AbstractValidator<UpdateStayShareDetailsRequest>
 {
-    public UpdateStayAdvanceDetailsRequestValidator()
+    public UpdateStayShareDetailsRequestValidator()
     {
         RuleFor(x => x.UpiId)
-            .Must(v => v == null || v.Trim().Length == 0 || TripAdvanceRules.IsValidUpi(v))
+            .Must(v => v == null || v.Trim().Length == 0 || StayShareRules.IsValidUpi(v))
             .WithMessage("Enter a UPI ID like name@bank");
 
         RuleFor(x => x.WhatsAppNumber)

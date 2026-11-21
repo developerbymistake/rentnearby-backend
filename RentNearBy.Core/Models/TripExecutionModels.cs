@@ -63,7 +63,6 @@ public static class TripEnquiryStatuses
 public static class TripFailReasons
 {
     public const string DriverDenied = "DriverDenied";
-    public const string HoldExpired = "HoldExpired";
     public const string ProblemDriverNoShow = "ProblemDriverNoShow";
     public const string ProblemHostNoRoom = "ProblemHostNoRoom";
     public const string ProblemRoadClosed = "ProblemRoadClosed";
@@ -81,17 +80,6 @@ public static class TripCloseReasons
     public const string TripDeleted = "TripDeleted";
     public const string AccountDeleted = "AccountDeleted";
     public const string AdminClosed = "AdminClosed";
-}
-
-public static class TripAdvanceStatuses
-{
-    public const string None = "None";
-    public const string Pending = "Pending";
-    public const string ProofSent = "ProofSent";
-    public const string Received = "Received";
-    public const string HoldExpired = "HoldExpired";
-
-    public static readonly string[] All = [None, Pending, ProofSent, Received, HoldExpired];
 }
 
 public static class TripOfferKinds
@@ -166,7 +154,6 @@ public static class TripDisplayStatuses
     public const string Closed = "closed";
     public const string FareSent = "fareSent";
     public const string BookedByYou = "bookedByYou";
-    public const string HoldExpired = "holdExpired";
 }
 
 // Driver Trip leads chips: new = Asked and "I booked" waiting for the driver (BookedByTraveller), replied = FareSent,
@@ -202,51 +189,6 @@ public static class TripDriverBuckets
 }
 
 public sealed record TripDriverCounts(int New, int Replied, int Booked, int Closed);
-
-public static class TripAdvanceRules
-{
-    public const int HoldMinHours = 1, HoldDefaultHours = 6, HoldMaxHours = 48, HoldCheckInCutoffHourIst = 12;
-    public const int ReminderMinutes = 60, UpiMax = 60, UpiMin = 5;
-    // Shape only; the id is never resolved or checked against a bank.
-    public const string UpiPattern = @"^[A-Za-z0-9._-]{2,50}@[A-Za-z]{2,64}$";
-    private static readonly Regex Upi = new(UpiPattern, RegexOptions.Compiled);
-
-    public static bool IsValidUpi(string? s)
-    {
-        if (s == null) return false;
-        var v = s.Trim();
-        return v.Length >= UpiMin && v.Length <= UpiMax && Upi.IsMatch(v);
-    }
-
-    // Latest allowed hold end: min(now + 48 h, check-in day 12:00 IST).
-    public static DateTime HoldCap(DateOnly checkIn, DateTime nowUtc)
-    {
-        var noon = TripExecutionRules.IstMidnightUtc(checkIn).AddHours(HoldCheckInCutoffHourIst);
-        var max = nowUtc.AddHours(HoldMaxHours);
-        return noon < max ? noon : max;
-    }
-
-    public static bool HoldAllowed(DateTime holdUntil, DateOnly checkIn, DateTime nowUtc)
-        => holdUntil >= nowUtc.AddHours(HoldMinHours) && holdUntil <= HoldCap(checkIn, nowUtc);
-
-    public static DateTime? NextHostReminder(TripEnquiry e, DateTime nowUtc)
-    {
-        if (e.AdvanceStatus != TripAdvanceStatuses.ProofSent || e.Status != TripEnquiryStatuses.ConfirmedByBoth) return null;
-        if (e.HoldUntil is not { } hold || hold <= nowUtc) return null;
-        var last = e.LastHostReminderAt ?? e.ProofSentAt ?? nowUtc;
-        var next = last.AddMinutes(ReminderMinutes);
-        return next < hold ? next : hold;
-    }
-
-    public static string ProofKey(Guid enquiryId, DateTime proofSentAt, int hourIndex)
-        => $"proof:{enquiryId}:{proofSentAt.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture)}:{hourIndex}";
-
-    public static string NotYetKey(Guid enquiryId, DateTime nowUtc)
-        => $"notyet:{enquiryId}:{nowUtc.ToString("yyyyMMddHH", CultureInfo.InvariantCulture)}";
-
-    // side "t" (traveller) | "o" (owner): one push per recipient, one unique key each.
-    public static string HoldKey(Guid enquiryId, string side) => $"hold:{enquiryId}:{side}";
-}
 
 public static class TripLeadRules
 {
@@ -391,9 +333,6 @@ public static class TripEnquiryErrorTypes
     public const string OfferOutsideTrip = "OfferOutsideTrip";
     public const string TripExecutionDisabled = "TripExecutionDisabled";
     public const string KindNotAvailable = "KindNotAvailable";
-    public const string AdvanceNotAllowed = "AdvanceNotAllowed";
-    public const string HoldExpired = "HoldExpired";
-    public const string TravellerMovedOn = "TravellerMovedOn";
     public const string FareEditLimit = "FareEditLimit";
     public const string DayAlreadyBooked = "DayAlreadyBooked";
     public const string LeadLimitReached = "LeadLimitReached";
@@ -583,7 +522,6 @@ public static class TripExecutionRules
         TripEnquiryStatuses.Expired => TripDisplayStatuses.Expired,
         TripEnquiryStatuses.Declined => TripDisplayStatuses.Declined,
         TripEnquiryStatuses.Failed when failReason is TripFailReasons.DriverDenied => TripDisplayStatuses.NotMe,
-        TripEnquiryStatuses.Failed when failReason is TripFailReasons.HoldExpired => TripDisplayStatuses.HoldExpired,
         TripEnquiryStatuses.Failed => TripDisplayStatuses.NotAvailable,
         TripEnquiryStatuses.CancelledByTraveller or TripEnquiryStatuses.CancelledByOwner => TripDisplayStatuses.Cancelled,
         _ => TripDisplayStatuses.Closed,
@@ -884,8 +822,6 @@ public static class TripMessageTypes
     public const string Enquiry = "trip_enquiry";
     public const string Offer = "trip_offer";
     public const string OfferResponse = "trip_offer_response";
-    public const string AdvanceRequest = "trip_advance_request";
-    public const string AdvanceProofSent = "trip_advance_proof_sent";
     public const string Counter = "trip_counter";
     public const string RevisedOffer = "trip_revised_offer";
     public const string ChangeRequest = "trip_change_request";
@@ -901,12 +837,6 @@ public static class TripCardStatuses
     public const string Superseded = "superseded";
     public const string Confirmed = "confirmed";
     public const string Denied = "denied";
-    public const string ProofSent = "proofSent";
-    public const string Received = "received";
-    public const string Replaced = "replaced";
-    public const string HoldExpired = "holdExpired";
-    // An advance card of a booking that was cancelled, failed or removed.
-    public const string Cancelled = "cancelled";
     // A revised offer the guest declined ("Keep Rs x").
     public const string Kept = "kept";
 }
@@ -923,8 +853,6 @@ public static class TripSystemLines
     public const string ListingRemoved = "listingRemoved";
     public const string TripDeleted = "tripDeleted";
     public const string ConfirmedBoth = "confirmedBoth";
-    public const string AdvanceReceived = "advanceReceived";
-    public const string HoldExpired = "holdExpired";
     public const string AdminClosed = "adminClosed";
     public const string RevisedAccepted = "revisedAccepted";
     public const string RevisedKept = "revisedKept";
@@ -948,8 +876,6 @@ public static class TripSystemLines
         CounterReplaced => "The guest proposed a new price.",
         ProblemHostNoRoom => "The guest says the host could not give the room.",
         TripCompleted => "The guest marked the trip complete.",
-        AdvanceReceived => "Advance received (host says).",
-        HoldExpired => "The host did not confirm the advance in time.",
         AdminClosed => "Closed by Bakhli.",
         Withdrawn => "The guest withdrew this enquiry.",
         BookedElsewhere => "The guest booked another stay for these dates.",

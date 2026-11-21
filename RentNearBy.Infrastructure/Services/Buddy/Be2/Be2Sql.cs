@@ -130,8 +130,8 @@ internal static class Be2Sql
     }
 
     // S14/S15 read-only copies for the pure row rules: only the columns those rules read (P6). The left-out enquiry columns
-    // (ContextRefreshCount, AcceptedOfferId, AdvanceNotYetAt, StepKey, ClientRequestId, RemindedOn, FinalPushedAt,
-    // CancelledByUserId, CancelReason, ConfirmedByTravellerAt, ConfirmedByOwnerAt, CancelledAt, HostReminderCount) are not
+    // (ContextRefreshCount, AcceptedOfferId, StepKey, ClientRequestId, RemindedOn, FinalPushedAt,
+    // CancelledByUserId, CancelReason, ConfirmedByTravellerAt, ConfirmedByOwnerAt, CancelledAt) are not
     // read by TripViewerProjection, TripEasyRows or the rules they call.
     public static IQueryable<RentNearBy.Core.Entities.TripEnquiry> ViewerEnquiries(IQueryable<RentNearBy.Core.Entities.TripEnquiry> q)
         => q.AsNoTracking().Select(e => new RentNearBy.Core.Entities.TripEnquiry
@@ -141,8 +141,6 @@ internal static class Be2Sql
             Day = e.Day, DaysJson = e.DaysJson, CityLeg = e.CityLeg, CheckIn = e.CheckIn, CheckOut = e.CheckOut,
             ConversationId = e.ConversationId, ContextJson = e.ContextJson, Status = e.Status, FailReason = e.FailReason,
             ExpiresAt = e.ExpiresAt, IsUrgent = e.IsUrgent, AgreedTotal = e.AgreedTotal, DriverFareEditCount = e.DriverFareEditCount,
-            AdvanceStatus = e.AdvanceStatus, AdvanceAmount = e.AdvanceAmount, HoldUntil = e.HoldUntil, AdvanceAskedAt = e.AdvanceAskedAt,
-            ProofSentAt = e.ProofSentAt, AdvanceReceivedAt = e.AdvanceReceivedAt, LastHostReminderAt = e.LastHostReminderAt,
             ListedRateSnapshot = e.ListedRateSnapshot, DriverFare = e.DriverFare, AgreedFare = e.AgreedFare, DriverNote = e.DriverNote,
             DriverRepliedAt = e.DriverRepliedAt, BookedByTravellerAt = e.BookedByTravellerAt, TollExtra = e.TollExtra,
             PickupTime = e.PickupTime, PickupPlace = e.PickupPlace, CreatedAt = e.CreatedAt, UpdatedAt = e.UpdatedAt,

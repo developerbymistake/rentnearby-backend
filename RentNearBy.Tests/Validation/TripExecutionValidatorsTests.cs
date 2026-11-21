@@ -122,7 +122,7 @@ public class TripExecutionValidatorsTests
 
     private static Dictionary<string, object?> OfferBody() => new()
     {
-        ["checkIn"] = "2026-11-01", ["checkOut"] = "2026-11-02", ["lines"] = new[] { Line() }, ["advanceAmount"] = 500,
+        ["checkIn"] = "2026-11-01", ["checkOut"] = "2026-11-02", ["lines"] = new[] { Line() },
         ["balanceNote"] = "at check-in", ["cancellationText"] = "Free till 24 h before", ["gstInvoice"] = false,
         ["inclusions"] = "Breakfast",
     };
@@ -178,7 +178,7 @@ public class TripExecutionValidatorsTests
     [InlineData(200_001)]
     [InlineData(9_900_000)]
     public void Offer_price_edge_passes(int price) =>
-        Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("lines", new[] { Line(price: price) }), ("advanceAmount", null)));
+        Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("lines", new[] { Line(price: price) })));
 
     [Fact]
     public void Offer_room_name_41_fails() =>
@@ -189,7 +189,8 @@ public class TripExecutionValidatorsTests
         Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("lines", new[] { Line(room: null) })));
 
     [Fact]
-    public void Offer_negative_advance_fails() => Fails(Offer, Req<SendTripOfferRequest>(OfferBody(), ("advanceAmount", -1)), "AdvanceAmount");
+    public void Offer_body_from_an_old_build_with_advance_amount_still_passes() =>
+        Passes(Offer, Req<SendTripOfferRequest>(OfferBody(), ("advanceAmount", 500)));
 
     [Fact]
     public void Offer_balance_note_121_fails() => Fails(Offer, Req<SendTripOfferRequest>(OfferBody(), ("balanceNote", new string('a', 121))), "BalanceNote");
@@ -431,54 +432,6 @@ public class TripExecutionValidatorsTests
     public void TaxiBooking_empty_journey_id_fails() =>
         Fails(TaxiBooking, Req<CreateTaxiBookingRequest>(TaxiBookingBody(), ("journeyId", Guid.Empty), ("journeyLegIndex", 1)), "JourneyId");
 
-    // AskAdvanceRequest
-    private static readonly AskAdvanceRequestValidator Ask = new();
-
-    private static Dictionary<string, object?> AskBody() => new()
-    {
-        ["amount"] = 500, ["holdUntil"] = "2026-11-01T12:30:00Z", ["upiId"] = "name@bank", ["whatsAppNumber"] = "9876543210",
-    };
-
-    [Fact]
-    public void Ask_valid_passes() => Passes(Ask, Req<AskAdvanceRequest>(AskBody()));
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(-5)]
-    [InlineData(9_900_001)]
-    public void Ask_amount_out_of_range_fails(int amount) =>
-        Fails(Ask, Req<AskAdvanceRequest>(AskBody(), ("amount", amount)), "Amount");
-
-    [Theory]
-    [InlineData(1)]
-    [InlineData(9_900_000)]
-    public void Ask_amount_edges_pass(int amount) => Passes(Ask, Req<AskAdvanceRequest>(AskBody(), ("amount", amount)));
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("name")]
-    [InlineData("@bank")]
-    [InlineData("a@b")]
-    [InlineData("na me@bank")]
-    public void Ask_bad_upi_fails(string upi) => Fails(Ask, Req<AskAdvanceRequest>(AskBody(), ("upiId", upi)), "UpiId");
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("12345")]
-    [InlineData("5876543210")]
-    [InlineData("98765432101")]
-    [InlineData("98765abcde")]
-    public void Ask_bad_whatsapp_fails(string phone) =>
-        Fails(Ask, Req<AskAdvanceRequest>(AskBody(), ("whatsAppNumber", phone)), "WhatsAppNumber");
-
-    [Fact]
-    public void Ask_hold_with_an_offset_passes() =>
-        Passes(Ask, Req<AskAdvanceRequest>(AskBody(), ("holdUntil", "2026-11-01T18:00:00+05:30")));
-
-    [Fact]
-    public void Ask_hold_without_a_zone_fails() =>
-        Fails(Ask, Req<AskAdvanceRequest>(AskBody(), ("holdUntil", "2026-11-01T12:30:00")), "HoldUntil");
-
     // DriverFareRequest
     private static readonly DriverFareRequestValidator DriverFare = new();
 
@@ -539,33 +492,33 @@ public class TripExecutionValidatorsTests
     public void DriverList_page_size_edges_pass(int size) =>
         Passes(DriverList, Req<TripDriverListQuery>(DriverListBody(), ("pageSize", size)));
 
-    // UpdateStayAdvanceDetailsRequest
-    private static readonly UpdateStayAdvanceDetailsRequestValidator StayAdvance = new();
+    // UpdateStayShareDetailsRequest
+    private static readonly UpdateStayShareDetailsRequestValidator StayShare = new();
 
     [Fact]
-    public void StayAdvance_nulls_keep_and_pass() =>
-        Passes(StayAdvance, Req<UpdateStayAdvanceDetailsRequest>(new() { ["upiId"] = null, ["whatsAppNumber"] = null }));
+    public void StayShare_nulls_keep_and_pass() =>
+        Passes(StayShare, Req<UpdateStayShareDetailsRequest>(new() { ["upiId"] = null, ["whatsAppNumber"] = null }));
 
     [Fact]
-    public void StayAdvance_empty_strings_clear_and_pass() =>
-        Passes(StayAdvance, Req<UpdateStayAdvanceDetailsRequest>(new() { ["upiId"] = "", ["whatsAppNumber"] = "" }));
+    public void StayShare_empty_strings_clear_and_pass() =>
+        Passes(StayShare, Req<UpdateStayShareDetailsRequest>(new() { ["upiId"] = "", ["whatsAppNumber"] = "" }));
 
     [Fact]
-    public void StayAdvance_valid_values_pass() =>
-        Passes(StayAdvance, Req<UpdateStayAdvanceDetailsRequest>(new() { ["upiId"] = "name@bank", ["whatsAppNumber"] = "9876543210" }));
+    public void StayShare_valid_values_pass() =>
+        Passes(StayShare, Req<UpdateStayShareDetailsRequest>(new() { ["upiId"] = "name@bank", ["whatsAppNumber"] = "9876543210" }));
 
     [Theory]
     [InlineData("name")]
     [InlineData("@bank")]
     [InlineData("name@bank.com")]
-    public void StayAdvance_bad_upi_fails(string upi) =>
-        Fails(StayAdvance, Req<UpdateStayAdvanceDetailsRequest>(new() { ["upiId"] = upi, ["whatsAppNumber"] = null }), "UpiId");
+    public void StayShare_bad_upi_fails(string upi) =>
+        Fails(StayShare, Req<UpdateStayShareDetailsRequest>(new() { ["upiId"] = upi, ["whatsAppNumber"] = null }), "UpiId");
 
     [Theory]
     [InlineData("12345")]
     [InlineData("5876543210")]
-    public void StayAdvance_bad_phone_fails(string phone) =>
-        Fails(StayAdvance, Req<UpdateStayAdvanceDetailsRequest>(new() { ["upiId"] = null, ["whatsAppNumber"] = phone }), "WhatsAppNumber");
+    public void StayShare_bad_phone_fails(string phone) =>
+        Fails(StayShare, Req<UpdateStayShareDetailsRequest>(new() { ["upiId"] = null, ["whatsAppNumber"] = phone }), "WhatsAppNumber");
 
     // AdminCloseTripEnquiryRequest
     private static readonly AdminCloseTripEnquiryRequestValidator AdminClose = new();

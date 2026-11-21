@@ -4623,25 +4623,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid?>("AcceptedOfferId")
                         .HasColumnType("uuid");
 
-                    b.Property<int?>("AdvanceAmount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime?>("AdvanceAskedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("AdvanceNotYetAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("AdvanceReceivedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("AdvanceStatus")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasDefaultValue("None");
-
                     b.Property<int?>("AgreedFare")
                         .HasColumnType("integer");
 
@@ -4727,14 +4708,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateTime?>("FinalPushedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTime?>("HoldUntil")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<short>("HostReminderCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("smallint")
-                        .HasDefaultValue((short)0);
-
                     b.Property<bool>("IsUrgent")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -4744,9 +4717,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(8)
                         .HasColumnType("character varying(8)");
-
-                    b.Property<DateTime?>("LastHostReminderAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int?>("ListedRateSnapshot")
                         .HasColumnType("integer");
@@ -4775,9 +4745,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<string>("PickupTime")
                         .HasMaxLength(5)
                         .HasColumnType("character varying(5)");
-
-                    b.Property<DateTime?>("ProofSentAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateOnly?>("RemindedOn")
                         .HasColumnType("date");
@@ -4827,7 +4794,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasFilter("\"CheckIn\" IS NOT NULL AND \"Status\" IN ('Asked','Offered','Countered')");
 
                     b.HasIndex(new[] { "UpdatedAt" }, "ix_tripenquiries_closed_updated")
-                        .HasFilter("(\"Status\" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') OR (\"Status\" = 'Failed' AND \"FailReason\" IN ('DriverDenied','HoldExpired','ListingRemoved')))");
+                        .HasFilter("(\"Status\" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') OR (\"Status\" = 'Failed' AND \"FailReason\" IN ('DriverDenied','ListingRemoved')))");
 
                     b.HasIndex(new[] { "ConversationId" }, "ix_tripenquiries_conversation")
                         .HasFilter("\"ConversationId\" IS NOT NULL");
@@ -4840,9 +4807,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "TravellerUserId" }, "ix_tripenquiries_final")
                         .HasFilter("\"Status\" = 'Expired' AND \"FinalPushedAt\" IS NULL");
-
-                    b.HasIndex(new[] { "HoldUntil" }, "ix_tripenquiries_hold")
-                        .HasFilter("\"AdvanceStatus\" IN ('Pending','ProofSent')");
 
                     b.HasIndex(new[] { "OwnerUserId" }, "ix_tripenquiries_hostreminder")
                         .HasFilter("\"Status\" IN ('Asked','Countered')");
@@ -4865,9 +4829,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "OwnerUserId", "Status", "CreatedAt" }, "ix_tripenquiries_owner_status")
                         .IsDescending(false, false, true);
 
-                    b.HasIndex(new[] { "ProofSentAt" }, "ix_tripenquiries_proof")
-                        .HasFilter("\"AdvanceStatus\" = 'ProofSent'");
-
                     b.HasIndex(new[] { "TripId", "StepKey" }, "ix_tripenquiries_settled")
                         .HasFilter("\"Status\" IN ('ConfirmedByBoth','BookedByTraveller')");
 
@@ -4888,9 +4849,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.ToTable("TripEnquiries", t =>
                         {
-                            t.HasCheckConstraint("ck_tripenquiries_advance_status", "\"AdvanceStatus\" IN ('None','Pending','ProofSent','Received','HoldExpired')");
-
-                            t.HasCheckConstraint("ck_tripenquiries_amounts", "(\"AgreedTotal\" IS NULL OR \"AgreedTotal\" >= 0) AND (\"AdvanceAmount\" IS NULL OR \"AdvanceAmount\" >= 0) AND (\"DriverFare\" IS NULL OR \"DriverFare\" >= 0) AND (\"AgreedFare\" IS NULL OR \"AgreedFare\" >= 0) AND (\"ListedRateSnapshot\" IS NULL OR \"ListedRateSnapshot\" >= 0)");
+                            t.HasCheckConstraint("ck_tripenquiries_amounts", "(\"AgreedTotal\" IS NULL OR \"AgreedTotal\" >= 0) AND (\"DriverFare\" IS NULL OR \"DriverFare\" >= 0) AND (\"AgreedFare\" IS NULL OR \"AgreedFare\" >= 0) AND (\"ListedRateSnapshot\" IS NULL OR \"ListedRateSnapshot\" >= 0)");
 
                             t.HasCheckConstraint("ck_tripenquiries_kind", "\"Kind\" IN ('Stay','Taxi')");
 
@@ -4909,9 +4868,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<short?>("Adults")
                         .HasColumnType("smallint");
-
-                    b.Property<int?>("AdvanceAmount")
-                        .HasColumnType("integer");
 
                     b.Property<string>("BalanceNote")
                         .HasMaxLength(120)

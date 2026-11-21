@@ -70,7 +70,7 @@ public class TripAutoCompleteTests
     {
         var plan = Plan();
         var open = new TripEnquiry { Id = Guid.NewGuid(), Kind = TripEnquiryKinds.Taxi, Status = TripEnquiryStatuses.Asked, DaysJson = "[1]", CheckIn = Start, CheckOut = Start.AddDays(1) };
-        var done = new TripEnquiry { Id = Guid.NewGuid(), Kind = TripEnquiryKinds.Taxi, Status = TripEnquiryStatuses.ConfirmedByBoth, DaysJson = "[1,2,3]", CheckIn = Start, CheckOut = Start.AddDays(3), AdvanceStatus = TripAdvanceStatuses.None };
+        var done = new TripEnquiry { Id = Guid.NewGuid(), Kind = TripEnquiryKinds.Taxi, Status = TripEnquiryStatuses.ConfirmedByBoth, DaysJson = "[1,2,3]", CheckIn = Start, CheckOut = Start.AddDays(3) };
         Assert.False(TripCompleteRules.AutoCompletes(PlannedTrip(), plan, [open], [], null));
         Assert.True(TripCompleteRules.AutoCompletes(PlannedTrip(), plan, [done], [], null));
         Assert.False(TripCompleteRules.AutoCompletes(PlannedTrip(), plan, [], [], null));
@@ -110,8 +110,8 @@ public class TripAutoCompleteTests
         Assert.Contains($"r.\"TripId\" = t.\"Id\" AND r.\"Status\" IN ({RequestStates.ActiveSqlList})", sql);
         Assert.Contains("b.\"TravellerUserId\" = t.\"OwnerUserId\" AND b.\"TripId\" = t.\"Id\"", sql);
         Assert.Contains($"b.\"Status\" IN ({BookingStates.ActiveSqlList})", sql);
-        // The legacy predicate is unchanged.
+        // Open enquiries keep the trip open; a confirmed booking never does (no advance step).
         Assert.Contains("e.\"Status\" IN ('Asked', 'Offered', 'Countered', 'FareSent')", sql);
-        Assert.Contains("e.\"Status\" = @both AND e.\"AdvanceStatus\" IN (@pending, @proofSent)", sql);
+        Assert.DoesNotContain("Advance", sql);
     }
 }

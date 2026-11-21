@@ -326,62 +326,6 @@ public class TripEnquiryRepository(ApplicationDbContext context) : Repository<Tr
             Sum(TripDriverBuckets.New), Sum(TripDriverBuckets.Replied), Sum(TripDriverBuckets.Booked), Sum(TripDriverBuckets.Closed));
     }
 
-    public async Task<int> TryExpireHoldAsync(Guid id, DateTime nowUtc)
-        => await _dbSet
-            .Where(e => e.Id == id
-                && e.Status == TripEnquiryStatuses.ConfirmedByBoth
-                && (e.AdvanceStatus == TripAdvanceStatuses.Pending || e.AdvanceStatus == TripAdvanceStatuses.ProofSent)
-                && e.HoldUntil != null && e.HoldUntil <= nowUtc)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(e => e.Status, TripEnquiryStatuses.Failed)
-                .SetProperty(e => e.FailReason, TripFailReasons.HoldExpired)
-                .SetProperty(e => e.AdvanceStatus, TripAdvanceStatuses.HoldExpired)
-                .SetProperty(e => e.UpdatedAt, nowUtc));
-
-    public async Task<int> TryBumpReminderAsync(Guid id, int expectedCount, int nextCount, DateTime nowUtc)
-    {
-        var expected = (short)expectedCount;
-        var next = (short)nextCount;
-        return await _dbSet
-            .Where(e => e.Id == id && e.HostReminderCount == expected)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(e => e.LastHostReminderAt, nowUtc)
-                .SetProperty(e => e.HostReminderCount, next));
-    }
-
-    public async Task<IReadOnlyList<TripEnquiry>> GetDueHoldsAsync(DateTime nowUtc, int take)
-        => await _dbSet.AsNoTracking()
-            .Where(e => e.Status == TripEnquiryStatuses.ConfirmedByBoth
-                && (e.AdvanceStatus == TripAdvanceStatuses.Pending || e.AdvanceStatus == TripAdvanceStatuses.ProofSent)
-                && e.HoldUntil != null && e.HoldUntil <= nowUtc)
-            .OrderBy(e => e.HoldUntil)
-            .Take(take)
-            .ToListAsync();
-
-    // Necessary condition of HostReminderSchedule: slot n (1-based) is never before ProofSentAt + n x interval, and
-    // n = HostReminderCount; the exact slot (quiet hours, merge, cap) is decided by the caller.
-    public async Task<(IReadOnlyList<TripEnquiry> Items, Guid? Next)> GetDueReminderAsync(DateTime nowUtc, Guid? after, int take)
-    {
-        var size = Math.Max(1, take);
-        var proofSent = TripAdvanceStatuses.ProofSent;
-        var both = TripEnquiryStatuses.ConfirmedByBoth;
-        var minutes = HostReminderSchedule.IntervalMinutes;
-        var maxCount = HostReminderSchedule.MaxReminders;
-        var ids = await _context.Database
-            .SqlQuery<Guid>($"""
-                SELECT e."Id" AS "Value" FROM "TripEnquiries" e
-                WHERE e."AdvanceStatus" = {proofSent} AND e."Status" = {both}
-                  AND e."HoldUntil" > {nowUtc} AND e."ProofSentAt" IS NOT NULL
-                  AND e."HostReminderCount" <= {maxCount}
-                  AND e."ProofSentAt" + GREATEST(e."HostReminderCount", 1) * make_interval(mins => {minutes}) <= {nowUtc}
-                  AND ({after}::uuid IS NULL OR e."Id" > {after}::uuid)
-                ORDER BY e."Id"
-                LIMIT {size}
-                """)
-            .ToListAsync();
-        return await LoadPageAsync(ids, size);
-    }
-
     public async Task<IReadOnlyList<TripEnquiry>> GetExpiredFareSentAsync(DateTime nowUtc, int take)
         => await _dbSet.AsNoTracking()
             .Where(e => e.Kind == TripEnquiryKinds.Taxi && e.Status == TripEnquiryStatuses.FareSent && e.ExpiresAt <= nowUtc)

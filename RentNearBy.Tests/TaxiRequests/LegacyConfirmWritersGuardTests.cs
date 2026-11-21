@@ -25,7 +25,7 @@ public class LegacyConfirmWritersGuardTests
     private static readonly Regex ReadAlias = new(@"var\s+\w+\s*=\s*TripEnquiryStatuses\.ConfirmedByBoth;", RegexOptions.Compiled);
 
     [Fact]
-    public void Confirmed_by_both_is_assigned_in_exactly_three_known_places()
+    public void Confirmed_by_both_is_assigned_in_exactly_two_known_places()
     {
         var writes = TaxiSource.ProductionFiles()
             .SelectMany(f => File.ReadAllLines(f).Select(line => (File: Path.GetFileName(f), Line: line)))
@@ -33,7 +33,7 @@ public class LegacyConfirmWritersGuardTests
             .Select(x => x.File)
             .OrderBy(f => f, StringComparer.Ordinal)
             .ToList();
-        Assert.Equal(["TripAdvanceHandlers.cs", "TripEnquiryHandlers.cs", "TripLeadHandlers.cs"], writes);
+        Assert.Equal(["TripEnquiryHandlers.cs", "TripLeadHandlers.cs"], writes);
     }
 
     [Fact]
@@ -60,19 +60,5 @@ public class LegacyConfirmWritersGuardTests
         // The revised offer path never assigns ConfirmedByBoth itself (it works on a row that is already confirmed).
         var revised = TaxiSource.Member(enquiry, "private static async Task<IResult> AcceptRevisedAsync(");
         Assert.DoesNotMatch(ConfirmedWrite, revised);
-    }
-
-    [Fact]
-    public void Advance_path_is_stay_only()
-    {
-        var source = TaxiSource.Read("RentNearBy.Api", "Handlers", "TripAdvanceHandlers.cs");
-        var received = TaxiSource.Member(source, "public static async Task<IResult> Received(");
-        var late = TaxiSource.At(received, "var late = ");
-        var stay = TaxiSource.At(received, "e.Kind == TripEnquiryKinds.Stay;");
-        var branch = TaxiSource.At(received, "if (late)");
-        var write = TaxiSource.At(received, "e.Status = TripEnquiryStatuses.ConfirmedByBoth;");
-        Assert.True(late < stay && stay < branch && branch < write);
-        // The on-time branch needs a row that is already ConfirmedByBoth; only the late branch writes it.
-        Assert.Single(Regex.Matches(source, @"(?<![=!])=\s*TripEnquiryStatuses\.ConfirmedByBoth;"));
     }
 }

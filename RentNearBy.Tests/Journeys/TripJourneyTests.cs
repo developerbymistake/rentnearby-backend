@@ -61,9 +61,9 @@ public class TripJourneyTests(TestDatabase db) : IntegrationTestBase(db)
 
     // ---------- real traveller journeys ----------
 
-    // Create trip, shortlist, bulk send with the step key, host offer, accept, advance ask: the real work each step.
+    // Create trip, shortlist, bulk send with the step key, host offer, accept: the real work each step.
     [IntegrationFact]
-    public async Task TripJourney_Stay_ShortlistSend_Offer_Accept_Advance_Booked()
+    public async Task TripJourney_Stay_ShortlistSend_Offer_Accept_Booked()
     {
         await using var h = new JourneyHarness(Db);
         var seeker = await h.AddSeekerAsync();
@@ -94,14 +94,6 @@ public class TripJourneyTests(TestDatabase db) : IntegrationTestBase(db)
 
         var rows = await h.RowsAsync(tripId);
         Assert.True(RentNearBy.Core.Models.TripEasyRows.IsRowDone(RowOf(rows, "stay:1")), "both nights confirmed by both is done");
-
-        IResult advance;
-        await using (var s = h.NewScope())
-            advance = await TripAdvanceHandlers.Ask(enquiry.Id, new AskAdvanceRequest
-            {
-                Amount = 1000, HoldUntil = DateTime.UtcNow.AddDays(2), UpiId = "host@upi", WhatsAppNumber = "9000000001",
-            }, new AskAdvanceRequestValidator(), Principal(hostA), s.Uow, s.Db, h.RateLimit, h.Chat, h.Notifier, h.Loggers, s.Http);
-        Assert.InRange(StatusOf(advance), 200, 201);
     }
 
     [IntegrationFact]
@@ -425,28 +417,6 @@ public class TripJourneyTests(TestDatabase db) : IntegrationTestBase(db)
         var accept = await h.AcceptOfferAsync(enquiry.Id, offer, seeker);
         Assert.Equal(409, StatusOf(accept));
         Assert.Equal(TripEnquiryErrorTypes.ListingNotAvailable, ErrorTypeOf(accept));
-    }
-
-    [IntegrationFact]
-    public async Task AdvanceAsk_AboveAcceptedOffer_Refused()
-    {
-        await using var h = new JourneyHarness(Db);
-        var seeker = await h.AddSeekerAsync();
-        var host = await h.AddStayOwnerAsync();
-        var stay = await h.AddStayAsync(host);
-        var tripId = await h.AddTripAsync(seeker, h.BuildPlan(("Nainital", CityA, 2)));
-        var enquiry = Assert.Single(DataOf<TripEnquiryBatchDto>(await h.AskAsync(tripId, seeker, Stay(1, 2, null, stay))).Items);
-        var offer = DataOf<TripOfferResultDto>(await h.SendOfferAsync(enquiry.Id, host, Offer(h))).Offer.Id;
-        Assert.Equal(200, StatusOf(await h.AcceptOfferAsync(enquiry.Id, offer, seeker)));
-
-        IResult advance;
-        await using (var s = h.NewScope())
-            advance = await TripAdvanceHandlers.Ask(enquiry.Id, new AskAdvanceRequest
-            {
-                Amount = 900000, HoldUntil = DateTime.UtcNow.AddDays(2), UpiId = "host@upi", WhatsAppNumber = "9000000001",
-            }, new AskAdvanceRequestValidator(), Principal(host), s.Uow, s.Db, h.RateLimit, h.Chat, h.Notifier, h.Loggers, s.Http);
-        Assert.InRange(StatusOf(advance), 400, 499);
-        Assert.Equal(TripAdvanceStatuses.None, (await h.LoadAsync(tripId)).Enquiries.Single().AdvanceStatus);
     }
 
     [IntegrationFact]

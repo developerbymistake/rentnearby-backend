@@ -27,10 +27,10 @@ public class TripJourneyIntegrityETests
     private static Trip TripOf(TripPlan plan, string status = TripStatuses.Planned)
         => new() { Id = Guid.NewGuid(), Status = status, StartDate = plan.Settings.StartDate, EndDate = plan.EndDate };
 
-    private static TripEnquiry Stay(string status, int night, int nights, string advance = TripAdvanceStatuses.None) => new()
+    private static TripEnquiry Stay(string status, int night, int nights) => new()
     {
         Id = Guid.NewGuid(), TripId = Guid.NewGuid(), Kind = TripEnquiryKinds.Stay, Status = status, ListingName = "Homestay",
-        Day = (short)night, CheckIn = DateOf(night), CheckOut = DateOf(night + nights), AdvanceStatus = advance,
+        Day = (short)night, CheckIn = DateOf(night), CheckOut = DateOf(night + nights),
         ContextJson = "{\"city\":\"Nainital\"}", UpdatedAt = new DateTime(2026, 10, 30, 10, 0, 0, DateTimeKind.Utc),
     };
 
@@ -38,7 +38,7 @@ public class TripJourneyIntegrityETests
     {
         Id = Guid.NewGuid(), TripId = Guid.NewGuid(), Kind = TripEnquiryKinds.Taxi, Status = status, ListingName = "Driver",
         DaysJson = "[" + string.Join(",", days) + "]", CheckIn = DateOf(days[0]), CheckOut = DateOf(days[^1] + 1),
-        AdvanceStatus = TripAdvanceStatuses.None, UpdatedAt = new DateTime(2026, 10, 30, 10, 0, 0, DateTimeKind.Utc),
+        UpdatedAt = new DateTime(2026, 10, 30, 10, 0, 0, DateTimeKind.Utc),
     };
 
     private static SavedJourney Journey(bool asked = false) => new()
@@ -187,29 +187,24 @@ public class TripJourneyIntegrityETests
         Assert.False(TripEasyRows.IsRowDone(taxi));
     }
 
-    // ---- M9: advance pending is not done
+    // ---- M9: a confirmed stay is done at once (no advance step)
 
-    [Theory]
-    [InlineData(TripAdvanceStatuses.Pending, false)]
-    [InlineData(TripAdvanceStatuses.ProofSent, false)]
-    [InlineData(TripAdvanceStatuses.Received, true)]
-    [InlineData(TripAdvanceStatuses.None, true)]
-    public void M9_confirmed_stay_with_advance_is_done_only_when_settled(string advance, bool done)
+    [Fact]
+    public void M9_confirmed_stay_is_done()
     {
-        var stay = Row(Rows(OneCity(), [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3, advance)]), "stay:1");
-        Assert.Equal(done, TripEasyRows.IsRowDone(stay));
+        var stay = Row(Rows(OneCity(), [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3)]), "stay:1");
+        Assert.True(TripEasyRows.IsRowDone(stay));
+        Assert.False(stay.NeedsYou);
     }
 
     [Fact]
-    public void M9_ready_needs_the_advance_settled()
+    public void M9_confirmed_stay_makes_the_trip_ready()
     {
         var plan = OneCity();
         AllMarked(plan, Own);
         plan.Legs![0].StayMark = null;
-        var pending = Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3, TripAdvanceStatuses.Pending);
-        Assert.Equal(TripBookingStates.Confirming, TripBookingStates.Compute(TripOf(plan), plan, [pending]));
-        var received = Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3, TripAdvanceStatuses.Received);
-        Assert.Equal(TripBookingStates.Ready, TripBookingStates.Compute(TripOf(plan), plan, [received]));
+        var confirmed = Stay(TripEnquiryStatuses.ConfirmedByBoth, 1, 3);
+        Assert.Equal(TripBookingStates.Ready, TripBookingStates.Compute(TripOf(plan), plan, [confirmed]));
     }
 
     // ---- M14: all skipped is 0 of 0, not 100 percent and not ready

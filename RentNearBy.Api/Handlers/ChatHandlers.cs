@@ -187,6 +187,20 @@ public static class ChatHandlers
         if (await unitOfWork.UserBlocks.ExistsEitherWayAsync(callerId, otherPartyId))
             return ForbiddenResponse("You can't message this user");
 
+        string? sharePayload = null;
+        if (request.Type == StayShareRules.MessageType)
+        {
+            if (conversation.OwnerId != callerId || conversation.ListingType != ListingKinds.Stay) return ForbiddenResponse();
+            var stay = await db.StayListings.AsNoTracking()
+                .Where(x => x.Id == conversation.ListingId && x.UserId == callerId && !x.IsDeleted && x.Status == StayStatuses.Approved)
+                .Select(x => new { x.Name, x.UpiId, x.WhatsAppNumber })
+                .FirstOrDefaultAsync();
+            if (stay == null) return ForbiddenResponse();
+            var payload = StayShareRules.Payload(stay.Name, stay.UpiId, stay.WhatsAppNumber);
+            if (payload == null) return BadRequestResponse("Add your UPI ID or WhatsApp number first", StayShareRules.NotSetError);
+            sharePayload = JsonSerializer.Serialize(payload);
+        }
+
         var rl = await rateLimiter.CheckAsync($"chat:send:{callerId}", SendMessageMaxPerMinute, SendMessageWindow);
         if (!rl.IsAllowed)
         {
@@ -218,7 +232,7 @@ public static class ChatHandlers
         // has one, see _answerQuestion vs onAskQuestion client-side) gets its template's
         // answer-options snapshotted into its own stored payload here, so rendering it later
         // never depends on a live admin-catalog lookup — see TryEmbedAnswerOptionsAsync.
-        var storedPayloadJson = request.PayloadJson;
+        var storedPayloadJson = sharePayload ?? request.PayloadJson;
         if (request.Type == "quick_reply" && request.RespondsToMessageId is null)
         {
             storedPayloadJson = await TryEmbedAnswerOptionsAsync(request.PayloadJson, unitOfWork, cache) ?? request.PayloadJson;
@@ -1037,14 +1051,6 @@ public static class ChatHandlers
                     using (var doc = JsonDocument.Parse(message.PayloadJson))
                         return doc.RootElement.TryGetProperty("answer", out var ans) && ans.GetString() == "accepted"
                             ? "Offer accepted" : "Offer declined";
-                case "trip_advance_request":
-                    using (var doc = JsonDocument.Parse(message.PayloadJson))
-                        return doc.RootElement.TryGetProperty("amount", out var adv) && adv.TryGetInt32(out var advRupees)
-                            ? $"Advance · Rs {advRupees}" : "Advance";
-                case "trip_advance_proof_sent":
-                    using (var doc = JsonDocument.Parse(message.PayloadJson))
-                        return doc.RootElement.TryGetProperty("amount", out var proof) && proof.TryGetInt32(out var proofRupees)
-                            ? $"Proof sent for Rs {proofRupees}" : "Proof sent";
                 case "trip_counter":
                     using (var doc = JsonDocument.Parse(message.PayloadJson))
                         return doc.RootElement.TryGetProperty("pricePerNight", out var ppn) && ppn.TryGetInt32(out var ppnRupees)
@@ -1054,6 +1060,7 @@ public static class ChatHandlers
                         return doc.RootElement.TryGetProperty("total", out var rev) && rev.TryGetInt32(out var revRupees)
                             ? $"Revised offer · Rs {revRupees}" : "Revised offer";
                 case "trip_change_request": return "Change request";
+                case StayShareRules.MessageType: return StayShareRules.Preview;
                 case "system":
                     using (var doc = JsonDocument.Parse(message.PayloadJson))
                         return Shorten(doc.RootElement.TryGetProperty("text", out var st) ? st.GetString() : null, "New message");

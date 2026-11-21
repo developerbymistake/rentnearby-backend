@@ -108,7 +108,6 @@ public static class TripReplaceSplit
         ContextJson = e.ContextJson,
         ExpiresAt = e.ExpiresAt,
         IsUrgent = e.IsUrgent,
-        AdvanceStatus = TripAdvanceStatuses.None,
         ListedRateSnapshot = e.ListedRateSnapshot,
         CreatedAt = nowUtc,
         UpdatedAt = nowUtc,

@@ -38,7 +38,6 @@ public class TripRound2FixJbTests
         Status = TripEnquiryStatuses.ConfirmedByBoth,
         AgreedTotal = total,
         AcceptedOfferId = Guid.NewGuid(),
-        AdvanceStatus = TripAdvanceStatuses.Received,
         ContextJson = Context(Enumerable.Range(firstDay, nights).ToArray()),
     };
 
@@ -77,7 +76,6 @@ public class TripRound2FixJbTests
         Assert.Equal((short)1, r.Day);
         Assert.Equal(6000, r.AgreedTotal);
         Assert.Equal(new[] { 1, 2 }, Days(r));
-        Assert.Equal(TripAdvanceStatuses.Received, r.AdvanceStatus);
 
         var c = plan.Cancelled;
         Assert.NotEqual(r.Id, c.Id);
@@ -88,7 +86,6 @@ public class TripRound2FixJbTests
         Assert.Equal((short)3, c.Day);
         Assert.Equal(3000, c.AgreedTotal);
         Assert.Equal(new[] { 3 }, Days(c));
-        Assert.Equal(TripAdvanceStatuses.None, c.AdvanceStatus);
     }
 
     [Fact]

@@ -27,7 +27,7 @@ public class TripLifecycleRulesTests
         EndDate = end ?? End,
     };
 
-    private static TripEnquiry Stay(string status, int fromDay = 1, int toDay = 2, int? agreed = null, string advance = TripAdvanceStatuses.None) => new()
+    private static TripEnquiry Stay(string status, int fromDay = 1, int toDay = 2, int? agreed = null) => new()
     {
         Id = Guid.NewGuid(),
         Kind = TripEnquiryKinds.Stay,
@@ -35,7 +35,6 @@ public class TripLifecycleRulesTests
         CheckIn = Start.AddDays(fromDay - 1),
         CheckOut = Start.AddDays(toDay),
         AgreedTotal = agreed,
-        AdvanceStatus = advance,
     };
 
     private static TripEnquiry Taxi(string status, string days = "[1,2,3]", int? fare = null, string? pickup = null) => new()
@@ -79,19 +78,16 @@ public class TripLifecycleRulesTests
     // ---- open for completion / settled
 
     [Theory]
-    [InlineData(TripEnquiryStatuses.Asked, TripAdvanceStatuses.None, true)]
-    [InlineData(TripEnquiryStatuses.Offered, TripAdvanceStatuses.None, true)]
-    [InlineData(TripEnquiryStatuses.Countered, TripAdvanceStatuses.None, true)]
-    [InlineData(TripEnquiryStatuses.FareSent, TripAdvanceStatuses.None, true)]
-    [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripAdvanceStatuses.Pending, true)]
-    [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripAdvanceStatuses.ProofSent, true)]
-    [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripAdvanceStatuses.Received, false)]
-    [InlineData(TripEnquiryStatuses.ConfirmedByBoth, TripAdvanceStatuses.None, false)]
-    [InlineData(TripEnquiryStatuses.BookedByTraveller, TripAdvanceStatuses.None, false)]
-    [InlineData(TripEnquiryStatuses.NotAvailable, TripAdvanceStatuses.None, false)]
-    [InlineData(TripEnquiryStatuses.Closed, TripAdvanceStatuses.None, false)]
-    public void IsOpenForCompletion_matrix(string status, string advance, bool expected)
-        => Assert.Equal(expected, TripBookingStates.IsOpenForCompletion(Stay(status, advance: advance)));
+    [InlineData(TripEnquiryStatuses.Asked, true)]
+    [InlineData(TripEnquiryStatuses.Offered, true)]
+    [InlineData(TripEnquiryStatuses.Countered, true)]
+    [InlineData(TripEnquiryStatuses.FareSent, true)]
+    [InlineData(TripEnquiryStatuses.ConfirmedByBoth, false)]
+    [InlineData(TripEnquiryStatuses.BookedByTraveller, false)]
+    [InlineData(TripEnquiryStatuses.NotAvailable, false)]
+    [InlineData(TripEnquiryStatuses.Closed, false)]
+    public void IsOpenForCompletion_matrix(string status, bool expected)
+        => Assert.Equal(expected, TripBookingStates.IsOpenForCompletion(Stay(status)));
 
     [Theory]
     [InlineData("Open", true)]

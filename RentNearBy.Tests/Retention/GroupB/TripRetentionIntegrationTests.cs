@@ -100,7 +100,6 @@ public class TripRetentionIntegrationTests(TestDatabase db) : IntegrationTestBas
     [InlineData("CancelledByOwner", null)]
     [InlineData("Closed", "Withdrawn")]
     [InlineData("Failed", "DriverDenied")]
-    [InlineData("Failed", "HoldExpired")]
     public async Task Closed_old_enquiry_and_its_offers_go(string status, string? reason)
     {
         var user = await UserAsync();
@@ -151,12 +150,10 @@ public class TripRetentionIntegrationTests(TestDatabase db) : IntegrationTestBas
         var confirmed = await EnquiryAsync(null, user, "Closed", "Withdrawn", e => e.ConfirmedByTravellerAt = Old);
         var confirmedOwner = await EnquiryAsync(null, user, "Closed", "Withdrawn", e => e.ConfirmedByOwnerAt = Old);
         var booked = await EnquiryAsync(null, user, "Closed", "Withdrawn", e => e.BookedByTravellerAt = Old);
-        var advance = await EnquiryAsync(null, user, "CancelledByTraveller", null, e => { e.AdvanceStatus = "Received"; e.AdvanceReceivedAt = Old; });
-        var advancePending = await EnquiryAsync(null, user, "Expired", null, e => e.AdvanceStatus = "Pending");
 
         await RunAsync();
 
-        foreach (var id in new[] { confirmed, confirmedOwner, booked, advance, advancePending })
+        foreach (var id in new[] { confirmed, confirmedOwner, booked })
             Assert.True(await EnquiryExistsAsync(id));
     }
 

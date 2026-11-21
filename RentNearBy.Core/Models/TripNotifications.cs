@@ -56,36 +56,6 @@ public static class TripNotifications
         Traveller(e, ctx, NotificationTypes.TripOwnerCancelled, $"{Listing(e, ctx)} cancelled",
             $"Pick another {KindWord(e)} for {Date(e)}.", Plan(e, ctx));
 
-    // -- phase 1b: advance (stay) --
-
-    public static NotificationEvent TripAdvanceRequested(TripEnquiry e, TripPushContext ctx) =>
-        Traveller(e, ctx, NotificationTypes.TripAdvanceRequested, $"{Listing(e, ctx)} asked for the advance",
-            $"Rs {Money(e.AdvanceAmount)}, hold till {HoldTime(e)}. Pay the host directly.", Chat(e, ctx));
-
-    public static NotificationEvent TripAdvanceProofSent(TripEnquiry e, TripPushContext ctx) =>
-        Host(e, ctx, NotificationTypes.TripAdvanceProofSent,
-            $"{Name(ctx.TravellerName, "A guest")} sent proof for Rs {Money(e.AdvanceAmount)}",
-            $"Check your UPI app and mark it received. Hold ends {HoldTime(e)}.", ChatOrEnquiries(e, ctx));
-
-    public static NotificationEvent TripAdvanceNotYet(TripEnquiry e, TripPushContext ctx) =>
-        Traveller(e, ctx, NotificationTypes.TripAdvanceNotYet, "The host has not seen your advance yet",
-            $"Check with him on WhatsApp before {HoldTime(e)}.", Chat(e, ctx));
-
-    public static NotificationEvent TripAdvanceReceived(TripEnquiry e, TripPushContext ctx) =>
-        Traveller(e, ctx, NotificationTypes.TripAdvanceReceived, "Advance received",
-            $"{Listing(e, ctx)} says your Rs {Money(e.AdvanceAmount)} advance is received.", Chat(e, ctx));
-
-    // One builder, two recipients: host wording when the recipient owns the listing.
-    public static NotificationEvent TripHoldExpired(TripEnquiry e, TripPushContext ctx)
-    {
-        var toHost = e.OwnerUserId == ctx.RecipientUserId;
-        var body = toHost
-            ? $"You did not mark the advance of {Name(ctx.TravellerName, "the guest")} in time."
-            : $"{Listing(e, ctx)} did not confirm the advance in time.";
-        return Event(ctx.RecipientUserId, NotificationTypes.TripHoldExpired, e.IsUrgent, "Hold expired", body,
-            toHost ? ChatOrEnquiries(e, ctx) : Chat(e, ctx));
-    }
-
     // -- phase 1b: taxi --
 
     public static NotificationEvent TripLeadReceived(TripEnquiry e, TripPushContext ctx) =>
@@ -300,8 +270,6 @@ public static class TripNotifications
         if (!string.IsNullOrWhiteSpace(e.ListingName)) return e.ListingName;
         return IsTaxi(e) ? "Your driver" : "Your stay";
     }
-
-    private static string HoldTime(TripEnquiry e) => e.HoldUntil is { } h ? TripDateText.TimeIst(h) : "the deadline";
 
     private static string PickupText(TripEnquiry e) =>
         TimeOnly.TryParseExact(e.PickupTime, "HH:mm", Inv, DateTimeStyles.None, out var t)

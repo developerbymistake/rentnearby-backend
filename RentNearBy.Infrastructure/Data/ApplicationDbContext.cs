@@ -1341,8 +1341,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(x => x.FailReason).HasMaxLength(24);
             e.Property(x => x.IsUrgent).HasDefaultValue(false);
             e.Property(x => x.DriverFareEditCount).HasDefaultValue((short)0);
-            e.Property(x => x.AdvanceStatus).HasMaxLength(16).HasDefaultValue(TripAdvanceStatuses.None);
-            e.Property(x => x.HostReminderCount).HasDefaultValue((short)0);
             e.Property(x => x.DriverNote).HasMaxLength(300);
             e.Property(x => x.TollExtra).HasDefaultValue(false);
             e.Property(x => x.PickupTime).HasMaxLength(5);
@@ -1403,10 +1401,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Reminder run: "step already settled" probe per shortlist or enquiry row; without it the planner hashes a full scan of the table per chunk.
             e.HasIndex(x => new { x.TripId, x.StepKey }, "ix_tripenquiries_settled")
              .HasFilter("\"Status\" IN ('ConfirmedByBoth','BookedByTraveller')");
-            e.HasIndex(x => x.HoldUntil, "ix_tripenquiries_hold")
-             .HasFilter("\"AdvanceStatus\" IN ('Pending','ProofSent')");
-            e.HasIndex(x => x.ProofSentAt, "ix_tripenquiries_proof")
-             .HasFilter("\"AdvanceStatus\" = 'ProofSent'");
             e.HasIndex(x => x.ConversationId, "ix_tripenquiries_conversation")
              .HasFilter("\"ConversationId\" IS NOT NULL");
             e.HasIndex(x => new { x.TravellerUserId, x.Kind, x.ListingId }, "ix_tripenquiries_traveller_listing")
@@ -1430,10 +1424,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             {
                 t.HasCheckConstraint("ck_tripenquiries_kind", "\"Kind\" IN ('Stay','Taxi')");
                 t.HasCheckConstraint("ck_tripenquiries_status", "\"Status\" IN " + TripEnquiryStatuses.AllSqlList);
-                t.HasCheckConstraint("ck_tripenquiries_advance_status",
-                    "\"AdvanceStatus\" IN ('None','Pending','ProofSent','Received','HoldExpired')");
                 t.HasCheckConstraint("ck_tripenquiries_amounts",
-                    "(\"AgreedTotal\" IS NULL OR \"AgreedTotal\" >= 0) AND (\"AdvanceAmount\" IS NULL OR \"AdvanceAmount\" >= 0)"
+                    "(\"AgreedTotal\" IS NULL OR \"AgreedTotal\" >= 0)"
                     + " AND (\"DriverFare\" IS NULL OR \"DriverFare\" >= 0) AND (\"AgreedFare\" IS NULL OR \"AgreedFare\" >= 0)"
                     + " AND (\"ListedRateSnapshot\" IS NULL OR \"ListedRateSnapshot\" >= 0)");
             });

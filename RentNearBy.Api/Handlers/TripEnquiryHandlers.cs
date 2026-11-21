@@ -362,7 +362,6 @@ public static class TripEnquiryHandlers
                         Status = TripEnquiryStatuses.Asked,
                         ExpiresAt = expiresAt,
                         IsUrgent = isUrgent,
-                        AdvanceStatus = TripAdvanceStatuses.None,
                         StepKey = request.StepKey,
                         ClientRequestId = staleIds.Contains(stay.Id) ? null : request.ClientRequestId,
                         CreatedAt = now,
@@ -802,7 +801,6 @@ public static class TripEnquiryHandlers
                     Status = TripEnquiryStatuses.Asked,
                     ExpiresAt = expiresAt,
                     IsUrgent = isUrgent,
-                    AdvanceStatus = TripAdvanceStatuses.None,
                     ListedRateSnapshot = taxi.LocalDayRate,
                     PickupTime = context.PickupTime,
                     PickupPlace = context.PickupPlace,
@@ -1079,7 +1077,6 @@ public static class TripEnquiryHandlers
                     Day = null,
                     CityLeg = leg,
                     ConversationId = null,
-                    AdvanceStatus = TripAdvanceStatuses.None,
                     ListedRateSnapshot = taxi.LocalDayRate,
                     CreatedAt = now,
                 };
@@ -1290,7 +1287,6 @@ public static class TripEnquiryHandlers
                     ListingLongitude = taxi.Longitude,
                     Day = day,
                     ConversationId = null,
-                    AdvanceStatus = TripAdvanceStatuses.None,
                     CreatedAt = now,
                 };
             }
@@ -1602,7 +1598,6 @@ public static class TripEnquiryHandlers
             e.CancelReason = TripTextSafety.CleanOrNull(request.Reason, TripExecutionRules.CancellationMax);
             e.UpdatedAt = now;
             await TripEnquiryOps.CloseOpenOfferAsync(db, chat, e, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, posts, now);
-            await TripEnquiryOps.CloseOpenAdvanceAsync(chat, e, posts);
             await db.SaveChangesAsync();
             await TripEnquiryOps.PostSystemAsync(db, chat, e, callerId,
                 byOwner ? TripSystemLines.CancelledByOwner : TripSystemLines.CancelledByTraveller, posts);
@@ -1987,9 +1982,6 @@ public static class TripEnquiryHandlers
         var total = TripExecutionRules.ComputeTotal(lines, nights);
         if (total < TripExecutionRules.MinAmount || total > TripExecutionRules.MaxAmount)
             return BadRequestResponse(TripExecutionRules.TotalRangeMessage);
-        var moneyMoved = TripAdvanceSplit.MoneyMoved(e.AdvanceStatus);
-        var changeAdvance = TripAdvanceSplit.ForTerms(accepted.AdvanceAmount, accepted.Total, total, e.AdvanceStatus, e.AdvanceAmount);
-        int? refundDue = moneyMoved && e.AdvanceAmount is { } paid && paid > total ? paid - total : null;
 
         var note = TripTextSafety.CleanOrNull(request.Note, TripExecutionRules.NoteMax);
         var change = new TripOffer
@@ -2007,7 +1999,6 @@ public static class TripEnquiryHandlers
             Kids = (short)request.Kids,
             Note = note,
             Inclusions = accepted.Inclusions,
-            AdvanceAmount = changeAdvance,
             BalanceNote = accepted.BalanceNote,
             CancellationText = accepted.CancellationText,
             GstInvoice = accepted.GstInvoice,
@@ -2048,8 +2039,6 @@ public static class TripEnquiryHandlers
                     total,
                     nights,
                     lines,
-                    advanceAmount = changeAdvance,
-                    refundDue,
                     note,
                     status = TripCardStatuses.Pending,
                 }, "Change request");
@@ -2369,7 +2358,6 @@ public static class TripEnquiryHandlers
         var split = TripReplaceSplit.Plan(replaced, checkIn, checkOut, callerId, now);
         if (split.Kept is not { } kept)
         {
-            await TripEnquiryOps.CloseOpenAdvanceAsync(chat, replaced, posts);
             await TripEnquiryOps.PostSystemAsync(db, chat, replaced, callerId, TripSystemLines.CancelledByTraveller, posts);
             pushes.Add(new TripPendingPush(replaced, replaced.OwnerUserId, TripNotifications.TripTravellerCancelled));
             return;
@@ -2432,7 +2420,6 @@ public static class TripEnquiryHandlers
         total = shrunk.Total,
         listedPerNight = (int?)null,
         inclusions = shrunk.Inclusions,
-        advanceAmount = shrunk.AdvanceAmount,
         balanceNote = shrunk.BalanceNote,
         cancellationText = shrunk.CancellationText,
         gstInvoice = shrunk.GstInvoice,

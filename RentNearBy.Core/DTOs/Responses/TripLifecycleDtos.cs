@@ -41,8 +41,6 @@ public class TripSummaryNightDto
     public string DisplayStatus { get; set; } = string.Empty;
     public List<TripSummaryRoomLineDto> RoomLines { get; set; } = new();
     public int? AgreedTotal { get; set; }
-    public string? AdvanceStatus { get; set; }
-    public int? AdvanceAmount { get; set; }
     public string? CancellationText { get; set; }
     public bool? GstInvoice { get; set; }
     // "both" | "you" | null

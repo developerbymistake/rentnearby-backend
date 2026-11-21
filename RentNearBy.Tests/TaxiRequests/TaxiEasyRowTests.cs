@@ -51,7 +51,6 @@ public class TaxiEasyRowTests
         DaysJson = "[1,2,3]",
         CheckIn = Start,
         CheckOut = Start.AddDays(3),
-        AdvanceStatus = TripAdvanceStatuses.None,
         UpdatedAt = new DateTime(2026, 12, 1, 10, 0, 0, DateTimeKind.Utc),
     };
 

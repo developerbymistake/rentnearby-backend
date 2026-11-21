@@ -58,7 +58,6 @@ public class TripEasyRowsTests
         Day = (short)night,
         CheckIn = DateOf(night),
         CheckOut = DateOf(night + nights),
-        AdvanceStatus = TripAdvanceStatuses.None,
         ContextJson = "{\"city\":\"" + city + "\"}",
         UpdatedAt = new DateTime(2026, 10, 30, 10, 0, 0, DateTimeKind.Utc),
     };
@@ -73,7 +72,6 @@ public class TripEasyRowsTests
         DaysJson = "[" + string.Join(",", days) + "]",
         CheckIn = DateOf(days[0]),
         CheckOut = DateOf(days[^1] + 1),
-        AdvanceStatus = TripAdvanceStatuses.None,
         UpdatedAt = new DateTime(2026, 10, 30, 10, 0, 0, DateTimeKind.Utc),
     };
 
@@ -86,7 +84,6 @@ public class TripEasyRowsTests
         Day = TripExecutionRules.DayOf(Start, date),
         CheckIn = date,
         CheckOut = date.AddDays(1),
-        AdvanceStatus = TripAdvanceStatuses.None,
         ContextJson = "{\"city\":\"Nainital\",\"journeyId\":\"" + journeyId + "\",\"legIndex\":" + car + ",\"role\":\"" + role + "\"}",
     };
 
@@ -189,16 +186,12 @@ public class TripEasyRowsTests
     }
 
     [Fact]
-    public void Stay_confirmed_needs_you_for_a_pending_advance_a_revised_price_or_a_replacing_offer()
+    public void Stay_confirmed_needs_you_only_for_a_revised_price_or_a_replacing_offer()
     {
         var plan = OneCity();
         var both = StayRow(TripEnquiryStatuses.ConfirmedByBoth, 1, 2);
         Assert.False(Row(Rows(plan, [both]), "stay:1").NeedsYou);
 
-        both.AdvanceStatus = TripAdvanceStatuses.Pending;
-        Assert.True(Row(Rows(plan, [both]), "stay:1").NeedsYou);
-
-        both.AdvanceStatus = TripAdvanceStatuses.None;
         Assert.True(Row(Rows(plan, [both], [], new HashSet<Guid> { both.Id }), "stay:1").NeedsYou);
         Assert.True(Row(Rows(plan, [both, StayRow(TripEnquiryStatuses.Offered, 1, 2)]), "stay:1").NeedsYou);
     }

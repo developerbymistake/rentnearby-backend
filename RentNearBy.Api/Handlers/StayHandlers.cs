@@ -876,11 +876,11 @@ public static class StayHandlers
         return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
     }
 
-    // PUT /stays/me/advance-details: null keeps a value, "" clears it. Never touches the status or the public caches.
-    public static async Task<IResult> UpdateAdvanceDetails(
-        UpdateStayAdvanceDetailsRequest request,
+    // PUT /stays/me/share-details: null keeps a value, "" clears it. Never touches the status or the public caches.
+    public static async Task<IResult> UpdateShareDetails(
+        UpdateStayShareDetailsRequest request,
         ClaimsPrincipal principal,
-        IValidator<UpdateStayAdvanceDetailsRequest> validator,
+        IValidator<UpdateStayShareDetailsRequest> validator,
         IUnitOfWork unitOfWork)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))

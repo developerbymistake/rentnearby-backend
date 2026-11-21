@@ -114,9 +114,6 @@ public abstract class TripOfferFieldsValidator<T> : AbstractValidator<T> where T
                 .WithMessage($"Price per night must be 1 to {TripOfferRules.OfferMaxPerNight}");
         });
 
-        RuleFor(x => x.AdvanceAmount)
-            .Must(v => v == null || v >= 0)
-            .WithMessage("Advance must be 0 or more");
         RuleFor(x => x.BalanceNote)
             .Must(v => v == null || v.Length <= TripExecutionRules.BalanceNoteMax)
             .WithMessage($"Balance must be at most {TripExecutionRules.BalanceNoteMax} characters");
@@ -236,29 +233,6 @@ public class CreateTaxiBookingRequestValidator : AbstractValidator<CreateTaxiBoo
             .WithMessage("Replace id must not be empty")
             .Must(ids => ids == null || ids.Distinct().Count() == ids.Count)
             .WithMessage("Replace ids must be different");
-    }
-}
-
-public class AskAdvanceRequestValidator : AbstractValidator<AskAdvanceRequest>
-{
-    public AskAdvanceRequestValidator()
-    {
-        RuleFor(x => x.Amount)
-            .InclusiveBetween(TripExecutionRules.MinAmount, TripExecutionRules.MaxAmount)
-            .WithMessage($"Advance must be 1 to {TripExecutionRules.MaxAmount}");
-
-        RuleFor(x => x.HoldUntil)
-            .Must(d => d.Kind != DateTimeKind.Unspecified)
-            .WithMessage("Hold time must carry a time zone");
-
-        RuleFor(x => x.UpiId)
-            .Must(TripAdvanceRules.IsValidUpi)
-            .WithMessage("Enter a UPI ID like name@bank");
-
-        RuleFor(x => x.WhatsAppNumber)
-            .NotNull()
-            .Matches(TripExecutionValidation.PhonePattern)
-            .WithMessage(TripExecutionValidation.PhoneMessage);
     }
 }
 

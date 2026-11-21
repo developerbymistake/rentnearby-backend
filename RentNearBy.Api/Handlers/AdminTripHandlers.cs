@@ -211,7 +211,6 @@ public static class AdminTripHandlers
         dto.Status = e.Status;
         dto.FailReason = e.FailReason;
         dto.DisplayStatus = TripExecutionRules.DisplayStatus(e.Status, e.FailReason);
-        dto.AdvanceStatus = e.AdvanceStatus;
         dto.ListingId = e.ListingId;
         dto.ListingName = e.ListingName;
         dto.City = context.City;
@@ -237,10 +236,6 @@ public static class AdminTripHandlers
         var userIds = new[] { e.TravellerUserId, e.OwnerUserId }.OfType<Guid>().Distinct().ToList();
         var parties = await unitOfWork.TripEnquiries.LoadPartiesAsync(userIds);
         var offers = (await unitOfWork.TripOffers.GetByEnquiriesAsync([e.Id])).TryGetValue(e.Id, out var list) ? list : new List<TripOffer>();
-        var remindersSent = e.ProofSentAt is { } proofSentAt
-            ? HostReminderTally.Sent(await unitOfWork.TripPushLogs.GetKeysAsync(e.Id, HostReminderTally.KeyPrefix(e.Id, proofSentAt)), e.Id, proofSentAt)
-            : 0;
-
         var detail = new AdminTripEnquiryDetailDto();
         Fill(detail, e, parties);
 
@@ -259,18 +254,6 @@ public static class AdminTripHandlers
             Text = context.Text,
         };
         detail.Offers = offers.OrderByDescending(o => o.CreatedAt).Select(o => TripEnquiryDtoBuilder.ToOfferDto(o, e)).ToList();
-        detail.Advance = new AdminTripAdvanceDto
-        {
-            Status = e.AdvanceStatus,
-            Amount = e.AdvanceAmount,
-            HoldUntil = e.HoldUntil,
-            AskedAt = e.AdvanceAskedAt,
-            ProofSentAt = e.ProofSentAt,
-            ReceivedAt = e.AdvanceReceivedAt,
-            NotYetAt = e.AdvanceNotYetAt,
-            ReminderCount = remindersSent,
-            LastHostReminderAt = e.LastHostReminderAt,
-        };
         detail.Taxi = e.Kind != TripEnquiryKinds.Taxi ? null : new AdminTripTaxiDto
         {
             ListedRate = e.ListedRateSnapshot,

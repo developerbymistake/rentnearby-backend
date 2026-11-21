@@ -53,18 +53,6 @@ public class TripHostGuardsTests
         Assert.False(TripHostGuards.CounterMatches(counter, Today.AddDays(inDay), Today.AddDays(outDay), total, [Line("Deluxe", 1, 2, price)]));
     }
 
-    // ----- m12: advance within the accepted offer (policy) -----
-
-    [Theory]
-    [InlineData(5000, 1000, 1000, true)]
-    [InlineData(5000, 1000, 1001, false)]
-    [InlineData(5000, null, 5000, true)]
-    [InlineData(5000, null, 5001, false)]
-    [InlineData(5000, 0, 5000, true)]
-    [InlineData(null, 1000, 1000, true)]
-    public void Advance_stays_within_the_accepted_offer(int? agreedTotal, int? offerAdvance, int asked, bool ok)
-        => Assert.Equal(ok, asked <= TripHostGuards.MaxAdvance(agreedTotal, offerAdvance));
-
     // ----- m14: the offer must seat the party -----
 
     [Fact]

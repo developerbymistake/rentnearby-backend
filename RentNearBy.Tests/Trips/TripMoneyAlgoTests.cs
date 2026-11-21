@@ -254,58 +254,9 @@ public class TripMoneyAlgoTests
         Assert.Equal("Family", noParty[0].BestRoomName);
     }
 
-    // ---------- Finding 16: advance against a moving total ----------
+    // ---------- Problem split: totals only ----------
 
-    [Fact]
-    public void Change_to_a_smaller_total_covers_with_the_paid_advance_and_shows_the_refund()
-    {
-        Assert.Equal(2500, TripAdvanceSplit.ForTerms(5000, 7500, 2500, TripAdvanceStatuses.Received, 5000));
-        var e = new TripEnquiry
-        {
-            Kind = TripEnquiryKinds.Stay, Status = TripEnquiryStatuses.ConfirmedByBoth,
-            AdvanceStatus = TripAdvanceStatuses.Received, AdvanceAmount = 5000, AgreedTotal = 7500,
-        };
-        Assert.Null(TripAdvanceSplit.RefundDue(e));
-        TripAdvanceSplit.ApplyTotalChange(e, 2500);
-        e.AgreedTotal = 2500;
-        Assert.Equal(5000, e.AdvanceAmount);
-        Assert.Equal(2500, TripAdvanceSplit.RefundDue(e));
-    }
-
-    [Fact]
-    public void Unpaid_advance_follows_the_total_both_ways()
-    {
-        Assert.Equal(1667, TripAdvanceSplit.ForTerms(5000, 7500, 2500, TripAdvanceStatuses.None, null));
-        Assert.Equal(10000, TripAdvanceSplit.ForTerms(5000, 7500, 15000, TripAdvanceStatuses.Pending, 5000));
-        Assert.Null(TripAdvanceSplit.ForTerms(null, 7500, 2500, TripAdvanceStatuses.None, null));
-        Assert.Equal(0, TripAdvanceSplit.ForTerms(0, 7500, 2500, TripAdvanceStatuses.None, null));
-
-        var e = new TripEnquiry { AdvanceStatus = TripAdvanceStatuses.Pending, AdvanceAmount = 3000, AgreedTotal = 9000 };
-        TripAdvanceSplit.ApplyTotalChange(e, 3000);
-        Assert.Equal(1000, e.AdvanceAmount);
-    }
-
-    [Fact]
-    public void Paid_advance_on_a_bigger_total_stays_as_paid()
-    {
-        Assert.Equal(5000, TripAdvanceSplit.ForTerms(5000, 7500, 10000, TripAdvanceStatuses.Received, 5000));
-    }
-
-    [Fact]
-    public void Sequential_allocation_three_parts()
-    {
-        var (parts, refund) = TripAdvanceSplit.Sequential(5000, [2000, 2000, 2000]);
-        Assert.Equal(new[] { 2000, 2000, 1000 }, parts);
-        Assert.Equal(0, refund);
-        var (more, back) = TripAdvanceSplit.Sequential(7000, [2000, 2000]);
-        Assert.Equal(new[] { 2000, 2000 }, more);
-        Assert.Equal(3000, back);
-        var (none, zero) = TripAdvanceSplit.Sequential(0, []);
-        Assert.Empty(none);
-        Assert.Equal(0, zero);
-    }
-
-    private static TripEnquiry Booked(int total, int? advance, string advanceStatus) => new()
+    private static TripEnquiry Booked(int total) => new()
     {
         Id = Guid.NewGuid(),
         TripId = Guid.NewGuid(),
@@ -319,55 +270,27 @@ public class TripMoneyAlgoTests
         CheckOut = Start.AddDays(3),
         Status = TripEnquiryStatuses.ConfirmedByBoth,
         AcceptedOfferId = Guid.NewGuid(),
-        AdvanceStatus = advanceStatus,
-        AdvanceAmount = advance,
         AgreedTotal = total,
         ExpiresAt = Now.AddDays(1),
     };
 
     [Fact]
-    public void Problem_split_finding_16_moves_the_unused_advance_to_the_failed_night()
+    public void Problem_split_moves_the_failed_nights_total_to_the_failed_row()
     {
-        var e = Booked(7500, 5000, TripAdvanceStatuses.Received);
+        var e = Booked(7500);
         var (kept, failed) = TripProblemSplit.Plan(e, Start, 2, Now);
-
         Assert.Equal(2500, kept!.AgreedTotal);
-        Assert.Equal(2500, kept.AdvanceAmount);
-        Assert.Null(TripAdvanceSplit.RefundDue(kept));
-
         Assert.Equal(5000, failed.AgreedTotal);
-        Assert.Equal(TripAdvanceStatuses.Received, failed.AdvanceStatus);
-        Assert.Equal(2500, failed.AdvanceAmount);
-        Assert.Equal(2500, TripAdvanceSplit.RefundDue(failed));
-        Assert.Equal(5000, kept.AdvanceAmount + failed.AdvanceAmount);
+        Assert.Equal(TripEnquiryStatuses.Failed, failed.Status);
     }
 
     [Fact]
-    public void Problem_split_advance_within_the_kept_part_leaves_no_refund()
+    public void Shrunk_offer_carries_the_kept_total()
     {
-        var e = Booked(9000, 2000, TripAdvanceStatuses.Received);
-        var (kept, failed) = TripProblemSplit.Plan(e, Start, 2, Now);
-        Assert.Equal(2000, kept!.AdvanceAmount);
-        Assert.Equal(TripAdvanceStatuses.None, failed.AdvanceStatus);
-        Assert.Null(failed.AdvanceAmount);
-    }
-
-    [Fact]
-    public void Problem_split_unpaid_ask_follows_the_kept_total()
-    {
-        var e = Booked(9000, 3000, TripAdvanceStatuses.Pending);
-        var (kept, failed) = TripProblemSplit.Plan(e, Start, 2, Now);
-        Assert.Equal(1000, kept!.AdvanceAmount);
-        Assert.Equal(TripAdvanceStatuses.None, failed.AdvanceStatus);
-    }
-
-    [Fact]
-    public void Shrunk_offer_carries_the_covered_advance()
-    {
-        var e = Booked(7500, 5000, TripAdvanceStatuses.Received);
-        var accepted = new TripOffer { Id = Guid.NewGuid(), Kind = TripOfferKinds.Offer, Total = 7500, AdvanceAmount = 5000, LinesJson = "[]" };
+        var e = Booked(7500);
+        var accepted = new TripOffer { Id = Guid.NewGuid(), Kind = TripOfferKinds.Offer, Total = 7500, LinesJson = "[]" };
         var (kept, _) = TripProblemSplit.Plan(e, Start, 2, Now);
-        Assert.Equal(2500, TripProblemSplit.ShrinkAcceptedOffer(accepted, kept!, Now).AdvanceAmount);
+        Assert.Equal(2500, TripProblemSplit.ShrinkAcceptedOffer(accepted, kept!, Now).Total);
     }
 
     // ---------- Finding 87: the night cap as a pure rule ----------

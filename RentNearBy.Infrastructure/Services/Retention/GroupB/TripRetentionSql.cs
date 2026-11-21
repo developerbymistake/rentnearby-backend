@@ -6,7 +6,7 @@ public static class TripRetentionSql
     public const string OpenStatuses = "'Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller'";
 
     public static string ClosedEnquiry(string a) =>
-        $"""({a}."Status" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') OR ({a}."Status" = 'Failed' AND {a}."FailReason" IN ('DriverDenied','HoldExpired','ListingRemoved')))""";
+        $"""({a}."Status" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') OR ({a}."Status" = 'Failed' AND {a}."FailReason" IN ('DriverDenied','ListingRemoved')))""";
 
     // The trip row is gone, Completed, or ended before today. EndDate NULL on an uncompleted trip counts as running.
     public static string TripNotRunning(string tripIdExpr) =>
@@ -15,9 +15,8 @@ public static class TripRetentionSql
     public static string EnquiryDeletable(string e) =>
         $"""
         {ClosedEnquiry(e)}
-        AND {e}."AdvanceStatus" = 'None'
         AND {e}."ConfirmedByTravellerAt" IS NULL AND {e}."ConfirmedByOwnerAt" IS NULL AND {e}."BookedByTravellerAt" IS NULL
-        AND {e}."AdvanceReceivedAt" IS NULL AND {e}."AcceptedOfferId" IS NULL
+        AND {e}."AcceptedOfferId" IS NULL
         AND NOT EXISTS (SELECT 1 FROM "ListingReports" r WHERE (r."TripEnquiryId" = {e}."Id" OR (r."ListingType" = 'TripEnquiry' AND r."ListingId" = {e}."Id")) AND (r."Status" = 'Pending' OR r."ResolvedAt" IS NULL OR r."ResolvedAt" >= @cutoff))
         AND NOT EXISTS (SELECT 1 FROM "TripProblemLogs" p WHERE p."TripEnquiryId" = {e}."Id")
         AND ({e}."TripId" IS NULL OR {TripNotRunning($"{e}.\"TripId\"")})

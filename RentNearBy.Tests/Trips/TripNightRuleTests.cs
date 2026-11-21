@@ -97,7 +97,6 @@ public class TripNightRuleTests
         CheckIn = D(fromDay),
         CheckOut = D(toDay + 1),
         AgreedTotal = total,
-        AdvanceStatus = TripAdvanceStatuses.None,
     };
 
     [Fact]

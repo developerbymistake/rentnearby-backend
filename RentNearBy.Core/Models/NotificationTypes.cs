@@ -37,11 +37,6 @@ public static class NotificationTypes
     public const string TripTravellerCancelled = "TripTravellerCancelled";
     public const string TripOwnerCancelled = "TripOwnerCancelled";
     public const string TripLeadReceived = "TripLeadReceived";
-    public const string TripAdvanceRequested = "TripAdvanceRequested";
-    public const string TripAdvanceProofSent = "TripAdvanceProofSent";
-    public const string TripAdvanceNotYet = "TripAdvanceNotYet";
-    public const string TripAdvanceReceived = "TripAdvanceReceived";
-    public const string TripHoldExpired = "TripHoldExpired";
     public const string TripDriverFare = "TripDriverFare";
     public const string TripTaxiBookedByTraveller = "TripTaxiBookedByTraveller";
     public const string TripBookingChanged = "TripBookingChanged";
@@ -133,11 +128,6 @@ public static class NotificationTypes
         [TripTravellerCancelled] = "trip_traveller_cancelled",
         [TripOwnerCancelled] = "trip_owner_cancelled",
         [TripLeadReceived] = "trip_lead_received",
-        [TripAdvanceRequested] = "trip_advance_requested",
-        [TripAdvanceProofSent] = "trip_advance_proof_sent",
-        [TripAdvanceNotYet] = "trip_advance_not_yet",
-        [TripAdvanceReceived] = "trip_advance_received",
-        [TripHoldExpired] = "trip_hold_expired",
         [TripDriverFare] = "trip_driver_fare",
         [TripTaxiBookedByTraveller] = "trip_taxi_booked_by_traveller",
         [TripBookingChanged] = "trip_booking_changed",

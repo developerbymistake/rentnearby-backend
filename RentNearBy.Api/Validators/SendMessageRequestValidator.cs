@@ -1,5 +1,6 @@
 using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Validators;
 
@@ -8,12 +9,16 @@ public class SendMessageRequestValidator : AbstractValidator<SendMessageRequest>
     public SendMessageRequestValidator()
     {
         RuleFor(x => x.Type)
-            .Must(t => t is "quick_reply" or "contact_request" or "schedule_proposal")
-            .WithMessage("Type must be one of: quick_reply, contact_request, schedule_proposal");
+            .Must(t => t is "quick_reply" or "contact_request" or "schedule_proposal" or StayShareRules.MessageType)
+            .WithMessage("Type must be one of: quick_reply, contact_request, schedule_proposal, stay_contact_share");
 
         RuleFor(x => x.PayloadJson)
-            .NotEmpty()
+            .NotEmpty().When(x => x.Type != StayShareRules.MessageType)
             .MaximumLength(2000).WithMessage("Payload too large");
+
+        RuleFor(x => x.RespondsToMessageId)
+            .Null().When(x => x.Type == StayShareRules.MessageType)
+            .WithMessage("A share card answers nothing");
 
         RuleFor(x => x.RespondsToMessageId)
             .NotEqual(Guid.Empty).When(x => x.RespondsToMessageId.HasValue)

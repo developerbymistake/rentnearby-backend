@@ -158,8 +158,6 @@ public static class TripOwnerHandlers
         var total = TripExecutionRules.ComputeTotal(lines, nights);
         if (total < TripExecutionRules.MinAmount || total > TripExecutionRules.MaxAmount)
             return BadRequestResponse(TripExecutionRules.TotalRangeMessage);
-        if (request.AdvanceAmount is { } adv && (adv < 0 || adv > total))
-            return BadRequestResponse("Advance must not be more than the total");
 
         var datesDiffer = request.CheckIn != e.CheckIn || request.CheckOut != e.CheckOut;
         var validUntil = TripExecutionRules.OfferValidUntil(start, request.CheckIn, now);
@@ -178,7 +176,6 @@ public static class TripOwnerHandlers
             Nights = (short)nights,
             Total = total,
             Inclusions = TripTextSafety.CleanOrNull(request.Inclusions, 200),
-            AdvanceAmount = request.AdvanceAmount,
             BalanceNote = TripTextSafety.CleanOrNull(request.BalanceNote, TripExecutionRules.BalanceNoteMax),
             CancellationText = TripTextSafety.CleanOrNull(request.CancellationText, TripExecutionRules.CancellationMax),
             GstInvoice = request.GstInvoice,
@@ -216,7 +213,6 @@ public static class TripOwnerHandlers
                     total,
                     listedPerNight = listed,
                     inclusions = offer.Inclusions,
-                    advanceAmount = offer.AdvanceAmount,
                     balanceNote = offer.BalanceNote,
                     cancellationText = offer.CancellationText,
                     gstInvoice = offer.GstInvoice,
@@ -375,8 +371,6 @@ public static class TripOwnerHandlers
         var total = TripExecutionRules.ComputeTotal(lines, nights);
         if (total < TripExecutionRules.MinAmount || total > TripExecutionRules.MaxAmount)
             return BadRequestResponse(TripExecutionRules.TotalRangeMessage);
-        if (request.AdvanceAmount is { } adv && (adv < 0 || adv > total))
-            return BadRequestResponse("Advance must not be more than the total");
 
         var reason = TripTextSafety.Clean(request.Reason, TripOfferRules.ReasonMax);
         if (reason.Length == 0) return BadRequestResponse($"Reason must be 1 to {TripOfferRules.ReasonMax} characters");
@@ -395,7 +389,6 @@ public static class TripOwnerHandlers
             Nights = (short)nights,
             Total = total,
             Inclusions = TripTextSafety.CleanOrNull(request.Inclusions, 200),
-            AdvanceAmount = request.AdvanceAmount,
             BalanceNote = TripTextSafety.CleanOrNull(request.BalanceNote, TripExecutionRules.BalanceNoteMax),
             CancellationText = TripTextSafety.CleanOrNull(request.CancellationText, TripExecutionRules.CancellationMax),
             GstInvoice = request.GstInvoice,
@@ -437,14 +430,12 @@ public static class TripOwnerHandlers
                     checkOut = offer.CheckOut,
                     lines,
                     reason,
-                    advanceAmount = offer.AdvanceAmount,
                     balanceNote = offer.BalanceNote,
                     cancellationText = offer.CancellationText,
                     gstInvoice = offer.GstInvoice,
                     inclusions = offer.Inclusions,
                     validUntil,
                     datesDiffer,
-                    advanceAgreed = e.AdvanceStatus != TripAdvanceStatuses.None ? e.AdvanceAmount : null,
                     status = TripCardStatuses.Pending,
                 };
                 var post = await chat.PostAsync(conversation, callerId, TripMessageTypes.RevisedOffer, payload, $"Revised offer · Rs {total}");

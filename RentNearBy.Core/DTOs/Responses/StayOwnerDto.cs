@@ -41,7 +41,7 @@ public class StayOwnerDto
     public DateTime? SubmittedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-    // Trip advance details: the owner's own values, only ever read back by the owner.
+    // Share details (UPI ID, WhatsApp): the owner's own values, only ever read back by the owner.
     public string? UpiId { get; set; }
     public string? WhatsAppNumber { get; set; }
     public int PendingReportCount { get; set; }   // set by the handler, not mapped

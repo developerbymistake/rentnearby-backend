@@ -9,7 +9,6 @@ public class AdminTripEnquiryDto
     public string Status { get; set; } = string.Empty;
     public string? FailReason { get; set; }
     public string DisplayStatus { get; set; } = string.Empty;
-    public string AdvanceStatus { get; set; } = TripAdvanceStatuses.None;
     public Guid ListingId { get; set; }
     public string ListingName { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;
@@ -34,20 +33,6 @@ public class AdminTripEnquiryPageDto
     public bool HasMore { get; set; }
 }
 
-// The advance timeline never carries a UPI ID: the admin API does not read chat messages.
-public class AdminTripAdvanceDto
-{
-    public string Status { get; set; } = TripAdvanceStatuses.None;
-    public int? Amount { get; set; }
-    public DateTime? HoldUntil { get; set; }
-    public DateTime? AskedAt { get; set; }
-    public DateTime? ProofSentAt { get; set; }
-    public DateTime? ReceivedAt { get; set; }
-    public DateTime? NotYetAt { get; set; }
-    public int ReminderCount { get; set; }
-    public DateTime? LastHostReminderAt { get; set; }
-}
-
 public class AdminTripTaxiDto
 {
     public int? ListedRate { get; set; }
@@ -65,7 +50,6 @@ public class AdminTripEnquiryDetailDto : AdminTripEnquiryDto
 {
     public TripEnquiryContextDto Context { get; set; } = new();
     public List<TripOfferDto> Offers { get; set; } = new();
-    public AdminTripAdvanceDto Advance { get; set; } = new();
     public AdminTripTaxiDto? Taxi { get; set; }
     public Guid? TripId { get; set; }
     public Guid? ConversationId { get; set; }

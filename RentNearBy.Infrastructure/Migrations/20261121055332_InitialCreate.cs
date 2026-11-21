@@ -2311,15 +2311,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     ConfirmedByTravellerAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     ConfirmedByOwnerAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     DriverFareEditCount = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
-                    AdvanceStatus = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false, defaultValue: "None"),
-                    AdvanceAmount = table.Column<int>(type: "integer", nullable: true),
-                    HoldUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    AdvanceAskedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    ProofSentAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    AdvanceReceivedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    AdvanceNotYetAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    LastHostReminderAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    HostReminderCount = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
                     ListedRateSnapshot = table.Column<int>(type: "integer", nullable: true),
                     DriverFare = table.Column<int>(type: "integer", nullable: true),
                     AgreedFare = table.Column<int>(type: "integer", nullable: true),
@@ -2343,8 +2334,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_TripEnquiries", x => x.Id);
-                    table.CheckConstraint("ck_tripenquiries_advance_status", "\"AdvanceStatus\" IN ('None','Pending','ProofSent','Received','HoldExpired')");
-                    table.CheckConstraint("ck_tripenquiries_amounts", "(\"AgreedTotal\" IS NULL OR \"AgreedTotal\" >= 0) AND (\"AdvanceAmount\" IS NULL OR \"AdvanceAmount\" >= 0) AND (\"DriverFare\" IS NULL OR \"DriverFare\" >= 0) AND (\"AgreedFare\" IS NULL OR \"AgreedFare\" >= 0) AND (\"ListedRateSnapshot\" IS NULL OR \"ListedRateSnapshot\" >= 0)");
+                    table.CheckConstraint("ck_tripenquiries_amounts", "(\"AgreedTotal\" IS NULL OR \"AgreedTotal\" >= 0) AND (\"DriverFare\" IS NULL OR \"DriverFare\" >= 0) AND (\"AgreedFare\" IS NULL OR \"AgreedFare\" >= 0) AND (\"ListedRateSnapshot\" IS NULL OR \"ListedRateSnapshot\" >= 0)");
                     table.CheckConstraint("ck_tripenquiries_kind", "\"Kind\" IN ('Stay','Taxi')");
                     table.CheckConstraint("ck_tripenquiries_status", "\"Status\" IN ('Asked','Offered','Countered','ConfirmedByBoth','FareSent','BookedByTraveller','NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Failed','Closed')");
                     table.ForeignKey(
@@ -2388,7 +2378,6 @@ namespace RentNearBy.Infrastructure.Migrations
                     Nights = table.Column<short>(type: "smallint", nullable: false),
                     Total = table.Column<int>(type: "integer", nullable: false),
                     Inclusions = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
-                    AdvanceAmount = table.Column<int>(type: "integer", nullable: true),
                     BalanceNote = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: true),
                     CancellationText = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
                     GstInvoice = table.Column<bool>(type: "boolean", nullable: true),
@@ -3637,7 +3626,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_tripenquiries_closed_updated",
                 table: "TripEnquiries",
                 column: "UpdatedAt",
-                filter: "(\"Status\" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') OR (\"Status\" = 'Failed' AND \"FailReason\" IN ('DriverDenied','HoldExpired','ListingRemoved')))");
+                filter: "(\"Status\" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') OR (\"Status\" = 'Failed' AND \"FailReason\" IN ('DriverDenied','ListingRemoved')))");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_conversation",
@@ -3662,12 +3651,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "TripEnquiries",
                 column: "TravellerUserId",
                 filter: "\"Status\" = 'Expired' AND \"FinalPushedAt\" IS NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_tripenquiries_hold",
-                table: "TripEnquiries",
-                column: "HoldUntil",
-                filter: "\"AdvanceStatus\" IN ('Pending','ProofSent')");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_hostreminder",
@@ -3706,12 +3689,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "TripEnquiries",
                 columns: new[] { "OwnerUserId", "Status", "CreatedAt" },
                 descending: new[] { false, false, true });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_tripenquiries_proof",
-                table: "TripEnquiries",
-                column: "ProofSentAt",
-                filter: "\"AdvanceStatus\" = 'ProofSent'");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_settled",

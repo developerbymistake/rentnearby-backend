@@ -40,8 +40,7 @@ public class ChatRetentionRuleSqlTests
         Assert.Contains("ConfirmedByTravellerAt", p);
         Assert.Contains("ConfirmedByOwnerAt", p);
         Assert.Contains("BookedByTravellerAt", p);
-        Assert.Contains("AdvanceReceivedAt", p);
-        Assert.Contains("AdvanceStatus", p);
+        Assert.DoesNotContain("Advance", p);
         Assert.Contains("AcceptedOfferId", p);
         Assert.Contains("tr.\"EndDate\" IS NULL OR tr.\"EndDate\" >= @today", p);
         Assert.Contains("\"ListingReports\"", p);

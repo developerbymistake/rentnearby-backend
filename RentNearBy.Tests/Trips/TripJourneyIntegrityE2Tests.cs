@@ -28,7 +28,7 @@ public class TripJourneyIntegrityE2Tests
     private static TripEnquiry Stay(string status, int night, int nights) => new()
     {
         Id = Guid.NewGuid(), TripId = Guid.NewGuid(), Kind = TripEnquiryKinds.Stay, Status = status, ListingName = "Homestay",
-        Day = (short)night, CheckIn = DateOf(night), CheckOut = DateOf(night + nights), AdvanceStatus = TripAdvanceStatuses.None,
+        Day = (short)night, CheckIn = DateOf(night), CheckOut = DateOf(night + nights),
         ContextJson = "{\"city\":\"Nainital\"}", UpdatedAt = new DateTime(2026, 10, 30, 10, 0, 0, DateTimeKind.Utc),
     };
 

@@ -30,7 +30,7 @@ public class TripPartsTests
     private static TripEnquiry Stay(string status, int night = 1, Guid? listing = null) => new()
     {
         Id = Guid.NewGuid(), TripId = Guid.NewGuid(), Kind = TripEnquiryKinds.Stay, Status = status, ListingId = listing ?? Guid.NewGuid(),
-        Day = (short)night, CheckIn = Start.AddDays(night - 1), CheckOut = Start.AddDays(night), AdvanceStatus = TripAdvanceStatuses.None,
+        Day = (short)night, CheckIn = Start.AddDays(night - 1), CheckOut = Start.AddDays(night),
         ContextJson = "{\"city\":\"Nainital\"}", UpdatedAt = new DateTime(2026, 11, 1, 10, 0, 0, DateTimeKind.Utc),
     };
 
@@ -221,22 +221,6 @@ public class TripPartsTests
         Assert.Contains("'ConfirmedByBoth', 'BookedByTraveller'", sql);
         Assert.Contains("\"Kind\" = 'Stay'", sql);
         Assert.Contains("AND (\"CheckOut\" IS NULL OR \"CheckOut\" > @today)", sql);
-    }
-
-    // Unproven settled: a late "advance received" must not re-open a row next to another open row of the same stay in the
-    // trip, whatever its Day (issue 10), nor over nights another stay holds.
-    [Fact]
-    public void Late_advance_reopen_is_refused_next_to_any_open_row_of_the_same_stay()
-    {
-        var listing = Guid.NewGuid();
-        var expired = Stay(TripEnquiryStatuses.Failed, 1, listing);
-        Assert.False(TripAdvanceHandlers.MovedOn(expired, []));
-        Assert.True(TripAdvanceHandlers.MovedOn(expired, [Stay(TripEnquiryStatuses.Asked, 2, listing)]));
-        Assert.True(TripAdvanceHandlers.MovedOn(expired, [Stay(TripEnquiryStatuses.Asked, 1, listing)]));
-        Assert.True(TripAdvanceHandlers.MovedOn(expired, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 1)]));
-        Assert.False(TripAdvanceHandlers.MovedOn(expired, [Stay(TripEnquiryStatuses.ConfirmedByBoth, 2)]));
-        Assert.False(TripAdvanceHandlers.MovedOn(expired, [Stay(TripEnquiryStatuses.Asked, 1)]));
-        Assert.False(TripAdvanceHandlers.MovedOn(expired, [expired]));
     }
 
     private static TripEnquiryHandlers.StaySnapshot Snapshot(Guid id)

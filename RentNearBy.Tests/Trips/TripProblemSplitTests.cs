@@ -22,7 +22,6 @@ public class TripProblemSplitTests
         CheckOut = Start.AddDays(toDay),
         Status = TripEnquiryStatuses.ConfirmedByBoth,
         AcceptedOfferId = Guid.NewGuid(),
-        AdvanceStatus = TripAdvanceStatuses.Received,
         AgreedTotal = total,
         ExpiresAt = Now.AddDays(1),
     };
@@ -66,7 +65,6 @@ public class TripProblemSplitTests
         Assert.Equal((short)2, failed.Day);
         Assert.Equal(2000, failed.AgreedTotal);
         Assert.Null(failed.AcceptedOfferId);
-        Assert.Equal(TripAdvanceStatuses.None, failed.AdvanceStatus);
         Assert.Equal(e.ConversationId, failed.ConversationId);
         Assert.Equal(e.ListingId, failed.ListingId);
         Assert.Equal(e.TripId, failed.TripId);

@@ -18,17 +18,14 @@ namespace RentNearBy.Infrastructure.Services;
 //   3. IsUrgent refresh for open rows whose check-in is now within 72 h.
 //   4. Purges: push logs after 90 days, trip-less enquiries after 180 days, published outbox rows after 3 days,
 //      closed shortlist rows after 30 days, reminder runs after 30 days.
-//   5. Advance holds past HoldUntil -> Failed/HoldExpired; cards rewritten; push to both sides (hold:{id}:t|o).
-//   6. Host reminder while the proof is sent and the hold runs, on HostReminderSchedule slots (proof:{id}:{proofSentAt}:{slot});
-//      the host keeps one inbox row per enquiry.
 //   7. Taxi FareSent leads past ExpiresAt -> Expired, silently.
 //   8. Shortlist items past ClosesAt (72 h) -> Closed/NoReply, silently; the morning run sends the one final push.
 //   9. Trip date reminders: 3 days before (d3, 48 h window), start day (d0, until that day ends), day after the last day
 //      (done, until that day ends); keyed by date, muted trips skipped.
 //  10. Planned trips 7 days past the last day with nothing open -> Completed (no push, runs even when muted).
 //  11. Travel-eve: 18:00 IST the evening before a travel day between two cities, once (trv:{tripId}:{date}); muted trips skipped.
-// Passes 6, 9, 10 and 11 read keyset pages of only un-done work (key not logged / nothing open) until exhausted.
-// Order: 1, 2, 7, 5, 6, 8, 9, 11, 10, 3, 4. Skipped while the trip bookings setting is off.
+// Passes 9, 10 and 11 read keyset pages of only un-done work (key not logged / nothing open) until exhausted.
+// Order: 1, 2, 7, 8, 9, 11, 10, 3, 4. Skipped while the trip bookings setting is off.
 public class TripTimerService(
     IServiceScopeFactory scopeFactory, ITripExecutionFeatureReader reader, ILogger<TripTimerService> logger,
     WorkerHeartbeats? heartbeats = null)
@@ -83,8 +80,6 @@ public class TripTimerService(
             ("offers", OfferExpiryPassAsync),
             ("enquiries", EnquiryExpiryPassAsync),
             ("leads", FareSentExpiryPassAsync),
-            ("hold", HoldExpiryPassAsync),
-            ("reminders", HostReminderPassAsync),
             ("closed", ShortlistClosePassAsync),
             ("bookedsilence", BookedSilencePassAsync),
             ("dates", DateReminderPassAsync),
@@ -93,12 +88,12 @@ public class TripTimerService(
             ("urgent", (sp, _) => UrgentPassAsync(sp)),
             ("purged", DailyStampIfDueAsync),
         ], scopeFactory, logger, ct);
-        var (offers, enquiries, leads, hold, reminders, closed) = (c[0], c[1], c[2], c[3], c[4], c[5]);
-        var (bookedSilence, dates, travelEve, completed, urgent, purged) = (c[6], c[7], c[8], c[9], c[10], c[11]);
+        var (offers, enquiries, leads, closed) = (c[0], c[1], c[2], c[3]);
+        var (bookedSilence, dates, travelEve, completed, urgent, purged) = (c[4], c[5], c[6], c[7], c[8], c[9]);
         if (c.Sum() > 0)
             logger.LogInformation(
-                "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} hold={Hold} reminders={Reminders} leads={Leads} closed={Closed} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
-                offers, enquiries, urgent, purged, hold, reminders, leads, closed, bookedSilence, dates, travelEve, completed);
+                "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} leads={Leads} closed={Closed} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
+                offers, enquiries, urgent, purged, leads, closed, bookedSilence, dates, travelEve, completed);
     }
 
     // Once per IST day; a failed run leaves the stamp so the next tick retries.
@@ -273,112 +268,6 @@ public class TripTimerService(
 
             done++;
         }
-        return done;
-    }
-
-    private async Task<int> HoldExpiryPassAsync(IServiceProvider sp, CancellationToken ct)
-    {
-        var db = sp.GetRequiredService<ApplicationDbContext>();
-        var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
-        var chat = sp.GetRequiredService<ITripChatService>();
-        var notifier = sp.GetRequiredService<ITripNotifier>();
-        var now = DateTime.UtcNow;
-        var due = await unitOfWork.TripEnquiries.GetDueHoldsAsync(now, Batch);
-        var done = 0;
-
-        foreach (var row in due)
-        {
-            if (ct.IsCancellationRequested) break;
-            var posts = new List<TripChatPost>();
-            TripEnquiry? expired = null;
-            await unitOfWork.BeginTransactionAsync();
-            try
-            {
-                var rows = await unitOfWork.TripEnquiries.TryExpireHoldAsync(row.Id, now);
-                if (rows == 0)
-                {
-                    await unitOfWork.RollbackTransactionAsync();
-                    continue;
-                }
-                if (row.ConversationId is { } conversationId)
-                {
-                    await RewriteCardAsync(chat, conversationId, TripMessageTypes.AdvanceRequest, row.Id, TripCardStatuses.HoldExpired, posts);
-                    if (row.ProofSentAt != null)
-                        await RewriteCardAsync(chat, conversationId, TripMessageTypes.AdvanceProofSent, row.Id, TripCardStatuses.HoldExpired, posts);
-                }
-                await TripEnquiryOps.PostSystemAsync(db, chat, row, row.OwnerUserId, TripSystemLines.HoldExpired, posts);
-                await db.SaveChangesAsync(ct);
-                await unitOfWork.CommitTransactionAsync();
-                row.Status = TripEnquiryStatuses.Failed;
-                row.FailReason = TripFailReasons.HoldExpired;
-                row.AdvanceStatus = TripAdvanceStatuses.HoldExpired;
-                row.UpdatedAt = now;
-                expired = row;
-                done++;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                await unitOfWork.RollbackTransactionAsync();
-                posts.Clear();
-                logger.LogError(ex, "Trip timer: hold expiry failed for {EnquiryId}", row.Id);
-            }
-            finally
-            {
-                db.ChangeTracker.Clear();
-            }
-
-            await chat.AfterCommitAsync(posts);
-            if (expired != null)
-                await TripPushSender.SendAsync(
-                [
-                    new TripPendingPush(expired, expired.TravellerUserId, TripNotifications.TripHoldExpired,
-                        DedupeKey: TripAdvanceRules.HoldKey(expired.Id, "t")),
-                    new TripPendingPush(expired, expired.OwnerUserId, TripNotifications.TripHoldExpired,
-                        DedupeKey: TripAdvanceRules.HoldKey(expired.Id, "o")),
-                ], unitOfWork.TripEnquiries, notifier, logger);
-        }
-        return done;
-    }
-
-    // The due query is the state check: a host mark between the query and the send costs at most one extra push.
-    // Slots come from HostReminderSchedule (absolute, quiet hours, capped); the host keeps one inbox row per enquiry.
-    private async Task<int> HostReminderPassAsync(IServiceProvider sp, CancellationToken ct)
-    {
-        var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
-        var notifier = sp.GetRequiredService<ITripNotifier>();
-        var now = DateTime.UtcNow;
-        var done = 0;
-        Guid? after = null;
-        do
-        {
-            if (ct.IsCancellationRequested) break;
-            var (due, next) = await unitOfWork.TripEnquiries.GetDueReminderAsync(now, after, Batch);
-            after = next;
-            foreach (var row in due)
-            {
-                if (ct.IsCancellationRequested) break;
-                if (row.OwnerUserId is not { } ownerId || row.ProofSentAt is not { } proofSentAt || row.HoldUntil is not { } hold) continue;
-                var count = (int)row.HostReminderCount;
-                if (HostReminderSchedule.Due(proofSentAt, hold, count, now) is not { } slot) continue;
-                try
-                {
-                    var ctx = await unitOfWork.TripEnquiries.LoadPushContextAsync(row, ownerId);
-                    var n = TripNotifications.TripAdvanceProofSent(row, ctx);
-                    var outcome = await notifier.TrySendOnceAsync(n, TripAdvanceRules.ProofKey(row.Id, proofSentAt, slot.Number), row.TripId, row.Id);
-                    // Failed = nothing logged: keep the count so the next tick retries this slot. Duplicate = an earlier pass sent it.
-                    if (!TripSendOutcomes.AdvancesCursor(outcome)) continue;
-                    await unitOfWork.TripEnquiries.TryBumpReminderAsync(row.Id, count, slot.NextCount, now);
-                    if (outcome != TripSendOutcome.Sent) continue;
-                    done++;
-                    await unitOfWork.Notifications.DeleteSupersededAsync(ownerId, n.Type, row.Id, n.Id);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    logger.LogError(ex, "Trip timer: host reminder failed for {EnquiryId}", row.Id);
-                }
-            }
-        }
-        while (after != null);
         return done;
     }
 
@@ -680,13 +569,6 @@ public class TripTimerService(
             t => t.Id == tripId && t.MutedAt == null && t.Status != TripStatuses.Completed, ct);
 
     private static TripPlan ReadPlan(Trip trip) => TripPlanReader.Read(trip);
-
-    private static async Task RewriteCardAsync(
-        ITripChatService chat, Guid conversationId, string type, Guid enquiryId, string status, List<TripChatPost> posts)
-    {
-        if (await chat.FindCardMessageIdAsync(conversationId, type, enquiryId) is not { } messageId) return;
-        if (await chat.RewriteStatusAsync(messageId, status) is { } post) posts.Add(post);
-    }
 
     private static async Task<int> UrgentPassAsync(IServiceProvider sp)
     {

@@ -137,8 +137,7 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
           AND (@after::uuid IS NULL OR t."Id" > @after::uuid)
           AND NOT EXISTS (SELECT 1 FROM "TripEnquiries" e
                           WHERE e."TripId" = t."Id"
-                            AND (e."Status" IN ('Asked', 'Offered', 'Countered', 'FareSent')
-                                 OR (e."Status" = @both AND e."AdvanceStatus" IN (@pending, @proofSent))))
+                            AND e."Status" IN ('Asked', 'Offered', 'Countered', 'FareSent'))
           AND NOT EXISTS (SELECT 1 FROM "TaxiRequests" r
                           WHERE r."TripId" = t."Id" AND r."Status" IN ({RequestStates.ActiveSqlList}))
           AND NOT EXISTS (SELECT 1 FROM "TaxiBookings" b
@@ -156,9 +155,6 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
                 new NpgsqlParameter("planned", TripStatuses.Planned),
                 new NpgsqlParameter("endBefore", NpgsqlDbType.Date) { Value = endBefore },
                 new NpgsqlParameter("after", NpgsqlDbType.Uuid) { Value = after.HasValue ? after.Value : DBNull.Value },
-                new NpgsqlParameter("both", TripEnquiryStatuses.ConfirmedByBoth),
-                new NpgsqlParameter("pending", TripAdvanceStatuses.Pending),
-                new NpgsqlParameter("proofSent", TripAdvanceStatuses.ProofSent),
                 new NpgsqlParameter("size", size))
             .ToListAsync();
         return await LoadPageAsync(ids, size);

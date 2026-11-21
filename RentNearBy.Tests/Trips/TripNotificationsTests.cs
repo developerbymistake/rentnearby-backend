@@ -20,11 +20,6 @@ public class TripNotificationsTests
         (NotificationTypes.TripTravellerCancelled, "trip_traveller_cancelled"),
         (NotificationTypes.TripOwnerCancelled, "trip_owner_cancelled"),
         (NotificationTypes.TripLeadReceived, "trip_lead_received"),
-        (NotificationTypes.TripAdvanceRequested, "trip_advance_requested"),
-        (NotificationTypes.TripAdvanceProofSent, "trip_advance_proof_sent"),
-        (NotificationTypes.TripAdvanceNotYet, "trip_advance_not_yet"),
-        (NotificationTypes.TripAdvanceReceived, "trip_advance_received"),
-        (NotificationTypes.TripHoldExpired, "trip_hold_expired"),
         (NotificationTypes.TripDriverFare, "trip_driver_fare"),
         (NotificationTypes.TripTaxiBookedByTraveller, "trip_taxi_booked_by_traveller"),
         (NotificationTypes.TripBookingChanged, "trip_booking_changed"),
@@ -217,8 +212,6 @@ public class TripNotificationsTests
         CheckIn = new DateOnly(2026, 11, 1),
         CheckOut = new DateOnly(2026, 11, 2),
         ContextJson = """{"city":"Nainital","adults":2,"kids":0}""",
-        AdvanceAmount = 500,
-        HoldUntil = new DateTime(2026, 11, 1, 12, 30, 0, DateTimeKind.Utc),
         IsUrgent = false,
     };
 
@@ -469,57 +462,6 @@ public class TripNotificationsTests
         var changed = TripNotifications.TripBookingChanged(e, Ctx(Owner));
         Assert.Equal("Booking changed by Rahul", changed.Title);
         Assert.Contains("Confirm again in Trip leads", changed.Body);
-    }
-
-    [Fact]
-    public void Hold_expired_has_host_and_guest_wording()
-    {
-        var e = StayRow();
-        var chat = SampleJson("chatargsjson");
-        var guest = TripNotifications.TripHoldExpired(e, Ctx(Traveller, chat, null));
-        var host = TripNotifications.TripHoldExpired(e, Ctx(Owner, chat, null));
-        Assert.Equal("Hold expired", guest.Title);
-        Assert.Contains("did not confirm the advance in time", guest.Body);
-        Assert.Contains("You did not mark the advance of Rahul in time", host.Body);
-        Assert.Equal(guest.Type, host.Type);
-        Assert.Equal(UserNotificationRoutes.ChatConversation, guest.ActionRoute);
-        Assert.Equal(UserNotificationRoutes.ChatConversation, host.ActionRoute);
-    }
-
-    [Fact]
-    public void Hold_expired_uses_two_dedupe_keys_for_the_two_recipients()
-    {
-        var id = Guid.NewGuid();
-        Assert.NotEqual(TripAdvanceRules.HoldKey(id, "t"), TripAdvanceRules.HoldKey(id, "o"));
-    }
-
-    [Fact]
-    public void Advance_pushes_carry_amount_and_ist_time()
-    {
-        var e = StayRow();
-        var chat = SampleJson("chatargsjson");
-        var asked = TripNotifications.TripAdvanceRequested(e, Ctx(Traveller, chat, null));
-        Assert.Contains("Rs 500", asked.Body);
-        Assert.Contains("6:00 pm", asked.Body);
-        Assert.Contains("Pay the host directly", asked.Body);
-        var proof = TripNotifications.TripAdvanceProofSent(e, Ctx(Owner, chat, null));
-        Assert.Equal("Rahul sent proof for Rs 500", proof.Title);
-        Assert.Contains("mark it received", proof.Body);
-        Assert.Contains("Hold ends 6:00 pm", proof.Body);
-        var notYet = TripNotifications.TripAdvanceNotYet(e, Ctx(Traveller, chat, null));
-        Assert.Contains("before 6:00 pm", notYet.Body);
-        var received = TripNotifications.TripAdvanceReceived(e, Ctx(Traveller, chat, null));
-        Assert.Equal("Advance received", received.Title);
-        Assert.Contains("says your Rs 500 advance is received", received.Body);
-    }
-
-    [Fact]
-    public void Advance_pushes_open_the_chat()
-    {
-        var chat = SampleJson("chatargsjson");
-        var e = StayRow();
-        Assert.Equal(UserNotificationRoutes.ChatConversation, TripNotifications.TripAdvanceRequested(e, Ctx(Traveller, chat, null)).ActionRoute);
-        Assert.Equal(UserNotificationRoutes.ChatConversation, TripNotifications.TripAdvanceProofSent(e, Ctx(Owner, chat, null)).ActionRoute);
     }
 
     [Fact]
