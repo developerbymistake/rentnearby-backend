@@ -53,6 +53,15 @@ public class ListingRemovalJourneyTests
     public void Taxi_delete_count_includes_confirmed_trip_leads()
         => Assert.Contains("CountConfirmedLeadsAsync(db, taxi.Id, today)", Src("RentNearBy.Api", "Handlers", "Owner", "ListingRemoval.cs"));
 
+    // FB-51: the hub warning (activeBookingCount) and the delete answer read the same lead count.
+    [Fact]
+    public void Taxi_hub_warning_counts_the_same_confirmed_trip_leads()
+    {
+        var hub = Src("RentNearBy.Infrastructure", "Services", "Owner", "Be3", "TaxiHubReader.cs");
+        Assert.Contains("Apply(dto, taxi, limits, bookings + leads);", hub);
+        Assert.Contains("TaxiHubReader.ConfirmedLeadsAsync(db, taxiId, today)", Src("RentNearBy.Api", "Handlers", "Owner", "ListingRemoval.cs"));
+    }
+
     [Fact]
     public void Takedown_and_approval_drop_a_waiting_live_edit()
     {

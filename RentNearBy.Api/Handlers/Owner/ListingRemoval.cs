@@ -103,7 +103,5 @@ public static class ListingRemoval
 
     // FB-51: confirmed taxi leads of the driver whose last day is today or later (the same number the hub warns with).
     public static Task<int> CountConfirmedLeadsAsync(ApplicationDbContext db, Guid taxiId, DateOnly today)
-        => db.TripEnquiries.AsNoTracking().CountAsync(e => e.ListingId == taxiId && e.Kind == TripEnquiryKinds.Taxi
-            && (e.Status == TripEnquiryStatuses.ConfirmedByBoth || e.Status == TripEnquiryStatuses.BookedByTraveller)
-            && e.CheckOut >= today);
+        => RentNearBy.Infrastructure.Services.Owner.Be3.TaxiHubReader.ConfirmedLeadsAsync(db, taxiId, today);
 }
