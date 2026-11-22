@@ -298,7 +298,7 @@ public sealed class TaxiRequestService(
 
             // The driver's taxi was taken down, sent back to review or deleted after he accepted, or he was booked for
             // overlapping dates by another trip meanwhile: the offer closes, nothing is selected.
-            var closeReason = !await TaxiOfferRows.IsDriverBookableAsync(db, offer.DriverListingId, c) ? OfferEndReasons.ListingRemoved
+            var closeReason = !await TaxiOfferRows.IsDriverSelectableAsync(db, offer.DriverListingId, c) ? OfferEndReasons.ListingRemoved
                 : await DriverCalendar.ConflictForAsync(db, offer.DriverListingId, locked.DateFrom, locked.DateTo, c) is not null ? OfferEndReasons.Booked
                 : null;
             if (closeReason is not null)

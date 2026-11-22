@@ -97,7 +97,8 @@ public class TaxiRequestReviewFixTests
     public void Select_refuses_a_taken_down_driver_and_takes_the_ring_lock_before_selecting()
     {
         var select = TaxiSource.Member(Infra("TaxiRequestService.cs"), "public async Task<TaxiRequestResult> SelectAsync(");
-        var bookable = TaxiSource.At(select, "TaxiOfferRows.IsDriverBookableAsync(db, offer.DriverListingId, c)");
+        // D-15 / FB-25: select uses the existing-offer rule (a once-approved taxi under re-review stays selectable).
+        var bookable = TaxiSource.At(select, "TaxiOfferRows.IsDriverSelectableAsync(db, offer.DriverListingId, c)");
         var ringLock = TaxiSource.At(select, "MatcherSql.LockDriverRing");
         var move = TaxiSource.At(select, "OfferStates.Selected, null, null, c)");
         Assert.True(bookable < move && ringLock < move, "Both checks run before the offer becomes Selected");

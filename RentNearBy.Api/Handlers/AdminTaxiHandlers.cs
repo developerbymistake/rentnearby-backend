@@ -183,10 +183,12 @@ public static class AdminTaxiHandlers
     }
 
     // A PendingReview taxi was never in the public caches, so rejecting it busts nothing.
+    // D-15 / FB-25: rejecting the re-review of a once-approved taxi closes the offers it could still be chosen for (bookings stay),
+    // inside the transaction before the listing write (lock order request -> driver listing), and tells the travellers after commit.
     public static async Task<IResult> RejectTaxi(
         Guid id, RejectGoLiveRequest request, IValidator<RejectGoLiveRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
-        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, TaxiRequestClosure taxiRequests)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -196,9 +198,12 @@ public static class AdminTaxiHandlers
         if (taxi.Status != TaxiStatuses.PendingReview)
             return BadRequestResponse("This request has already been resolved");
 
+        TaxiClosureResult? taxiSignals = null;
         await unitOfWork.BeginTransactionAsync();
         try
         {
+            if (taxi.EverApproved) taxiSignals = await taxiRequests.ListingTakenDownAsync(db, taxi.Id);
+
             var now = DateTime.UtcNow;
             taxi.Status = TaxiStatuses.Rejected;
             taxi.RejectedReason = request.Reason;
@@ -223,6 +228,7 @@ public static class AdminTaxiHandlers
 
             await unitOfWork.CommitTransactionAsync();
 
+            if (taxiSignals != null) await taxiRequests.AfterCommitAsync(taxiSignals, poolChanged: true);
             await AdminHandlers.SendGoLiveNotificationAsync(hubContext, publisher, notification);
 
             return OkResponse(new { success = true });

@@ -9,9 +9,10 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services.TaxiRequests;
 
-public sealed record DriverLockRow(Guid Id, Guid UserId, string Status, bool IsDeleted)
+public sealed record DriverLockRow(Guid Id, Guid UserId, string Status, bool IsDeleted, bool EverApproved = false)
 {
-    public bool IsBookable => !IsDeleted && Status == TaxiStatuses.Approved;
+    // Confirm of an existing selection (D-15): a once-approved taxi under a vehicle re-review still confirms.
+    public bool IsBookable => TaxiBookableRules.CanSelectExisting(Status, IsDeleted, EverApproved);
 }
 
 public enum DriverCheckOutcome
@@ -68,7 +69,7 @@ public static class DriverCalendar
     }
 
     public const string LockDriverSql = """
-        SELECT "Id", "UserId", "Status", "IsDeleted" FROM "TaxiListings" WHERE "Id" = @driver FOR UPDATE
+        SELECT "Id", "UserId", "Status", "IsDeleted", "EverApproved" FROM "TaxiListings" WHERE "Id" = @driver FOR UPDATE
         """;
 
     public static readonly string OverlapSql = $"""
@@ -96,7 +97,7 @@ public sealed class EfDriverCalendarSql(ApplicationDbContext db) : IDriverCalend
     {
         var rows = await db.Database.SqlQueryRaw<LockRow>(DriverCalendar.LockDriverSql,
             new NpgsqlParameter("driver", NpgsqlDbType.Uuid) { Value = driverListingId }).ToListAsync(ct);
-        return rows.Count == 0 ? null : new DriverLockRow(rows[0].Id, rows[0].UserId, rows[0].Status, rows[0].IsDeleted);
+        return rows.Count == 0 ? null : new DriverLockRow(rows[0].Id, rows[0].UserId, rows[0].Status, rows[0].IsDeleted, rows[0].EverApproved);
     }
 
     public async Task<TaxiDateRange?> FindOverlapAsync(Guid driverListingId, TaxiDateRange range, Guid? exceptEnquiryId, CancellationToken ct)
@@ -116,6 +117,7 @@ public sealed class EfDriverCalendarSql(ApplicationDbContext db) : IDriverCalend
         public Guid UserId { get; set; }
         public string Status { get; set; } = "";
         public bool IsDeleted { get; set; }
+        public bool EverApproved { get; set; }
     }
 
     private sealed class RangeRow

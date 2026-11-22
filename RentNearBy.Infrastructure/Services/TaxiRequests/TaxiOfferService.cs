@@ -42,9 +42,18 @@ public static class TaxiOfferRows
         SELECT EXISTS (SELECT 1 FROM "TaxiListings" l WHERE l."Id" = @driver AND NOT l."IsDeleted" AND l."Status" = '{TaxiStatuses.Approved}') AS "Value"
         """;
 
-    // A taken down, unapproved or deleted taxi can no longer accept a ring or be selected, whichever path changed it.
+    // A taken down, unapproved or deleted taxi can no longer accept a ring, whichever path changed it.
     public static async Task<bool> IsDriverBookableAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct)
         => await db.Database.SqlQueryRaw<bool>(DriverBookableSql, Uuid("driver", driverListingId)).SingleAsync(ct);
+
+    // D-15 / FB-25: same rule as TaxiBookableRules.CanSelectExisting (select of an offer the driver already accepted).
+    public static readonly string DriverSelectableSql = $"""
+        SELECT EXISTS (SELECT 1 FROM "TaxiListings" l WHERE l."Id" = @driver AND NOT l."IsDeleted"
+            AND (l."Status" = '{TaxiStatuses.Approved}' OR (l."Status" = '{TaxiStatuses.PendingReview}' AND l."EverApproved"))) AS "Value"
+        """;
+
+    public static async Task<bool> IsDriverSelectableAsync(ApplicationDbContext db, Guid driverListingId, CancellationToken ct)
+        => await db.Database.SqlQueryRaw<bool>(DriverSelectableSql, Uuid("driver", driverListingId)).SingleAsync(ct);
 
     public static async Task<TaxiOfferFacts?> FindAsync(ApplicationDbContext db, Guid offerId, CancellationToken ct)
     {
