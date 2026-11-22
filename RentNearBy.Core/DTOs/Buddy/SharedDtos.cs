@@ -4,6 +4,7 @@ public class PersonDto
 {
     public Guid UserId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
     public string? Username { get; set; }
     public string Initial { get; set; } = string.Empty;
 }
@@ -13,6 +14,7 @@ public class MoneyPersonDto
 {
     public Guid UserId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
     public string Last4 { get; set; } = string.Empty;
     public string Initial { get; set; } = string.Empty;
     public bool IsMe { get; set; }
@@ -30,6 +32,7 @@ public class TravellerChipDto
     public Guid UserId { get; set; }
     public string Initial { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
 }
 
 public class TripExpenseCardDto

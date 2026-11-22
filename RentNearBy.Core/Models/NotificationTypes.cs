@@ -15,6 +15,8 @@ public static class NotificationTypes
     public const string TaxiRejected = "TaxiRejected";
     // Admin removed only the taxi display photo (the taxi stays live).
     public const string DriverPhotoRemoved = "DriverPhotoRemoved";
+    // Admin removed the user's profile picture; the app asks for a new one.
+    public const string ProfilePhotoRemoved = "ProfilePhotoRemoved";
     public const string PlanActivated = "PlanActivated";
     public const string PlanExpiring = "PlanExpiring";
     public const string PlanExpired = "PlanExpired";
@@ -121,6 +123,7 @@ public static class NotificationTypes
         [TaxiApproved] = "taxi_approved",
         [TaxiRejected] = "taxi_rejected",
         [DriverPhotoRemoved] = "driver_photo_removed",
+        [ProfilePhotoRemoved] = "profile_photo_removed",
         [PlanActivated] = "plan_activated",
         [PlanExpiring] = "plan_expiring",
         [PlanExpired] = "plan_expired",

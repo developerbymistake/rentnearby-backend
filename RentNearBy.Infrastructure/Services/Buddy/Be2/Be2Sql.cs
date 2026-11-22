@@ -33,6 +33,7 @@ internal sealed class InviteRow
     public Guid OwnerUserId { get; set; }
     public string OwnerName { get; set; } = string.Empty;
     public string? OwnerUsername { get; set; }
+    public string? OwnerPhotoUrl { get; set; }
     public string Title { get; set; } = string.Empty;
     public DateOnly? StartDate { get; set; }
     public DateOnly? EndDate { get; set; }
@@ -69,7 +70,7 @@ internal static class Be2Sql
     private const string InviteSelect = """
         SELECT m."Id" AS "MemberId", m."TripId", m."UserId", m."Status", m."InviteExpiresAt", m."Version",
                COALESCE(iu."Name", '') AS "InviteeName",
-               t."OwnerUserId", COALESCE(o."Name", '') AS "OwnerName", o."Username" AS "OwnerUsername",
+               t."OwnerUserId", COALESCE(o."Name", '') AS "OwnerName", o."Username" AS "OwnerUsername", o."ProfilePhotoUrl" AS "OwnerPhotoUrl",
                t."Title", t."StartDate", t."EndDate", t."DayCount",
         """;
 

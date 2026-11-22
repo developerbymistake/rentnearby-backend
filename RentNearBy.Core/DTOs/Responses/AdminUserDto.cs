@@ -23,6 +23,7 @@ public class AdminUserDto
 
     public string? Username { get; set; }
     public DateTime? BuddyRequestsHeldUntil { get; set; }
+    public string? ProfilePhotoUrl { get; set; }   // list: 160 face thumb; detail: the stored 640 picture
 
     // Lifetime counters, admin user detail only (D-25): the one that matches the current role, the other key absent.
     // Never set by the users list.

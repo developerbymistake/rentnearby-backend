@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using static RentNearBy.Infrastructure.Services.Buddy.Be2.Be2Sql;
@@ -16,16 +17,18 @@ public sealed class TripMemberService(
 {
     // Owner row, Joined rows and (owner caller only) waiting invites, with "is the caller's buddy" per person.
     private static readonly string PeopleSql = $"""
-        SELECT x."UserId", x."Name", x."Username", x."Kind", x."MemberId", x."JoinedAt", x."InvitedAt", x."InviteExpiresAt",
+        SELECT x."UserId", x."Name", x."Username", x."Kind", x."MemberId", x."JoinedAt", x."InvitedAt", x."InviteExpiresAt", x."PhotoUrl",
                EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = x."UserId") AS "IsBuddy"
         FROM (
           SELECT t."OwnerUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username", 'Owner'::text AS "Kind",
-                 NULL::uuid AS "MemberId", NULL::timestamptz AS "JoinedAt", NULL::timestamptz AS "InvitedAt", NULL::timestamptz AS "InviteExpiresAt"
+                 NULL::uuid AS "MemberId", NULL::timestamptz AS "JoinedAt", NULL::timestamptz AS "InvitedAt", NULL::timestamptz AS "InviteExpiresAt",
+                 u."ProfilePhotoUrl" AS "PhotoUrl"
           FROM "Trips" t JOIN "Users" u ON u."Id" = t."OwnerUserId"
           WHERE t."Id" = @trip
           UNION ALL
           SELECT m."UserId", COALESCE(u."Name", ''), u."Username",
-                 (CASE WHEN m."Status" = 'Declined' THEN 'Invited' ELSE m."Status" END)::text, m."Id", m."JoinedAt", m."InvitedAt", m."InviteExpiresAt"
+                 (CASE WHEN m."Status" = 'Declined' THEN 'Invited' ELSE m."Status" END)::text, m."Id", m."JoinedAt", m."InvitedAt", m."InviteExpiresAt",
+                 u."ProfilePhotoUrl"
           FROM "TripMembers" m JOIN "Users" u ON u."Id" = m."UserId"
           WHERE m."TripId" = @trip
             AND (m."Status" = 'Joined' OR (@isOwner AND {LooksWaiting("m")}))
@@ -107,6 +110,7 @@ public sealed class TripMemberService(
                 Name = r.Name,
                 Username = TripSharingRules.VisibleUsername(isOwner, callerId, r.UserId, r.Kind == TripAccessStatuses.Owner, r.IsBuddy, r.Username),
                 Initial = MoneyPeople.Initial(r.Name),
+                PhotoUrl = CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace),
                 Last4 = MoneyPeople.Last4(r.Username),
                 Role = r.Kind == TripAccessStatuses.Owner ? TripSharingRoles.Owner : TripSharingRoles.Viewer,
                 IsMe = r.UserId == callerId,
@@ -119,6 +123,7 @@ public sealed class TripMemberService(
                 Name = r.Name,
                 Username = r.Username,
                 Initial = MoneyPeople.Initial(r.Name),
+                PhotoUrl = CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace),
                 InvitedAt = r.InvitedAt ?? default,
                 ExpiresAt = r.InviteExpiresAt ?? default,
             }).ToList(),
@@ -220,6 +225,7 @@ public sealed class TripMemberService(
         public DateTime? JoinedAt { get; set; }
         public DateTime? InvitedAt { get; set; }
         public DateTime? InviteExpiresAt { get; set; }
+        public string? PhotoUrl { get; set; }
         public bool IsBuddy { get; set; }
     }
 

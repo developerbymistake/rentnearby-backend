@@ -23,6 +23,7 @@ using RentNearBy.Infrastructure.Services.Owner.Be3;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using StackExchange.Redis;
 using RentNearBy.Api.Handlers.Owner;
+using RentNearBy.Api.Handlers.Photos;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -598,11 +599,9 @@ public static class TaxiHandlers
         if (TaxiPhotoRules.ProofLocked(taxi))
             return ConflictResponse(TaxiPhotoRules.ProofLockedMessage, TaxiErrorTypes.TaxiProofLocked);
         if (taxi.Status == TaxiStatuses.PendingReview) return LockedResponse();
-        if (photo.Length > TaxiPhotoRules.MaxBytes) return BadRequestResponse(PhotoTooBig);
+        if (PhotoUpload.Check(photo, PhotoNotImage, PhotoTooBig) is { } bad) return bad;
 
         using var stream = photo.OpenReadStream();
-        if (!IsValidImageMagicBytes(stream)) return BadRequestResponse(PhotoNotImage);
-        stream.Position = 0;
         var logger = loggerFactory?.CreateLogger("Photos");
         // Same Cloudinary prefix as the other listings (user_{userId}/listing_{id}), so the shared
         // purge/account-deletion photo cleanup covers it.
@@ -666,11 +665,9 @@ public static class TaxiHandlers
             .FirstOrDefaultAsync();
         if (owned == null) return NotFoundResponse(TaxiNotFound);
         var taxiId = owned.Id;
-        if (photo.Length > TaxiPhotoRules.MaxBytes) return BadRequestResponse(PhotoTooBig);
+        if (PhotoUpload.Check(photo, PhotoNotImage, PhotoTooBig) is { } bad) return bad;
 
         using var stream = photo.OpenReadStream();
-        if (!IsValidImageMagicBytes(stream)) return BadRequestResponse(PhotoNotImage);
-        stream.Position = 0;
         var logger = PhotoCleanup.Logger(sp);
         var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, taxiId);
 
@@ -1064,17 +1061,5 @@ public static class TaxiHandlers
             ResolvedAt = r.ResolvedAt,
         }).ToList();
         return OkResponse(new { items, hasMore = paged.HasMore });
-    }
-
-    private static bool IsValidImageMagicBytes(Stream stream)
-    {
-        var header = new byte[12];
-        var read = stream.Read(header, 0, header.Length);
-        if (read < 3) return false;
-        if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) return true;
-        if (read >= 8 && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47) return true;
-        if (read >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
-            && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50) return true;
-        return false;
     }
 }

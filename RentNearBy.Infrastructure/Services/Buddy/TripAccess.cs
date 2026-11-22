@@ -3,6 +3,7 @@ using Npgsql;
 using NpgsqlTypes;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services.Buddy;
@@ -22,14 +23,14 @@ public sealed class TripAccess(ApplicationDbContext db) : ITripAccess
 
     // Owner first, then JoinedAt ascending, then UserId ascending (uuid order = lowercase text order).
     internal const string TravellersSql = """
-        SELECT x."TripId", x."UserId", x."Name", x."Username", x."IsOwner", x."Status", x."JoinedAt"
+        SELECT x."TripId", x."UserId", x."Name", x."Username", x."IsOwner", x."Status", x."JoinedAt", x."PhotoUrl"
         FROM (
           SELECT t."Id" AS "TripId", t."OwnerUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username",
-                 TRUE AS "IsOwner", 'Owner'::varchar AS "Status", NULL::timestamptz AS "JoinedAt"
+                 TRUE AS "IsOwner", 'Owner'::varchar AS "Status", NULL::timestamptz AS "JoinedAt", u."ProfilePhotoUrl" AS "PhotoUrl"
           FROM "Trips" t JOIN "Users" u ON u."Id" = t."OwnerUserId"
           WHERE t."Id" = ANY(@trips)
           UNION ALL
-          SELECT m."TripId", m."UserId", COALESCE(u."Name", ''), u."Username", FALSE, m."Status"::varchar, m."JoinedAt"
+          SELECT m."TripId", m."UserId", COALESCE(u."Name", ''), u."Username", FALSE, m."Status"::varchar, m."JoinedAt", u."ProfilePhotoUrl"
           FROM "TripMembers" m JOIN "Users" u ON u."Id" = m."UserId"
           WHERE m."TripId" = ANY(@trips) AND m."Status" = ANY(@statuses)
         ) x
@@ -79,7 +80,8 @@ public sealed class TripAccess(ApplicationDbContext db) : ITripAccess
             new NpgsqlParameter("trips", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = tripIds },
             new NpgsqlParameter("statuses", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = statuses }).ToListAsync(ct);
 
-    private static TripTraveller ToTraveller(TravellerRow r) => new(r.UserId, r.Name, r.Username, r.IsOwner, r.Status, r.JoinedAt);
+    private static TripTraveller ToTraveller(TravellerRow r)
+        => new(r.UserId, r.Name, r.Username, r.IsOwner, r.Status, r.JoinedAt, CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace));
 
     private sealed class AccessRow
     {
@@ -108,5 +110,6 @@ public sealed class TripAccess(ApplicationDbContext db) : ITripAccess
         public bool IsOwner { get; set; }
         public string Status { get; set; } = string.Empty;
         public DateTime? JoinedAt { get; set; }
+        public string? PhotoUrl { get; set; }
     }
 }

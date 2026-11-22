@@ -19,4 +19,6 @@ public static class OwnerRateLimitKeys
     public static OwnerRateLimit HomeRead(Guid userId) => new($"owner:home:{userId}", ReadsPerMinute, Minute);
     public static OwnerRateLimit SeekerFeedRead(Guid userId) => new($"home:seeker:{userId}", ReadsPerMinute, Minute);
     public static OwnerRateLimit FestivalRead(Guid userId) => new($"festival:read:{userId}", ReadsPerMinute, Minute);
+    // Profile picture: any role, 10 an hour, never given back (each one costs a Cloudinary upload).
+    public static OwnerRateLimit ProfilePhoto(Guid userId) => new($"user:photo:{userId}", 10, TimeSpan.FromHours(1));
 }

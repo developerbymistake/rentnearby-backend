@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using static RentNearBy.Infrastructure.Services.Buddy.Be2.Be2Sql;
 
@@ -14,16 +15,17 @@ public sealed class TripSharingHooks(
     ILogger<TripSharingHooks> logger) : ITripSharingHooks
 {
     private static readonly string SharingSql = $"""
-        SELECT x."UserId", x."Name", x."IsOwner", t."StartDate", t."DayCount",
+        SELECT x."UserId", x."Name", x."IsOwner", x."PhotoUrl", t."StartDate", t."DayCount",
                (SELECT count(*)::int FROM "TripMembers" j WHERE j."TripId" = @trip AND j."Status" = 'Joined') AS "ViewerCount",
                (SELECT count(*)::int FROM "TripMembers" w
                 WHERE w."TripId" = @trip AND {LooksWaitingWhere}) AS "PendingInvites"
         FROM (
-          SELECT t0."OwnerUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", TRUE AS "IsOwner", NULL::timestamptz AS "JoinedAt"
+          SELECT t0."OwnerUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", TRUE AS "IsOwner", NULL::timestamptz AS "JoinedAt",
+                 u."ProfilePhotoUrl" AS "PhotoUrl"
           FROM "Trips" t0 JOIN "Users" u ON u."Id" = t0."OwnerUserId"
           WHERE t0."Id" = @trip AND t0."OwnerUserId" = @owner
           UNION ALL
-          (SELECT m."UserId", COALESCE(u."Name", ''), FALSE, m."JoinedAt"
+          (SELECT m."UserId", COALESCE(u."Name", ''), FALSE, m."JoinedAt", u."ProfilePhotoUrl"
            FROM "TripMembers" m JOIN "Users" u ON u."Id" = m."UserId"
            WHERE m."TripId" = @trip AND m."Status" = 'Joined'
            ORDER BY m."JoinedAt", m."UserId"
@@ -62,7 +64,11 @@ public sealed class TripSharingHooks(
             TravellerCount = 1 + head.ViewerCount,
             ViewerCount = head.ViewerCount,
             PendingInvites = head.PendingInvites,
-            FirstTravellers = rows.Take(3).Select(r => new TravellerChipDto { UserId = r.UserId, Name = r.Name, Initial = MoneyPeople.Initial(r.Name) }).ToList(),
+            FirstTravellers = rows.Take(3).Select(r => new TravellerChipDto
+            {
+                UserId = r.UserId, Name = r.Name, Initial = MoneyPeople.Initial(r.Name),
+                PhotoUrl = CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace),
+            }).ToList(),
             Expenses = TripViewerProjection.Card(card, head.StartDate, head.DayCount, TripSharingRules.TodayIst(clock.GetUtcNow().UtcDateTime)),
         };
     }
@@ -106,6 +112,7 @@ public sealed class TripSharingHooks(
         public Guid UserId { get; set; }
         public string Name { get; set; } = string.Empty;
         public bool IsOwner { get; set; }
+        public string? PhotoUrl { get; set; }
         public DateOnly? StartDate { get; set; }
         public int DayCount { get; set; }
         public int ViewerCount { get; set; }

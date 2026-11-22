@@ -6,6 +6,7 @@ using NpgsqlTypes;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 
@@ -52,8 +53,13 @@ internal static class Be1Sql
         ON CONFLICT DO NOTHING
         """;
 
-    public static PersonDto Person(Guid id, string? name, string? username)
-        => new() { UserId = id, Name = name ?? string.Empty, Username = username, Initial = MoneyPeople.Initial(name) };
+    // photoUrl = the stored profile picture URL from the same statement; the answer carries the 160 face thumb.
+    public static PersonDto Person(Guid id, string? name, string? username, string? photoUrl = null)
+        => new()
+        {
+            UserId = id, Name = name ?? string.Empty, Username = username, Initial = MoneyPeople.Initial(name),
+            PhotoUrl = CloudinaryThumb.Apply(photoUrl, CloudinaryThumb.PersonFace),
+        };
 }
 
 public enum SendKind { Created, Existing, Accepted }
@@ -66,7 +72,7 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
     private static readonly string SendStateSql = $"""
         SELECT COALESCE(me."Name", '') AS "MyName", me."Username" AS "MyUsername",
                COALESCE(me."BuddyRequestsHeldUntil" > now(), FALSE) AS "OnHold",
-               t."Id" AS "TargetId", t."Name" AS "TargetName", t."Username" AS "TargetUsername",
+               t."Id" AS "TargetId", t."Name" AS "TargetName", t."Username" AS "TargetUsername", t."ProfilePhotoUrl" AS "TargetPhotoUrl",
                EXISTS (SELECT 1 FROM "UserBlocks" ub
                        WHERE (ub."BlockerId" = @me AND ub."BlockedId" = @to) OR (ub."BlockerId" = @to AND ub."BlockedId" = @me)) AS "Blocked",
                EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = @to) AS "IsBuddy",
@@ -115,7 +121,8 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
                EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = r."FromUserId") AS "IsBuddy",
                (SELECT count(*) FROM "Buddies" b WHERE b."UserId" = @me)::int AS "MyBuddies",
                (SELECT count(*) FROM "Buddies" b WHERE b."UserId" = r."FromUserId")::int AS "TheirBuddies",
-               COALESCE(me."Name", '') AS "MyName", s."Name" AS "SenderName", s."Username" AS "SenderUsername"
+               COALESCE(me."Name", '') AS "MyName", s."Name" AS "SenderName", s."Username" AS "SenderUsername",
+               s."ProfilePhotoUrl" AS "SenderPhotoUrl"
         FROM "BuddyRequests" r
         JOIN "Users" me ON me."Id" = @me
         LEFT JOIN "Users" s ON s."Id" = r."FromUserId"
@@ -171,7 +178,7 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
                     return BuddyResult<SendOutcome>.Fail(BuddyErrorTypes.CannotAddNow);
                 await tx.CommitAsync(c);
                 pushed = true;
-                var buddy = Be1Sql.Person(toUserId, s.TargetName, s.TargetUsername);
+                var buddy = Be1Sql.Person(toUserId, s.TargetName, s.TargetUsername, s.TargetPhotoUrl);
                 return BuddyResult<SendOutcome>.Success(new SendOutcome(SendKind.Accepted, null, new BuddyRequestAcceptedDto { Buddy = buddy }));
             }
 
@@ -217,7 +224,7 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
             var s = (await db.Database.SqlQueryRaw<AcceptState>(AcceptStateSql,
                 Be1Sql.Uuid("me", callerId), Be1Sql.Uuid("id", requestId)).ToListAsync(c)).FirstOrDefault();
             if (s is null) return BuddyResult<BuddyAcceptDto>.Fail(BuddyErrorTypes.RequestEnded);
-            var buddy = new BuddyAcceptDto { Buddy = Be1Sql.Person(senderId, s.SenderName, s.SenderUsername) };
+            var buddy = new BuddyAcceptDto { Buddy = Be1Sql.Person(senderId, s.SenderName, s.SenderUsername, s.SenderPhotoUrl) };
             if (s.Status == BuddyRequestStatuses.Accepted && s.IsBuddy) return BuddyResult<BuddyAcceptDto>.Success(buddy);
             if (s.Status != BuddyRequestStatuses.Pending || !s.Live || s.SenderName is null)
                 return BuddyResult<BuddyAcceptDto>.Fail(BuddyErrorTypes.RequestEnded);
@@ -307,6 +314,7 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
         public Guid? TargetId { get; set; }
         public string? TargetName { get; set; }
         public string? TargetUsername { get; set; }
+        public string? TargetPhotoUrl { get; set; }
         public bool Blocked { get; set; }
         public bool IsBuddy { get; set; }
         public int MyBuddies { get; set; }
@@ -347,5 +355,6 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
         public string MyName { get; set; } = string.Empty;
         public string? SenderName { get; set; }
         public string? SenderUsername { get; set; }
+        public string? SenderPhotoUrl { get; set; }
     }
 }

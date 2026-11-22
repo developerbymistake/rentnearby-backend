@@ -21,6 +21,7 @@ using RentNearBy.Infrastructure.Services.Owner;
 using RentNearBy.Infrastructure.Services.Owner.Be3;
 using StackExchange.Redis;
 using RentNearBy.Api.Handlers.Owner;
+using RentNearBy.Api.Handlers.Photos;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -798,11 +799,9 @@ public static class StayHandlers
         var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
         if (stay.Photos.Count >= limits.Photos)
             return OwnerHttp.LimitReached(OwnerErrorTypes.PlanPhotoLimit, PlanFeatureKeys.Photos, stay.Photos.Count, limits);
-        if (photo.Length > 10 * 1024 * 1024) return BadRequestResponse("Photo size must not exceed 10MB");
+        if (PhotoUpload.Check(photo) is { } bad) return bad;
 
         using var stream = photo.OpenReadStream();
-        if (!IsValidImageMagicBytes(stream)) return BadRequestResponse("File must be a valid image (JPEG, PNG or WebP)");
-        stream.Position = 0;
         // Shared Cloudinary prefix (user_{userId}/listing_{id}), so the shared
         // purge/account-deletion photo cleanup covers stays without changes.
         var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, stay.Id);
@@ -941,12 +940,9 @@ public static class StayHandlers
             .FirstOrDefaultAsync();
         if (stay == null) return NotFoundResponse(StayNotFound);
         if (stay.Status == StayStatuses.PendingReview) return LockedResponse(stay.Status);
-        if (photo == null || photo.Length == 0) return BadRequestResponse("File must be a valid image (JPEG, PNG or WebP)");
-        if (photo.Length > 10 * 1024 * 1024) return BadRequestResponse("Photo size must not exceed 10MB");
+        if (PhotoUpload.Check(photo) is { } bad) return bad;
 
         using var stream = photo.OpenReadStream();
-        if (!IsValidImageMagicBytes(stream)) return BadRequestResponse("File must be a valid image (JPEG, PNG or WebP)");
-        stream.Position = 0;
         var logger = PhotoCleanup.Logger(sp);
         var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, stay.Id);
 
@@ -1393,17 +1389,5 @@ public static class StayHandlers
             ResolvedAt = r.ResolvedAt,
         }).ToList();
         return OkResponse(new { items, hasMore = paged.HasMore });
-    }
-
-    private static bool IsValidImageMagicBytes(Stream stream)
-    {
-        var header = new byte[12];
-        var read = stream.Read(header, 0, header.Length);
-        if (read < 3) return false;
-        if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) return true;
-        if (read >= 8 && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47) return true;
-        if (read >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
-            && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50) return true;
-        return false;
     }
 }

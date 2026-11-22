@@ -1,3 +1,4 @@
+using RentNearBy.Api.Filters;
 using RentNearBy.Api.Handlers;
 
 namespace RentNearBy.Api.Endpoints;
@@ -15,7 +16,7 @@ public static class BannerEndpoints
     {
         group.MapGet("/district-banners/check", BannerHandlers.AdminCheckDistrictBanner).RequireAuthorization("AdminOnly");
         group.MapGet("/district-banners", BannerHandlers.AdminGetAllBanners).RequireAuthorization("AdminOnly");
-        group.MapPost("/district-banners", BannerHandlers.AdminCreateBanner).RequireAuthorization("AdminOnly").DisableAntiforgery();
+        group.MapPost("/district-banners", BannerHandlers.AdminCreateBanner).RequireAuthorization("AdminOnly").DisableAntiforgery().PhotoBodyLimited();
         group.MapPut("/district-banners/{id:guid}/active", BannerHandlers.AdminToggleBanner).RequireAuthorization("AdminOnly");
         group.MapDelete("/district-banners/{id:guid}", BannerHandlers.AdminDeleteBanner).RequireAuthorization("AdminOnly");
         return group;

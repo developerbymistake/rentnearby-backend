@@ -37,6 +37,7 @@ public class TripJoinedPersonDto
 {
     public Guid UserId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
     public string? Username { get; set; }
     public string Initial { get; set; } = string.Empty;
     public string Last4 { get; set; } = string.Empty;
@@ -50,6 +51,7 @@ public class TripInvitedPersonDto
     public Guid MemberId { get; set; }
     public Guid UserId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
     public string? Username { get; set; }
     public string Initial { get; set; } = string.Empty;
     public DateTime InvitedAt { get; set; }
@@ -100,6 +102,7 @@ public class TripCountDto
 public class TripOwnerRefDto
 {
     public string Name { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
     public string? Username { get; set; }
 }
 

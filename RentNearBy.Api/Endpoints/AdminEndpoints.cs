@@ -40,6 +40,7 @@ public static class AdminEndpoints
         group.MapGet("/deleted-accounts/{id:guid}", AdminDeletedAccountHandlers.GetDeletedAccount).RequireAuthorization("AdminOnly");
         group.MapGet("/users/{id:guid}", AdminHandlers.GetUserById).RequireAuthorization("AdminOnly");
         group.MapPut("/users/{id:guid}/status", AdminHandlers.UpdateUserStatus).RequireAuthorization("AdminOnly");
+        group.MapDelete("/users/{id:guid}/profile-photo", AdminUserPhotoHandlers.RemoveProfilePhoto).RequireAuthorization("AdminOnly");
         group.MapGet("/users/{id:guid}/plans", AdminUserPlanHandlers.GetUserPlans).RequireAuthorization("AdminOnly");
         group.MapPost("/users/{id:guid}/plan/grant", AdminUserPlanHandlers.GrantPlan).RequireAuthorization("AdminOnly");
         group.MapPost("/users/{id:guid}/plan/revoke", AdminUserPlanHandlers.RevokePlan).RequireAuthorization("AdminOnly");

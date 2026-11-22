@@ -10,6 +10,7 @@ public class FoundPersonDto
 {
     public Guid UserId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
     public string? Username { get; set; }
     public string Initial { get; set; } = string.Empty;
     public string Relation { get; set; } = string.Empty;
@@ -75,6 +76,7 @@ public class BuddyItemDto
 {
     public Guid UserId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
     public string? Username { get; set; }
     public string Initial { get; set; } = string.Empty;
     public bool IsNew { get; set; }
@@ -118,6 +120,7 @@ public class BlockedPersonDto
 {
     public Guid UserId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
     public string? Username { get; set; }
     public string Initial { get; set; } = string.Empty;
     public DateTime BlockedAt { get; set; }

@@ -41,6 +41,9 @@ public sealed class UsernameService(IUnitOfWork unitOfWork, IPendingUsernameStor
         return username;
     }
 
+    public async Task<bool> HasSignupReservationAsync(string phoneNumber)
+        => await pending.GetAsync(phoneNumber) != null;
+
     public async Task SaveNewUserAsync(User newUser)
     {
         var held = await pending.GetAsync(newUser.PhoneNumber);

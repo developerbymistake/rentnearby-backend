@@ -107,6 +107,10 @@ public static class AuthHandlers
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
+        // Proof of verify-otp first (before the registered check, so the route cannot probe which numbers exist).
+        if (!await usernames.HasSignupReservationAsync(request.PhoneNumber))
+            return BadRequestResponse("Please verify your phone number again.", "OtpRequired");
+
         // Guard: phone already registered
         if (await unitOfWork.Users.IsPhoneVerifiedByAnyUserAsync(request.PhoneNumber))
             return ConflictResponse("This phone number is already registered. Please sign in.", "PhoneExists");

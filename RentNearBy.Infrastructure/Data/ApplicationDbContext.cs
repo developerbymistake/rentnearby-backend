@@ -126,10 +126,18 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
             e.Property(u => u.CompletedBookingsCount).HasDefaultValue(0)
              .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+            // Profile picture: only the photo SQL statements write these, never SaveChanges.
+            e.Property(u => u.ProfilePhotoUrl).HasMaxLength(500)
+             .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+            e.Property(u => u.ProfilePhotoPath).HasMaxLength(300)
+             .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+            e.Property(u => u.ProfilePhotoUpdatedAt)
+             .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
             e.ToTable(t =>
             {
                 t.HasCheckConstraint("ck_users_completedtrips_nonneg", "\"CompletedTripsCount\" >= 0");
                 t.HasCheckConstraint("ck_users_completedbookings_nonneg", "\"CompletedBookingsCount\" >= 0");
+                t.HasCheckConstraint("ck_users_profilephoto_pair", "(\"ProfilePhotoUrl\" IS NULL) = (\"ProfilePhotoPath\" IS NULL)");
             });
         });
 

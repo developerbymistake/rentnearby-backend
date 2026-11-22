@@ -41,6 +41,7 @@ public static class UserNotificationRoutes
     public const string OwnerHome = "/main";
     public const string TripSettle = "/trip-settle";
     public const string TripReplies = "/trip-replies";
+    public const string ProfilePhoto = "/profile-photo";
 
     public static readonly IReadOnlyList<string> TaxiDriverRoutes = [TaxiRequestRing, TaxiRequests, TaxiRequestDetail, TaxiBookings, TaxiRating, TaxiReady];
     public static readonly IReadOnlyList<string> TravellerTaxiRoutes = [TripName, TripCustomize, TripOverview, TripTaxiRequest, TripTaxiStatus];

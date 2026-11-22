@@ -43,6 +43,7 @@ public static class MoneyPeople
             Name = traveller.Name,
             Last4 = Last4(traveller.Username),
             Initial = Initial(traveller.Name),
+            PhotoUrl = traveller.PhotoUrl,
             IsMe = userId == callerId,
             Status = traveller.IsOwner ? TripAccessStatuses.Owner : traveller.Status,
         };

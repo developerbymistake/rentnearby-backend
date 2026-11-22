@@ -9,6 +9,7 @@ public static class CloudinaryThumb
 
     // Round taxi picture on list cards (136 px circle at 2x and a little spare).
     public const string TaxiFace = "c_fill,g_auto,w_320,h_320,q_auto,f_auto";
+    public const string PersonFace = "c_fill,g_face,w_160,h_160,q_auto,f_auto";
 
     // Spot photos: the only five sizes (same strings as the user app SpotPhotoUrl).
     public const string SpotMarker = "c_fill,w_96,h_96,q_auto,f_auto";

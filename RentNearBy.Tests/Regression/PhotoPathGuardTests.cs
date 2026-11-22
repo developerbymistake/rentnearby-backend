@@ -19,7 +19,11 @@ public class PhotoPathGuardTests
                 .Select(p => $"{t.Name}.{p.Name}"))
             .ToHashSet();
         Assert.Equal(
-            new HashSet<string> { "StayPhoto.FilePath", "TaxiListing.PlatePhotoPath", "TaxiListing.DisplayPhotoPath", "DistrictBanner.ImageFilePath" },
+            new HashSet<string>
+            {
+                "StayPhoto.FilePath", "TaxiListing.PlatePhotoPath", "TaxiListing.DisplayPhotoPath", "DistrictBanner.ImageFilePath",
+                "User.ProfilePhotoPath",
+            },
             found);
     }
 
@@ -44,6 +48,15 @@ public class PhotoPathGuardTests
         Assert.Contains("DeleteAllUserPhotosBestEffortAsync(userId)", Src("RentNearBy.Infrastructure", "Services", "AccountDeletionService.cs"));
         Assert.Contains("DeleteListingPhotosBestEffortAsync(", Src("RentNearBy.Api", "Handlers", "RoleHandlers.cs"));
         Assert.Contains("DeleteListingPhotosBestEffortAsync(", Src("RentNearBy.Api", "Handlers", "AdminRoleHandlers.cs"));
+    }
+
+    // The profile picture lives inside the account-deletion prefix (bakhli/user_{id}/), outside every listing prefix.
+    [Fact]
+    public void Profile_photo_uses_the_user_prefix_and_account_deletion_removes_it()
+    {
+        var photo = Src("RentNearBy.Infrastructure", "Services", "PhotoService.cs");
+        Assert.Contains("bakhli/user_{userId}/profile/", photo);
+        Assert.Contains("DeleteAllUserPhotosBestEffortAsync(userId)", Src("RentNearBy.Infrastructure", "Services", "AccountDeletionService.cs"));
     }
 
     [Fact]

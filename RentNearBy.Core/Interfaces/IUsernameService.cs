@@ -10,6 +10,9 @@ public interface IUsernameService
     // Phone verified, no account yet: holds a username for the phone so the profile screen can show it.
     Task<string> ReserveForSignupAsync(string phoneNumber);
 
+    // True while verify-otp's signup reservation for the phone exists (proof the phone was verified, single use, 24 h).
+    Task<bool> HasSignupReservationAsync(string phoneNumber);
+
     // Adds the new user with the username held for its phone (or a fresh one) in the same save.
     Task SaveNewUserAsync(User newUser);
 }

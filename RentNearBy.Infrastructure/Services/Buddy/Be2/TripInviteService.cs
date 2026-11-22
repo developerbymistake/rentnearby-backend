@@ -4,6 +4,7 @@ using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using static RentNearBy.Infrastructure.Services.Buddy.Be2.Be2Sql;
@@ -147,7 +148,11 @@ public sealed class TripInviteService(
         {
             MemberId = row.MemberId,
             TripId = alreadyMember ? row.TripId : null,
-            Owner = new TripOwnerRefDto { Name = row.OwnerName, Username = row.OwnerUsername },
+            Owner = new TripOwnerRefDto
+            {
+                Name = row.OwnerName, Username = row.OwnerUsername,
+                PhotoUrl = CloudinaryThumb.Apply(row.OwnerPhotoUrl, CloudinaryThumb.PersonFace),
+            },
             Title = row.Title,
             LegCities = cities,
             StartDate = row.StartDate,

@@ -10,8 +10,8 @@ public sealed record TripAccessInfo(
     DateOnly? StartDate, DateOnly? EndDate, int DayCount, int SpotCount, DateTime? CompletedAt, DateTime UpdatedAt,
     TripAccessLevel Level, Guid? MemberId, DateTime? JoinedAt, string? EndedHow);
 
-// Status: "Owner" | "Joined" | "Left" | "Removed".
-public sealed record TripTraveller(Guid UserId, string Name, string? Username, bool IsOwner, string Status, DateTime? JoinedAt);
+// Status: "Owner" | "Joined" | "Left" | "Removed". PhotoUrl = the 160 face thumb (null when none).
+public sealed record TripTraveller(Guid UserId, string Name, string? Username, bool IsOwner, string Status, DateTime? JoinedAt, string? PhotoUrl = null);
 
 public sealed record TripMoneyCard(Guid TripId, bool HasExpenses, long Spent, int ExpenseCount, int MyShare, int OpenPayments, bool Settled);
 

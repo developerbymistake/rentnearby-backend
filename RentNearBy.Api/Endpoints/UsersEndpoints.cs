@@ -1,3 +1,4 @@
+using RentNearBy.Api.Filters;
 using RentNearBy.Api.Handlers;
 
 namespace RentNearBy.Api.Endpoints;
@@ -9,6 +10,7 @@ public static class UsersEndpoints
         group.MapGet("/profile", UsersHandlers.GetProfile).RequireAuthorization();
         group.MapPut("/profile/name", UsersHandlers.UpdateName).RequireAuthorization();
         group.MapPut("/profile/contact-visibility", UsersHandlers.UpdateContactVisibility).RequireAuthorization();
+        group.MapPut("/me/photo", UserPhotoHandlers.UploadPhoto).RequireAuthorization().DisableAntiforgery().UserPhotoLimited().PhotoBodyLimited();
         group.MapGet("/reports", UsersHandlers.GetMyReports).RequireAuthorization();
         group.MapPut("/me/role-choice", RoleHandlers.ChooseRole).RequireAuthorization();
         group.MapPut("/me/role-correction", RoleHandlers.CorrectRole).RequireAuthorization();

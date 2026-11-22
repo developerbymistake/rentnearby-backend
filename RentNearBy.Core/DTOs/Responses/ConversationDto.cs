@@ -12,6 +12,7 @@ public class ConversationDto
     public string? ListingThumbnailUrl { get; set; }
     public Guid OtherPartyId { get; set; }
     public string OtherPartyName { get; set; } = string.Empty;
+    public string? OtherPartyPhotoUrl { get; set; } // other user's 160 face thumb, null when none
     public bool IsOwner { get; set; } // is the current caller the owner side of this conversation?
     public string Status { get; set; } = string.Empty; // "Active" | "Blocked" | "ListingRemoved" | "ListingInactive"
     // Only meaningful when Status == "Blocked" — true if the CALLER did the blocking, false if

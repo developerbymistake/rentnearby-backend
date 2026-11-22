@@ -69,7 +69,7 @@ public class StayPhotoReplaceTests
         Assert.Contains("s.UserId == userId && !s.IsDeleted", body);
         Assert.Contains("AsNoTracking()", body);
         Assert.True(At("StayStatuses.PendingReview") < At("SavePhotoAsync"));
-        Assert.True(At("IsValidImageMagicBytes") < At("SavePhotoAsync"));
+        Assert.True(At("PhotoUpload.Check(") < At("SavePhotoAsync"));
         Assert.True(At("SavePhotoAsync(stream, photo.FileName, userId, stay.Id)") > 0);
         Assert.True(At("OwnerLocks.LockStayAsync") < At("ReplacePhotoSql"));
         Assert.True(At("ReplacePhotoSql") < At("CommitTransactionAsync"));

@@ -17,6 +17,7 @@ using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -73,12 +74,14 @@ public static class ChatHandlers
         // Batch the other-party-name lookup that BuildConversationDtoAsync otherwise does per
         // row — turns an up-to-~61-query page load into ~4.
         var otherPartyIds = conversations.Select(c => c.OwnerId == callerId ? c.RenterId : c.OwnerId).Distinct().ToList();
-        var otherPartyNames = await db.Users.Where(u => otherPartyIds.Contains(u.Id))
-            .Select(u => new { u.Id, u.Name }).ToDictionaryAsync(u => u.Id, u => u.Name ?? "User");
+        var otherParties = await db.Users.Where(u => otherPartyIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.Name, u.ProfilePhotoUrl }).ToListAsync();
+        var otherPartyNames = otherParties.ToDictionary(u => u.Id, u => u.Name ?? "User");
+        var otherPartyPhotos = otherParties.ToDictionary(u => u.Id, u => u.ProfilePhotoUrl);
 
         var dtos = new List<ConversationDto>(conversations.Count);
         foreach (var c in conversations)
-            dtos.Add(await BuildConversationDtoAsync(c, callerId, db, otherPartyNames, listingInfo));
+            dtos.Add(await BuildConversationDtoAsync(c, callerId, db, otherPartyNames, listingInfo, otherPartyPhotos));
 
         await AttachTripEnquiriesAsync(dtos, callerId, unitOfWork);
 
@@ -738,13 +741,25 @@ public static class ChatHandlers
     internal static async Task<ConversationDto> BuildConversationDtoAsync(
         Conversation c, Guid callerId, ApplicationDbContext db,
         IReadOnlyDictionary<Guid, string>? otherPartyNames = null,
-        IReadOnlyDictionary<(string ListingType, Guid ListingId), ListingInfoLite>? listingInfo = null)
+        IReadOnlyDictionary<(string ListingType, Guid ListingId), ListingInfoLite>? listingInfo = null,
+        IReadOnlyDictionary<Guid, string?>? otherPartyPhotos = null)
     {
         var isOwner = c.OwnerId == callerId;
         var otherPartyId = isOwner ? c.RenterId : c.OwnerId;
-        var otherPartyName = otherPartyNames != null
-            ? otherPartyNames.GetValueOrDefault(otherPartyId, "User")
-            : await db.Users.Where(u => u.Id == otherPartyId).Select(u => u.Name).FirstOrDefaultAsync() ?? "User";
+        string otherPartyName;
+        string? otherPartyPhoto;
+        if (otherPartyNames != null)
+        {
+            otherPartyName = otherPartyNames.GetValueOrDefault(otherPartyId, "User");
+            otherPartyPhoto = otherPartyPhotos?.GetValueOrDefault(otherPartyId);
+        }
+        else
+        {
+            var other = await db.Users.Where(u => u.Id == otherPartyId)
+                .Select(u => new { u.Name, u.ProfilePhotoUrl }).FirstOrDefaultAsync();
+            otherPartyName = other?.Name ?? "User";
+            otherPartyPhoto = other?.ProfilePhotoUrl;
+        }
 
         string listingTitle;
         string? thumbnailUrl;
@@ -792,6 +807,7 @@ public static class ChatHandlers
             ListingThumbnailUrl = thumbnailUrl,
             OtherPartyId = otherPartyId,
             OtherPartyName = otherPartyName,
+            OtherPartyPhotoUrl = CloudinaryThumb.Apply(otherPartyPhoto, CloudinaryThumb.PersonFace),
             IsOwner = isOwner,
             Status = c.Status,
             IsBlockedByMe = isBlockedByMe,

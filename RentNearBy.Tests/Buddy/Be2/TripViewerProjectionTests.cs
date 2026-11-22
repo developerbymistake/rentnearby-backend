@@ -86,7 +86,7 @@ public class TripViewerProjectionTests
             "FirstTravellers", "Legs", "Days", "Stay", "Taxi", "ProgressPercent", "Expenses", "UpdatedAt",
         ];
         Assert.Equal(expected.OrderBy(x => x), typeof(TripViewerDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
-        Assert.Equal(["Name", "Username"], typeof(TripOwnerRefDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
+        Assert.Equal(["Name", "PhotoUrl", "Username"], typeof(TripOwnerRefDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
         Assert.Equal(["DriverFirstName", "PickupDate", "PickupTime", "State", "VehicleType"], typeof(TripViewerTaxiDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
     }
 

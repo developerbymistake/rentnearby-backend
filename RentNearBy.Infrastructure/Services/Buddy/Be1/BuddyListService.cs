@@ -4,6 +4,7 @@ using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 
@@ -13,7 +14,8 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be1;
 public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hints, ILogger<BuddyListService> logger)
 {
     private static readonly string ReceivedSql = $"""
-        SELECT r."Id" AS "RequestId", r."CreatedAt", u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username"
+        SELECT r."Id" AS "RequestId", r."CreatedAt", u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username",
+               u."ProfilePhotoUrl" AS "PhotoUrl"
         FROM "BuddyRequests" r JOIN "Users" u ON u."Id" = r."FromUserId"
         WHERE r."ToUserId" = @me AND r."Status" = '{BuddyRequestStatuses.Pending}' AND r."ExpiresAt" > now() AND u."IsActive"
           /*cursor*/
@@ -23,7 +25,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
 
     private static readonly string SentSql = $"""
         SELECT r."Id" AS "RequestId", r."CreatedAt", r."ExpiresAt", now() AS "Now",
-               u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username"
+               u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username", u."ProfilePhotoUrl" AS "PhotoUrl"
         FROM "BuddyRequests" r JOIN "Users" u ON u."Id" = r."ToUserId"
         WHERE r."FromUserId" = @me
           AND (r."Status" IN ('{BuddyRequestStatuses.Pending}', '{BuddyRequestStatuses.Declined}', '{BuddyRequestStatuses.Expired}')
@@ -38,7 +40,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
 
     private const string BuddiesSql = """
         SELECT b."BuddyUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", lower(COALESCE(u."Name", '')) AS "LowerName",
-               u."Username", b."SeenAt", b."CreatedAt" AS "Since",
+               u."Username", u."ProfilePhotoUrl" AS "PhotoUrl", b."SeenAt", b."CreatedAt" AS "Since",
                (SELECT count(*) FROM "Buddies" c WHERE c."UserId" = @me)::int AS "Total",
                m."Status" AS "MemberStatus", m."InviteExpiresAt", m."RespondedAt", now() AS "Now"
         FROM "Buddies" b
@@ -72,6 +74,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
 
     private const string BlocksSql = """
         SELECT ub."BlockedId" AS "UserId", ub."Id" AS "BlockId", ub."CreatedAt" AS "BlockedAt", COALESCE(u."Name", '') AS "Name", u."Username",
+               u."ProfilePhotoUrl" AS "PhotoUrl",
                (SELECT count(*) FROM "UserBlocks" c WHERE c."BlockerId" = @me)::int AS "Total"
         FROM "UserBlocks" ub JOIN "Users" u ON u."Id" = ub."BlockedId"
         WHERE ub."BlockerId" = @me
@@ -83,7 +86,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
     private const string BlockCursorFilter = """AND (ub."CreatedAt", ub."Id") < (@at, @id)""";
 
     private const string ContextPersonSql = """
-        SELECT u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name",
+        SELECT u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."ProfilePhotoUrl" AS "PhotoUrl",
                CASE WHEN EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = @him)
                       OR EXISTS (SELECT 1 FROM "UserBlocks" mb WHERE mb."BlockerId" = @me AND mb."BlockedId" = @him)
                       OR EXISTS (SELECT 1 FROM "BuddyRequests" r
@@ -117,7 +120,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         {
             Items = page.Select(r => new ReceivedRequestDto
             {
-                RequestId = r.RequestId, CreatedAt = r.CreatedAt, Person = Be1Sql.Person(r.UserId, r.Name, r.Username),
+                RequestId = r.RequestId, CreatedAt = r.CreatedAt, Person = Be1Sql.Person(r.UserId, r.Name, r.Username, r.PhotoUrl),
             }).ToList(),
             NextCursor = KeysetCursor.EncodeLast(page, rows.Count > limit, r => r.CreatedAt, r => r.RequestId),
         };
@@ -135,7 +138,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
                 var state = BuddyRules.SentState(r.ExpiresAt, r.Now);
                 return new SentRequestDto
                 {
-                    RequestId = r.RequestId, Person = Be1Sql.Person(r.UserId, r.Name, r.Username), State = state,
+                    RequestId = r.RequestId, Person = Be1Sql.Person(r.UserId, r.Name, r.Username, r.PhotoUrl), State = state,
                     CreatedAt = r.CreatedAt, ExpiresAt = r.ExpiresAt, CanCancel = state == SentStates.Waiting,
                 };
             }).ToList(),
@@ -170,6 +173,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
             Items = page.Select(r => new BuddyItemDto
             {
                 UserId = r.UserId, Name = r.Name, Username = r.Username, Initial = MoneyPeople.Initial(r.Name),
+                PhotoUrl = CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace),
                 IsNew = r.SeenAt is null, Since = r.Since,
                 TripState = forTripId is null ? null : BuddyRules.TripState(r.MemberStatus, r.InviteExpiresAt, r.RespondedAt, r.Now),
             }).ToList(),
@@ -211,6 +215,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
             Items = page.Select(r => new BlockedPersonDto
             {
                 UserId = r.UserId, Name = r.Name, Username = r.Username, Initial = MoneyPeople.Initial(r.Name), BlockedAt = r.BlockedAt,
+                PhotoUrl = CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace),
             }).ToList(),
             Count = rows.Count > 0 ? rows[0].Total : 0,
             NextCursor = KeysetCursor.EncodeLast(page, rows.Count > limit, r => r.BlockedAt, r => r.BlockId),
@@ -226,7 +231,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         var trips = await db.Database.SqlQueryRaw<TripRow>(TripsInCommonSql, Be1Sql.Uuid("me", me), Be1Sql.Uuid("him", him)).ToListAsync(ct);
         return new BlockContextDto
         {
-            Person = Be1Sql.Person(person.UserId, person.Name, person.Username),
+            Person = Be1Sql.Person(person.UserId, person.Name, person.Username, person.PhotoUrl),
             TripsInCommon = trips.Select(t => new TripInCommonDto { TripId = t.TripId, Title = t.Title, MyRole = t.MyRole }).ToList(),
         };
     }
@@ -251,6 +256,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         public Guid UserId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string? Username { get; set; }
+        public string? PhotoUrl { get; set; }
     }
 
     private sealed class SentRow
@@ -262,6 +268,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         public Guid UserId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string? Username { get; set; }
+        public string? PhotoUrl { get; set; }
     }
 
     private sealed class BuddyRow
@@ -270,6 +277,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         public string Name { get; set; } = string.Empty;
         public string LowerName { get; set; } = string.Empty;
         public string? Username { get; set; }
+        public string? PhotoUrl { get; set; }
         public DateTime? SeenAt { get; set; }
         public DateTime Since { get; set; }
         public int Total { get; set; }
@@ -286,6 +294,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         public DateTime BlockedAt { get; set; }
         public string Name { get; set; } = string.Empty;
         public string? Username { get; set; }
+        public string? PhotoUrl { get; set; }
         public int Total { get; set; }
     }
 
@@ -294,6 +303,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         public Guid UserId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string? Username { get; set; }
+        public string? PhotoUrl { get; set; }
     }
 
     private sealed class TripRow

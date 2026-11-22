@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services.Buddy.Be1;
@@ -9,7 +10,7 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be1;
 public sealed class BuddyFindService(ApplicationDbContext db)
 {
     internal const string FindSql = """
-        SELECT u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username",
+        SELECT u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username", u."ProfilePhotoUrl" AS "PhotoUrl",
                EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = u."Id") AS "IsBuddy",
                r."Id" AS "ReqId", r."Status" AS "ReqStatus", r."CreatedAt" AS "ReqCreatedAt", r."ExpiresAt" AS "ReqExpiresAt",
                r."BlockedSender" AS "ReqBlockedSender", p."Id" AS "TheirPendingId", now() AS "Now"
@@ -47,6 +48,7 @@ public sealed class BuddyFindService(ApplicationDbContext db)
             Person = new FoundPersonDto
             {
                 UserId = r.UserId, Name = r.Name, Username = r.Username, Initial = MoneyPeople.Initial(r.Name),
+                PhotoUrl = CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace),
                 Relation = relation.Relation, RequestId = relation.RequestId, ExpiresAt = relation.ExpiresAt,
             },
         };
@@ -57,6 +59,7 @@ public sealed class BuddyFindService(ApplicationDbContext db)
         public Guid UserId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string? Username { get; set; }
+        public string? PhotoUrl { get; set; }
         public bool IsBuddy { get; set; }
         public Guid? ReqId { get; set; }
         public string? ReqStatus { get; set; }

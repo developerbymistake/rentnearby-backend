@@ -24,7 +24,8 @@ public static class TripPartWords
 public sealed record TripViewerSource(
     Trip Trip, TripPlan Plan, string Role, string OwnerName, string? OwnerUsername,
     int TravellerCount, IReadOnlyList<TravellerChipDto> FirstTravellers,
-    IReadOnlyList<TripEnquiry> Enquiries, TripTaxiRequestSummary? TaxiRequest, TripMoneyCard? Money, DateOnly TodayIst);
+    IReadOnlyList<TripEnquiry> Enquiries, TripTaxiRequestSummary? TaxiRequest, TripMoneyCard? Money, DateOnly TodayIst,
+    string? OwnerPhotoUrl = null);
 
 // Pure: builds TripViewerDto from an ALLOW LIST. Never copies raw PlanJson, guide, marks, steps, enquiry or offer rows,
 // listing ids, conversation ids, phones, plates, prices, plan lock, taxi request ids, invite code, mute, adults or kids.
@@ -46,14 +47,14 @@ public static class TripViewerProjection
             Title = trip.Title,
             Status = trip.Status,
             Role = s.Role,
-            Owner = new TripOwnerRefDto { Name = s.OwnerName, Username = s.OwnerUsername },
+            Owner = new TripOwnerRefDto { Name = s.OwnerName, Username = s.OwnerUsername, PhotoUrl = s.OwnerPhotoUrl },
             LegCities = plan.Legs is { Count: > 0 } ? plan.LegCities : [trip.CityName],
             DayCount = trip.DayCount,
             SpotCount = trip.SpotCount,
             StartDate = trip.StartDate,
             EndDate = trip.EndDate,
             TravellerCount = s.TravellerCount,
-            FirstTravellers = s.FirstTravellers.Take(3).Select(c => new TravellerChipDto { UserId = c.UserId, Initial = c.Initial, Name = c.Name }).ToList(),
+            FirstTravellers = s.FirstTravellers.Take(3).Select(c => new TravellerChipDto { UserId = c.UserId, Initial = c.Initial, Name = c.Name, PhotoUrl = c.PhotoUrl }).ToList(),
             Legs = Legs(trip, plan),
             Days = Days(trip, plan),
             Stay = Stay(plan, trip, s.Enquiries),

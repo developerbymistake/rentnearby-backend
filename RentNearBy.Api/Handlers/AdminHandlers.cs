@@ -17,6 +17,7 @@ using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.Buddy.Be1;
 using RentNearBy.Infrastructure.Extensions;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Core.Utils;
 using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 using System.Security.Claims;
@@ -875,6 +876,7 @@ public static class AdminHandlers
                     RoleName = x.RoleName,
                     Username = u.Username,
                     BuddyRequestsHeldUntil = u.BuddyRequestsHeldUntil,
+                    ProfilePhotoUrl = CloudinaryThumb.Apply(u.ProfilePhotoUrl, CloudinaryThumb.PersonFace),
                 };
             });
 
@@ -918,6 +920,7 @@ public static class AdminHandlers
             RoleName = u.Role.Name,
             Username = u.Username,
             BuddyRequestsHeldUntil = u.BuddyRequestsHeldUntil,
+            ProfilePhotoUrl = u.ProfilePhotoUrl,
         };
         // The Users row is already loaded: no extra statement.
         dto.SetCompletedCounters(u.Role.Key, u.CompletedTripsCount, u.CompletedBookingsCount);

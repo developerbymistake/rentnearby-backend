@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Api.Handlers.Photos;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -94,20 +95,21 @@ public static class BannerHandlers
         [Microsoft.AspNetCore.Mvc.FromForm] Guid districtId,
         [Microsoft.AspNetCore.Mvc.FromForm] string? contactNumber,
         [Microsoft.AspNetCore.Mvc.FromForm] string? redirectUrl,
-        IFormFile image,
+        IFormFile? image,
         IUnitOfWork unitOfWork,
         IPhotoService photoService,
-        IHubContext<BannerHub> hubContext)
+        IHubContext<BannerHub> hubContext,
+        IServiceProvider sp)
     {
         var existing = await unitOfWork.DistrictBanners.GetByDistrictIdAsync(districtId);
         if (existing != null)
             return ConflictResponse("A banner already exists for this district. Delete it first.");
 
-        if (image.Length > 10 * 1024 * 1024)
-            return BadRequestResponse("Image size must not exceed 10MB");
+        if (PhotoUpload.Check(image, PhotoUpload.NotImage, "Image size must not exceed 10MB") is { } bad) return bad;
 
-        using var stream = image.OpenReadStream();
-        var (url, filePath) = await photoService.SaveBannerAsync(stream, image.FileName, districtId);
+        string url, filePath;
+        using (var stream = image!.OpenReadStream())
+            (url, filePath) = await photoService.SaveBannerAsync(stream, image.FileName, districtId);
 
         var banner = new DistrictBanner
         {
@@ -121,8 +123,16 @@ public static class BannerHandlers
             CreatedAt = DateTime.UtcNow,
         };
 
-        await unitOfWork.DistrictBanners.AddAsync(banner);
-        await unitOfWork.SaveChangesAsync();
+        try
+        {
+            await unitOfWork.DistrictBanners.AddAsync(banner);
+            await unitOfWork.SaveChangesAsync();
+        }
+        catch
+        {
+            await PhotoCleanup.TryDeleteAsync(photoService, filePath, PhotoCleanup.Logger(sp));
+            throw;
+        }
 
         var bannerDto = new DistrictBannerDto
         {

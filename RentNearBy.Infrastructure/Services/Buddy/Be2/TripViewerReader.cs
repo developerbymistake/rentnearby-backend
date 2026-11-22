@@ -3,6 +3,7 @@ using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
 using static RentNearBy.Infrastructure.Services.Buddy.Be2.Be2Sql;
@@ -17,7 +18,7 @@ public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access
 {
     // Owner + the first two joined viewers; the counts and stamps are uncorrelated subqueries (evaluated once).
     internal static readonly string StampSql = $"""
-        SELECT x."UserId", x."Name", x."Username", x."IsOwner",
+        SELECT x."UserId", x."Name", x."Username", x."IsOwner", x."PhotoUrl",
                (SELECT count(*)::int FROM "TripMembers" j WHERE j."TripId" = @trip AND j."Status" = 'Joined') AS "ViewerCount",
                (SELECT count(*)::int FROM "TripMembers" w
                 WHERE w."TripId" = @trip AND {LooksWaitingWhere}) AS "PendingInvites",
@@ -28,11 +29,12 @@ public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access
                  (SELECT max(GREATEST(b."BookedAt", COALESCE(b."StartedAt", b."BookedAt"), COALESCE(b."CompletedAt", b."BookedAt"), COALESCE(b."CancelledAt", b."BookedAt")))
                   FROM "TaxiBookings" b WHERE b."TripId" = @trip)) AS "BookingAt"
         FROM (
-          SELECT t."OwnerUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username"::text AS "Username", TRUE AS "IsOwner", NULL::timestamptz AS "JoinedAt"
+          SELECT t."OwnerUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username"::text AS "Username", TRUE AS "IsOwner", NULL::timestamptz AS "JoinedAt",
+                 u."ProfilePhotoUrl" AS "PhotoUrl"
           FROM "Trips" t JOIN "Users" u ON u."Id" = t."OwnerUserId"
           WHERE t."Id" = @trip
           UNION ALL
-          (SELECT m."UserId", COALESCE(u."Name", ''), NULL::text, FALSE, m."JoinedAt"
+          (SELECT m."UserId", COALESCE(u."Name", ''), NULL::text, FALSE, m."JoinedAt", u."ProfilePhotoUrl"
            FROM "TripMembers" m JOIN "Users" u ON u."Id" = m."UserId"
            WHERE m."TripId" = @trip AND m."Status" = 'Joined'
            ORDER BY m."JoinedAt", m."UserId"
@@ -77,12 +79,17 @@ public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access
             trip, TripPlanReader.Read(trip),
             info.Level == TripAccessLevel.Owner ? TripSharingRoles.Owner : TripSharingRoles.Viewer,
             info.OwnerName, head.Username, travellerCount, Chips(stamp),
-            enquiries, taxi, card, TripSharingRules.TodayIst(clock.GetUtcNow().UtcDateTime)));
+            enquiries, taxi, card, TripSharingRules.TodayIst(clock.GetUtcNow().UtcDateTime),
+            CloudinaryThumb.Apply(head.PhotoUrl, CloudinaryThumb.PersonFace)));
         return SharingResult<TripViewResult>.Success(new TripViewResult(view, etag, false));
     }
 
     internal static List<TravellerChipDto> Chips(IEnumerable<StampRow> rows)
-        => rows.Take(3).Select(r => new TravellerChipDto { UserId = r.UserId, Name = r.Name, Initial = MoneyPeople.Initial(r.Name) }).ToList();
+        => rows.Take(3).Select(r => new TravellerChipDto
+        {
+            UserId = r.UserId, Name = r.Name, Initial = MoneyPeople.Initial(r.Name),
+            PhotoUrl = CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace),
+        }).ToList();
 
     internal sealed class StampRow
     {
@@ -90,6 +97,7 @@ public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access
         public string Name { get; set; } = string.Empty;
         public string? Username { get; set; }
         public bool IsOwner { get; set; }
+        public string? PhotoUrl { get; set; }
         public int ViewerCount { get; set; }
         public int PendingInvites { get; set; }
         public long BalancesVersion { get; set; }
