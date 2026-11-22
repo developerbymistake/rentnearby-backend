@@ -1449,6 +1449,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     NumberPlate = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: true),
                     PlatePhotoUrl = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
                     PlatePhotoPath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    DisplayPhotoUrl = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    DisplayPhotoPath = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
                     ContactPhone = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
                     WhatsAppNumber = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
                     DrivingLicenceNumberEnc = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
