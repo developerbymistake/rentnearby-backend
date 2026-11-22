@@ -815,6 +815,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     RoleConfirmedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     PlayAccountKey = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     BuddyRequestsHeldUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ProfilePhotoUrl = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    ProfilePhotoPath = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    ProfilePhotoUpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     CompletedTripsCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     CompletedBookingsCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
@@ -826,6 +829,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.PrimaryKey("PK_Users", x => x.Id);
                     table.CheckConstraint("ck_users_completedbookings_nonneg", "\"CompletedBookingsCount\" >= 0");
                     table.CheckConstraint("ck_users_completedtrips_nonneg", "\"CompletedTripsCount\" >= 0");
+                    table.CheckConstraint("ck_users_profilephoto_pair", "(\"ProfilePhotoUrl\" IS NULL) = (\"ProfilePhotoPath\" IS NULL)");
                     table.ForeignKey(
                         name: "FK_Users_Roles_RoleId",
                         column: x => x.RoleId,

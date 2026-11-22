@@ -5758,6 +5758,17 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("ProfilePhotoPath")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("ProfilePhotoUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProfilePhotoUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<DateTime?>("RoleConfirmedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -5802,6 +5813,8 @@ namespace RentNearBy.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_users_completedbookings_nonneg", "\"CompletedBookingsCount\" >= 0");
 
                             t.HasCheckConstraint("ck_users_completedtrips_nonneg", "\"CompletedTripsCount\" >= 0");
+
+                            t.HasCheckConstraint("ck_users_profilephoto_pair", "(\"ProfilePhotoUrl\" IS NULL) = (\"ProfilePhotoPath\" IS NULL)");
                         });
                 });
 
