@@ -74,6 +74,7 @@ public class TaxiPhotoWireTests
         {
             Id = Guid.NewGuid(), UserId = Guid.NewGuid(), DrivingLicenceNumberEnc = "x", DateOfBirth = new DateOnly(1985, 1, 1),
             Status = TaxiStatuses.PendingReview, EverApproved = true, PlatePhotoUrl = "https://p", DisplayPhotoUrl = Url,
+            User = new User { Name = "Driver" },
         };
         var json = Json(taxi.Adapt<TaxiOwnerDto>());
         Assert.Equal("https://p", json.GetProperty("platePhotoUrl").GetString());
