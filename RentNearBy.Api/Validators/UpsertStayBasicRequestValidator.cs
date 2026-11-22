@@ -1,6 +1,7 @@
 using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 
 namespace RentNearBy.Api.Validators;
 
@@ -30,6 +31,9 @@ public class UpsertStayBasicRequestValidator : AbstractValidator<UpsertStayBasic
 
         RuleFor(x => x.Description)
             .MaximumLength(300).WithMessage("Description must not exceed 300 characters")
+            // D-16 / FB-28: saved live at once, so a phone number is refused here (Draft too).
+            .Must(v => !PhoneGuard.HasPhone(v)).WithMessage(OwnerErrorTypes.MessageOf(OwnerErrorTypes.PhoneNotAllowed))
+            .WithErrorCode(OwnerErrorTypes.PhoneNotAllowed)
             .When(x => x.Description != null);
 
         RuleFor(x => x.Latitude)

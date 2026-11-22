@@ -26,8 +26,9 @@ public class ErrorHandlingMiddlewareTests
 
     public static TheoryData<Exception, int, string, string> Mappings => new()
     {
-        { new ArgumentException("x"), 400, "ValidationException", "x" },
-        { new ArgumentNullException("p", "missing"), 400, "ValidationException", "missing (Parameter 'p')" },
+        { new ArgumentException("secret"), 400, "ValidationException", "Invalid request." },
+        { new ArgumentNullException("p", "secret"), 400, "ValidationException", "Invalid request." },
+        { new ArgumentOutOfRangeException("year", "secret"), 400, "ValidationException", "Invalid request." },
         { new UnauthorizedAccessException("nope"), 401, "UnauthorizedException", "nope" },
         { new KeyNotFoundException("gone"), 404, "NotFoundException", "gone" },
         { new FileNotFoundException("file"), 404, "NotFoundException", "file" },
@@ -47,7 +48,7 @@ public class ErrorHandlingMiddlewareTests
         Assert.Equal(status, body.Code);
         Assert.NotNull(body.Error);
         Assert.Equal(type, body.Error.Type);
-        if (status == 500)
+        if (status is 500 or 400)
         {
             Assert.StartsWith(message + " Ref ", body.Error.Message);
             Assert.DoesNotContain("secret", body.Error.Message);

@@ -32,7 +32,8 @@ public class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorHandling
     {
         var (code, type, message) = exception switch
         {
-            ArgumentNullException or ArgumentException => (HttpStatusCode.BadRequest, "ValidationException", exception.Message),
+            // FB-27: framework text (parameter names, values) stays in the log; the body is a fixed line with the reference.
+            ArgumentNullException or ArgumentException => (HttpStatusCode.BadRequest, "ValidationException", $"Invalid request. Ref {id}"),
             UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "UnauthorizedException", exception.Message),
             KeyNotFoundException or FileNotFoundException => (HttpStatusCode.NotFound, "NotFoundException", exception.Message),
             _ => (HttpStatusCode.InternalServerError, "InternalServerError",

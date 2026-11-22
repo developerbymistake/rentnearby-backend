@@ -198,6 +198,7 @@ public static class StayHandlers
         bool? groundFloor = null, int? rooms = null, int? nights = null, DateOnly? checkIn = null)
     {
         if (PartyError(guests, rooms, nights) is { } partyError) return partyError;
+        if (CheckInError(checkIn) is { } dateError) return dateError;
         if (cityKey != null)
         {
             if (CoordinateError(latitude, longitude)) return BadRequestResponse("Invalid coordinates");
@@ -216,6 +217,10 @@ public static class StayHandlers
         }
         return await DistrictNearbyAsync(lat, lng, radiusKm, district, stayTypeId, unitOfWork, principal, sp, guests, groundFloor, rooms, nights, checkIn);
     }
+
+    // FB-27: one bound for every public read that prices by date.
+    private static IResult? CheckInError(DateOnly? checkIn)
+        => StayDateRules.CheckInError(checkIn, IstTime.TodayIst(DateTime.UtcNow)) is { } message ? BadRequestResponse(message) : null;
 
     private static async Task<IResult?> RateLimited(IRateLimitService rateLimiter, HttpContext httpContext, string prefix, int max)
     {
@@ -342,6 +347,7 @@ public static class StayHandlers
         if (count < 1 || count > 10)
             return BadRequestResponse("Count must be between 1 and 10");
         if (PartyError(guests, rooms, nights) is { } partyError) return partyError;
+        if (CheckInError(checkIn) is { } dateError) return dateError;
         if (cityKey == null)
         {
             if (latitude is not (>= -90 and <= 90) || longitude is not (>= -180 and <= 180))
@@ -414,6 +420,7 @@ public static class StayHandlers
         string slug, IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, DateOnly? checkIn = null, int? nights = null, CancellationToken ct = default)
     {
         if (nights is < 1 or > 30) return BadRequestResponse("Nights must be 1 to 30");
+        if (CheckInError(checkIn) is { } dateError) return dateError;
         var stay = await unitOfWork.Stays.GetBySlugWithAllAsync(slug);
         if (stay == null) return NotFoundResponse(StayNotFound);
         var dto = stay.Adapt<StayPublicSlugDto>();
@@ -429,6 +436,7 @@ public static class StayHandlers
         DateOnly? checkIn = null, int? nights = null, CancellationToken ct = default)
     {
         if (nights is < 1 or > 30) return BadRequestResponse("Nights must be 1 to 30");
+        if (CheckInError(checkIn) is { } dateError) return dateError;
         var stay = await unitOfWork.Stays.GetByIdWithAllAsync(id);
         if (stay == null) return NotFoundResponse(StayNotFound);
 
@@ -565,7 +573,9 @@ public static class StayHandlers
 
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
-            return BadRequestResponse(validation.Errors[0].ErrorMessage);
+            return validation.Errors[0].ErrorCode == OwnerErrorTypes.PhoneNotAllowed
+                ? BadRequestResponse(validation.Errors[0].ErrorMessage, OwnerErrorTypes.PhoneNotAllowed)
+                : BadRequestResponse(validation.Errors[0].ErrorMessage);
 
         var stayType = await unitOfWork.StayTypes.GetByIdAsync(request.StayTypeId!.Value);
         if (stayType == null) return BadRequestResponse("Invalid stay type");
