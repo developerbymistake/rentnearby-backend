@@ -82,6 +82,17 @@ public sealed record ListedQuote(int Total, IReadOnlyList<ListedBreakdownLineDto
 // (StayPartyFit) when the party fits; else the cheapest room, one unit (the FROM price the traveller saw). Null = no priced room.
 public static class StayListedQuote
 {
+    // FB-06: a still-Asked row that takes adjacent nights gets the listed total and breakdown of all its nights again,
+    // in the same save (no offer exists yet, so "never changed after an offer" holds). No priced room = values unchanged.
+    public static void ApplyMerged(RentNearBy.Core.Entities.TripEnquiry row, IReadOnlyList<ListedRoom> rooms, int partyGuests,
+        DateOnly mergedIn, DateOnly mergedOut, IReadOnlyList<LabelledRule> rules, System.Text.Json.JsonSerializerOptions json)
+    {
+        var listed = Compute(rooms, partyGuests > 0 ? partyGuests : null, mergedIn, mergedOut.DayNumber - mergedIn.DayNumber, rules);
+        if (listed == null) return;
+        row.ListedStayTotal = listed.Total;
+        row.ListedStayBreakdownJson = System.Text.Json.JsonSerializer.Serialize(listed.Breakdown, json);
+    }
+
     public static ListedQuote? Compute(IReadOnlyList<ListedRoom> rooms, int? guests, DateOnly checkIn, int nights, IReadOnlyList<LabelledRule> rules)
     {
         var priced = rooms.Where(r => r.PricePerNight > 0).ToList();

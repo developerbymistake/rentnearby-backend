@@ -325,6 +325,8 @@ public static class TripEnquiryHandlers
                     row.ExpiresAt = TripExecutionRules.EnquiryExpiry(start, mergedIn, now).ExpiresAt;
                     row.IsUrgent = isUrgent;
                     row.UpdatedAt = now;
+                    if (priceFacts.TryGetValue(row.ListingId, out var mergeFacts))
+                        StayListedQuote.ApplyMerged(row, mergeFacts.Rooms, partyGuests, mergedIn, mergedOut, mergeFacts.Rules, TripJson.Options);
                     await db.SaveChangesAsync();
 
                     var rowConversation = row.ConversationId is { } rowConversationId
