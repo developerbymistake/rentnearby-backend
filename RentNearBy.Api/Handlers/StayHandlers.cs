@@ -116,7 +116,9 @@ public static class StayHandlers
         public int MaxOrder { get; set; }
     }
 
-    private static IResult LockedResponse(StayListing s) => s.Status == StayStatuses.PendingReview
+    private static IResult LockedResponse(StayListing s) => LockedResponse(s.Status);
+
+    private static IResult LockedResponse(string status) => status == StayStatuses.PendingReview
         ? ConflictResponse("Your stay is under review.", StayErrorTypes.StayLocked)
         : ConflictResponse("A live stay can only change prices and Accepting guests.", StayErrorTypes.StayLocked);
 
@@ -923,6 +925,86 @@ public static class StayHandlers
             await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
         return NoContentResponse();
     }
+
+    // Swaps one visible photo in place: same Id, PhotoOrder and HiddenByPlan, so no plan count and no owner lock. Lock order
+    // StayListings -> StayPhotos. The new file goes on any refusal or error; the old file goes after the commit.
+    public static async Task<IResult> ReplacePhoto(
+        Guid photoId, IFormFile photo, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
+        IPhotoService photoService, IServiceProvider sp)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var stay = await db.StayListings.AsNoTracking()
+            .Where(s => s.UserId == userId && !s.IsDeleted)
+            .Select(s => new { s.Id, s.Status, s.DistrictId })
+            .FirstOrDefaultAsync();
+        if (stay == null) return NotFoundResponse(StayNotFound);
+        if (stay.Status == StayStatuses.PendingReview) return LockedResponse(stay.Status);
+        if (photo == null || photo.Length == 0) return BadRequestResponse("File must be a valid image (JPEG, PNG or WebP)");
+        if (photo.Length > 10 * 1024 * 1024) return BadRequestResponse("Photo size must not exceed 10MB");
+
+        using var stream = photo.OpenReadStream();
+        if (!IsValidImageMagicBytes(stream)) return BadRequestResponse("File must be a valid image (JPEG, PNG or WebP)");
+        stream.Position = 0;
+        var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, stay.Id);
+
+        string? oldPath = null;
+        IResult? refused = null;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            if (!await OwnerLocks.LockStayAsync(db, stay.Id)) refused = NotFoundResponse(StayNotFound);
+            else
+            {
+                var old = await db.Database.SqlQueryRaw<string>(ReplacePhotoSql,
+                    new NpgsqlParameter("p", NpgsqlDbType.Uuid) { Value = photoId },
+                    new NpgsqlParameter("s", NpgsqlDbType.Uuid) { Value = stay.Id },
+                    new NpgsqlParameter("url", NpgsqlDbType.Varchar) { Value = url },
+                    new NpgsqlParameter("path", NpgsqlDbType.Varchar) { Value = filePath }).ToListAsync();
+                if (old.Count == 0) refused = NotFoundResponse("Photo not found");
+                else
+                {
+                    oldPath = old[0];
+                    await db.Database.ExecuteSqlRawAsync("""UPDATE "StayListings" SET "UpdatedAt" = now() WHERE "Id" = @s""",
+                        new NpgsqlParameter("s", NpgsqlDbType.Uuid) { Value = stay.Id });
+                }
+            }
+            if (refused != null) await unitOfWork.RollbackTransactionAsync();
+            else await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            try { await photoService.DeletePhotoAsync(filePath); } catch { /* orphan only */ }
+            throw;
+        }
+        if (refused != null)
+        {
+            try { await photoService.DeletePhotoAsync(filePath); } catch { /* orphan only */ }
+            return refused;
+        }
+
+        if (!string.IsNullOrEmpty(oldPath) && oldPath != filePath)
+            try { await photoService.DeletePhotoAsync(oldPath); } catch { /* orphan only */ }
+        if (stay.Status == StayStatuses.Approved)
+            await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
+        return OkResponse(new { photoId, photoUrl = url });
+    }
+
+    // Keeps "Id", "PhotoOrder" and "HiddenByPlan"; a photo hidden by the plan is not replaceable (0 rows, 404).
+    public const string ReplacePhotoSql = """
+        WITH old AS (
+            SELECT "Id", "FilePath" FROM "StayPhotos"
+            WHERE "Id" = @p AND "StayListingId" = @s AND NOT "HiddenByPlan"
+            FOR UPDATE
+        )
+        UPDATE "StayPhotos" p
+        SET "PhotoUrl" = @url, "FilePath" = @path, "UploadedAt" = now()
+        FROM old
+        WHERE p."Id" = old."Id"
+        RETURNING old."FilePath" AS "Value"
+        """;
 
     // One statement: a visible photo of this stay, and (live stay) at least one other visible photo stays. Hidden photos are not
     // deletable here (the hub shows them in "Choose what stays").

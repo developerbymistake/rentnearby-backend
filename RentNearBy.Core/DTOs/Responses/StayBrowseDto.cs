@@ -22,4 +22,18 @@ public class StayBrowseDto
     // Owner roles T3: "N% off" when a live Lower rule runs within the next 30 days; the base FROM price never changes.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PriceChipDto? PriceChip { get; set; }
+    // Card offer (StayOfferFields.Undated): all three present or all absent.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? OldPricePerNight { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? OfferPricePerNight { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? OfferPercent { get; set; }
+
+    public void SetOffer((int Old, int Offer, int Percent)? offer)
+    {
+        OldPricePerNight = offer?.Old;
+        OfferPricePerNight = offer?.Offer;
+        OfferPercent = offer?.Percent;
+    }
 }

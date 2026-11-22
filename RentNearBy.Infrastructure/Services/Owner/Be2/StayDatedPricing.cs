@@ -27,7 +27,9 @@ public sealed class StayDatedPricing : IStayDatedPricing
     public static void Dated(StayNearbyDto item, DateOnly checkIn, int nights, IReadOnlyList<PriceRule> rules, IReadOnlyList<(DateOnly From, DateOnly To)> blocks)
     {
         item.FullOnDates = StaySpecialPriceMath.TouchesBlock(checkIn, nights, blocks);
-        item.PriceChip = PriceChipDto.Of(StaySpecialPriceMath.LowerPercentFor(checkIn, nights, rules));
+        var percent = StaySpecialPriceMath.LowerPercentFor(checkIn, nights, rules);
+        item.PriceChip = PriceChipDto.Of(percent);
+        item.SetOffer(null);
 
         // The party quote (StayNearbyRooms.Apply) when it fits: every line takes its price for the dates.
         if (item.Fits == true && item.QuoteLines is { Count: > 0 } lines && lines.All(l => l.PricePerNight is > 0))
@@ -45,6 +47,7 @@ public sealed class StayDatedPricing : IStayDatedPricing
             item.QuotePerNight = StaySpecialPriceMath.PerNight(datesTotal, nights);
             item.DatesTotal = datesTotal;
             item.DatesPerNight = item.QuotePerNight;
+            item.SetOffer(StayOfferFields.Dated(item.BasePerNight, item.DatesPerNight, percent));
             return;
         }
 
@@ -55,6 +58,7 @@ public sealed class StayDatedPricing : IStayDatedPricing
         item.BasePerNight = cheapest;
         item.DatesTotal = single;
         item.DatesPerNight = StaySpecialPriceMath.PerNight(single, nights);
+        item.SetOffer(StayOfferFields.Dated(item.BasePerNight, item.DatesPerNight, percent));
     }
 }
 

@@ -19,6 +19,7 @@ public static class StayEndpoints
         group.MapPut("/me/basic", StayHandlers.UpsertBasic).RequireAuthorization("CanListStays").OwnerWriteLimited();
         group.MapPost("/me/photos", StayHandlers.UploadPhoto).RequireAuthorization("CanListStays").DisableAntiforgery().OwnerPhotoLimited();
         group.MapDelete("/me/photos/{photoId:guid}", StayHandlers.DeletePhoto).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapPut("/me/photos/{photoId:guid}", StayHandlers.ReplacePhoto).RequireAuthorization("CanListStays").DisableAntiforgery().OwnerPhotoLimited();
         group.MapPut("/me/rooms", StayHandlers.UpsertRooms).RequireAuthorization("CanListStays").OwnerWriteLimited();
         group.MapPut("/me/rooms/{roomId:guid}/price", StayHandlers.UpdateRoomPrice).RequireAuthorization("CanListStays").OwnerWriteLimited();
         group.MapPut("/me/rules", StayHandlers.UpsertRules).RequireAuthorization("CanListStays").OwnerWriteLimited();

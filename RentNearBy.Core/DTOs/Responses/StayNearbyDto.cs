@@ -52,6 +52,20 @@ public class StayNearbyDto
     public PriceChipDto? PriceChip { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? FullOnDates { get; set; }
+    // Dated card offer (StayOfferFields.Dated, only with ?checkIn): offer = DatesPerNight, old = BasePerNight; all three or none.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? OldPricePerNight { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? OfferPricePerNight { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? OfferPercent { get; set; }
+
+    public void SetOffer((int Old, int Offer, int Percent)? offer)
+    {
+        OldPricePerNight = offer?.Old;
+        OfferPricePerNight = offer?.Offer;
+        OfferPercent = offer?.Percent;
+    }
 }
 
 public class StayNearbyRoomDto

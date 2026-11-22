@@ -57,6 +57,7 @@ public static class StayFeedHydrator
         var items = loaded.Select(x =>
         {
             x.Item.PriceChip = PriceChipDto.Of(x.Chip);
+            x.Item.SetOffer(StayOfferFields.Undated(x.Item.MinPricePerNight, x.Chip));
             return x.Item;
         }).ToList();
 

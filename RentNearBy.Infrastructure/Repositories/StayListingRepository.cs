@@ -146,7 +146,11 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
 
     private static List<StayBrowseDto> WithChips(List<BrowseRow> rows)
     {
-        foreach (var r in rows) r.Dto.PriceChip = PriceChipDto.Of(r.Chip);
+        foreach (var r in rows)
+        {
+            r.Dto.PriceChip = PriceChipDto.Of(r.Chip);
+            r.Dto.SetOffer(StayOfferFields.Undated(r.Dto.MinPricePerNight, r.Chip));
+        }
         return rows.Select(r => r.Dto).ToList();
     }
 
