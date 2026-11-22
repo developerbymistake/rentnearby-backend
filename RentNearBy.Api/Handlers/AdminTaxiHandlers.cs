@@ -5,11 +5,13 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Handlers.TaxiRequests;
+using RentNearBy.Api.Handlers.Owner;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Owner;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Owner;
@@ -327,44 +329,16 @@ public static class AdminTaxiHandlers
     }
 
     // Soft delete, same as the driver's DeleteMine: plate photo removed, pending reports auto-resolved.
+    // Soft delete: the owner's path exactly (FB-09): closure first, purge seam in the transaction; photos after commit.
     public static async Task<IResult> DeleteTaxi(
-        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp,
-        ITripEnquiryClosure tripClosure)
+        Guid id, IUnitOfWork unitOfWork, IServiceProvider sp, ITripEnquiryClosure tripClosure, ApplicationDbContext db,
+        IOwnerListingPurge ownerPurge, IListingPurgeService listingPurge)
     {
         var taxi = await unitOfWork.Taxis.GetByIdAsync(id);
         if (taxi == null || taxi.IsDeleted) return NotFoundResponse(TaxiNotFound);
 
-        await photoService.DeleteRoomPhotosAsync(taxi.UserId, taxi.Id);
-
-        var now = DateTime.UtcNow;
-        taxi.IsDeleted = true;
-        taxi.DeletedAt = now;
-        taxi.UpdatedAt = now;
-
-        IReadOnlyList<TripClosurePush> tripPushes;
-        await unitOfWork.BeginTransactionAsync();
-        try
-        {
-            await unitOfWork.SaveChangesAsync();
-            tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, [taxi.Id]);
-            await unitOfWork.CommitTransactionAsync();
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            return Concurrent();
-        }
-        catch
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            throw;
-        }
-        await tripClosure.AfterCommitAsync(tripPushes);
-
-        await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(taxi.Id, ListingKinds.Taxi);
-        await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
-
-        return NoContentResponse();
+        var removed = await ListingRemoval.SoftDeleteTaxiAsync(taxi, unitOfWork, db, tripClosure, ownerPurge, listingPurge, sp);
+        return removed.Concurrent ? Concurrent() : NoContentResponse();
     }
 
     // ---- Vehicle types. The public GET (active only) feeds the driver's picker. ----

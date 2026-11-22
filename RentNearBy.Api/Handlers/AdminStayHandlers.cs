@@ -3,11 +3,13 @@ using Mapster;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using RentNearBy.Api.Handlers.Owner;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Owner;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
@@ -143,6 +145,9 @@ public static class AdminStayHandlers
             var now = DateTime.UtcNow;
             stay.Status = StayStatuses.Approved;
             stay.EverApproved = true;
+            // FB-20: a full review replaces any older waiting live edit (defence for rows taken down before the fix).
+            stay.PendingEditJson = null;
+            stay.PendingEditAt = null;
             stay.PriorityRank = limits.PriorityRank;
             stay.IsFeatured = limits.IsFeatured;
             // A suspended owner's stay stays hidden; un-suspend turns it back on.
@@ -285,6 +290,9 @@ public static class AdminStayHandlers
             stay.ReviewedAt = now;
             stay.ReviewedByAdminId = adminId;
             stay.UpdatedAt = now;
+            // FB-20: a taken-down stay keeps no waiting live edit (it is never re-listed by a later approval).
+            stay.PendingEditJson = null;
+            stay.PendingEditAt = null;
             await unitOfWork.Stays.UpdateAsync(stay);
 
             var notification = BuildStayNotification(stay.UserId, NotificationTypes.StayRejected,
@@ -325,46 +333,18 @@ public static class AdminStayHandlers
         }
     }
 
-    // Soft delete, same as the owner's DeleteMine: photos removed, pending reports auto-resolved.
+    // Soft delete: the owner's path exactly (FB-09): closure, purge seam, jobs closed in one transaction; photos after commit.
     public static async Task<IResult> DeleteStay(
-        Guid id, IUnitOfWork unitOfWork, IPhotoService photoService, IServiceProvider sp,
-        ITripEnquiryClosure tripClosure)
+        Guid id, IUnitOfWork unitOfWork, IServiceProvider sp, ITripEnquiryClosure tripClosure, ApplicationDbContext db,
+        IOwnerListingPurge ownerPurge, IListingPurgeService listingPurge)
     {
         var stay = await unitOfWork.Stays.GetByIdAsync(id);
         if (stay == null || stay.IsDeleted) return NotFoundResponse("Stay not found");
 
-        await photoService.DeleteRoomPhotosAsync(stay.UserId, stay.Id);
-
-        var now = DateTime.UtcNow;
-        stay.IsDeleted = true;
-        stay.DeletedAt = now;
-        stay.UpdatedAt = now;
-
-        IReadOnlyList<TripClosurePush> tripPushes;
-        await unitOfWork.BeginTransactionAsync();
-        try
-        {
-            await unitOfWork.SaveChangesAsync();
-            tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, [stay.Id]);
-            await unitOfWork.CommitTransactionAsync();
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            return ConflictResponse("This stay was just modified by another request. Please retry.", "CONCURRENT_UPDATE");
-        }
-        catch
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            throw;
-        }
-        await tripClosure.AfterCommitAsync(tripPushes);
-
-        await unitOfWork.StayJobs.CloseActiveForStayAsync(stay.Id);
-        await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(stay.Id, ListingKinds.Stay);
-        await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
-
-        return NoContentResponse();
+        var removed = await ListingRemoval.SoftDeleteStayAsync(stay, unitOfWork, db, tripClosure, ownerPurge, listingPurge, sp);
+        return removed.Concurrent
+            ? ConflictResponse("This stay was just modified by another request. Please retry.", "CONCURRENT_UPDATE")
+            : NoContentResponse();
     }
 
     // ---- Stay types. GET is public: the Details grid and the Stays filter read it. ----

@@ -139,8 +139,8 @@ public class StayPendingEditStateTests
     [Fact]
     public void Leaving_approved_drops_the_pending_change()
     {
-        var handler = Be3Kit.Source("RentNearBy.Api", "Handlers", "StayHandlers.cs");
-        var delete = handler[handler.IndexOf("public static async Task<IResult> DeleteMine(", StringComparison.Ordinal)..];
+        var handler = Be3Kit.Source("RentNearBy.Api", "Handlers", "Owner", "ListingRemoval.cs");
+        var delete = handler[handler.IndexOf("public static async Task<ListingRemovalResult> SoftDeleteStayAsync(", StringComparison.Ordinal)..];
         Assert.Contains("stay.PendingEditJson = null;", delete);
         var service = Be3Kit.Source("RentNearBy.Infrastructure", "Services", "Owner", "Be3", "StayPendingEditService.cs");
         Assert.Contains("if (stay.Status != StayStatuses.Approved)", service);

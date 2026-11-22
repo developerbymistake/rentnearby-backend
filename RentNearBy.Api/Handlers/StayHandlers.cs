@@ -1148,45 +1148,8 @@ public static class StayHandlers
         var stay = await unitOfWork.Stays.GetLiveByUserAsync(userId);
         if (stay == null) return NotFoundResponse(StayNotFound);
 
-        stay.IsDeleted = true;
-        stay.DeletedAt = DateTime.UtcNow;
-        stay.UpdatedAt = DateTime.UtcNow;
-        stay.PendingEditJson = null;
-        stay.PendingEditAt = null;
-
-        // Soft delete and trip-enquiry closure commit together; guests are told after commit.
-        IReadOnlyList<TripClosurePush> tripPushes;
-        int cancelledBookings;
-        var today = IstTime.TodayIst(DateTime.UtcNow);
-        await unitOfWork.BeginTransactionAsync();
-        try
-        {
-            cancelledBookings = await db.TripEnquiries.AsNoTracking().CountAsync(e => e.ListingId == stay.Id
-                && e.Kind == TripEnquiryKinds.Stay && e.Status == TripEnquiryStatuses.ConfirmedByBoth && e.CheckOut >= today);
-            await unitOfWork.SaveChangesAsync();
-            await ownerPurge.PurgeAsync(ListingKinds.Stay, [stay.Id]);
-            tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, [stay.Id]);
-            await unitOfWork.StayJobs.CloseActiveForStayAsync(stay.Id);
-            await unitOfWork.CommitTransactionAsync();
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            return Concurrent();
-        }
-        catch
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            throw;
-        }
-        await tripClosure.AfterCommitAsync(tripPushes);
-
-        await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(stay.Id, ListingKinds.Stay);
-        await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
-        // Never inline (NFR 4.2): photo files go after the commit, best effort; a 409 above keeps them.
-        await listingPurge.DeleteListingPhotosBestEffortAsync(userId, [stay.Id]);
-
-        return OkResponse(new { cancelledBookings });
+        var removed = await ListingRemoval.SoftDeleteStayAsync(stay, unitOfWork, db, tripClosure, ownerPurge, listingPurge, sp);
+        return removed.Concurrent ? Concurrent() : OkResponse(new { cancelledBookings = removed.CancelledBookings });
     }
 
     public static async Task<IResult> GetStayReports(

@@ -967,44 +967,8 @@ public static class TaxiHandlers
         var taxi = await unitOfWork.Taxis.GetLiveByUserAsync(userId);
         if (taxi == null) return NotFoundResponse(TaxiNotFound);
 
-        var now = DateTime.UtcNow;
-        taxi.IsDeleted = true;
-        taxi.DeletedAt = now;
-        taxi.UpdatedAt = now;
-
-        // The closure locks the taxi requests before the listing row is written (lock order request -> driver listing),
-        // so a traveller confirming this driver at the same moment cannot deadlock the delete.
-        IReadOnlyList<TripClosurePush> tripPushes;
-        int cancelledBookings;
-        string[] active = [.. BookingStates.Active];
-        await unitOfWork.BeginTransactionAsync();
-        try
-        {
-            cancelledBookings = await db.Set<RentNearBy.Core.Entities.TaxiRequests.TaxiBooking>().AsNoTracking()
-                .CountAsync(b => b.DriverListingId == taxi.Id && active.Contains(b.Status));
-            tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, [taxi.Id]);
-            await unitOfWork.SaveChangesAsync();
-            await ownerPurge.PurgeAsync(ListingKinds.Taxi, [taxi.Id]);
-            await unitOfWork.CommitTransactionAsync();
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            return Concurrent();
-        }
-        catch
-        {
-            await unitOfWork.RollbackTransactionAsync();
-            throw;
-        }
-        await tripClosure.AfterCommitAsync(tripPushes);
-
-        await unitOfWork.ListingReports.AutoResolvePendingForListingAsync(taxi.Id, ListingKinds.Taxi);
-        await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
-        // Never inline (NFR 4.2): photo files go after the commit, best effort; a 409 above keeps them.
-        await listingPurge.DeleteListingPhotosBestEffortAsync(userId, [taxi.Id]);
-
-        return OkResponse(new { cancelledBookings });
+        var removed = await ListingRemoval.SoftDeleteTaxiAsync(taxi, unitOfWork, db, tripClosure, ownerPurge, listingPurge, sp);
+        return removed.Concurrent ? Concurrent() : OkResponse(new { cancelledBookings = removed.CancelledBookings });
     }
 
     public static async Task<IResult> GetTaxiReports(

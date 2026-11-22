@@ -112,13 +112,14 @@ public class BackendReviewFixTests
     [Fact]
     public void Stay_and_taxi_delete_keep_photo_files_until_the_commit()
     {
-        var stay = Method(Source("RentNearBy.Api", "Handlers", "StayHandlers.cs"), "public static async Task<IResult> DeleteMine(");
+        // FB-09: owner and admin delete share ListingRemoval (ListingRemovalJourneyTests pins that both call it).
+        var stay = Method(Source("RentNearBy.Api", "Handlers", "Owner", "ListingRemoval.cs"), "public static async Task<ListingRemovalResult> SoftDeleteStayAsync(");
         var commit = stay.IndexOf("CommitTransactionAsync", StringComparison.Ordinal);
         Assert.DoesNotContain("DeleteRoomPhotosAsync", stay);
         Assert.True(stay.IndexOf("DeleteListingPhotosBestEffortAsync", StringComparison.Ordinal) > commit);
         Assert.True(stay.IndexOf("CloseActiveForStayAsync", StringComparison.Ordinal) is var jobs && jobs > 0 && jobs < commit);
 
-        var taxi = Method(Source("RentNearBy.Api", "Handlers", "TaxiHandlers.cs"), "public static async Task<IResult> DeleteMine(");
+        var taxi = Method(Source("RentNearBy.Api", "Handlers", "Owner", "ListingRemoval.cs"), "public static async Task<ListingRemovalResult> SoftDeleteTaxiAsync(");
         Assert.DoesNotContain("DeleteRoomPhotosAsync", taxi);
         Assert.True(taxi.IndexOf("DeleteListingPhotosBestEffortAsync", StringComparison.Ordinal) > taxi.IndexOf("CommitTransactionAsync", StringComparison.Ordinal));
     }
