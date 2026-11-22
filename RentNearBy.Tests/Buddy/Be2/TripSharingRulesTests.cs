@@ -123,6 +123,23 @@ public class TripSharingRulesTests
         Assert.False(TripSharingRules.ETagMatches("W/\"other\"", tag));
     }
 
+    [Fact]
+    public void ETag_moves_when_a_shown_face_changes_and_stays_when_nobody_has_one()
+    {
+        var at = new DateTime(2026, 5, 16, 5, 12, 0, DateTimeKind.Utc);
+        var none = TripSharingRules.FaceStamp([null, null, ""]);
+        Assert.Equal(0u, none);
+        Assert.Equal(TripSharingRules.ViewETag(at, 3, 2, 99), TripSharingRules.ViewETag(at, 3, 2, 99, none));
+        var a = TripSharingRules.FaceStamp(["https://x/a.jpg", null]);
+        var b = TripSharingRules.FaceStamp(["https://x/b.jpg", null]);
+        Assert.NotEqual(0u, a);
+        Assert.NotEqual(a, b);
+        Assert.Equal(a, TripSharingRules.FaceStamp(["https://x/a.jpg", null]));
+        Assert.NotEqual(a, TripSharingRules.FaceStamp([null, "https://x/a.jpg"]));
+        Assert.NotEqual(TripSharingRules.ViewETag(at, 3, 2, 99, a), TripSharingRules.ViewETag(at, 3, 2, 99, b));
+        Assert.NotEqual(TripSharingRules.ViewETag(at, 3, 2, 99), TripSharingRules.ViewETag(at, 3, 2, 99, a));
+    }
+
     [Theory]
     [InlineData(null, 7, "2026-05-10", 1)]
     [InlineData("2026-05-16", 7, "2026-05-10", 1)]

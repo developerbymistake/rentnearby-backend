@@ -99,9 +99,23 @@ public static class TripSharingRules
         _ => InviteEndedReasons.Unknown,
     };
 
-    // W/"<Trips.UpdatedAt ticks>-<balancesVersion>-<travellerCount>-<bookingStamp>".
-    public static string ViewETag(DateTime tripUpdatedAt, long balancesVersion, int travellerCount, long bookingStamp)
-        => $"W/\"{tripUpdatedAt.Ticks}-{balancesVersion}-{travellerCount}-{bookingStamp}\"";
+    // W/"<Trips.UpdatedAt ticks>-<balancesVersion>-<travellerCount>-<bookingStamp>[-<faceStamp hex>]".
+    public static string ViewETag(DateTime tripUpdatedAt, long balancesVersion, int travellerCount, long bookingStamp, uint faceStamp = 0)
+        => $"W/\"{tripUpdatedAt.Ticks}-{balancesVersion}-{travellerCount}-{bookingStamp}{(faceStamp == 0 ? "" : $"-{faceStamp:x}")}\"";
+
+    // Stable across restarts (FNV-1a): moves when a shown person's picture changes, 0 when nobody has one.
+    public static uint FaceStamp(IEnumerable<string?> photoUrls)
+    {
+        uint hash = 2166136261;
+        var any = false;
+        foreach (var url in photoUrls)
+        {
+            any |= !string.IsNullOrEmpty(url);
+            foreach (var ch in url ?? string.Empty) hash = (hash ^ ch) * 16777619;
+            hash = (hash ^ '|') * 16777619;
+        }
+        return !any ? 0 : hash == 0 ? 1 : hash;
+    }
 
     public static bool ETagMatches(string? ifNoneMatch, string etag)
     {

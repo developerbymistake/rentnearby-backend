@@ -65,7 +65,8 @@ public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access
         if (stamp.Count == 0) return SharingResult<TripViewResult>.Fail(BuddyErrorTypes.TripNotFound);
         var head = stamp[0];
         var travellerCount = 1 + head.ViewerCount;
-        var etag = TripSharingRules.ViewETag(info.UpdatedAt, head.BalancesVersion, travellerCount, head.BookingAt?.Ticks ?? 0);
+        var etag = TripSharingRules.ViewETag(info.UpdatedAt, head.BalancesVersion, travellerCount, head.BookingAt?.Ticks ?? 0,
+            TripSharingRules.FaceStamp(stamp.Take(3).Select(r => r.PhotoUrl)));
         if (TripSharingRules.ETagMatches(ifNoneMatch, etag))
             return SharingResult<TripViewResult>.Success(new TripViewResult(null, etag, true));
 
