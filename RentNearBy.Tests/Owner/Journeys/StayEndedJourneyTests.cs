@@ -51,7 +51,7 @@ public class StayEndedJourneyTests
         Assert.True(At("OwnerLocks.LockStayAsync") < At("DeletePhotoSql"));
         Assert.True(At("DeletePhotoSql") < At("planRows.ApplyForOwnerAsync"));
         Assert.True(At("planRows.ApplyForOwnerAsync") < At("CommitTransactionAsync"));
-        Assert.True(At("CommitTransactionAsync") < At("photoService.DeletePhotoAsync"));
+        Assert.True(At("CommitTransactionAsync") < At("PhotoCleanup.TryDeleteAsync(photoService, photo.FilePath"));
         Assert.DoesNotContain("db.StayPhotos.Remove", body);
         Assert.Contains("NOT p.\"HiddenByPlan\"", StayHandlers.DeletePhotoSql);
         Assert.Contains("o.\"Id\" <> @p AND NOT o.\"HiddenByPlan\"", StayHandlers.DeletePhotoSql);

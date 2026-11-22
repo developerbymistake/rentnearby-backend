@@ -853,12 +853,12 @@ public static class StayHandlers
         catch
         {
             await unitOfWork.RollbackTransactionAsync();
-            try { await photoService.DeletePhotoAsync(filePath); } catch { /* orphan only */ }
+            await PhotoCleanup.TryDeleteAsync(photoService, filePath, PhotoCleanup.Logger(sp));
             throw;
         }
         if (refused != null || stayPhoto == null)
         {
-            try { await photoService.DeletePhotoAsync(filePath); } catch { /* orphan only */ }
+            await PhotoCleanup.TryDeleteAsync(photoService, filePath, PhotoCleanup.Logger(sp));
             return refused ?? Concurrent();
         }
 
@@ -920,7 +920,7 @@ public static class StayHandlers
         }
         if (refused != null) return refused;
 
-        try { await photoService.DeletePhotoAsync(photo.FilePath); } catch { /* orphan only */ }
+        await PhotoCleanup.TryDeleteAsync(photoService, photo.FilePath, PhotoCleanup.Logger(sp));
         if (stay.Status == StayStatuses.Approved)
             await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
         return NoContentResponse();

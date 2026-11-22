@@ -87,7 +87,7 @@ public class StayPhotoReplaceTests
         var body = Method(Src("RentNearBy.Api", "Handlers", "StayHandlers.cs"), "public static async Task<IResult> DeletePhoto(");
         var commit = body.IndexOf("CommitTransactionAsync", StringComparison.Ordinal);
         var refusedReturn = body.IndexOf("if (refused != null) return refused;", StringComparison.Ordinal);
-        var delete = body.IndexOf("photoService.DeletePhotoAsync(photo.FilePath)", StringComparison.Ordinal);
+        var delete = body.IndexOf("PhotoCleanup.TryDeleteAsync(photoService, photo.FilePath", StringComparison.Ordinal);
         Assert.True(commit > 0 && refusedReturn > commit && delete > refusedReturn);
     }
 
