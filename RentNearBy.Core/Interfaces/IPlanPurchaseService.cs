@@ -45,7 +45,7 @@ public sealed record PlayGrantCommand(Guid UserId, string FeatureKey, Guid PlanI
 
 public sealed record PlayGrantOutcome(UserPlan UserPlan, NotificationEvent Notification, bool WasNewRow, int CarryOverDaysTaken);
 
-public sealed record AdminRevokeResult(bool ProratedRefundQueued);
+public sealed record AdminRevokeResult(bool ProratedRefundQueued, NotificationEvent? Notification = null);
 
 // Prepaid plan purchases (Razorpay orders), trials, admin grants/revokes/refunds and the coupon engine.
 // Every failure is a PlanServiceException (StatusCode + PlanErrorTypes.*). External Razorpay calls never

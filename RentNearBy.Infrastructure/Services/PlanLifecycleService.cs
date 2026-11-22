@@ -226,6 +226,7 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
                 if (claimed.Count == 0)
                 {
                     await tx.RollbackAsync();
+                    slots.DropAfterCommit();
                     return false;
                 }
 

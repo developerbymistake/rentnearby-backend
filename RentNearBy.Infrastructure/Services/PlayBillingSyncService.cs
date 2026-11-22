@@ -186,6 +186,7 @@ public class PlayBillingSyncService(
                 catch (DbUpdateException ex) when (IsUniqueViolation(ex, "ix_playsubscriptions_token"))
                 {
                     await tx.RollbackAsync();
+                    slots.DropAfterCommit();
                     db.ChangeTracker.Clear();
                     return null;
                 }
@@ -198,6 +199,7 @@ public class PlayBillingSyncService(
                     || sub.PendingServerAction != existing.PendingServerAction || sub.DetachedReason != existing.DetachedReason)))
             {
                 await tx.RollbackAsync();
+                slots.DropAfterCommit();
                 db.ChangeTracker.Clear();
                 return null;
             }
@@ -220,6 +222,7 @@ public class PlayBillingSyncService(
         catch
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             throw;
         }
@@ -933,6 +936,8 @@ public class PlayBillingSyncService(
 
     private async Task AfterCommitAsync(Applied applied)
     {
+        // FB-03: routes un-hidden by a grant ring at once; offers closed by an expiry tell their travellers.
+        await slots.AfterCommitAsync();
         try
         {
             if (applied.Apply != null)

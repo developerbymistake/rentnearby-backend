@@ -37,4 +37,7 @@ public interface ILiveSlotService
 
     // After the caller's commit of a grant or expiry: matcher wake and request hints of offers closed on hidden routes. Never throws.
     Task AfterCommitAsync();
+
+    // In every rollback of a unit that ran grant or expiry effects: forget the queued after-commit work (FB-03).
+    void DropAfterCommit();
 }

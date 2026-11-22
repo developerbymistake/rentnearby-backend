@@ -83,6 +83,8 @@ public class PlanSlotService(
 
     public Task AfterCommitAsync() => planRows.AfterCommitAsync();
 
+    public void DropAfterCommit() => planRows.DropAfterCommit();
+
     public async Task<LimitsReconcileSummary> ReconcileLimitsAsync(string kind, CancellationToken ct = default)
     {
         var result = await planRows.ReconcileAsync(kind, ct);

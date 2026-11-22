@@ -96,7 +96,7 @@ public static class AdminUserPlanHandlers
 
     public static async Task<IResult> RevokePlan(
         Guid id, AdminRevokePlanRequest request, IValidator<AdminRevokePlanRequest> validator, ClaimsPrincipal principal,
-        IPlanPurchaseService purchases, HttpContext httpContext)
+        IPlanPurchaseService purchases, IHubContext<NotificationHub> hubContext, HttpContext httpContext)
     {
         if (!AdminAuthHandlers.TryGetAdminId(principal, out var adminId)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request);
@@ -104,6 +104,9 @@ public static class AdminUserPlanHandlers
         try
         {
             var result = await purchases.AdminRevokeAsync(adminId, id, request with { Reason = request.Reason.Trim() });
+            // FB-13: like the grant, the open app hears that Plus ended.
+            if (result.Notification != null)
+                await PushNotificationAsync(hubContext, result.Notification);
             return OkResponse(new { success = true, refund = result.ProratedRefundQueued ? "prorated" : "none" });
         }
         catch (PlanServiceException ex)

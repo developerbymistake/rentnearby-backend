@@ -359,6 +359,7 @@ public class PlayEntitlementApplier(
     {
         if (db.Database.CurrentTransaction != null)
             throw new InvalidOperationException("AfterCommitAsync must run after the sync transaction is committed.");
+        await slots.AfterCommitAsync(); // FB-03 (a no-op when the sync service already drained it)
         if (result.Notification != null)
             await PlanNotifications.PublishAsync(publisher, result.Notification, logger);
         if (result.ChargeRow is { Status: PurchaseStatuses.Granted } charge

@@ -95,7 +95,7 @@ public class RoomsPlotsRemovalGuardTests
 
         // Owner roles (contract 3.4, 7.1): the plan rows reconcile, its after-commit wake and the ring weight overload of SetRankAsync.
         Assert.Equal(
-            new[] { "AfterCommitAsync", "ApplyGrantEffectsAsync", "ExpireEffectsAsync", "LockOwnerAsync", "ReconcileLimitsAsync", "ReconcileRanksAsync", "SetRankAsync", "SetRankAsync" },
+            new[] { "AfterCommitAsync", "ApplyGrantEffectsAsync", "DropAfterCommit", "ExpireEffectsAsync", "LockOwnerAsync", "ReconcileLimitsAsync", "ReconcileRanksAsync", "SetRankAsync", "SetRankAsync" },
             names);
         Assert.True(typeof(ILiveSlotService).IsAssignableFrom(typeof(PlanSlotService)));
     }

@@ -778,6 +778,7 @@ public class PlanPurchaseService(
         catch (DbUpdateException ex)
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             var constraint = (ex.InnerException as PostgresException)?.ConstraintName;
             if (constraint == "ix_couponredemptions_coupon_user_active")
@@ -795,6 +796,7 @@ public class PlanPurchaseService(
         catch
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             throw;
         }
@@ -912,6 +914,7 @@ public class PlanPurchaseService(
         catch (DbUpdateException ex) when ((ex.InnerException as PostgresException)?.ConstraintName == "ix_planpurchases_one_open")
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             var winner = await unitOfWork.PlanPurchases.GetOpenByUserFeatureAsync(userId, q.FeatureKey);
             if (winner != null && winner.Provider == PaymentProviders.Play && winner.Status == PurchaseStatuses.Created
@@ -922,6 +925,7 @@ public class PlanPurchaseService(
         catch
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             throw;
         }
@@ -1036,6 +1040,7 @@ public class PlanPurchaseService(
         catch
         {
             if (tx != null) await tx.RollbackAsync();
+            slots.DropAfterCommit();
             throw;
         }
         finally
@@ -1108,12 +1113,14 @@ public class PlanPurchaseService(
             if (purchase == null)
             {
                 await tx.RollbackAsync();
+                slots.DropAfterCommit();
                 return new CaptureResult(CaptureOutcome.NotFound, null, null);
             }
             if (purchase.Status is PurchaseStatuses.Granted or PurchaseStatuses.Refunded
                 || (purchase.Status == PurchaseStatuses.Paid && purchase.GrantBlockedReason != null))
             {
                 await tx.RollbackAsync();
+                slots.DropAfterCommit();
                 return new CaptureResult(CaptureOutcome.AlreadyProcessed, purchase, null);
             }
 
@@ -1169,6 +1176,7 @@ public class PlanPurchaseService(
         catch
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             throw;
         }
@@ -1449,6 +1457,8 @@ public class PlanPurchaseService(
 
     private async Task AfterGrantAsync(Guid userId, string featureKey, GrantOutcome granted)
     {
+        // FB-03: routes un-hidden by the grant ring at once (matcher wake, pickup pool), before the cache bust.
+        await slots.AfterCommitAsync();
         await PlanNotifications.PublishAsync(publisher, granted.Notification, logger);
         await cacheInvalidator.BustForUserAsync(userId, featureKey);
     }
@@ -1478,6 +1488,7 @@ public class PlanPurchaseService(
         var tx = await db.Database.BeginTransactionAsync();
         Guid? userId = null;
         string? feature = null;
+        NotificationEvent? ended = null;
         try
         {
             if (ownerId != null) await slots.LockOwnerAsync(ownerId.Value);
@@ -1485,6 +1496,7 @@ public class PlanPurchaseService(
             if (purchase == null || purchase.Status == PurchaseStatuses.Refunded)
             {
                 await tx.RollbackAsync();
+                slots.DropAfterCommit();
                 return null;
             }
             var wasGranted = purchase.Status == PurchaseStatuses.Granted;
@@ -1575,6 +1587,9 @@ public class PlanPurchaseService(
                     else
                     {
                         Cancel(plan, now, note);
+                        // FB-13: the owner is told that Plus ended (refunded), in the same transaction.
+                        ended = PlanNotifications.Ended(userId.Value, (await catalog.GetAsync()).GetPlan(plan.PlanId)?.Name ?? "Your plan", refunded: true);
+                        db.NotificationEvents.Add(ended);
                         await db.SaveChangesAsync();
                         await slots.ExpireEffectsAsync(userId.Value, feature);
                     }
@@ -1585,6 +1600,7 @@ public class PlanPurchaseService(
         catch
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             throw;
         }
@@ -1593,6 +1609,8 @@ public class PlanPurchaseService(
             await tx.DisposeAsync();
         }
 
+        await slots.AfterCommitAsync();
+        if (ended != null) await PlanNotifications.PublishAsync(publisher, ended, logger);
         if (userId != null && feature != null)
             await cacheInvalidator.BustForUserAsync(userId.Value, feature);
         return feature ?? string.Empty;
@@ -1886,12 +1904,14 @@ public class PlanPurchaseService(
         catch (DbUpdateException ex) when ((ex.InnerException as PostgresException)?.ConstraintName is "ix_userplans_trial_once" or "ix_userplans_active_per_feature")
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             throw PlanServiceException.Conflict(PlanErrorTypes.TrialNotAvailable, "Free trial is not available.");
         }
         catch
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             throw;
         }
@@ -1962,6 +1982,7 @@ public class PlanPurchaseService(
         catch (DbUpdateException ex) when ((ex.InnerException as PostgresException)?.ConstraintName == "ix_planpurchases_idempotency")
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             var winner = await unitOfWork.PlanPurchases.GetByIdempotencyKeyAsync(request.IdempotencyKey);
             return new AdminGrantResult(await ToAdminDtoAsync(winner!), null, true);
@@ -1969,6 +1990,7 @@ public class PlanPurchaseService(
         catch
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             throw;
         }
@@ -1985,6 +2007,7 @@ public class PlanPurchaseService(
     {
         string feature;
         var proratedQueued = false;
+        NotificationEvent ended;
         var tx = await db.Database.BeginTransactionAsync();
         try
         {
@@ -2017,6 +2040,9 @@ public class PlanPurchaseService(
                     "Admin {AdminId} revoked Play plan {UserPlanId}; prorated refund queued: {Queued}", adminId, plan.Id, proratedQueued);
             }
             Cancel(plan, now, $"Revoked: {request.Reason}");
+            // FB-13: the owner is told that Plus ended, in the same transaction.
+            ended = PlanNotifications.Ended(userId, (await catalog.GetAsync()).GetPlan(plan.PlanId)?.Name ?? "Your plan", refunded: false);
+            db.NotificationEvents.Add(ended);
             await db.SaveChangesAsync();
             await slots.ExpireEffectsAsync(userId, feature);
             await tx.CommitAsync();
@@ -2024,6 +2050,7 @@ public class PlanPurchaseService(
         catch
         {
             await tx.RollbackAsync();
+            slots.DropAfterCommit();
             db.ChangeTracker.Clear();
             throw;
         }
@@ -2032,8 +2059,11 @@ public class PlanPurchaseService(
             await tx.DisposeAsync();
         }
         logger.LogInformation("Admin {AdminId} revoked plan {UserPlanId} of user {UserId}", adminId, request.UserPlanId, userId);
+        logger.LogInformation("admin.action {Action} {AdminId} {TargetId}", "plan.revoke", adminId, userId);
+        await slots.AfterCommitAsync();
+        await PlanNotifications.PublishAsync(publisher, ended, logger);
         await cacheInvalidator.BustForUserAsync(userId, feature);
-        return new AdminRevokeResult(proratedQueued);
+        return new AdminRevokeResult(proratedQueued, ended);
     }
 
     public async Task<AdminPurchaseDto> AdminRefundAsync(Guid adminId, Guid purchaseId, string reason)
