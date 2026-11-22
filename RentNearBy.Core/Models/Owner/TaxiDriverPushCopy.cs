@@ -11,9 +11,9 @@ public static class TaxiDriverPushCopy
             Cut($"{WeekName(name)} starts {Day(from)}"), "Go online and check your fares.",
             UserNotificationRoutes.TaxiRoutesAndFares, Args(("section", "routes")), $"owner_festival_{festivalId}");
 
-    public static OwnerPush PlansStarted(Guid userId, int routes, DateOnly todayIst)
+    public static OwnerPush PlansStarted(Guid userId, int routes, DateOnly todayIst, bool plansStartedToday = true)
         => new(userId, NotificationTypes.PlanLimitsChanged, $"planlimits:{userId}:{Ymd(todayIst)}",
-            "Plans have started", Cut($"{Count(routes, "route is", "routes are")} hidden on Free. Nothing is deleted."),
+            OwnerPushText.LimitsTitle(plansStartedToday), Cut($"{Count(routes, "route is", "routes are")} hidden on Free. Nothing is deleted."),
             UserNotificationRoutes.TaxiPlanVisible, Args(), $"owner_planlimits_{userId}");
 
     // "3 trips today" / label + " (all day)" for app bookings, or the time "9:00 am" for a trip he added.

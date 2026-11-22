@@ -7,6 +7,7 @@ using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Models.Owner;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.Owner.Be3;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 
 namespace RentNearBy.Infrastructure.Services.Owner.Be2;
@@ -38,6 +39,7 @@ public sealed class StaySpecialPriceService(
 
     private sealed class SpecialPriceLockRow
     {
+        public string Status { get; set; } = string.Empty;
         public DateOnly? SavesDay { get; set; }
         public short SavesCount { get; set; }
         public Guid? RuleId { get; set; }
@@ -106,6 +108,7 @@ public sealed class StaySpecialPriceService(
             await using var tx = await db.Database.BeginTransactionAsync(c);
             var lockRow = await LockAsync(ctx.ListingId, null, c);
             if (lockRow == null) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.ListingNotFound);
+            ctx = await OwnerContextReader.WithLimitsUnderLockAsync(db, ctx, c); // FB-38
             var savesLeft = StaySpecialPriceRules.SavesLeft(lockRow.SavesDay, lockRow.SavesCount, ctx.Today);
 
             var own = await FindAsync(request.Id, c);
@@ -118,6 +121,7 @@ public sealed class StaySpecialPriceService(
                     : Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.IdTaken);
             }
 
+            if (UnderReview(lockRow)) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.StayLocked);
             if (StaySpecialPriceRules.Invalid(request.Direction, request.Percent, request.DateFrom, request.DateTo, ctx.Today) is { } invalid)
                 return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.SpecialPriceInvalid, invalid);
             if (StaySpecialPriceRules.SavesLimitReached(lockRow.SavesDay, lockRow.SavesCount, ctx.Today))
@@ -184,6 +188,8 @@ public sealed class StaySpecialPriceService(
                     ? new Be2Result<SpecialPriceWriteDto>(new SpecialPriceWriteDto(ToItem(row), meters, savesLeft), Replay: true)
                     : Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.StaleEdit, new StaleEditDto<SpecialPriceItemDto>(ToItem(row)));
             if (same) return new(new SpecialPriceWriteDto(ToItem(row), meters, savesLeft), Replay: true);
+            if (UnderReview(lockRow)) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.StayLocked);
+            var dropFestival = StaySpecialPriceRules.DropsFestival(festival?.Id, row.DateFrom, row.DateTo, request.DateFrom, request.DateTo);
 
             if (StaySpecialPriceRules.Invalid(request.Direction, request.Percent, request.DateFrom, request.DateTo, ctx.Today, row.DateFrom) is { } invalid)
                 return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.SpecialPriceInvalid, invalid);
@@ -197,7 +203,8 @@ public sealed class StaySpecialPriceService(
                     UPDATE "StaySpecialPrices"
                     SET "DateFrom" = {request.DateFrom}, "DateTo" = {request.DateTo}, "Direction" = {request.Direction},
                         "Percent" = {(short)request.Percent},
-                        "FestivalDateId" = COALESCE({festival?.Id}, "FestivalDateId"), "LabelCopy" = COALESCE({label}, "LabelCopy"),
+                        "FestivalDateId" = CASE WHEN {dropFestival} THEN NULL ELSE COALESCE({festival?.Id}, "FestivalDateId") END,
+                        "LabelCopy" = CASE WHEN {dropFestival} THEN NULL ELSE COALESCE({label}, "LabelCopy") END,
                         "Version" = "Version" + 1, "UpdatedAt" = now()
                     WHERE "Id" = {id} AND "StayListingId" = {ctx.ListingId} AND "Version" = {request.Version}
                     RETURNING *
@@ -250,6 +257,13 @@ public sealed class StaySpecialPriceService(
                 )
                 SELECT "Id" AS "Value" FROM del
                 """).ToListAsync(c);
+            if (deleted.Count > 0)
+            {
+                // FB-18 (D-27): a freed live slot goes to the next plan-paused rule at once, under the same stay lock, with the
+                // limits as they are under the lock. Not counted as a save.
+                ctx = await OwnerContextReader.WithLimitsUnderLockAsync(db, ctx, c);
+                await PlanRows.ApplySpecialPricesAsync(db, ctx.ListingId, ctx.Limits.SpecialPrices, ctx.Limits.PaymentEnabled, ctx.Today, c);
+            }
             await tx.CommitAsync(c);
             return new Be2Result<bool>(true, Replay: deleted.Count == 0, DistrictId: ctx.DistrictId, Changed: deleted.Count > 0);
         }, ct, logger);
@@ -279,6 +293,7 @@ public sealed class StaySpecialPriceService(
             }
             if (StaySpecialPriceRules.SavesLimitReached(lockRow.SavesDay, lockRow.SavesCount, ctx.Today))
                 return SavesRefusal<SpecialPriceWriteDto>(lockRow, ctx.Today);
+            if (UnderReview(lockRow)) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.StayLocked);
 
             var updated = await db.Database.SqlQuery<SpecialPriceRow>($"""
                 WITH upd AS (
@@ -312,13 +327,14 @@ public sealed class StaySpecialPriceService(
     {
         var ctx = await contexts.LoadAsync(me, ListingKinds.Stay, ct: ct);
         if (ctx == null) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.ListingNotFound);
-        var limit = Math.Max(0, ctx.Limits.SpecialPrices);
 
         return await PgRetry.OnceAsync(db, async c =>
         {
             await using var tx = await db.Database.BeginTransactionAsync(c);
             var lockRow = await LockAsync(ctx.ListingId, id, c);
             if (lockRow == null) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.ListingNotFound);
+            ctx = await OwnerContextReader.WithLimitsUnderLockAsync(db, ctx, c); // FB-38
+            var limit = Math.Max(0, ctx.Limits.SpecialPrices);
             var savesLeft = StaySpecialPriceRules.SavesLeft(lockRow.SavesDay, lockRow.SavesCount, ctx.Today);
             if (lockRow.Rule is not { } row || row.DateTo < ctx.Today) return Be2Result<SpecialPriceWriteDto>.Missing(NotFoundMessage);
 
@@ -329,6 +345,7 @@ public sealed class StaySpecialPriceService(
                 var active = await ActiveCountAsync(ctx.ListingId, ctx.Today, c);
                 return new(new SpecialPriceWriteDto(ToItem(row), Meters(active, ctx.Limits.SpecialPrices), savesLeft), Replay: true);
             }
+            if (UnderReview(lockRow)) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.StayLocked);
             if (limit == 0) return LimitRefusal<SpecialPriceWriteDto>(await ActiveCountAsync(ctx.ListingId, ctx.Today, c), ctx);
             if (StaySpecialPriceRules.SavesLimitReached(lockRow.SavesDay, lockRow.SavesCount, ctx.Today))
                 return SavesRefusal<SpecialPriceWriteDto>(lockRow, ctx.Today);
@@ -340,9 +357,11 @@ public sealed class StaySpecialPriceService(
                     WHERE p."StayListingId" = {ctx.ListingId} AND p."DateTo" >= {ctx.Today}
                 ), upd AS (
                     UPDATE "StaySpecialPrices" t
-                    SET "PausedByPlan" = (r.rk > {limit}), "Version" = t."Version" + 1, "UpdatedAt" = now()
+                    SET "PausedByPlan" = (r.rk > {limit}),
+                        "IsPaused" = CASE WHEN t."Id" = {id} THEN false ELSE t."IsPaused" END,
+                        "Version" = t."Version" + 1, "UpdatedAt" = now()
                     FROM ranked r
-                    WHERE t."Id" = r."Id" AND t."PausedByPlan" <> (r.rk > {limit})
+                    WHERE t."Id" = r."Id" AND (t."PausedByPlan" <> (r.rk > {limit}) OR (t."Id" = {id} AND t."IsPaused"))
                       AND EXISTS (SELECT 1 FROM "StaySpecialPrices" v WHERE v."Id" = {id} AND v."Version" = {request.Version} AND v."PausedByPlan")
                     RETURNING t.*
                 ), cnt AS (
@@ -366,6 +385,9 @@ public sealed class StaySpecialPriceService(
 
     // ---------- helpers ----------
 
+    // FB-35: while the stay is under review no special price is created, changed, paused or made live (delete stays allowed).
+    private static bool UnderReview(SpecialPriceLockRow lockRow) => lockRow.Status == StayStatuses.PendingReview;
+
     public static SpecialPriceItemDto ToItem(SpecialPriceRow r)
         => new(r.Id, r.DateFrom, r.DateTo, StaySpecialPriceRules.Nights(r.DateFrom, r.DateTo), r.Direction, r.Percent, r.LabelCopy,
             r.IsPaused, r.PausedByPlan, StaySpecialPriceRules.IsLive(r.IsPaused, r.PausedByPlan), r.Version);
@@ -381,7 +403,7 @@ public sealed class StaySpecialPriceService(
     private async Task<SpecialPriceLockRow?> LockAsync(Guid stayId, Guid? ruleId, CancellationToken ct)
     {
         var rows = await db.Database.SqlQuery<SpecialPriceLockRow>($"""
-            SELECT s."SpecialPriceSavesDay" AS "SavesDay", s."SpecialPriceSavesCount" AS "SavesCount",
+            SELECT s."Status", s."SpecialPriceSavesDay" AS "SavesDay", s."SpecialPriceSavesCount" AS "SavesCount",
                    p."Id" AS "RuleId", p."StayListingId" AS "RuleStayId", p."DateFrom" AS "RuleFrom", p."DateTo" AS "RuleTo",
                    p."Direction" AS "RuleDirection", p."Percent" AS "RulePercent", p."FestivalDateId" AS "RuleFestivalId",
                    p."LabelCopy" AS "RuleLabel", p."IsPaused" AS "RulePaused", p."PausedByPlan" AS "RulePausedByPlan", p."Version" AS "RuleVersion"

@@ -7,6 +7,12 @@ namespace RentNearBy.Core.Models.Owner;
 public static class OwnerPushText
 {
     public const int BodyMax = 120;
+
+    // FB-39 (D-12): the PlanLimitsChanged title.
+    public const string PlansStartedTitle = "Plans have started";
+    public const string PlusEndedTitle = "Plus has ended";
+
+    public static string LimitsTitle(bool plansStartedToday) => plansStartedToday ? PlansStartedTitle : PlusEndedTitle;
     private static readonly CultureInfo En = CultureInfo.InvariantCulture;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

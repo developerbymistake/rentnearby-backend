@@ -13,15 +13,22 @@ public static class StayOwnerPushCopy
             Args(("festivalId", festivalId), ("dateFrom", from.ToString("yyyy-MM-dd")), ("dateTo", to.ToString("yyyy-MM-dd"))),
             $"owner_festival_{festivalId}");
 
-    public static OwnerPush PlansStarted(Guid userId, int photos, int roomTypes, DateOnly todayIst)
+    // FB-39 (D-12): "Plans have started" only on the day the payment switch went on; any other loss (Plus ended) says so.
+    // FB-40 (D-27): when the only loss is paused special prices, the words and the route lead to the Special prices list.
+    public static OwnerPush PlansStarted(Guid userId, int photos, int roomTypes, DateOnly todayIst, int pausedRules = 0, bool plansStartedToday = true)
     {
+        var title = OwnerPushText.LimitsTitle(plansStartedToday);
+        if (photos == 0 && roomTypes == 0 && pausedRules > 0)
+            return new(userId, NotificationTypes.PlanLimitsChanged, $"planlimits:{userId}:{Ymd(todayIst)}",
+                title, Cut($"{Count(pausedRules, "special price is", "special prices are")} paused on Free. Nothing is deleted."),
+                UserNotificationRoutes.StaySpecialPrices, Args(), $"owner_planlimits_{userId}");
         var parts = new List<string>();
         if (photos > 0) parts.Add(Count(photos, "photo", "photos"));
         if (roomTypes > 0) parts.Add(Count(roomTypes, "room type", "room types"));
         var what = parts.Count == 0 ? "Some items" : string.Join(" and ", parts);
         var verb = parts.Count == 1 && (photos == 1 || roomTypes == 1) ? "is" : "are";
         return new(userId, NotificationTypes.PlanLimitsChanged, $"planlimits:{userId}:{Ymd(todayIst)}",
-            "Plans have started", Cut($"{what} {verb} hidden on Free. Nothing is deleted."),
+            title, Cut($"{what} {verb} hidden on Free. Nothing is deleted."),
             UserNotificationRoutes.StayPlanVisible, Args(), $"owner_planlimits_{userId}");
     }
 

@@ -12,6 +12,9 @@ public static class PlanRowSql
     public static Expression<Func<UserPlan, bool>> Entitled(DateTime nowUtc)
         => u => u.Status == UserPlanStatuses.Active && (u.EndsAt > nowUtc || u.PlaySubscriptionId != null);
 
+    // EntitledSql("u") as a constant, for SQL texts that are constants themselves.
+    public const string EntitledSqlConst = "u.\"Status\" = '" + UserPlanStatuses.Active + "' AND (u.\"EndsAt\" > now() OR u.\"PlaySubscriptionId\" IS NOT NULL)";
+
     public static string EntitledSql(string alias)
         => $"{alias}.\"Status\" = '{UserPlanStatuses.Active}' AND ({alias}.\"EndsAt\" > now() OR {alias}.\"PlaySubscriptionId\" IS NOT NULL)";
 

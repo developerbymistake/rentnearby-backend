@@ -32,6 +32,7 @@ public sealed class BlockedRangeService(ApplicationDbContext db, ILogger<Blocked
         {
             await using var tx = await db.Database.BeginTransactionAsync(c);
             if (!await OwnerLocks.LockStayAsync(db, ctx.ListingId, c)) return Be1Error.Of(OwnerErrorTypes.ListingNotFound);
+            ctx = await OwnerContextReader.WithLimitsUnderLockAsync(db, ctx, c); // FB-38
             var check = await CheckAsync(ctx, id, from, to, c);
 
             if (ParseBlock(check.Existing) is { } existing)

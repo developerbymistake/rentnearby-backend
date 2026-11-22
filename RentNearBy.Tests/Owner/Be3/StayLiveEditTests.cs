@@ -69,7 +69,9 @@ public class StayLiveEditMatrixTests
             body = end > 0 ? body[..end] : body;
             Assert.Contains("if (!IsLiveEditable(stay)) return LockedResponse(stay);", body);
         }
-        Assert.Contains("stay.Photos.Count <= 1) return OwnerHttp.Refuse(OwnerErrorTypes.StayNeedsPhoto)", handler);
+        // FB-54: the "keep one visible photo" rule lives in the guarded delete statement; 0 rows on an existing photo = StayNeedsPhoto.
+        Assert.Contains("OwnerHttp.Refuse(OwnerErrorTypes.StayNeedsPhoto)", handler);
+        Assert.Contains("o.\"Id\" <> @p AND NOT o.\"HiddenByPlan\"", handler);
     }
 }
 

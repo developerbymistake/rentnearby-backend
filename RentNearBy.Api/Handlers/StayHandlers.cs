@@ -4,6 +4,8 @@ using System.Text.Json;
 using FluentValidation;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using NpgsqlTypes;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -550,10 +552,11 @@ public static class StayHandlers
         return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
     }
 
-    private static async Task<StayOwnerDto> ToHubDtoAsync(StayListing stay, IUnitOfWork unitOfWork, StayHubReader hub)
+    // FB-16: every owner write that returns the stay answers this shape, so the hub keeps its meters and hidden rows.
+    private static async Task<StayOwnerDto> ToHubDtoAsync(StayListing stay, IUnitOfWork unitOfWork, StayHubReader hub, PlanLimits? limits = null)
     {
         var dto = await ToOwnerDtoAsync(stay, unitOfWork);
-        await hub.FillAsync(dto, stay);
+        await hub.FillAsync(dto, stay, limits);
         return dto;
     }
 
@@ -682,7 +685,7 @@ public static class StayHandlers
         {
             try { await unitOfWork.SaveChangesAsync(); }
             catch (DbUpdateConcurrencyException) { return Concurrent(); }
-            return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
+            return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
         }
 
         // One live stay per account is enforced by a partial unique index; a racing second create
@@ -712,7 +715,7 @@ public static class StayHandlers
             return ConflictResponse("Could not generate a unique link for this stay. Please try again.", "SLUG_GENERATION_FAILED");
         }
 
-        return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
+        return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
     }
 
     // Approved stay (contract 3.5, AU-5): stay type, vehicle access, host lives here, facilities and description save at once;
@@ -804,6 +807,8 @@ public static class StayHandlers
             if (!await OwnerLocks.LockStayAsync(db, stay.Id)) refused = NotFoundResponse(StayNotFound);
             else
             {
+                // FB-38: the plan value is read again under the stay lock (a plan write takes the same lock after its own).
+                limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
                 var counts = (await db.Database.SqlQueryRaw<PhotoCountRow>("""
                     SELECT (count(*) FILTER (WHERE NOT "HiddenByPlan"))::int AS "Visible", count(*)::int AS "All",
                            COALESCE(max("PhotoOrder"), -1) AS "MaxOrder"
@@ -854,9 +859,13 @@ public static class StayHandlers
         return CreatedResponse(new { photoUrl = url, photoId = stayPhoto.Id }, url);
     }
 
-    // Live edit: a live stay keeps at least one visible photo (409 StayNeedsPhoto). The file goes after the row commit.
+    // Live edit: a live stay keeps at least one visible photo (409 StayNeedsPhoto). FB-54: the delete runs under the owner lock and
+    // the stay lock with the "another visible photo" count in the same statement, so two parallel deletes cannot both pass. FB-19
+    // (D-28): a freed visible slot is refilled from the hidden photos in the same transaction (limits re-read under the lock).
+    // Lock order: Users -> StayListings -> StayPhotos. The file goes after the row commit.
     public static async Task<IResult> DeletePhoto(
-        Guid photoId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IPhotoService photoService, IServiceProvider sp)
+        Guid photoId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IPhotoService photoService,
+        ILiveSlotService slots, IPlanEntitlementService entitlements, PlanLimitsReconcile planRows, IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -867,18 +876,56 @@ public static class StayHandlers
 
         var photo = stay.Photos.FirstOrDefault(p => p.Id == photoId);
         if (photo == null) return NotFoundResponse("Photo not found");
-        if (stay.Status == StayStatuses.Approved && stay.Photos.Count <= 1) return OwnerHttp.Refuse(OwnerErrorTypes.StayNeedsPhoto);
 
-        db.StayPhotos.Remove(photo);
-        stay.UpdatedAt = DateTime.UtcNow;
-        try { await unitOfWork.SaveChangesAsync(); }
-        catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        IResult? refused = null;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await slots.LockOwnerAsync(userId);
+            if (!await OwnerLocks.LockStayAsync(db, stay.Id)) refused = NotFoundResponse(StayNotFound);
+            else
+            {
+                var deleted = await db.Database.ExecuteSqlRawAsync(DeletePhotoSql,
+                    new NpgsqlParameter("p", NpgsqlDbType.Uuid) { Value = photoId },
+                    new NpgsqlParameter("s", NpgsqlDbType.Uuid) { Value = stay.Id },
+                    new NpgsqlParameter("approved", NpgsqlDbType.Varchar) { Value = StayStatuses.Approved });
+                if (deleted == 0)
+                    refused = await db.StayPhotos.AnyAsync(p => p.Id == photoId && p.StayListingId == stay.Id)
+                        ? OwnerHttp.Refuse(OwnerErrorTypes.StayNeedsPhoto)
+                        : NotFoundResponse("Photo not found");
+                else
+                {
+                    var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
+                    var effect = await planRows.ApplyForOwnerAsync(userId, ListingKinds.Stay, limits);
+                    if (effect.HiddenBefore > 0 && effect.HiddenAfter == 0) await planRows.ClearLimitsNoticeAsync(userId);
+                    await db.Database.ExecuteSqlRawAsync("""UPDATE "StayListings" SET "UpdatedAt" = now() WHERE "Id" = @s""",
+                        new NpgsqlParameter("s", NpgsqlDbType.Uuid) { Value = stay.Id });
+                }
+            }
+            if (refused != null) await unitOfWork.RollbackTransactionAsync();
+            else await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        if (refused != null) return refused;
+
         try { await photoService.DeletePhotoAsync(photo.FilePath); } catch { /* orphan only */ }
-
         if (stay.Status == StayStatuses.Approved)
             await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
         return NoContentResponse();
     }
+
+    // One statement: a visible photo of this stay, and (live stay) at least one other visible photo stays. Hidden photos are not
+    // deletable here (the hub shows them in "Choose what stays").
+    public const string DeletePhotoSql = """
+        DELETE FROM "StayPhotos" p
+        WHERE p."Id" = @p AND p."StayListingId" = @s AND NOT p."HiddenByPlan"
+          AND ((SELECT l."Status" FROM "StayListings" l WHERE l."Id" = @s) <> @approved
+               OR EXISTS (SELECT 1 FROM "StayPhotos" o WHERE o."StayListingId" = @s AND o."Id" <> @p AND NOT o."HiddenByPlan"))
+        """;
 
     // Plan key RoomTypes (contract 3.2): a save that adds above the plan value is refused (409 PlanRoomTypeLimit); keeping or
     // shrinking an over-limit set passes. Above the ceiling of 8 the validator answers 400 StayRoomLimit. Room names are unique
@@ -891,6 +938,8 @@ public static class StayHandlers
         ApplicationDbContext db,
         IPlanEntitlementService entitlements,
         StayHubReader hub,
+        ILiveSlotService slots,
+        PlanLimitsReconcile planRows,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -912,6 +961,7 @@ public static class StayHandlers
         if (!IsLiveEditable(stay)) return LockedResponse(stay);
         if (!StaySetupRules.Step1Done(stay)) return StepLocked(1);
 
+        // Fast refusal outside the lock; the same check runs again under the locks below (FB-38).
         var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
         if (!PlanRowChoice.SaveAllowed(request.Rooms.Count, limits.RoomTypes, stay.Rooms.Count))
             return OwnerHttp.LimitReached(OwnerErrorTypes.PlanRoomTypeLimit, PlanFeatureKeys.RoomTypes, stay.Rooms.Count, limits);
@@ -956,13 +1006,58 @@ public static class StayHandlers
 
         RecomputeMinPrice(stay);
         stay.UpdatedAt = now;
+        var removedVisible = existing.Count > request.Rooms.Count;
 
-        try { await unitOfWork.SaveChangesAsync(); }
-        catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        // FB-38: limits re-read under the owner and stay locks (lock order Users -> StayListings), so a downgrade that commits
+        // between the first read and the save cannot let a save above the new value through. FB-19 (D-28): a removed visible
+        // room frees a slot, which the next hidden room fills in the same transaction.
+        IResult? refused = null;
+        var refilled = false;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await slots.LockOwnerAsync(userId);
+            if (!await OwnerLocks.LockStayAsync(db, stay.Id)) refused = NotFoundResponse(StayNotFound);
+            else
+            {
+                limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
+                if (!PlanRowChoice.SaveAllowed(request.Rooms.Count, limits.RoomTypes, existing.Count))
+                    refused = OwnerHttp.LimitReached(OwnerErrorTypes.PlanRoomTypeLimit, PlanFeatureKeys.RoomTypes, existing.Count, limits);
+                else
+                {
+                    await unitOfWork.SaveChangesAsync();
+                    if (removedVisible)
+                    {
+                        var effect = await planRows.ApplyForOwnerAsync(userId, ListingKinds.Stay, limits);
+                        if (effect.HiddenBefore > 0 && effect.HiddenAfter == 0) await planRows.ClearLimitsNoticeAsync(userId);
+                        refilled = effect.Changed;
+                    }
+                }
+            }
+            if (refused != null) await unitOfWork.RollbackTransactionAsync();
+            else await unitOfWork.CommitTransactionAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        if (refused != null) return refused;
+        if (refilled)
+        {
+            // The refill wrote rows by statement; the answer reads the stay again instead of the stale tracked graph.
+            db.ChangeTracker.Clear();
+            stay = await unitOfWork.Stays.GetLiveByUserAsync(userId) ?? stay;
+        }
 
         if (stay.Status == StayStatuses.Approved)
             await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
-        return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
+        return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub, limits));
     }
 
     public static async Task<IResult> UpsertRules(
@@ -970,6 +1065,7 @@ public static class StayHandlers
         ClaimsPrincipal principal,
         IValidator<UpsertStayRulesRequest> validator,
         IUnitOfWork unitOfWork,
+        StayHubReader hub,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -1002,11 +1098,11 @@ public static class StayHandlers
 
         if (stay.Status == StayStatuses.Approved)
             await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
-        return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
+        return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
     }
 
     public static async Task<IResult> Submit(
-        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IRabbitMqPublisher publisher)
+        ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IRabbitMqPublisher publisher, StayHubReader hub)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -1046,7 +1142,7 @@ public static class StayHandlers
         }
         catch { /* best-effort — the PendingReview row is already saved */ }
 
-        return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
+        return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
     }
 
     public static async Task<IResult> UpdateAccepting(
@@ -1054,6 +1150,7 @@ public static class StayHandlers
         ClaimsPrincipal principal,
         IValidator<UpdateStayAcceptingRequest> validator,
         IUnitOfWork unitOfWork,
+        StayHubReader hub,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -1069,7 +1166,7 @@ public static class StayHandlers
             return ConflictResponse("Your stay is not live yet.", StayErrorTypes.StayNotApproved);
 
         // FB-11: the same value is a no-op (no save, no cache bust).
-        if (stay.AcceptingGuests == request.AcceptingGuests!.Value) return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
+        if (stay.AcceptingGuests == request.AcceptingGuests!.Value) return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
         stay.AcceptingGuests = request.AcceptingGuests.Value;
         stay.UpdatedAt = DateTime.UtcNow;
 
@@ -1077,7 +1174,7 @@ public static class StayHandlers
         catch (DbUpdateConcurrencyException) { return Concurrent(); }
 
         await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
-        return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
+        return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
     }
 
     // PUT /stays/me/share-details: null keeps a value, "" clears it. Never touches the status or the public caches.
@@ -1085,7 +1182,8 @@ public static class StayHandlers
         UpdateStayShareDetailsRequest request,
         ClaimsPrincipal principal,
         IValidator<UpdateStayShareDetailsRequest> validator,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        StayHubReader hub)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -1106,7 +1204,7 @@ public static class StayHandlers
         try { await unitOfWork.SaveChangesAsync(); }
         catch (DbUpdateConcurrencyException) { return Concurrent(); }
 
-        return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
+        return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
     }
 
     public static async Task<IResult> UpdateRoomPrice(
@@ -1115,6 +1213,7 @@ public static class StayHandlers
         ClaimsPrincipal principal,
         IValidator<UpdateStayRoomPriceRequest> validator,
         IUnitOfWork unitOfWork,
+        StayHubReader hub,
         IServiceProvider sp)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
@@ -1142,7 +1241,7 @@ public static class StayHandlers
 
         if (stay.Status == StayStatuses.Approved)
             await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
-        return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
+        return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
     }
 
     // Soft delete (contract 6.2): the owner tables of the stay go through the purge seam in the same transaction (the soft delete

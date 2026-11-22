@@ -30,6 +30,9 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
             await using var tx = await db.Database.BeginTransactionAsync(c);
             if (!await OwnerLocks.KeyShareUserAsync(db, ctx.UserId, c)
                 || !await OwnerLocks.LockListingAsync(db, ctx.Kind, ctx.ListingId, c)) return Be1Error.Of(OwnerErrorTypes.ListingNotFound);
+            // FB-38: the limit and the window are decided by the plan as it is under the locks, not as it was before them.
+            ctx = await OwnerContextReader.WithLimitsUnderLockAsync(db, ctx, c);
+            if (!OwnerCalendarRules.InsideWindow(ctx.Window, input.DateFrom, input.DateTo)) return Be1Error.Of(OwnerErrorTypes.CalendarOutsideWindow);
 
             var check = (await db.Database.SqlQueryRaw<CalendarCreateCheckRow>(CreateCheck,
                 [.. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("keptFrom", ctx.Window.PastFrom), Uuid("id", id)]).ToListAsync(c))[0];

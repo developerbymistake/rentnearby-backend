@@ -10,7 +10,7 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Hourly (first run at startup), one scope per unit of work:
+// Every 5 minutes (first run at startup), one scope per unit of work:
 //   1. Expiry: each due Active plan is claimed with a conditional UPDATE ... RETURNING inside its own
 //      transaction under the owner lock, then its listing effects run (ranks back to free) and a PlanExpired inbox row is written. A renew that moved EndsAt first wins (0 rows).
 //   2. Reminder: one claim of ReminderSentAt per plan (7 days ahead, half the term for short plans).
@@ -24,11 +24,17 @@ namespace RentNearBy.Infrastructure.Services;
 public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPublisher publisher, ILogger<PlanLifecycleService> logger)
     : BackgroundService
 {
-    private static readonly TimeSpan Interval = TimeSpan.FromHours(1);
-    private static readonly TimeSpan ReconcileEvery = TimeSpan.FromHours(24);
+    // D-12 / FB-39: the expiry pass every 5 minutes (one indexed read when nothing is due), the reminder pass hourly, and the
+    // daily limits and rank reconcile on the first tick of each IST day (right after 00:00 IST, FB-18) or at once on the switch.
+    internal static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
+    internal static readonly TimeSpan ReminderEvery = TimeSpan.FromHours(1);
     private const int Batch = 500;
 
-    private DateTime _lastReconcile = DateTime.MinValue;
+    private DateOnly? _lastReconcileDay;
+    private DateTime _lastReminder = DateTime.MinValue;
+
+    // The reconcile runs when the IST day of now differs from the day of the last run (null = never ran, or the switch asked).
+    internal static bool ReconcileDue(DateOnly? lastReconcileDay, DateTime nowUtc) => lastReconcileDay != IstTime.TodayIst(nowUtc);
 
     private sealed class DuePlan
     {
@@ -74,7 +80,7 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
                         ? await signal.WaitAsync(wait, stoppingToken)
                         : await DelayAsync(wait, stoppingToken);
                     if (!requested) continue;
-                    _lastReconcile = DateTime.MinValue;
+                    _lastReconcileDay = null;
                     break;
                 }
             }
@@ -95,14 +101,20 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
         try
         {
             var expired = await ExpirePassAsync(ct);
-            var reminded = await ReminderPassAsync(ct);
+            var reminded = 0;
+            if (DateTime.UtcNow - _lastReminder >= ReminderEvery)
+            {
+                reminded = await ReminderPassAsync(ct);
+                _lastReminder = DateTime.UtcNow;
+            }
             if (expired + reminded > 0)
                 logger.LogInformation("Plan lifecycle: expired={Expired} reminded={Reminded}", expired, reminded);
 
-            if (DateTime.UtcNow - _lastReconcile >= ReconcileEvery)
+            var now = DateTime.UtcNow;
+            if (ReconcileDue(_lastReconcileDay, now))
             {
                 await ReconcilePassAsync();
-                _lastReconcile = DateTime.UtcNow;
+                _lastReconcileDay = IstTime.TodayIst(now);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

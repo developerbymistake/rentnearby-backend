@@ -39,6 +39,7 @@ public static class OwnerErrorTypes
     public const string RoleMismatch = "RoleMismatch";
     public const string TooManyRequests = "TooManyRequests";
     public const string BadRequest = "BadRequest";
+    public const string StayLocked = "StayLocked";
 
     // D-07 / FB-04: an ended manual entry keeps only its money note and Delete.
     public const string EntryEndedStay = "This booking has passed. You can still edit the amounts.";
@@ -50,6 +51,7 @@ public static class OwnerErrorTypes
     // Extra fixed lines of SpecialPriceInvalid (contract 2.3, doc 8.8).
     public const string SpecialPriceTooLong = "A special price can cover up to 60 nights.";
     public const string SpecialPriceStartTooLate = "Start date must be within 180 days.";
+    public const string SpecialPriceStartPast = "Start date must be today or later.";
     public const string SpecialPricePercentLower = "Pick a percent between 5 and 50.";
     public const string SpecialPricePercentHigher = "Pick a percent between 5 and 100.";
 
@@ -91,6 +93,7 @@ public static class OwnerErrorTypes
         [RoleMismatch] = (403, "This is not available for your role."),
         [TooManyRequests] = (429, "Too many tries. Please wait."),
         [BadRequest] = (400, "Invalid request."),
+        [StayLocked] = (409, "Your stay is under review."),
     };
 
     public static IReadOnlyCollection<string> All => Table.Keys;

@@ -65,11 +65,12 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
             ORDER BY sp."DateFrom", sp."Id" LIMIT 1) f ON true
         """;
 
-    public async Task FillAsync(StayOwnerDto dto, StayListing stay, CancellationToken ct = default)
+    // FB-63: a write that already read the limits under the stay lock passes them, so the answer costs no second entitlement read.
+    public async Task FillAsync(StayOwnerDto dto, StayListing stay, PlanLimits? knownLimits = null, CancellationToken ct = default)
     {
         var now = clock.GetUtcNow().UtcDateTime;
         var today = IstTime.TodayIst(now);
-        var limits = await entitlements.GetLimitsAsync(stay.UserId, ListingKinds.Stay);
+        var limits = knownLimits ?? await entitlements.GetLimitsAsync(stay.UserId, ListingKinds.Stay);
 
         dto.HiddenPhotos = await db.StayPhotos.IgnoreQueryFilters().AsNoTracking()
             .Where(p => p.StayListingId == stay.Id && p.HiddenByPlan)

@@ -56,7 +56,9 @@ public class StaySpecialPriceRulesTests
     public void Start_today_to_today_plus_180(int startIn, bool ok)
     {
         var from = Today.AddDays(startIn);
-        Assert.Equal(ok ? null : OwnerErrorTypes.SpecialPriceStartTooLate, StaySpecialPriceRules.Invalid(Higher, 20, from, from.AddDays(2), Today));
+        // FB-43: a past start has its own line; "within 180 days" is only for a start too far ahead.
+        var refusal = startIn < 0 ? OwnerErrorTypes.SpecialPriceStartPast : OwnerErrorTypes.SpecialPriceStartTooLate;
+        Assert.Equal(ok ? null : refusal, StaySpecialPriceRules.Invalid(Higher, 20, from, from.AddDays(2), Today));
     }
 
     [Fact]
@@ -64,8 +66,8 @@ public class StaySpecialPriceRulesTests
     {
         var started = Today.AddDays(-2);
         Assert.Null(StaySpecialPriceRules.Invalid(Lower, 20, started, Today.AddDays(3), Today, keepFrom: started));
-        Assert.Equal(OwnerErrorTypes.SpecialPriceStartTooLate, StaySpecialPriceRules.Invalid(Lower, 20, Today.AddDays(-1), Today.AddDays(3), Today, keepFrom: started));
-        Assert.Equal(OwnerErrorTypes.SpecialPriceStartTooLate, StaySpecialPriceRules.Invalid(Lower, 20, started, Today.AddDays(-1), Today, keepFrom: started));
+        Assert.Equal(OwnerErrorTypes.SpecialPriceStartPast, StaySpecialPriceRules.Invalid(Lower, 20, Today.AddDays(-1), Today.AddDays(3), Today, keepFrom: started));
+        Assert.Equal(OwnerErrorTypes.SpecialPriceStartPast, StaySpecialPriceRules.Invalid(Lower, 20, started, Today.AddDays(-1), Today, keepFrom: started));
     }
 
     [Theory]

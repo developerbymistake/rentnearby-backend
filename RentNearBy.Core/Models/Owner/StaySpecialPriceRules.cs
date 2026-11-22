@@ -26,10 +26,17 @@ public static class StaySpecialPriceRules
             return direction == SpecialPriceDirections.Lower ? OwnerErrorTypes.SpecialPricePercentLower : OwnerErrorTypes.SpecialPricePercentHigher;
         if (to < from || Nights(from, to) > OwnerLimits.SpecialMaxNights) return OwnerErrorTypes.SpecialPriceTooLong;
         var keepsStart = keepFrom is { } kept && kept == from;
-        if (!keepsStart && (from < today || from > today.AddDays(OwnerLimits.SpecialStartWithinDays))) return OwnerErrorTypes.SpecialPriceStartTooLate;
-        if (to < today) return OwnerErrorTypes.SpecialPriceStartTooLate;
+        // FB-43: a start in the past gets its own line; "within 180 days" is only for a start too far ahead.
+        if (!keepsStart && from < today) return OwnerErrorTypes.SpecialPriceStartPast;
+        if (!keepsStart && from > today.AddDays(OwnerLimits.SpecialStartWithinDays)) return OwnerErrorTypes.SpecialPriceStartTooLate;
+        if (to < today) return OwnerErrorTypes.SpecialPriceStartPast;
         return null;
     }
+
+    // FB-43: an edit that moves the dates without naming a festival drops the old festival link and label (the rule no longer
+    // matches that festival); an edit that keeps the dates keeps them.
+    public static bool DropsFestival(Guid? festivalDateId, DateOnly storedFrom, DateOnly storedTo, DateOnly newFrom, DateOnly newTo)
+        => festivalDateId == null && (storedFrom != newFrom || storedTo != newTo);
 
     public static bool Overlaps(DateOnly aFrom, DateOnly aTo, DateOnly bFrom, DateOnly bTo) => aFrom <= bTo && bFrom <= aTo;
 

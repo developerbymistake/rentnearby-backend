@@ -34,6 +34,10 @@ public sealed record OwnerContext(
     public int PlanVisibleSavesToday => CountToday(PlanVisibleSavesDay, PlanVisibleSavesCount, Today);
 
     public long? Extra(int slot) => slot >= 1 && slot <= Extras.Length ? Extras[slot - 1] : null;
+
+    // The catalog and flag the limits were computed from, so a write can recompute them under its lock (FB-38). Null in tests.
+    internal PlanCatalogSnapshot? Snapshot { get; init; }
+    internal PaymentFeatureState? Flag { get; init; }
 }
 
 // Contract 2.0 "Owner context": ONE statement = the caller's live listing of the kind LEFT JOIN his active plan row (and the district
@@ -123,6 +127,35 @@ public sealed class OwnerContextReader(ApplicationDbContext db, IPlanCatalogCach
         return new OwnerContext(
             userId, kind, row.ListingId, row.Status, row.DistrictId, row.StateName, row.RemindersOn,
             row.SpecialPriceSavesDay, row.SpecialPriceSavesCount, row.PlanVisibleSavesDay, row.PlanVisibleSavesCount,
-            limits, today, [row.X1, row.X2, row.X3, row.X4]);
+            limits, today, [row.X1, row.X2, row.X3, row.X4]) { Snapshot = snapshot, Flag = flag };
+    }
+
+    private sealed class PlanRow
+    {
+        public Guid Id { get; set; }
+        public Guid PlanId { get; set; }
+        public string Source { get; set; } = string.Empty;
+        public DateTime StartsAt { get; set; }
+        public DateTime EndsAt { get; set; }
+    }
+
+    internal const string EntitledRowSql = $"""
+        SELECT u."Id", u."PlanId", u."Source", u."StartsAt", u."EndsAt" FROM "UserPlans" u
+        WHERE u."UserId" = @me AND u."FeatureKey" = @kind AND {PlanRowSql.EntitledSqlConst}
+        ORDER BY u."EndsAt" DESC LIMIT 1
+        """;
+
+    // FB-38: the limits of a write are read again AFTER its listing lock (one indexed statement). A plan grant or expiry takes the
+    // owner lock and then the listing lock, so whatever it committed before this write got the lock is seen here; the context read
+    // before the lock is only the fast refusal path.
+    public static async Task<OwnerContext> WithLimitsUnderLockAsync(ApplicationDbContext db, OwnerContext ctx, CancellationToken ct = default)
+    {
+        if (ctx.Snapshot is not { } snapshot || ctx.Flag is not { } flag) return ctx;
+        var rows = await db.Database.SqlQueryRaw<PlanRow>(EntitledRowSql,
+            new NpgsqlParameter("me", NpgsqlDbType.Uuid) { Value = ctx.UserId },
+            new NpgsqlParameter("kind", NpgsqlDbType.Varchar) { Value = ctx.Kind }).ToListAsync(ct);
+        var active = rows.Count == 0 ? null
+            : new PlanEntitlementService.ActiveRow(rows[0].Id, ctx.UserId, rows[0].PlanId, rows[0].Source, rows[0].StartsAt, rows[0].EndsAt);
+        return ctx with { Limits = PlanEntitlementService.Compute(snapshot, flag, ctx.Kind, active) };
     }
 }

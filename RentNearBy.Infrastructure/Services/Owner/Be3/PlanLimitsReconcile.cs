@@ -227,7 +227,7 @@ public sealed class PlanLimitsReconcile(
             if (effect.HiddenAfter > effect.HiddenBefore)
             {
                 var counts = await OwnerHiddenCounts.ReadAsync(db, row.UserId, kind, IstTime.TodayIst(DateTime.UtcNow), c);
-                await NotifyAsync(kind, [(row.UserId, row.Id, counts.Hidden.Photos, counts.Hidden.RoomTypes, counts.Hidden.Routes)], c);
+                await NotifyAsync(kind, [(row.UserId, row.Id, counts.Hidden.Photos, counts.Hidden.RoomTypes, counts.Hidden.Routes, counts.Hidden.SpecialPrices)], c);
                 sent = true;
             }
             else if (effect.HiddenAfter == 0)
@@ -300,7 +300,7 @@ public sealed class PlanLimitsReconcile(
         var before = rows.ToDictionary(r => r.Id, r => r.HiddenBefore);
         var rose = hidden.Where(h => h.Photos + h.Rooms + h.Routes + h.Rules > before.GetValueOrDefault(h.Id)).ToList();
         var cleared = hidden.Where(h => h.Photos + h.Rooms + h.Routes + h.Rules == 0).Select(h => h.UserId).Distinct().ToList();
-        await NotifyAsync(kind, rose.Select(h => (h.UserId, h.Id, h.Photos, h.Rooms, h.Routes)).ToList(), ct);
+        await NotifyAsync(kind, rose.Select(h => (h.UserId, h.Id, h.Photos, h.Rooms, h.Routes, h.Rules)).ToList(), ct);
         if (cleared.Count > 0) await notifier.ClearAsync(NoticeKinds.PlanLimitsChanged, NoticeKinds.NoTrip, cleared, ct);
 
         await tx.CommitAsync(ct);
@@ -311,14 +311,22 @@ public sealed class PlanLimitsReconcile(
     }
 
     // PlanLimitsChanged (contract 5.3): one stored row per owner (upserted) and one push per owner per IST day.
-    private async Task NotifyAsync(string kind, IReadOnlyList<(Guid UserId, Guid ListingId, int Photos, int Rooms, int Routes)> owners, CancellationToken ct)
+    // FB-39: the words depend on why (switch day or Plus ended); FB-40: special-price-only losses get their own words and route.
+    private async Task NotifyAsync(
+        string kind, IReadOnlyList<(Guid UserId, Guid ListingId, int Photos, int Rooms, int Routes, int Rules)> owners, CancellationToken ct)
     {
         if (owners.Count == 0) return;
         var today = IstTime.TodayIst(DateTime.UtcNow);
+        var flag = await payment.GetAsync();
+        var enabledAt = flag.Enabled
+            ? await db.AppFeatureFlags.AsNoTracking().Where(f => f.FeatureKey == AppFeatureKeys.PaymentEnabled)
+                .Select(f => f.PaymentEnabledAt).FirstOrDefaultAsync(ct)
+            : null;
+        var startedToday = OwnerHiddenCounts.PlansStartedToday(flag.Enabled, enabledAt, today);
         await notifier.StoreAsync(owners.Select(o => new NoticeUpsert(o.UserId, NoticeKinds.PlanLimitsChanged, NoticeKinds.NoTrip, null, o.ListingId)).ToList(), ct);
         var pushes = owners.Select(o => kind == ListingKinds.Stay
-            ? StayOwnerPushCopy.PlansStarted(o.UserId, o.Photos, o.Rooms, today)
-            : TaxiDriverPushCopy.PlansStarted(o.UserId, o.Routes, today)).ToList();
+            ? StayOwnerPushCopy.PlansStarted(o.UserId, o.Photos, o.Rooms, today, o.Rules, startedToday)
+            : TaxiDriverPushCopy.PlansStarted(o.UserId, o.Routes, today, startedToday)).ToList();
         await notifier.PushAsync(pushes, ct);
     }
 
