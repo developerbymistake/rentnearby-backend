@@ -72,6 +72,20 @@ public class AtlasClientParseTests
         Assert.Equal(new[] { "https://img/x.jpg", "https://img/y.jpg" }, spot.Images);
     }
 
+    [Fact]
+    public void ParseData_CitySpots_WithGallery()
+    {
+        var body = SpotsBody.Replace("\"images\":[\"https://img/x.jpg\",\"https://img/y.jpg\"]",
+            "\"images\":[\"https://img/x.jpg\"],\"galleryCount\":2,\"gallery\":[\"https://img/g1.jpg\",\"https://img/g2.jpg\"]");
+        Assert.NotEqual(SpotsBody, body);
+
+        var spot = Assert.Single(AtlasClient.ParseData<AtlasCitySpots>(body).Spots);
+
+        Assert.Equal(new[] { "https://img/g1.jpg", "https://img/g2.jpg" }, spot.Gallery);
+        Assert.Equal(2, spot.GalleryCount);
+        Assert.Equal(new[] { "https://img/x.jpg" }, spot.Images);
+    }
+
     [Theory]
     [InlineData("""{"status":"200","code":200,"data":null}""")]
     [InlineData("""{"status":"200","code":200}""")]

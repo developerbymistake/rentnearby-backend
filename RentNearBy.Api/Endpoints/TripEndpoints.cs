@@ -10,6 +10,7 @@ public static class TripEndpoints
         group.MapGet("/cities/nearest", TripHandlers.GetNearestCity).RequireAuthorization();
         group.MapGet("/cities/version", TripHandlers.GetCitiesVersion).RequireAuthorization();
         group.MapGet("/cities/{cityKey:long}/spots", TripHandlers.GetCitySpots).RequireAuthorization();
+        group.MapGet("/cities/{cityKey:long}/spots/{spotId}", TripHandlers.GetCitySpot).RequireAuthorization();
         group.MapPost("/cities/{cityKey:long}/spots/minutes", TripHandlers.GetSpotMinutes).RequireAuthorization();
         group.MapGet("/cities/{cityKey:long}/supply", TripHandlers.GetCitySupply).RequireAuthorization();
         group.MapPost("/plan", TripHandlers.Plan).RequireAuthorization();

@@ -47,6 +47,14 @@ public static class TripErrorTypes
     public const string TripNotPlanned = "TripNotPlanned";
     public const string TripHasLiveEnquiries = "TripHasLiveEnquiries";
     public const string TripChanged = "TripChanged";
+    public const string SpotNotFound = "SpotNotFound";
+}
+
+public static class TripSpotLimits
+{
+    public const int SpotPhotoMax = 3;
+    public const int SpotGalleryMax = 10;
+    public const int SpotIdMaxLength = 64;
 }
 
 // Optimistic save check of PUT /trips/{id}: compared at whole microseconds (Postgres and the app keep no finer digits).
@@ -88,9 +96,12 @@ public static class TripSlotRules
 
 public static class TripCacheKeys
 {
-    public static string Spots(long key) => $"trip:spots2:{key}";
-    public static string Stale(long key) => $"trip:spots2:{key}:stale";
-    public static string Lock(long key) => $"trip:spots2:{key}:lock";
+    public static string Spots(long key) => $"trip:spots3:{key}";
+    public static string Stale(long key) => $"trip:spots3:{key}:stale";
+    public static string Lock(long key) => $"trip:spots3:{key}:lock";
+    // Read-only fallback and invalidate target for one release; remove afterwards.
+    public static string Legacy(long key) => $"trip:spots2:{key}";
+    public static string LegacyStale(long key) => $"trip:spots2:{key}:stale";
     public static string Matrix(long key) => $"trip:matrix:{key}";
     public static string MatrixLock(long key) => $"trip:matrix:{key}:lock";
     public static string Supply(long key) => $"trip:supply:{key}";
@@ -490,6 +501,8 @@ public sealed class CachedCitySpots
     public DateTime? GeneratedAt { get; set; }
     public DateTime FetchedAt { get; set; }
     public List<TripSpotDto> Spots { get; set; } = new();
+    // Spot id -> gallery URLs, only spots that have one; spot items always carry Gallery = null.
+    public Dictionary<string, List<string>> Galleries { get; set; } = new();
 }
 
 public sealed record AtlasCityChangedMessage(long CityKey, DateTime ChangedAt);

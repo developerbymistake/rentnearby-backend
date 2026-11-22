@@ -157,4 +157,53 @@ public class TripSpotCacheTests
         Assert.Equal(TripSpotStatuses.Ready, result.Status);
         Assert.Empty(result.Spots);
     }
+
+    [Fact]
+    public void InvalidateKeys_DropFreshAndLegacy_KeepV3Stale()
+    {
+        var keys = TripSpotCache.InvalidateKeys(Key).Select(k => k.ToString()).ToList();
+
+        Assert.Equal(new[] { "trip:spots3:110000001", "trip:spots2:110000001", "trip:spots2:110000001:stale" }, keys);
+        Assert.DoesNotContain(TripCacheKeys.Stale(Key), keys);
+        Assert.DoesNotContain(TripCacheKeys.Lock(Key), keys);
+    }
+
+    [Fact]
+    public async Task Ready_ClipsImagesAndMovesGalleryOut()
+    {
+        var dto = ReadySpots();
+        dto.Spots[0].Images = ["a1", "a2", "a3", "a4", "a5"];
+        dto.Spots[0].Gallery = Enumerable.Range(1, 12).Select(i => $"g{i}").ToList();
+        var atlas = new FakeAtlas(_ => Task.FromResult<AtlasCitySpots?>(dto));
+
+        var result = await Cache(atlas).GetAsync(Key);
+
+        Assert.NotNull(result);
+        var spot = result.Spots[0];
+        Assert.Equal(new[] { "a1", "a2", "a3" }, spot.Images);
+        Assert.Equal(10, spot.GalleryCount);
+        Assert.Null(spot.Gallery);
+        Assert.Equal(Enumerable.Range(1, 10).Select(i => $"g{i}"), result.Galleries["wiki:1"]);
+        Assert.False(result.Galleries.ContainsKey("osm:N2"));
+    }
+
+    [Fact]
+    public void FromLegacy_NormalisesAndMarksStale()
+    {
+        var legacy = new CachedCitySpots
+        {
+            CityKey = Key,
+            Status = TripSpotStatuses.Ready,
+            Spots = [new TripSpotDto { Id = "wiki:1", Images = ["a", "b", "c", "d", "e"] }, new TripSpotDto { Id = " " }],
+            Galleries = null!,
+        };
+
+        var result = TripSpotCache.FromLegacy(legacy);
+
+        Assert.Equal(TripSpotStatuses.Stale, result.Status);
+        var spot = Assert.Single(result.Spots);
+        Assert.Equal(new[] { "a", "b", "c" }, spot.Images);
+        Assert.Equal(0, spot.GalleryCount);
+        Assert.Empty(result.Galleries);
+    }
 }

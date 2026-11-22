@@ -176,6 +176,63 @@ public static class TripHandlers
         });
     }
 
+    private const int SpotMaxPerWindow = 120;
+    private static readonly TimeSpan SpotWindow = TimeSpan.FromMinutes(1);
+
+    private static IResult SpotNotFound() => ErrorResponse(404, "Place not found", TripErrorTypes.SpotNotFound);
+
+    // Served from the cached city blob only: no database, no Atlas call on a hit.
+    public static async Task<IResult> GetCitySpot(
+        long cityKey, string spotId, ClaimsPrincipal principal, ITripCityCatalog catalog, ITripSpotCache cache,
+        IRateLimitService rateLimiter, HttpContext httpContext)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+        if (await SpotRateLimitedAsync(userId, rateLimiter, httpContext) is { } limited) return limited;
+
+        if (cityKey <= 0) return CityNotFound();
+        if (string.IsNullOrWhiteSpace(spotId) || spotId.Length > TripSpotLimits.SpotIdMaxLength) return SpotNotFound();
+
+        var (available, city) = await catalog.FindAsync(cityKey);
+        if (available && city == null) return CityNotFound();
+
+        var cached = await cache.GetAsync(cityKey);
+        if (cached == null)
+            return ErrorResponse(503, "Places are not available right now", TripErrorTypes.SpotsUnavailable);
+        if (cached.Status == TripSpotStatuses.NotReady) return SpotNotFound();
+
+        var spot = cached.Spots.Find(s => string.Equals(s.Id, spotId, StringComparison.Ordinal));
+        if (spot == null) return SpotNotFound();
+
+        if (cached.GeneratedAt is { } generatedAt)
+        {
+            var etag = SpotETag(cityKey, generatedAt);
+            httpContext.Response.Headers.ETag = etag;
+            if (httpContext.Request.Headers.IfNoneMatch.ToString() == etag)
+                return Results.StatusCode(StatusCodes.Status304NotModified);
+        }
+        if (cached.Status == TripSpotStatuses.Ready)
+            httpContext.Response.Headers.CacheControl = "private, max-age=300";
+
+        var gallery = cached.Galleries?.GetValueOrDefault(spot.Id) ?? [];
+        return OkResponse(TripSpotDetailDto.From(spot, gallery, cityKey, cached.GeneratedAt));
+    }
+
+    public static string SpotETag(long cityKey, DateTime generatedAt)
+    {
+        var utc = generatedAt.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(generatedAt, DateTimeKind.Utc)
+            : generatedAt.ToUniversalTime();
+        return $"\"{cityKey}-{utc.Ticks}\"";
+    }
+
+    private static async Task<IResult?> SpotRateLimitedAsync(Guid userId, IRateLimitService rateLimiter, HttpContext httpContext)
+    {
+        var rl = await rateLimiter.CheckAsync($"trip:spot:{userId}", SpotMaxPerWindow, SpotWindow);
+        if (rl.IsAllowed) return null;
+        httpContext.Response.Headers["Retry-After"] = ((int)(rl.RetryAfter ?? SpotWindow).TotalSeconds).ToString();
+        return TooManyRequestsResponse();
+    }
+
     public static async Task<IResult> GetSpotMinutes(
         long cityKey, SpotMinutesRequest request, IValidator<SpotMinutesRequest> validator, ClaimsPrincipal principal,
         ITripCityCatalog catalog, ITripRoadCache roadCache, IRateLimitService rateLimiter, HttpContext httpContext)

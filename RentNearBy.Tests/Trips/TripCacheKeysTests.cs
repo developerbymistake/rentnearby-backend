@@ -4,15 +4,22 @@ public class TripCacheKeysTests
 {
     [Fact]
     public void Spots_Key()
-        => Assert.Equal("trip:spots2:110000001", TripCacheKeys.Spots(110000001L));
+        => Assert.Equal("trip:spots3:110000001", TripCacheKeys.Spots(110000001L));
 
     [Fact]
     public void Stale_Key()
-        => Assert.Equal("trip:spots2:110000001:stale", TripCacheKeys.Stale(110000001L));
+        => Assert.Equal("trip:spots3:110000001:stale", TripCacheKeys.Stale(110000001L));
 
     [Fact]
     public void Lock_Key()
-        => Assert.Equal("trip:spots2:110000001:lock", TripCacheKeys.Lock(110000001L));
+        => Assert.Equal("trip:spots3:110000001:lock", TripCacheKeys.Lock(110000001L));
+
+    [Fact]
+    public void Legacy_Keys()
+    {
+        Assert.Equal("trip:spots2:110000001", TripCacheKeys.Legacy(110000001L));
+        Assert.Equal("trip:spots2:110000001:stale", TripCacheKeys.LegacyStale(110000001L));
+    }
 
     [Fact]
     public void Matrix_Keys()
@@ -25,8 +32,9 @@ public class TripCacheKeysTests
     public void Keys_AreDistinct()
     {
         const long key = 110000003L;
-        var keys = new[] { TripCacheKeys.Spots(key), TripCacheKeys.Stale(key), TripCacheKeys.Lock(key), TripCacheKeys.Matrix(key), TripCacheKeys.MatrixLock(key) };
-        Assert.Equal(5, keys.Distinct().Count());
+        var keys = new[] { TripCacheKeys.Spots(key), TripCacheKeys.Stale(key), TripCacheKeys.Lock(key), TripCacheKeys.Matrix(key), TripCacheKeys.MatrixLock(key),
+            TripCacheKeys.Legacy(key), TripCacheKeys.LegacyStale(key) };
+        Assert.Equal(7, keys.Distinct().Count());
     }
 
     [Fact]

@@ -21,6 +21,39 @@ public class TripSpotDto
     public string? ImageUrl { get; set; }
     // Cover first; the cover is also ImageUrl.
     public List<string> Images { get; set; } = new();
+    public int GalleryCount { get; set; }
+    // Read from Atlas; null in the cache and list pages, set only by the detail answer.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Gallery { get; set; }
+}
+
+public class TripSpotDetailDto : TripSpotDto
+{
+    public long CityKey { get; set; }
+    public DateTime? GeneratedAt { get; set; }
+
+    public static TripSpotDetailDto From(TripSpotDto spot, List<string> gallery, long cityKey, DateTime? generatedAt) => new()
+    {
+        Id = spot.Id,
+        Source = spot.Source,
+        Name = spot.Name,
+        DisplayName = spot.DisplayName,
+        Description = spot.Description,
+        Latitude = spot.Latitude,
+        Longitude = spot.Longitude,
+        Category = spot.Category,
+        Area = spot.Area,
+        AltNames = [.. spot.AltNames ?? []],
+        VisitMinutes = spot.VisitMinutes,
+        IsFeatured = spot.IsFeatured,
+        Rank = spot.Rank,
+        ImageUrl = spot.ImageUrl,
+        Images = [.. spot.Images ?? []],
+        GalleryCount = gallery.Count,
+        Gallery = [.. gallery],
+        CityKey = cityKey,
+        GeneratedAt = generatedAt,
+    };
 }
 
 public class TripSpotsPageDto

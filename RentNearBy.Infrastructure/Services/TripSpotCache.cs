@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using StackExchange.Redis;
@@ -45,13 +46,17 @@ public class TripSpotCache(
         return await ReadAsync(redis, TripCacheKeys.Spots(cityKey)) ?? await ReadAsync(redis, TripCacheKeys.Stale(cityKey));
     }
 
+    // Keeps the v3 stale copy so a failed reload answers it instead of 503; the legacy pair never comes back.
+    internal static RedisKey[] InvalidateKeys(long cityKey) =>
+        [TripCacheKeys.Spots(cityKey), TripCacheKeys.Legacy(cityKey), TripCacheKeys.LegacyStale(cityKey)];
+
     public async Task InvalidateAsync(long cityKey)
     {
         var redis = sp.GetService<IConnectionMultiplexer>();
         if (redis == null) return;
         try
         {
-            await redis.GetDatabase().KeyDeleteAsync(new RedisKey[] { TripCacheKeys.Spots(cityKey), TripCacheKeys.Stale(cityKey) });
+            await redis.GetDatabase().KeyDeleteAsync(InvalidateKeys(cityKey));
         }
         catch (Exception ex)
         {
@@ -111,7 +116,11 @@ public class TripSpotCache(
         {
             logger.LogWarning("TripSpotCache: Atlas spots for {CityKey} unavailable: {Error}", cityKey, ex.Message);
             var stale = await ReadAsync(redis, TripCacheKeys.Stale(cityKey));
-            if (stale == null) return null;
+            if (stale == null)
+            {
+                var legacy = await ReadAsync(redis, TripCacheKeys.LegacyStale(cityKey));
+                return legacy == null ? null : FromLegacy(legacy);
+            }
             stale.Status = TripSpotStatuses.Stale;
             return stale;
         }
@@ -132,6 +141,7 @@ public class TripSpotCache(
     internal static CachedCitySpots ToCached(long cityKey, AtlasCitySpots? dto, DateTime fetchedAt)
     {
         var ready = dto != null && dto.Status == TripSpotStatuses.Ready;
+        var (spots, galleries) = ready ? Normalise(dto!.Spots) : (new List<TripSpotDto>(), new Dictionary<string, List<string>>());
         return new CachedCitySpots
         {
             CityKey = cityKey,
@@ -139,8 +149,59 @@ public class TripSpotCache(
             Status = ready ? TripSpotStatuses.Ready : TripSpotStatuses.NotReady,
             GeneratedAt = ready ? dto!.GeneratedAt : null,
             FetchedAt = fetchedAt,
-            Spots = ready ? dto!.Spots ?? new() : new(),
+            Spots = spots,
+            Galleries = galleries,
         };
+    }
+
+    // v2 stale copy (no galleries, up to 5 images): same normalisation, marked Stale, never written under v3.
+    internal static CachedCitySpots FromLegacy(CachedCitySpots legacy)
+    {
+        var (spots, _) = Normalise(legacy.Spots);
+        legacy.Spots = spots;
+        legacy.Galleries = new();
+        legacy.Status = TripSpotStatuses.Stale;
+        return legacy;
+    }
+
+    // Images: distinct non-blank, first 3 (ImageUrl = first when blank). Gallery: distinct non-blank, first 10,
+    // moved out of the spot. GalleryCount is recomputed, never trusted from Atlas. Blank ids are dropped.
+    internal static (List<TripSpotDto> Spots, Dictionary<string, List<string>> Galleries) Normalise(List<TripSpotDto>? source)
+    {
+        var spots = new List<TripSpotDto>(source?.Count ?? 0);
+        var galleries = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (source == null) return (spots, galleries);
+
+        foreach (var spot in source)
+        {
+            if (spot == null || string.IsNullOrWhiteSpace(spot.Id)) continue;
+
+            spot.Images = CleanUrls(spot.Images, TripSpotLimits.SpotPhotoMax);
+            if (string.IsNullOrWhiteSpace(spot.ImageUrl)) spot.ImageUrl = spot.Images.Count > 0 ? spot.Images[0] : null;
+
+            var gallery = CleanUrls(spot.Gallery, TripSpotLimits.SpotGalleryMax);
+            spot.GalleryCount = gallery.Count;
+            spot.Gallery = null;
+            if (gallery.Count > 0) galleries[spot.Id] = gallery;
+
+            spots.Add(spot);
+        }
+        return (spots, galleries);
+    }
+
+    private static List<string> CleanUrls(List<string>? urls, int max)
+    {
+        var result = new List<string>(Math.Min(urls?.Count ?? 0, max));
+        if (urls == null) return result;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in urls)
+        {
+            if (result.Count == max) break;
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var url = raw.Trim();
+            if (seen.Add(url)) result.Add(url);
+        }
+        return result;
     }
 
     private async Task<CachedCitySpots?> ReadAsync(IConnectionMultiplexer? redis, string key)
