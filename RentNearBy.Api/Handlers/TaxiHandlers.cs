@@ -482,7 +482,7 @@ public static class TaxiHandlers
                 Id = Guid.NewGuid(),
                 UserId = userId,
                 Status = TaxiStatuses.Draft,
-                IsAvailable = true,
+                IsAvailable = ListingSwitchRules.TaxiAvailableOnCreate,
                 PriorityRank = limits.PriorityRank,
                 IsFeatured = limits.IsFeatured,
                 RingWeight = (short)Math.Clamp(limits.RingWeight, 1, 5),

@@ -12,6 +12,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
@@ -137,12 +138,13 @@ public static class AdminTaxiHandlers
         try
         {
             var now = DateTime.UtcNow;
+            // D-33: the first approval keeps the taxi offline; a re-approval keeps the driver's switch. A suspended
+            // driver's taxi stays off (reactivation does not turn it on, D-13).
+            taxi.IsAvailable = ListingSwitchRules.TaxiAvailableAfterApproval(taxi.EverApproved, ownerActive, taxi.IsAvailable);
             taxi.Status = TaxiStatuses.Approved;
             taxi.EverApproved = true;
             taxi.PriorityRank = limits.PriorityRank;
             taxi.IsFeatured = limits.IsFeatured;
-            // A suspended driver's taxi stays hidden; un-suspend turns it back on.
-            if (!ownerActive) taxi.IsAvailable = false;
             taxi.RejectedReason = null;
             taxi.ReviewedAt = now;
             taxi.ReviewedByAdminId = GetAdminId(principal);

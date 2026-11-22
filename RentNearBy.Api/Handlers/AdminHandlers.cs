@@ -934,6 +934,7 @@ public static class AdminHandlers
 
         var taxiClosure = sp.GetRequiredService<RentNearBy.Infrastructure.Services.TaxiRequests.TaxiRequestClosure>();
         var taxiSignals = RentNearBy.Infrastructure.Services.TaxiRequests.TaxiClosureResult.Empty;
+        IReadOnlyList<TripClosurePush> leadPushes = [];
         var now = DateTime.UtcNow;
         List<Guid?> stayDistrictIds, taxiDistrictIds;
         await using (var tx = await db.Database.BeginTransactionAsync())
@@ -943,21 +944,28 @@ public static class AdminHandlers
             user.UpdatedAt = now;
             await db.SaveChangesAsync();
 
-            // Stays and taxis have no paid window; an approved one simply follows the owner.
+            // Suspend switches an approved stay / taxi off; reactivation leaves the switch off (D-13, FB-21): the owner
+            // logs in again and turns it on himself (ListingSwitchRules.AfterStatusChange).
             var stayQuery = db.StayListings.Where(s => s.UserId == id && !s.IsDeleted && s.Status == StayStatuses.Approved);
             stayDistrictIds = await stayQuery.Select(s => s.DistrictId).Distinct().ToListAsync();
-            await stayQuery.ExecuteUpdateAsync(s => s
-                .SetProperty(x => x.AcceptingGuests, request.IsActive)
-                .SetProperty(x => x.UpdatedAt, now));
-
             var taxiQuery = db.TaxiListings.Where(t => t.UserId == id && !t.IsDeleted && t.Status == TaxiStatuses.Approved);
             taxiDistrictIds = await taxiQuery.Select(t => t.DistrictId).Distinct().ToListAsync();
-            // AU-27: a suspended driver's ringing offers end ("You are offline") before his listing goes unavailable.
-            if (!request.IsActive && await taxiQuery.Select(t => (Guid?)t.Id).FirstOrDefaultAsync() is { } driverListingId)
-                taxiSignals = await taxiClosure.DriverOfflineAsync(db, driverListingId);
-            await taxiQuery.ExecuteUpdateAsync(s => s
-                .SetProperty(x => x.IsAvailable, request.IsActive)
-                .SetProperty(x => x.UpdatedAt, now));
+            if (!request.IsActive)
+            {
+                await stayQuery.ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.AcceptingGuests, false)
+                    .SetProperty(x => x.UpdatedAt, now));
+                // AU-27: a suspended driver's ringing offers end ("You are offline") before his listing goes unavailable.
+                var driverListingId = await taxiQuery.Select(t => (Guid?)t.Id).FirstOrDefaultAsync();
+                if (driverListingId is { } listingId) taxiSignals = await taxiClosure.DriverOfflineAsync(db, listingId);
+                await taxiQuery.ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.IsAvailable, false)
+                    .SetProperty(x => x.UpdatedAt, now));
+                // FB-24: his unanswered trip leads close like a pause (Asked / FareSent); booked ones stay.
+                if (driverListingId is { } pausedId)
+                    leadPushes = await TripLeadSilence.ClosePausedDriverLeadsAsync(
+                        db, sp.GetRequiredService<IUnitOfWork>().TripEnquiries, pausedId, now);
+            }
 
             // Revoke live sessions on suspend so the next request fails OnTokenValidated with 401;
             // re-login is then blocked by the IsActive check in AuthHandlers.
@@ -979,6 +987,7 @@ public static class AdminHandlers
             await tx.CommitAsync();
         }
         await taxiClosure.AfterCommitAsync(taxiSignals, poolChanged: true);
+        if (leadPushes.Count > 0) await sp.GetRequiredService<ITripEnquiryClosure>().AfterCommitAsync(leadPushes);
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         foreach (var districtId in stayDistrictIds)
