@@ -11,6 +11,8 @@ public sealed class SeekerFeedDto
 public sealed class SeekerTripCardDto
 {
     public string State { get; set; } = "None";
+    // "Owner" or "Viewer" (joined trip); null when there is no trip. A viewer card has no status, next step or progress.
+    public string? Role { get; set; }
     public Guid? TripId { get; set; }
     public string? Title { get; set; }
     public string? DestinationName { get; set; }

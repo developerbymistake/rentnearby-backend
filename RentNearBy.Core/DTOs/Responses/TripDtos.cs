@@ -115,7 +115,7 @@ public class TripDto
     // Contract section 4: always present; taxiRequest null only when the trip never had a taxi request.
     public RentNearBy.Core.DTOs.TaxiRequests.TripPlanLockDto PlanLock { get; set; } = new();
     public RentNearBy.Core.DTOs.TaxiRequests.TripTaxiRequestRefDto? TaxiRequest { get; set; }
-    // Owner GET /trips/{id} only (ITripSharingHooks); null elsewhere.
+    // Owner answers only (GET /trips/{id}, create, plan save, complete-plan; ITripSharingHooks); null elsewhere.
     public RentNearBy.Core.DTOs.Buddy.TripSharingBlockDto? Sharing { get; set; }
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }

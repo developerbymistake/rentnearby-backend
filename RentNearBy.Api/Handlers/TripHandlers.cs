@@ -395,9 +395,18 @@ public static class TripHandlers
     public static async Task<IResult> Create(
         SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
         ITripCityCatalog catalog, ISavedJourneyRepository journeys, ILoggerFactory loggers,
-        IRateLimitService rateLimiter, HttpContext httpContext, ApplicationDbContext db)
+        IRateLimitService rateLimiter, HttpContext httpContext, ApplicationDbContext db,
+        [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+
+        // FB-01: every create answer (new and replay) carries the sharing block, like GET /trips/{id}.
+        async Task<IResult> Replay(Trip row)
+        {
+            var dto = await BuildDtoAsync(unitOfWork, journeys, db, row, userId, DateTime.UtcNow);
+            if (sharingHooks != null) dto.Sharing = await sharingHooks.GetSharingAsync(row.Id, userId);
+            return OkResponse(dto);
+        }
 
         var rl = await rateLimiter.CheckAsync($"trip:create:{userId}", CreateMaxPerWindow, CreateWindow);
         if (!rl.IsAllowed)
@@ -412,7 +421,7 @@ public static class TripHandlers
         // A replayed create answers with the row it already made, even when the city has gone off since.
         if (request.ClientTripId is { } clientId
             && await unitOfWork.Trips.FindByClientIdAsync(userId, clientId) is { } existing)
-            return OkResponse(await BuildDtoAsync(unitOfWork, journeys, db, existing, userId, DateTime.UtcNow));
+            return await Replay(existing);
 
         // Only a Draft counts; saving a trip as Planned frees the slot.
         if ((request.Status ?? TripStatuses.Draft) == TripStatuses.Draft
@@ -442,7 +451,7 @@ public static class TripHandlers
                 await unitOfWork.RollbackTransactionAsync();
                 // A parallel create with the same client id may have won while this one waited for the lock.
                 if (request.ClientTripId is { } sameId && await unitOfWork.Trips.FindByClientIdAsync(userId, sameId) is { } won)
-                    return OkResponse(await BuildDtoAsync(unitOfWork, journeys, db, won, userId, DateTime.UtcNow));
+                    return await Replay(won);
                 return ErrorResponse(409, BuddyErrorTypes.MessageOf(BuddyErrorTypes.TripLimitReached), BuddyErrorTypes.TripLimitReached, full);
             }
             await unitOfWork.Trips.AddAsync(trip);
@@ -457,7 +466,7 @@ public static class TripHandlers
             await unitOfWork.Trips.DeleteAsync(trip);
             var winner = await unitOfWork.Trips.FindByClientIdAsync(userId, request.ClientTripId.Value);
             if (winner == null) throw;
-            return OkResponse(await BuildDtoAsync(unitOfWork, journeys, db, winner, userId, DateTime.UtcNow));
+            return await Replay(winner);
         }
         catch
         {
@@ -478,7 +487,9 @@ public static class TripHandlers
             }
         }
 
-        return CreatedResponse(ToDto(trip, plan), $"/api/v1/trips/{trip.Id}");
+        var created = ToDto(trip, plan);
+        if (sharingHooks != null) created.Sharing = await sharingHooks.GetNewTripSharingAsync(trip.Id, userId);
+        return CreatedResponse(created, $"/api/v1/trips/{trip.Id}");
     }
 
     public static Trip NewTrip(Guid userId, SaveTripRequest request, TripPlan plan, DateTime now)
@@ -824,12 +835,14 @@ public static class TripHandlers
         var taxiRequest = await TripTaxiRequestReads.ReadAsync(db, trip);
         var dto = ToDto(trip, plan, tripEnquiries, linked, await RevisedPendingAsync(unitOfWork, tripEnquiries), taxiRequest);
         dto.Journeys = await JourneyDtosAsync(journeys, linked, plan, tripEnquiries);
+        if (sharingHooks != null) dto.Sharing = await sharingHooks.GetSharingAsync(trip.Id, userId);
         return OkResponse(dto);
     }
 
     // POST /trips/{id}/complete-plan (issue 16 v7): owner only; marks the open Taxi and Stay parts skipped. Idempotent.
     public static async Task<IResult> CompletePlan(
-        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, ISavedJourneyRepository journeys)
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, ISavedJourneyRepository journeys,
+        [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
@@ -877,6 +890,7 @@ public static class TripHandlers
         var linked = await LinkedJourneysAsync(journeys, trip, userId);
         var dto = ToDto(trip, plan, tripEnquiries, linked, await RevisedPendingAsync(unitOfWork, tripEnquiries), await TripTaxiRequestReads.ReadAsync(db, trip));
         dto.Journeys = await JourneyDtosAsync(journeys, linked, plan, tripEnquiries);
+        if (sharingHooks != null) dto.Sharing = await sharingHooks.GetSharingAsync(trip.Id, userId);
         return OkResponse(dto);
     }
 

@@ -44,12 +44,19 @@ public sealed class TripSharingHooks(
     private static readonly string[] KeepOnDelete = [NoticeKinds.TripDeleted];
 
     // 1 statement + money cards (2).
-    public async Task<TripSharingBlockDto?> GetSharingAsync(Guid tripId, Guid ownerId, CancellationToken ct = default)
+    public Task<TripSharingBlockDto?> GetSharingAsync(Guid tripId, Guid ownerId, CancellationToken ct = default)
+        => BuildAsync(tripId, ownerId, readMoney: true, ct);
+
+    // 1 statement: a brand-new trip has no members and no expenses (FB-01).
+    public Task<TripSharingBlockDto?> GetNewTripSharingAsync(Guid tripId, Guid ownerId, CancellationToken ct = default)
+        => BuildAsync(tripId, ownerId, readMoney: false, ct);
+
+    private async Task<TripSharingBlockDto?> BuildAsync(Guid tripId, Guid ownerId, bool readMoney, CancellationToken ct)
     {
         var rows = await db.Database.SqlQueryRaw<SharingRow>(SharingSql, Id("trip", tripId), Id("owner", ownerId)).ToListAsync(ct);
         if (rows.Count == 0) return null;
         var head = rows[0];
-        var card = (await money.GetCardsAsync([tripId], ownerId, ct)).GetValueOrDefault(tripId);
+        var card = readMoney ? (await money.GetCardsAsync([tripId], ownerId, ct)).GetValueOrDefault(tripId) : null;
         return new TripSharingBlockDto
         {
             TravellerCount = 1 + head.ViewerCount,

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Owner;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Entities.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Models.Owner;
@@ -10,8 +11,10 @@ using RentNearBy.Infrastructure.Services.Buddy.Be2;
 
 namespace RentNearBy.Infrastructure.Services.Owner.Be4;
 
-// GET /home/seeker-feed (contract 2.6 H2, AU-20). Budget 4, the same for 0, 1 and 3 trips: (1) TripSlots (count, limit, list);
-// (2) the chosen trip by id; (3) its enquiries; (4) the trip's taxi request summary (only when a trip is chosen).
+// GET /home/seeker-feed (contract 2.6 H2, AU-20, D-23). Budget 4 for an owned trip, 2 for a joined trip or none:
+// (1) TripSlots (count, limit); (2) the chosen trip, picked by its own one-row statement over every owned or joined trip
+// (FB-58: never from the 3-row slots list); owner only: (3) its enquiries, projected; (4) the trip's taxi request summary.
+// A joined viewer never gets the owner's enquiry data (FB-02): no status, no next step, no progress.
 // Progress is TripEasyRows output (the same rows as the trip screen); the status line comes from the same enquiry rows.
 public sealed class SeekerFeedReader(ApplicationDbContext db, TimeProvider clock)
 {
@@ -20,19 +23,59 @@ public sealed class SeekerFeedReader(ApplicationDbContext db, TimeProvider clock
         var today = IstTime.TodayIst(clock.GetUtcNow().UtcDateTime);
         var slots = await TripSlots.ReadAsync(db, userId, ct);
         var dto = new SeekerFeedDto { Slots = new SeekerSlotsDto(slots.Count, slots.Limit, TripSlotRules.IsFull(slots.Count)) };
+        if (slots.Count == 0) return dto;
 
-        var chosen = SeekerStatusRules.Choose(slots.Trips, t => t.StartDate, t => t.EndDate, t => t.Id, today);
-        if (chosen is null) return dto;
+        // Same order as SeekerStatusRules.Choose: not ended, start date (nulls last), end date, id.
+        var mine = db.Trips.Where(t => t.OwnerUserId == userId).Select(t => t.Id)
+            .Concat(db.Set<TripMember>().Where(m => m.UserId == userId && m.Status == TripMemberStatuses.Joined).Select(m => m.TripId));
+        var trip = await db.Trips.AsNoTracking()
+            .Where(t => mine.Contains(t.Id) && (t.EndDate == null || t.EndDate >= today))
+            .OrderBy(t => t.StartDate == null ? 1 : 0).ThenBy(t => t.StartDate).ThenBy(t => t.EndDate).ThenBy(t => t.Id)
+            .FirstOrDefaultAsync(ct);
+        if (trip is null) return dto;
+
+        if (trip.OwnerUserId != userId)
+        {
+            dto.TripCard = ViewerCard(trip, today);
+            return dto;
+        }
 
         // Trip and enquiries are two statements: one joined statement would send the trip row (with PlanJson) once per enquiry.
-        var trip = await db.Trips.AsNoTracking().FirstOrDefaultAsync(t => t.Id == chosen.Id, ct);
-        if (trip is null) return dto;
-        var enquiries = await db.TripEnquiries.AsNoTracking().Where(e => e.TripId == trip.Id).ToListAsync(ct);
-
+        var enquiries = await db.TripEnquiries.AsNoTracking().Where(e => e.TripId == trip.Id).Select(ForRows).ToListAsync(ct);
         var taxi = await TripTaxiRequestReads.ReadAsync(db, trip, ct);
         dto.TripCard = TripCard(trip, TripPlanReader.Read(trip), enquiries, taxi, today);
         dto.Status = Status(trip.Id, enquiries);
         return dto;
+    }
+
+    // The enquiry columns the trip rows and the status line read; the price breakdown json and free texts stay in the table.
+    private static readonly System.Linq.Expressions.Expression<Func<TripEnquiry, TripEnquiry>> ForRows = e => new TripEnquiry
+    {
+        Id = e.Id, TripId = e.TripId, TravellerUserId = e.TravellerUserId, OwnerUserId = e.OwnerUserId, Kind = e.Kind,
+        ListingId = e.ListingId, ListingName = e.ListingName, Day = e.Day, DaysJson = e.DaysJson, CityLeg = e.CityLeg,
+        CheckIn = e.CheckIn, CheckOut = e.CheckOut, ContextJson = e.ContextJson, Status = e.Status, FailReason = e.FailReason,
+        ExpiresAt = e.ExpiresAt, IsUrgent = e.IsUrgent, AcceptedOfferId = e.AcceptedOfferId, AgreedTotal = e.AgreedTotal,
+        ConfirmedByTravellerAt = e.ConfirmedByTravellerAt, ConfirmedByOwnerAt = e.ConfirmedByOwnerAt,
+        DriverFare = e.DriverFare, AgreedFare = e.AgreedFare, BookedByTravellerAt = e.BookedByTravellerAt,
+        PickupTime = e.PickupTime, StepKey = e.StepKey, CancelledAt = e.CancelledAt, CreatedAt = e.CreatedAt, UpdatedAt = e.UpdatedAt,
+    };
+
+    // A joined viewer: the trip's own facts only (FB-02).
+    public static SeekerTripCardDto ViewerCard(Trip trip, DateOnly today)
+    {
+        var state = SeekerTripStates.Of(trip.StartDate, trip.EndDate, today);
+        var card = new SeekerTripCardDto
+        {
+            State = state,
+            Role = TripSharingRoles.Viewer,
+            TripId = trip.Id,
+            Title = trip.Title,
+            DestinationName = trip.CityName,
+            StartDate = trip.StartDate,
+            EndDate = trip.EndDate,
+        };
+        if (state == SeekerTripStates.OnTrip && trip.StartDate is { } start) card.Today = Today(TripPlanReader.Read(trip), trip, start, today);
+        return card;
     }
 
     public static SeekerTripCardDto TripCard(Trip trip, TripPlan plan, IReadOnlyList<TripEnquiry> enquiries, TripTaxiRequestSummary? taxi, DateOnly today)
@@ -42,6 +85,7 @@ public sealed class SeekerFeedReader(ApplicationDbContext db, TimeProvider clock
         var card = new SeekerTripCardDto
         {
             State = state,
+            Role = TripSharingRoles.Owner,
             TripId = trip.Id,
             Title = trip.Title,
             DestinationName = trip.CityName,
