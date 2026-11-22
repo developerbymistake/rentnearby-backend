@@ -37,10 +37,13 @@ public static class TaxiDriverPushCopy
         return n.EndsWith(" week", StringComparison.OrdinalIgnoreCase) ? n : n + " week";
     }
 
+    // FB-48: an app booking prints its pickup place, never the traveller's name; a trip he added prints his own label.
     private static string Line(OwnerReminderLine l)
     {
+        if (l.Kind == CalendarEntryKinds.Auto)
+            return string.IsNullOrWhiteSpace(l.FromPlace) ? "Trip (all day)" : $"{l.FromPlace.Trim()} pickup (all day)";
         var label = string.IsNullOrWhiteSpace(l.Label) ? "Trip" : l.Label.Trim();
-        if (l.Kind == CalendarEntryKinds.Auto || l.TimeOfDay is null) return $"{label} (all day)";
+        if (l.TimeOfDay is null) return $"{label} (all day)";
         return $"{label} {Time(l.TimeOfDay.Value)}";
     }
 }

@@ -20,6 +20,7 @@ public static class AdminStayEditHandlers
     {
         if (request.PendingEditAt is not { } at) return BadRequestResponse("pendingEditAt is required");
         var decision = await service.ApproveAsync(id, at, http.RequestAborted);
+        if (decision.Error == null) AdminActionLog.Write(http, "stayedit.approve", id);
         return await AnswerAsync(decision, sp);
     }
 
@@ -29,6 +30,7 @@ public static class AdminStayEditHandlers
         var reason = request.Reason?.Trim() ?? string.Empty;
         if (reason.Length is < 1 or > OwnerLimits.PendingEditReasonMax) return BadRequestResponse("Write a reason (1 to 300 characters).");
         var decision = await service.RejectAsync(id, at, reason, http.RequestAborted);
+        if (decision.Error == null) AdminActionLog.Write(http, "stayedit.reject", id);
         return await AnswerAsync(decision, sp);
     }
 

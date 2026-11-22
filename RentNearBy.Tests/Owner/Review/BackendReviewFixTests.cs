@@ -39,10 +39,12 @@ public class BackendReviewFixTests
     public void Stay_home_work_numbers_never_read_the_whole_history()
     {
         var sql = StayOwnerHomeReader.WorkSql;
-        Assert.Contains("e.\"Status\" IN ('Asked', 'Countered', 'Offered', 'ConfirmedByBoth')", sql);
+        // FB-60: confirmed rows only while the check-out is ahead; the change requests are one CTE (read once).
+        Assert.Contains("e.\"Status\" IN ('Asked', 'Countered', 'Offered')", sql);
+        Assert.Contains("OR (e.\"Status\" = 'ConfirmedByBoth' AND e.\"CheckOut\" >= @today)", sql);
         Assert.Contains("OR e.\"CreatedAt\" >= now() - interval '7 days'", sql);
-        // Two change-request reads plus the newest guest accept.
-        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(sql, "q\\.\"Status\" = 'ConfirmedByBoth'").Count);
+        // One change-request read (the CTE) plus the newest guest accept.
+        Assert.Equal(2,System.Text.RegularExpressions.Regex.Matches(sql, "q\\.\"Status\" = 'ConfirmedByBoth'").Count);
     }
 
     // PERF B4: one count per status so each partial index can serve it.

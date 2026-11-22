@@ -49,7 +49,15 @@ public sealed class StayOwnerHomeReader(
 
     // Statement 2: one grouped read over his own open or recent stay enquiries (never the whole history) plus the newest change
     // request / counter and the newest guest accept. A change request is answerable only on a booking confirmed by both.
+    // FB-60: the pending change requests are read once (CTE chreq) and only for bookings whose check-out is still ahead; the
+    // confirmed rows of the main read are bounded the same way, so the statement never walks the confirmed history.
     internal static readonly string WorkSql = $"""
+        WITH chreq AS (
+            SELECT q."Id" AS "EnquiryId", q."TravellerUserId", o."CreatedAt" AS "At"
+            FROM "TripOffers" o JOIN "TripEnquiries" q ON q."Id" = o."TripEnquiryId"
+            WHERE q."OwnerUserId" = @me AND q."Kind" = '{TripEnquiryKinds.Stay}' AND q."ListingId" = @listing
+              AND q."Status" = '{TripEnquiryStatuses.ConfirmedByBoth}' AND q."CheckOut" >= @today
+              AND o."Kind" = '{TripOfferKinds.ChangeRequest}' AND o."Status" = '{TripOfferStatuses.Pending}')
         SELECT a.*, chg."EnquiryId" AS "ChangeEnquiryId", chg."ChangeKind", chg."TravellerName" AS "ChangeTravellerName",
                acc."Id" AS "AcceptedEnquiryId", acc."TravellerName" AS "AcceptedTravellerName", acc."CheckIn" AS "AcceptedCheckIn", acc."CheckOut" AS "AcceptedCheckOut"
         FROM (
@@ -60,13 +68,11 @@ public sealed class StayOwnerHomeReader(
                    count(*) FILTER (WHERE e."Status" = '{TripEnquiryStatuses.Offered}')::int AS "OffersWaiting",
                    count(*) FILTER (WHERE e."Status" = '{TripEnquiryStatuses.ConfirmedByBoth}' AND e."CheckOut" >= @today)::int AS "Confirmed",
                    count(*) FILTER (WHERE e."CreatedAt" >= now() - interval '7 days')::int AS "WeekEnquiries",
-                   (SELECT count(*) FROM "TripOffers" o JOIN "TripEnquiries" q ON q."Id" = o."TripEnquiryId"
-                    WHERE q."OwnerUserId" = @me AND q."Kind" = '{TripEnquiryKinds.Stay}' AND q."ListingId" = @listing
-                      AND q."Status" = '{TripEnquiryStatuses.ConfirmedByBoth}'
-                      AND o."Kind" = '{TripOfferKinds.ChangeRequest}' AND o."Status" = '{TripOfferStatuses.Pending}')::int AS "ChangeRequests"
+                   (SELECT count(*) FROM chreq)::int AS "ChangeRequests"
             FROM "TripEnquiries" e
             WHERE e."OwnerUserId" = @me AND e."Kind" = '{TripEnquiryKinds.Stay}' AND e."ListingId" = @listing
-              AND (e."Status" IN ('{TripEnquiryStatuses.Asked}', '{TripEnquiryStatuses.Countered}', '{TripEnquiryStatuses.Offered}', '{TripEnquiryStatuses.ConfirmedByBoth}')
+              AND (e."Status" IN ('{TripEnquiryStatuses.Asked}', '{TripEnquiryStatuses.Countered}', '{TripEnquiryStatuses.Offered}')
+                   OR (e."Status" = '{TripEnquiryStatuses.ConfirmedByBoth}' AND e."CheckOut" >= @today)
                    OR e."CreatedAt" >= now() - interval '7 days')) a
         LEFT JOIN LATERAL (
             SELECT x."EnquiryId", x."ChangeKind", u."Name" AS "TravellerName" FROM (
@@ -74,11 +80,7 @@ public sealed class StayOwnerHomeReader(
                 FROM "TripEnquiries" q
                 WHERE q."OwnerUserId" = @me AND q."Kind" = '{TripEnquiryKinds.Stay}' AND q."ListingId" = @listing AND q."Status" = '{TripEnquiryStatuses.Countered}'
                 UNION ALL
-                SELECT q."Id", '{ChangeOrCounterKinds.Change}', q."TravellerUserId", o."CreatedAt"
-                FROM "TripOffers" o JOIN "TripEnquiries" q ON q."Id" = o."TripEnquiryId"
-                WHERE q."OwnerUserId" = @me AND q."Kind" = '{TripEnquiryKinds.Stay}' AND q."ListingId" = @listing
-                  AND q."Status" = '{TripEnquiryStatuses.ConfirmedByBoth}'
-                  AND o."Kind" = '{TripOfferKinds.ChangeRequest}' AND o."Status" = '{TripOfferStatuses.Pending}') x
+                SELECT c."EnquiryId", '{ChangeOrCounterKinds.Change}', c."TravellerUserId", c."At" FROM chreq c) x
             LEFT JOIN "Users" u ON u."Id" = x."TravellerUserId"
             ORDER BY x."At" DESC, x."EnquiryId" DESC LIMIT 1) chg ON true
         LEFT JOIN LATERAL (

@@ -71,7 +71,9 @@ public static class StayBlockedRangeHandlers
         {
             var (ctx, fail) = await OwnerCalendarHttp.ContextAsync(me, Kind, reader, ct);
             if (ctx == null) return fail!;
-            if (await blocks.DeleteAsync(ctx, id, ct)) await StayCache.InvalidateAsync(redis, ctx.DistrictId);
+            var outcome = await blocks.DeleteAsync(ctx, id, ct);
+            if (outcome == BlockedRangeService.DeleteOutcome.NotHis) return NotFoundResponse("Block not found");
+            if (outcome == BlockedRangeService.DeleteOutcome.Deleted) await StayCache.InvalidateAsync(redis, ctx.DistrictId);
             return NoContentResponse();
         });
     }

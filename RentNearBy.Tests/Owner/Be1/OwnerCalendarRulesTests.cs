@@ -131,7 +131,9 @@ public class OwnerCalendarRulesTests
     {
         var free = OwnerCalendarWindow.Of(15, 0, locked: true, D);
         Assert.Equal((new DateOnly(2026, 11, 1), new DateOnly(2026, 12, 1)), OwnerCalendarRules.Month(null, free));
-        Assert.Equal((new DateOnly(2026, 8, 1), new DateOnly(2026, 9, 1)), OwnerCalendarRules.Month("2026-08", free));
+        // D-32 / FB-44: today 21 Nov keeps rows from 23 Aug, so August is partial and the first offered month is September.
+        Assert.Equal((new DateOnly(2026, 9, 1), new DateOnly(2026, 10, 1)), OwnerCalendarRules.Month("2026-09", free));
+        Assert.Null(OwnerCalendarRules.Month("2026-08", free));
         Assert.Null(OwnerCalendarRules.Month("2026-07", free));
         Assert.Null(OwnerCalendarRules.Month("2026-12", free));
         Assert.Null(OwnerCalendarRules.Month("Nov 2026", free));

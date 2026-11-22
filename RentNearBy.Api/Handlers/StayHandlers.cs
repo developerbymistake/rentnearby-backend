@@ -94,6 +94,8 @@ public static class StayHandlers
     private static readonly TimeSpan NearestRateLimitWindow = TimeSpan.FromMinutes(10);
     private const int NearestRateLimitMax = 20;
     private const int NearbyRateLimitMax = 120;
+    public const string DetailRateLimitPrefix = "stays:detail:ip";
+    public const int DetailRateLimitMax = 120;
     private const int DefaultPageSize = 10;
     private const int MaxPageSize = 30;
     private const string StayNotFound = "Stay not found";
@@ -419,8 +421,11 @@ public static class StayHandlers
     // Share-link resolver. StayPublicSlugDto carries no owner fields, and the repository only
     // returns Approved, non-deleted stays, so unreviewed content never leaks through a slug.
     public static async Task<IResult> GetBySlug(
-        string slug, IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, DateOnly? checkIn = null, int? nights = null, CancellationToken ct = default)
+        string slug, IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, IRateLimitService rateLimiter, HttpContext httpContext,
+        DateOnly? checkIn = null, int? nights = null, CancellationToken ct = default)
     {
+        // FB-53: per-address read limit on the two detail routes (the "Shown" counter and the photo graph are behind them).
+        if (await RateLimited(rateLimiter, httpContext, DetailRateLimitPrefix, DetailRateLimitMax) is { } limited) return limited;
         if (nights is < 1 or > 30) return BadRequestResponse("Nights must be 1 to 30");
         if (CheckInError(checkIn) is { } dateError) return dateError;
         var stay = await unitOfWork.Stays.GetBySlugWithAllAsync(slug);
@@ -429,14 +434,15 @@ public static class StayHandlers
         if (sp.GetService<IStayDetailPricing>() is { } pricing)
             await pricing.ApplyAsync(dto, checkIn, nights ?? 1, IstTime.TodayIst(DateTime.UtcNow), ct);
         var viewer = UsersHandlers.TryGetUserId(principal, out var viewerId) ? viewerId : (Guid?)null;
-        if (viewer != stay.UserId) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.Add(stay.Id, stay.UserId, viewer);
+        if (viewer != stay.UserId) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.AddViewed(stay.Id, stay.UserId, viewer, httpContext.Connection.RemoteIpAddress?.ToString());
         return OkResponse(dto);
     }
 
     public static async Task<IResult> GetById(
-        Guid id, IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp,
+        Guid id, IUnitOfWork unitOfWork, ClaimsPrincipal principal, IServiceProvider sp, IRateLimitService rateLimiter, HttpContext httpContext,
         DateOnly? checkIn = null, int? nights = null, CancellationToken ct = default)
     {
+        if (await RateLimited(rateLimiter, httpContext, DetailRateLimitPrefix, DetailRateLimitMax) is { } limited) return limited;
         if (nights is < 1 or > 30) return BadRequestResponse("Nights must be 1 to 30");
         if (CheckInError(checkIn) is { } dateError) return dateError;
         var stay = await unitOfWork.Stays.GetByIdWithAllAsync(id);
@@ -459,7 +465,7 @@ public static class StayHandlers
         }
         if (sp.GetService<IStayDetailPricing>() is { } pricing)
             await pricing.ApplyAsync(dto, checkIn, nights ?? 1, IstTime.TodayIst(DateTime.UtcNow), ct);
-        if (!isOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.Add(stay.Id, stay.UserId, hasUser ? userId : null);
+        if (!isOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.AddViewed(stay.Id, stay.UserId, hasUser ? userId : null, httpContext.Connection.RemoteIpAddress?.ToString());
         return OkResponse(dto);
     }
 

@@ -23,27 +23,33 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
     public async Task<StayJob?> GetOwnedTrackedAsync(Guid id, Guid userId)
         => await _dbSet.FirstOrDefaultAsync(j => j.Id == id && j.UserId == userId);
 
+    // FB-63: bounded to the newest 100 (actives first); the stay name is one join, not a subquery per row.
+    public const int OwnerListMax = 100;
+
     public async Task<List<StayJobOwnerDto>> GetOwnerListAsync(Guid userId)
         => await _dbSet
             .AsNoTracking()
             .Where(j => j.UserId == userId)
             .OrderBy(j => j.Status == StayJobStatuses.Active ? 0 : 1)
             .ThenByDescending(j => j.CreatedAt)
-            .Select(j => new StayJobOwnerDto
+            .Take(OwnerListMax)
+            .GroupJoin(context.StayListings, j => j.StayListingId, s => s.Id, (j, stays) => new { j, stays })
+            .SelectMany(x => x.stays.DefaultIfEmpty(), (x, s) => new { x.j, StayName = s == null ? null : s.Name })
+            .Select(x => new StayJobOwnerDto
             {
-                Id = j.Id,
-                Title = j.Title,
-                StayName = context.StayListings.Where(s => s.Id == j.StayListingId).Select(s => s.Name).FirstOrDefault(),
-                DepartmentName = j.Department.Name,
-                RoleName = j.Role.Name,
-                MinimumExperienceYears = j.MinimumExperienceYears,
-                SalaryTypeName = j.SalaryType.Name,
-                MinSalary = j.MinSalary,
-                MaxSalary = j.MaxSalary,
-                Status = j.Status,
-                CreatedAt = j.CreatedAt,
-                UpdatedAt = j.UpdatedAt,
-                ClosedAt = j.ClosedAt,
+                Id = x.j.Id,
+                Title = x.j.Title,
+                StayName = x.StayName,
+                DepartmentName = x.j.Department.Name,
+                RoleName = x.j.Role.Name,
+                MinimumExperienceYears = x.j.MinimumExperienceYears,
+                SalaryTypeName = x.j.SalaryType.Name,
+                MinSalary = x.j.MinSalary,
+                MaxSalary = x.j.MaxSalary,
+                Status = x.j.Status,
+                CreatedAt = x.j.CreatedAt,
+                UpdatedAt = x.j.UpdatedAt,
+                ClosedAt = x.j.ClosedAt,
             })
             .ToListAsync();
 

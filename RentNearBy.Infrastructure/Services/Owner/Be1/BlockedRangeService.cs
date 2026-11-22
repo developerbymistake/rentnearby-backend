@@ -95,8 +95,20 @@ public sealed class BlockedRangeService(ApplicationDbContext db, ILogger<Blocked
     }
 
     // K4: idempotent; true = a row was deleted (the caller bumps the stay cache).
-    public async Task<bool> DeleteAsync(OwnerContext ctx, Guid id, CancellationToken ct = default)
-        => await db.Database.ExecuteSqlRawAsync(BlockDelete, [Uuid("id", id), Uuid("l", ctx.ListingId)], ct) > 0;
+    public sealed class BlockDeleteRow
+    {
+        public int Deleted { get; set; }
+        public bool Foreign { get; set; }
+    }
+
+    public enum DeleteOutcome { Deleted, Gone, NotHis }
+
+    // FB-36: another owner's block id answers 404 (doc 8.4); his own retry of a delete stays 204.
+    public async Task<DeleteOutcome> DeleteAsync(OwnerContext ctx, Guid id, CancellationToken ct = default)
+    {
+        var row = (await db.Database.SqlQueryRaw<BlockDeleteRow>(BlockDelete, Uuid("id", id), Uuid("l", ctx.ListingId)).ToListAsync(ct))[0];
+        return row.Deleted > 0 ? DeleteOutcome.Deleted : row.Foreign ? DeleteOutcome.NotHis : DeleteOutcome.Gone;
+    }
 
     private async Task<BlockCheckRow> CheckAsync(OwnerContext ctx, Guid id, DateOnly from, DateOnly to, CancellationToken ct)
         => (await db.Database.SqlQueryRaw<BlockCheckRow>(BlockCheck,

@@ -23,8 +23,8 @@ public class ShownCounterTests
     {
         var source = StaySource();
         Assert.Equal(3, CountOf(source, "OwnerShownCounter"));
-        Assert.Contains("if (viewer != stay.UserId) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()", source);
-        Assert.Contains("if (!isOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()", source);
+        Assert.Contains("if (viewer != stay.UserId) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.AddViewed(", source);
+        Assert.Contains("if (!isOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.AddViewed(", source);
         Assert.Contains("!= UserRoles.StayOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.AddListed", source);
     }
 

@@ -32,7 +32,7 @@ public sealed class TaxiDriverHomeReader(
                up."Id" AS "UserPlanId", up."PlanId", up."Source", up."StartsAt", up."EndsAt", up."PlaySubscriptionId",
                own."Name" AS "DriverName", vt."Name" AS "VehicleName", l."Seats", l."NumberPlate", c."Name" AS "CityName",
                l."IsAvailable" AS "SwitchOn", l."IsFeatured", l."EverApproved", l."RejectedReason",
-               l."RingReadyAt", l."RingMissStreak", l."LocalDayRate", l."RatingSum", l."RatingCount", l."RingWeight",
+               l."RingReadyAt", l."RingNotificationsOn", l."RingMissStreak", l."LocalDayRate", l."RatingSum", l."RatingCount", l."RingWeight",
                COALESCE(d."IsActive", false) AS "DistrictActive",
                (SELECT count(*) FROM "TaxiRoutes" rt WHERE rt."TaxiListingId" = l."Id" AND rt."HiddenByPlan")::int AS "HiddenRoutes",
                (SELECT count(*) FROM "TaxiRoutes" rt WHERE rt."TaxiListingId" = l."Id" AND NOT rt."HiddenByPlan")::int AS "VisibleRoutes",
@@ -118,7 +118,7 @@ public sealed class TaxiDriverHomeReader(
         var hidden = new OwnerHiddenFacts(0, 0, ctx.HiddenRoutes, 0);
         var paymentStartsOn = OwnerHomeShared.PaymentStartsOn(flag.Enabled, ctx.AnnounceDate, today);
         var plansStartedToday = OwnerHomeShared.PlansStartedToday(flag.Enabled, ctx.PaymentEnabledAt, today);
-        var ringReady = ctx.RingReadyAt != null && ctx.RingMissStreak < TaxiDispatchRules.RingMissLimit && ctx.HasValidToken;
+        var ringReady = TaxiRingRules.HomeReady(ctx.RingReadyAt, ctx.RingNotificationsOn, ctx.RingMissStreak, ctx.HasValidToken);
         var newRequests = work.LiveOffers + work.NewLeads;
 
         OwnerPlanCardDto? planCard = null;
@@ -218,6 +218,7 @@ public sealed class TaxiDriverHomeReader(
         public bool EverApproved { get; set; }
         public string? RejectedReason { get; set; }
         public DateTime? RingReadyAt { get; set; }
+        public bool RingNotificationsOn { get; set; }
         public short RingMissStreak { get; set; }
         public int? LocalDayRate { get; set; }
         public int RatingSum { get; set; }

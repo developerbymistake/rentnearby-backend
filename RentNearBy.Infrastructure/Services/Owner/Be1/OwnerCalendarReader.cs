@@ -144,10 +144,9 @@ public sealed class OwnerCalendarReader(ApplicationDbContext db, OwnerContextRea
     {
         if (!ctx.Limits.MonthSummary) return Be1Error.Of(OwnerErrorTypes.PlanFeatureLocked, new { key = PlanFeatureKeys.MonthSummary });
         if (OwnerCalendarRules.Month(month, ctx.Window) is not { } m) return new Be1Error(OwnerErrorTypes.BadRequest, OwnerCalendarRules.MonthOutside);
-        var rows = await db.Database.SqlQueryRaw<CalendarEntryRow>(BalanceDue,
-            [.. Scope(ctx.Kind, ctx.ListingId), Date("m1", m.Start), Date("m2", m.End), Long("cb", cursor?.Value), Uuid("cid", cursor?.Id),
-             Int("take", OwnerLimits.PageSize + 1)])
-            .ToListAsync(ct);
+        List<NpgsqlParameter> args = [.. Scope(ctx.Kind, ctx.ListingId), Date("m1", m.Start), Date("m2", m.End), Int("take", OwnerLimits.PageSize + 1)];
+        if (cursor is { } after) args.AddRange([Long("cb", after.Value), Uuid("cid", after.Id)]);
+        var rows = await db.Database.SqlQueryRaw<CalendarEntryRow>(cursor == null ? BalanceDue : BalanceDueAfter, [.. args]).ToListAsync(ct);
         var (page, next) = Cut(rows, r => OwnerCursors.EncodeNumber(MoneyNoteMath.Balance(r.Money) ?? 0, r.Id));
         return Be1Result<CalendarPage>.Success(new CalendarPage(page, next));
     }

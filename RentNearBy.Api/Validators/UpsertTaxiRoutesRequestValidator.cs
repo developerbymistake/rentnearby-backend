@@ -75,11 +75,16 @@ public class UpsertTaxiRoutesRequestValidator : AbstractValidator<UpsertTaxiRout
         RuleFor(x => x.Routes)
             .Must(r => r!.Select(DuplicateKey).Distinct().Count() == r!.Count)
             .OverridePropertyName("Duplicate")
-            .WithMessage("This route is already added")
+            .WithMessage(DuplicateMessage)
             .When(x => x.Routes != null && x.Routes.Count > 1 && x.Routes.All(i => i != null));
     }
 
-    private static (decimal, decimal, decimal, decimal, string) DuplicateKey(TaxiRouteInput r) =>
-        (Math.Round(r.FromLatitude, 3), Math.Round(r.FromLongitude, 3),
-         Math.Round(r.ToLatitude, 3), Math.Round(r.ToLongitude, 3), r.TripType?.Trim() ?? string.Empty);
+    public const string DuplicateMessage = "This route is already added";
+
+    // One duplicate key for the request rows and (FB-47) the stored hidden routes.
+    public static (decimal, decimal, decimal, decimal, string) DuplicateKey(TaxiRouteInput r) =>
+        Key(r.FromLatitude, r.FromLongitude, r.ToLatitude, r.ToLongitude, r.TripType);
+
+    public static (decimal, decimal, decimal, decimal, string) Key(decimal fromLat, decimal fromLng, decimal toLat, decimal toLng, string? tripType) =>
+        (Math.Round(fromLat, 3), Math.Round(fromLng, 3), Math.Round(toLat, 3), Math.Round(toLng, 3), tripType?.Trim() ?? string.Empty);
 }

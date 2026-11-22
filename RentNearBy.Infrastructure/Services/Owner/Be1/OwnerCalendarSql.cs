@@ -178,17 +178,25 @@ public static class OwnerCalendarSql
                COALESCE(sum(m."Bal"), 0)::bigint AS "BalanceTotal",
                count(*)::int AS "EntryCount",
                (count(*) FILTER (WHERE m."Bal" > 0))::int AS "DueCount",
-               COALESCE((SELECT json_agg(t ORDER BY t."Bal" DESC, t."Id")
-                         FROM (SELECT * FROM m WHERE m."Bal" > 0 ORDER BY m."Bal" DESC, m."Id" LIMIT 3) t), '[]')::text AS "Top"
+               COALESCE((SELECT json_agg(t ORDER BY t."Bal" DESC, t."Id" DESC)
+                         FROM (SELECT * FROM m WHERE m."Bal" > 0 ORDER BY m."Bal" DESC, m."Id" DESC LIMIT 3) t), '[]')::text AS "Top"
         FROM m
         """;
 
-    // C10: entries of the month with a balance, largest first, keyset on (balance, id).
-    public static readonly string BalanceDue = $"""
+    // C10: entries of the month with a balance, largest first, keyset on (balance, id). FB-44: the same order as the top 3 of the
+    // summary (Balance DESC, Id DESC), and two texts (first page / after a cursor) instead of an OR-null form the planner cannot use.
+    private static readonly string BalanceDueBase = $"""
         SELECT {Columns()} FROM "CalendarEntries" c
         WHERE c."ListingKind" = @k AND c."ListingId" = @l AND c."DateFrom" >= @m1 AND c."DateFrom" < @m2 AND NOT c."Cancelled"
           AND c."FinalAmount" IS NOT NULL AND {MoneyNoteMath.SqlBalance("c")} > 0
-          AND (@cb IS NULL OR ({MoneyNoteMath.SqlBalance("c")}, c."Id") < (@cb, @cid))
+        """;
+
+    public static readonly string BalanceDue = BalanceDueBase + $"""
+        ORDER BY {MoneyNoteMath.SqlBalance("c")} DESC, c."Id" DESC LIMIT @take
+        """;
+
+    public static readonly string BalanceDueAfter = BalanceDueBase + $"""
+          AND ({MoneyNoteMath.SqlBalance("c")}, c."Id") < (@cb, @cid)
         ORDER BY {MoneyNoteMath.SqlBalance("c")} DESC, c."Id" DESC LIMIT @take
         """;
 
@@ -241,7 +249,12 @@ public static class OwnerCalendarSql
         RETURNING b."Id", b."StayListingId", b."DateFrom", b."DateTo", b."Reason", b."Version"
         """;
 
-    public const string BlockDelete = """DELETE FROM "StayBlockedRanges" WHERE "Id" = @id AND "StayListingId" = @l""";
+    // FB-36: one statement deletes his row and tells whether the id belongs to another stay (404); a gone id (his own retry) is 204.
+    public const string BlockDelete = """
+        WITH del AS (DELETE FROM "StayBlockedRanges" WHERE "Id" = @id AND "StayListingId" = @l RETURNING 1)
+        SELECT (SELECT count(*) FROM del)::int AS "Deleted",
+               EXISTS (SELECT 1 FROM "StayBlockedRanges" o WHERE o."Id" = @id AND o."StayListingId" <> @l) AS "Foreign"
+        """;
 
     public static NpgsqlParameter Uuid(string name, Guid value) => new(name, NpgsqlDbType.Uuid) { Value = value };
 

@@ -199,8 +199,8 @@ public class Be1CalendarIntegrationTests(TestDatabase db) : IntegrationTestBase(
         Assert.Equal(OwnerErrorTypes.BlockedRangeOverlap, overlap.Error!.Type);
         var free = await service.CreateAsync(Ctx(owner, Be1Kit.Free(ListingKinds.Stay)), Guid.NewGuid(), TodayIst.AddDays(30), TodayIst.AddDays(31), null, false);
         Assert.Equal(OwnerErrorTypes.BlockedRangeLimit, free.Error!.Type);
-        Assert.True(await service.DeleteAsync(ctx, id));
-        Assert.False(await service.DeleteAsync(ctx, id));
+        Assert.Equal(BlockedRangeService.DeleteOutcome.Deleted, await service.DeleteAsync(ctx, id));
+        Assert.Equal(BlockedRangeService.DeleteOutcome.Gone, await service.DeleteAsync(ctx, id));
     }
 
     [IntegrationFact]

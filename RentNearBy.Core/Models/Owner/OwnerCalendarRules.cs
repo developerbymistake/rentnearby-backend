@@ -214,11 +214,18 @@ public static class OwnerCalendarRules
         {
             return null;
         }
-        var past = window.Today.AddDays(-OwnerLimits.PastDays);
-        var earliest = new DateOnly(past.Year, past.Month, 1);
+        // D-32 / FB-44: months are offered from the first FULL month the 90-day clean-up still keeps, so no month shows partial sums.
+        var earliest = FirstFullKeptMonth(window.Today);
         var latest = new DateOnly(window.MonthTo.Year, window.MonthTo.Month, 1);
         if (start < earliest || start > latest) return null;
         return (start, start.AddMonths(1));
+    }
+
+    public static DateOnly FirstFullKeptMonth(DateOnly today)
+    {
+        var past = today.AddDays(-OwnerLimits.PastDays);
+        var start = new DateOnly(past.Year, past.Month, 1);
+        return past.Day == 1 ? start : start.AddMonths(1);
     }
 
     // Replay test of C6: the stored row already holds what the request asks for.

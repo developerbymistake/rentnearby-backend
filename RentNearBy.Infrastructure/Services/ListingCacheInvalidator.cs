@@ -58,6 +58,9 @@ public class ListingCacheInvalidator(ApplicationDbContext db, IServiceProvider s
                 .Distinct()
                 .ToList();
             await FeedCache.BumpAsync(redis, genKeys);
+
+            // FB-37: plan rank and row changes also move the trip city lists and supply counts.
+            foreach (var d in ids) await TripSupplyCache.BumpAsync(redis, d);
         }
         catch (Exception ex)
         {

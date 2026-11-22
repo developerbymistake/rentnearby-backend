@@ -24,6 +24,7 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
         public int MonthCount { get; set; }
         public DateOnly? NextDate { get; set; }
         public string? NextLabel { get; set; }
+        public bool NextTravellerRemoved { get; set; }
         public int RuleCount { get; set; }
         public string? FirstLabel { get; set; }
         public DateOnly? FirstFrom { get; set; }
@@ -55,7 +56,7 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
               AND e."Status" = '{TripEnquiryStatuses.ConfirmedByBoth}' AND e."CheckOut" >= @today)::int AS "Confirmed",
           (SELECT count(*) FROM "CalendarEntries" c WHERE c."ListingKind" = 'Stay' AND c."ListingId" = @l
               AND c."DateFrom" >= @m1 AND c."DateFrom" < @m2 AND NOT c."Cancelled" AND {Visible})::int AS "MonthCount",
-          n."DateFrom" AS "NextDate", n."Label" AS "NextLabel",
+          n."DateFrom" AS "NextDate", n."Label" AS "NextLabel", COALESCE(n."TravellerRemoved", false) AS "NextTravellerRemoved",
           (SELECT count(*) FROM "StaySpecialPrices" sp WHERE sp."StayListingId" = @l AND sp."DateTo" >= @today)::int AS "RuleCount",
           f."LabelCopy" AS "FirstLabel", f."DateFrom" AS "FirstFrom", f."DateTo" AS "FirstTo", f."Direction" AS "FirstDirection",
           f."Percent"::int AS "FirstPercent",
@@ -69,7 +70,7 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
              FROM "StayRooms" hr WHERE hr."StayListingId" = @l AND hr."HiddenByPlan")::text AS "HiddenRooms"
         FROM (SELECT 1) one
         LEFT JOIN LATERAL (
-            SELECT c."DateFrom", c."Label" FROM "CalendarEntries" c
+            SELECT c."DateFrom", c."Label", (c."Kind" = 'Auto' AND c."TravellerUserId" IS NULL) AS "TravellerRemoved" FROM "CalendarEntries" c
             WHERE c."ListingKind" = 'Stay' AND c."ListingId" = @l AND c."DateFrom" >= @today AND NOT c."Cancelled" AND {Visible}
             ORDER BY c."DateFrom", c."Id" LIMIT 1) n ON true
         LEFT JOIN LATERAL (
@@ -98,7 +99,7 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
         dto.HiddenRooms = ParseHiddenRooms(facts.HiddenRooms);
         Apply(dto, stay, limits, facts.Confirmed, today, now);
         dto.CalendarRow = new StayCalendarRowDto(facts.MonthCount,
-            facts.NextDate is { } d ? new StayCalendarRowNextDto(d, facts.NextLabel ?? string.Empty) : null);
+            facts.NextDate is { } d ? new StayCalendarRowNextDto(d, facts.NextLabel ?? string.Empty, facts.NextTravellerRemoved) : null);
         dto.SpecialPricesRow = new StaySpecialPricesRowDto(facts.RuleCount, limits.SpecialPrices,
             facts.FirstFrom is { } ff && facts.FirstTo is { } ft
                 ? new StaySpecialPriceFirstDto(facts.FirstLabel, ff, ft, facts.FirstDirection ?? string.Empty, facts.FirstPercent ?? 0)

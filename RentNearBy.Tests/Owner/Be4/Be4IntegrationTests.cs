@@ -219,6 +219,7 @@ public class Be4IntegrationTests(TestDatabase db) : IntegrationTestBase(db)
             await c.AppFeatureFlags.Where(f => f.FeatureKey == AppFeatureKeys.PaymentEnabled)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsEnabled, false).SetProperty(x => x.AnnounceDate, today.AddDays(10)));
         }
+        OwnerPlansAnnounceJob.ForgetQuietPasses();
         for (var run = 0; run < 2; run++)
         {
             await using var c = CreateContext();

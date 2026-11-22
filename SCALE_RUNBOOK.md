@@ -115,3 +115,22 @@ Log event 7110 `taxi.due.parked`, 7111 `taxi.due.lag`, 7120 `taxi.match.pass_fai
 | Date | Machine and data size | Target | Measured | Pass |
 |---|---|---|---|---|
 | none | none | none | none | none |
+
+## Single API instance rule (FB-64, D-26)
+
+The API runs as ONE instance. These caches live in the process memory, so a second instance would serve stale values until
+their TTL ends:
+
+| Cache | Where | Invalidation today |
+|---|---|---|
+| App tabs snapshot `config_app_tabs` | `AppTabCache` | write-through on the admin PUT, this process only |
+| Plan catalog `plan_catalog` | `PlanCatalogCache` | version-guarded, admin writes in this process |
+| Payment switch `config_payment_feature` (now also the announce date and the switch-on time) | `PaymentFeatureReader` | `Invalidate()` on the admin PUT |
+| Trip bookings switch `config_trip_execution` | `TripExecutionFeatureReader` | write-through on the admin PUT |
+| Festival cache, roles, stay registration types | `FestivalCache`, `config_roles`, `stay_registration_types` | admin writes in this process |
+| Owner announce quiet passes | `OwnerPlansAnnounceJob` (static) | a new announce date is a new key; one hour otherwise |
+| Plan lifecycle reconcile day | `PlanLifecycleService` | the payment switch signal |
+
+Before a scale-out: move each of these to a shared Redis version key (bump on write, compare on read) or a Redis value, and
+run the hosted services (`PlanLifecycleService`, `PlanPurchaseReconcilerService`, `TripTimerService`, the matcher, the owner
+jobs) on one instance only (leader lock or a separate worker deployment). Until then keep `replicas: 1` in Coolify.

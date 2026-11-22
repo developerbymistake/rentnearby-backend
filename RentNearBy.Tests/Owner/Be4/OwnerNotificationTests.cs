@@ -88,11 +88,13 @@ public class OwnerPushCopyTests
         var p = TaxiDriverPushCopy.MorningTrips(User, Listing, Today,
         [
             new OwnerReminderLine(CalendarEntryKinds.Manual, "Airport drop", null, new TimeOnly(9, 0)),
-            new OwnerReminderLine(CalendarEntryKinds.Auto, "Seema", "4 seats", null),
+            new OwnerReminderLine(CalendarEntryKinds.Auto, "Seema", "4 seats", null, "Nainital"),
             new OwnerReminderLine(CalendarEntryKinds.Manual, "School run", null, new TimeOnly(15, 30)),
         ]);
         Assert.Equal("3 trips today", p.Title);
-        Assert.Equal("Seema (all day), Airport drop 9:00 am, School run 3:30 pm", p.Body);
+        // FB-48: an app booking shows its pickup place, never the traveller's name.
+        Assert.Equal("Nainital pickup (all day), Airport drop 9:00 am, School run 3:30 pm", p.Body);
+        Assert.Equal("Trip (all day)", TaxiDriverPushCopy.MorningTrips(User, Listing, Today, [new OwnerReminderLine(CalendarEntryKinds.Auto, "Seema", null, null)]).Body);
         Assert.Equal(UserNotificationRoutes.TaxiBookings, p.Route);
         Assert.Equal("1 trip today", TaxiDriverPushCopy.MorningTrips(User, Listing, Today, [new OwnerReminderLine("Manual", "A", null, null)]).Title);
     }

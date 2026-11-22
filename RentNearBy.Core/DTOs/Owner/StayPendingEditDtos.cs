@@ -21,7 +21,8 @@ public sealed record StayPendingEditDto(StayPendingEditFieldsDto Fields, IReadOn
 public sealed record StayEditResultDto(string Result, string? Reason, DateTime At, IReadOnlyList<string> FieldsChanged);
 
 // o_st_13 calendar hub row and o_st_14 special prices hub row (AU-21).
-public sealed record StayCalendarRowNextDto(DateOnly Date, string Label);
+// FB-45: TravellerRemoved = an app booking whose traveller deleted his account (the label can be empty); the app shows "Guest".
+public sealed record StayCalendarRowNextDto(DateOnly Date, string Label, bool TravellerRemoved = false);
 
 public sealed record StayCalendarRowDto(int ThisMonthCount, StayCalendarRowNextDto? Next);
 

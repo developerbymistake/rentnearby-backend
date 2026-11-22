@@ -132,6 +132,17 @@ public sealed class StayPendingEditService(ApplicationDbContext db, IOwnerNotifi
             }
             if (!SameInstant(at, pendingEditAt)) return StayEditDecision.Fail(OwnerErrorTypes.StayEditChanged);
 
+            // FB-56: an approve applies stored district and city ids, so check (one statement) that both still exist and the city
+            // still belongs to that district; else the change is dropped and the admin gets StayEditGone.
+            if (reason == null && !await PlaceStillValidAsync(stay, pending, c))
+            {
+                stay.PendingEditJson = null;
+                stay.PendingEditAt = null;
+                await db.SaveChangesAsync(c);
+                await tx.CommitAsync(c);
+                return StayEditDecision.Fail(OwnerErrorTypes.StayEditGone);
+            }
+
             var oldDistrict = stay.DistrictId;
             var now = clock.GetUtcNow().UtcDateTime;
             if (reason == null) Apply(stay, pending);
@@ -156,6 +167,25 @@ public sealed class StayPendingEditService(ApplicationDbContext db, IOwnerNotifi
         }, ct, logger);
         if (decision.Error == null) notifier.Wake();
         return decision;
+    }
+
+    internal const string PlaceValidSql = """
+        SELECT (EXISTS (SELECT 1 FROM "Districts" d WHERE d."Id" = @district)
+                AND (@city IS NULL OR EXISTS (SELECT 1 FROM "Cities" c WHERE c."Id" = @city AND c."DistrictId" = @district))) AS "Value"
+        """;
+
+    public static bool TouchesPlace(StayPendingEdit pending)
+        => pending.Fields.Contains(StayReviewFields.District) || pending.Fields.Contains(StayReviewFields.City);
+
+    private async Task<bool> PlaceStillValidAsync(StayListing stay, StayPendingEdit pending, CancellationToken ct)
+    {
+        if (!TouchesPlace(pending)) return true;
+        var district = pending.Fields.Contains(StayReviewFields.District) ? pending.Asked.DistrictId : stay.DistrictId;
+        var city = pending.Fields.Contains(StayReviewFields.City) ? pending.Asked.CityId : stay.CityId;
+        if (district is not { } d) return false;
+        return await db.Database.SqlQueryRaw<bool>(PlaceValidSql,
+            new Npgsql.NpgsqlParameter("district", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = d },
+            new Npgsql.NpgsqlParameter("city", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = (object?)city ?? DBNull.Value }).SingleAsync(ct);
     }
 
     // The asked values of the changed fields only (DistrictId / CityId are the stored ids; the slug is kept).

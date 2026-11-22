@@ -18,27 +18,31 @@ public static class AdminFestivalHandlers
         => OkResponse(await service.StatesAsync(ct));
 
     public static async Task<IResult> Create(
-        AdminFestivalRequest request, IValidator<AdminFestivalRequest> validator, FestivalService service, CancellationToken ct)
+        AdminFestivalRequest request, IValidator<AdminFestivalRequest> validator, FestivalService service, HttpContext http, CancellationToken ct)
     {
         if (request.Id == Guid.Empty) return BadRequestResponse("Please try again.");
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return OwnerHttp.Invalid(validation);
         var result = await service.CreateAsync(request, ct);
         if (!result.Ok) return Be2Answers.Error(result);
+        AdminActionLog.Write(http, "festival.create", request.Id);
         return result.Created ? CreatedResponse(result.Value, $"/api/v1/admin/festivals/{result.Value!.Id}") : OkResponse(result.Value);
     }
 
     public static async Task<IResult> Update(
-        Guid id, AdminFestivalRequest request, IValidator<AdminFestivalRequest> validator, FestivalService service, CancellationToken ct)
+        Guid id, AdminFestivalRequest request, IValidator<AdminFestivalRequest> validator, FestivalService service, HttpContext http, CancellationToken ct)
     {
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return OwnerHttp.Invalid(validation);
-        return Be2Answers.Of(await service.UpdateAsync(id, request, ct));
+        var result = await service.UpdateAsync(id, request, ct);
+        if (result.Ok) AdminActionLog.Write(http, "festival.update", id);
+        return Be2Answers.Of(result);
     }
 
-    public static async Task<IResult> Delete(Guid id, FestivalService service, CancellationToken ct)
+    public static async Task<IResult> Delete(Guid id, FestivalService service, HttpContext http, CancellationToken ct)
     {
         await service.DeleteAsync(id, ct);
+        AdminActionLog.Write(http, "festival.delete", id);
         return NoContentResponse();
     }
 }

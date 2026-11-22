@@ -544,7 +544,7 @@ public static class AdminHandlers
     public static async Task<IResult> UpdatePaymentFeature(
         UpdatePaymentFeatureRequest request, IValidator<UpdatePaymentFeatureRequest> validator,
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPaymentFeatureReader paymentReader,
-        RentNearBy.Core.Interfaces.Owner.IPlanReconcileSignal reconcileSignal)
+        RentNearBy.Core.Interfaces.Owner.IPlanReconcileSignal reconcileSignal, HttpContext http)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -554,6 +554,8 @@ public static class AdminHandlers
 
         // AU-17: a new or changed announce date is at least 7 days ahead (the job sends the notice); the stored date sent back
         // unchanged is accepted. ClearAnnounceDate removes it and sends nothing.
+        if (PaymentAnnounceSwitchRules.RefuseAnnounce(request.AnnounceDate, flag.AnnounceDate, request.IsEnabled ?? flag.IsEnabled))
+            return ErrorResponse(400, OwnerErrorTypes.MessageOf(OwnerErrorTypes.PaymentAlreadyOn), OwnerErrorTypes.PaymentAlreadyOn);
         if (request.AnnounceDate is { } announce && announce != flag.AnnounceDate
             && !PaymentAnnounceRules.IsFarEnough(announce, IstTime.TodayIst(DateTime.UtcNow)))
             return ErrorResponse(400, OwnerErrorTypes.MessageOf(OwnerErrorTypes.AnnounceTooSoon), OwnerErrorTypes.AnnounceTooSoon);
@@ -564,6 +566,7 @@ public static class AdminHandlers
         var flipped = request.IsEnabled.HasValue && request.IsEnabled.Value != flag.IsEnabled;
         if (request.IsEnabled.HasValue) flag.IsEnabled = request.IsEnabled.Value;
         if (flipped) flag.PaymentEnabledAt = flag.IsEnabled ? DateTime.UtcNow : null;
+        if (PaymentAnnounceSwitchRules.ClearsAnnounce(flipped && flag.IsEnabled)) flag.AnnounceDate = null;
         if (request.FreeDurationDays.HasValue) flag.FreeDurationDays = request.FreeDurationDays.Value;
         if (request.ClearFreeModeListingLimit) flag.FreeModeListingLimit = null;
         else if (request.FreeModeListingLimit.HasValue) flag.FreeModeListingLimit = request.FreeModeListingLimit.Value;
@@ -579,6 +582,7 @@ public static class AdminHandlers
 
         paymentReader.Invalidate();
         if (flipped) reconcileSignal.Request();
+        AdminActionLog.Write(http, flipped ? (flag.IsEnabled ? "payment.on" : "payment.off") : "payment.update", flag.Id);
 
         return OkResponse(ToPaymentFeatureDto(flag, reconcileRequested: flipped));
     }

@@ -24,7 +24,9 @@ public class PaymentFeatureReader(ApplicationDbContext db, IMemoryCache cache) :
             flag?.IsEnabled ?? true,
             flag?.FreeDurationDays ?? DefaultFreeDays,
             flag?.FreeModeListingLimit,
-            PaymentProviders.Selectable.Contains(flag?.PaymentProvider) ? flag!.PaymentProvider : PaymentProviders.Play);
+            PaymentProviders.Selectable.Contains(flag?.PaymentProvider) ? flag!.PaymentProvider : PaymentProviders.Play,
+            flag?.AnnounceDate,
+            flag?.PaymentEnabledAt);
         cache.Set(IPaymentFeatureReader.CacheKey, state, Ttl);
         return state;
     }

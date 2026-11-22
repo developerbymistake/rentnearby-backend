@@ -63,7 +63,7 @@ public abstract class OwnerMorningReminderJob(
     public string BatchSql(string cte) => $"""
         WITH {cte}
         SELECT l."Id" AS "ListingId", l."UserId",
-               (SELECT json_agg(json_build_object('kind', e."Kind", 'label', e."Label", 'detail', e."Detail", 'time', to_char(e."TimeOfDay", 'HH24:MI'))
+               (SELECT json_agg(json_build_object('kind', e."Kind", 'label', e."Label", 'detail', e."Detail", 'time', to_char(e."TimeOfDay", 'HH24:MI'), 'from', e."FromPlace")
                                 ORDER BY e."TimeOfDay" NULLS FIRST, e."DateFrom", e."Id")
                 FROM "CalendarEntries" e
                 WHERE e."ListingKind" = '{Kind}' AND e."ListingId" = l."Id" AND NOT e."Cancelled" AND {TodayPredicate})::text AS "Lines"
@@ -147,7 +147,8 @@ public abstract class OwnerMorningReminderJob(
                     Str(e, "kind") ?? CalendarEntryKinds.Manual,
                     Str(e, "label") ?? string.Empty,
                     Str(e, "detail"),
-                    ParseIstTime(Str(e, "time"))));
+                    ParseIstTime(Str(e, "time")),
+                    Str(e, "from")));
             }
             return lines;
         }

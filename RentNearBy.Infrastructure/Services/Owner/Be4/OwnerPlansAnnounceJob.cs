@@ -71,11 +71,28 @@ public sealed class OwnerPlansAnnounceJob(
         var date = flag!.AnnounceDate!.Value;
         var snapshot = await catalog.GetAsync();
         var written = 0;
+        var now = clock.GetUtcNow().UtcDateTime;
         foreach (var kind in new[] { ListingKinds.Stay, ListingKinds.Taxi }) // batch-loop
-            written += await RunKindAsync(kind, date, snapshot, ct); // batch-loop
+        {
+            var key = (kind, date);
+            if (QuietSkip(QuietPasses.TryGetValue(key, out var quietAt) ? quietAt : null, now)) continue;
+            var kindWritten = await RunKindAsync(kind, date, snapshot, ct); // batch-loop
+            if (kindWritten == 0) QuietPasses[key] = now;
+            else QuietPasses.TryRemove(key, out _);
+            written += kindWritten;
+        }
         if (written > 0) notifier.Wake();
         return written;
     }
+
+    // FB-61: a full pass of a kind for an announce date that wrote nothing is remembered (per process, the job is scoped), and
+    // that kind is walked again only an hour later; a new announce date is a new key, so it runs at once.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Kind, DateOnly Date), DateTime> QuietPasses = new();
+    public static readonly TimeSpan QuietEvery = TimeSpan.FromHours(1);
+
+    public static bool QuietSkip(DateTime? lastQuietPassUtc, DateTime nowUtc) => lastQuietPassUtc is { } t && nowUtc - t < QuietEvery;
+
+    internal static void ForgetQuietPasses() => QuietPasses.Clear();
 
     public static bool ShouldAnnounce(bool paymentEnabled, DateOnly? announceDate, DateOnly todayIst)
         => !paymentEnabled && announceDate is { } d && d > todayIst;

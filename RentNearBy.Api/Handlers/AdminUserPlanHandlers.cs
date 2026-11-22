@@ -84,6 +84,7 @@ public static class AdminUserPlanHandlers
         try
         {
             var result = await purchases.AdminGrantAsync(adminId, id, request);
+            AdminActionLog.Write(httpContext, "plan.grant", id);
             if (result.Notification != null)
                 await PushNotificationAsync(hubContext, result.Notification);
             return OkResponse(new { purchase = result.Purchase, replayed = result.Replayed });
@@ -104,6 +105,7 @@ public static class AdminUserPlanHandlers
         try
         {
             var result = await purchases.AdminRevokeAsync(adminId, id, request with { Reason = request.Reason.Trim() });
+            AdminActionLog.Write(httpContext, "plan.revoke", id);
             // FB-13: like the grant, the open app hears that Plus ended.
             if (result.Notification != null)
                 await PushNotificationAsync(hubContext, result.Notification);

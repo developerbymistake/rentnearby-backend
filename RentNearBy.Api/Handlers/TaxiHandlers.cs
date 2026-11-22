@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
 using FluentValidation;
+using RentNearBy.Api.Validators;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Requests;
@@ -677,6 +678,15 @@ public static class TaxiHandlers
         var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Taxi);
         if (!PlanRowChoice.SaveAllowed(request.Routes.Count, limits.Routes, taxi.Routes.Count))
             return OwnerHttp.LimitReached(TaxiErrorTypes.TaxiRouteLimit, PlanFeatureKeys.Routes, taxi.Routes.Count, limits);
+        // FB-47: a visible route may not copy a route the plan hides (it would come back as a duplicate on resubscribe).
+        var hiddenKeys = (await db.TaxiRoutes.IgnoreQueryFilters().AsNoTracking()
+                .Where(r => r.TaxiListingId == taxi.Id && r.HiddenByPlan)
+                .Select(r => new { r.FromLatitude, r.FromLongitude, r.ToLatitude, r.ToLongitude, r.TripType })
+                .ToListAsync())
+            .Select(r => UpsertTaxiRoutesRequestValidator.Key(r.FromLatitude, r.FromLongitude, r.ToLatitude, r.ToLongitude, r.TripType))
+            .ToHashSet();
+        if (request.Routes.Any(r => hiddenKeys.Contains(UpsertTaxiRoutesRequestValidator.DuplicateKey(r))))
+            return BadRequestResponse(UpsertTaxiRoutesRequestValidator.DuplicateMessage);
         // Resolved before any write, so a missing registration can never fail a route save after its commit.
         var pickupPlaces = sp.GetRequiredService<TaxiPickupPlaces>();
         var taxiRequests = sp.GetRequiredService<TaxiRequestClosure>();

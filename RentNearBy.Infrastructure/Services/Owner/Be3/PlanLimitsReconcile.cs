@@ -186,10 +186,11 @@ public sealed class PlanLimitsReconcile(
             var setBased = differing.Where(r => !r.HasLiveOffer).ToList();
             if (setBased.Count > 0)
             {
-                var (changed, sent) = await PgRetry.OnceAsync(db, c => ApplyBatchAsync(kind, cte, hide, today, setBased, c), ct, logger);
+                var (changed, sent, raced) = await PgRetry.OnceAsync(db, c => ApplyBatchAsync(kind, cte, hide, today, setBased, c), ct, logger);
                 listings += changed;
                 notified += sent;
-                foreach (var r in setBased.Where(r => r.DistrictId != null)) districts.Add(r.DistrictId!.Value);
+                single.AddRange(raced);
+                foreach (var r in setBased.Where(r => r.DistrictId != null && !raced.Contains(r))) districts.Add(r.DistrictId!.Value);
             }
             if (rows.Count < Batch) break;
         }
@@ -255,11 +256,38 @@ public sealed class PlanLimitsReconcile(
 
     // One transaction per batch: listing row locks in id order (level 5), then the row tables in the 4.1 order, then the
     // notices and pushes of owners who lost something.
-    private async Task<(int Changed, int Notified)> ApplyBatchAsync(
+    // FB-49: a taxi batch first takes every driver's ring lock (the matcher's key, id order), then re-reads live offers; a driver
+    // whose ring started after the batch read leaves the set-based path for the single-owner path (closure first), so no route
+    // with a ringing or accepted offer is ever hidden by a statement that skipped the closure.
+    internal const string RingLocksSql = """
+        SELECT count(pg_advisory_xact_lock(hashtextextended('taxi-ring:' || s.x::text, 0)))::int AS "Value"
+        FROM (SELECT x FROM unnest(@ids) AS x ORDER BY x) s
+        """;
+
+    internal static readonly string LiveOffersSql = $"""
+        SELECT DISTINCT o."DriverListingId" AS "Value" FROM "TaxiRequestOffers" o
+        WHERE o."DriverListingId" = ANY(@ids) AND o."Status" IN ('{OfferStates.Ringing}', '{OfferStates.Accepted}')
+        """;
+
+    private async Task<(int Changed, int Notified, List<BatchRow> Raced)> ApplyBatchAsync(
         string kind, string cte, bool hide, DateOnly today, IReadOnlyList<BatchRow> rows, CancellationToken ct)
     {
-        var ids = rows.Select(r => r.Id).ToArray();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var raced = new List<BatchRow>();
+        if (kind == ListingKinds.Taxi)
+        {
+            var all = rows.Select(r => r.Id).ToArray();
+            await db.Database.SqlQueryRaw<int>(RingLocksSql, Ids(all)).ToListAsync(ct);
+            var live = (await db.Database.SqlQueryRaw<Guid>(LiveOffersSql, Ids(all)).ToListAsync(ct)).ToHashSet();
+            raced = rows.Where(r => live.Contains(r.Id)).ToList();
+            rows = rows.Where(r => !live.Contains(r.Id)).ToList();
+            if (rows.Count == 0)
+            {
+                await tx.RollbackAsync(ct);
+                return (0, 0, raced);
+            }
+        }
+        var ids = rows.Select(r => r.Id).ToArray();
         var table = kind == ListingKinds.Stay ? "\"StayListings\"" : "\"TaxiListings\"";
 #pragma warning disable EF1002 // table is one of two fixed names; the ids are a parameter.
         await db.Database.ExecuteSqlRawAsync(
@@ -307,7 +335,7 @@ public sealed class PlanLimitsReconcile(
         if (kind == ListingKinds.Taxi)
             _afterCommit.Add(new TaxiClosureResult([], ids.ToList(), []));
         await AfterCommitAsync();
-        return (rows.Count, rose.Count);
+        return (rows.Count, rose.Count, raced);
     }
 
     // PlanLimitsChanged (contract 5.3): one stored row per owner (upserted) and one push per owner per IST day.
@@ -318,11 +346,7 @@ public sealed class PlanLimitsReconcile(
         if (owners.Count == 0) return;
         var today = IstTime.TodayIst(DateTime.UtcNow);
         var flag = await payment.GetAsync();
-        var enabledAt = flag.Enabled
-            ? await db.AppFeatureFlags.AsNoTracking().Where(f => f.FeatureKey == AppFeatureKeys.PaymentEnabled)
-                .Select(f => f.PaymentEnabledAt).FirstOrDefaultAsync(ct)
-            : null;
-        var startedToday = OwnerHiddenCounts.PlansStartedToday(flag.Enabled, enabledAt, today);
+        var startedToday = OwnerHiddenCounts.PlansStartedToday(flag.Enabled, flag.PaymentEnabledAt, today);
         await notifier.StoreAsync(owners.Select(o => new NoticeUpsert(o.UserId, NoticeKinds.PlanLimitsChanged, NoticeKinds.NoTrip, null, o.ListingId)).ToList(), ct);
         var pushes = owners.Select(o => kind == ListingKinds.Stay
             ? StayOwnerPushCopy.PlansStarted(o.UserId, o.Photos, o.Rooms, today, o.Rules, startedToday)

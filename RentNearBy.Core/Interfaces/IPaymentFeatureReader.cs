@@ -1,7 +1,9 @@
 namespace RentNearBy.Core.Interfaces;
 
 // Provider = PaymentProviders.Play | PaymentProviders.Razorpay (gateway for new orders).
-public sealed record PaymentFeatureState(bool Enabled, int FreeDays, int? FreeModeListingLimit, string Provider);
+// FB-63: AnnounceDate and PaymentEnabledAt ride in the cached state (invalidated on every admin write), so readers need no extra read.
+public sealed record PaymentFeatureState(bool Enabled, int FreeDays, int? FreeModeListingLimit, string Provider,
+    DateOnly? AnnounceDate = null, DateTime? PaymentEnabledAt = null);
 
 // Cached payment kill switch (IMemoryCache key config_payment_feature). A missing row fails closed
 // (Enabled = true), never silently making everything free.

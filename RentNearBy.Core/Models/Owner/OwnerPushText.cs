@@ -69,4 +69,4 @@ public static class OwnerPushText
 }
 
 // One line of a morning reminder: a calendar row of today.
-public sealed record OwnerReminderLine(string Kind, string Label, string? Detail, TimeOnly? TimeOfDay);
+public sealed record OwnerReminderLine(string Kind, string Label, string? Detail, TimeOnly? TimeOfDay, string? FromPlace = null);
