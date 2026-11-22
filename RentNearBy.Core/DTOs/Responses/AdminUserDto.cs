@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using RentNearBy.Core.Models;
+
 namespace RentNearBy.Core.DTOs.Responses;
 
 public class AdminUserDto
@@ -20,4 +23,17 @@ public class AdminUserDto
 
     public string? Username { get; set; }
     public DateTime? BuddyRequestsHeldUntil { get; set; }
+
+    // Lifetime counters, admin user detail only (D-25): the one that matches the current role, the other key absent.
+    // Never set by the users list.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? CompletedTrips { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? CompletedBookings { get; set; }
+
+    public void SetCompletedCounters(string roleKey, int completedTrips, int completedBookings)
+    {
+        CompletedTrips = roleKey == UserRoles.Seeker ? completedTrips : null;
+        CompletedBookings = roleKey is UserRoles.StayOwner or UserRoles.TaxiDriver ? completedBookings : null;
+    }
 }

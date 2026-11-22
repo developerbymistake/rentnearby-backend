@@ -30,4 +30,6 @@ public class TaxiBooking
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime? CancelledAt { get; set; }
+    // Set once when this ride raised the driver's CompletedBookingsCount (TripCompletionCounter).
+    public DateTime? CompletionCountedAt { get; set; }
 }

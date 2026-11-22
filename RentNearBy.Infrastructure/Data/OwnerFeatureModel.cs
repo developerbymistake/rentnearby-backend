@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Entities.Owner;
 using RentNearBy.Core.Entities.TaxiRequests;
@@ -235,6 +236,7 @@ public static class OwnerFeatureModel
         modelBuilder.Entity<TripEnquiry>(e =>
         {
             e.Property(x => x.ListedStayBreakdownJson).HasColumnType("jsonb");
+            e.Property(x => x.CompletionCountedAt).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
             e.ToTable(t => t.HasCheckConstraint("ck_tripenquiries_listedstaytotal",
                 $"\"ListedStayTotal\" IS NULL OR (\"Kind\" = 'Stay' AND \"ListedStayTotal\" >= {OwnerLimits.ListedStayTotalMin})"));
         });

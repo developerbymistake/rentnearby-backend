@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Models.TaxiRequests;
@@ -107,6 +108,7 @@ public static class TaxiRequestModel
             e.Property(x => x.VehicleName).HasMaxLength(120).IsRequired();
             e.Property(x => x.TravellerName).HasMaxLength(120).IsRequired();
             e.Property(x => x.BookedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.CompletionCountedAt).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
 
             e.HasIndex(x => x.RequestId, "ux_taxibookings_request_active")
              .IsUnique()

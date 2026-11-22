@@ -330,6 +330,8 @@ public sealed class TaxiBookingService(
         await context.SaveChangesAsync(ct);
         await context.TaxiListings.Where(t => t.Id == moved.DriverListingId)
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.RidesCompleted, t => t.RidesCompleted + 1), ct);
+        // Driver's lifetime counter (D-06): only a ride started in the app; Users is the last lock.
+        await TripCompletionCounter.CountTaxiBookingInTxAsync(context, bookingId, ct);
         return new TaxiClosureResult(request is null ? [] : [request.DispatchCityKey], [moved.DriverListingId], change is null ? [] : [change]);
     }
 

@@ -59,6 +59,8 @@ public class TripEnquiry
     public DateOnly? RemindedOn { get; set; }
     // The one final no-reply push to the traveller was queued at this time.
     public DateTime? FinalPushedAt { get; set; }
+    // Set once when this confirmed booking raised the host's CompletedBookingsCount (TripCompletionCounter).
+    public DateTime? CompletionCountedAt { get; set; }
 
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

@@ -18,6 +18,9 @@ public class User
     // HMAC(PlayBilling:AccountIdSalt, Id) sent to Play as obfuscatedAccountId; written once, never changed.
     public string? PlayAccountKey { get; set; }
     public DateTime? BuddyRequestsHeldUntil { get; set; }
+    // Lifetime counters (admin only). Written only by TripCompletionCounter with an atomic +1; never decreases.
+    public int CompletedTripsCount { get; set; }
+    public int CompletedBookingsCount { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

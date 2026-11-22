@@ -250,6 +250,8 @@ public static class TripLifecycleHandlers
                 trip.CompletedAt = now;
                 trip.UpdatedAt = now;
                 await unitOfWork.SaveChangesAsync();
+                // Lifetime counters (D-03..D-05): evaluated once, at this moment, in this transaction.
+                await TripCompletionCounter.CountCompletedTripInTxAsync(db, trip.Id, TripExecutionRules.TodayIst(now));
                 await unitOfWork.CommitTransactionAsync();
             }
             catch (DbUpdateConcurrencyException)

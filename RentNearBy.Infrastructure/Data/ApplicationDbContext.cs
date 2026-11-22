@@ -120,6 +120,17 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(u => u.RoleId)
              .OnDelete(DeleteBehavior.Restrict);
+            // Lifetime counters: only TripCompletionCounter writes them (atomic +1). Ignored by SaveChanges so a
+            // whole-row Update of a stale User can never move them back.
+            e.Property(u => u.CompletedTripsCount).HasDefaultValue(0)
+             .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+            e.Property(u => u.CompletedBookingsCount).HasDefaultValue(0)
+             .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_users_completedtrips_nonneg", "\"CompletedTripsCount\" >= 0");
+                t.HasCheckConstraint("ck_users_completedbookings_nonneg", "\"CompletedBookingsCount\" >= 0");
+            });
         });
 
         // HasData, not DataSeeder: rows must exist in the migration before the Users.RoleId FK is added.
@@ -1306,6 +1317,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(t => new { t.OwnerUserId, t.UpdatedAt }).HasDatabaseName("ix_trips_owner_updated");
             e.Property(t => t.StartDate).HasColumnType("date");
             e.Property(t => t.EndDate).HasColumnType("date");
+            e.Property(t => t.CompletionCountedAt).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
             // Idempotent create: a retry with the same client id finds this row instead of inserting a second one.
             e.HasIndex(t => new { t.OwnerUserId, t.ClientTripId }, "ix_trips_owner_client")
              .IsUnique()

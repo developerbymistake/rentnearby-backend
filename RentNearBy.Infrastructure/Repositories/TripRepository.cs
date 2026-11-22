@@ -7,6 +7,7 @@ using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services;
 
 namespace RentNearBy.Infrastructure.Repositories;
 
@@ -167,6 +168,8 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
         await using var tx = _context.Database.CurrentTransaction == null ? await _context.Database.BeginTransactionAsync() : null;
         await _context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Trips\" WHERE \"Id\" = {id} FOR UPDATE");
         var updated = await CompleteIfNothingOpenAsync(id, nowUtc);
+        // The auto-complete job may count the trip: it completes it after the end date and the rule is checked now (D-04).
+        if (updated == 1) await TripCompletionCounter.CountCompletedTripInTxAsync(_context, id, TripExecutionRules.TodayIst(nowUtc));
         if (tx != null) await tx.CommitAsync();
         return updated;
     }

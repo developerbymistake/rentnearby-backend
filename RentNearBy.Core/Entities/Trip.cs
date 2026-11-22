@@ -28,6 +28,8 @@ public class Trip
     public DateOnly? StartDate { get; set; }
     public DateOnly? EndDate { get; set; }
     public DateTime? CompletedAt { get; set; }
+    // Set once when this trip raised the owner's CompletedTripsCount (TripCompletionCounter).
+    public DateTime? CompletionCountedAt { get; set; }
     public DateTime? MutedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

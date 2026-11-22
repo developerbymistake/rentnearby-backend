@@ -915,6 +915,8 @@ public static class AdminHandlers
             Username = u.Username,
             BuddyRequestsHeldUntil = u.BuddyRequestsHeldUntil,
         };
+        // The Users row is already loaded: no extra statement.
+        dto.SetCompletedCounters(u.Role.Key, u.CompletedTripsCount, u.CompletedBookingsCount);
 
         return OkResponse(dto);
     }
