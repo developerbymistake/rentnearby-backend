@@ -252,6 +252,8 @@ public class StayPhotoReplaceIntegrationTests(TestDatabase db) : IntegrationTest
 
         public Task<(string url, string filePath)> SaveBannerAsync(Stream photoStream, string fileName, Guid districtId)
             => _inner.SaveBannerAsync(photoStream, fileName, districtId);
+        public Task<(string url, string filePath)> SaveProfilePhotoAsync(Stream photoStream, string fileName, Guid userId)
+            => _inner.SaveProfilePhotoAsync(photoStream, fileName, userId);
         public Task DeletePhotoAsync(string filePath) => _inner.DeletePhotoAsync(filePath);
         public Task DeleteRoomPhotosAsync(Guid userId, Guid listingId) => _inner.DeleteRoomPhotosAsync(userId, listingId);
         public Task DeleteAllUserPhotosAsync(Guid userId) => _inner.DeleteAllUserPhotosAsync(userId);

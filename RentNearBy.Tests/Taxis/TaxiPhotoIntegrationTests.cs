@@ -387,6 +387,8 @@ public class TaxiPhotoIntegrationTests(TestDatabase db) : IntegrationTestBase(db
 
         public Task<(string url, string filePath)> SaveBannerAsync(Stream photoStream, string fileName, Guid districtId)
             => Inner.SaveBannerAsync(photoStream, fileName, districtId);
+        public Task<(string url, string filePath)> SaveProfilePhotoAsync(Stream photoStream, string fileName, Guid userId)
+            => Inner.SaveProfilePhotoAsync(photoStream, fileName, userId);
         public Task DeletePhotoAsync(string filePath) => Inner.DeletePhotoAsync(filePath);
         public Task DeleteRoomPhotosAsync(Guid userId, Guid listingId) => Inner.DeleteRoomPhotosAsync(userId, listingId);
         public Task DeleteAllUserPhotosAsync(Guid userId) => Inner.DeleteAllUserPhotosAsync(userId);

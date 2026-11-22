@@ -31,6 +31,17 @@ public sealed class RecordingPhotoService(Exception? throwOnSave = null) : IPhot
         return Task.FromResult(($"https://res.cloudinary.com/test/image/upload/{path}.jpg", path));
     }
 
+    public ConcurrentQueue<Guid> ProfileSaves { get; } = new();
+
+    public Task<(string url, string filePath)> SaveProfilePhotoAsync(Stream photoStream, string fileName, Guid userId)
+    {
+        if (throwOnSave != null) throw throwOnSave;
+        var path = $"bakhli/user_{userId}/profile/x";
+        ProfileSaves.Enqueue(userId);
+        Saved.Enqueue(path);
+        return Task.FromResult(($"https://res.cloudinary.com/demo/image/upload/v1/{path}.jpg", path));
+    }
+
     public Task DeletePhotoAsync(string filePath)
     {
         Deleted.Enqueue(filePath);

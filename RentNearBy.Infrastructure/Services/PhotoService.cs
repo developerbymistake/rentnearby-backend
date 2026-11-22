@@ -2,6 +2,7 @@
 using CloudinaryDotNet.Actions;
 using Microsoft.Extensions.Configuration;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Processing;
 
@@ -11,6 +12,7 @@ public class PhotoService : IPhotoService
 {
     private readonly Cloudinary _cloudinary;
     private const int MaxDimension = 1280;
+    private const int ProfileDimension = 640;
     private const int OutputSizeLimit = 300 * 1024; // 300 KB
     public const long MaxPixels = 40_000_000;
 
@@ -65,6 +67,25 @@ public class PhotoService : IPhotoService
         return (result.SecureUrl.ToString(), publicId);
     }
 
+    public async Task<(string url, string filePath)> SaveProfilePhotoAsync(
+        Stream photoStream, string fileName, Guid userId)
+    {
+        using var processed = await ProcessImageAsync(photoStream, ProfileDimension, square: true);
+        var publicId = $"bakhli/user_{userId}/profile/{Guid.NewGuid()}";
+
+        var result = await _cloudinary.UploadAsync(new ImageUploadParams
+        {
+            File = new FileDescription(fileName, processed),
+            PublicId = publicId,
+            Overwrite = false,
+        });
+
+        if (result.Error != null)
+            throw new InvalidOperationException($"Cloudinary upload failed: {result.Error.Message}");
+
+        return (result.SecureUrl.ToString(), publicId);
+    }
+
     public async Task DeletePhotoAsync(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath)) return;
@@ -94,12 +115,11 @@ public class PhotoService : IPhotoService
         }
     }
 
-    // --- Image processing pipeline ---
-    // 1. Resize so neither dimension exceeds 1280 px (preserves aspect ratio)
-    // 2. Strip EXIF / IPTC / XMP metadata (privacy + size)
-    // 3. Encode to JPEG at q=82; reduce quality iteratively if output > 300 KB
+    // --- Image processing pipeline (stay, taxi, banner, profile) ---
+    // Identify + 40 MP cap, first frame only, auto-orient, resize (long edge, or centre square), flatten onto white,
+    // strip EXIF / IPTC / XMP, JPEG q=82 then 70..40 until <= 300 KB.
     // A broken body or a huge declared size is refused before the full decode (InvalidPhotoException, answered 400).
-    internal static async Task<MemoryStream> ProcessImageAsync(Stream input)
+    internal static async Task<MemoryStream> ProcessImageAsync(Stream input, int maxDimension = MaxDimension, bool square = false)
     {
         var start = input.CanSeek ? input.Position : 0;
         Image image;
@@ -109,7 +129,7 @@ public class PhotoService : IPhotoService
             if (info == null || info.Width <= 0 || info.Height <= 0 || (long)info.Width * info.Height > MaxPixels)
                 throw new InvalidPhotoException();
             input.Position = start;
-            image = await Image.LoadAsync(input);
+            image = await Image.LoadAsync(new DecoderOptions { MaxFrames = 1 }, input);
         }
         catch (ImageFormatException ex)
         {
@@ -117,14 +137,29 @@ public class PhotoService : IPhotoService
         }
         using var _ = image;
 
-        if (image.Width > MaxDimension || image.Height > MaxDimension)
+        image.Mutate(x => x.AutoOrient());
+        if (square)
+        {
+            var side = Math.Min(maxDimension, Math.Min(image.Width, image.Height));
+            if (image.Width != side || image.Height != side)
+            {
+                image.Mutate(x => x.Resize(new ResizeOptions
+                {
+                    Size = new SixLabors.ImageSharp.Size(side, side),
+                    Mode = ResizeMode.Crop,
+                    Position = AnchorPositionMode.Center,
+                }));
+            }
+        }
+        else if (image.Width > maxDimension || image.Height > maxDimension)
         {
             image.Mutate(x => x.Resize(new ResizeOptions
             {
-                Size = new SixLabors.ImageSharp.Size(MaxDimension, MaxDimension),
+                Size = new SixLabors.ImageSharp.Size(maxDimension, maxDimension),
                 Mode = ResizeMode.Max,
             }));
         }
+        image.Mutate(x => x.BackgroundColor(Color.White));
 
         image.Metadata.ExifProfile = null;
         image.Metadata.IptcProfile = null;

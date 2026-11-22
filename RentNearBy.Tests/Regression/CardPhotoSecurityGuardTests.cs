@@ -156,6 +156,8 @@ public class CardPhotoSecurityGuardTests
             => throw new NotSupportedException();
         public Task<(string url, string filePath)> SaveBannerAsync(Stream photoStream, string fileName, Guid districtId)
             => throw new NotSupportedException();
+        public Task<(string url, string filePath)> SaveProfilePhotoAsync(Stream photoStream, string fileName, Guid userId)
+            => throw new NotSupportedException();
         public Task DeletePhotoAsync(string filePath) => throw new HttpRequestException("cloudinary down");
         public Task DeleteRoomPhotosAsync(Guid userId, Guid listingId) => Task.CompletedTask;
         public Task DeleteAllUserPhotosAsync(Guid userId) => Task.CompletedTask;
