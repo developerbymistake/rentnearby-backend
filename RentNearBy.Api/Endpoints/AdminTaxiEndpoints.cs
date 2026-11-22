@@ -17,6 +17,7 @@ public static class AdminTaxiEndpoints
         group.MapPut("/{id:guid}/reject", AdminTaxiHandlers.RejectTaxi).RequireAuthorization("AdminOnly");
         group.MapPut("/{id:guid}/unpublish", AdminTaxiHandlers.UnpublishTaxi).RequireAuthorization("AdminOnly");
         group.MapDelete("/{id:guid}", AdminTaxiHandlers.DeleteTaxi).RequireAuthorization("AdminOnly");
+        group.MapDelete("/{id:guid}/display-photo", AdminTaxiHandlers.RemoveDisplayPhoto).RequireAuthorization("AdminOnly");
 
         return group;
     }

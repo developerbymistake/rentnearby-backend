@@ -499,6 +499,9 @@ public static class TaxiHandlers
 
         var wasApproved = taxi.Status == TaxiStatuses.Approved;
         var plateChanged = taxi.NumberPlate != plate;
+        // The locked proof shows this plate; a different vehicle is a new taxi (delete and add), never a new plate on this row.
+        if (!isNew && plateChanged && TaxiPhotoRules.ProofLocked(taxi))
+            return ConflictResponse(TaxiPhotoRules.ProofLockedMessage, TaxiErrorTypes.TaxiProofLocked);
         var oldDistrictId = taxi.DistrictId;
 
         taxi.VehicleTypeId = vehicleType.Id;
@@ -582,9 +585,10 @@ public static class TaxiHandlers
         return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
     }
 
-    // Proof photo: replaceable until the first approval, locked for ever after (409 TaxiProofLocked).
+    // Proof photo: replaceable in Draft/Rejected until the first approval, frozen under review (the admin approves what he saw),
+    // locked for ever after (409 TaxiProofLocked).
     public static async Task<IResult> UploadPlatePhoto(
-        IFormFile photo, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService)
+        IFormFile photo, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService, ILoggerFactory? loggerFactory = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -593,11 +597,13 @@ public static class TaxiHandlers
         if (taxi == null) return NotFoundResponse(TaxiNotFound);
         if (TaxiPhotoRules.ProofLocked(taxi))
             return ConflictResponse(TaxiPhotoRules.ProofLockedMessage, TaxiErrorTypes.TaxiProofLocked);
+        if (taxi.Status == TaxiStatuses.PendingReview) return LockedResponse();
         if (photo.Length > TaxiPhotoRules.MaxBytes) return BadRequestResponse(PhotoTooBig);
 
         using var stream = photo.OpenReadStream();
         if (!IsValidImageMagicBytes(stream)) return BadRequestResponse(PhotoNotImage);
         stream.Position = 0;
+        var logger = loggerFactory?.CreateLogger("Photos");
         // Same Cloudinary prefix as the other listings (user_{userId}/listing_{id}), so the shared
         // purge/account-deletion photo cleanup covers it.
         var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, taxi.Id);
@@ -612,19 +618,16 @@ public static class TaxiHandlers
         }
         catch (Exception ex) when (ex is DbUpdateConcurrencyException || PgRetry.IsRetryable(ex))
         {
-            try { await photoService.DeletePhotoAsync(filePath); } catch { }
+            await PhotoCleanup.TryDeleteAsync(photoService, filePath, logger);
             return Concurrent();
         }
         catch
         {
-            try { await photoService.DeletePhotoAsync(filePath); } catch { }
+            await PhotoCleanup.TryDeleteAsync(photoService, filePath, logger);
             throw;
         }
 
-        if (!string.IsNullOrEmpty(oldPath) && oldPath != filePath)
-        {
-            try { await photoService.DeletePhotoAsync(oldPath); } catch { /* orphan only */ }
-        }
+        if (oldPath != filePath) await PhotoCleanup.TryDeleteAsync(photoService, oldPath, logger);
 
         return CreatedResponse(new { photoUrl = url, status = taxi.Status }, url);
     }
@@ -668,6 +671,7 @@ public static class TaxiHandlers
         using var stream = photo.OpenReadStream();
         if (!IsValidImageMagicBytes(stream)) return BadRequestResponse(PhotoNotImage);
         stream.Position = 0;
+        var logger = PhotoCleanup.Logger(sp);
         var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, taxiId);
 
         DisplayPhotoSwapRow? swapped;
@@ -682,19 +686,16 @@ public static class TaxiHandlers
         }
         catch
         {
-            try { await photoService.DeletePhotoAsync(filePath); } catch { }
+            await PhotoCleanup.TryDeleteAsync(photoService, filePath, logger);
             throw;
         }
         if (swapped == null)
         {
-            try { await photoService.DeletePhotoAsync(filePath); } catch { }
+            await PhotoCleanup.TryDeleteAsync(photoService, filePath, logger);
             return NotFoundResponse(TaxiNotFound);
         }
 
-        if (!string.IsNullOrEmpty(swapped.OldPath) && swapped.OldPath != filePath)
-        {
-            try { await photoService.DeletePhotoAsync(swapped.OldPath); } catch { /* orphan only */ }
-        }
+        if (swapped.OldPath != filePath) await PhotoCleanup.TryDeleteAsync(photoService, swapped.OldPath, logger);
         if (swapped.Status == TaxiStatuses.Approved)
             await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), swapped.DistrictId);
 

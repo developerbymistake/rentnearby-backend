@@ -113,13 +113,12 @@ public class TaxiPhotoIntegrationTests(TestDatabase db) : IntegrationTestBase(db
     }
 
     [IntegrationFact]
-    public async Task Plate_upload_racing_approve_returns_concurrent_and_deletes_new_file()
+    public async Task Plate_upload_racing_submit_returns_concurrent_and_deletes_new_file()
     {
         await using var seed = CreateContext();
-        var driver = await OwnerSeed.TaxiDriverAsync(seed, TaxiStatuses.PendingReview);
-        // The approve lands between the handler's read and its save: the tracked row's xmin is stale.
-        var raced = new RacingPhotoService(() =>
-            SetAsync(driver.ListingId, t => { t.Status = TaxiStatuses.Approved; t.EverApproved = true; }));
+        var driver = await OwnerSeed.TaxiDriverAsync(seed, TaxiStatuses.Draft);
+        // Submit lands between the handler's read and its save: the tracked row's xmin is stale.
+        var raced = new RacingPhotoService(() => SetAsync(driver.ListingId, t => t.Status = TaxiStatuses.PendingReview));
 
         var result = await PlateAsync(driver.UserId, raced);
 
@@ -127,7 +126,58 @@ public class TaxiPhotoIntegrationTests(TestDatabase db) : IntegrationTestBase(db
         Assert.Equal("CONCURRENT_UPDATE", ErrorType(result));
         Assert.Equal(raced.Inner.Saved.ToArray(), raced.Inner.Deleted.ToArray());
         var retry = await PlateAsync(driver.UserId, new RecordingPhotoService());
-        Assert.Equal(TaxiErrorTypes.TaxiProofLocked, ErrorType(retry));
+        Assert.Equal(TaxiErrorTypes.TaxiLocked, ErrorType(retry));
+    }
+
+    // REVIEW_SEC S1: under the first review the proof is frozen, so the admin approves the file he saw.
+    [IntegrationFact]
+    public async Task Plate_upload_under_first_review_is_409_and_uploads_nothing()
+    {
+        await using var seed = CreateContext();
+        var driver = await OwnerSeed.TaxiDriverAsync(seed, TaxiStatuses.PendingReview);
+        await SetAsync(driver.ListingId, t => { t.EverApproved = false; t.PlatePhotoPath = "reviewed"; t.PlatePhotoUrl = "https://reviewed"; });
+        var photos = new RecordingPhotoService();
+
+        var result = await PlateAsync(driver.UserId, photos);
+
+        Assert.Equal(409, Status(result));
+        Assert.Equal(TaxiErrorTypes.TaxiLocked, ErrorType(result));
+        Assert.Empty(photos.Saved);
+        Assert.Equal("reviewed", (await ReadAsync(driver.ListingId)).PlatePhotoPath);
+    }
+
+    // REVIEW_SEC S8: the admin removes only the display photo; the taxi stays live, the proof stays, the file goes.
+    [IntegrationFact]
+    public async Task Admin_remove_display_photo_clears_columns_keeps_status_and_deletes_file()
+    {
+        await using var seed = CreateContext();
+        var driver = await OwnerSeed.TaxiDriverAsync(seed, TaxiStatuses.Approved);
+        await SetAsync(driver.ListingId, t =>
+        {
+            t.DisplayPhotoUrl = "https://face"; t.DisplayPhotoPath = "face"; t.PlatePhotoPath = "proof"; t.PlatePhotoUrl = "https://proof";
+        });
+        var photos = new RecordingPhotoService();
+
+        await using (var c = CreateContext())
+        {
+            var result = await AdminTaxiHandlers.RemoveDisplayPhoto(driver.ListingId, new UnitOfWork(c), c, photos, Services(),
+                new NullHubContext(), new RecordingPublisher());
+            Assert.Equal(204, Status(result));
+        }
+
+        var row = await ReadAsync(driver.ListingId);
+        Assert.Null(row.DisplayPhotoUrl);
+        Assert.Null(row.DisplayPhotoPath);
+        Assert.Equal("proof", row.PlatePhotoPath);
+        Assert.Equal(TaxiStatuses.Approved, row.Status);
+        Assert.Equal(["face"], photos.Deleted.ToArray());
+        await using var check = CreateContext();
+        Assert.True(await check.NotificationEvents.AnyAsync(n => n.TargetUserId == driver.UserId && n.Type == NotificationTypes.DriverPhotoRemoved));
+
+        await using var again = CreateContext();
+        var second = await AdminTaxiHandlers.RemoveDisplayPhoto(driver.ListingId, new UnitOfWork(again), again, photos, Services(),
+            new NullHubContext(), new RecordingPublisher());
+        Assert.Equal(404, Status(second));
     }
 
     [IntegrationFact]
@@ -314,6 +364,13 @@ public class TaxiPhotoIntegrationTests(TestDatabase db) : IntegrationTestBase(db
             Assert.DoesNotContain("platePhotoUrl", json);
             Assert.Contains("\"displayPhotoUrl\":\"https://face\"", json);
         }
+    }
+
+    // The hub send is best effort in production (caught there); this context has no clients.
+    private sealed class NullHubContext : Microsoft.AspNetCore.SignalR.IHubContext<RentNearBy.Api.Hubs.NotificationHub>
+    {
+        public Microsoft.AspNetCore.SignalR.IHubClients Clients => null!;
+        public Microsoft.AspNetCore.SignalR.IGroupManager Groups => null!;
     }
 
     // Runs another request right after the file is saved, then records like RecordingPhotoService.

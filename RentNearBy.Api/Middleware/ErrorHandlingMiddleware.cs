@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using RentNearBy.Core.DTOs.Responses;
+using RentNearBy.Infrastructure.Services;
 
 namespace RentNearBy.Api.Middleware;
 
@@ -15,8 +16,11 @@ public class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorHandling
         catch (Exception ex)
         {
             var id = ShortId(context);
-            logger.LogError(ex, "Unhandled exception {CorrelationId} {Method} {Route}", id, context.Request.Method,
-                context.Request.Path.Value);
+            if (ex is InvalidPhotoException)
+                logger.LogWarning("Invalid photo {CorrelationId} {Method} {Route}", id, context.Request.Method, context.Request.Path.Value);
+            else
+                logger.LogError(ex, "Unhandled exception {CorrelationId} {Method} {Route}", id, context.Request.Method,
+                    context.Request.Path.Value);
             if (context.Response.HasStarted) throw;
             await HandleExceptionAsync(context, ex, id);
         }
@@ -33,6 +37,7 @@ public class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorHandling
         var (code, type, message) = exception switch
         {
             // FB-27: framework text (parameter names, values) stays in the log; the body is a fixed line with the reference.
+            InvalidPhotoException => (HttpStatusCode.BadRequest, "ValidationException", InvalidPhotoException.UserMessage),
             ArgumentNullException or ArgumentException => (HttpStatusCode.BadRequest, "ValidationException", $"Invalid request. Ref {id}"),
             UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "UnauthorizedException", exception.Message),
             KeyNotFoundException or FileNotFoundException => (HttpStatusCode.NotFound, "NotFoundException", exception.Message),

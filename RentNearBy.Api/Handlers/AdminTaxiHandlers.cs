@@ -343,6 +343,68 @@ public static class AdminTaxiHandlers
         }
     }
 
+    public const string ClearDisplayPhotoSql = """
+        WITH old AS (
+            SELECT "Id", "UserId", "DisplayPhotoPath", "DistrictId", "Status"
+            FROM "TaxiListings"
+            WHERE "Id" = @id AND NOT "IsDeleted" AND "DisplayPhotoUrl" IS NOT NULL
+            FOR UPDATE
+        )
+        UPDATE "TaxiListings" t
+        SET "DisplayPhotoUrl" = NULL, "DisplayPhotoPath" = NULL, "UpdatedAt" = now()
+        FROM old
+        WHERE t."Id" = old."Id"
+        RETURNING old."UserId" AS "UserId", old."DisplayPhotoPath" AS "OldPath", old."DistrictId" AS "DistrictId", old."Status" AS "Status"
+        """;
+
+    private sealed class DisplayPhotoClearRow
+    {
+        public Guid UserId { get; set; }
+        public string? OldPath { get; set; }
+        public Guid? DistrictId { get; set; }
+        public string Status { get; set; } = string.Empty;
+    }
+
+    public const string DisplayPhotoRemovedTitle = "Your taxi photo was removed";
+    public const string DisplayPhotoRemovedBody = "Your taxi photo did not meet our rules. Your taxi stays live; you can add a new photo.";
+
+    // Removes only the display photo (the taxi stays live, no review); the proof is untouched. The file goes after the commit.
+    public static async Task<IResult> RemoveDisplayPhoto(
+        Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IPhotoService photoService, IServiceProvider sp,
+        IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher)
+    {
+        DisplayPhotoClearRow? cleared;
+        NotificationEvent? notification = null;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            cleared = (await db.Database.SqlQueryRaw<DisplayPhotoClearRow>(ClearDisplayPhotoSql,
+                    new Npgsql.NpgsqlParameter("id", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = id })
+                .ToListAsync()).FirstOrDefault();
+            if (cleared != null)
+            {
+                notification = BuildTaxiNotification(cleared.UserId, NotificationTypes.DriverPhotoRemoved,
+                    DisplayPhotoRemovedTitle, DisplayPhotoRemovedBody);
+                db.NotificationEvents.Add(notification);
+                await unitOfWork.SaveChangesAsync();
+                await unitOfWork.CommitTransactionAsync();
+            }
+            else await unitOfWork.RollbackTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        if (cleared == null) return NotFoundResponse("No display photo");
+
+        await PhotoCleanup.TryDeleteAsync(photoService, cleared.OldPath, PhotoCleanup.Logger(sp));
+        if (cleared.Status == TaxiStatuses.Approved)
+            await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), cleared.DistrictId);
+        await AdminHandlers.SendGoLiveNotificationAsync(hubContext, publisher, notification!);
+        return NoContentResponse();
+    }
+
     // Soft delete, same as the driver's DeleteMine: plate photo removed, pending reports auto-resolved.
     // Soft delete: the owner's path exactly (FB-09): closure first, purge seam in the transaction; photos after commit.
     public static async Task<IResult> DeleteTaxi(

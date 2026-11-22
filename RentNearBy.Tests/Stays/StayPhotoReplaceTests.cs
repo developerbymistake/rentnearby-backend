@@ -46,16 +46,16 @@ public class StayPhotoReplaceTests
     [Fact]
     public void Replace_route_is_photo_limited()
         => Assert.Contains(
-            "group.MapPut(\"/me/photos/{photoId:guid}\", StayHandlers.ReplacePhoto).RequireAuthorization(\"CanListStays\").DisableAntiforgery().OwnerPhotoLimited();",
+            "group.MapPut(\"/me/photos/{photoId:guid}\", StayHandlers.ReplacePhoto).RequireAuthorization(\"CanListStays\").DisableAntiforgery().OwnerPhotoLimited().PhotoBodyLimited();",
             Src("RentNearBy.Api", "Endpoints", "StayEndpoints.cs"));
 
     [Fact]
     public void ReplacePhotoSql_keeps_order_and_skips_hidden()
     {
-        Assert.Contains("NOT \"HiddenByPlan\"", StayHandlers.ReplacePhotoSql);
-        Assert.Contains("\"StayListingId\" = @s", StayHandlers.ReplacePhotoSql);
+        Assert.Contains("NOT p.\"HiddenByPlan\"", StayHandlers.ReplacePhotoSql);
+        Assert.Contains("p.\"StayListingId\" = @s", StayHandlers.ReplacePhotoSql);
         Assert.Contains("FOR UPDATE", StayHandlers.ReplacePhotoSql);
-        Assert.Contains("RETURNING old.\"FilePath\" AS \"Value\"", StayHandlers.ReplacePhotoSql);
+        Assert.Contains("RETURNING old.\"FilePath\" AS \"OldPath\"", StayHandlers.ReplacePhotoSql);
         Assert.DoesNotContain("\"PhotoOrder\"", StayHandlers.ReplacePhotoSql);
         Assert.DoesNotContain("\"Id\" =", StayHandlers.ReplacePhotoSql.Split("SET")[1].Split("FROM")[0]);
     }
@@ -73,8 +73,8 @@ public class StayPhotoReplaceTests
         Assert.True(At("SavePhotoAsync(stream, photo.FileName, userId, stay.Id)") > 0);
         Assert.True(At("OwnerLocks.LockStayAsync") < At("ReplacePhotoSql"));
         Assert.True(At("ReplacePhotoSql") < At("CommitTransactionAsync"));
-        Assert.True(At("CommitTransactionAsync") < At("DeletePhotoAsync(oldPath)"));
-        Assert.Contains("DeletePhotoAsync(filePath)", body);
+        Assert.True(At("CommitTransactionAsync") < At("TryDeleteAsync(photoService, oldPath"));
+        Assert.Contains("TryDeleteAsync(photoService, filePath", body);
         Assert.DoesNotContain("PublishAsync", body);
         Assert.DoesNotContain("SubmittedAt", body);
         Assert.DoesNotContain("LockOwnerAsync", body);
@@ -139,7 +139,7 @@ public class StayPhotoReplaceIntegrationTests(TestDatabase db) : IntegrationTest
         return s.BuildServiceProvider();
     }
 
-    private async Task<IResult> ReplaceAsync(Guid userId, Guid photoId, RecordingPhotoService photos, IFormFile? file = null, FakeRedis? redis = null)
+    private async Task<IResult> ReplaceAsync(Guid userId, Guid photoId, IPhotoService photos, IFormFile? file = null, FakeRedis? redis = null)
     {
         await using var c = CreateContext();
         return await StayHandlers.ReplacePhoto(photoId, file ?? File(Jpeg), Principal(userId), new UnitOfWork(c), c, photos, Services(redis));
@@ -212,6 +212,50 @@ public class StayPhotoReplaceIntegrationTests(TestDatabase db) : IntegrationTest
         Assert.Equal(409, StatusOf(await ReplaceAsync(owner.UserId, seeded[0].Id, photos)));
         Assert.Empty(photos.Saved);
         Assert.Empty(photos.Deleted);
+    }
+
+    // REVIEW_SEC S5: Submit commits while the file uploads; the swap re-checks the review lock under the row lock.
+    [IntegrationFact]
+    public async Task Replace_when_submit_lands_during_upload_is_409_and_deletes_new_file()
+    {
+        OwnerSeed.OwnerRow owner;
+        List<StayPhoto> seeded;
+        await using (var c = CreateContext())
+        {
+            owner = await OwnerSeed.StayOwnerAsync(c, StayStatuses.Draft);
+            seeded = await OwnerSeed.PhotosAsync(c, owner.ListingId, visible: 1);
+        }
+        var photos = new SubmitDuringSave(async () =>
+        {
+            await using var c = CreateContext();
+            await c.StayListings.Where(s => s.Id == owner.ListingId).ExecuteUpdateAsync(u => u.SetProperty(s => s.Status, StayStatuses.PendingReview));
+        });
+
+        Assert.Equal(409, StatusOf(await ReplaceAsync(owner.UserId, seeded[0].Id, photos)));
+        Assert.Equal(photos.Saved.ToArray(), photos.Deleted.ToArray());
+        await using var check = CreateContext();
+        Assert.Equal("p0", (await check.StayPhotos.AsNoTracking().SingleAsync(p => p.Id == seeded[0].Id)).FilePath);
+    }
+
+    private sealed class SubmitDuringSave(Func<Task> afterSave) : IPhotoService
+    {
+        private readonly RecordingPhotoService _inner = new();
+        public IReadOnlyCollection<string> Saved => _inner.Saved;
+        public IReadOnlyCollection<string> Deleted => _inner.Deleted;
+
+        public async Task<(string url, string filePath)> SavePhotoAsync(Stream photoStream, string fileName, Guid userId, Guid listingId)
+        {
+            var saved = await _inner.SavePhotoAsync(photoStream, fileName, userId, listingId);
+            await afterSave();
+            return saved;
+        }
+
+        public Task<(string url, string filePath)> SaveBannerAsync(Stream photoStream, string fileName, Guid districtId)
+            => _inner.SaveBannerAsync(photoStream, fileName, districtId);
+        public Task DeletePhotoAsync(string filePath) => _inner.DeletePhotoAsync(filePath);
+        public Task DeleteRoomPhotosAsync(Guid userId, Guid listingId) => _inner.DeleteRoomPhotosAsync(userId, listingId);
+        public Task DeleteAllUserPhotosAsync(Guid userId) => _inner.DeleteAllUserPhotosAsync(userId);
+        public Task<bool> PingAsync() => Task.FromResult(true);
     }
 
     [IntegrationFact]

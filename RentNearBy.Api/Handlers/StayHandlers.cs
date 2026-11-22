@@ -947,25 +947,35 @@ public static class StayHandlers
         using var stream = photo.OpenReadStream();
         if (!IsValidImageMagicBytes(stream)) return BadRequestResponse("File must be a valid image (JPEG, PNG or WebP)");
         stream.Position = 0;
+        var logger = PhotoCleanup.Logger(sp);
         var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, stay.Id);
 
         string? oldPath = null;
+        var status = stay.Status;
         IResult? refused = null;
-        await unitOfWork.BeginTransactionAsync();
         try
         {
+            await unitOfWork.BeginTransactionAsync();
             if (!await OwnerLocks.LockStayAsync(db, stay.Id)) refused = NotFoundResponse(StayNotFound);
             else
             {
-                var old = await db.Database.SqlQueryRaw<string>(ReplacePhotoSql,
+                var old = await db.Database.SqlQueryRaw<PhotoSwapRow>(ReplacePhotoSql,
                     new NpgsqlParameter("p", NpgsqlDbType.Uuid) { Value = photoId },
                     new NpgsqlParameter("s", NpgsqlDbType.Uuid) { Value = stay.Id },
+                    new NpgsqlParameter("user", NpgsqlDbType.Uuid) { Value = userId },
+                    new NpgsqlParameter("review", NpgsqlDbType.Varchar) { Value = StayStatuses.PendingReview },
                     new NpgsqlParameter("url", NpgsqlDbType.Varchar) { Value = url },
                     new NpgsqlParameter("path", NpgsqlDbType.Varchar) { Value = filePath }).ToListAsync();
-                if (old.Count == 0) refused = NotFoundResponse("Photo not found");
+                if (old.Count == 0)
+                {
+                    // Submit may have committed during the upload: under review answers 409, anything else 404.
+                    var current = await db.StayListings.AsNoTracking().Where(s => s.Id == stay.Id).Select(s => s.Status).FirstOrDefaultAsync();
+                    refused = current == StayStatuses.PendingReview ? LockedResponse(current) : NotFoundResponse("Photo not found");
+                }
                 else
                 {
-                    oldPath = old[0];
+                    oldPath = old[0].OldPath;
+                    status = old[0].Status;
                     await db.Database.ExecuteSqlRawAsync("""UPDATE "StayListings" SET "UpdatedAt" = now() WHERE "Id" = @s""",
                         new NpgsqlParameter("s", NpgsqlDbType.Uuid) { Value = stay.Id });
                 }
@@ -975,36 +985,44 @@ public static class StayHandlers
         }
         catch
         {
-            await unitOfWork.RollbackTransactionAsync();
-            try { await photoService.DeletePhotoAsync(filePath); } catch { /* orphan only */ }
+            await PhotoCleanup.TryDeleteAsync(photoService, filePath, logger);
+            try { await unitOfWork.RollbackTransactionAsync(); } catch { /* the original error is rethrown */ }
             throw;
         }
         if (refused != null)
         {
-            try { await photoService.DeletePhotoAsync(filePath); } catch { /* orphan only */ }
+            await PhotoCleanup.TryDeleteAsync(photoService, filePath, logger);
             return refused;
         }
 
-        if (!string.IsNullOrEmpty(oldPath) && oldPath != filePath)
-            try { await photoService.DeletePhotoAsync(oldPath); } catch { /* orphan only */ }
-        if (stay.Status == StayStatuses.Approved)
+        if (oldPath != filePath) await PhotoCleanup.TryDeleteAsync(photoService, oldPath, logger);
+        if (status == StayStatuses.Approved)
             await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
         return OkResponse(new { photoId, photoUrl = url });
     }
 
-    // Keeps "Id", "PhotoOrder" and "HiddenByPlan"; a photo hidden by the plan is not replaceable (0 rows, 404).
+    // Keeps "Id", "PhotoOrder" and "HiddenByPlan"; a photo hidden by the plan, a foreign stay or a stay under review is not
+    // replaceable (0 rows). Ownership and the review lock sit in the write statement itself.
     public const string ReplacePhotoSql = """
         WITH old AS (
-            SELECT "Id", "FilePath" FROM "StayPhotos"
-            WHERE "Id" = @p AND "StayListingId" = @s AND NOT "HiddenByPlan"
-            FOR UPDATE
+            SELECT p."Id", p."FilePath", s."Status" FROM "StayPhotos" p
+            JOIN "StayListings" s ON s."Id" = p."StayListingId"
+            WHERE p."Id" = @p AND p."StayListingId" = @s AND NOT p."HiddenByPlan"
+              AND s."UserId" = @user AND NOT s."IsDeleted" AND s."Status" <> @review
+            FOR UPDATE OF p
         )
         UPDATE "StayPhotos" p
         SET "PhotoUrl" = @url, "FilePath" = @path, "UploadedAt" = now()
         FROM old
         WHERE p."Id" = old."Id"
-        RETURNING old."FilePath" AS "Value"
+        RETURNING old."FilePath" AS "OldPath", old."Status" AS "Status"
         """;
+
+    private sealed class PhotoSwapRow
+    {
+        public string? OldPath { get; set; }
+        public string Status { get; set; } = string.Empty;
+    }
 
     // One statement: a visible photo of this stay, and (live stay) at least one other visible photo stays. Hidden photos are not
     // deletable here (the hub shows them in "Choose what stays").

@@ -12,6 +12,7 @@ public class PhotoService : IPhotoService
     private readonly Cloudinary _cloudinary;
     private const int MaxDimension = 1280;
     private const int OutputSizeLimit = 300 * 1024; // 300 KB
+    public const long MaxPixels = 40_000_000;
 
     public PhotoService(IConfiguration configuration)
     {
@@ -67,17 +68,17 @@ public class PhotoService : IPhotoService
     public async Task DeletePhotoAsync(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath)) return;
-        await _cloudinary.DestroyAsync(new DeletionParams(filePath));
+        await _cloudinary.DestroyAsync(new DeletionParams(filePath) { Invalidate = true });
     }
 
     public async Task DeleteRoomPhotosAsync(Guid userId, Guid listingId)
     {
-        await _cloudinary.DeleteResourcesByPrefixAsync($"bakhli/user_{userId}/listing_{listingId}/");
+        await _cloudinary.DeleteResourcesAsync(new DelResParams { Prefix = $"bakhli/user_{userId}/listing_{listingId}/", Invalidate = true });
     }
 
     public async Task DeleteAllUserPhotosAsync(Guid userId)
     {
-        await _cloudinary.DeleteResourcesByPrefixAsync($"bakhli/user_{userId}/");
+        await _cloudinary.DeleteResourcesAsync(new DelResParams { Prefix = $"bakhli/user_{userId}/", Invalidate = true });
     }
 
     public async Task<bool> PingAsync()
@@ -97,9 +98,24 @@ public class PhotoService : IPhotoService
     // 1. Resize so neither dimension exceeds 1280 px (preserves aspect ratio)
     // 2. Strip EXIF / IPTC / XMP metadata (privacy + size)
     // 3. Encode to JPEG at q=82; reduce quality iteratively if output > 300 KB
-    private static async Task<MemoryStream> ProcessImageAsync(Stream input)
+    // A broken body or a huge declared size is refused before the full decode (InvalidPhotoException, answered 400).
+    internal static async Task<MemoryStream> ProcessImageAsync(Stream input)
     {
-        using var image = await Image.LoadAsync(input);
+        var start = input.CanSeek ? input.Position : 0;
+        Image image;
+        try
+        {
+            var info = await Image.IdentifyAsync(input);
+            if (info == null || info.Width <= 0 || info.Height <= 0 || (long)info.Width * info.Height > MaxPixels)
+                throw new InvalidPhotoException();
+            input.Position = start;
+            image = await Image.LoadAsync(input);
+        }
+        catch (ImageFormatException ex)
+        {
+            throw new InvalidPhotoException(ex);
+        }
+        using var _ = image;
 
         if (image.Width > MaxDimension || image.Height > MaxDimension)
         {
