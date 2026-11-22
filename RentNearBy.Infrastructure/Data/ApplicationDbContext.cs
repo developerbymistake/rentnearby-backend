@@ -1071,6 +1071,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(t => t.NumberPlate).HasMaxLength(TaxiPlate.MaxLength);
             e.Property(t => t.PlatePhotoUrl).HasMaxLength(500);
             e.Property(t => t.PlatePhotoPath).HasMaxLength(500);
+            e.Property(t => t.DisplayPhotoUrl).HasMaxLength(500);
+            e.Property(t => t.DisplayPhotoPath).HasMaxLength(500);
             e.Property(t => t.ContactPhone).HasMaxLength(TaxiLimits.PhoneLength);
             e.Property(t => t.WhatsAppNumber).HasMaxLength(TaxiLimits.PhoneLength);
             e.Property(t => t.DrivingLicenceNumberEnc).IsRequired().HasMaxLength(TaxiIdentityRules.DlEncMaxLength);

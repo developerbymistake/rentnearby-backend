@@ -52,7 +52,16 @@ public static class AdminTaxiHandlers
         dto.RatingAverage = AdminTaxiRequestRules.RatingAverage(taxi.RatingSum, taxi.RatingCount);
         dto.RatingCount = taxi.RatingCount;
         dto.RidesCompleted = taxi.RidesCompleted;
+        AddPhotos(dto, taxi);
         return dto;
+    }
+
+    // Proof (plate) first, then Display; a missing one is left out.
+    public static void AddPhotos(AdminTaxiDto dto, TaxiListing taxi)
+    {
+        dto.Photos.Clear();
+        if (taxi.PlatePhotoUrl != null) dto.Photos.Add(new(TaxiPhotoRules.ProofKind, TaxiPhotoRules.ProofLabel, taxi.PlatePhotoUrl));
+        if (taxi.DisplayPhotoUrl != null) dto.Photos.Add(new(TaxiPhotoRules.DisplayKind, TaxiPhotoRules.DisplayLabel, taxi.DisplayPhotoUrl));
     }
 
     private static async Task<List<AdminTaxiDto>> WithReportCountsAsync(

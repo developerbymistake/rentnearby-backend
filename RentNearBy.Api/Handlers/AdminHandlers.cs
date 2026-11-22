@@ -1141,7 +1141,7 @@ public static class AdminHandlers
             if (taxi != null)
             {
                 AdminTaxiHandlers.ApplyTaxiReportDetails(dto, taxi);
-                if (taxi.PlatePhotoUrl != null) dto.Photos = [taxi.PlatePhotoUrl];
+                dto.Photos = new[] { taxi.DisplayPhotoUrl, taxi.PlatePhotoUrl }.Where(u => u != null).Select(u => u!).ToList();
             }
         }
 

@@ -6,6 +6,8 @@ using FluentValidation;
 using RentNearBy.Api.Validators;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using NpgsqlTypes;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
@@ -76,6 +78,8 @@ public static class TaxiHandlers
     private const int MaxPageSize = 30;
     private const int MaxPage = 1000;
     private const string TaxiNotFound = "Taxi not found";
+    private const string PhotoTooBig = "Photo size must not exceed 10MB";
+    private const string PhotoNotImage = "File must be a valid image (JPEG, PNG or WebP)";
 
     // Cached first-page shape under TaxiCache keys; HomeHandlers.GetFeed reads the same entries.
     internal sealed record TaxiPage(List<TaxiBrowseDto> Items, bool HasMore);
@@ -578,71 +582,123 @@ public static class TaxiHandlers
         return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
     }
 
-    // The one write allowed under review: the Vehicle page saves basic first and then the photo, so a
-    // plate change on an Approved taxi (now PendingReview) must still land its matching photo.
+    // Proof photo: replaceable until the first approval, locked for ever after (409 TaxiProofLocked).
     public static async Task<IResult> UploadPlatePhoto(
-        IFormFile photo, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService,
-        IRabbitMqPublisher publisher, IServiceProvider sp)
+        IFormFile photo, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IPhotoService photoService)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
         var taxi = await unitOfWork.Taxis.GetLiveByUserAsync(userId);
         if (taxi == null) return NotFoundResponse(TaxiNotFound);
-        if (photo.Length > 10 * 1024 * 1024) return BadRequestResponse("Photo size must not exceed 10MB");
+        if (TaxiPhotoRules.ProofLocked(taxi))
+            return ConflictResponse(TaxiPhotoRules.ProofLockedMessage, TaxiErrorTypes.TaxiProofLocked);
+        if (photo.Length > TaxiPhotoRules.MaxBytes) return BadRequestResponse(PhotoTooBig);
 
         using var stream = photo.OpenReadStream();
-        if (!IsValidImageMagicBytes(stream)) return BadRequestResponse("File must be a valid image (JPEG, PNG or WebP)");
+        if (!IsValidImageMagicBytes(stream)) return BadRequestResponse(PhotoNotImage);
         stream.Position = 0;
         // Same Cloudinary prefix as the other listings (user_{userId}/listing_{id}), so the shared
         // purge/account-deletion photo cleanup covers it.
         var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, taxi.Id);
 
         var oldPath = taxi.PlatePhotoPath;
-        var wasApproved = taxi.Status == TaxiStatuses.Approved;
-        var now = DateTime.UtcNow;
         taxi.PlatePhotoUrl = url;
         taxi.PlatePhotoPath = filePath;
-        taxi.UpdatedAt = now;
-        if (wasApproved) SendBackToReview(taxi, now);
-
-        // AU-6: a live taxi sent back to review closes its ringing offers in the same transaction.
-        var closure = wasApproved ? sp.GetRequiredService<TaxiRequestClosure>() : null;
-        var closed = TaxiClosureResult.Empty;
-        var db = sp.GetRequiredService<ApplicationDbContext>();
-        await unitOfWork.BeginTransactionAsync();
+        taxi.UpdatedAt = DateTime.UtcNow;
         try
         {
-            if (closure != null) closed = await closure.ListingInReviewAsync(db, taxi.Id);
             await unitOfWork.SaveChangesAsync();
-            await unitOfWork.CommitTransactionAsync();
         }
         catch (Exception ex) when (ex is DbUpdateConcurrencyException || PgRetry.IsRetryable(ex))
         {
-            await unitOfWork.RollbackTransactionAsync();
             try { await photoService.DeletePhotoAsync(filePath); } catch { }
             return Concurrent();
         }
         catch
         {
-            await unitOfWork.RollbackTransactionAsync();
             try { await photoService.DeletePhotoAsync(filePath); } catch { }
             throw;
         }
-        if (closure != null) await closure.AfterCommitAsync(closed, poolChanged: true);
 
         if (!string.IsNullOrEmpty(oldPath) && oldPath != filePath)
         {
             try { await photoService.DeletePhotoAsync(oldPath); } catch { /* orphan only */ }
         }
 
-        if (wasApproved)
+        return CreatedResponse(new { photoUrl = url, status = taxi.Status }, url);
+    }
+
+    public const string SetDisplayPhotoSql = """
+        WITH old AS (
+            SELECT "Id", "DisplayPhotoPath", "DistrictId", "Status"
+            FROM "TaxiListings"
+            WHERE "Id" = @id AND "UserId" = @user AND NOT "IsDeleted"
+            FOR UPDATE
+        )
+        UPDATE "TaxiListings" t
+        SET "DisplayPhotoUrl" = @url, "DisplayPhotoPath" = @path, "UpdatedAt" = now()
+        FROM old
+        WHERE t."Id" = old."Id"
+        RETURNING old."DisplayPhotoPath" AS "OldPath", old."DistrictId" AS "DistrictId", old."Status" AS "Status"
+        """;
+
+    private sealed class DisplayPhotoSwapRow
+    {
+        public string? OldPath { get; set; }
+        public Guid? DistrictId { get; set; }
+        public string Status { get; set; } = string.Empty;
+    }
+
+    // Display photo: shown to travellers, changeable in any status, no review, the taxi stays live.
+    public static async Task<IResult> UploadDisplayPhoto(
+        IFormFile photo, ClaimsPrincipal principal, ApplicationDbContext db, IPhotoService photoService, IServiceProvider sp)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var owned = await db.TaxiListings.AsNoTracking()
+            .Where(t => t.UserId == userId && !t.IsDeleted)
+            .Select(t => new { t.Id })
+            .FirstOrDefaultAsync();
+        if (owned == null) return NotFoundResponse(TaxiNotFound);
+        var taxiId = owned.Id;
+        if (photo.Length > TaxiPhotoRules.MaxBytes) return BadRequestResponse(PhotoTooBig);
+
+        using var stream = photo.OpenReadStream();
+        if (!IsValidImageMagicBytes(stream)) return BadRequestResponse(PhotoNotImage);
+        stream.Position = 0;
+        var (url, filePath) = await photoService.SavePhotoAsync(stream, photo.FileName, userId, taxiId);
+
+        DisplayPhotoSwapRow? swapped;
+        try
         {
-            await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
-            await PublishReviewRequestAsync(publisher, taxi.Id);
+            swapped = (await db.Database.SqlQueryRaw<DisplayPhotoSwapRow>(SetDisplayPhotoSql,
+                    new NpgsqlParameter("id", NpgsqlDbType.Uuid) { Value = taxiId },
+                    new NpgsqlParameter("user", NpgsqlDbType.Uuid) { Value = userId },
+                    new NpgsqlParameter("url", NpgsqlDbType.Varchar) { Value = url },
+                    new NpgsqlParameter("path", NpgsqlDbType.Varchar) { Value = filePath })
+                .ToListAsync()).FirstOrDefault();
+        }
+        catch
+        {
+            try { await photoService.DeletePhotoAsync(filePath); } catch { }
+            throw;
+        }
+        if (swapped == null)
+        {
+            try { await photoService.DeletePhotoAsync(filePath); } catch { }
+            return NotFoundResponse(TaxiNotFound);
         }
 
-        return CreatedResponse(new { photoUrl = url, status = taxi.Status }, url);
+        if (!string.IsNullOrEmpty(swapped.OldPath) && swapped.OldPath != filePath)
+        {
+            try { await photoService.DeletePhotoAsync(swapped.OldPath); } catch { /* orphan only */ }
+        }
+        if (swapped.Status == TaxiStatuses.Approved)
+            await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), swapped.DistrictId);
+
+        return CreatedResponse(new { displayPhotoUrl = url }, url);
     }
 
     public static async Task<IResult> UpsertRoutes(

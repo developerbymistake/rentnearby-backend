@@ -91,6 +91,7 @@ public sealed class TaxiWaysSourceRow
     public string? VehicleCategory { get; set; }
     public short? Seats { get; set; }
     public string? PlateDisplay { get; set; }
+    public string? DisplayPhotoUrl { get; set; }
     public Guid? CityId { get; set; }
     public string? CityName { get; set; }
     public double? BaseLat { get; set; }
@@ -131,6 +132,8 @@ public sealed class TaxiWaysDriver
     public string? VehicleCategory { get; init; }
     public short? Seats { get; init; }
     public string? PlateDisplay { get; init; }
+    // Raw stored url; TaxiWaysMapper.Driver applies the list thumb.
+    public string? DisplayPhotoUrl { get; init; }
     public Guid? CityId { get; init; }
     public string? CityName { get; init; }
     public double? BaseLat { get; init; }
@@ -768,7 +771,7 @@ public static class TaxiWaysClustering
                 drivers[r.TaxiId] = new TaxiWaysDriver
                 {
                     TaxiId = r.TaxiId, UserId = r.UserId, DriverName = r.DriverName, VehicleTypeName = r.VehicleTypeName,
-                    VehicleCategory = r.VehicleCategory, Seats = r.Seats, PlateDisplay = r.PlateDisplay, CityId = r.CityId,
+                    VehicleCategory = r.VehicleCategory, Seats = r.Seats, PlateDisplay = r.PlateDisplay, DisplayPhotoUrl = r.DisplayPhotoUrl, CityId = r.CityId,
                     CityName = r.CityName, BaseLat = r.BaseLat, BaseLng = r.BaseLng, LocalDayRate = r.LocalDayRate,
                     PriorityRank = r.PriorityRank, IsFeatured = r.IsFeatured, TripReplyLabel = r.TripReplyLabel,
                 };

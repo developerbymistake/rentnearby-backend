@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Utils;
 using StackExchange.Redis;
 
 namespace RentNearBy.Infrastructure.Services;
@@ -332,6 +333,7 @@ internal static class TaxiWaysMapper
             VehicleCategory = d.VehicleCategory,
             Seats = d.Seats,
             PlateDisplay = d.PlateDisplay,
+            DisplayPhotoUrl = CloudinaryThumb.Apply(d.DisplayPhotoUrl, CloudinaryThumb.TaxiFace),
             CityName = d.CityName,
             BasedHere = c.BasedHere,
             TripReplyLabel = d.TripReplyLabel,

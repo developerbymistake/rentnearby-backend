@@ -79,6 +79,11 @@ public static class ListingRemoval
             tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, [taxi.Id]);
             taxi.IsDeleted = true;
             taxi.DeletedAt = now;
+            // The prefix delete after commit removes both files, so the kept row never points at one.
+            taxi.PlatePhotoUrl = null;
+            taxi.PlatePhotoPath = null;
+            taxi.DisplayPhotoUrl = null;
+            taxi.DisplayPhotoPath = null;
             taxi.UpdatedAt = now;
             await unitOfWork.SaveChangesAsync();
             await ownerPurge.PurgeAsync(ListingKinds.Taxi, [taxi.Id]);

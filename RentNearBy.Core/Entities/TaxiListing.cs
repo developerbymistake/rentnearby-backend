@@ -12,6 +12,9 @@ public class TaxiListing
     public string? NumberPlate { get; set; }   // normalised, see TaxiPlate
     public string? PlatePhotoUrl { get; set; }
     public string? PlatePhotoPath { get; set; }
+    // Shown to travellers. PlatePhoto* above is the private proof (driver and admin only).
+    public string? DisplayPhotoUrl { get; set; }
+    public string? DisplayPhotoPath { get; set; }
     public string? ContactPhone { get; set; }
     public string? WhatsAppNumber { get; set; }
     // Admin-only. "v1.<nonce>.<ciphertext+tag>" from IIdentityCipher, never the plain number.

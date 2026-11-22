@@ -17,6 +17,8 @@ public class TaxiOwnerDto
     public string? NumberPlate { get; set; }
     public string? PlateDisplay { get; set; }
     public string? PlatePhotoUrl { get; set; }
+    public string? DisplayPhotoUrl { get; set; }
+    public bool PlatePhotoLocked { get; set; }
     public string? ContactPhone { get; set; }
     public string? WhatsAppNumber { get; set; }
     // Only whether they are stored; the values are admin-only (AdminTaxiDto).

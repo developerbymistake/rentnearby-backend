@@ -95,6 +95,19 @@ public static class TaxiSetupRules
         + (Submitted(t) ? SubmitWeight : 0);
 }
 
+public static class TaxiPhotoRules
+{
+    public const long MaxBytes = 10 * 1024 * 1024;
+    public const string ProofLockedMessage = "Your number plate photo is verified and cannot be changed.";
+    public const string ProofLabel = "Proof (plate)";
+    public const string DisplayLabel = "Display";
+    public const string ProofKind = "Proof";
+    public const string DisplayKind = "Display";
+
+    // Ever approved, or approved now (a seeded Approved row without the flag is locked too).
+    public static bool ProofLocked(TaxiListing t) => t.EverApproved || t.Status == TaxiStatuses.Approved;
+}
+
 // Stored normalised (no spaces or hyphens, upper case); apps show Format().
 public static class TaxiPlate
 {
@@ -134,6 +147,7 @@ public static class TaxiErrorTypes
     public const string TaxiBaseOutsideDistrict = "TaxiBaseOutsideDistrict";
     public const string TaxiIdentityRequired = "TaxiIdentityRequired";
     public const string IdentityCipherNotConfigured = "IdentityCipherNotConfigured";
+    public const string TaxiProofLocked = "TaxiProofLocked";
 }
 
 // Seeded rows are re-inserted on start when missing, so they can only be switched off, never deleted.

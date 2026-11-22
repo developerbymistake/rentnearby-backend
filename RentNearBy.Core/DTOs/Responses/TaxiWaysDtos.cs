@@ -56,6 +56,8 @@ public class WayDriverDto
     public string? VehicleCategory { get; set; }
     public short? Seats { get; set; }
     public string? PlateDisplay { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayPhotoUrl { get; set; }
     public string? CityName { get; set; }
     public bool BasedHere { get; set; }
     public string TripReplyLabel { get; set; } = RentNearBy.Core.Models.TaxiTripReplyLabels.New;

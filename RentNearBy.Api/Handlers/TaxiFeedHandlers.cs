@@ -89,7 +89,7 @@ public static class TaxiFeedComposer
             items.Add(ForRoute(new TaxiFeedItemDto
             {
                 Id = d.TaxiId, DriverName = d.DriverName, VehicleTypeName = d.VehicleTypeName, VehicleCategory = d.VehicleCategory,
-                Seats = d.Seats, PlateDisplay = d.PlateDisplay, CityName = d.CityName, TripReplyLabel = d.TripReplyLabel,
+                Seats = d.Seats, PlateDisplay = d.PlateDisplay, DisplayPhotoUrl = d.DisplayPhotoUrl, CityName = d.CityName, TripReplyLabel = d.TripReplyLabel,
                 PriorityRank = d.PriorityRank, IsFeatured = d.IsFeatured, MatchedFare = d.ListedFare,
                 MatchedFromName = d.FromName, MatchedToName = d.ToName, MatchedTripType = d.TripType, MatchReversed = d.Reversed,
             }));

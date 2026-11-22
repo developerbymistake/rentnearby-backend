@@ -14,7 +14,7 @@ public class TaxiWaysNetworkRepository(ApplicationDbContext context) : ITaxiWays
         short? Seats, string? NumberPlate, Guid? CityId, string? CityName, double? BaseLat, double? BaseLng,
         int? LocalDayRate, short PriorityRank, bool IsFeatured, int TripLeadsReceived, int TripLeadsAnsweredInApp,
         string FromName, double FromLat, double FromLng, string ToName, double ToLat, double ToLng,
-        int Fare, string TripType, string? GeometryJson, double? DistanceKm, int? Minutes);
+        int Fare, string TripType, string? GeometryJson, double? DistanceKm, int? Minutes, string? DisplayPhotoUrl);
 
     public async Task<IReadOnlyList<TaxiWaysSourceRow>> LoadAsync(CancellationToken ct = default)
     {
@@ -47,7 +47,8 @@ public class TaxiWaysNetworkRepository(ApplicationDbContext context) : ITaxiWays
                        r."TripType",
                        g."GeometryJson"::text     AS "GeometryJson",
                        g."DistanceKm"::float8     AS "DistanceKm",
-                       g."Minutes"
+                       g."Minutes",
+                       t."DisplayPhotoUrl"
                 FROM "TaxiRoutes" r
                 JOIN "TaxiListings" t ON t."Id" = r."TaxiListingId"
                   AND t."Status" = 'Approved' AND t."IsAvailable" = TRUE AND t."IsDeleted" = FALSE
@@ -70,6 +71,7 @@ public class TaxiWaysNetworkRepository(ApplicationDbContext context) : ITaxiWays
             VehicleCategory = r.VehicleCategory,
             Seats = r.Seats,
             PlateDisplay = TaxiPlate.Format(r.NumberPlate),
+            DisplayPhotoUrl = r.DisplayPhotoUrl,
             CityId = r.CityId,
             CityName = r.CityName,
             BaseLat = r.BaseLat,

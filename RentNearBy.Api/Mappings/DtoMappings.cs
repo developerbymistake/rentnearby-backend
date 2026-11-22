@@ -93,6 +93,7 @@ public static class DtoMappings
             .Map(dest => dest.Step1Done, src => TaxiSetupRules.Step1Done(src))
             .Map(dest => dest.RoutesDone, src => TaxiSetupRules.RoutesDone(src))
             .Map(dest => dest.Submitted, src => TaxiSetupRules.Submitted(src))
+            .Map(dest => dest.PlatePhotoLocked, src => TaxiPhotoRules.ProofLocked(src))
             .Map(dest => dest.HasDrivingLicence, src => src.DrivingLicenceNumberEnc != null)
             .Map(dest => dest.HasDateOfBirth, src => src.DateOfBirth != default)
             .Map(dest => dest.VehicleTypeName, src => src.VehicleType != null ? src.VehicleType.Name : null)

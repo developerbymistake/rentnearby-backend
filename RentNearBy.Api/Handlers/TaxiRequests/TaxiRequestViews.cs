@@ -4,6 +4,7 @@ using RentNearBy.Core.DTOs.TaxiRequests;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.TaxiRequests;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 
@@ -12,7 +13,7 @@ namespace RentNearBy.Api.Handlers.TaxiRequests;
 // One offer with the driver facts the card needs (read live from the listing).
 public sealed record TaxiViewOffer(
     Guid Id, string Status, int SeqNo, DateTime? ConfirmBy, string DriverName, string? ContactPhone, string Vehicle,
-    int Seats, int RatingSum, int RatingCount, int RidesCompleted, bool IsFeatured = false);
+    int Seats, int RatingSum, int RatingCount, int RidesCompleted, bool IsFeatured = false, string? DisplayPhotoUrl = null);
 
 public sealed record TaxiViewBooking(Guid Id, string Status, DateOnly DateFrom, DateOnly DateTo, DateTime? StartedAt = null);
 
@@ -100,6 +101,7 @@ public sealed class TaxiRequestViews(ApplicationDbContext db)
             CanSelect = requestState == RequestStates.Collecting && o.Status == OfferStates.Accepted,
             ConfirmBy = o.Status == OfferStates.Selected ? o.ConfirmBy : null,
             IsFeatured = o.IsFeatured,
+            DisplayPhotoUrl = CloudinaryThumb.Apply(o.DisplayPhotoUrl, CloudinaryThumb.TaxiFace),
         };
     }
 
@@ -157,10 +159,11 @@ public sealed class TaxiRequestViews(ApplicationDbContext db)
                 Count = l != null ? l.RatingCount : 0,
                 Rides = l != null ? l.RidesCompleted : 0,
                 Featured = l != null && l.IsFeatured,
+                DisplayPhotoUrl = l != null ? l.DisplayPhotoUrl : null,
             }).ToListAsync(ct);
 
         var offers = offerRows.Select(o => new TaxiViewOffer(o.Id, o.Status, o.SeqNo, o.ConfirmBy, o.Name ?? string.Empty, o.Phone,
-            o.Vehicle ?? string.Empty, o.Seats ?? 0, o.Sum, o.Count, o.Rides, o.Featured)).ToList();
+            o.Vehicle ?? string.Empty, o.Seats ?? 0, o.Sum, o.Count, o.Rides, o.Featured, o.DisplayPhotoUrl)).ToList();
 
         var booking = await db.Set<TaxiBooking>().AsNoTracking()
             .Where(b => b.RequestId == request.Id)

@@ -119,7 +119,7 @@ public class ListingPurgeService(
         return stayIds;
     }
 
-    // The plate photo lives under listing_{taxiId}, so the shared photo cleanup covers it.
+    // The plate and display photos live under listing_{taxiId}, so the shared photo cleanup covers both.
     private async Task<IReadOnlyList<Guid>> DeleteTaxiRowsAsync(Guid userId)
     {
         var taxiIds = await context.TaxiListings

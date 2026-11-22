@@ -21,4 +21,6 @@ public class AdminTaxiDto : TaxiOwnerDto
     // Owner roles A4: every route, hidden ones included, each with hiddenByPlan, and the plan line; detail only.
     public Owner.AdminPlanRowsDto? PlanRows { get; set; }
     public string? PlanState { get; set; }
+    // Proof (plate) first, then Display; a missing one is left out.
+    public List<AdminTaxiPhotoDto> Photos { get; set; } = new();
 }

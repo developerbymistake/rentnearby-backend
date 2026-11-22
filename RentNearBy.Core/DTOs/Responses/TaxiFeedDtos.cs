@@ -21,7 +21,7 @@ public class TaxiFeedItemDto : TaxiBrowseDto
     public static TaxiFeedItemDto From(TaxiBrowseDto s) => new()
     {
         Id = s.Id, DriverName = s.DriverName, VehicleTypeName = s.VehicleTypeName, VehicleCategory = s.VehicleCategory,
-        Seats = s.Seats, PlateDisplay = s.PlateDisplay, CityId = s.CityId, CityName = s.CityName, DistrictName = s.DistrictName,
+        Seats = s.Seats, PlateDisplay = s.PlateDisplay, DisplayPhotoUrl = s.DisplayPhotoUrl, CityId = s.CityId, CityName = s.CityName, DistrictName = s.DistrictName,
         MinFare = s.MinFare, RouteCount = s.RouteCount, LocalDayRate = s.LocalDayRate, LocalDayKm = s.LocalDayKm,
         TripReplyLabel = s.TripReplyLabel, MatchedFare = s.MatchedFare, MatchedFromName = s.MatchedFromName,
         MatchedToName = s.MatchedToName, MatchedTripType = s.MatchedTripType, MatchReversed = s.MatchReversed,

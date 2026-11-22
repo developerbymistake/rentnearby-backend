@@ -31,6 +31,11 @@ public class OwnerSecurityJourneyTests
     {
         Assert.Contains("StayHandlers.UploadPhoto).RequireAuthorization(\"CanListStays\").DisableAntiforgery().OwnerPhotoLimited()",
             Src("RentNearBy.Api", "Endpoints", "StayEndpoints.cs"));
+        Assert.Contains("StayHandlers.ReplacePhoto).RequireAuthorization(\"CanListStays\").DisableAntiforgery().OwnerPhotoLimited()",
+            Src("RentNearBy.Api", "Endpoints", "StayEndpoints.cs"));
+        var taxi = Src("RentNearBy.Api", "Endpoints", "TaxiEndpoints.cs");
+        Assert.Contains("TaxiHandlers.UploadPlatePhoto).RequireAuthorization(\"CanListTaxis\").DisableAntiforgery().OwnerPhotoLimited()", taxi);
+        Assert.Contains("TaxiHandlers.UploadDisplayPhoto).RequireAuthorization(\"CanListTaxis\").DisableAntiforgery().OwnerPhotoLimited()", taxi);
         Assert.Equal((20, TimeSpan.FromHours(1)), (OwnerRateLimitKeys.Photo(Guid.Empty).Max, OwnerRateLimitKeys.Photo(Guid.Empty).Window));
     }
 

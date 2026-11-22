@@ -17,7 +17,7 @@ public class NearbyWireContractTests
     static readonly string[] StayBase = ["id", "userId", "name", "stayTypeId", "stayTypeName", "thumbnailUrl", "cityName", "districtName",
         "minPricePerNight", "mealsChip", "roomNameChip", "priorityRank", "isFeatured", "createdAt"];
 
-    static readonly string[] TaxiBase = ["id", "driverName", "vehicleTypeName", "vehicleCategory", "seats", "plateDisplay", "cityId", "cityName",
+    static readonly string[] TaxiBase = ["id", "driverName", "vehicleTypeName", "vehicleCategory", "seats", "plateDisplay", "displayPhotoUrl", "cityId", "cityName",
         "districtName", "minFare", "routeCount", "localDayRate", "localDayKm", "tripSeatsFit", "tripCars", "tripDayCost", "tripExtraKm",
         "tripPickupKm", "tripReplyLabel", "matchedFare", "matchedFromName", "matchedToName", "matchedTripType", "matchReversed",
         "priorityRank", "isFeatured", "createdAt"];
@@ -38,6 +38,15 @@ public class NearbyWireContractTests
     [Fact]
     public void Stay_item_keys()
         => Assert.Equal(StayBase.Concat(["stateName", "distanceKm", "labelKey", "isNear"]).ToHashSet(), Keys(new StayFeedItemDto()));
+
+    [Fact]
+    public void Stay_item_offer_keys_only_with_an_offer()
+    {
+        var item = new StayFeedItemDto();
+        item.SetOffer((1800, 1530, 15));
+        Assert.Equal(StayBase.Concat(["stateName", "distanceKm", "labelKey", "isNear", "oldPricePerNight", "offerPricePerNight", "offerPercent"])
+            .ToHashSet(), Keys(item));
+    }
 
     [Fact]
     public void Taxi_item_keys()

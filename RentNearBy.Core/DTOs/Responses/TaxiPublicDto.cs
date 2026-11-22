@@ -12,7 +12,7 @@ public class TaxiPublicDto
     public short? Seats { get; set; }
     public string? NumberPlate { get; set; }
     public string? PlateDisplay { get; set; }
-    public string? PlatePhotoUrl { get; set; }
+    public string? DisplayPhotoUrl { get; set; }
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }
     public string? DistrictName { get; set; }

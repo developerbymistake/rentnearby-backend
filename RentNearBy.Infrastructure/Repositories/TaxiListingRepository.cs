@@ -3,6 +3,7 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Repositories;
@@ -85,7 +86,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
     private sealed record LocalRow(
         Guid Id, string? DriverName, string? VehicleTypeName, string? VehicleCategory, short? Seats,
         string? NumberPlate, Guid? CityId, string? CityName, string? DistrictName, int? MinFare, int RouteCount, DateTime CreatedAt,
-        short PriorityRank, bool IsFeatured, int? LocalDayRate, int? LocalDayKm, int TripLeadsReceived, int TripLeadsAnsweredInApp);
+        short PriorityRank, bool IsFeatured, int? LocalDayRate, int? LocalDayKm, int TripLeadsReceived, int TripLeadsAnsweredInApp,
+        string? DisplayPhotoUrl);
 
     // Upper bound of drivers ranked in memory for one trip day (the SQL order already puts fitting drivers first).
     private const int RankPool = 500;
@@ -137,7 +139,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                 t.LocalDayRate,
                 t.LocalDayKm,
                 t.TripLeadsReceived,
-                t.TripLeadsAnsweredInApp))
+                t.TripLeadsAnsweredInApp,
+                t.DisplayPhotoUrl))
             .ToListAsync();
 
         var hasMore = rows.Count > pageSize;
@@ -149,6 +152,7 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             VehicleCategory = r.VehicleCategory,
             Seats = r.Seats,
             PlateDisplay = TaxiPlate.Format(r.NumberPlate),
+            DisplayPhotoUrl = CloudinaryThumb.Apply(r.DisplayPhotoUrl, CloudinaryThumb.TaxiFace),
             CityId = r.CityId,
             CityName = r.CityName,
             DistrictName = r.DistrictName,
@@ -191,7 +195,7 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                     t.Id, t.User.Name, t.VehicleType != null ? t.VehicleType.Name : null, t.VehicleType != null ? t.VehicleType.Category : null,
                     t.Seats, t.NumberPlate, t.CityId, t.City != null ? t.City.Name : null, t.District != null ? t.District.Name : null,
                     t.MinFare, t.Routes.Count, t.CreatedAt, t.PriorityRank, t.IsFeatured, t.LocalDayRate, t.LocalDayKm,
-                    t.TripLeadsReceived, t.TripLeadsAnsweredInApp),
+                    t.TripLeadsReceived, t.TripLeadsAnsweredInApp, t.DisplayPhotoUrl),
                 Lat = t.Latitude!.Value,
                 Lng = t.Longitude!.Value,
             })
@@ -200,7 +204,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
         return rows.Select(x => (new TaxiBrowseDto
         {
             Id = x.Row.Id, DriverName = x.Row.DriverName, VehicleTypeName = x.Row.VehicleTypeName, VehicleCategory = x.Row.VehicleCategory,
-            Seats = x.Row.Seats, PlateDisplay = TaxiPlate.Format(x.Row.NumberPlate), CityId = x.Row.CityId, CityName = x.Row.CityName,
+            Seats = x.Row.Seats, PlateDisplay = TaxiPlate.Format(x.Row.NumberPlate),
+            DisplayPhotoUrl = CloudinaryThumb.Apply(x.Row.DisplayPhotoUrl, CloudinaryThumb.TaxiFace), CityId = x.Row.CityId, CityName = x.Row.CityName,
             DistrictName = x.Row.DistrictName, MinFare = x.Row.MinFare, LocalDayRate = x.Row.LocalDayRate, LocalDayKm = x.Row.LocalDayKm,
             TripReplyLabel = TaxiTripReplyLabels.Of(x.Row.TripLeadsReceived, x.Row.TripLeadsAnsweredInApp),
             RouteCount = x.Row.RouteCount, PriorityRank = x.Row.PriorityRank, IsFeatured = x.Row.IsFeatured, CreatedAt = x.Row.CreatedAt,
@@ -240,7 +245,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                     t.LocalDayRate,
                     t.LocalDayKm,
                     t.TripLeadsReceived,
-                    t.TripLeadsAnsweredInApp),
+                    t.TripLeadsAnsweredInApp,
+                    t.DisplayPhotoUrl),
                 t.Latitude,
                 t.Longitude,
             })
@@ -268,6 +274,7 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                 VehicleCategory = r.VehicleCategory,
                 Seats = r.Seats,
                 PlateDisplay = TaxiPlate.Format(r.NumberPlate),
+                DisplayPhotoUrl = CloudinaryThumb.Apply(r.DisplayPhotoUrl, CloudinaryThumb.TaxiFace),
                 CityId = r.CityId,
                 CityName = r.CityName,
                 DistrictName = r.DistrictName,
@@ -293,7 +300,7 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
         Guid Id, string? DriverName, string? VehicleTypeName, string? VehicleCategory, short? Seats,
         string? NumberPlate, string? CityName, string? DistrictName, int? MinFare, DateTime CreatedAt,
         long RouteCount, int MatchedFare, string MatchedFromName, string MatchedToName, string MatchedTripType,
-        bool MatchReversed, short PriorityRank, bool IsFeatured);
+        bool MatchReversed, short PriorityRank, bool IsFeatured, string? DisplayPhotoUrl);
 
     // Route match runs first over TaxiRoutes (the two GiST indexes drive the ST_DWithin pairs), one
     // row per taxi via DISTINCT ON (direct before reverse, then cheapest), then the public filter and
@@ -347,7 +354,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                        b."TripType"  AS "MatchedTripType",
                        b."Reversed"  AS "MatchReversed",
                        t."PriorityRank",
-                       t."IsFeatured"
+                       t."IsFeatured",
+                       t."DisplayPhotoUrl"
                 FROM best b
                 JOIN "TaxiListings" t ON t."Id" = b."TaxiListingId"
                   AND t."Status" = 'Approved' AND t."IsAvailable" = TRUE AND t."IsDeleted" = FALSE
@@ -370,6 +378,7 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             VehicleCategory = r.VehicleCategory,
             Seats = r.Seats,
             PlateDisplay = TaxiPlate.Format(r.NumberPlate),
+            DisplayPhotoUrl = CloudinaryThumb.Apply(r.DisplayPhotoUrl, CloudinaryThumb.TaxiFace),
             CityName = r.CityName,
             DistrictName = r.DistrictName,
             MinFare = r.MinFare,
