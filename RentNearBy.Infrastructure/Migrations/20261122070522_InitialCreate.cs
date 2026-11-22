@@ -414,7 +414,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     BookedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     StartedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    CancelledAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                    CancelledAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CompletionCountedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -814,6 +815,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     RoleConfirmedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     PlayAccountKey = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     BuddyRequestsHeldUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CompletedTripsCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    CompletedBookingsCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     NotificationsReadUpTo = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
@@ -821,6 +824,8 @@ namespace RentNearBy.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Users", x => x.Id);
+                    table.CheckConstraint("ck_users_completedbookings_nonneg", "\"CompletedBookingsCount\" >= 0");
+                    table.CheckConstraint("ck_users_completedtrips_nonneg", "\"CompletedTripsCount\" >= 0");
                     table.ForeignKey(
                         name: "FK_Users_Roles_RoleId",
                         column: x => x.RoleId,
@@ -1312,7 +1317,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     ExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
-                    LoggedOutAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                    LoggedOutAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    RevokeReason = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: true)
                 },
                 constraints: table =>
                 {
@@ -1550,6 +1556,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     StartDate = table.Column<DateOnly>(type: "date", nullable: true),
                     EndDate = table.Column<DateOnly>(type: "date", nullable: true),
                     CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CompletionCountedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     MutedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
@@ -2550,6 +2557,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     ClientRequestId = table.Column<Guid>(type: "uuid", nullable: true),
                     RemindedOn = table.Column<DateOnly>(type: "date", nullable: true),
                     FinalPushedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CompletionCountedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
@@ -2637,19 +2645,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_AdminDeviceTokens_AdminId",
-                table: "AdminDeviceTokens",
-                column: "AdminId");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_AdminDeviceTokens_AdminId_IsValid",
                 table: "AdminDeviceTokens",
                 columns: new[] { "AdminId", "IsValid" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_AdminDeviceTokens_IsValid",
-                table: "AdminDeviceTokens",
-                column: "IsValid");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminDeviceTokens_Token",
@@ -2803,12 +2801,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 .Annotation("Npgsql:IndexInclude", new[] { "DateFrom", "Kind", "Cancelled" });
 
             migrationBuilder.CreateIndex(
-                name: "ix_calendarentries_manual_active",
-                table: "CalendarEntries",
-                columns: new[] { "ListingKind", "ListingId", "DateTo", "Id" },
-                filter: "\"Kind\" = 'Manual'");
-
-            migrationBuilder.CreateIndex(
                 name: "ix_calendarentries_owner",
                 table: "CalendarEntries",
                 column: "OwnerUserId");
@@ -2941,11 +2933,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "UpdatedAt");
 
             migrationBuilder.CreateIndex(
-                name: "IX_DeviceTokens_UserId",
-                table: "DeviceTokens",
-                column: "UserId");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_DeviceTokens_UserId_IsValid",
                 table: "DeviceTokens",
                 columns: new[] { "UserId", "IsValid" });
@@ -3008,17 +2995,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "DueActions",
                 columns: new[] { "SubjectId", "Kind", "RoundNo" },
                 unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "ix_festivaldates_active_from",
-                table: "FestivalDates",
-                columns: new[] { "IsActive", "DateFrom" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_festivaldates_from_id",
-                table: "FestivalDates",
-                columns: new[] { "DateFrom", "Id" },
-                descending: new[] { true, false });
 
             migrationBuilder.CreateIndex(
                 name: "ix_festivalremindersent_dateto",
@@ -3094,11 +3070,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "ResolvedByAdminId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_ListingReports_Status",
-                table: "ListingReports",
-                column: "Status");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_ListingReports_Status_CreatedAt_Id",
                 table: "ListingReports",
                 columns: new[] { "Status", "CreatedAt", "Id" },
@@ -3155,11 +3126,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_notificationlogs_sent",
                 table: "NotificationLogs",
                 column: "SentAt");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_NotificationLogs_UserId",
-                table: "NotificationLogs",
-                column: "UserId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_NotificationLogs_UserId_Type_SentAt",
@@ -3684,12 +3650,6 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "NOT \"IsPaused\" AND NOT \"PausedByPlan\"");
 
             migrationBuilder.CreateIndex(
-                name: "ix_stayspecialprices_bigoff",
-                table: "StaySpecialPrices",
-                columns: new[] { "StayListingId", "DateTo" },
-                filter: "\"Direction\" = 'Lower' AND \"Percent\" >= 40 AND NOT \"IsPaused\" AND NOT \"PausedByPlan\"");
-
-            migrationBuilder.CreateIndex(
                 name: "ix_stayspecialprices_dateto",
                 table: "StaySpecialPrices",
                 column: "DateTo");
@@ -3704,6 +3664,17 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "StayTypes",
                 column: "Name",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxibookings_booked",
+                table: "TaxiBookings",
+                column: "BookedAt");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxibookings_cancelled",
+                table: "TaxiBookings",
+                column: "CancelledAt",
+                filter: "\"Status\" = 'Cancelled'");
 
             migrationBuilder.CreateIndex(
                 name: "ix_taxibookings_driver_active",
@@ -3879,6 +3850,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"Status\" IN ('Open', 'Collecting')");
 
             migrationBuilder.CreateIndex(
+                name: "ix_taxirequests_from_created",
+                table: "TaxiRequests",
+                columns: new[] { "MatchFromCityKey", "CreatedAt" })
+                .Annotation("Npgsql:IndexInclude", new[] { "MatchToCityKey", "DropCityKey" });
+
+            migrationBuilder.CreateIndex(
                 name: "ix_taxirequests_traveller",
                 table: "TaxiRequests",
                 columns: new[] { "TravellerUserId", "CreatedAt" },
@@ -3902,6 +3879,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_taxiroutegeometries_status",
                 table: "TaxiRouteGeometries",
                 columns: new[] { "Status", "UpdatedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxiroutes_from_city",
+                table: "TaxiRoutes",
+                column: "FromCityKey",
+                filter: "\"FromCityKey\" IS NOT NULL AND NOT \"HiddenByPlan\"")
+                .Annotation("Npgsql:IndexInclude", new[] { "TaxiListingId" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_taxiroutes_from_gist",
@@ -3962,6 +3946,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "TripEnquiries",
                 column: "UpdatedAt",
                 filter: "(\"Status\" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') OR (\"Status\" = 'Failed' AND \"FailReason\" IN ('DriverDenied','ListingRemoved')))");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_tripenquiries_confirmed_updated",
+                table: "TripEnquiries",
+                column: "UpdatedAt",
+                filter: "\"Status\" = 'ConfirmedByBoth'");
 
             migrationBuilder.CreateIndex(
                 name: "ix_tripenquiries_conversation",

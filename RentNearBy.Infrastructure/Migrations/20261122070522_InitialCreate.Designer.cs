@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261121142527_InitialCreate")]
+    [Migration("20261122070522_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -98,10 +98,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDefaultValueSql("now()");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("AdminId");
-
-                    b.HasIndex("IsValid");
 
                     b.HasIndex("Token");
 
@@ -1302,8 +1298,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("Token");
 
-                    b.HasIndex("UserId");
-
                     b.HasIndex("UserId", "IsValid");
 
                     b.HasIndex(new[] { "UpdatedAt" }, "ix_devicetokens_updated");
@@ -1677,8 +1671,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex("ResolvedByAdminId");
 
-                    b.HasIndex("Status");
-
                     b.HasIndex("TripEnquiryId");
 
                     b.HasIndex("ReporterUserId", "CreatedAt")
@@ -1825,8 +1817,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("UserId");
 
                     b.HasIndex("UserId", "Type", "SentAt");
 
@@ -2044,9 +2034,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "ListingKind", "ListingId", "DateTo", "Id" }, "ix_calendarentries_listing_dateto"), new[] { "DateFrom", "Kind", "Cancelled" });
 
-                    b.HasIndex(new[] { "ListingKind", "ListingId", "DateTo", "Id" }, "ix_calendarentries_manual_active")
-                        .HasFilter("\"Kind\" = 'Manual'");
-
                     b.HasIndex(new[] { "OwnerUserId" }, "ix_calendarentries_owner");
 
                     b.HasIndex(new[] { "TravellerUserId" }, "ix_calendarentries_traveller")
@@ -2120,11 +2107,6 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDefaultValueSql("now()");
 
                     b.HasKey("Id");
-
-                    b.HasIndex(new[] { "IsActive", "DateFrom" }, "ix_festivaldates_active_from");
-
-                    b.HasIndex(new[] { "DateFrom", "Id" }, "ix_festivaldates_from_id")
-                        .IsDescending(true, false);
 
                     b.ToTable("FestivalDates", null, t =>
                         {
@@ -2333,9 +2315,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "DateFrom", "Id" }, "ix_stayspecialprices_active_from")
                         .HasFilter("NOT \"IsPaused\" AND NOT \"PausedByPlan\"");
-
-                    b.HasIndex(new[] { "StayListingId", "DateTo" }, "ix_stayspecialprices_bigoff")
-                        .HasFilter("\"Direction\" = 'Lower' AND \"Percent\" >= 40 AND NOT \"IsPaused\" AND NOT \"PausedByPlan\"");
 
                     b.HasIndex(new[] { "DateTo" }, "ix_stayspecialprices_dateto");
 
@@ -3428,6 +3407,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateTime?>("LoggedOutAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("RevokeReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
@@ -4434,6 +4417,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(12)
                         .HasColumnType("character varying(12)");
 
+                    b.Property<DateTime?>("CompletionCountedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateOnly>("DateFrom")
                         .HasColumnType("date");
 
@@ -4495,6 +4481,11 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("character varying(120)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex(new[] { "BookedAt" }, "ix_taxibookings_booked");
+
+                    b.HasIndex(new[] { "CancelledAt" }, "ix_taxibookings_cancelled")
+                        .HasFilter("\"Status\" = 'Cancelled'");
 
                     b.HasIndex(new[] { "DriverListingId", "DateFrom", "DateTo" }, "ix_taxibookings_driver_active")
                         .HasFilter("\"Status\" IN ('Booked', 'InProgress')");
@@ -4713,6 +4704,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "DispatchCityKey", "CreatedAt", "Id" }, "ix_taxirequests_dispatch")
                         .HasFilter("\"Status\" IN ('Open', 'Collecting')");
 
+                    b.HasIndex(new[] { "MatchFromCityKey", "CreatedAt" }, "ix_taxirequests_from_created");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "MatchFromCityKey", "CreatedAt" }, "ix_taxirequests_from_created"), new[] { "MatchToCityKey", "DropCityKey" });
+
                     b.HasIndex(new[] { "TravellerUserId", "CreatedAt" }, "ix_taxirequests_traveller")
                         .IsDescending(false, true);
 
@@ -4923,6 +4918,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex("TaxiListingId", "RouteIndex")
                         .IsUnique();
 
+                    b.HasIndex(new[] { "FromCityKey" }, "ix_taxiroutes_from_city")
+                        .HasFilter("\"FromCityKey\" IS NOT NULL AND NOT \"HiddenByPlan\"");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "FromCityKey" }, "ix_taxiroutes_from_city"), new[] { "TaxiListingId" });
+
                     b.HasIndex(new[] { "ToCityKey", "FromCityKey" }, "ix_taxiroutes_to_from_city")
                         .HasFilter("\"ToCityKey\" IS NOT NULL AND \"FromCityKey\" IS NOT NULL AND NOT \"HiddenByPlan\"");
 
@@ -5050,6 +5050,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CompletionCountedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("CreatedAt")
@@ -5181,6 +5184,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Guid?>("ClientRequestId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletionCountedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("ConfirmedByOwnerAt")
                         .HasColumnType("timestamp with time zone");
@@ -5329,6 +5335,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "UpdatedAt" }, "ix_tripenquiries_closed_updated")
                         .HasFilter("(\"Status\" IN ('NotAvailable','Expired','Declined','CancelledByTraveller','CancelledByOwner','Closed') OR (\"Status\" = 'Failed' AND \"FailReason\" IN ('DriverDenied','ListingRemoved')))");
+
+                    b.HasIndex(new[] { "UpdatedAt" }, "ix_tripenquiries_confirmed_updated")
+                        .HasFilter("\"Status\" = 'ConfirmedByBoth'");
 
                     b.HasIndex(new[] { "ConversationId" }, "ix_tripenquiries_conversation")
                         .HasFilter("\"ConversationId\" IS NOT NULL");
@@ -5703,6 +5712,16 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateTime?>("BuddyRequestsHeldUntil")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("CompletedBookingsCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("CompletedTripsCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -5773,7 +5792,12 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"Username\" IS NOT NULL");
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", t =>
+                        {
+                            t.HasCheckConstraint("ck_users_completedbookings_nonneg", "\"CompletedBookingsCount\" >= 0");
+
+                            t.HasCheckConstraint("ck_users_completedtrips_nonneg", "\"CompletedTripsCount\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.UserBlock", b =>
