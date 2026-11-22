@@ -32,6 +32,11 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
     public async Task<bool> HasDeletedAsync(Guid userId)
         => await _dbSet.AnyAsync(x => x.UserId == userId && x.IsDeleted);
 
+    // FB-33: one projected statement on IX_TaxiListings_UserId_IsDeleted instead of four.
+    public async Task<OwnerListingFacts> GetOwnerFactsAsync(Guid userId)
+        => OwnerListingFacts.Of(await _dbSet.AsNoTracking().Where(t => t.UserId == userId)
+            .Select(t => new OwnerListingFacts.Row(t.Status, t.IsDeleted, t.SubmittedAt, t.EverApproved)).ToListAsync(), TaxiStatuses.Draft);
+
     public async Task<bool> HasSubmittedHistoryAsync(Guid userId)
         => await _dbSet.AnyAsync(t => t.UserId == userId
             && (t.Status != TaxiStatuses.Draft || t.SubmittedAt != null || t.EverApproved));

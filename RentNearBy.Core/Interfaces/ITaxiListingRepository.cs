@@ -8,6 +8,7 @@ public interface ITaxiListingRepository : IRepository<TaxiListing>
     // Tracked, for the driver's own writes: route edits are applied on the loaded collection.
     Task<TaxiListing?> GetLiveByUserAsync(Guid userId);
     Task<string?> GetStatusByUserAsync(Guid userId);
+    Task<RentNearBy.Core.Models.OwnerListingFacts> GetOwnerFactsAsync(Guid userId);
     // Both include soft-deleted rows.
     Task<bool> HasEverApprovedAsync(Guid userId);
     Task<bool> HasSubmittedHistoryAsync(Guid userId);

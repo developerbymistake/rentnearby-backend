@@ -23,6 +23,18 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
             .Include(s => s.City)
             .Include(s => s.Rooms.OrderBy(r => r.RoomIndex))
             .Include(s => s.Photos.OrderBy(p => p.PhotoOrder))
+            .AsSplitQuery() // FB-30: rooms x photos would multiply the joined rows.
+            .FirstOrDefaultAsync(s => s.UserId == userId && !s.IsDeleted);
+
+    public async Task<StayListing?> GetLiveByUserReadAsync(Guid userId)
+        => await _dbSet
+            .AsNoTracking()
+            .Include(s => s.StayType)
+            .Include(s => s.District)
+            .Include(s => s.City)
+            .Include(s => s.Rooms.OrderBy(r => r.RoomIndex))
+            .Include(s => s.Photos.OrderBy(p => p.PhotoOrder))
+            .AsSplitQuery()
             .FirstOrDefaultAsync(s => s.UserId == userId && !s.IsDeleted);
 
     public async Task<string?> GetStatusByUserAsync(Guid userId)
@@ -37,6 +49,11 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
 
     public async Task<bool> HasDeletedAsync(Guid userId)
         => await _dbSet.AnyAsync(x => x.UserId == userId && x.IsDeleted);
+
+    // FB-33: one projected statement on IX_StayListings_UserId_IsDeleted instead of four.
+    public async Task<OwnerListingFacts> GetOwnerFactsAsync(Guid userId)
+        => OwnerListingFacts.Of(await _dbSet.AsNoTracking().Where(s => s.UserId == userId)
+            .Select(s => new OwnerListingFacts.Row(s.Status, s.IsDeleted, s.SubmittedAt, s.EverApproved)).ToListAsync(), StayStatuses.Draft);
 
     public async Task<bool> HasSubmittedHistoryAsync(Guid userId)
         => await _dbSet.AnyAsync(s => s.UserId == userId
@@ -57,6 +74,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
             .Include(s => s.City)
             .Include(s => s.Rooms.OrderBy(r => r.RoomIndex))
             .Include(s => s.Photos.OrderBy(p => p.PhotoOrder))
+            .AsSplitQuery()
             .FirstOrDefaultAsync(s => s.Id == id && !s.IsDeleted);
 
     // Live only: the slug exists from the first step-1 save, so drafts, stays under review and
@@ -69,6 +87,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
             .Include(s => s.City)
             .Include(s => s.Rooms.OrderBy(r => r.RoomIndex))
             .Include(s => s.Photos.OrderBy(p => p.PhotoOrder))
+            .AsSplitQuery()
             .FirstOrDefaultAsync(s => s.Slug == slug && !s.IsDeleted && s.Status == StayStatuses.Approved && s.AcceptingGuests);
 
     public async Task<StayListing?> GetByIdForAdminAsync(Guid id)
@@ -247,8 +266,26 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
         var (minLat, maxLat, minLng, maxLng) = GetBoundingBox(latitude, longitude, radiusKm);
         var today = IstTime.TodayIst(DateTime.UtcNow);
 
+        // FB-29: the page is chosen first (index columns only, exact circle so the page size is exact and the paging caller never
+        // stops early), then the four laterals run for the page rows only.
+        var radiusMeters = radiusKm * 1000;
         var box = await context.Database
             .SqlQuery<BoxQueryResult>($"""
+                WITH page AS (
+                    SELECT s."Id", s."PriorityRank"
+                    FROM "StayListings" s
+                    WHERE s."Status" = 'Approved'
+                      AND s."AcceptingGuests" = TRUE
+                      AND s."IsDeleted" = FALSE
+                      AND ({districtId}::uuid IS NULL OR s."DistrictId" = {districtId}::uuid)
+                      AND ({stayTypeId}::uuid IS NULL OR s."StayTypeId" = {stayTypeId}::uuid)
+                      AND s."Location" && ST_MakeEnvelope({minLng}::float8, {minLat}::float8,
+                                                           {maxLng}::float8, {maxLat}::float8, 4326)::geography
+                      AND ST_DWithin(s."Location", ST_SetSRID(ST_MakePoint({longitude}::float8, {latitude}::float8), 4326)::geography,
+                                     {radiusMeters}::float8, false)
+                    ORDER BY s."PriorityRank" DESC, s."Id"
+                    LIMIT {limit}::int4 OFFSET {skip}::int4
+                )
                 SELECT
                     s."Id",
                     s."Name",
@@ -272,7 +309,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     d."Name" AS "DistrictName",
                     sr."RulesJson",
                     sb."BlocksJson"
-                FROM "StayListings" s
+                FROM page pg
+                JOIN "StayListings" s ON s."Id" = pg."Id"
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
                 LEFT JOIN "StayTypes" t ON t."Id" = s."StayTypeId"
                 LEFT JOIN "Cities" c ON c."Id" = s."CityId"
@@ -305,24 +343,16 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     FROM "StayBlockedRanges" sb
                     WHERE sb."StayListingId" = s."Id" AND sb."DateTo" >= {today}
                 ) sb ON TRUE
-                WHERE s."Status" = 'Approved'
-                  AND s."AcceptingGuests" = TRUE
-                  AND s."IsDeleted" = FALSE
-                  AND ({districtId}::uuid IS NULL OR s."DistrictId" = {districtId}::uuid)
-                  AND ({stayTypeId}::uuid IS NULL OR s."StayTypeId" = {stayTypeId}::uuid)
-                  AND s."Location" && ST_MakeEnvelope({minLng}::float8, {minLat}::float8,
-                                                       {maxLng}::float8, {maxLat}::float8, 4326)::geography
-                ORDER BY s."PriorityRank" DESC, s."Id"
-                LIMIT {limit}::int4 OFFSET {skip}::int4
+                ORDER BY pg."PriorityRank" DESC, pg."Id"
                 """)
             .ToListAsync();
 
         if (box.Count == 0)
             return Enumerable.Empty<StayNearbyDto>();
 
+        // The circle is applied in SQL (sphere), so every page row is kept: a paging caller sees exact page sizes.
         return box
             .Select(r => (Row: r, Dist: Haversine(latitude, longitude, r.Lat, r.Lng)))
-            .Where(x => x.Dist <= radiusKm)
             .OrderByDescending(x => x.Row.PriorityRank)
             .ThenBy(x => x.Dist)
             .Select(x => new StayNearbyDto

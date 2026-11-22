@@ -25,9 +25,11 @@ public static class TripOwnerHandlers
     private static readonly TimeSpan OwnerActionWindow = TimeSpan.FromHours(1);
     private static readonly JsonSerializerOptions CardOptions = new(JsonSerializerDefaults.Web);
 
-    // GET /trips/enquiries/owner (policy CanListStays on the route)
+    // GET /trips/enquiries/owner (policy CanListStays on the route). FB-32: keyset paging with `cursor` (the old `page` still works
+    // when no cursor is sent); `counts=false` skips the per-bucket counts on load-more pages (default true for old apps).
     public static async Task<IResult> GetMine(
-        string? status, int? page, int? pageSize, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db)
+        string? status, int? page, int? pageSize, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db,
+        string? cursor = null, bool? counts = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
@@ -37,21 +39,26 @@ public static class TripOwnerHandlers
         var size = Math.Clamp(pageSize ?? DefaultPageSize, 1, MaxPageSize);
         var today = TripExecutionRules.TodayIst(DateTime.UtcNow);
 
-        var (items, hasMore) = await OwnerPageAsync(db, callerId, bucket, today, pageNo, size);
-        var counts = await OwnerCountsAsync(db, callerId, today);
+        if (cursor != null && !OwnerEnquiryCursor.TryDecode(cursor, out _, out _)) return BadRequestResponse("Invalid cursor");
+
+        var (items, hasMore) = await OwnerPageAsync(db, callerId, bucket, today, pageNo, size, cursor);
+        var bucketCounts = counts == false ? null : await OwnerCountsAsync(db, callerId, today);
         var built = await TripEnquiryViews.BuildAsync(unitOfWork, items, callerId);
 
         return OkResponse(new TripOwnerEnquiryPageDto
         {
             Items = items.Where(i => built.ContainsKey(i.Id)).Select(i => built[i.Id]).ToList(),
             HasMore = hasMore,
-            Counts = new TripOwnerCountsDto { New = counts.New, Offered = counts.Offered, Confirmed = counts.Confirmed, Closed = counts.Closed },
+            Counts = bucketCounts is { } c
+                ? new TripOwnerCountsDto { New = c.New, Offered = c.Offered, Confirmed = c.Confirmed, Closed = c.Closed }
+                : null,
+            NextCursor = hasMore && items.Count > 0 ? OwnerEnquiryCursor.Encode(items[^1].CreatedAt, items[^1].Id) : null,
         });
     }
 
     // A booked row (waiting for the host or confirmed) whose check-out has passed lists under closed; stay rows only.
     private static async Task<(IReadOnlyList<TripEnquiry> Items, bool HasMore)> OwnerPageAsync(
-        ApplicationDbContext db, Guid ownerId, string bucket, DateOnly today, int page, int pageSize)
+        ApplicationDbContext db, Guid ownerId, string bucket, DateOnly today, int page, int pageSize, string? cursor = null)
     {
         var newStatuses = TripOwnerBuckets.NewStatuses;
         var offeredStatuses = TripOwnerBuckets.OfferedStatuses;
@@ -69,10 +76,11 @@ public static class TripOwnerHandlers
                 || (endingStatuses.Contains(e.Status) && e.CheckOut != null && e.CheckOut < today)),
         };
 
-        var rows = await query
-            .OrderByDescending(e => e.CreatedAt)
-            .ThenByDescending(e => e.Id)
-            .Skip((page - 1) * pageSize)
+        // Keyset on (CreatedAt DESC, Id DESC), backed by ix_tripenquiries_owner_status (OwnerUserId, Status, CreatedAt).
+        if (OwnerEnquiryCursor.TryDecode(cursor, out var afterAt, out var afterId))
+            query = query.Where(e => e.CreatedAt < afterAt || (e.CreatedAt == afterAt && e.Id.CompareTo(afterId) < 0));
+        var ordered = query.OrderByDescending(e => e.CreatedAt).ThenByDescending(e => e.Id);
+        var rows = await (cursor != null ? ordered : ordered.Skip((page - 1) * pageSize))
             .Take(pageSize + 1)
             .ToListAsync();
         var hasMore = rows.Count > pageSize;

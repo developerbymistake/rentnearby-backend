@@ -222,7 +222,12 @@ public class TripOwnerEnquiryPageDto
 {
     public List<TripEnquiryDto> Items { get; set; } = new();
     public bool HasMore { get; set; }
-    public TripOwnerCountsDto Counts { get; set; } = new();
+    // FB-32: absent when the caller asked counts=false (a load-more page); old apps never send it, so they always get counts.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public TripOwnerCountsDto? Counts { get; set; } = new();
+    // FB-32: keyset cursor of the next page (pass back as cursor); null on the last page.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? NextCursor { get; set; }
 }
 
 public class TripOfferResultDto

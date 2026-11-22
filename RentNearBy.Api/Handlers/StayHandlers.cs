@@ -547,7 +547,7 @@ public static class StayHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var stay = await unitOfWork.Stays.GetLiveByUserAsync(userId);
+        var stay = await unitOfWork.Stays.GetLiveByUserReadAsync(userId);
         if (stay == null) return OkResponse<StayOwnerDto?>(null);
         return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
     }

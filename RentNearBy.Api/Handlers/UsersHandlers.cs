@@ -121,21 +121,24 @@ public static class UsersHandlers
         dto.RoleRequestReason = latest?.Status == RoleChangeRequestStatuses.Rejected ? latest.RejectionReason : null;
         dto.NextRoleRequestAt = RoleChangeRules.NextRequestAllowedAt(latest?.Status, latest?.ReviewedAt, DateTime.UtcNow);
         bool submittedHistory = false, everApproved = false;
+        // FB-33: one projected statement per owner kind (was up to four).
         if (user.RoleId == UserRoles.StayOwnerId)
         {
-            dto.StayStatus = await unitOfWork.Stays.GetStatusByUserAsync(user.Id);
-            submittedHistory = await unitOfWork.Stays.HasSubmittedHistoryAsync(user.Id);
-            everApproved = submittedHistory && await unitOfWork.Stays.HasEverApprovedAsync(user.Id);
+            var facts = await unitOfWork.Stays.GetOwnerFactsAsync(user.Id);
+            dto.StayStatus = facts.Status;
+            submittedHistory = facts.SubmittedHistory;
+            everApproved = facts.EverApproved;
             dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Stay, everApproved, dto.StayStatus);
-            dto.ListingDeleted = dto.StayStatus == null && await unitOfWork.Stays.HasDeletedAsync(user.Id);
+            dto.ListingDeleted = dto.StayStatus == null && facts.HasDeleted;
         }
         if (user.RoleId == UserRoles.TaxiDriverId)
         {
-            dto.TaxiStatus = await unitOfWork.Taxis.GetStatusByUserAsync(user.Id);
-            submittedHistory = await unitOfWork.Taxis.HasSubmittedHistoryAsync(user.Id);
-            everApproved = submittedHistory && await unitOfWork.Taxis.HasEverApprovedAsync(user.Id);
+            var facts = await unitOfWork.Taxis.GetOwnerFactsAsync(user.Id);
+            dto.TaxiStatus = facts.Status;
+            submittedHistory = facts.SubmittedHistory;
+            everApproved = facts.EverApproved;
             dto.RoleLocked = RoleChangeRules.IsLocked(ListingKinds.Taxi, everApproved, dto.TaxiStatus);
-            dto.ListingDeleted = dto.TaxiStatus == null && await unitOfWork.Taxis.HasDeletedAsync(user.Id);
+            dto.ListingDeleted = dto.TaxiStatus == null && facts.HasDeleted;
         }
         dto.CanCorrectRole = user.RoleConfirmedAt != null && !user.RoleCorrectionUsed
             && (user.RoleId == UserRoles.StayOwnerId || user.RoleId == UserRoles.TaxiDriverId)

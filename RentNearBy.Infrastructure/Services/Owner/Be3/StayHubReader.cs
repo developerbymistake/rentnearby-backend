@@ -14,8 +14,8 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Services.Owner.Be3;
 
 // M1 (contract 2.4, AU-5, AU-9, AU-21): the owner hub extras of GET /stays/me and the live-edit answers. Fixed cost whatever the
-// row counts: the entitlement (1), hidden photos (1), hidden rooms (1) and one facts statement (bookings, calendar row, special
-// prices row, tonight's rules).
+// row counts: the entitlement (1, skipped when the write passes its limits) and ONE facts statement (bookings, calendar row,
+// special prices row, tonight's rules, and since FB-30 the hidden photos and hidden rooms as two json columns).
 public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementService entitlements, TimeProvider clock)
 {
     private sealed class FactsRow
@@ -31,7 +31,15 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
         public string? FirstDirection { get; set; }
         public int? FirstPercent { get; set; }
         public string? TodayRules { get; set; }
+        public string? HiddenPhotos { get; set; }
+        public string? HiddenRooms { get; set; }
     }
+
+    private sealed record HiddenPhotoJson(Guid Id, string Url, int PhotoOrder);
+
+    private sealed record HiddenRoomJson(Guid Id, short RoomIndex, int PricePerNight, short MaxGuests, string RoomName, string Meals, short? Floor);
+
+    private static readonly JsonSerializerOptions HiddenJson = new(JsonSerializerDefaults.Web);
 
     // Visible manual rows: the CalendarEntries-limit soonest active ones by (DateTo, Id), and every past one; Auto rows always.
     private const string Visible = """
@@ -53,7 +61,12 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
           f."Percent"::int AS "FirstPercent",
           (SELECT json_agg(json_build_object('from', t."DateFrom", 'to', t."DateTo", 'lower', t."Direction" = 'Lower', 'percent', t."Percent"))
              FROM "StaySpecialPrices" t WHERE t."StayListingId" = @l AND t."DateFrom" <= @today AND t."DateTo" >= @today
-               AND NOT t."IsPaused" AND NOT t."PausedByPlan")::text AS "TodayRules"
+               AND NOT t."IsPaused" AND NOT t."PausedByPlan")::text AS "TodayRules",
+          (SELECT json_agg(json_build_object('id', hp."Id", 'url', hp."PhotoUrl", 'photoOrder', hp."PhotoOrder") ORDER BY hp."PhotoOrder", hp."Id")
+             FROM "StayPhotos" hp WHERE hp."StayListingId" = @l AND hp."HiddenByPlan")::text AS "HiddenPhotos",
+          (SELECT json_agg(json_build_object('id', hr."Id", 'roomIndex', hr."RoomIndex", 'pricePerNight', hr."PricePerNight",
+                    'maxGuests', hr."MaxGuests", 'roomName', hr."RoomName", 'meals', hr."Meals", 'floor', hr."Floor") ORDER BY hr."RoomIndex")
+             FROM "StayRooms" hr WHERE hr."StayListingId" = @l AND hr."HiddenByPlan")::text AS "HiddenRooms"
         FROM (SELECT 1) one
         LEFT JOIN LATERAL (
             SELECT c."DateFrom", c."Label" FROM "CalendarEntries" c
@@ -72,21 +85,6 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
         var today = IstTime.TodayIst(now);
         var limits = knownLimits ?? await entitlements.GetLimitsAsync(stay.UserId, ListingKinds.Stay);
 
-        dto.HiddenPhotos = await db.StayPhotos.IgnoreQueryFilters().AsNoTracking()
-            .Where(p => p.StayListingId == stay.Id && p.HiddenByPlan)
-            .OrderBy(p => p.PhotoOrder).ThenBy(p => p.Id)
-            .Select(p => new HiddenPhotoDto(p.Id, p.PhotoUrl, p.PhotoOrder))
-            .ToListAsync(ct);
-        dto.HiddenRooms = await db.StayRooms.IgnoreQueryFilters().AsNoTracking()
-            .Where(r => r.StayListingId == stay.Id && r.HiddenByPlan)
-            .OrderBy(r => r.RoomIndex)
-            .Select(r => new StayRoomDto
-            {
-                Id = r.Id, RoomIndex = r.RoomIndex, PricePerNight = r.PricePerNight, MaxGuests = r.MaxGuests,
-                RoomName = r.RoomName, Meals = r.Meals, Floor = r.Floor,
-            })
-            .ToListAsync(ct);
-
         var month1 = new DateOnly(today.Year, today.Month, 1);
         var facts = (await db.Database.SqlQueryRaw<FactsRow>(FactsSql,
             new NpgsqlParameter("me", NpgsqlDbType.Uuid) { Value = stay.UserId },
@@ -96,6 +94,8 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
             new NpgsqlParameter("m2", NpgsqlDbType.Date) { Value = month1.AddMonths(1) },
             new NpgsqlParameter("lim", NpgsqlDbType.Integer) { Value = limits.CalendarEntries }).ToListAsync(ct))[0];
 
+        dto.HiddenPhotos = ParseHiddenPhotos(facts.HiddenPhotos);
+        dto.HiddenRooms = ParseHiddenRooms(facts.HiddenRooms);
         Apply(dto, stay, limits, facts.Confirmed, today, now);
         dto.CalendarRow = new StayCalendarRowDto(facts.MonthCount,
             facts.NextDate is { } d ? new StayCalendarRowNextDto(d, facts.NextLabel ?? string.Empty) : null);
@@ -106,6 +106,18 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
         var rules = ParseRules(facts.TodayRules);
         foreach (var room in dto.Rooms) room.PriceToday = StaySpecialPriceMath.PriceOn(room.PricePerNight, today, rules);
     }
+
+    internal static List<HiddenPhotoDto> ParseHiddenPhotos(string? json)
+        => json == null ? [] : (JsonSerializer.Deserialize<List<HiddenPhotoJson>>(json, HiddenJson) ?? [])
+            .Select(p => new HiddenPhotoDto(p.Id, p.Url, p.PhotoOrder)).ToList();
+
+    internal static List<StayRoomDto> ParseHiddenRooms(string? json)
+        => json == null ? [] : (JsonSerializer.Deserialize<List<HiddenRoomJson>>(json, HiddenJson) ?? [])
+            .Select(r => new StayRoomDto
+            {
+                Id = r.Id, RoomIndex = r.RoomIndex, PricePerNight = r.PricePerNight, MaxGuests = r.MaxGuests,
+                RoomName = r.RoomName, Meals = r.Meals, Floor = r.Floor,
+            }).ToList();
 
     // The fields that need no query (also used by the write answers that skip the hub statements).
     public static void Apply(StayOwnerDto dto, StayListing stay, PlanLimits limits, int confirmedBookings, DateOnly today, DateTime nowUtc)

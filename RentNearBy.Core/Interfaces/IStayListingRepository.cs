@@ -7,7 +7,10 @@ public interface IStayListingRepository : IRepository<StayListing>
 {
     // Tracked, for the owner's own writes: Rooms/Photos edits are applied on the loaded collections.
     Task<StayListing?> GetLiveByUserAsync(Guid userId);
+    // FB-30: the read-only owner hub read (GET /stays/me): same graph, no tracking, split queries.
+    Task<StayListing?> GetLiveByUserReadAsync(Guid userId);
     Task<string?> GetStatusByUserAsync(Guid userId);
+    Task<RentNearBy.Core.Models.OwnerListingFacts> GetOwnerFactsAsync(Guid userId);
     // Both include soft-deleted rows.
     Task<bool> HasEverApprovedAsync(Guid userId);
     Task<bool> HasSubmittedHistoryAsync(Guid userId);
