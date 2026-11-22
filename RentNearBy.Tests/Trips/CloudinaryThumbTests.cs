@@ -39,4 +39,30 @@ public class CloudinaryThumbTests
     [Fact]
     public void Url_IsTrimmed()
         => Assert.Equal("https://x.test/a.jpg", CloudinaryThumb.Apply("  https://x.test/a.jpg "));
+
+    [Fact]
+    public void SpotSizes_MatchTheAppTable()
+    {
+        Assert.Equal("c_fill,w_96,h_96,q_auto,f_auto", CloudinaryThumb.SpotMarker);
+        Assert.Equal("c_fill,g_auto,w_320,h_320,q_auto,f_auto", CloudinaryThumb.SpotSquare);
+        Assert.Equal("c_fill,g_auto,w_720,h_400,q_auto,f_auto", CloudinaryThumb.SpotCard);
+        Assert.Equal("c_fill,g_auto,w_1080,h_640,q_auto,f_auto", CloudinaryThumb.SpotHero);
+        Assert.Equal("c_limit,w_1280,q_auto,f_auto", CloudinaryThumb.SpotFull);
+        Assert.Equal(
+            [CloudinaryThumb.SpotMarker, CloudinaryThumb.SpotSquare, CloudinaryThumb.SpotCard, CloudinaryThumb.SpotHero, CloudinaryThumb.SpotFull],
+            CloudinaryThumb.SpotSizes);
+    }
+
+    public static TheoryData<string> SpotSizeData => new(CloudinaryThumb.SpotSizes);
+
+    [Theory]
+    [MemberData(nameof(SpotSizeData))]
+    public void SpotSize_InsertedAfterUpload_Idempotent_AndSafe(string size)
+    {
+        var url = CloudinaryThumb.Apply("https://res.cloudinary.com/demo/image/upload/v3/atlas/spots/a.jpg", size);
+        Assert.Equal($"https://res.cloudinary.com/demo/image/upload/{size}/v3/atlas/spots/a.jpg", url);
+        Assert.Equal(url, CloudinaryThumb.Apply(url, size));
+        Assert.Equal("https://upload.wikimedia.org/a.jpg", CloudinaryThumb.Apply("https://upload.wikimedia.org/a.jpg", size));
+        Assert.Null(CloudinaryThumb.Apply(null, size));
+    }
 }
