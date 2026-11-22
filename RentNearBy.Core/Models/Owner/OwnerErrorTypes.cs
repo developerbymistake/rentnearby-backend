@@ -11,6 +11,7 @@ public static class OwnerErrorTypes
     public const string CalendarEntryLimit = "CalendarEntryLimit";
     public const string CalendarOutsideWindow = "CalendarOutsideWindow";
     public const string EntryNotManual = "EntryNotManual";
+    public const string EntryEnded = "EntryEnded";
     public const string BlockedRangeLimit = "BlockedRangeLimit";
     public const string BlockedRangeOverlap = "BlockedRangeOverlap";
     public const string BlockedRangeNeedsConfirm = "BlockedRangeNeedsConfirm";
@@ -39,6 +40,13 @@ public static class OwnerErrorTypes
     public const string TooManyRequests = "TooManyRequests";
     public const string BadRequest = "BadRequest";
 
+    // D-07 / FB-04: an ended manual entry keeps only its money note and Delete.
+    public const string EntryEndedStay = "This booking has passed. You can still edit the amounts.";
+    public const string EntryEndedTaxi = "This trip has passed. You can still edit the amounts.";
+    public const string BlockEnded = "This block has ended.";
+
+    public static string EntryEndedMessage(string listingKind) => listingKind == ListingKinds.Taxi ? EntryEndedTaxi : EntryEndedStay;
+
     // Extra fixed lines of SpecialPriceInvalid (contract 2.3, doc 8.8).
     public const string SpecialPriceTooLong = "A special price can cover up to 60 nights.";
     public const string SpecialPriceStartTooLate = "Start date must be within 180 days.";
@@ -55,6 +63,7 @@ public static class OwnerErrorTypes
         [CalendarEntryLimit] = (409, "You have 4 active entries."),
         [CalendarOutsideWindow] = (409, "Pick a date inside your calendar."),
         [EntryNotManual] = (409, "A booking from the app cannot be changed here."),
+        [EntryEnded] = (409, EntryEndedStay),
         [BlockedRangeLimit] = (409, "Free allows 1 blocked range."),
         [BlockedRangeOverlap] = (409, "These days are already blocked."),
         [BlockedRangeNeedsConfirm] = (409, "1 confirmed booking is inside these days. It stays confirmed."),

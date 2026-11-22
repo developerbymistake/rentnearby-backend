@@ -188,12 +188,13 @@ public class BuddyModelTests
     }
 
     [Fact]
+    // CompletionCountedAt: the owner's completed-trips counter guard (FB-W1), not a Buddy column.
     public void Trips_has_no_new_column()
     {
         var columns = Entity<Trip>().GetProperties().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
         string[] expected =
         [
-            "CityKey", "CityLatitude", "CityLongitude", "CityName", "ClientTripId", "CompletedAt", "CreatedAt", "DayCount",
+            "CityKey", "CityLatitude", "CityLongitude", "CityName", "ClientTripId", "CompletedAt", "CompletionCountedAt", "CreatedAt", "DayCount",
             "DistrictId", "EndDate", "Id", "InviteCode", "MutedAt", "NameChosen", "OwnerUserId", "PlanJson", "SpotCount",
             "StartDate", "Status", "Title", "UpdatedAt", "xmin",
         ];

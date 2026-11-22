@@ -59,7 +59,8 @@ public static class OwnerCalendarSql
         ];
     }
 
-    // C1: entries touching [@from, @to] (visible), plus the visible manual rows past @windowEnd for hiddenCount.
+    // C1: entries touching [@from, @to] (visible), plus the visible manual rows past @windowEnd (the manual window end,
+    // FB-05: a Free row inside today + 15 is never "hidden") for hiddenCount.
     public static readonly string Month = $"""
         SELECT COALESCE((SELECT json_agg(x ORDER BY x."DateFrom", x."Id") FROM (
                    SELECT {Columns()} FROM "CalendarEntries" c
@@ -80,7 +81,7 @@ public static class OwnerCalendarSql
                    WHERE c."ListingKind" = @k AND c."ListingId" = @l AND c."DateTo" >= @today AND c."DateFrom" <= @upcomingTo AND {Visible()}
                      {(afterCursor ? "AND (c.\"DateFrom\", c.\"Id\") > (@cd, @cid)" : "")}
                    ORDER BY c."DateFrom", c."Id" LIMIT @take) x), '[]')::text AS "Items",
-               CASE WHEN @first THEN (SELECT count(*) FROM ({VisibleManualSet}) w WHERE w."DateFrom" > @upcomingTo) END AS "VisibleBeyond",
+               CASE WHEN @first THEN (SELECT count(*) FROM ({VisibleManualSet}) w WHERE w."DateFrom" > @manualTo) END AS "VisibleBeyond",
                CASE WHEN @first THEN (SELECT count(*) FROM "CalendarEntries" a
                     WHERE a."ListingKind" = @k AND a."ListingId" = @l AND a."Kind" = 'Auto' AND NOT a."Cancelled" AND a."DateFrom" > @upcomingTo) END AS "AutoBeyond",
                CASE WHEN @first THEN (SELECT min(a."DateFrom") FROM "CalendarEntries" a
@@ -99,14 +100,23 @@ public static class OwnerCalendarSql
         ORDER BY c."DateTo" DESC, c."Id" DESC LIMIT @take
         """;
 
-    // C4 (and the re-read after a 0-row conditional update).
+    // The re-read after a 0-row conditional update (any row of the listing, hidden too).
     public static readonly string One = $"""
         SELECT {Columns(sourceAvailable: true)} FROM "CalendarEntries" c WHERE c."Id" = @id AND c."ListingKind" = @k AND c."ListingId" = @l
         """;
 
-    // C5 before the insert: the active count and any row that already holds the client id (replay or IdTaken).
+    // C4 (D-30 / FB-55): a manual entry hidden by the plan answers 404; Auto and past rows are always readable.
+    public static readonly string OneVisible = $"""
+        SELECT {Columns(sourceAvailable: true)} FROM "CalendarEntries" c WHERE c."Id" = @id AND c."ListingKind" = @k AND c."ListingId" = @l
+          AND {Visible()}
+        """;
+
+    // C5 before the insert: the active count, the kept-rows ceiling count (D-07: past-dated rows too) and any row that
+    // already holds the client id (replay or IdTaken).
     public static readonly string CreateCheck = $"""
         SELECT ({ActiveManualCount}) AS "Active",
+               (SELECT count(*) FROM "CalendarEntries" m
+                WHERE m."ListingKind" = @k AND m."ListingId" = @l AND m."Kind" = 'Manual' AND m."DateTo" >= @keptFrom) AS "Total",
                (SELECT row_to_json(x)::text FROM (SELECT {Columns()} FROM "CalendarEntries" c WHERE c."Id" = @id) x) AS "Existing"
         """;
 
@@ -123,6 +133,9 @@ public static class OwnerCalendarSql
             "Label" = @label, "Note" = @note, "FinalAmount" = @final, "AdvanceReceived" = @advanceReceived, "PaidInFull" = @paid,
             "Version" = c."Version" + 1, "UpdatedAt" = now()
         WHERE c."Id" = @id AND c."ListingKind" = @k AND c."ListingId" = @l AND c."Kind" = 'Manual' AND c."Version" = @v
+          AND c."DateTo" >= @today
+          AND (@fromOk OR c."DateFrom" = @from) AND (@toOk OR c."DateTo" = @to)
+          AND {Visible()}
         RETURNING {Columns()}
         """;
 
@@ -135,7 +148,7 @@ public static class OwnerCalendarSql
     public static readonly string Money = $"""
         UPDATE "CalendarEntries" AS c SET "FinalAmount" = @final, "AdvanceReceived" = @advanceReceived, "PaidInFull" = @paid,
             "Version" = c."Version" + 1, "UpdatedAt" = now()
-        WHERE c."Id" = @id AND c."ListingKind" = @k AND c."ListingId" = @l AND c."Version" = @v
+        WHERE c."Id" = @id AND c."ListingKind" = @k AND c."ListingId" = @l AND c."Version" = @v AND {Visible()}
         RETURNING {Columns()}
         """;
 
@@ -268,6 +281,7 @@ public sealed class CalendarListRow
 public sealed class CalendarCreateCheckRow
 {
     public long Active { get; set; }
+    public long Total { get; set; }
     public string? Existing { get; set; }
 }
 

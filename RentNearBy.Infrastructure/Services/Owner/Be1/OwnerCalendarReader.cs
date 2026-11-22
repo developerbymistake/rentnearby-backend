@@ -61,7 +61,7 @@ public sealed class OwnerCalendarReader(ApplicationDbContext db, OwnerContextRea
 
         var limit = ctx.Limits.CalendarEntries;
         var list = (await db.Database.SqlQueryRaw<CalendarListRow>(Month,
-            [.. Scope(ctx.Kind, ctx.ListingId), Date("from", f), Date("to", t), Date("today", ctx.Today), Int("limit", limit), Date("windowEnd", window.MonthTo)])
+            [.. Scope(ctx.Kind, ctx.ListingId), Date("from", f), Date("to", t), Date("today", ctx.Today), Int("limit", limit), Date("windowEnd", window.ManualTo)])
             .ToListAsync(ct))[0];
         var entries = CalendarEntryView.ParseRows(list.Items);
 
@@ -87,7 +87,8 @@ public sealed class OwnerCalendarReader(ApplicationDbContext db, OwnerContextRea
         var limit = ctx.Limits.CalendarEntries;
         List<NpgsqlParameter> args =
         [
-            .. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("upcomingTo", window.UpcomingTo), Int("limit", limit),
+            .. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("upcomingTo", window.UpcomingTo), Date("manualTo", window.ManualTo),
+            Int("limit", limit),
             Int("take", OwnerLimits.PageSize + 1), Bool("first", first),
         ];
         if (cursor is { } after) args.AddRange([Date("cd", after.Date), Uuid("cid", after.Id)]);
@@ -113,7 +114,15 @@ public sealed class OwnerCalendarReader(ApplicationDbContext db, OwnerContextRea
     }
 
     public async Task<CalendarEntryRow?> EntryAsync(OwnerContext ctx, Guid id, CancellationToken ct = default)
-        => await ReadOneAsync(db, ctx.Kind, ctx.ListingId, id, ct);
+        => await ReadVisibleAsync(db, ctx, id, ct);
+
+    // D-30: a manual entry hidden by the plan is not readable by id; Auto and past rows always are.
+    public static async Task<CalendarEntryRow?> ReadVisibleAsync(ApplicationDbContext db, OwnerContext ctx, Guid id, CancellationToken ct)
+    {
+        var rows = await db.Database.SqlQueryRaw<CalendarEntryRow>(OneVisible,
+            [.. Scope(ctx.Kind, ctx.ListingId), Uuid("id", id), Date("today", ctx.Today), Int("limit", ctx.Limits.CalendarEntries)]).ToListAsync(ct);
+        return rows.Count == 0 ? null : rows[0];
+    }
 
     public static async Task<CalendarEntryRow?> ReadOneAsync(ApplicationDbContext db, string kind, Guid listingId, Guid id, CancellationToken ct)
     {

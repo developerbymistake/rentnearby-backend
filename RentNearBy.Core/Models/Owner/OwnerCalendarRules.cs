@@ -146,6 +146,16 @@ public static class OwnerCalendarRules
     // Manual dates must sit inside [today - 7, manualTo] (doc 6.1.4).
     public static bool InsideWindow(OwnerCalendarWindowValue window, DateOnly from, DateOnly to) => window.InManualRange(from, to);
 
+    // D-07 / FB-04: on an edit each date either stays as stored or moves inside the manual window. The SQL form is
+    // (@fromOk OR c."DateFrom" = @from) AND (@toOk OR c."DateTo" = @to) with the two flags from InWindow.
+    public static bool DatesAllowed(OwnerCalendarWindowValue window, DateOnly storedFrom, DateOnly storedTo, DateOnly newFrom, DateOnly newTo)
+        => (newFrom == storedFrom || InWindow(window, newFrom)) && (newTo == storedTo || InWindow(window, newTo)) && newTo >= newFrom;
+
+    public static bool InWindow(OwnerCalendarWindowValue window, DateOnly day) => day >= window.ManualFrom && day <= window.ManualTo;
+
+    // D-07: an entry whose stored end is before today is read-only except its money note and Delete.
+    public static bool Ended(DateOnly storedTo, DateOnly today) => storedTo < today;
+
     // Doc 6.1.10 visibility: Auto always, past rows always, and the `limit` active manual rows with the earliest (DateTo, Id).
     public static HashSet<Guid> VisibleIds(IEnumerable<CalendarEntryRow> rows, DateOnly today, int limit)
     {

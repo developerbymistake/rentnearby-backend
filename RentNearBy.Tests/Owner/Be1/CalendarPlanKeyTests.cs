@@ -62,7 +62,7 @@ public class CalendarWindowTests
     }
 
     [Fact]
-    public async Task Writes_outside_the_window_are_refused_before_any_query()
+    public async Task Creates_outside_the_window_are_refused_before_any_query()
     {
         var ctx = Be1Kit.Context(ListingKinds.Stay, Be1Kit.Free(ListingKinds.Stay));
         var writer = new OwnerCalendarWriter(null!, Microsoft.Extensions.Logging.Abstractions.NullLogger<OwnerCalendarWriter>.Instance);
@@ -70,8 +70,8 @@ public class CalendarWindowTests
         var result = (await writer.CreateAsync(ctx, Guid.NewGuid(), input, TestContext.Current.CancellationToken));
         Assert.Equal(OwnerErrorTypes.CalendarOutsideWindow, result.Error!.Type);
         Assert.Equal(409, OwnerErrorTypes.StatusOf(result.Error.Type));
-        var edit = (await writer.UpdateAsync(ctx, Guid.NewGuid(), 1, input, TestContext.Current.CancellationToken));
-        Assert.Equal(OwnerErrorTypes.CalendarOutsideWindow, edit.Error!.Type);
+        // An edit is judged against the stored dates in its one statement (D-07, FB-04): unchanged dates always pass, so
+        // there is no refusal before the query; CalendarEditJourneyTests covers the edit rules.
     }
 }
 

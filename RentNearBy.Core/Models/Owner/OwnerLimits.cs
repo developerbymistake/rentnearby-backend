@@ -17,6 +17,8 @@ public static class OwnerLimits
     public const int MoneyMin = 1;
     public const int MoneyMax = 9_900_000;
     public const int ManualBackDays = 7;
+    // D-07: hard ceiling of manual rows per listing in the kept 90 days (past rows included), whatever the plan.
+    public const int ManualRowsCeiling = 500;
     public const int PlusWindowDays = 183;
     public const int StayEntryMaxNights = 60;
     public const int BlockMaxNights = 90;

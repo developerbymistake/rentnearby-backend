@@ -13,8 +13,10 @@ public sealed record CalendarEntryWrite(CalendarEntryRow Entry, IReadOnlyList<Me
 
 // C5 to C7 and C11 (contract 2.1, 3.2, 4.1, 4.2). Create: the client id is the op id; the owner's Users row in KEY SHARE (level 2,
 // before the listing, so it cannot deadlock with account deletion) then the listing row lock (level 5) serialises the limit check,
-// so two phones saving the last free slot get one 200 and one 409. Edit and delete are version-guarded or idempotent single statements;
-// editing is never limited, but the dates must stay inside the plan window.
+// so two phones saving the last free slot get one 200 and one 409. Edit and delete are version-guarded or idempotent single statements.
+// Edit (D-07, FB-04): an ended entry is read-only except its money note, so no edit can revive a row and edits need no limit
+// check; a date that does not move always passes, a moved date must be inside the manual window; a hidden entry is 404 (D-30).
+// Create also stops at the kept-rows ceiling (OwnerLimits.ManualRowsCeiling), so past-dated rows cannot be spammed.
 public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCalendarWriter> logger)
 {
     public async Task<Be1Result<CalendarEntryWrite>> CreateAsync(OwnerContext ctx, Guid id, ManualEntryInput input, CancellationToken ct = default)
@@ -30,9 +32,12 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
                 || !await OwnerLocks.LockListingAsync(db, ctx.Kind, ctx.ListingId, c)) return Be1Error.Of(OwnerErrorTypes.ListingNotFound);
 
             var check = (await db.Database.SqlQueryRaw<CalendarCreateCheckRow>(CreateCheck,
-                [.. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Uuid("id", id)]).ToListAsync(c))[0];
+                [.. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("keptFrom", ctx.Window.PastFrom), Uuid("id", id)]).ToListAsync(c))[0];
             if (CalendarEntryView.ParseRow(check.Existing) is { } existing)
                 return await ReplayAsync(ctx, existing, check.Active, tx, c);
+            if (check.Total >= OwnerLimits.ManualRowsCeiling)
+                return new Be1Error(OwnerErrorTypes.CalendarEntryLimit, OwnerErrorTypes.LimitMessage(OwnerErrorTypes.CalendarEntryLimit, OwnerLimits.ManualRowsCeiling, false),
+                    new PlanLimitRefusalDto(PlanFeatureKeys.CalendarEntries, OwnerLimits.ManualRowsCeiling, (int)check.Total, false));
 
             var limit = ctx.Limits.CalendarEntries;
             if (check.Active >= limit)
@@ -57,9 +62,11 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
     {
         if (version is not { } v) return new Be1Error(OwnerErrorTypes.BadRequest, "Missing version.");
         if (OwnerCalendarRules.Validate(ctx.Kind, input) is { } invalid) return new Be1Error(invalid.Type, invalid.Message);
-        if (!OwnerCalendarRules.InsideWindow(ctx.Window, input.DateFrom, input.DateTo)) return Be1Error.Of(OwnerErrorTypes.CalendarOutsideWindow);
 
-        var rows = await db.Database.SqlQueryRaw<CalendarEntryRow>(Update, [.. InsertParameters(ctx, id, input), Int("v", v)]).ToListAsync(ct);
+        var rows = await db.Database.SqlQueryRaw<CalendarEntryRow>(Update,
+            [.. InsertParameters(ctx, id, input), Int("v", v), Date("today", ctx.Today), Int("limit", ctx.Limits.CalendarEntries),
+             Bool("fromOk", OwnerCalendarRules.InWindow(ctx.Window, input.DateFrom)), Bool("toOk", OwnerCalendarRules.InWindow(ctx.Window, input.DateTo))])
+            .ToListAsync(ct);
         CalendarEntryRow saved;
         if (rows.Count == 1)
         {
@@ -67,11 +74,16 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
         }
         else
         {
+            // The success path is one statement; only a refusal re-reads to choose its answer.
             var current = await OwnerCalendarReader.ReadOneAsync(db, ctx.Kind, ctx.ListingId, id, ct);
             if (current == null) return NotFound();
             if (!current.IsManual) return Be1Error.Of(OwnerErrorTypes.EntryNotManual);
-            if (!OwnerCalendarRules.SameManual(current, input)) return Stale(current);
-            saved = current;
+            if (OwnerCalendarRules.Ended(current.DateTo, ctx.Today))
+                return new Be1Error(OwnerErrorTypes.EntryEnded, OwnerErrorTypes.EntryEndedMessage(ctx.Kind));
+            if (await OwnerCalendarReader.ReadVisibleAsync(db, ctx, id, ct) == null) return NotFound();
+            if (OwnerCalendarRules.SameManual(current, input)) saved = current;
+            else if (current.Version != v) return Stale(current);
+            else return Be1Error.Of(OwnerErrorTypes.CalendarOutsideWindow);
         }
         var overlap = await OverlapAsync(ctx, saved, ct);
         return Be1Result<CalendarEntryWrite>.Success(new CalendarEntryWrite(saved, OwnerCalendarReader.Meters(ctx, overlap.Active), ToOverlap(overlap)));

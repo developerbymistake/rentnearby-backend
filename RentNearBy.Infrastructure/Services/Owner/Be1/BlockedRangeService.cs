@@ -56,7 +56,8 @@ public sealed class BlockedRangeService(ApplicationDbContext db, ILogger<Blocked
         }, ct, logger);
     }
 
-    // K3: never limited; overlap and confirmation as K2. A block that already started may keep its start date.
+    // K3: never limited (an ended block cannot be edited, so no edit adds an active block); overlap and confirmation as K2.
+    // A block that already started may keep its start date.
     public async Task<Be1Result<BlockedRangeWrite>> UpdateAsync(
         OwnerContext ctx, Guid id, int? version, DateOnly from, DateOnly to, string? reason, bool confirm, CancellationToken ct = default)
     {
@@ -69,9 +70,11 @@ public sealed class BlockedRangeService(ApplicationDbContext db, ILogger<Blocked
             var check = await CheckAsync(ctx, id, from, to, c);
             if (ParseBlock(check.Existing) is not { } stored || stored.StayListingId != ctx.ListingId)
                 return new Be1Error(Be1ErrorTypes.NotFound, "Blocked range not found.");
-            if (BlockedRangeRules.Validate(from, to, reason, ctx.Today, keptStart: stored.DateFrom) is { } invalid) return new Be1Error(invalid.Type, invalid.Message);
-
             var same = stored.DateFrom == from && stored.DateTo == to && stored.Reason == reason;
+            // D-07 / FB-04: an ended block is read-only (Delete stays allowed), so it can never be extended into an active one.
+            if (!same && OwnerCalendarRules.Ended(stored.DateTo, ctx.Today))
+                return new Be1Error(OwnerErrorTypes.BlockedRangeInvalid, OwnerErrorTypes.BlockEnded);
+            if (BlockedRangeRules.Validate(from, to, reason, ctx.Today, keptStart: stored.DateFrom) is { } invalid) return new Be1Error(invalid.Type, invalid.Message);
             if (stored.Version != v)
             {
                 await tx.CommitAsync(c);
