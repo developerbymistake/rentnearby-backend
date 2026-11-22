@@ -127,7 +127,7 @@ public class OwnerSeamsTests
         Assert.Contains("FROM " + from, sql);
         Assert.Contains(saves, sql);
         Assert.Contains("WHERE l.\"UserId\" = @me AND l.\"IsDeleted\" = false", sql);
-        Assert.Contains("u.\"Status\" = 'Active' AND u.\"EndsAt\" > now()", sql);
+        Assert.Contains("u.\"Status\" = 'Active' AND (u.\"EndsAt\" > now() OR u.\"PlaySubscriptionId\" IS NOT NULL)", sql);
         Assert.Contains("(SELECT count(*) FROM \"CalendarEntries\" c WHERE c.\"ListingId\" = l.\"Id\")::bigint AS \"X1\"", sql);
         Assert.Contains("NULL::bigint AS \"X4\"", sql);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(sql, @"\bFROM ""(Stay|Taxi)Listings"""));

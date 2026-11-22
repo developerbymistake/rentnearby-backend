@@ -93,7 +93,8 @@ public class PlanSlotService(
 
     // One set-based UPDATE per kind: rows whose rank/featured (and taxi ring weight) differ from the owner's current plan.
     // Plan values are inlined from the cached catalog (typed Guids/ints only, never user input). Payment OFF: ranking keys are
-    // the default plan's for everyone, a grant keeps its own (contract 3.1).
+    // the default plan's for everyone, only an admin grant keeps its own (contract 3.1, D-24). The owner's row is the entitled one
+    // of PlanRowSql (D-10).
     public async Task<RankReconcileResult> ReconcileRanksAsync(string kind)
     {
         var t = Table(kind);
@@ -104,12 +105,14 @@ public class PlanSlotService(
 
         var values = new StringBuilder();
         values.Append(CultureInfo.InvariantCulture,
-            $"('00000000-0000-0000-0000-000000000000'::uuid, {Rank(defaults)}::smallint, {Bool(defaults.Featured)}, {Weight(defaults)}::smallint)");
+            $"('00000000-0000-0000-0000-000000000000'::uuid, 0, {Rank(defaults)}::smallint, {Bool(defaults.Featured)}, {Weight(defaults)}::smallint)");
         foreach (var plan in snapshot.PlansOf(kind))
-        {
-            var v = flag.Enabled ? plan.Values : PlanFeatureValues.Max(defaults, plan.Values);
-            values.Append(CultureInfo.InvariantCulture, $", ('{plan.Id}'::uuid, {Rank(v)}::smallint, {Bool(v.Featured)}, {Weight(v)}::smallint)");
-        }
+            foreach (var grant in new[] { false, true })
+            {
+                var v = PlanFeatureValues.Effective(flag.Enabled, defaults, plan.Values, grant);
+                values.Append(CultureInfo.InvariantCulture,
+                    $", ('{plan.Id}'::uuid, {(grant ? 1 : 0)}, {Rank(v)}::smallint, {Bool(v.Featured)}, {Weight(v)}::smallint)");
+            }
         var defRank = Rank(defaults).ToString(CultureInfo.InvariantCulture);
         var defFeatured = Bool(defaults.Featured);
         var defWeight = Weight(defaults).ToString(CultureInfo.InvariantCulture);
@@ -117,23 +120,23 @@ public class PlanSlotService(
         var weightDiff = taxi ? " OR x.\"RingWeight\" <> target.\"Weight\"" : string.Empty;
 
         var rows = await db.Database.SqlQueryRaw<DistrictRow>($"""
-            WITH pv ("PlanId", "Rank", "Featured", "Weight") AS (VALUES {values}),
+            WITH pv ("PlanId", "Grant", "Rank", "Featured", "Weight") AS (VALUES {values}),
             target AS (
                 SELECT l."Id",
                        COALESCE(pv."Rank", {defRank}::smallint) AS "Rank",
                        COALESCE(pv."Featured", {defFeatured}) AS "Featured",
                        COALESCE(pv."Weight", {defWeight}::smallint) AS "Weight"
                 FROM {t} l
-                LEFT JOIN "UserPlans" up ON up."UserId" = l."UserId" AND up."FeatureKey" = {"{0}"}
-                    AND up."Status" = 'Active' AND up."EndsAt" > now()
+                {PlanRowSql.ActiveLateral("l.\"UserId\"", kind)}
                 LEFT JOIN pv ON pv."PlanId" = up."PlanId"
+                    AND pv."Grant" = CASE WHEN up."Source" = '{UserPlanSources.AdminGrant}' THEN 1 ELSE 0 END
                 WHERE l."IsDeleted" = false
             )
             UPDATE {t} AS x SET "PriorityRank" = target."Rank", "IsFeatured" = target."Featured"{weightSet}
             FROM target
             WHERE x."Id" = target."Id" AND (x."PriorityRank" <> target."Rank" OR x."IsFeatured" <> target."Featured"{weightDiff})
             RETURNING x."DistrictId"
-            """, kind).ToListAsync();
+            """).ToListAsync();
 
         return new RankReconcileResult(
             rows.Count,

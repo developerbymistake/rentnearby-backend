@@ -73,6 +73,16 @@ public sealed record PlanFeatureValues(
 
     public static PlanFeatureValues Max(PlanFeatureValues a, PlanFeatureValues b) => Build(k => Math.Max(a.Get(k), b.Get(k)));
 
+    // Every key takes the higher value except the Ranking keys (Priority, Featured, RingWeight), which stay as in `off`.
+    public static PlanFeatureValues MaxExceptRanking(PlanFeatureValues off, PlanFeatureValues active)
+        => Build(k => PlanKeyCatalog.Of(k).Kind == PlanKeyKind.Ranking ? off.Get(k) : Math.Max(off.Get(k), active.Get(k)));
+
+    // The one payment rule (contract 3.1, D-24 / FB-14). ON: the plan's own values. OFF: `noPlan` = OffValues; an admin grant
+    // keeps its own values on every key (ranking too); any other active row (Play subscription, trial, prepaid) keeps Plus
+    // limits but gets Free ranking like everyone else.
+    public static PlanFeatureValues Effective(bool paymentEnabled, PlanFeatureValues noPlan, PlanFeatureValues plan, bool adminGrant)
+        => paymentEnabled ? plan : adminGrant ? Max(noPlan, plan) : MaxExceptRanking(noPlan, plan);
+
     // Payment OFF: every Limit key takes the highest value over the enabled plans of the kind (default included),
     // every Ranking and Stored key the default plan's value. Nobody is ranked above anybody while nothing can be bought.
     public static PlanFeatureValues OffValues(PlanCatalogSnapshot snapshot, string featureKey)

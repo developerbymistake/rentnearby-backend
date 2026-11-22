@@ -88,7 +88,7 @@ public sealed class OwnerContextReader(ApplicationDbContext db, IPlanCatalogCach
             LEFT JOIN "Districts" d ON d."Id" = l."DistrictId"
             LEFT JOIN LATERAL (
                 SELECT u."Id", u."PlanId", u."Source", u."StartsAt", u."EndsAt" FROM "UserPlans" u
-                WHERE u."UserId" = @me AND u."FeatureKey" = @kind AND u."Status" = 'Active' AND u."EndsAt" > now()
+                WHERE u."UserId" = @me AND u."FeatureKey" = @kind AND {PlanRowSql.EntitledSql("u")}
                 ORDER BY u."EndsAt" DESC LIMIT 1) up ON true
             WHERE l."UserId" = @me AND l."IsDeleted" = false
             LIMIT 1

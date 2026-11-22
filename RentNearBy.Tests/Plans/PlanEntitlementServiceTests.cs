@@ -67,13 +67,24 @@ public class PlanEntitlementServiceTests
     public void Compute_PaymentOffPlusRow_MaxOfDefaultPlanAndFreeLimitButNotPaid()
     {
         var limits = Compute(PaymentFeatureStates.Off(freeLimit: 2), new ActiveRowBuilder().Build());
+        var none = Compute(PaymentFeatureStates.Off(freeLimit: 2), null);
 
+        // D-24 / FB-14: a bought (non-grant) row keeps its limits while OFF but ranks like everyone else.
         Assert.Equal(3, limits.ListingLimit);
-        Assert.Equal((short)2, limits.PriorityRank);
-        Assert.True(limits.IsFeatured);
+        Assert.Equal(none.PriorityRank, limits.PriorityRank);
+        Assert.Equal(none.IsFeatured, limits.IsFeatured);
         Assert.False(limits.IsPaid);
         Assert.Equal("Plus", limits.PlanName);
         Assert.False(limits.IsDefaultPlan);
+    }
+
+    [Fact]
+    public void Compute_PaymentOffAdminGrant_KeepsItsRanking()
+    {
+        var limits = Compute(PaymentFeatureStates.Off(freeLimit: 2), new ActiveRowBuilder().WithSource(UserPlanSources.AdminGrant).Build());
+
+        Assert.Equal((short)2, limits.PriorityRank);
+        Assert.True(limits.IsFeatured);
     }
 
     [Fact]

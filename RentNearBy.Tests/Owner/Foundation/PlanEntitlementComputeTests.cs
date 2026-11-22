@@ -129,7 +129,7 @@ public class PlanEntitlementComputeTests
         var snapshot = OwnerPlanCatalog.Seeded();
         var flag = paymentOn ? PaymentFeatureStates.On() : PaymentFeatureStates.Off();
         var cte = PlanKeySql.Cte(snapshot, flag, kind);
-        Assert.StartsWith("pv (\"PlanId\", \"ListingLimit\"", cte);
+        Assert.StartsWith("pv (\"PlanId\", \"Grant\", \"ListingLimit\"", cte);
         Assert.Contains($"'{Guid.Empty}'::uuid", cte);
 
         var noPlan = paymentOn ? snapshot.DefaultValues(kind) : PlanFeatureValues.OffValues(snapshot, kind);
@@ -138,12 +138,17 @@ public class PlanEntitlementComputeTests
 
         foreach (var plan in snapshot.PlansOf(kind))
         {
-            Assert.Contains($"'{plan.Id}'::uuid", cte);
-            var values = paymentOn ? plan.Values : PlanFeatureValues.Max(noPlan, plan.Values);
-            var limits = Compute(kind, paymentOn, plan.Id, snapshot: snapshot);
-            Assert.All(PlanFeatureKeys.All, k => Assert.Equal(limits.Get(k), PlanKeySql.Value(values, flag, k)));
+            Assert.Contains($"'{plan.Id}'::uuid, 0", cte);
+            Assert.Contains($"'{plan.Id}'::uuid, 1", cte);
+            foreach (var source in new[] { UserPlanSources.Prepaid, UserPlanSources.AdminGrant })
+            {
+                var values = PlanFeatureValues.Effective(paymentOn, noPlan, plan.Values, source == UserPlanSources.AdminGrant);
+                var limits = Compute(kind, paymentOn, plan.Id, snapshot: snapshot, source: source);
+                Assert.All(PlanFeatureKeys.All, k => Assert.Equal(limits.Get(k), PlanKeySql.Value(values, flag, k)));
+            }
         }
-        Assert.Equal("pv.\"PlanId\" = COALESCE(up.\"PlanId\", '00000000-0000-0000-0000-000000000000'::uuid)", PlanKeySql.Join("up"));
+        Assert.Equal("pv.\"PlanId\" = COALESCE(up.\"PlanId\", '00000000-0000-0000-0000-000000000000'::uuid)"
+            + " AND pv.\"Grant\" = CASE WHEN up.\"Source\" = 'AdminGrant' THEN 1 ELSE 0 END", PlanKeySql.Join("up"));
         Assert.Equal("pv.\"Reminders\"", PlanKeySql.Column(PlanFeatureKeys.Reminders));
     }
 }

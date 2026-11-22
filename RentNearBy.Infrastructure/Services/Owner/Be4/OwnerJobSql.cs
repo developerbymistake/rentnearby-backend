@@ -18,10 +18,7 @@ public static class OwnerJobSql
 
     // The owner's active plan row (one at most), joined to the PlanKeySql CTE "pv".
     public static string PlanJoin(string listingAlias, string kind) => $"""
-        LEFT JOIN LATERAL (
-            SELECT p."PlanId" FROM "UserPlans" p
-            WHERE p."UserId" = {listingAlias}."UserId" AND p."FeatureKey" = '{kind}' AND p."Status" = '{UserPlanStatuses.Active}' AND p."EndsAt" > now()
-            ORDER BY p."EndsAt" DESC LIMIT 1) up ON true
+        {PlanRowSql.ActiveLateral(listingAlias + ".\"UserId\"", kind)}
         JOIN {PlanKeySql.DefaultName} ON {PlanKeySql.Join("up")}
         """;
 

@@ -39,7 +39,7 @@ public sealed class StayOwnerHomeReader(
         LEFT JOIN "Cities" c ON c."Id" = l."CityId"
         LEFT JOIN LATERAL (
             SELECT u."Id", u."PlanId", u."Source", u."StartsAt", u."EndsAt", u."PlaySubscriptionId" FROM "UserPlans" u
-            WHERE u."UserId" = @me AND u."FeatureKey" = '{ListingKinds.Stay}' AND u."Status" = '{UserPlanStatuses.Active}' AND u."EndsAt" > now()
+            WHERE u."UserId" = @me AND u."FeatureKey" = '{ListingKinds.Stay}' AND {PlanRowSql.EntitledSql("u")}
             ORDER BY u."EndsAt" DESC LIMIT 1) up ON true
         LEFT JOIN LATERAL (
             SELECT f."AnnounceDate", f."PaymentEnabledAt" FROM "AppFeatureFlags" f WHERE f."FeatureKey" = '{AppFeatureKeys.PaymentEnabled}' LIMIT 1) pf ON true

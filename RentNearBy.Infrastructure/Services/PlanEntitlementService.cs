@@ -20,8 +20,9 @@ public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache c
         var flag = await payment.GetAsync();
         var now = DateTime.UtcNow;
         var row = await db.UserPlans.AsNoTracking()
-            .Where(u => u.UserId == userId && u.FeatureKey == featureKey
-                && u.Status == UserPlanStatuses.Active && u.EndsAt > now)
+            .Where(u => u.UserId == userId && u.FeatureKey == featureKey)
+            .Where(PlanRowSql.Entitled(now))
+            .OrderByDescending(u => u.EndsAt)
             .Select(u => new ActiveRow(u.Id, u.UserId, u.PlanId, u.Source, u.StartsAt, u.EndsAt))
             .FirstOrDefaultAsync();
         return Compute(snapshot, flag, featureKey, row);
@@ -36,11 +37,11 @@ public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache c
         var now = DateTime.UtcNow;
         var ids = userIds.Distinct().ToList();
         var rows = await db.UserPlans.AsNoTracking()
-            .Where(u => ids.Contains(u.UserId) && u.FeatureKey == featureKey
-                && u.Status == UserPlanStatuses.Active && u.EndsAt > now)
+            .Where(u => ids.Contains(u.UserId) && u.FeatureKey == featureKey)
+            .Where(PlanRowSql.Entitled(now))
             .Select(u => new ActiveRow(u.Id, u.UserId, u.PlanId, u.Source, u.StartsAt, u.EndsAt))
             .ToListAsync();
-        var byUser = rows.ToDictionary(r => r.UserId);
+        var byUser = rows.GroupBy(r => r.UserId).ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.EndsAt).First());
         return ids.ToDictionary(id => id, id => Compute(snapshot, flag, featureKey, byUser.GetValueOrDefault(id)));
     }
 
@@ -57,9 +58,9 @@ public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache c
         }
         else
         {
-            // Payment OFF: Plus numbers for every limit key, Free for every ranking key; a grant keeps its own values.
+            // Payment OFF: Plus numbers for every limit key, Free for every ranking key; only an admin grant raises ranking (D-24).
             var off = PlanFeatureValues.OffValues(snapshot, featureKey);
-            values = active != null ? PlanFeatureValues.Max(off, active.Values) : off;
+            values = active != null ? PlanFeatureValues.Effective(false, off, active.Values, row!.Source == UserPlanSources.AdminGrant) : off;
             values = values with { ListingLimit = Math.Max(values.ListingLimit, flag.FreeModeListingLimit ?? 0) };
         }
 

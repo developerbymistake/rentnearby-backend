@@ -245,7 +245,8 @@ public sealed class PlanLimitsReconcile(
     {
         var now = DateTime.UtcNow;
         var row = await db.UserPlans.AsNoTracking()
-            .Where(u => u.UserId == userId && u.FeatureKey == kind && u.Status == UserPlanStatuses.Active && u.EndsAt > now)
+            .Where(u => u.UserId == userId && u.FeatureKey == kind)
+            .Where(PlanRowSql.Entitled(now))
             .OrderByDescending(u => u.EndsAt)
             .Select(u => new PlanEntitlementService.ActiveRow(u.Id, u.UserId, u.PlanId, u.Source, u.StartsAt, u.EndsAt))
             .FirstOrDefaultAsync(ct);
@@ -344,8 +345,7 @@ public sealed class PlanLimitsReconcile(
         lim AS (
             SELECT l."Id", CASE WHEN @hide THEN {PlanKeySql.Column(key)} ELSE 2147483647 END AS n
             FROM {(kind == ListingKinds.Stay ? "\"StayListings\"" : "\"TaxiListings\"")} l
-            LEFT JOIN LATERAL (SELECT u."PlanId" FROM "UserPlans" u WHERE u."UserId" = l."UserId" AND u."FeatureKey" = '{kind}'
-                AND u."Status" = 'Active' AND u."EndsAt" > now() ORDER BY u."EndsAt" DESC LIMIT 1) up ON true
+            {PlanRowSql.ActiveLateral("l.\"UserId\"", kind)}
             JOIN {PlanKeySql.DefaultName} ON {PlanKeySql.Join("up")}
             WHERE l."Id" = ANY(@ids))
         """;
@@ -429,8 +429,7 @@ public sealed class PlanLimitsReconcile(
                 SELECT l."Id", l."UserId", l."DistrictId", {PlanKeySql.DefaultName}.*,
                        {counts}
                 FROM {table} l
-                LEFT JOIN LATERAL (SELECT u."PlanId" FROM "UserPlans" u WHERE u."UserId" = l."UserId" AND u."FeatureKey" = '{kind}'
-                    AND u."Status" = 'Active' AND u."EndsAt" > now() ORDER BY u."EndsAt" DESC LIMIT 1) up ON true
+                {PlanRowSql.ActiveLateral("l.\"UserId\"", kind)}
                 JOIN {PlanKeySql.DefaultName} ON {PlanKeySql.Join("up")}
                 {countJoins}
                 WHERE l."IsDeleted" = false AND l."Id" > @after

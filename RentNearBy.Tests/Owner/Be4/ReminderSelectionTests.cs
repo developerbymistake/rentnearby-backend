@@ -31,7 +31,7 @@ public class ReminderSelectionTests
         var sql = Job(kind).BatchSql(on);
         Assert.Contains($"AND pv.\"{PlanFeatureKeys.Reminders}\" = 1", sql);
         Assert.Contains("JOIN pv ON pv.\"PlanId\" = COALESCE(up.\"PlanId\"", sql);
-        Assert.Contains($"p.\"FeatureKey\" = '{kind}' AND p.\"Status\" = '{UserPlanStatuses.Active}' AND p.\"EndsAt\" > now()", sql);
+        Assert.Contains($"p.\"FeatureKey\" = '{kind}' AND p.\"Status\" = '{UserPlanStatuses.Active}' AND (p.\"EndsAt\" > now() OR p.\"PlaySubscriptionId\" IS NOT NULL)", sql);
         Assert.Contains("l.\"RemindersOn\"", sql);
     }
 
@@ -46,7 +46,8 @@ public class ReminderSelectionTests
     // The Reminders column of the plan's row in the inline VALUES list.
     private static int RemindersOf(string cte, Guid planId)
     {
-        var row = Regex.Match(cte, $@"\('{planId}'::uuid((?:, -?\d+)+)\)");
+        // The first value after the id is the Grant column (0 = any row but an admin grant).
+        var row = Regex.Match(cte, $@"\('{planId}'::uuid, 0((?:, -?\d+)+)\)");
         Assert.True(row.Success, "No row for plan " + planId);
         var values = row.Groups[1].Value.Split(", ", StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray();
         return values[PlanFeatureKeys.All.ToList().IndexOf(PlanFeatureKeys.Reminders)];

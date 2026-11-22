@@ -124,7 +124,11 @@ public class TaxiRequestClosureWiringTests
     [Fact]
     public void Taxi_delete_runs_the_closure_before_writing_the_listing()
     {
-        var delete = HandlerBody(HandlerSource(), "DeleteMine");
+        // FB-09: the owner and admin delete share ListingRemoval.SoftDeleteTaxiAsync.
+        Assert.Contains("ListingRemoval.SoftDeleteTaxiAsync", HandlerBody(HandlerSource(), "DeleteMine"));
+        var removal = File.ReadAllText(Path.Combine(RentNearBy.Tests.Trips.CompletionCounterGuardTests.Root(), "RentNearBy.Api", "Handlers", "Owner", "ListingRemoval.cs"));
+        var delete = removal[removal.IndexOf("SoftDeleteTaxiAsync(", StringComparison.Ordinal)..];
+        delete = delete[..delete.IndexOf("CountConfirmedLeadsAsync(ApplicationDbContext", StringComparison.Ordinal)];
         var begin = delete.IndexOf("await unitOfWork.BeginTransactionAsync();", StringComparison.Ordinal);
         var closure = delete.IndexOf("tripPushes = await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, [taxi.Id]);", StringComparison.Ordinal);
         var save = delete.IndexOf("await unitOfWork.SaveChangesAsync();", StringComparison.Ordinal);
