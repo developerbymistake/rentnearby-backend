@@ -68,6 +68,15 @@ public static class DataSeeder
                 UpdatedAt = DateTime.UtcNow,
             });
 
+        if (!keys.Contains(AppFeatureKeys.MapDiscoveryEnabled))
+            db.AppFeatureFlags.Add(new AppFeatureFlag
+            {
+                Id = Guid.NewGuid(),
+                FeatureKey = AppFeatureKeys.MapDiscoveryEnabled,
+                IsEnabled = true,
+                UpdatedAt = DateTime.UtcNow,
+            });
+
         if (db.ChangeTracker.HasChanges()) await db.SaveChangesAsync();
     }
 

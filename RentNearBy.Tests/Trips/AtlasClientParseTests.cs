@@ -220,4 +220,79 @@ public class AtlasClientParseTests
         Assert.Equal(new DateTime(2026, 11, 3, 8, 0, 0, DateTimeKind.Utc), version.UpdatedAt.ToUniversalTime());
         Assert.Equal(42, version.Count);
     }
+
+    private const string MapPacksBody = """
+        {"status":"200","code":200,"data":{"packs":[
+          {"stateId":"0b6e1f2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b","stateName":"State A","version":"9f3c0a1b2c3d4e5f","count":508,"bbox":[75.6,30.4,79.0,33.2]},
+          {"stateName":"No id","version":"9f3c0a1b2c3d4e5f","count":1},
+          {"stateId":"not-a-guid","version":"9f3c0a1b2c3d4e5f"},
+          {"stateId":"1c7f2a3b-4d5e-4f60-9bac-1d2e3f4a5b6c","version":"SHORT"},
+          {"stateId":"1c7f2a3b-4d5e-4f60-9bac-1d2e3f4a5b6c","version":"9F3C0A1B2C3D4E5F"},
+          {"stateId":"2d8a3b4c-5e6f-4071-8cbd-2e3f4a5b6c7d","version":"0123456789abcdef","count":-3,"bbox":[1,2]},
+          7]}}
+        """;
+
+    [Fact]
+    public async Task GetMapPacks_ParsesAndSkipsMalformed()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, MapPacksBody);
+
+        var packs = await Client(handler).GetMapPacksAsync();
+
+        Assert.Equal("https://atlas.test/api/v1/map-packs", handler.LastRequest!.RequestUri!.ToString());
+        Assert.Equal(2, packs.Count);
+        Assert.Equal(Guid.Parse("0b6e1f2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b"), packs[0].StateId);
+        Assert.Equal("State A", packs[0].StateName);
+        Assert.Equal("9f3c0a1b2c3d4e5f", packs[0].Version);
+        Assert.Equal(508, packs[0].Count);
+        Assert.Equal(new[] { 75.6, 30.4, 79.0, 33.2 }, packs[0].Bbox);
+        Assert.Equal(0, packs[1].Count);
+        Assert.Empty(packs[1].Bbox);
+    }
+
+    [Fact]
+    public async Task GetMapPacks_EmptyList_And_Non200Throws()
+    {
+        var empty = await Client(new StubHandler(HttpStatusCode.OK, """{"data":{"packs":[]}}""")).GetMapPacksAsync();
+        Assert.Empty(empty);
+
+        await Assert.ThrowsAsync<AtlasUnavailableException>(() =>
+            Client(new StubHandler(HttpStatusCode.NotFound, "{}")).GetMapPacksAsync());
+    }
+
+    [Fact]
+    public async Task GetMapPackRaw_ReturnsDataTextByteForByte_404Null_ElseThrows()
+    {
+        const string data = """{"fmt":1,"v":"9f3c0a1b2c3d4e5f","state":"0b6e1f2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b","s":[["osm:n1",32.24316,77.18922,0,1,"Hadimba Temple",210045678,null,0]]}""";
+        var handler = new StubHandler(HttpStatusCode.OK, $$"""{"status":"200","code":200,"timestamp":1,"data":{{data}},"error":null}""");
+        var stateId = Guid.Parse("0b6e1f2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b");
+
+        var raw = await Client(handler).GetMapPackRawAsync(stateId);
+
+        Assert.Equal("https://atlas.test/api/v1/map-packs/0b6e1f2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b", handler.LastRequest!.RequestUri!.ToString());
+        Assert.Equal(data, Encoding.UTF8.GetString(raw!));
+        Assert.Null(await Client(new StubHandler(HttpStatusCode.NotFound, "{}")).GetMapPackRawAsync(stateId));
+        await Assert.ThrowsAsync<AtlasUnavailableException>(() =>
+            Client(new StubHandler(HttpStatusCode.InternalServerError, "{}")).GetMapPackRawAsync(stateId));
+        await Assert.ThrowsAsync<AtlasUnavailableException>(() =>
+            Client(new StubHandler(HttpStatusCode.OK, "not json")).GetMapPackRawAsync(stateId));
+    }
+
+    [Fact]
+    public async Task InterfaceDefaults_Throw_SoOldFakesStayValid()
+    {
+        IAtlasClient fake = new DefaultsOnly();
+
+        await Assert.ThrowsAsync<AtlasUnavailableException>(() => fake.GetMapPacksAsync());
+        await Assert.ThrowsAsync<AtlasUnavailableException>(() => fake.GetMapPackRawAsync(Guid.NewGuid()));
+    }
+
+    private sealed class DefaultsOnly : IAtlasClient
+    {
+        public bool IsConfigured => true;
+        public Task<AtlasCitySpots?> GetCitySpotsAsync(long cityKey, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<AtlasCityPage> SearchCitiesAsync(string? q, int page, int pageSize, bool readyOnly = false,
+            bool popularOnly = false, Guid? stateId = null, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<AtlasCatalogVersion> GetCatalogVersionAsync(CancellationToken ct = default) => throw new NotSupportedException();
+    }
 }

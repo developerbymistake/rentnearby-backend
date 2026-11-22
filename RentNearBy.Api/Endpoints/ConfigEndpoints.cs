@@ -9,6 +9,7 @@ public static class ConfigEndpoints
         group.MapGet("/payment-feature", ConfigHandlers.GetPaymentFeature).AllowAnonymous();
         group.MapGet("/app-tabs", ConfigHandlers.GetAppTabs).AllowAnonymous();
         group.MapGet("/app-version", ConfigHandlers.GetAppVersion).AllowAnonymous();
+        group.MapGet("/map-discovery", ConfigHandlers.GetMapDiscovery).AllowAnonymous();
         return group;
     }
 }

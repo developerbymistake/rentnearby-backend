@@ -36,6 +36,13 @@ public static class ConfigHandlers
         });
     }
 
+    // Checks only: the user app reads the flag from mapDiscovery in GET /trips/cities/version.
+    public static async Task<IResult> GetMapDiscovery(IMapDiscoveryFeatureReader reader, HttpContext httpContext)
+    {
+        httpContext.Response.Headers.CacheControl = "no-cache";
+        return OkResponse(new { enabled = await reader.IsEnabledAsync() });
+    }
+
     // Master table for the bottom-nav tabs (RentNearBy.Core.Models.AppTabKeys), read through AppTabCache so
     // TabGateFilter, Home, roles, chat and the digest job all share one entry. AdminHandlers.UpdateAppTab
     // rewrites it on every change.

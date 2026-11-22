@@ -112,7 +112,8 @@ public static class TripHandlers
     }
 
     public static async Task<IResult> GetCitiesVersion(
-        ClaimsPrincipal principal, ITripCityCatalog catalog, IRateLimitService rateLimiter, HttpContext httpContext)
+        ClaimsPrincipal principal, ITripCityCatalog catalog, IRateLimitService rateLimiter, HttpContext httpContext,
+        ITripMapPackService packs, IMapDiscoveryFeatureReader flag)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         if (await CitiesRateLimitedAsync(userId, rateLimiter, httpContext) is { } limited) return limited;
@@ -120,7 +121,11 @@ public static class TripHandlers
         var snapshot = await catalog.GetAsync();
         if (snapshot == null) return CitiesUnavailable();
 
-        var etag = $"W/\"{snapshot.Version}\"";
+        var packList = await packs.ListAsync(httpContext.RequestAborted);
+        var mapDiscovery = await flag.IsEnabledAsync();
+
+        // A pack or flag change must never hide behind a 304 of the city version.
+        var etag = $"W/\"{snapshot.Version}.{PacksTag(packList)}.{(mapDiscovery ? 1 : 0)}\"";
         httpContext.Response.Headers.ETag = etag;
         if (httpContext.Request.Headers.IfNoneMatch.ToString() == etag)
             return Results.StatusCode(StatusCodes.Status304NotModified);
@@ -131,7 +136,17 @@ public static class TripHandlers
             Count = snapshot.Count,
             UpdatedAt = snapshot.UpdatedAt,
             Stale = snapshot.IsStale,
+            Packs = packList.Select(TripMapPackInfoDto.From).ToList(),
+            MapDiscovery = mapDiscovery,
         });
+    }
+
+    // First 8 hex of SHA-256 over "stateId:version" joined by ';'; "0" when there is no pack.
+    public static string PacksTag(IReadOnlyList<TripMapPackInfo> packs)
+    {
+        if (packs.Count == 0) return "0";
+        var text = string.Join(';', packs.Select(p => $"{p.StateId:D}:{p.Version}"));
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)))[..8];
     }
 
     private static async Task<IResult?> CitiesRateLimitedAsync(Guid userId, IRateLimitService rateLimiter, HttpContext httpContext)
@@ -144,7 +159,7 @@ public static class TripHandlers
 
     public static async Task<IResult> GetCitySpots(
         long cityKey, ITripCityCatalog catalog, ITripSpotCache cache, IOptions<TripPlannerOptions> options,
-        string? cursor = null, int pageSize = 0)
+        HttpContext httpContext, string? cursor = null, int pageSize = 0)
     {
         var size = Math.Clamp(pageSize <= 0 ? options.Value.SpotsPageSize : pageSize, 1, MaxSpotsPageSize);
         if (cityKey <= 0) return CityNotFound();
@@ -161,6 +176,14 @@ public static class TripHandlers
             return OkResponse(EmptySpotsPage(cityName, cityKey));
 
         var offset = int.TryParse(cursor, out var value) ? Math.Max(0, value) : 0;
+        if (cached.Status == TripSpotStatuses.Ready)
+        {
+            var etag = SpotsPageETag(cityKey, cached.FetchedAt, offset, size);
+            httpContext.Response.Headers.ETag = etag;
+            httpContext.Response.Headers.CacheControl = "private, no-cache";
+            if (httpContext.Request.Headers.IfNoneMatch.ToString() == etag)
+                return Results.StatusCode(StatusCodes.Status304NotModified);
+        }
         var total = cached.Spots.Count;
         var hasMore = offset + size < total;
         return OkResponse(new TripSpotsPageDto
@@ -175,6 +198,10 @@ public static class TripHandlers
             GeneratedAt = cached.GeneratedAt,
         });
     }
+
+    // FetchedAt, not GeneratedAt: it also moves on a delete or unassign in Atlas.
+    public static string SpotsPageETag(long cityKey, DateTime fetchedAt, int offset, int size)
+        => $"W/\"{cityKey}-{fetchedAt.Ticks}-{offset}-{size}\"";
 
     private const int SpotMaxPerWindow = 120;
     private static readonly TimeSpan SpotWindow = TimeSpan.FromMinutes(1);

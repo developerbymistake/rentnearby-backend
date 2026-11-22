@@ -399,7 +399,7 @@ public class TripRoadCacheTests
             .AddInMemoryCollection([new KeyValuePair<string, string?>("RABBITMQ_URL", "amqp://u:p@localhost:5672")])
             .Build();
         var catalog = new FakeCatalog();
-        var worker = new AtlasCityChangedWorkerService(spots, cache, catalog, config, NullLogger<AtlasCityChangedWorkerService>.Instance);
+        var worker = new AtlasCityChangedWorkerService(spots, cache, catalog, new RecordingMapPacks(), config, NullLogger<AtlasCityChangedWorkerService>.Instance);
 
         await worker.InvalidateCityAsync(Key);
 

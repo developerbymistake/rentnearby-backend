@@ -4,4 +4,5 @@ public static class AppFeatureKeys
 {
     public const string PaymentEnabled = "PAYMENT_ENABLED";
     public const string TripExecutionEnabled = "TRIP_EXECUTION_ENABLED";
+    public const string MapDiscoveryEnabled = "MAP_DISCOVERY_ENABLED";
 }

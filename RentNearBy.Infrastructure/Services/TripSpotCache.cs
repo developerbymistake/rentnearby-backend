@@ -18,33 +18,73 @@ public interface ITripSpotPeek
 
 // Every Redis call is guarded: a Redis failure degrades to a direct Atlas call.
 // IAtlasClient is resolved per fetch so the typed client's handler keeps rotating.
+// Memory layer in front of Redis: 300 s with Redis; without Redis (or while it fails) the copy is honoured for its
+// Redis TTL. Stored entries are shared and never mutated.
 public class TripSpotCache(
     IOptions<TripPlannerOptions> options,
     IServiceProvider sp,
-    ILogger<TripSpotCache> logger) : ITripSpotCache, ITripSpotPeek
+    ILogger<TripSpotCache> logger,
+    TimeProvider? clock = null) : ITripSpotCache, ITripSpotPeek
 {
     private const int LockWaitRounds = 10;
     private static readonly TimeSpan LockWaitDelay = TimeSpan.FromMilliseconds(300);
+    internal const int MemoryMaxEntries = 500;
+    internal static readonly TimeSpan MemoryTtl = TimeSpan.FromSeconds(300);
 
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly ConcurrentDictionary<long, Lazy<Task<CachedCitySpots?>>> _inflight = new();
+    private readonly ConcurrentDictionary<long, (CachedCitySpots Entry, DateTime At)> _memory = new();
+    private long _memoryGen;
 
     public async Task<CachedCitySpots?> GetAsync(long cityKey, CancellationToken ct = default)
     {
         var redis = sp.GetService<IConnectionMultiplexer>();
+        if (FromMemory(cityKey, redis == null) is { } mem) return mem;
 
-        var hit = await ReadAsync(redis, TripCacheKeys.Spots(cityKey));
-        if (hit != null) return hit;
+        if (redis != null)
+        {
+            var gen = Volatile.Read(ref _memoryGen);
+            var (hit, failed) = await TryReadAsync(redis, TripCacheKeys.Spots(cityKey));
+            if (hit != null) return Remember(cityKey, hit, gen);
+            if (failed && FromMemory(cityKey, true) is { } kept) return kept;
+        }
 
         var lazy = _inflight.GetOrAdd(cityKey, key => new Lazy<Task<CachedCitySpots?>>(() => LoadOnceAsync(redis, key)));
         return await lazy.Value.WaitAsync(ct);
     }
 
-    // Fresh copy first, then the 7-day stale copy; used by the city catalog so a cold city list never waits on Atlas.
+    // Memory, then the fresh copy, then the 7-day stale copy; used by the city catalog so a cold city list never waits on Atlas.
     public async Task<CachedCitySpots?> PeekAsync(long cityKey, CancellationToken ct = default)
     {
         var redis = sp.GetService<IConnectionMultiplexer>();
+        if (FromMemory(cityKey, redis == null) is { } mem) return mem;
         return await ReadAsync(redis, TripCacheKeys.Spots(cityKey)) ?? await ReadAsync(redis, TripCacheKeys.Stale(cityKey));
     }
+
+    // longTtl: Redis absent or failing, so the copy lives as long as its Redis value would.
+    private CachedCitySpots? FromMemory(long cityKey, bool longTtl)
+    {
+        if (!_memory.TryGetValue(cityKey, out var m)) return null;
+        var o = options.Value;
+        var ttl = !longTtl ? MemoryTtl
+            : m.Entry.Status == TripSpotStatuses.Ready ? TimeSpan.FromHours(o.CacheTtlHours) : TimeSpan.FromMinutes(o.NotReadyTtlMinutes);
+        return _clock.GetUtcNow().UtcDateTime - m.At < ttl ? m.Entry : null;
+    }
+
+    // gen drops a load that raced an invalidate; the oldest entry leaves when the map is full.
+    private CachedCitySpots Remember(long cityKey, CachedCitySpots entry, long gen)
+    {
+        if (gen != Volatile.Read(ref _memoryGen)) return entry;
+        if (!_memory.ContainsKey(cityKey) && _memory.Count >= MemoryMaxEntries)
+        {
+            var oldest = _memory.MinBy(kv => kv.Value.At);
+            _memory.TryRemove(oldest.Key, out _);
+        }
+        _memory[cityKey] = (entry, _clock.GetUtcNow().UtcDateTime);
+        return entry;
+    }
+
+    internal int MemoryCount => _memory.Count;
 
     // Keeps the v3 stale copy so a failed reload answers it instead of 503; the legacy pair never comes back.
     internal static RedisKey[] InvalidateKeys(long cityKey) =>
@@ -52,6 +92,8 @@ public class TripSpotCache(
 
     public async Task InvalidateAsync(long cityKey)
     {
+        Interlocked.Increment(ref _memoryGen);
+        _memory.TryRemove(cityKey, out _);
         var redis = sp.GetService<IConnectionMultiplexer>();
         if (redis == null) return;
         try
@@ -67,9 +109,11 @@ public class TripSpotCache(
     // In-process single flight: the entry leaves the map when the shared load ends, whatever the callers do.
     private async Task<CachedCitySpots?> LoadOnceAsync(IConnectionMultiplexer? redis, long cityKey)
     {
+        var gen = Volatile.Read(ref _memoryGen);
         try
         {
-            return await LoadAsync(redis, cityKey);
+            var (entry, fresh) = await LoadAsync(redis, cityKey);
+            return entry != null && fresh ? Remember(cityKey, entry, gen) : entry;
         }
         finally
         {
@@ -77,7 +121,8 @@ public class TripSpotCache(
         }
     }
 
-    private async Task<CachedCitySpots?> LoadAsync(IConnectionMultiplexer? redis, long cityKey)
+    // Fresh = from Atlas or the fresh Redis key (memorised); stale and legacy copies are not.
+    private async Task<(CachedCitySpots? Entry, bool Fresh)> LoadAsync(IConnectionMultiplexer? redis, long cityKey)
     {
         var o = options.Value;
         var lockKey = TripCacheKeys.Lock(cityKey);
@@ -89,7 +134,7 @@ public class TripSpotCache(
             {
                 await Task.Delay(LockWaitDelay);
                 var fresh = await ReadAsync(redis, TripCacheKeys.Spots(cityKey));
-                if (fresh != null) return fresh;
+                if (fresh != null) return (fresh, true);
             }
         }
 
@@ -103,7 +148,7 @@ public class TripSpotCache(
         }
     }
 
-    private async Task<CachedCitySpots?> FetchAsync(IConnectionMultiplexer? redis, long cityKey, TripPlannerOptions o)
+    private async Task<(CachedCitySpots?, bool)> FetchAsync(IConnectionMultiplexer? redis, long cityKey, TripPlannerOptions o)
     {
         AtlasCitySpots? dto;
         try
@@ -119,10 +164,10 @@ public class TripSpotCache(
             if (stale == null)
             {
                 var legacy = await ReadAsync(redis, TripCacheKeys.LegacyStale(cityKey));
-                return legacy == null ? null : FromLegacy(legacy);
+                return (legacy == null ? null : FromLegacy(legacy), false);
             }
             stale.Status = TripSpotStatuses.Stale;
-            return stale;
+            return (stale, false);
         }
 
         var entry = ToCached(cityKey, dto, DateTime.UtcNow);
@@ -134,7 +179,7 @@ public class TripSpotCache(
         if (ready)
             await WriteAsync(redis, TripCacheKeys.Stale(cityKey), json, TimeSpan.FromDays(o.StaleTtlDays));
 
-        return entry;
+        return (entry, true);
     }
 
     // A 404 (null) is treated as NotReady.
@@ -205,18 +250,22 @@ public class TripSpotCache(
     }
 
     private async Task<CachedCitySpots?> ReadAsync(IConnectionMultiplexer? redis, string key)
+        => (await TryReadAsync(redis, key)).Value;
+
+    // Failed = Redis threw (not a plain miss).
+    private async Task<(CachedCitySpots? Value, bool Failed)> TryReadAsync(IConnectionMultiplexer? redis, string key)
     {
-        if (redis == null) return null;
+        if (redis == null) return (null, false);
         try
         {
             var value = await redis.GetDatabase().StringGetAsync(key);
-            if (value.IsNullOrEmpty) return null;
-            return JsonSerializer.Deserialize<CachedCitySpots>(value.ToString(), TripJson.Options);
+            if (value.IsNullOrEmpty) return (null, false);
+            return (JsonSerializer.Deserialize<CachedCitySpots>(value.ToString(), TripJson.Options), false);
         }
         catch (Exception ex)
         {
             logger.LogWarning("TripSpotCache: read of {Key} failed: {Error}", key, ex.Message);
-            return null;
+            return (null, true);
         }
     }
 

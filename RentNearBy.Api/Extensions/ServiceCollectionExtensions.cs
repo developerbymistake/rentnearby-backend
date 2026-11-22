@@ -108,6 +108,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<AtlasCityChangedWorkerService>();
 
         services.AddSingleton<ITripExecutionFeatureReader, TripExecutionFeatureReader>();
+        services.AddSingleton<IMapDiscoveryFeatureReader, MapDiscoveryFeatureReader>();
+        services.AddSingleton<ITripMapPackService, TripMapPackService>();
         services.AddScoped<IConversationFactory, ConversationFactory>();
         services.AddScoped<ITripChatService, TripChatService>();
         services.AddScoped<ITripNotifier, TripNotifier>();

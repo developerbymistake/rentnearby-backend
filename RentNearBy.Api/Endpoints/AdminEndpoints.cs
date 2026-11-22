@@ -59,6 +59,8 @@ public static class AdminEndpoints
         group.MapPut("/payment-feature", AdminHandlers.UpdatePaymentFeature).RequireAuthorization("AdminOnly");
         group.MapGet("/trip-execution", AdminHandlers.GetTripExecution).RequireAuthorization("AdminOnly");
         group.MapPut("/trip-execution", AdminHandlers.UpdateTripExecution).RequireAuthorization("AdminOnly");
+        group.MapGet("/map-discovery", AdminMapDiscoveryHandlers.Get).RequireAuthorization("AdminOnly");
+        group.MapPut("/map-discovery", AdminMapDiscoveryHandlers.Update).RequireAuthorization("AdminOnly");
 
         group.MapGet("/app-tabs", AdminHandlers.GetAppTabs).RequireAuthorization("AdminOnly");
         group.MapPut("/app-tabs/{tabKey}", AdminHandlers.UpdateAppTab).RequireAuthorization("AdminOnly");

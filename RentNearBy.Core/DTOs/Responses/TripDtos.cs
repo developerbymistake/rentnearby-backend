@@ -290,4 +290,6 @@ public class TripCityVersionDto
     public int Count { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool Stale { get; set; }
+    public List<TripMapPackInfoDto> Packs { get; set; } = new();
+    public bool MapDiscovery { get; set; }
 }

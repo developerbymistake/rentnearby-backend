@@ -133,6 +133,7 @@ public class TripSpotCacheTests
         var cache = Cache(atlas);
 
         await cache.GetAsync(Key);
+        await cache.InvalidateAsync(Key);
         await cache.GetAsync(Key);
 
         Assert.Equal(2, atlas.Calls);

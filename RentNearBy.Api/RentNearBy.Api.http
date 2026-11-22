@@ -54,6 +54,38 @@ Accept: application/json
 
 ###
 
+# Map pack of one state; take stateId and version (path) from packs[] of /trips/cities/version.
+@stateId = <state-guid>
+@packVersion = <16-hex-version>
+GET {{baseUrl}}/api/v1/trips/map-packs/{{stateId}}/{{packVersion}}
+Authorization: Bearer {{userToken}}
+Accept-Encoding: gzip
+
+###
+
+GET {{baseUrl}}/api/v1/config/map-discovery
+Accept: application/json
+
+###
+
+GET {{baseUrl}}/api/v1/admin/map-discovery
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+###
+
+# New trip map off (old map rendering) without an app build; isEnabled true switches it back on.
+PUT {{baseUrl}}/api/v1/admin/map-discovery
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "isEnabled": false,
+  "reason": "switch back to the old map"
+}
+
+###
+
 GET {{baseUrl}}/api/v1/trips/cities/{{cityKey}}/spots?pageSize=20
 Authorization: Bearer {{userToken}}
 Accept: application/json

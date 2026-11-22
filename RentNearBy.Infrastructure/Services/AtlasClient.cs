@@ -67,6 +67,79 @@ public class AtlasClient : IAtlasClient
         return ParseData<AtlasCatalogVersion>(body);
     }
 
+    public async Task<List<TripMapPackInfo>> GetMapPacksAsync(CancellationToken ct = default)
+    {
+        var (status, body) = await GetAsync("api/v1/map-packs", ct);
+        if (status != HttpStatusCode.OK)
+            throw new AtlasUnavailableException($"Atlas map packs answered {(int)status}");
+        return ParseMapPacks(body);
+    }
+
+    public async Task<byte[]?> GetMapPackRawAsync(Guid stateId, CancellationToken ct = default)
+    {
+        var (status, body) = await GetAsync($"api/v1/map-packs/{stateId:D}", ct);
+        if (status == HttpStatusCode.NotFound) return null;
+        if (status != HttpStatusCode.OK)
+            throw new AtlasUnavailableException($"Atlas map pack answered {(int)status}");
+        return ParseRawData(body);
+    }
+
+    internal static List<TripMapPackInfo> ParseMapPacks(string body)
+    {
+        var raw = ParseRawData(body);
+        var result = new List<TripMapPackInfo>();
+        using var doc = JsonDocument.Parse(raw);
+        if (!doc.RootElement.TryGetProperty("packs", out var packs) || packs.ValueKind != JsonValueKind.Array)
+            return result;
+
+        foreach (var item in packs.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+            if (!item.TryGetProperty("stateId", out var idEl) || idEl.ValueKind != JsonValueKind.String
+                || !Guid.TryParse(idEl.GetString(), out var stateId)) continue;
+            if (!item.TryGetProperty("version", out var vEl) || vEl.ValueKind != JsonValueKind.String) continue;
+            var version = vEl.GetString();
+            if (!TripMapPackKeys.IsVersion(version)) continue;
+
+            var name = item.TryGetProperty("stateName", out var nEl) && nEl.ValueKind == JsonValueKind.String
+                ? nEl.GetString() ?? string.Empty : string.Empty;
+            var count = item.TryGetProperty("count", out var cEl) && cEl.ValueKind == JsonValueKind.Number
+                && cEl.TryGetInt32(out var c) && c >= 0 ? c : 0;
+            var bbox = new List<double>(4);
+            if (item.TryGetProperty("bbox", out var bEl) && bEl.ValueKind == JsonValueKind.Array && bEl.GetArrayLength() == 4)
+                foreach (var n in bEl.EnumerateArray())
+                    if (n.ValueKind == JsonValueKind.Number && n.TryGetDouble(out var d) && double.IsFinite(d)) bbox.Add(d);
+
+            result.Add(new TripMapPackInfo
+            {
+                StateId = stateId,
+                StateName = name,
+                Version = version!,
+                Count = count,
+                Bbox = bbox.Count == 4 ? bbox.ToArray() : [],
+            });
+        }
+        return result;
+    }
+
+    // Raw text of the envelope's data object, unchanged, as UTF-8.
+    internal static byte[] ParseRawData(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("data", out var data)
+                || data.ValueKind != JsonValueKind.Object)
+                throw new AtlasUnavailableException("Atlas response has no data");
+            return System.Text.Encoding.UTF8.GetBytes(data.GetRawText());
+        }
+        catch (JsonException)
+        {
+            throw new AtlasUnavailableException("Atlas response is not valid JSON");
+        }
+    }
+
     private async Task<(HttpStatusCode Status, string Body)> GetAsync(string path, CancellationToken ct)
     {
         if (!IsConfigured) throw new AtlasUnavailableException("Atlas is not configured");
