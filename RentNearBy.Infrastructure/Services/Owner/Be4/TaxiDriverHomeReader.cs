@@ -123,7 +123,7 @@ public sealed class TaxiDriverHomeReader(
 
         OwnerPlanCardDto? planCard = null;
         var paymentIssue = false;
-        if (approved && !areaPaused)
+        if (approved && !areaPaused && env.TabActive)
         {
             var extras = await OwnerHomeShared.PlanExtrasAsync(db, userId, ListingKinds.Taxi, ctx.PlaySubscriptionId, ct);
             paymentIssue = flag.Enabled && extras.PlayState == PlayStates.InGracePeriod;
@@ -163,7 +163,7 @@ public sealed class TaxiDriverHomeReader(
                 OnTripUntil = work.OnTripUntil,
                 RoutesMeter = new OwnerMeterDto(ctx.VisibleRoutes, limits.Routes),
                 StatusLine = ToDto(OwnerStatusLineRules.Choose(approved, ctx.SwitchOn, plansStartedToday, newRequests, 0,
-                    limits.IsPaid, ctx.IsFeatured, ctx.CityName)),
+                    ctx.IsFeatured, ctx.CityName)),
             },
             Attention = attention.Select(a => new OwnerAttentionDto(a.Code, a.Priority, a.Args)).ToList(),
             AttentionCount = attention.Count,

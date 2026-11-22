@@ -1,0 +1,17 @@
+[
+  { "name": "admin grant while payment off", "paymentEnabled": false, "source": "AdminGrant", "playState": null, "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "AdminGrant" },
+  { "name": "admin grant while payment on", "paymentEnabled": true, "source": "AdminGrant", "playState": null, "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "AdminGrant" },
+  { "name": "payment off, play row", "paymentEnabled": false, "source": "Subscription", "playState": "SUBSCRIPTION_STATE_ACTIVE", "playAutoRenew": true, "endedRecently": false, "inPlayTrial": false, "expected": "PaymentOff" },
+  { "name": "payment off, free", "paymentEnabled": false, "source": null, "playState": null, "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "PaymentOff" },
+  { "name": "grace", "paymentEnabled": true, "source": "Subscription", "playState": "SUBSCRIPTION_STATE_IN_GRACE_PERIOD", "playAutoRenew": true, "endedRecently": false, "inPlayTrial": false, "expected": "Grace" },
+  { "name": "cancelled (auto-renew off)", "paymentEnabled": true, "source": "Subscription", "playState": "SUBSCRIPTION_STATE_ACTIVE", "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "Cancelled" },
+  { "name": "cancelled (play canceled)", "paymentEnabled": true, "source": "Subscription", "playState": "SUBSCRIPTION_STATE_CANCELED", "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "Cancelled" },
+  { "name": "cancelled trial", "paymentEnabled": true, "source": "Subscription", "playState": "SUBSCRIPTION_STATE_ACTIVE", "playAutoRenew": false, "endedRecently": false, "inPlayTrial": true, "expected": "Cancelled" },
+  { "name": "play trial", "paymentEnabled": true, "source": "Subscription", "playState": "SUBSCRIPTION_STATE_ACTIVE", "playAutoRenew": true, "endedRecently": false, "inPlayTrial": true, "expected": "Trial" },
+  { "name": "own trial row", "paymentEnabled": true, "source": "Trial", "playState": null, "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "Trial" },
+  { "name": "plus", "paymentEnabled": true, "source": "Subscription", "playState": "SUBSCRIPTION_STATE_ACTIVE", "playAutoRenew": true, "endedRecently": false, "inPlayTrial": false, "expected": "Plus" },
+  { "name": "prepaid plus", "paymentEnabled": true, "source": "Prepaid", "playState": null, "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "Plus" },
+  { "name": "on hold", "paymentEnabled": true, "source": null, "playState": "SUBSCRIPTION_STATE_ON_HOLD", "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "OnHold" },
+  { "name": "ended", "paymentEnabled": true, "source": null, "playState": null, "playAutoRenew": false, "endedRecently": true, "inPlayTrial": false, "expected": "Ended" },
+  { "name": "free", "paymentEnabled": true, "source": null, "playState": null, "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "Free" }
+]

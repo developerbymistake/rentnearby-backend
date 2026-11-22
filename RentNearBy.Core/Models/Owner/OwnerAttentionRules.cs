@@ -179,14 +179,16 @@ public sealed record OwnerStatusLine(string Code, IReadOnlyDictionary<string, ob
 
 public static class OwnerStatusLineRules
 {
+    // FB-12: "Featured" follows IsFeatured alone (written only by the plan effects), so an admin grant while payment is OFF
+    // shows it too.
     public static OwnerStatusLine? Choose(bool isApproved, bool switchOn, bool plansStartedToday, int newCount, int checkInsThisWeek,
-        bool isPaid, bool isFeatured, string? cityName)
+        bool isFeatured, string? cityName)
     {
         if (isApproved && !switchOn) return new(OwnerStatusLineCodes.Paused, Empty);
         if (plansStartedToday) return new(OwnerStatusLineCodes.PlansStarted, Empty);
         if (newCount > 0) return new(OwnerStatusLineCodes.NewNeedReply, new Dictionary<string, object?> { ["count"] = newCount });
         if (checkInsThisWeek > 0) return new(OwnerStatusLineCodes.CheckInsThisWeek, new Dictionary<string, object?> { ["count"] = checkInsThisWeek });
-        if (isApproved && isPaid && isFeatured) return new(OwnerStatusLineCodes.Featured, new Dictionary<string, object?> { ["city"] = cityName });
+        if (isApproved && isFeatured) return new(OwnerStatusLineCodes.Featured, new Dictionary<string, object?> { ["city"] = cityName });
         return null;
     }
 
@@ -205,21 +207,23 @@ public static class OwnerWeeklyRules
     public static int? Shown(long? value) => value is { } v && v >= OwnerLimits.WeeklyMinShown ? (int)Math.Min(v, int.MaxValue) : null;
 }
 
-// Plan card state (doc 8.4b). Payment OFF wins; then the active row; then a Play issue without a row; else Free.
+// Plan card state (doc 8.4b, 3.4).
 public static class OwnerPlanCardStates
 {
     public const string Free = "Free", Trial = "Trial", Plus = "Plus", Cancelled = "Cancelled", Grace = "Grace",
         OnHold = "OnHold", Ended = "Ended", AdminGrant = "AdminGrant", PaymentOff = "PaymentOff";
 
-    public static string Of(bool paymentEnabled, string? activeSource, string? playState, bool playAutoRenew, bool endedRecently)
+    // D-09 / FB-12 order (the app mirrors it, vectors in Owner/Vectors/plan_card_states.json): AdminGrant, PaymentOff, Grace,
+    // Cancelled (auto-renew off), Trial (our trial row or a Google Play trial offer still running), OnHold / Ended, Plus, Free.
+    public static string Of(bool paymentEnabled, string? activeSource, string? playState, bool playAutoRenew, bool endedRecently, bool inPlayTrial = false)
     {
+        if (activeSource == UserPlanSources.AdminGrant) return AdminGrant;
         if (!paymentEnabled) return PaymentOff;
         if (activeSource != null)
         {
-            if (activeSource == UserPlanSources.AdminGrant) return AdminGrant;
             if (playState == PlayStates.InGracePeriod) return Grace;
-            if (activeSource == UserPlanSources.Trial) return Trial;
             if (playState == PlayStates.Canceled || (playState != null && !playAutoRenew)) return Cancelled;
+            if (activeSource == UserPlanSources.Trial || inPlayTrial) return Trial;
             return Plus;
         }
         if (playState == PlayStates.OnHold) return OnHold;

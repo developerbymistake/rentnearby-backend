@@ -247,7 +247,10 @@ public class PlanPurchaseService(
             }
         }
 
-        await FillPlayAsync(dto, userId, feature);
+        var activeSubscriptionId = await FillPlayAsync(dto, userId, feature);
+        // FB-50: the same state rule and facts as the Home plan card, so Home and Plans never disagree.
+        var extras = await Owner.Be4.OwnerHomeShared.PlanExtrasAsync(db, userId, feature, activeSubscriptionId, CancellationToken.None);
+        dto.State = Owner.Be4.OwnerHomeShared.PlanCardState(limits, flag, extras);
 
         dto.OpenPurchaseId = (await unitOfWork.PlanPurchases.GetOpenByUserFeatureAsync(userId, feature))?.Id;
         return dto;
@@ -255,7 +258,7 @@ public class PlanPurchaseService(
 
     // 4.1 play rule: the Active row's subscription, else the latest Mapped one in hold/pause/grace or ended
     // within EndedStateWindow (so the free-plan screen can still offer Fix / Resubscribe).
-    private async Task FillPlayAsync(MyPlanDto dto, Guid userId, string feature)
+    private async Task<Guid?> FillPlayAsync(MyPlanDto dto, Guid userId, string feature)
     {
         var active = await db.UserPlans.AsNoTracking()
             .Where(u => u.UserId == userId && u.FeatureKey == feature && u.Status == UserPlanStatuses.Active)
@@ -271,7 +274,7 @@ public class PlanPurchaseService(
             owns = sub != null;
         }
         sub ??= await playSubscriptions.GetLatestIssueByUserFeatureAsync(userId, feature, DateTime.UtcNow - PlayRules.EndedStateWindow);
-        if (sub == null) return;
+        if (sub == null) return active?.PlaySubscriptionId;
 
         string? scheduledName = null;
         if (owns && active?.PlayScheduledPlanId is { } scheduledId)
@@ -295,6 +298,7 @@ public class PlanPurchaseService(
             OwnsActivePlan = owns,
         };
         dto.ManageUrl = ManageUrl(sub.ProductId);
+        return active?.PlaySubscriptionId;
     }
 
     private string ManageUrl(string productId)

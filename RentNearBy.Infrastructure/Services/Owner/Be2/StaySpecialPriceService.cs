@@ -88,7 +88,7 @@ public sealed class StaySpecialPriceService(
         return new(new SpecialPriceListDto(
             rows.Select(ToItem).ToList(), Meters(rows.Count, ctx.Limits.SpecialPrices),
             StaySpecialPriceRules.SavesLeft(ctx.SpecialPriceSavesDay, ctx.SpecialPriceSavesCount, ctx.Today),
-            rooms, ctx.Limits.PaymentEnabled));
+            rooms, ctx.Limits.PaymentEnabled, ctx.StateName));
     }
 
     // ---------- P2 ----------

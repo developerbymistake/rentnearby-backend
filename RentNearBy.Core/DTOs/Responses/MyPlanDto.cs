@@ -3,6 +3,8 @@ namespace RentNearBy.Core.DTOs.Responses;
 // GET /plans/me (also returned by POST /plans/trial). FeatureKey null = Seeker, always free.
 public class MyPlanDto
 {
+    // FB-50: Home's plan card state (OwnerPlanCardStates), additive; null for a Seeker.
+    public string? State { get; set; }
     public bool PaymentEnabled { get; set; }
     public int FreeDays { get; set; }
     public string? FeatureKey { get; set; }

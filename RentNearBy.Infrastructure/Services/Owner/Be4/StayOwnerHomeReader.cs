@@ -113,7 +113,8 @@ public sealed class StayOwnerHomeReader(
 
         OwnerPlanCardDto? planCard = null;
         var paymentIssue = false;
-        if (approved && !areaPaused)
+        // FB-34: no plan card while the Stays tab is off.
+        if (approved && !areaPaused && env.TabActive)
         {
             var extras = await OwnerHomeShared.PlanExtrasAsync(db, userId, ListingKinds.Stay, ctx.PlaySubscriptionId, ct);
             paymentIssue = flag.Enabled && extras.PlayState == PlayStates.InGracePeriod;
@@ -153,14 +154,15 @@ public sealed class StayOwnerHomeReader(
                 PlannerOff = !env.PlannerOn,
                 PendingEdit = ctx.PendingEdit,
                 StatusLine = ToDto(OwnerStatusLineRules.Choose(approved, ctx.SwitchOn, plansStartedToday, work.AskedCount, checkInsWeek,
-                    limits.IsPaid, ctx.IsFeatured, ctx.CityName)),
+                    ctx.IsFeatured, ctx.CityName)),
             },
             Attention = attention.Select(a => new OwnerAttentionDto(a.Code, a.Priority, a.Args)).ToList(),
             AttentionCount = attention.Count,
             Numbers = new OwnerHomeNumbersDto
             {
                 Stay = new OwnerStayNumbersDto(work.AskedCount + work.CounteredCount, work.OffersWaiting, work.Confirmed),
-                CentreBadge = work.AskedCount + work.ChangeRequests,
+                // FB-17: Asked, Countered and change requests all wait for the host.
+                CentreBadge = work.AskedCount + work.CounteredCount + work.ChangeRequests,
             },
             Upcoming = upcoming,
             PlanCard = planCard,

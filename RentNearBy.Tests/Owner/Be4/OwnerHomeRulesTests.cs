@@ -145,36 +145,36 @@ public class OwnerStatusLineRulesTests
 {
     [Fact]
     public void Paused_wins_over_everything()
-        => Assert.Equal(OwnerStatusLineCodes.Paused, OwnerStatusLineRules.Choose(true, false, true, 3, 2, true, true, "Mukteshwar")!.Code);
+        => Assert.Equal(OwnerStatusLineCodes.Paused, OwnerStatusLineRules.Choose(true, false, true, 3, 2, true, "Mukteshwar")!.Code);
 
     [Fact]
     public void Plans_started_wins_over_new_enquiries()
-        => Assert.Equal(OwnerStatusLineCodes.PlansStarted, OwnerStatusLineRules.Choose(true, true, true, 3, 2, true, true, "Mukteshwar")!.Code);
+        => Assert.Equal(OwnerStatusLineCodes.PlansStarted, OwnerStatusLineRules.Choose(true, true, true, 3, 2, true, "Mukteshwar")!.Code);
 
     [Fact]
     public void New_need_reply_wins_over_check_ins()
     {
-        var line = OwnerStatusLineRules.Choose(true, true, false, 2, 1, false, false, null)!;
+        var line = OwnerStatusLineRules.Choose(true, true, false, 2, 1, false, null)!;
         Assert.Equal(OwnerStatusLineCodes.NewNeedReply, line.Code);
         Assert.Equal(2, line.Args["count"]);
     }
 
     [Fact]
     public void Check_ins_this_week_before_featured()
-        => Assert.Equal(OwnerStatusLineCodes.CheckInsThisWeek, OwnerStatusLineRules.Choose(true, true, false, 0, 2, true, true, "M")!.Code);
+        => Assert.Equal(OwnerStatusLineCodes.CheckInsThisWeek, OwnerStatusLineRules.Choose(true, true, false, 0, 2, true, "M")!.Code);
 
     [Fact]
-    public void Featured_only_on_a_paid_featured_approved_listing()
+    public void Featured_on_any_featured_approved_listing_admin_grant_while_off_too()
     {
-        var line = OwnerStatusLineRules.Choose(true, true, false, 0, 0, true, true, "Mukteshwar")!;
+        var line = OwnerStatusLineRules.Choose(true, true, false, 0, 0, true, "Mukteshwar")!;
         Assert.Equal(OwnerStatusLineCodes.Featured, line.Code);
         Assert.Equal("Mukteshwar", line.Args["city"]);
-        Assert.Null(OwnerStatusLineRules.Choose(true, true, false, 0, 0, false, true, "Mukteshwar"));
+        Assert.Null(OwnerStatusLineRules.Choose(true, true, false, 0, 0, false, "Mukteshwar"));
     }
 
     [Fact]
     public void A_listing_under_review_shows_no_paused_line()
-        => Assert.Null(OwnerStatusLineRules.Choose(false, false, false, 0, 0, false, false, null));
+        => Assert.Null(OwnerStatusLineRules.Choose(false, false, false, 0, 0, false, null));
 }
 
 public class WeeklyNumbersTests
@@ -210,6 +210,31 @@ public class OwnerPlanCardStateTests
     [InlineData(true, null, null, false, false, OwnerPlanCardStates.Free)]
     public void State_follows_the_plan_row_and_play(bool payment, string? source, string? play, bool autoRenew, bool ended, string expected)
         => Assert.Equal(expected, OwnerPlanCardStates.Of(payment, source, play, autoRenew, ended));
+
+    // FB-12 (D-09): Google Play trial, a cancelled trial, an admin grant while payment is OFF.
+    [Theory]
+    [InlineData(true, "Subscription", "SUBSCRIPTION_STATE_ACTIVE", true, true, OwnerPlanCardStates.Trial)]
+    [InlineData(true, "Subscription", "SUBSCRIPTION_STATE_ACTIVE", false, true, OwnerPlanCardStates.Cancelled)]
+    [InlineData(true, "Trial", null, true, false, OwnerPlanCardStates.Trial)]
+    [InlineData(false, "AdminGrant", null, false, false, OwnerPlanCardStates.AdminGrant)]
+    [InlineData(false, "Subscription", "SUBSCRIPTION_STATE_ACTIVE", true, true, OwnerPlanCardStates.PaymentOff)]
+    [InlineData(true, "Subscription", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD", false, true, OwnerPlanCardStates.Grace)]
+    public void State_order_of_D09(bool payment, string? source, string? play, bool autoRenew, bool inPlayTrial, string expected)
+        => Assert.Equal(expected, OwnerPlanCardStates.Of(payment, source, play, autoRenew, false, inPlayTrial));
+
+    [Fact]
+    public void Shared_vector_file_matches_the_rule()
+    {
+        var path = Path.Combine(RentNearBy.Tests.Trips.CompletionCounterGuardTests.Root(), "RentNearBy.Tests", "Owner", "Vectors", "plan_card_states.json");
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        foreach (var v in doc.RootElement.EnumerateArray())
+        {
+            string? Str(string k) => v.GetProperty(k).ValueKind == System.Text.Json.JsonValueKind.Null ? null : v.GetProperty(k).GetString();
+            Assert.Equal(v.GetProperty("expected").GetString(), OwnerPlanCardStates.Of(
+                v.GetProperty("paymentEnabled").GetBoolean(), Str("source"), Str("playState"), v.GetProperty("playAutoRenew").GetBoolean(),
+                v.GetProperty("endedRecently").GetBoolean(), v.GetProperty("inPlayTrial").GetBoolean()));
+        }
+    }
 
     [Fact]
     public void Payment_dates_follow_AU_18()

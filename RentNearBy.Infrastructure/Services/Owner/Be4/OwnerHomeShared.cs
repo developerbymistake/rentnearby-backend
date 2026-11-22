@@ -70,8 +70,13 @@ public static class OwnerHomeShared
                EXISTS (SELECT 1 FROM "PlaySubscriptions" x WHERE x."UserId" = @me AND x."FeatureKey" = @kind) AS "AnyPlay",
                EXISTS (SELECT 1 FROM "UserPlans" u WHERE u."UserId" = @me AND u."FeatureKey" = @kind) AS "AnyPlan",
                EXISTS (SELECT 1 FROM "UserPlans" u WHERE u."UserId" = @me AND u."FeatureKey" = @kind AND u."Source" = '{UserPlanSources.Trial}') AS "TrialUsed",
-               EXISTS (SELECT 1 FROM "UserPlans" u WHERE u."UserId" = @me AND u."FeatureKey" = @kind AND u."Status" <> '{UserPlanStatuses.Active}'
-                         AND u."Source" <> '{UserPlanSources.AdminGrant}' AND u."EndsAt" >= now() - interval '30 days') AS "EndedRecently"
+               -- FB-39: a non-Play row past its end that the expiry pass has not claimed yet already reads as ended.
+               EXISTS (SELECT 1 FROM "UserPlans" u WHERE u."UserId" = @me AND u."FeatureKey" = @kind
+                         AND u."Source" <> '{UserPlanSources.AdminGrant}' AND u."EndsAt" >= now() - interval '30 days'
+                         AND (u."Status" <> '{UserPlanStatuses.Active}' OR (u."PlaySubscriptionId" IS NULL AND u."EndsAt" <= now()))) AS "EndedRecently",
+               -- FB-12: a Google Play trial offer still running on the active row.
+               (SELECT u."PlayTrialEndsAt" FROM "UserPlans" u WHERE u."UserId" = @me AND u."FeatureKey" = @kind
+                  AND u."Status" = '{UserPlanStatuses.Active}' ORDER BY u."EndsAt" DESC LIMIT 1) AS "PlayTrialEndsAt"
         FROM (SELECT 1) one
         LEFT JOIN LATERAL (
             SELECT s."State", s."AutoRenewEnabled", s."ExpiryTime" FROM "PlaySubscriptions" s
@@ -203,13 +208,16 @@ public static class OwnerHomeShared
 
     public static OwnerPlanCardDto PlanCard(PlanLimits limits, PaymentFeatureState flag, PlanCatalogSnapshot snapshot, string kind, PlanExtrasRow extras,
         OwnerHiddenFacts hidden, OwnerWeeklyDto weekly, DateOnly? paymentStartsOn, bool plansStartedToday, int? ringWeight)
-        => new()
+    {
+        var inPlayTrial = extras.PlayTrialEndsAt is { } trialEnd && trialEnd > DateTime.UtcNow;
+        var state = PlanCardState(limits, flag, extras);
+        return new()
         {
-            State = OwnerPlanCardStates.Of(flag.Enabled, limits.UserPlanId != null ? limits.Source : null, extras.PlayState, extras.PlayAutoRenew, extras.EndedRecently),
+            State = state,
             PaymentEnabled = flag.Enabled,
             IsPaid = limits.IsPaid,
             Source = limits.Source,
-            EndsAt = limits.EndsAt,
+            EndsAt = state == OwnerPlanCardStates.Trial && inPlayTrial ? extras.PlayTrialEndsAt : limits.EndsAt,
             RenewsOn = extras.PlayAutoRenew && extras.PlayState == PlayStates.Active ? extras.PlayExpiry : null,
             TrialAvailable = TrialAvailable(snapshot, flag, kind, extras),
             Limits = LimitsDto(limits),
@@ -219,6 +227,12 @@ public static class OwnerHomeShared
             PlansStartedToday = plansStartedToday,
             Weekly = weekly,
         };
+    }
+
+    // The one state rule of Home and /plans/me (FB-12, FB-50).
+    public static string PlanCardState(PlanLimits limits, PaymentFeatureState flag, PlanExtrasRow extras)
+        => OwnerPlanCardStates.Of(flag.Enabled, limits.UserPlanId != null ? limits.Source : null, extras.PlayState, extras.PlayAutoRenew,
+            extras.EndedRecently, extras.PlayTrialEndsAt is { } trialEnd && trialEnd > DateTime.UtcNow);
 
     public static MyPlanLimitsDto LimitsDto(PlanLimits l) => new()
     {
@@ -296,5 +310,6 @@ public static class OwnerHomeShared
         public bool AnyPlan { get; set; }
         public bool TrialUsed { get; set; }
         public bool EndedRecently { get; set; }
+        public DateTime? PlayTrialEndsAt { get; set; }
     }
 }

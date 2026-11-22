@@ -10,10 +10,10 @@ public sealed record SpecialPriceItemDto(
 
 public sealed record SpecialPriceRoomDto(Guid Id, string RoomName, int BasePrice);
 
-// P1.
+// P1. StateName (FB-26): the stay's state, so the app offers that state's festivals as chips (null = national only).
 public sealed record SpecialPriceListDto(
     IReadOnlyList<SpecialPriceItemDto> Items, IReadOnlyList<MeterDto> Meters, int SavesLeftToday,
-    IReadOnlyList<SpecialPriceRoomDto> Rooms, bool PaymentEnabled);
+    IReadOnlyList<SpecialPriceRoomDto> Rooms, bool PaymentEnabled, string? StateName = null);
 
 // P2..P6 answer.
 public sealed record SpecialPriceWriteDto(SpecialPriceItemDto Item, IReadOnlyList<MeterDto> Meters, int SavesLeftToday);
