@@ -1,3 +1,4 @@
+using RentNearBy.Api.Filters;
 using RentNearBy.Api.Handlers;
 
 namespace RentNearBy.Api.Endpoints;
@@ -15,16 +16,16 @@ public static class StayEndpoints
         group.MapGet("/by-slug/{slug}", StayHandlers.GetBySlug);
 
         // GET /me is mapped ungated by lane BE3 (Endpoints/Owner/PlanVisibleEndpoints.cs, contract R-5).
-        group.MapPut("/me/basic", StayHandlers.UpsertBasic).RequireAuthorization("CanListStays");
-        group.MapPost("/me/photos", StayHandlers.UploadPhoto).RequireAuthorization("CanListStays").DisableAntiforgery();
-        group.MapDelete("/me/photos/{photoId:guid}", StayHandlers.DeletePhoto).RequireAuthorization("CanListStays");
-        group.MapPut("/me/rooms", StayHandlers.UpsertRooms).RequireAuthorization("CanListStays");
-        group.MapPut("/me/rooms/{roomId:guid}/price", StayHandlers.UpdateRoomPrice).RequireAuthorization("CanListStays");
-        group.MapPut("/me/rules", StayHandlers.UpsertRules).RequireAuthorization("CanListStays");
-        group.MapPost("/me/submit", StayHandlers.Submit).RequireAuthorization("CanListStays");
-        group.MapPut("/me/accepting", StayHandlers.UpdateAccepting).RequireAuthorization("CanListStays");
-        group.MapPut("/me/share-details", StayHandlers.UpdateShareDetails).RequireAuthorization("CanListStays");
-        group.MapDelete("/me", StayHandlers.DeleteMine).RequireAuthorization("CanListStays");
+        group.MapPut("/me/basic", StayHandlers.UpsertBasic).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapPost("/me/photos", StayHandlers.UploadPhoto).RequireAuthorization("CanListStays").DisableAntiforgery().OwnerPhotoLimited();
+        group.MapDelete("/me/photos/{photoId:guid}", StayHandlers.DeletePhoto).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapPut("/me/rooms", StayHandlers.UpsertRooms).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapPut("/me/rooms/{roomId:guid}/price", StayHandlers.UpdateRoomPrice).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapPut("/me/rules", StayHandlers.UpsertRules).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapPost("/me/submit", StayHandlers.Submit).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapPut("/me/accepting", StayHandlers.UpdateAccepting).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapPut("/me/share-details", StayHandlers.UpdateShareDetails).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapDelete("/me", StayHandlers.DeleteMine).RequireAuthorization("CanListStays").OwnerWriteLimited();
 
         group.MapGet("/{id:guid}", StayHandlers.GetById);
         group.MapPost("/{id:guid}/report", StayHandlers.ReportStay).RequireAuthorization();

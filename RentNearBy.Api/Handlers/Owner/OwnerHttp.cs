@@ -20,8 +20,14 @@ public static class OwnerHttp
     }
 
     // Writes: permits are given back for a business refusal (409/422/400) or an exception; 401/403/404 keep the permit.
+    // The attempt bucket (FB-52) is taken first and never given back, so a loop of refused writes still hits 429.
     public static async Task<IResult> WriteLimitAsync(IRateLimitService limiter, HttpContext http, OwnerRateLimit limit, Func<Task<IResult>> action)
     {
+        if (limit.Attempt is { } attempt)
+        {
+            var tried = await limiter.CheckAsync(attempt.Key, attempt.Max, attempt.Window);
+            if (!tried.IsAllowed) return Denied(http, tried, attempt.Window);
+        }
         var lease = new RateLimitPermits(limiter);
         var taken = await lease.TakeAsync(limit.Key, limit.Max, limit.Window);
         if (!taken.IsAllowed) return Denied(http, taken, limit.Window);
@@ -98,7 +104,7 @@ public static class OwnerHttp
         return true;
     }
 
-    private static IResult Denied(HttpContext http, RateLimitResult limit, TimeSpan window)
+    public static IResult Denied(HttpContext http, RateLimitResult limit, TimeSpan window)
     {
         http.Response.Headers["Retry-After"] = Math.Max(1, (int)Math.Ceiling((limit.RetryAfter ?? window).TotalSeconds)).ToString();
         return ErrorResponse(429, OwnerErrorTypes.MessageOf(OwnerErrorTypes.TooManyRequests), OwnerErrorTypes.TooManyRequests);

@@ -1058,7 +1058,9 @@ public static class StayHandlers
         if (stay.Status != StayStatuses.Approved)
             return ConflictResponse("Your stay is not live yet.", StayErrorTypes.StayNotApproved);
 
-        stay.AcceptingGuests = request.AcceptingGuests!.Value;
+        // FB-11: the same value is a no-op (no save, no cache bust).
+        if (stay.AcceptingGuests == request.AcceptingGuests!.Value) return OkResponse(await ToOwnerDtoAsync(stay, unitOfWork));
+        stay.AcceptingGuests = request.AcceptingGuests.Value;
         stay.UpdatedAt = DateTime.UtcNow;
 
         try { await unitOfWork.SaveChangesAsync(); }

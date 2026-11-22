@@ -6,7 +6,9 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Api.Handlers.Owner;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Owner;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
 using static RentNearBy.Api.Extensions.ApiResults;
@@ -197,7 +199,9 @@ public static class StayJobHandlers
     }
 
     // Live on post. The FOR UPDATE lock on the stay row serialises parallel creates so the
-    // active-job cap (the owner's plan JobsPosts) cannot be passed twice. Pushes are best-effort after commit.
+    // active-job cap (the owner's plan JobsPosts) cannot be passed twice. Create, edit and close take the owner write limit
+    // (D-08, FB-08). The Seeker broadcast is an outbox row of the create transaction, at most one per stay per IST day;
+    // the admin push stays best effort per job after commit.
     public static async Task<IResult> Create(
         UpsertStayJobRequest request,
         IValidator<UpsertStayJobRequest> validator,
@@ -206,10 +210,22 @@ public static class StayJobHandlers
         ApplicationDbContext db,
         IRabbitMqPublisher publisher,
         IPlanEntitlementService entitlements,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IRateLimitService limiter,
+        HttpContext http,
+        IOutboxWriter outbox)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
+        return await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(userId),
+            () => CreateCoreAsync(request, validator, userId, unitOfWork, db, publisher, entitlements, loggerFactory, outbox));
+    }
+
+    private static async Task<IResult> CreateCoreAsync(
+        UpsertStayJobRequest request, IValidator<UpsertStayJobRequest> validator, Guid userId, IUnitOfWork unitOfWork,
+        ApplicationDbContext db, IRabbitMqPublisher publisher, IPlanEntitlementService entitlements, ILoggerFactory loggerFactory,
+        IOutboxWriter outbox)
+    {
 
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -249,6 +265,7 @@ public static class StayJobHandlers
 
             await unitOfWork.StayJobs.AddAsync(job);
             await unitOfWork.SaveChangesAsync();
+            await StayJobPostedPublisher.StageSeekerBroadcastAsync(db, stay.Id, job.Id, IstTime.TodayIst(now));
             await unitOfWork.CommitTransactionAsync();
         }
         catch
@@ -257,7 +274,8 @@ public static class StayJobHandlers
             throw;
         }
 
-        await StayJobPostedPublisher.PublishAsync(publisher, job.Id, loggerFactory.CreateLogger(nameof(StayJobHandlers)));
+        outbox.Wake();
+        await StayJobPostedPublisher.PublishAdminAsync(publisher, job.Id, loggerFactory.CreateLogger(nameof(StayJobHandlers)));
 
         var dto = await OwnerDetailAsync(job.Id, userId, unitOfWork);
         return CreatedResponse(dto, $"/api/v1/stay-jobs/{job.Id}");
@@ -269,10 +287,20 @@ public static class StayJobHandlers
         IValidator<UpsertStayJobRequest> validator,
         ClaimsPrincipal principal,
         IUnitOfWork unitOfWork,
-        ApplicationDbContext db)
+        ApplicationDbContext db,
+        IRateLimitService limiter,
+        HttpContext http)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
+        return await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(userId),
+            () => UpdateCoreAsync(id, request, validator, userId, unitOfWork, db));
+    }
+
+    private static async Task<IResult> UpdateCoreAsync(
+        Guid id, UpsertStayJobRequest request, IValidator<UpsertStayJobRequest> validator, Guid userId, IUnitOfWork unitOfWork,
+        ApplicationDbContext db)
+    {
 
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid) return BadRequestResponse(validation.Errors[0].ErrorMessage);
@@ -295,10 +323,15 @@ public static class StayJobHandlers
     }
 
     // Closed is terminal; closing twice just returns the job.
-    public static async Task<IResult> Close(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    public static async Task<IResult> Close(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IRateLimitService limiter, HttpContext http)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
+        return await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(userId), () => CloseCoreAsync(id, userId, unitOfWork));
+    }
+
+    private static async Task<IResult> CloseCoreAsync(Guid id, Guid userId, IUnitOfWork unitOfWork)
+    {
 
         var job = await unitOfWork.StayJobs.GetOwnedTrackedAsync(id, userId);
         if (job == null) return NotFoundResponse(JobNotFound);
