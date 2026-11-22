@@ -190,7 +190,7 @@ public static class BannerHandlers
 
     public static async Task<IResult> AdminDeleteBanner(
         Guid id, IUnitOfWork unitOfWork, IPhotoService photoService,
-        IHubContext<BannerHub> hubContext)
+        IHubContext<BannerHub> hubContext, IServiceProvider sp)
     {
         var banner = await unitOfWork.DistrictBanners.GetByIdAsync(id);
         if (banner == null) return NotFoundResponse("Banner not found");
@@ -198,9 +198,11 @@ public static class BannerHandlers
         await hubContext.Clients.Group($"district_{banner.DistrictId}")
             .SendAsync("BannerDeactivated", new { bannerId = id, districtId = banner.DistrictId });
 
-        await photoService.DeletePhotoAsync(banner.ImageFilePath);
+        var path = banner.ImageFilePath;
         await unitOfWork.DistrictBanners.DeleteAsync(banner);
         await unitOfWork.SaveChangesAsync();
+        // After the commit; a refused delete is logged as photo.orphan.
+        await PhotoCleanup.TryDeleteAsync(photoService, path, PhotoCleanup.Logger(sp));
         return NoContentResponse();
     }
 

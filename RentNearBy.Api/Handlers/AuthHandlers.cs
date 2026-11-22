@@ -20,6 +20,9 @@ public static class AuthHandlers
     private const int OtpUserDailySendMax = 2;
     private const int OtpVerifyMax = 3;
     private const string PhoneLoginNamespace = "phone_login";
+    public const int OnboardPhoneMax = 5;
+    public const int OnboardIpMax = 30;
+    private static readonly TimeSpan OnboardWindow = TimeSpan.FromHours(1);
 
     public static async Task<IResult> PhoneSendOtp(
         PhoneLoginSendOtpRequest request,
@@ -101,14 +104,30 @@ public static class AuthHandlers
         IUnitOfWork unitOfWork,
         IJwtService jwtService,
         IMemoryCache cache,
-        IUsernameService usernames)
+        IUsernameService usernames,
+        IRateLimitService rateLimiter,
+        HttpContext httpContext,
+        IConfiguration configuration)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
+        // Limits before the proof read, so the route cannot be polled for a number that is being verified.
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        foreach (var (key, max) in new[] { ($"onboard:{request.PhoneNumber}", OnboardPhoneMax), ($"onboard:ip:{ip}", OnboardIpMax) })
+        {
+            var limit = await rateLimiter.CheckAsync(key, max, OnboardWindow);
+            if (!limit.IsAllowed)
+            {
+                httpContext.Response.Headers["Retry-After"] = ((int)Math.Ceiling(limit.RetryAfter!.Value.TotalSeconds)).ToString();
+                return TooManyRequestsResponse();
+            }
+        }
+
         // Proof of verify-otp first (before the registered check, so the route cannot probe which numbers exist).
-        if (!await usernames.HasSignupReservationAsync(request.PhoneNumber))
+        var allowWithoutUsername = configuration.GetValue("Auth:AllowOnboardingWithoutProof", true);
+        if (!await usernames.HasSignupReservationAsync(request.PhoneNumber, request.Username, allowWithoutUsername))
             return BadRequestResponse("Please verify your phone number again.", "OtpRequired");
 
         // Guard: phone already registered

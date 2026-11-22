@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Handlers;
@@ -50,9 +51,72 @@ public class OnboardingProofTests
             new PhoneLoginVerifyOtpRequestValidator(), w.Uow, new Jwt(), new AllowAll(), new OtpOk(),
             new DefaultHttpContext(), Cache(), w.Service("Bakhli#48291736"));
 
-    private static Task<IResult> Complete(UsernameWorld w)
-        => AuthHandlers.PhoneCompleteOnboarding(new PhoneOnboardingRequest { PhoneNumber = Phone, Name = "Asha" },
-            new PhoneOnboardingRequestValidator(), w.Uow, new Jwt(), Cache(), w.Service("Bakhli#11111111"));
+    private static Microsoft.Extensions.Configuration.IConfiguration Config(bool? allowWithoutProof = null)
+    {
+        var values = new Dictionary<string, string?>();
+        if (allowWithoutProof != null) values["Auth:AllowOnboardingWithoutProof"] = allowWithoutProof.Value ? "true" : "false";
+        return new Microsoft.Extensions.Configuration.ConfigurationBuilder().AddInMemoryCollection(values).Build();
+    }
+
+    private static Task<IResult> Complete(UsernameWorld w, string? username = null, IRateLimitService? limiter = null,
+        bool? allowWithoutProof = null, HttpContext? http = null)
+        => AuthHandlers.PhoneCompleteOnboarding(new PhoneOnboardingRequest { PhoneNumber = Phone, Name = "Asha", Username = username },
+            new PhoneOnboardingRequestValidator(), w.Uow, new Jwt(), Cache(), w.Service("Bakhli#11111111"),
+            limiter ?? new AllowAll(), http ?? new DefaultHttpContext(), Config(allowWithoutProof));
+
+    [Fact]
+    public async Task A_wrong_username_proof_is_refused_and_no_user_is_made()
+    {
+        var w = new UsernameWorld();
+        await Verify(w);
+
+        var result = await Complete(w, username: "Bakhli#99999999");
+
+        Assert.Equal(400, Status(result));
+        Assert.Equal("OtpRequired", Error(result)!.Type);
+        Assert.Empty(w.Repo.Added);
+    }
+
+    [Fact]
+    public async Task The_right_username_proof_makes_the_user()
+    {
+        var w = new UsernameWorld();
+        await Verify(w);
+
+        var result = await Complete(w, username: "Bakhli#48291736", allowWithoutProof: false);
+
+        Assert.Equal(200, Status(result));
+        Assert.Single(w.Repo.Added);
+    }
+
+    [Fact]
+    public async Task Without_a_username_proof_is_refused_once_the_switch_is_off()
+    {
+        var w = new UsernameWorld();
+        await Verify(w);
+
+        var result = await Complete(w, allowWithoutProof: false);
+
+        Assert.Equal(400, Status(result));
+        Assert.Equal("OtpRequired", Error(result)!.Type);
+        Assert.Empty(w.Repo.Added);
+    }
+
+    [Fact]
+    public async Task The_sixth_complete_in_an_hour_for_one_phone_is_429()
+    {
+        var w = new UsernameWorld();
+        var limiter = new InMemoryRateLimitService();
+        for (var i = 0; i < AuthHandlers.OnboardPhoneMax; i++)
+            Assert.Equal("OtpRequired", Error(await Complete(w, limiter: limiter))!.Type);
+
+        var http = new DefaultHttpContext();
+        var result = await Complete(w, limiter: limiter, http: http);
+
+        Assert.Equal(429, Status(result));
+        Assert.True(int.Parse(http.Response.Headers["Retry-After"]!) >= 1);
+        Assert.Empty(w.Repo.Added);
+    }
 
     [Fact]
     public async Task Without_verify_the_answer_is_otp_required_and_no_user_is_made()

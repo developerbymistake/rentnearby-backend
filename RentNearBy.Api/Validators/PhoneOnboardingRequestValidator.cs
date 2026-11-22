@@ -14,5 +14,8 @@ public class PhoneOnboardingRequestValidator : AbstractValidator<PhoneOnboarding
         RuleFor(x => x.Name)
             .NotEmpty().WithMessage("Name is required")
             .MaximumLength(100).WithMessage("Name cannot exceed 100 characters");
+
+        RuleFor(x => x.Username)
+            .MaximumLength(40).WithMessage("Please verify your phone number again.");
     }
 }

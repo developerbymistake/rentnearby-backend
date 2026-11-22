@@ -38,6 +38,17 @@ public class PhotoUploadGuardTests
         return src[start..end];
     }
 
+    private static bool TakesFile(ParameterInfo p)
+    {
+        var t = Nullable.GetUnderlyingType(p.ParameterType) ?? p.ParameterType;
+        return t == typeof(IFormFile) || typeof(IFormFileCollection).IsAssignableFrom(t)
+               || (t.IsGenericType && t.GetGenericArguments().Any(a => a == typeof(IFormFile)));
+    }
+
+    private static IEnumerable<string> SourceFiles(string under)
+        => Directory.EnumerateFiles(under, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !Regex.IsMatch(f, @"[\\/](bin|obj)[\\/]"));
+
     private static string HandlerSource(Type type)
         => Directory.EnumerateFiles(Path.Combine(Root, "RentNearBy.Api", "Handlers"), "*.cs", SearchOption.AllDirectories)
             .Select(File.ReadAllText)
@@ -49,7 +60,7 @@ public class PhotoUploadGuardTests
         var handlers = typeof(StayHandlers).Assembly.GetTypes()
             .Where(t => t != typeof(PhotoUpload))
             .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
-                .Where(m => m.GetParameters().Any(p => p.ParameterType == typeof(IFormFile)))
+                .Where(m => m.GetParameters().Any(TakesFile))
                 .Select(m => (Type: t, Method: m)))
             .ToList();
         Assert.Equal(UploadRoutes.Keys.Order(), handlers.Select(h => $"{h.Type.Name}.{h.Method.Name}").Order());
@@ -106,6 +117,37 @@ public class PhotoUploadGuardTests
         Assert.Contains("AutoOrient", body);
         Assert.Contains("MaxFrames = 1", body);
         Assert.Contains("BackgroundColor", body);
+    }
+
+    [Fact]
+    public void Pipeline_caps_pixels_before_the_decode()
+    {
+        var src = Src("RentNearBy.Infrastructure", "Services", "PhotoService.cs");
+        var body = src[src.IndexOf("ProcessImageAsync(Stream", StringComparison.Ordinal)..];
+        var cap = body.IndexOf("MaxPixels", StringComparison.Ordinal);
+        Assert.True(cap >= 0 && cap < body.IndexOf("Image.LoadAsync", StringComparison.Ordinal));
+    }
+
+    // REVIEW_SEC (DP) S6: a route that reads the form by hand would bypass the file-parameter scan above.
+    [Fact]
+    public void No_handler_reads_form_files_by_hand()
+    {
+        var offenders = SourceFiles(Path.Combine(Root, "RentNearBy.Api"))
+            .Where(f => Regex.IsMatch(File.ReadAllText(f), @"\.Form\.Files|ReadFormAsync\(|IFormFileCollection|IFormCollection"))
+            .Select(Path.GetFileName)
+            .ToList();
+        Assert.Empty(offenders);
+    }
+
+    [Fact]
+    public void Cloudinary_client_is_created_only_in_photo_service()
+    {
+        var files = SourceFiles(Root)
+            .Where(f => !f.Contains("RentNearBy.Tests", StringComparison.Ordinal))
+            .Where(f => Regex.IsMatch(File.ReadAllText(f), @"new Cloudinary\(|_cloudinary\.Upload(Large)?Async\("))
+            .Select(Path.GetFileName)
+            .ToList();
+        Assert.Equal(["PhotoService.cs"], files);
     }
 
     [Fact]

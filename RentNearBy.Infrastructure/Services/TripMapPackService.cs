@@ -29,9 +29,11 @@ public class TripMapPackService(
     private DateTimeOffset _indexAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastForced = DateTimeOffset.MinValue;
     private Lazy<Task>? _indexFlight;
+    private bool _invalidated;
 
     private readonly ConcurrentDictionary<Guid, TripMapPackBytes> _bytes = new();
     private readonly ConcurrentDictionary<(Guid, string), Lazy<Task<(TripMapPackBytes?, bool)>>> _inflight = new();
+    private readonly ConcurrentDictionary<(Guid, string), DateTimeOffset> _failedAt = new();
 
     private TimeSpan Revalidate => TimeSpan.FromSeconds(Math.Max(1, options.Value.CityCatalogRevalidateSeconds));
 
@@ -41,8 +43,17 @@ public class TripMapPackService(
         {
             TripMapPackIndex? index;
             DateTimeOffset at;
-            lock (_gate) { index = _index; at = _indexAt; }
+            bool invalidated;
+            lock (_gate) { index = _index; at = _indexAt; invalidated = _invalidated; }
             if (_clock.GetUtcNow() - at < Revalidate) return index?.Packs ?? (IReadOnlyList<TripMapPackInfo>)[];
+
+            // Stale while revalidate: a list that is only old answers at once; a process that knows nothing, or was told
+            // the data changed (Invalidate), waits for the refresh.
+            if (index != null && !invalidated)
+            {
+                _ = RefreshIndexAsync(CancellationToken.None);
+                return index.Packs;
+            }
 
             await RefreshIndexAsync(ct);
             lock (_gate) return _index?.Packs ?? (IReadOnlyList<TripMapPackInfo>)[];
@@ -54,9 +65,14 @@ public class TripMapPackService(
         }
     }
 
+    public bool PacksKnown
+    {
+        get { lock (_gate) return _index != null; }
+    }
+
     public void Invalidate()
     {
-        lock (_gate) _indexAt = DateTimeOffset.MinValue;
+        lock (_gate) { _indexAt = DateTimeOffset.MinValue; _invalidated = true; }
     }
 
     public async Task<(TripMapPackBytes? Pack, bool Unavailable)> GetAsync(Guid stateId, string version, CancellationToken ct = default)
@@ -77,6 +93,8 @@ public class TripMapPackService(
         if (hit != null) return (Remember(stateId, version, hit), false);
 
         var key = (stateId, version);
+        // A failed Atlas load is answered from memory for ForceGap instead of calling Atlas again at once.
+        if (_failedAt.TryGetValue(key, out var failedAt) && _clock.GetUtcNow() - failedAt < ForceGap) return (null, true);
         var lazy = _inflight.GetOrAdd(key, k => new Lazy<Task<(TripMapPackBytes?, bool)>>(() => LoadOnceAsync(redis, k.Item1, k.Item2)));
         return await lazy.Value.WaitAsync(ct);
     }
@@ -120,7 +138,7 @@ public class TripMapPackService(
             var packs = await atlas.GetMapPacksAsync();
             var now = _clock.GetUtcNow();
             var index = new TripMapPackIndex { FetchedAt = now.UtcDateTime, Packs = packs };
-            lock (_gate) { _index = index; _indexAt = now; }
+            lock (_gate) { _index = index; _indexAt = now; _invalidated = false; }
             await WriteAsync(redis, TripMapPackKeys.Index, JsonSerializer.Serialize(index, TripJson.Options));
         }
         catch (Exception ex)
@@ -131,7 +149,7 @@ public class TripMapPackService(
             known ??= await ReadIndexAsync(redis);
             // Keep the last known list; retry Atlas after ForceGap instead of on every request.
             var retryAt = _clock.GetUtcNow() - Revalidate + ForceGap;
-            lock (_gate) { _index = known; _indexAt = retryAt; }
+            lock (_gate) { _index = known; _indexAt = retryAt; _invalidated = false; }
         }
         finally
         {
@@ -143,7 +161,10 @@ public class TripMapPackService(
     {
         try
         {
-            return await LoadAsync(redis, stateId, version);
+            var result = await LoadAsync(redis, stateId, version);
+            if (result.Item2) _failedAt[(stateId, version)] = _clock.GetUtcNow();
+            else _failedAt.TryRemove((stateId, version), out _);
+            return result;
         }
         finally
         {
@@ -199,7 +220,7 @@ public class TripMapPackService(
             }
 
             var gzip = Gzip(raw);
-            await WriteAsync(redis, packKey, gzip);
+            await WriteAsync(redis, packKey, gzip, TripMapPackKeys.PackTtl);
             return (Remember(stateId, version, gzip), false);
         }
         finally
@@ -279,12 +300,12 @@ public class TripMapPackService(
         }
     }
 
-    private async Task WriteAsync(IConnectionMultiplexer? redis, string key, RedisValue value)
+    private async Task WriteAsync(IConnectionMultiplexer? redis, string key, RedisValue value, TimeSpan? ttl = null)
     {
         if (redis == null) return;
         try
         {
-            await redis.GetDatabase().StringSetAsync(key, value, TripMapPackKeys.Ttl);
+            await redis.GetDatabase().StringSetAsync(key, value, ttl ?? TripMapPackKeys.Ttl);
         }
         catch (Exception ex)
         {

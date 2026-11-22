@@ -111,7 +111,8 @@ public class ProfilePhotoJourneyTests
 
     private static Task<IResult> Complete(UsernameWorld w)
         => AuthHandlers.PhoneCompleteOnboarding(new PhoneOnboardingRequest { PhoneNumber = Phone, Name = "Asha" },
-            new PhoneOnboardingRequestValidator(), w.Uow, new Jwt(), Cache(), w.Service());
+            new PhoneOnboardingRequestValidator(), w.Uow, new Jwt(), Cache(), w.Service(),
+            new AllowAll(), new DefaultHttpContext(), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
 
     [Fact]
     public async Task Onboarding_cannot_be_completed_without_the_otp_proof()

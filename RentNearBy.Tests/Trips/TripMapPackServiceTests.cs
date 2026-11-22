@@ -21,6 +21,8 @@ public sealed class RecordingMapPacks : ITripMapPackService
     public Task<(TripMapPackBytes? Pack, bool Unavailable)> GetAsync(Guid stateId, string version, CancellationToken ct = default)
         => Task.FromResult<(TripMapPackBytes?, bool)>((null, false));
 
+    public bool PacksKnown { get; set; } = true;
+
     public void Invalidate()
     {
         Interlocked.Increment(ref Invalidated);
@@ -102,6 +104,7 @@ public class TripMapPackServiceTests
         public bool ListDown;
         public bool PackDown;
         public Task? PackGate;
+        public Task? ListGate;
         public Dictionary<Guid, string> Versions = new() { [StateA] = V1 };
         // Version Atlas actually builds per state (defaults to Versions).
         public Dictionary<Guid, string> Bodies = new();
@@ -114,11 +117,12 @@ public class TripMapPackServiceTests
             bool popularOnly = false, Guid? stateId = null, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<AtlasCatalogVersion> GetCatalogVersionAsync(CancellationToken ct = default) => throw new NotSupportedException();
 
-        public Task<List<TripMapPackInfo>> GetMapPacksAsync(CancellationToken ct = default)
+        public async Task<List<TripMapPackInfo>> GetMapPacksAsync(CancellationToken ct = default)
         {
             Interlocked.Increment(ref ListCalls);
+            if (ListGate != null) await ListGate;
             if (ListDown) throw new AtlasUnavailableException("down");
-            return Task.FromResult(Versions.Select(kv => new TripMapPackInfo
+            return await Task.FromResult(Versions.Select(kv => new TripMapPackInfo
             {
                 StateId = kv.Key, StateName = "Test State", Version = kv.Value, Count = 1, Bbox = [75.6, 30.4, 79.0, 33.2],
             }).ToList());
@@ -416,6 +420,67 @@ public class TripMapPackServiceTests
 
         Assert.Equal(V1, result.Pack!.Version);
         Assert.Equal(1, atlas.PackCalls);
+    }
+
+    // REVIEW_LOAD L-02
+    [Fact]
+    public async Task Stale_index_answers_at_once_while_Atlas_hangs()
+    {
+        var clock = new ManualClock(new DateTimeOffset(2026, 11, 22, 10, 0, 0, TimeSpan.Zero));
+        var atlas = new PackAtlas();
+        var service = Service(atlas, clock);
+        await service.ListAsync();
+        atlas.ListGate = new TaskCompletionSource().Task;
+        clock.Now += TimeSpan.FromSeconds(301);
+
+        var list = await service.ListAsync().WaitAsync(TimeSpan.FromMilliseconds(500));
+
+        Assert.Equal(V1, list.Single().Version);
+        Assert.Equal(2, atlas.ListCalls);
+    }
+
+    // REVIEW_LOAD L-01
+    [Fact]
+    public async Task PacksKnown_is_false_until_a_list_was_read()
+    {
+        var atlas = new PackAtlas { ListDown = true };
+        var service = Service(atlas);
+
+        Assert.Empty(await service.ListAsync());
+        Assert.False(service.PacksKnown);
+
+        var ok = Service(new PackAtlas());
+        await ok.ListAsync();
+        Assert.True(ok.PacksKnown);
+    }
+
+    // REVIEW_LOAD L-07
+    [Fact]
+    public async Task Atlas_down_second_get_inside_the_gap_makes_no_Atlas_call()
+    {
+        var clock = new ManualClock(new DateTimeOffset(2026, 11, 22, 10, 0, 0, TimeSpan.Zero));
+        var atlas = new PackAtlas { PackDown = true };
+        var service = Service(atlas, clock);
+        await service.ListAsync();
+
+        Assert.True((await service.GetAsync(StateA, V1)).Unavailable);
+        Assert.True((await service.GetAsync(StateA, V1)).Unavailable);
+        Assert.Equal(1, atlas.PackCalls);
+
+        clock.Now += TripMapPackService.ForceGap;
+        atlas.PackDown = false;
+        Assert.Equal(V1, (await service.GetAsync(StateA, V1)).Pack!.Version);
+        Assert.Equal(2, atlas.PackCalls);
+    }
+
+    // REVIEW_LOAD L-06
+    [Fact]
+    public void Pack_bytes_live_24_hours_the_index_7_days()
+    {
+        Assert.Equal(TimeSpan.FromHours(24), TripMapPackKeys.PackTtl);
+        Assert.Equal(TimeSpan.FromDays(7), TripMapPackKeys.Ttl);
+        var src = File.ReadAllText(Path.Combine(CompletionCounterGuardTests.Root(), "RentNearBy.Infrastructure", "Services", "TripMapPackService.cs"));
+        Assert.Contains("WriteAsync(redis, packKey, gzip, TripMapPackKeys.PackTtl)", src);
     }
 
     [Fact]

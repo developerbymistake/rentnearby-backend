@@ -71,7 +71,8 @@ public class AuthUsernameTests
 
         var body = Body(await AuthHandlers.PhoneCompleteOnboarding(
             new PhoneOnboardingRequest { PhoneNumber = Phone, Name = "Asha" },
-            new PhoneOnboardingRequestValidator(), w.Uow, new Jwt(), Cache(), w.Service("Bakhli#11111111")));
+            new PhoneOnboardingRequestValidator(), w.Uow, new Jwt(), Cache(), w.Service("Bakhli#11111111"),
+            new AllowAll(), new DefaultHttpContext(), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()));
 
         var created = Assert.Single(w.Repo.Added);
         Assert.Same(created, atSave);

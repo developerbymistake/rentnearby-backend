@@ -125,7 +125,8 @@ public static class TripHandlers
         var mapDiscovery = await flag.IsEnabledAsync();
 
         // A pack or flag change must never hide behind a 304 of the city version.
-        var etag = $"W/\"{snapshot.Version}.{PacksTag(packList)}.{(mapDiscovery ? 1 : 0)}\"";
+        var packsKnown = packs.PacksKnown;
+        var etag = $"W/\"{snapshot.Version}.{(packsKnown ? PacksTag(packList) : "u")}.{(mapDiscovery ? 1 : 0)}\"";
         httpContext.Response.Headers.ETag = etag;
         if (httpContext.Request.Headers.IfNoneMatch.ToString() == etag)
             return Results.StatusCode(StatusCodes.Status304NotModified);
@@ -138,6 +139,7 @@ public static class TripHandlers
             Stale = snapshot.IsStale,
             Packs = packList.Select(TripMapPackInfoDto.From).ToList(),
             MapDiscovery = mapDiscovery,
+            PacksKnown = packsKnown,
         });
     }
 

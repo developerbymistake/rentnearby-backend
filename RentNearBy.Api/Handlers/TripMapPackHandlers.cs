@@ -12,7 +12,7 @@ public static class TripMapPackHandlers
 {
     private const int PackMaxPerWindow = 30;
     private static readonly TimeSpan PackWindow = TimeSpan.FromMinutes(1);
-    public const string ImmutableCacheControl = "public, max-age=31536000, immutable";
+    public const string ImmutableCacheControl = "private, max-age=31536000, immutable";
 
     public static async Task<IResult> GetMapPack(
         Guid stateId, string version, ClaimsPrincipal principal, ITripMapPackService packs,

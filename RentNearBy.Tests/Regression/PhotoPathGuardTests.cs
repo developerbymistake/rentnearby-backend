@@ -66,4 +66,23 @@ public class PhotoPathGuardTests
         foreach (var column in new[] { "PlatePhotoUrl", "PlatePhotoPath", "DisplayPhotoUrl", "DisplayPhotoPath" })
             Assert.Contains($"taxi.{column} = null;", removal);
     }
+    // REVIEW_SEC (DP) S5: a refused Cloudinary delete must throw, so PhotoCleanup logs photo.orphan and nothing is silent.
+    [Fact]
+    public void Every_cloudinary_delete_checks_the_result_error()
+    {
+        var src = Src("RentNearBy.Infrastructure", "Services", "PhotoService.cs").Replace("\r\n", "\n");
+        var deletes = Regex.Matches(src, @"_cloudinary\.(DestroyAsync|DeleteResourcesAsync)\(").ToList();
+        Assert.Equal(2, deletes.Count);
+        foreach (var m in deletes)
+        {
+            var end = src.IndexOf("\n    }", m.Index, StringComparison.Ordinal);
+            Assert.Contains(".Error != null", src[m.Index..end]);
+        }
+        Assert.Contains("result.Partial", src);
+    }
+
+    // REVIEW_SEC (DP) S8: the client file name never reaches Cloudinary.
+    [Fact]
+    public void Client_file_name_is_not_sent_to_cloudinary()
+        => Assert.DoesNotContain("new FileDescription(fileName", Src("RentNearBy.Infrastructure", "Services", "PhotoService.cs"));
 }

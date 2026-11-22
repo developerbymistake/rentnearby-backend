@@ -292,4 +292,6 @@ public class TripCityVersionDto
     public bool Stale { get; set; }
     public List<TripMapPackInfoDto> Packs { get; set; } = new();
     public bool MapDiscovery { get; set; }
+    // False = the server does not know the pack list yet; the app keeps its stored packs.
+    public bool PacksKnown { get; set; }
 }

@@ -11,4 +11,6 @@ public interface ITripMapPackService
     Task<(TripMapPackBytes? Pack, bool Unavailable)> GetAsync(Guid stateId, string version, CancellationToken ct = default);
     // The next ListAsync refreshes from Atlas; the last known list is kept.
     void Invalidate();
+    // False while no list was ever read (Atlas down at boot, no Redis copy): an empty list then means "unknown", not "no packs".
+    bool PacksKnown { get; }
 }

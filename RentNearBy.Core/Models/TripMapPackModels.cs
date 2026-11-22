@@ -6,6 +6,8 @@ public static class TripMapPackKeys
     public const int VersionLength = 16;
     public const int MaxRawBytes = 2 * 1024 * 1024;
     public static readonly TimeSpan Ttl = TimeSpan.FromDays(7);
+    // Pack bytes: only the current version is ever served, so an old one need not live a week.
+    public static readonly TimeSpan PackTtl = TimeSpan.FromHours(24);
 
     public static string Pack(Guid stateId, string version) => $"trip:pack:{stateId:N}:{version}";
     public static string Lock(Guid stateId, string version) => $"{Pack(stateId, version)}:lock";

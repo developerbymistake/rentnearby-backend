@@ -79,7 +79,7 @@ public class TripMapPackHandlerTests
         Assert.Equal(200, status);
         Assert.Equal("gzip", http.Response.Headers.ContentEncoding.ToString());
         Assert.Equal("Accept-Encoding", http.Response.Headers.Vary.ToString());
-        Assert.Equal("public, max-age=31536000, immutable", http.Response.Headers.CacheControl.ToString());
+        Assert.Equal("private, max-age=31536000, immutable", http.Response.Headers.CacheControl.ToString());
         Assert.Equal($"\"{V1}\"", http.Response.Headers.ETag.ToString());
         Assert.Equal("application/json", http.Response.ContentType);
         Assert.Equal(PackJson(V1), Encoding.UTF8.GetString(TripMapPackService.Gunzip(body)));
@@ -96,7 +96,7 @@ public class TripMapPackHandlerTests
         Assert.Equal(200, status);
         Assert.False(http.Response.Headers.ContainsKey("Content-Encoding"));
         Assert.Equal(PackJson(V1), Encoding.UTF8.GetString(body));
-        Assert.Equal("public, max-age=31536000, immutable", http.Response.Headers.CacheControl.ToString());
+        Assert.Equal("private, max-age=31536000, immutable", http.Response.Headers.CacheControl.ToString());
     }
 
     [Theory]
@@ -185,11 +185,11 @@ public class TripMapPackHandlerTests
     ];
 
     private static async Task<(int Status, JsonElement? Body, HttpContext Http)> RunVersion(
-        List<TripMapPackInfo> packs, bool flag, string? ifNoneMatch = null, TripCityCatalogSnapshot? snapshot = null)
+        List<TripMapPackInfo> packs, bool flag, string? ifNoneMatch = null, TripCityCatalogSnapshot? snapshot = null, bool packsKnown = true)
     {
         var http = Http(ifNoneMatch);
         var result = await TripHandlers.GetCitiesVersion(User(UserId), new FakeCatalog(snapshot ?? Snapshot()), new FakeLimiter(), http,
-            new RecordingMapPacks { Packs = packs }, new FakeFlag(flag));
+            new RecordingMapPacks { Packs = packs, PacksKnown = packsKnown }, new FakeFlag(flag));
         await result.ExecuteAsync(http);
         var bytes = ((MemoryStream)http.Response.Body).ToArray();
         return (http.Response.StatusCode, bytes.Length == 0 ? null : JsonDocument.Parse(bytes).RootElement.Clone(), http);
@@ -217,7 +217,19 @@ public class TripMapPackHandlerTests
         Assert.Equal($"/trips/map-packs/{StateA:D}/{V1}", pack.GetProperty("path").GetString());
 
         var names = data.EnumerateObject().Select(p => p.Name).ToList();
-        Assert.Equal(new[] { "version", "count", "updatedAt", "stale", "packs", "mapDiscovery" }, names);
+        Assert.Equal(new[] { "version", "count", "updatedAt", "stale", "packs", "mapDiscovery", "packsKnown" }, names);
+        Assert.True(data.GetProperty("packsKnown").GetBoolean());
+    }
+
+    // REVIEW_LOAD L-01: "list not known yet" must differ from "no packs", on the wire and in the ETag.
+    [Fact]
+    public async Task Version_says_packsKnown_false_when_the_list_is_unknown()
+    {
+        var (status, body, http) = await RunVersion([], flag: true, packsKnown: false);
+
+        Assert.Equal(200, status);
+        Assert.False(body!.Value.GetProperty("data").GetProperty("packsKnown").GetBoolean());
+        Assert.Equal("W/\"1793613600000-42.u.1\"", http.Response.Headers.ETag.ToString());
     }
 
     [Fact]

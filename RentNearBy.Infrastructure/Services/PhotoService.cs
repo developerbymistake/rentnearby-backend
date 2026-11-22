@@ -15,6 +15,8 @@ public class PhotoService : IPhotoService
     private const int ProfileDimension = 640;
     private const int OutputSizeLimit = 300 * 1024; // 300 KB
     public const long MaxPixels = 40_000_000;
+    // The stream is always the re-encoded JPEG; the client file name is never sent.
+    private const string UploadFileName = "photo.jpg";
 
     public PhotoService(IConfiguration configuration)
     {
@@ -37,7 +39,7 @@ public class PhotoService : IPhotoService
 
         var result = await _cloudinary.UploadAsync(new ImageUploadParams
         {
-            File = new FileDescription(fileName, processed),
+            File = new FileDescription(UploadFileName, processed),
             PublicId = publicId,
             Overwrite = false,
         });
@@ -56,7 +58,7 @@ public class PhotoService : IPhotoService
 
         var result = await _cloudinary.UploadAsync(new ImageUploadParams
         {
-            File = new FileDescription(fileName, processed),
+            File = new FileDescription(UploadFileName, processed),
             PublicId = publicId,
             Overwrite = false,
         });
@@ -75,7 +77,7 @@ public class PhotoService : IPhotoService
 
         var result = await _cloudinary.UploadAsync(new ImageUploadParams
         {
-            File = new FileDescription(fileName, processed),
+            File = new FileDescription(UploadFileName, processed),
             PublicId = publicId,
             Overwrite = false,
         });
@@ -89,18 +91,34 @@ public class PhotoService : IPhotoService
     public async Task DeletePhotoAsync(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath)) return;
-        await _cloudinary.DestroyAsync(new DeletionParams(filePath) { Invalidate = true });
+        var result = await _cloudinary.DestroyAsync(new DeletionParams(filePath) { Invalidate = true });
+        // "ok" and "not found" both mean the file is gone; a refused call is an Error.
+        if (result.Error != null)
+            throw new InvalidOperationException($"Cloudinary delete failed: {result.Error.Message}");
     }
 
-    public async Task DeleteRoomPhotosAsync(Guid userId, Guid listingId)
+    public Task DeleteRoomPhotosAsync(Guid userId, Guid listingId)
+        => DeletePrefixAsync($"bakhli/user_{userId}/listing_{listingId}/");
+
+    public Task DeleteAllUserPhotosAsync(Guid userId)
+        => DeletePrefixAsync($"bakhli/user_{userId}/");
+
+    // One call deletes one page; follow the cursor until Cloudinary says nothing is left.
+    private async Task DeletePrefixAsync(string prefix)
     {
-        await _cloudinary.DeleteResourcesAsync(new DelResParams { Prefix = $"bakhli/user_{userId}/listing_{listingId}/", Invalidate = true });
+        string? cursor = null;
+        for (var page = 0; page < MaxDeletePages; page++)
+        {
+            var result = await _cloudinary.DeleteResourcesAsync(new DelResParams { Prefix = prefix, Invalidate = true, NextCursor = cursor });
+            if (result.Error != null)
+                throw new InvalidOperationException($"Cloudinary delete failed: {result.Error.Message}");
+            if (!result.Partial || string.IsNullOrEmpty(result.NextCursor)) return;
+            cursor = result.NextCursor;
+        }
+        throw new InvalidOperationException("Cloudinary delete failed: too many pages");
     }
 
-    public async Task DeleteAllUserPhotosAsync(Guid userId)
-    {
-        await _cloudinary.DeleteResourcesAsync(new DelResParams { Prefix = $"bakhli/user_{userId}/", Invalidate = true });
-    }
+    private const int MaxDeletePages = 50;
 
     public async Task<bool> PingAsync()
     {
