@@ -4,6 +4,8 @@ using Microsoft.Extensions.Configuration;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Processing;
 
 namespace RentNearBy.Infrastructure.Services;
@@ -133,6 +135,12 @@ public class PhotoService : IPhotoService
         }
     }
 
+    // Only the three accepted formats can be decoded: the TIFF/BMP/GIF/TGA/PBM/QOI codecs (and their advisories) are unreachable.
+    internal static readonly Configuration DecodeConfiguration = new(
+        new JpegConfigurationModule(), new PngConfigurationModule(), new WebpConfigurationModule());
+
+    private static readonly DecoderOptions Decoder = new() { Configuration = DecodeConfiguration, MaxFrames = 1 };
+
     // --- Image processing pipeline (stay, taxi, banner, profile) ---
     // Identify + 40 MP cap, first frame only, auto-orient, resize (long edge, or centre square), flatten onto white,
     // strip EXIF / IPTC / XMP, JPEG q=82 then 70..40 until <= 300 KB.
@@ -143,11 +151,11 @@ public class PhotoService : IPhotoService
         Image image;
         try
         {
-            var info = await Image.IdentifyAsync(input);
+            var info = await Image.IdentifyAsync(Decoder, input);
             if (info == null || info.Width <= 0 || info.Height <= 0 || (long)info.Width * info.Height > MaxPixels)
                 throw new InvalidPhotoException();
             input.Position = start;
-            image = await Image.LoadAsync(new DecoderOptions { MaxFrames = 1 }, input);
+            image = await Image.LoadAsync(Decoder, input);
         }
         catch (ImageFormatException ex)
         {

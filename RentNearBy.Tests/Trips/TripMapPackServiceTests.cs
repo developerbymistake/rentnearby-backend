@@ -377,6 +377,28 @@ public class TripMapPackServiceTests
         Assert.Equal(V1, list.Single().Version);
     }
 
+    // CF-journey D-3: an Invalidate during a running list refresh must not be swallowed by that refresh.
+    [Fact]
+    public async Task Invalidate_DuringRefresh_NextCallReloads()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var atlas = new PackAtlas { ListGate = gate.Task };
+        var service = Service(atlas);
+
+        var first = service.ListAsync();
+        await Task.Delay(50);
+        service.Invalidate();
+        gate.SetResult();
+        Assert.Equal(V1, (await first).Single().Version);
+
+        atlas.ListGate = null;
+        atlas.Versions[StateA] = V2;
+        var list = await service.ListAsync();
+
+        Assert.Equal(2, atlas.ListCalls);
+        Assert.Equal(V2, list.Single().Version);
+    }
+
     [Fact]
     public async Task AtlasDown_NothingKnown_EmptyList_RetryAfterGap()
     {

@@ -100,6 +100,21 @@ public class PhotoPipelineTests
         await Assert.ThrowsAsync<InvalidPhotoException>(() => PhotoService.ProcessImageAsync(new MemoryStream(TestImages.HugeHeaderPng())));
     }
 
+    [Theory]
+    [InlineData("tiff")]
+    [InlineData("gif")]
+    [InlineData("bmp")]
+    public async Task Formats_outside_jpeg_png_webp_are_never_decoded(string format)
+    {
+        using var source = new Image<Rgba32>(16, 16);
+        var bytes = new MemoryStream();
+        if (format == "tiff") source.SaveAsTiff(bytes);
+        else if (format == "gif") source.SaveAsGif(bytes);
+        else source.SaveAsBmp(bytes);
+
+        await Assert.ThrowsAsync<InvalidPhotoException>(() => PhotoService.ProcessImageAsync(new MemoryStream(bytes.ToArray())));
+    }
+
     [Fact]
     public async Task Garbage_bytes_are_refused()
     {

@@ -115,8 +115,29 @@ public class PhotoUploadGuardTests
         var src = Src("RentNearBy.Infrastructure", "Services", "PhotoService.cs");
         var body = src[src.IndexOf("ProcessImageAsync(Stream", StringComparison.Ordinal)..];
         Assert.Contains("AutoOrient", body);
-        Assert.Contains("MaxFrames = 1", body);
+        Assert.Contains("Decoder = new() { Configuration = DecodeConfiguration, MaxFrames = 1 }", src);
+        Assert.Contains("Image.IdentifyAsync(Decoder, input)", body);
+        Assert.Contains("Image.LoadAsync(Decoder, input)", body);
         Assert.Contains("BackgroundColor", body);
+    }
+
+    // REVIEW_SEC S1 / CF D1: 3.1.12 carries TIFF / histogram / ICC advisories, 3.2.0 breaks Release builds without a
+    // licence key. The decoder knows only JPEG, PNG and WebP, so the advised code is unreachable.
+    [Fact]
+    public void Decoder_knows_only_jpeg_png_and_webp()
+    {
+        var names = RentNearBy.Infrastructure.Services.PhotoService.DecodeConfiguration.ImageFormats
+            .Select(f => f.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
+        Assert.Equal(["JPEG", "PNG", "Webp"], names);
+    }
+
+    [Fact]
+    public void ImageSharp_stays_on_3_1_until_a_licence_key_exists()
+    {
+        var csproj = Src("RentNearBy.Infrastructure", "RentNearBy.Infrastructure.csproj");
+        var version = Regex.Match(csproj, "\"SixLabors.ImageSharp\" Version=\"([^\"]+)\"").Groups[1].Value;
+        Assert.StartsWith("3.1.", version);
+        Assert.Contains("NuGetAuditSuppress", csproj);
     }
 
     [Fact]

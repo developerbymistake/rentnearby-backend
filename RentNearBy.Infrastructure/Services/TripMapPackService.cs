@@ -30,6 +30,7 @@ public class TripMapPackService(
     private DateTimeOffset _lastForced = DateTimeOffset.MinValue;
     private Lazy<Task>? _indexFlight;
     private bool _invalidated;
+    private long _invalidations;
 
     private readonly ConcurrentDictionary<Guid, TripMapPackBytes> _bytes = new();
     private readonly ConcurrentDictionary<(Guid, string), Lazy<Task<(TripMapPackBytes?, bool)>>> _inflight = new();
@@ -72,7 +73,7 @@ public class TripMapPackService(
 
     public void Invalidate()
     {
-        lock (_gate) { _indexAt = DateTimeOffset.MinValue; _invalidated = true; }
+        lock (_gate) { _indexAt = DateTimeOffset.MinValue; _invalidated = true; _invalidations++; }
     }
 
     public async Task<(TripMapPackBytes? Pack, bool Unavailable)> GetAsync(Guid stateId, string version, CancellationToken ct = default)
@@ -131,6 +132,8 @@ public class TripMapPackService(
     private async Task RunIndexRefreshAsync()
     {
         var redis = sp.GetService<IConnectionMultiplexer>();
+        long seen;
+        lock (_gate) seen = _invalidations;
         try
         {
             var atlas = sp.GetRequiredService<IAtlasClient>();
@@ -138,7 +141,7 @@ public class TripMapPackService(
             var packs = await atlas.GetMapPacksAsync();
             var now = _clock.GetUtcNow();
             var index = new TripMapPackIndex { FetchedAt = now.UtcDateTime, Packs = packs };
-            lock (_gate) { _index = index; _indexAt = now; _invalidated = false; }
+            lock (_gate) { _index = index; MarkFresh(now, seen); }
             await WriteAsync(redis, TripMapPackKeys.Index, JsonSerializer.Serialize(index, TripJson.Options));
         }
         catch (Exception ex)
@@ -149,12 +152,20 @@ public class TripMapPackService(
             known ??= await ReadIndexAsync(redis);
             // Keep the last known list; retry Atlas after ForceGap instead of on every request.
             var retryAt = _clock.GetUtcNow() - Revalidate + ForceGap;
-            lock (_gate) { _index = known; _indexAt = retryAt; _invalidated = false; }
+            lock (_gate) { _index = known; MarkFresh(retryAt, seen); }
         }
         finally
         {
             lock (_gate) _indexFlight = null;
         }
+    }
+
+    // An Invalidate that landed while this refresh was reading Atlas keeps the list stale, so the next call reloads.
+    private void MarkFresh(DateTimeOffset at, long seen)
+    {
+        if (_invalidations != seen) return;
+        _indexAt = at;
+        _invalidated = false;
     }
 
     private async Task<(TripMapPackBytes?, bool)> LoadOnceAsync(IConnectionMultiplexer? redis, Guid stateId, string version)
