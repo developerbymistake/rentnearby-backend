@@ -14,14 +14,21 @@ public class SessionRepository(ApplicationDbContext context) : Repository<Sessio
             .ExecuteDeleteAsync();
     }
 
-    public async Task RevokeAllUserSessionsAsync(Guid userId)
+    public async Task RevokeAllUserSessionsAsync(Guid userId, string? reason = null)
     {
         await _context.Sessions
             .Where(s => s.UserId == userId && s.IsActive)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(x => x.IsActive, false)
-                .SetProperty(x => x.LoggedOutAt, DateTime.UtcNow));
+                .SetProperty(x => x.LoggedOutAt, DateTime.UtcNow)
+                .SetProperty(x => x.RevokeReason, reason));
     }
+
+    public async Task<string?> GetRevokeReasonAsync(Guid sessionId)
+        => await _context.Sessions.AsNoTracking()
+            .Where(s => s.Id == sessionId && !s.IsActive)
+            .Select(s => s.RevokeReason)
+            .FirstOrDefaultAsync();
 
     public async Task<int> RevokeSessionAsync(Guid userId, Guid sessionId)
     {

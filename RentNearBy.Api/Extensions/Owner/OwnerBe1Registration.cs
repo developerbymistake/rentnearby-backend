@@ -19,7 +19,9 @@ public static class OwnerBe1Registration
         services.AddScoped<OwnerCalendarWriter>();
         services.AddScoped<MoneyNoteService>();
         services.AddScoped<BlockedRangeService>();
-        services.AddScoped<IBuddyFeatureJob, OwnerCalendarRepairJob>();
+        services.AddScoped<OwnerCalendarRepairJob>();
+        services.AddScoped<IBuddyFeatureJob>(sp => sp.GetRequiredService<OwnerCalendarRepairJob>());
+        services.AddScoped<IBuddyFeatureJob, OwnerCalendarRepairNightlyJob>();
         return services;
     }
 

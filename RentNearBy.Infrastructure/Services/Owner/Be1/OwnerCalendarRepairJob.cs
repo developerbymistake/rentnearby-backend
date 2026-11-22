@@ -16,11 +16,15 @@ namespace RentNearBy.Infrastructure.Services.Owner.Be1;
 // same sync the hooks use, so the repaired row is identical to a hooked one. Normally both sets are empty. Each statement walks its
 // set by id from a cursor kept between runs (back to the start after a short page), so a source the sync cannot write never
 // starves the others; such a source counts as skipped, not fixed.
+// FB-31: the 15-minute run reads only sources changed in the last RecentDays, driven from the source side on partial indexes
+// (ix_tripenquiries_confirmed_updated, ix_tripenquiries_closed_updated, ix_taxibookings_booked, ix_taxibookings_cancelled);
+// the four unbounded statements run once a night in the retention window (OwnerCalendarRepairNightlyJob).
 public sealed class OwnerCalendarRepairJob(
     ApplicationDbContext db, IOwnerCalendarSync sync, IOptions<OwnerFeatureOptions> options, TimeProvider clock, ILogger<OwnerCalendarRepairJob> logger)
     : IBuddyFeatureJob
 {
     public const int Batch = 500;
+    public const int RecentDays = 2;
 
     private static readonly string LeadOrStay =
         $"""(e."Kind" = '{TripEnquiryKinds.Stay}' OR (e."Kind" = '{TripEnquiryKinds.Taxi}' AND e."TripId" IS NOT NULL AND e."Day" IS NULL))""";
@@ -64,17 +68,50 @@ public sealed class OwnerCalendarRepairJob(
         LIMIT @n
         """;
 
+    // Recent path: the same sets, limited to sources whose confirm / close / booking / cancel happened since @since.
+    public static readonly string MissingEnquiriesRecentSql = MissingEnquiriesSql.Replace(
+        "AND e.\"Id\" > @after", "AND e.\"UpdatedAt\" >= @since AND e.\"Id\" > @after");
+
+    public static readonly string StaleEnquiriesRecentSql = $"""
+        SELECT e."Id" AS "Value" FROM "TripEnquiries" e
+        WHERE e."UpdatedAt" >= @since AND {RetentionSql.ClosedEnquiry.Replace("\"Status\"", "e.\"Status\"").Replace("\"FailReason\"", "e.\"FailReason\"")}
+          AND e."Id" > @after
+          AND EXISTS (SELECT 1 FROM "CalendarEntries" c
+                      WHERE c."SourceType" IN ('{CalendarSourceTypes.StayEnquiry}', '{CalendarSourceTypes.TaxiLead}') AND c."SourceId" = e."Id"
+                        AND c."Kind" = 'Auto' AND NOT c."Cancelled")
+        ORDER BY e."Id"
+        LIMIT @n
+        """;
+
+    public static readonly string MissingBookingsRecentSql = MissingBookingsSql.Replace(
+        "AND b.\"Id\" > @after", "AND b.\"BookedAt\" >= @since AND b.\"Id\" > @after");
+
+    public static readonly string StaleBookingsRecentSql = $"""
+        SELECT b."Id" AS "Value" FROM "TaxiBookings" b
+        WHERE b."Status" = '{BookingStates.Cancelled}' AND b."CancelledAt" >= @since AND b."Id" > @after
+          AND EXISTS (SELECT 1 FROM "CalendarEntries" c
+                      WHERE c."SourceType" = '{CalendarSourceTypes.TaxiBooking}' AND c."SourceId" = b."Id" AND c."Kind" = 'Auto' AND NOT c."Cancelled")
+        ORDER BY b."Id"
+        LIMIT @n
+        """;
+
     public string Name => "owner.calendar.repair";
 
     public TimeSpan Interval => TimeSpan.FromMinutes(Math.Max(1, options.Value.RepairMinutes));
 
     public TimeOnly? DailyAtIst => null;
 
-    public async Task<int> RunAsync(CancellationToken ct)
+    public Task<int> RunAsync(CancellationToken ct) => RepairAsync(full: false, ct);
+
+    public async Task<int> RepairAsync(bool full, CancellationToken ct)
     {
-        var cutoff = IstTime.TodayIst(clock.GetUtcNow().UtcDateTime).AddDays(-OwnerLimits.CalendarDays);
-        var enquiries = (await PageAsync(MissingEnquiriesSql, cutoff, ct)).Concat(await PageAsync(StaleEnquiriesSql, cutoff, ct)).Distinct().ToList();
-        var bookings = (await PageAsync(MissingBookingsSql, cutoff, ct)).Concat(await PageAsync(StaleBookingsSql, cutoff, ct)).Distinct().ToList();
+        var now = clock.GetUtcNow().UtcDateTime;
+        var cutoff = IstTime.TodayIst(now).AddDays(-OwnerLimits.CalendarDays);
+        var since = now.AddDays(-RecentDays);
+        var enquiries = (await PageAsync(full ? MissingEnquiriesSql : MissingEnquiriesRecentSql, cutoff, since, ct))
+            .Concat(await PageAsync(full ? StaleEnquiriesSql : StaleEnquiriesRecentSql, cutoff, since, ct)).Distinct().ToList();
+        var bookings = (await PageAsync(full ? MissingBookingsSql : MissingBookingsRecentSql, cutoff, since, ct))
+            .Concat(await PageAsync(full ? StaleBookingsSql : StaleBookingsRecentSql, cutoff, since, ct)).Distinct().ToList();
 
         int fixedEnquiries = 0, fixedBookings = 0;
         foreach (var id in enquiries) // batch-loop
@@ -89,10 +126,13 @@ public sealed class OwnerCalendarRepairJob(
         return fixedEnquiries + fixedBookings;
     }
 
-    private async Task<List<Guid>> PageAsync(string sql, DateOnly cutoff, CancellationToken ct)
+    private async Task<List<Guid>> PageAsync(string sql, DateOnly cutoff, DateTime since, CancellationToken ct)
     {
         var after = RepairCursors.Get(sql);
-        var ids = await db.Database.SqlQueryRaw<Guid>(sql, Date("cutoff", cutoff), Uuid("after", after), Int("n", Batch)).ToListAsync(ct);
+        object[] args = sql.Contains("@since", StringComparison.Ordinal)
+            ? [Date("cutoff", cutoff), Uuid("after", after), Int("n", Batch), new Npgsql.NpgsqlParameter("since", NpgsqlTypes.NpgsqlDbType.TimestampTz) { Value = since }]
+            : [Date("cutoff", cutoff), Uuid("after", after), Int("n", Batch)];
+        var ids = await db.Database.SqlQueryRaw<Guid>(sql, args).ToListAsync(ct);
         RepairCursors.Set(sql, NextCursor(ids, Batch));
         return ids;
     }
@@ -108,4 +148,18 @@ public sealed class OwnerCalendarRepairJob(
 
         public static void Set(string sql, Guid id) => Cursors[sql] = id;
     }
+}
+
+// FB-31: the full drift net, once a night inside the retention window (01:00 to 04:30 IST).
+public sealed class OwnerCalendarRepairNightlyJob(OwnerCalendarRepairJob repair) : IBuddyFeatureJob
+{
+    public static readonly TimeOnly At = new(2, 40);
+
+    public string Name => "owner.calendar.repair.nightly";
+
+    public TimeSpan Interval => TimeSpan.FromDays(1);
+
+    public TimeOnly? DailyAtIst => At;
+
+    public Task<int> RunAsync(CancellationToken ct) => repair.RepairAsync(full: true, ct);
 }

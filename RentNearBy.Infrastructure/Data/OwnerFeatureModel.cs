@@ -5,6 +5,7 @@ using RentNearBy.Core.Entities.Owner;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Owner;
+using RentNearBy.Core.Models.TaxiRequests;
 
 namespace RentNearBy.Infrastructure.Data;
 
@@ -68,7 +69,7 @@ public static class OwnerFeatureModel
             e.HasIndex(x => new { x.ListingKind, x.ListingId, x.DateTo, x.Id }, "ix_calendarentries_listing_dateto")
              .IncludeProperties(x => new { x.DateFrom, x.Kind, x.Cancelled });
             e.HasIndex(x => new { x.ListingKind, x.ListingId, x.DateFrom, x.Id }, "ix_calendarentries_listing_datefrom");
-            e.HasIndex(x => new { x.ListingKind, x.ListingId, x.DateTo, x.Id }, "ix_calendarentries_manual_active").HasFilter("\"Kind\" = 'Manual'");
+            // FB-62: ix_calendarentries_manual_active is gone (ix_calendarentries_listing_dateto serves the same scans).
             e.HasIndex(x => x.DateTo, "ix_calendarentries_dateto");
             e.HasIndex(x => x.TravellerUserId, "ix_calendarentries_traveller").HasFilter("\"TravellerUserId\" IS NOT NULL");
             e.HasIndex(x => x.OwnerUserId, "ix_calendarentries_owner");
@@ -120,8 +121,7 @@ public static class OwnerFeatureModel
 
             e.HasIndex(x => new { x.StayListingId, x.DateTo, x.Id }, "ix_stayspecialprices_stay_dateto");
             e.HasIndex(x => x.DateTo, "ix_stayspecialprices_dateto");
-            e.HasIndex(x => new { x.StayListingId, x.DateTo }, "ix_stayspecialprices_bigoff")
-             .HasFilter($"\"Direction\" = 'Lower' AND \"Percent\" >= {OwnerLimits.SpecialBigOffPercent} AND NOT \"IsPaused\" AND NOT \"PausedByPlan\"");
+            // FB-62: ix_stayspecialprices_bigoff is gone (ix_stayspecialprices_stay_dateto serves the per-stay read).
             e.HasIndex(x => new { x.DateFrom, x.Id }, "ix_stayspecialprices_active_from")
              .HasFilter("NOT \"IsPaused\" AND NOT \"PausedByPlan\"");
         });
@@ -144,8 +144,7 @@ public static class OwnerFeatureModel
             e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
 
-            e.HasIndex(x => new { x.IsActive, x.DateFrom }, "ix_festivaldates_active_from");
-            e.HasIndex(x => new { x.DateFrom, x.Id }, "ix_festivaldates_from_id").IsDescending(true, false);
+            // FB-62: ix_festivaldates_active_from and ix_festivaldates_from_id are gone (small table, read through FestivalCache).
         });
 
         modelBuilder.Entity<FestivalReminderSent>(e =>
@@ -247,5 +246,24 @@ public static class OwnerFeatureModel
         modelBuilder.Entity<TaxiRequest>()
             .HasIndex(x => x.CreatedAt, "ix_taxirequests_created")
             .IncludeProperties(x => new { x.MatchFromCityKey, x.MatchToCityKey });
+
+        // FB-59: the Home suggestion and the nightly RequestsNoRoute read requests of one pickup city by day; routes by from city.
+        modelBuilder.Entity<TaxiRequest>()
+            .HasIndex(x => new { x.MatchFromCityKey, x.CreatedAt }, "ix_taxirequests_from_created")
+            .IncludeProperties(x => new { x.MatchToCityKey, x.DropCityKey });
+        modelBuilder.Entity<TaxiRoute>()
+            .HasIndex(x => x.FromCityKey, "ix_taxiroutes_from_city")
+            .IncludeProperties(x => x.TaxiListingId)
+            .HasFilter("\"FromCityKey\" IS NOT NULL AND NOT \"HiddenByPlan\"");
+
+        // FB-31: the 15-minute calendar repair reads only recently changed sources.
+        modelBuilder.Entity<TripEnquiry>()
+            .HasIndex(x => x.UpdatedAt, "ix_tripenquiries_confirmed_updated")
+            .HasFilter($"\"Status\" = '{TripEnquiryStatuses.ConfirmedByBoth}'");
+        modelBuilder.Entity<TaxiBooking>()
+            .HasIndex(x => x.BookedAt, "ix_taxibookings_booked");
+        modelBuilder.Entity<TaxiBooking>()
+            .HasIndex(x => x.CancelledAt, "ix_taxibookings_cancelled")
+            .HasFilter($"\"Status\" = '{BookingStates.Cancelled}'");
     }
 }

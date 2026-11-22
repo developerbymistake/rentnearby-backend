@@ -258,7 +258,7 @@ public static class AdminRoleHandlers
             db.NotificationEvents.Add(notification);
             await unitOfWork.SaveChangesAsync();
 
-            await unitOfWork.Sessions.RevokeAllUserSessionsAsync(user.Id);
+            await unitOfWork.Sessions.RevokeAllUserSessionsAsync(user.Id, SessionRevokeReasons.SessionRoleChanged);
             await RentNearBy.Infrastructure.Services.Owner.Be4.DeviceTokenCleanup.DeleteAllAsync(db, user.Id);
 
             await unitOfWork.CommitTransactionAsync();

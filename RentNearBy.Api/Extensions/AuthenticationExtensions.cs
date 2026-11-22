@@ -9,6 +9,17 @@ namespace RentNearBy.Api.Extensions;
 
 public static class AuthenticationExtensions
 {
+    public const string RevokeReasonItem = "rnb.session.revokeReason";
+
+    // D-34 / FB-42: the 401 of a server-ended session, in the ApiResponse envelope with error.type = the reason.
+    public static RentNearBy.Core.DTOs.Responses.ApiResponse<object> RevokedBody(string reason) => new()
+    {
+        Status = "401",
+        Code = 401,
+        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        Error = new RentNearBy.Core.DTOs.Responses.ApiError { Message = SessionRevokeReasons.MessageOf(reason), Type = reason },
+    };
+
     public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
         var key = configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key not configured");
@@ -66,8 +77,21 @@ public static class AuthenticationExtensions
                     {
                         var session = await unitOfWork.Sessions.GetActiveSessionAsync(sessionId);
                         if (session == null)
+                        {
+                            // FB-42: only on failure, one more read tells the app why (role changed, account paused).
+                            if (await unitOfWork.Sessions.GetRevokeReasonAsync(sessionId) is { } reason && SessionRevokeReasons.IsKnown(reason))
+                                context.HttpContext.Items[RevokeReasonItem] = reason;
                             context.Fail("Session revoked or expired");
+                        }
                     }
+                },
+                OnChallenge = async context =>
+                {
+                    if (context.HttpContext.Items[RevokeReasonItem] is not string reason) return;
+                    context.HandleResponse();
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(RevokedBody(reason)));
                 }
             };
         });

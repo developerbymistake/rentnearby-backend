@@ -118,7 +118,7 @@ public class OwnerModelTests
     [InlineData("CalendarEntries", "ux_calendarentries_source", "SourceType,SourceId", true, "\"Kind\" = 'Auto'")]
     [InlineData("CalendarEntries", "ix_calendarentries_listing_dateto", "ListingKind,ListingId,DateTo,Id", false, null)]
     [InlineData("CalendarEntries", "ix_calendarentries_listing_datefrom", "ListingKind,ListingId,DateFrom,Id", false, null)]
-    [InlineData("CalendarEntries", "ix_calendarentries_manual_active", "ListingKind,ListingId,DateTo,Id", false, "\"Kind\" = 'Manual'")]
+    [InlineData("TripEnquiries", "ix_tripenquiries_confirmed_updated", "UpdatedAt", false, "\"Status\" = 'ConfirmedByBoth'")]
     [InlineData("CalendarEntries", "ix_calendarentries_dateto", "DateTo", false, null)]
     [InlineData("CalendarEntries", "ix_calendarentries_traveller", "TravellerUserId", false, "\"TravellerUserId\" IS NOT NULL")]
     [InlineData("CalendarEntries", "ix_calendarentries_owner", "OwnerUserId", false, null)]
@@ -126,10 +126,11 @@ public class OwnerModelTests
     [InlineData("StayBlockedRanges", "ix_stayblockedranges_dateto", "DateTo", false, null)]
     [InlineData("StaySpecialPrices", "ix_stayspecialprices_stay_dateto", "StayListingId,DateTo,Id", false, null)]
     [InlineData("StaySpecialPrices", "ix_stayspecialprices_dateto", "DateTo", false, null)]
-    [InlineData("StaySpecialPrices", "ix_stayspecialprices_bigoff", "StayListingId,DateTo", false, "\"Direction\" = 'Lower' AND \"Percent\" >= 40 AND NOT \"IsPaused\" AND NOT \"PausedByPlan\"")]
+    [InlineData("TaxiBookings", "ix_taxibookings_booked", "BookedAt", false, null)]
+    [InlineData("TaxiBookings", "ix_taxibookings_cancelled", "CancelledAt", false, "\"Status\" = 'Cancelled'")]
     [InlineData("StaySpecialPrices", "ix_stayspecialprices_active_from", "DateFrom,Id", false, "NOT \"IsPaused\" AND NOT \"PausedByPlan\"")]
-    [InlineData("FestivalDates", "ix_festivaldates_active_from", "IsActive,DateFrom", false, null)]
-    [InlineData("FestivalDates", "ix_festivaldates_from_id", "DateFrom,Id", false, null)]
+    [InlineData("TaxiRequests", "ix_taxirequests_from_created", "MatchFromCityKey,CreatedAt", false, null)]
+    [InlineData("TaxiRoutes", "ix_taxiroutes_from_city", "FromCityKey", false, "\"FromCityKey\" IS NOT NULL AND NOT \"HiddenByPlan\"")]
     [InlineData("FestivalReminderSent", "ix_festivalremindersent_dateto", "FestivalDateTo", false, null)]
     [InlineData("FestivalReminderSent", "ix_festivalremindersent_festival", "FestivalDateId", false, null)]
     [InlineData("OwnerWeeklyStats", "ix_ownerweeklystats_day", "Day", false, null)]
@@ -151,7 +152,8 @@ public class OwnerModelTests
         Assert.Equal(["DateFrom", "Kind", "Cancelled"], includes);
         Assert.Equal(["DateFrom"], (string[]?)Index("StayBlockedRanges", "ix_stayblockedranges_stay_dateto").MappedIndexes.Single()["Npgsql:IndexInclude"]);
         Assert.Equal(["MatchFromCityKey", "MatchToCityKey"], (string[]?)Index("TaxiRequests", "ix_taxirequests_created").MappedIndexes.Single()["Npgsql:IndexInclude"]);
-        Assert.Equal([true, false], Index("FestivalDates", "ix_festivaldates_from_id").MappedIndexes.Single().IsDescending);
+        Assert.Equal(["MatchToCityKey", "DropCityKey"], (string[]?)Index("TaxiRequests", "ix_taxirequests_from_created").MappedIndexes.Single()["Npgsql:IndexInclude"]);
+        Assert.Equal(["TaxiListingId"], (string[]?)Index("TaxiRoutes", "ix_taxiroutes_from_city").MappedIndexes.Single()["Npgsql:IndexInclude"]);
     }
 
     [Fact]

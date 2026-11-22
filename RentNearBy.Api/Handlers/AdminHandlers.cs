@@ -975,7 +975,8 @@ public static class AdminHandlers
                     .Where(s => s.UserId == id && s.IsActive)
                     .ExecuteUpdateAsync(s => s
                         .SetProperty(x => x.IsActive, false)
-                        .SetProperty(x => x.LoggedOutAt, now));
+                        .SetProperty(x => x.LoggedOutAt, now)
+                        .SetProperty(x => x.RevokeReason, SessionRevokeReasons.AccountSuspended));
 
                 // Stop Google renewals so a blocked user is not billed for an account they cannot use; no refund.
                 await playSubscriptions.QueueCancelForUserAsync(id, "Account deactivated");

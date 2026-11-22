@@ -187,6 +187,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
             e.Property(s => s.IsActive).HasDefaultValue(true);
+            e.Property(s => s.RevokeReason).HasMaxLength(SessionRevokeReasons.MaxLength);
             e.HasIndex(s => s.UserId);
             e.HasIndex(s => s.ExpiresAt);
             e.HasIndex(s => s.LoggedOutAt, "ix_sessions_loggedout").HasFilter("\"IsActive\" = false");
@@ -300,7 +301,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Used by the auto-resolve hook and the first-pending-report check
             e.HasIndex(r => new { r.ListingId, r.ListingType, r.Status });
             // Used by the admin tab filter (?status=Pending|Reviewed|All)
-            e.HasIndex(r => r.Status);
             e.HasIndex(r => new { r.Status, r.CreatedAt, r.Id }).IsDescending(false, true, true);
 
             // Stops the same user filing >1 simultaneous Pending report on the same listing.
@@ -1249,7 +1249,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(d => d.UserId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(d => d.UserId);
+            // FB-62: (UserId, IsValid) also serves the UserId lookups and the FK.
             e.HasIndex(d => new { d.UserId, d.IsValid });
             e.HasIndex(d => d.UpdatedAt, "ix_devicetokens_updated");
             e.HasIndex(d => d.Token);
@@ -1265,11 +1265,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(d => d.AdminId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(d => d.AdminId);
             e.HasIndex(d => new { d.AdminId, d.IsValid });
             e.HasIndex(d => d.UpdatedAt, "ix_admindevicetokens_updated");
             e.HasIndex(d => d.Token);
-            e.HasIndex(d => d.IsValid);
         });
 
         modelBuilder.Entity<NotificationLog>(e =>
@@ -1281,7 +1279,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .WithMany()
              .HasForeignKey(n => n.UserId)
              .OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(n => n.UserId);
             e.HasIndex(n => new { n.UserId, n.Type, n.SentAt });
             e.HasIndex(n => n.SentAt, "ix_notificationlogs_sent");
         });
