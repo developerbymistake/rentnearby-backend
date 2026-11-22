@@ -125,7 +125,7 @@ public static class PushBatchProcessor
         {
             var p = batch[i].Payload!;
             if (p.NotificationId is { } nid && !types.ContainsKey(nid)) { verdicts[i] = PushVerdict.Ack; continue; }
-            var userTokens = tokens[p.UserId].Distinct().Where(t => t != p.ExceptToken).ToList();
+            var userTokens = PushTargets.Tokens(p, tokens[p.UserId]);
             if (userTokens.Count == 0) { verdicts[i] = PushVerdict.Ack; continue; }
             var data = new Dictionary<string, string>();
             if (p.Data != null)

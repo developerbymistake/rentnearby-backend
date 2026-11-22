@@ -141,7 +141,7 @@ public class RoomsPlotsRemovalGuardTests
         Assert.NotNull(method);
         Assert.True(method.IsAssembly);
         Assert.Equal(typeof(Task), method.ReturnType);
-        Assert.Equal(4, method.GetParameters().Length);
+        Assert.Equal(5, method.GetParameters().Length); // + targetTokens (FB-23)
         Assert.Equal(typeof(IRabbitMqPublisher), method.GetParameters()[1].ParameterType);
         Assert.Equal(typeof(NotificationEvent), method.GetParameters()[2].ParameterType);
     }

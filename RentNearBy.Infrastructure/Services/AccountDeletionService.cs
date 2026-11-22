@@ -174,9 +174,13 @@ public class AccountDeletionService(
                 .SetProperty(e => e.Label, string.Empty)
                 .SetProperty(e => e.TravellerUserId, (Guid?)null));
 
-        var (stayIds, taxiIds) = await listingPurgeService.PurgeUserListingsAsync(userId);
-        tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, stayIds));
+        // FB-22: lock order request -> driver listing. The closure (taxi requests first) runs on the listing ids read here,
+        // before the purge touches the listing rows; the purge removes exactly these rows (the user row is locked).
+        var stayIds = await context.StayListings.Where(s => s.UserId == userId).Select(s => s.Id).ToListAsync();
+        var taxiIds = await context.TaxiListings.Where(t => t.UserId == userId).Select(t => t.Id).ToListAsync();
         tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Taxi, taxiIds));
+        tripPushes.AddRange(await tripClosure.OnListingsRemovedAsync(ListingKinds.Stay, stayIds));
+        await listingPurgeService.PurgeUserListingsAsync(userId);
 
         // Kept bookings (no FK to Users) stop carrying the person's name.
         await context.Set<TaxiBooking>()

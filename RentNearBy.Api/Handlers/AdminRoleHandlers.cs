@@ -244,9 +244,12 @@ public static class AdminRoleHandlers
                     ListingKinds.Stay => await db.StayListings.Where(s => s.UserId == user.Id && !s.IsDeleted && s.DistrictId != null).Select(s => s.DistrictId!.Value).Distinct().ToListAsync(),
                     _ => throw new InvalidOperationException($"Unknown listing kind '{purgeKind}'"),
                 };
-                purgedListingIds = await listingPurge.DeleteUserListingRowsAsync(user.Id, purgeKind);
-                if (purgeKind is ListingKinds.Stay or ListingKinds.Taxi)
-                    tripPushes = await tripClosure.OnListingsRemovedAsync(purgeKind, purgedListingIds);
+                // FB-22: closure on the ids read first (taxi requests are locked before the listing rows), then the purge.
+                purgedListingIds = purgeKind == ListingKinds.Taxi
+                    ? await db.TaxiListings.Where(t => t.UserId == user.Id).Select(t => t.Id).ToListAsync()
+                    : await db.StayListings.Where(s => s.UserId == user.Id).Select(s => s.Id).ToListAsync();
+                tripPushes = await tripClosure.OnListingsRemovedAsync(purgeKind, purgedListingIds);
+                await listingPurge.DeleteUserListingRowsAsync(user.Id, purgeKind);
                 await unitOfWork.ListingReports.AutoResolvePendingForListingsAsync(purgedListingIds, purgeKind);
                 foreach (var route in UserNotificationRoutes.OwnedByKind(purgeKind))
                     await unitOfWork.Notifications.DeleteByActionRouteForUserAsync(user.Id, route);
@@ -259,6 +262,10 @@ public static class AdminRoleHandlers
             await unitOfWork.SaveChangesAsync();
 
             await unitOfWork.Sessions.RevokeAllUserSessionsAsync(user.Id, SessionRevokeReasons.SessionRoleChanged);
+            // D-14 / FB-23: "Role updated" and any ring end of this unit go to the tokens he had at this moment.
+            var tokenCopy = await RentNearBy.Infrastructure.Services.PushTokenSnapshot.ValidTokensAsync(db, user.Id);
+            RentNearBy.Infrastructure.Services.PushTokenSnapshot.Stamp(db, user.Id, tokenCopy, k => k.StartsWith("ringend:", StringComparison.Ordinal));
+            await unitOfWork.SaveChangesAsync();
             await RentNearBy.Infrastructure.Services.Owner.Be4.DeviceTokenCleanup.DeleteAllAsync(db, user.Id);
 
             await unitOfWork.CommitTransactionAsync();
@@ -269,7 +276,7 @@ public static class AdminRoleHandlers
             await tripClosure.AfterCommitAsync(tripPushes);
             await listingPurge.DeleteListingPhotosBestEffortAsync(user.Id, purgedListingIds);
 
-            await AdminHandlers.SendGoLiveNotificationAsync(hubContext, publisher, notification);
+            await AdminHandlers.SendGoLiveNotificationAsync(hubContext, publisher, notification, targetTokens: tokenCopy);
 
             return RoleChangeOutcome.Changed;
         }

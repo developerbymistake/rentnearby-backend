@@ -27,4 +27,7 @@ public static class OutboxTargets
 // Kind names the notification type when there is no inbox row; a payload past ExpiresAtUtc is never sent; ExceptToken is never sent to.
 public sealed record OutboxPushPayload(
     string Key, Guid UserId, Guid? NotificationId, string Title, string Body, string? Route, string? ArgsJson, string Tag, int Attempt = 0,
-    string? Kind = null, DateTime? ExpiresAtUtc = null, IReadOnlyDictionary<string, string>? Data = null, string? ExceptToken = null);
+    string? Kind = null, DateTime? ExpiresAtUtc = null, IReadOnlyDictionary<string, string>? Data = null, string? ExceptToken = null,
+    // D-14 / FB-23: the device tokens copied in the same transaction that deletes them (suspend, role change); delivery uses
+    // these instead of the token lookup. Only the last pushes before a sign-out carry them.
+    IReadOnlyList<string>? TargetTokens = null);

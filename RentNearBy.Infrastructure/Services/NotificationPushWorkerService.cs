@@ -84,7 +84,7 @@ public sealed class OldPushHandler(IOldPushStore store, IFcmService fcm, IConfir
                 return OldPushAck.Ack;
             }
 
-            var tokens = await store.GetTokensAsync(msg.UserId, ct);
+            var tokens = msg.TargetTokens is { Count: > 0 } snapshot ? snapshot : await store.GetTokensAsync(msg.UserId, ct);
             if (tokens.Count == 0)
             {
                 logger.LogInformation("No valid device tokens for user {UserId}", msg.UserId);

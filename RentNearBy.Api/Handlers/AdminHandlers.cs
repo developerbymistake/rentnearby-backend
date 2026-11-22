@@ -981,6 +981,11 @@ public static class AdminHandlers
                 // Stop Google renewals so a blocked user is not billed for an account they cannot use; no refund.
                 await playSubscriptions.QueueCancelForUserAsync(id, "Account deactivated");
 
+                // D-14 / FB-23: the ring-end pushes of this unit keep a copy of his tokens, then the rows are saved (the
+                // closure only adds them) before the tokens go.
+                PushTokenSnapshot.Stamp(db, id, await PushTokenSnapshot.ValidTokensAsync(db, id), k => k.StartsWith("ringend:", StringComparison.Ordinal));
+                await db.SaveChangesAsync();
+
                 // Owner contract 6.1: sessions revoked by the server take the device tokens with them.
                 await RentNearBy.Infrastructure.Services.Owner.Be4.DeviceTokenCleanup.DeleteAllAsync(db, id);
             }
@@ -1191,7 +1196,7 @@ public static class AdminHandlers
     // a push failure must never turn an already-committed Approve/Reject into an error response.
     internal static async Task SendGoLiveNotificationAsync(
         IHubContext<NotificationHub> hubContext, IRabbitMqPublisher publisher, NotificationEvent notification,
-        ILogger? logger = null)
+        ILogger? logger = null, IReadOnlyList<string>? targetTokens = null)
     {
         try
         {
@@ -1212,7 +1217,7 @@ public static class AdminHandlers
 
         try
         {
-            var payload = JsonSerializer.Serialize(new NotificationPushPayload(notification.Id, notification.TargetUserId!.Value));
+            var payload = JsonSerializer.Serialize(new NotificationPushPayload(notification.Id, notification.TargetUserId!.Value, targetTokens));
             await publisher.PublishAsync("notification.push", payload);
         }
         catch (Exception ex)

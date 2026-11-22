@@ -186,8 +186,10 @@ public static class RoleHandlers
             }
 
             await purchases.CancelActivePlansAsync(userId, leftKind, "Role corrected");
-            purgedIds = await listingPurge.DeleteUserListingRowsAsync(userId, leftKind);
+            // FB-22: closure first on the ids of the kind (Draft rows only here), then the purge of exactly those rows.
+            purgedIds = leftKind == ListingKinds.Taxi ? await db.TaxiListings.Where(t => t.UserId == userId).Select(t => t.Id).ToListAsync() : await db.StayListings.Where(st => st.UserId == userId).Select(st => st.Id).ToListAsync();
             tripPushes = await tripClosure.OnListingsRemovedAsync(leftKind, purgedIds);
+            await listingPurge.DeleteUserListingRowsAsync(userId, leftKind);
 
             // Every token with the old role claim, the caller's included, dies here; the caller gets a new session.
             var rotated = await RotateSessionAsync(unitOfWork, userId, sessionId);
