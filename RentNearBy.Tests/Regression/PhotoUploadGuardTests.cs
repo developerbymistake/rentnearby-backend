@@ -140,6 +140,24 @@ public class PhotoUploadGuardTests
         Assert.Contains("NuGetAuditSuppress", csproj);
     }
 
+    // The default ImageSharp configuration knows every codec: any decode or size probe goes through PhotoService.
+    [Fact]
+    public void ImageSharp_reads_happen_only_in_PhotoService()
+    {
+        var offenders = new[] { "RentNearBy.Api", "RentNearBy.Core", "RentNearBy.Infrastructure" }
+            .SelectMany(project => SourceFiles(Path.Combine(Root, project)))
+            .Where(p => Path.GetFileName(p) != "PhotoService.cs")
+            .Where(p => Regex.IsMatch(File.ReadAllText(p), @"\bImage\.(Load|Identify|DetectFormat)\w*\(|Configuration\.Default"))
+            .Select(Path.GetFileName)
+            .ToList();
+        Assert.Empty(offenders);
+
+        var source = Src("RentNearBy.Infrastructure", "Services", "PhotoService.cs");
+        var reads = Regex.Matches(source, @"\bImage\.(Load|Identify|DetectFormat)\w*\(([^,)]*)");
+        Assert.NotEmpty(reads);
+        Assert.All(reads, m => Assert.Equal("Decoder", m.Groups[2].Value));
+    }
+
     [Fact]
     public void Pipeline_caps_pixels_before_the_decode()
     {
