@@ -41,9 +41,9 @@ public static class DataSeeder
         await SeedAdminsAsync(db);
     }
 
-    // Payment kill switch — starts OFF (payment not required) so Go-Live is free by default until an
-    // admin explicitly turns payment back on. Do not "fix" IsEnabled to true here; that flip is an
-    // explicit product decision, not an oversight.
+    // Feature switches, inserted only when the key is missing (stored values are never overwritten).
+    // Owner decision 2026-11-24: Paid Plans Enforced (PAYMENT_ENABLED), Trip bookings (TRIP_EXECUTION_ENABLED)
+    // and Places on maps (MAP_DISCOVERY_ENABLED) all start ON; an admin can turn any of them off.
     internal static async Task SeedAppFeatureFlagsAsync(ApplicationDbContext db)
     {
         var keys = await db.AppFeatureFlags.Select(f => f.FeatureKey).ToListAsync();
@@ -53,7 +53,7 @@ public static class DataSeeder
             {
                 Id = Guid.NewGuid(),
                 FeatureKey = AppFeatureKeys.PaymentEnabled,
-                IsEnabled = false,
+                IsEnabled = true,
                 FreeDurationDays = 30,
                 PaymentProvider = PaymentProviders.Play,
                 UpdatedAt = DateTime.UtcNow,
@@ -64,7 +64,7 @@ public static class DataSeeder
             {
                 Id = Guid.NewGuid(),
                 FeatureKey = AppFeatureKeys.TripExecutionEnabled,
-                IsEnabled = false,
+                IsEnabled = true,
                 UpdatedAt = DateTime.UtcNow,
             });
 

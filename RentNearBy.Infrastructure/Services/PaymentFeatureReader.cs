@@ -6,8 +6,7 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// Missing row/null = Enabled true (fail toward requiring payment), FreeDays 30, Provider Play. This is deliberately the
-// opposite polarity from the seed's IsEnabled = false; do not "simplify" it to match the seed.
+// Missing row/null = Enabled true (fail toward requiring payment), FreeDays 30, Provider Play; the seed also starts ON (2026-11-24).
 public class PaymentFeatureReader(ApplicationDbContext db, IMemoryCache cache) : IPaymentFeatureReader
 {
     private static readonly TimeSpan Ttl = TimeSpan.FromHours(24);

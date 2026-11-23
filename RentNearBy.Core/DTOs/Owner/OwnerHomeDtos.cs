@@ -54,7 +54,8 @@ public sealed class OwnerHomeNumbersDto
 
 public sealed record OwnerStayNumbersDto(int NewEnquiries, int OffersWaiting, int Confirmed);
 
-public sealed record OwnerTaxiNumbersDto(int NewRequests, DateOnly? NextBookingDate, double? RatingAvg, int RatingCount);
+// MissedRequests: offers of his listing in state Missed in the last TaxiDispatchRules.MissedWindowDays days (Bug 25).
+public sealed record OwnerTaxiNumbersDto(int NewRequests, DateOnly? NextBookingDate, double? RatingAvg, int RatingCount, int MissedRequests);
 
 // The first 3 upcoming rows (a subset of the calendar row; no money note field ever leaves here except the chip).
 public sealed class OwnerUpcomingRowDto

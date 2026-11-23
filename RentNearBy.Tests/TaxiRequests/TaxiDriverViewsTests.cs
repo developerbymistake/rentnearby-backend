@@ -151,17 +151,23 @@ public class TaxiDriverViewsTests
     }
 
     [Fact]
-    public void Declined_offers_are_not_listed()
+    public void Declined_offers_are_listed_in_earlier()
     {
-        var declined = Source(Offer(Guid.NewGuid(), RequestA, OfferStates.Declined), RequestA_());
+        var declinedId = Guid.NewGuid();
+        var declined = Source(Offer(declinedId, RequestA, OfferStates.Declined), RequestA_());
         var ringing = Source(Offer(OfferA, RequestA, OfferStates.Ringing), RequestA_());
 
-        var dto = TaxiDriverViews.BuildList(Now, [declined, ringing], [declined], null);
+        var dto = TaxiDriverViews.BuildList(Now, [ringing], [declined], null);
 
-        Assert.Equal([OfferA], dto.Items.Select(i => i.OfferId).ToArray());
+        Assert.Equal([OfferA, declinedId], dto.Items.Select(i => i.OfferId).ToArray());
         Assert.Equal(1, dto.Counts.New);
-        Assert.Null(OfferBuckets.For(OfferStates.Declined, false));
-        Assert.DoesNotContain(OfferStates.Declined, TaxiDriverViews.EarlierSql(false));
+        var row = dto.Items[1];
+        Assert.Equal(OfferStates.Declined, row.State);
+        Assert.Equal(OfferBuckets.Earlier, row.Bucket);
+        Assert.Null(row.Traveller);
+        Assert.Equal(OfferBuckets.Earlier, OfferBuckets.For(OfferStates.Declined, false));
+        Assert.Contains($"'{OfferStates.Declined}'", TaxiDriverViews.EarlierSql(false));
+        Assert.Contains($"'{OfferStates.Missed}'", TaxiDriverViews.EarlierSql(false));
     }
 
     [Fact]

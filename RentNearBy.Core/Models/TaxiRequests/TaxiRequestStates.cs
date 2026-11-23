@@ -72,12 +72,13 @@ public static class OfferBuckets
     public static readonly IReadOnlyList<string> All = [New, Booked, Earlier];
     public static readonly string SqlList = TaxiSql.List(All);
 
-    // Declined offers are not listed (null). A Confirmed offer is Booked while its booking is active, else Earlier.
+    // A Confirmed offer is Booked while its booking is active, else Earlier. Declined is listed in Earlier (Bug 25).
     public static string? For(string offerState, bool bookingActive) => offerState switch
     {
         OfferStates.Ringing or OfferStates.Accepted or OfferStates.Selected => New,
         OfferStates.Confirmed => bookingActive ? Booked : Earlier,
-        OfferStates.Missed or OfferStates.NotSelected or OfferStates.NotAgreed or OfferStates.Closed or OfferStates.Withdrawn => Earlier,
+        OfferStates.Missed or OfferStates.Declined or OfferStates.NotSelected or OfferStates.NotAgreed or OfferStates.Closed
+            or OfferStates.Withdrawn => Earlier,
         _ => null,
     };
 }
