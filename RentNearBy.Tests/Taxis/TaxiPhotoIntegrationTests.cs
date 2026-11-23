@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using RentNearBy.Api.Handlers;
 using RentNearBy.Api.Handlers.Owner;
-using RentNearBy.Api.Mappings;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
@@ -347,7 +346,7 @@ public class TaxiPhotoIntegrationTests(TestDatabase db) : IntegrationTestBase(db
     [IntegrationFact]
     public async Task Public_detail_and_slug_never_return_plate_photo()
     {
-        DtoMappings.ConfigureMappings();
+        MappingsOnce.Ensure();
         await using var c = CreateContext();
         var driver = await OwnerSeed.TaxiDriverAsync(c, TaxiStatuses.Approved);
         var slug = "photo-" + driver.ListingId.ToString("N")[..10];

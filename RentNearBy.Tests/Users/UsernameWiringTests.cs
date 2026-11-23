@@ -8,7 +8,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Handlers;
-using RentNearBy.Api.Mappings;
 using RentNearBy.Api.Validators;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -22,7 +21,7 @@ public class UsernameWiringTests
 {
     private static (UsernameWorld World, IMemoryCache Cache, ClaimsPrincipal Principal, User User) Signed(string? username)
     {
-        DtoMappings.ConfigureMappings();
+        MappingsOnce.Ensure();
         var w = new UsernameWorld();
         var user = new User { Id = Guid.NewGuid(), PhoneNumber = "9876543210", Name = "Asha", Username = username, IsPhoneVerified = true };
         w.Repo.Row = user;
@@ -76,7 +75,7 @@ public class UsernameWiringTests
     [Fact]
     public void Wire_field_is_username_on_the_user_and_the_login_response()
     {
-        DtoMappings.ConfigureMappings();
+        MappingsOnce.Ensure();
         var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var user = Mapster.TypeAdapter.Adapt<UserDto>(new User { Id = Guid.NewGuid(), Username = "Bakhli#48291736" });
 

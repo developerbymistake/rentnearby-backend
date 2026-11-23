@@ -2,7 +2,6 @@ using System.Reflection;
 using System.Text.Json;
 using Mapster;
 using RentNearBy.Api.Handlers;
-using RentNearBy.Api.Mappings;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.DTOs.TaxiRequests;
 using RentNearBy.Tests.Trips;
@@ -69,7 +68,7 @@ public class TaxiPhotoWireTests
     [Fact]
     public void Owner_dto_carries_plate_display_and_lock()
     {
-        DtoMappings.ConfigureMappings();
+        MappingsOnce.Ensure();
         var taxi = new TaxiListing
         {
             Id = Guid.NewGuid(), UserId = Guid.NewGuid(), DrivingLicenceNumberEnc = "x", DateOfBirth = new DateOnly(1985, 1, 1),

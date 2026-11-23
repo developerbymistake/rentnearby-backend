@@ -4,7 +4,6 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using RentNearBy.Api.Handlers;
-using RentNearBy.Api.Mappings;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Infrastructure.Repositories;
 using RentNearBy.Infrastructure.Services;
@@ -25,7 +24,7 @@ public class ProfilePhotoIntegrationTests(TestDatabase db) : IntegrationTestBase
 
     private static IMemoryCache Cache()
     {
-        DtoMappings.ConfigureMappings();
+        MappingsOnce.Ensure();
         var cache = new MemoryCache(new MemoryCacheOptions());
         cache.Set(AppTabCache.Key, new List<AppTabDto>());
         return cache;

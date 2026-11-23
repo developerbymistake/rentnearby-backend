@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using RentNearBy.Api.Handlers;
-using RentNearBy.Api.Mappings;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Infrastructure.Repositories;
 using RentNearBy.Infrastructure.Services;
@@ -65,7 +64,7 @@ public class ProfilePhotoJourneyIntegrationTests(TestDatabase db) : IntegrationT
 
     private async Task<UserDto> UploadAsync(JourneyHarness h, Guid userId, IPhotoService photos)
     {
-        DtoMappings.ConfigureMappings();
+        MappingsOnce.Ensure();
         await using var c = CreateContext();
         var result = await UserPhotoHandlers.UploadPhoto(Jpeg(), Principal(userId), c, new UnitOfWork(c), photos, h.Cache,
             new UsernameService(new UnitOfWork(c), new FakePendingStore()), Services());
@@ -142,7 +141,7 @@ public class ProfilePhotoJourneyIntegrationTests(TestDatabase db) : IntegrationT
         {
             Assert.True(await check.NotificationEvents.AnyAsync(n => n.TargetUserId == userId && n.Type == NotificationTypes.ProfilePhotoRemoved));
             var user = await check.Users.AsNoTracking().SingleAsync(u => u.Id == userId);
-            DtoMappings.ConfigureMappings();
+            MappingsOnce.Ensure();
             var dto = user.Adapt<UserDto>();
             Assert.Null(dto.ProfilePhotoUrl);
             Assert.True(dto.ProfilePhotoRemoved);

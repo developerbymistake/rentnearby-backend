@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Mapster;
-using RentNearBy.Api.Mappings;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Models.Buddy;
@@ -19,7 +18,7 @@ public class ProfilePhotoWireTests
 
     private static UserDto Map(string? url, DateTime? updatedAt)
     {
-        DtoMappings.ConfigureMappings();
+        MappingsOnce.Ensure();
         return new User { Id = Guid.NewGuid(), PhoneNumber = "9876543210", ProfilePhotoUrl = url, ProfilePhotoPath = url == null ? null : "p", ProfilePhotoUpdatedAt = updatedAt }
             .Adapt<UserDto>();
     }
