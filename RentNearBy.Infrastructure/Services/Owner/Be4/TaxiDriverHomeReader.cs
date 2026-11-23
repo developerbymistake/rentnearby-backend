@@ -72,6 +72,8 @@ public sealed class TaxiDriverHomeReader(
                (SELECT count(*) FROM "TaxiRequestOffers" o WHERE o."DriverListingId" = @listing AND o."OfferedAt" >= now() - interval '7 days')::int AS "WeekRings",
                (SELECT count(*) FROM "TaxiRequestOffers" o WHERE o."DriverListingId" = @listing AND o."OfferedAt" >= now() - interval '7 days'
                   AND o."Status" IN ({AcceptedOrLater}) AND o."RespondedAt" IS NOT NULL)::int AS "WeekAccepted",
+               (SELECT count(*) FROM "TaxiRequestOffers" o WHERE o."DriverListingId" = @listing AND o."Status" = '{OfferStates.Missed}'
+                  AND o."OfferedAt" >= now() - interval '{TaxiDispatchRules.MissedWindowDays} days')::int AS "MissedRequests",
                (SELECT max(b."DateTo") FROM "TaxiBookings" b WHERE b."DriverListingId" = @listing AND b."Status" = '{BookingStates.InProgress}') AS "OnTripUntil",
                CASE WHEN @wantSuggestion THEN (
                    SELECT max(r."DropCityName") FILTER (WHERE r."DropCityKey" = r."MatchToCityKey")
@@ -170,7 +172,8 @@ public sealed class TaxiDriverHomeReader(
             Numbers = new OwnerHomeNumbersDto
             {
                 Taxi = new OwnerTaxiNumbersDto(newRequests, upcoming.Rows.FirstOrDefault(r => !r.Cancelled)?.DateFrom,
-                    ctx.RatingCount > 0 ? Math.Round((double)ctx.RatingSum / ctx.RatingCount, 1) : null, ctx.RatingCount),
+                    ctx.RatingCount > 0 ? Math.Round((double)ctx.RatingSum / ctx.RatingCount, 1) : null, ctx.RatingCount,
+                    work.MissedRequests),
                 CentreBadge = newRequests,
             },
             Upcoming = upcoming,
@@ -251,6 +254,7 @@ public sealed class TaxiDriverHomeReader(
         public int NewLeads { get; set; }
         public int WeekRings { get; set; }
         public int WeekAccepted { get; set; }
+        public int MissedRequests { get; set; }
         public DateOnly? OnTripUntil { get; set; }
         public string? SuggestedToCityName { get; set; }
     }

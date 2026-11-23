@@ -60,7 +60,7 @@ public readonly record struct DriverOfferCursor(DateTime OfferedAt, Guid Id)
 public static class TaxiDriverViews
 {
     private static readonly string[] EarlierStates =
-        [OfferStates.Missed, OfferStates.NotSelected, OfferStates.NotAgreed, OfferStates.Closed, OfferStates.Withdrawn];
+        [OfferStates.Missed, OfferStates.Declined, OfferStates.NotSelected, OfferStates.NotAgreed, OfferStates.Closed, OfferStates.Withdrawn];
 
     public static bool BookingActive(TaxiBooking? booking) => booking is not null && BookingStates.Active.Contains(booking.Status);
 
@@ -68,7 +68,6 @@ public static class TaxiDriverViews
     public static bool TravellerVisible(string offerState, bool bookingActive)
         => offerState is OfferStates.Accepted or OfferStates.Selected || (offerState == OfferStates.Confirmed && bookingActive);
 
-    // Declined offers are never listed; a declined offer opened by id reads as history.
     public static string BucketOf(string offerState, bool bookingActive) => OfferBuckets.For(offerState, bookingActive) ?? OfferBuckets.Earlier;
 
     public static DriverOfferDto BuildOffer(DriverOfferSource s, bool withTrip)
@@ -112,10 +111,10 @@ public static class TaxiDriverViews
     public static DriverOfferListDto BuildList(DateTime serverNow, IEnumerable<DriverOfferSource> current, IEnumerable<DriverOfferSource> earlier, string? nextCursor)
     {
         var listed = current.OrderByDescending(s => s.Offer.OfferedAt).ThenByDescending(s => s.Offer.Id)
-            .Select(s => BuildOffer(s, withTrip: false)).Where(Listed).ToList();
+            .Select(s => BuildOffer(s, withTrip: false)).ToList();
         var fresh = listed.Where(d => d.Bucket == OfferBuckets.New).ToList();
         var booked = listed.Where(d => d.Bucket == OfferBuckets.Booked).OrderBy(d => d.DateFrom).ToList();
-        var history = earlier.Select(s => BuildOffer(s, withTrip: false)).Where(d => Listed(d) && d.Bucket == OfferBuckets.Earlier);
+        var history = earlier.Select(s => BuildOffer(s, withTrip: false)).Where(d => d.Bucket == OfferBuckets.Earlier);
 
         return new DriverOfferListDto
         {
@@ -124,8 +123,6 @@ public static class TaxiDriverViews
             NextCursor = nextCursor,
             Items = [.. fresh, .. booked, .. history],
         };
-
-        static bool Listed(DriverOfferDto d) => d.State != OfferStates.Declined;
     }
 
     public static DriverBookingDto BuildBooking(TaxiBooking b, string? travellerPhone)

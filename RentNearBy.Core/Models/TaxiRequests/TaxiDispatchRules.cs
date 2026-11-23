@@ -19,6 +19,8 @@ public static class TaxiDispatchRules
     public const int MaxDayMinutes = 1440;
     public const int MaxLatestRatings = 10;
     public const int OfferListPageSize = 20;
+    // Driver home "Missed" tile (Bug 25): missed rings of the last 7 days, the admin answer window too.
+    public const int MissedWindowDays = 7;
     public const int AckPerMinutePerIp = 30;
     public const int AckPerMinutePerOffer = 5;
     public const int ReadinessReportsPerHour = 20;

@@ -169,7 +169,7 @@ public class TaxiRequestConstantsTests
     [InlineData("NotAgreed", false, "Earlier")]
     [InlineData("Closed", false, "Earlier")]
     [InlineData("Withdrawn", false, "Earlier")]
-    [InlineData("Declined", false, null)]
+    [InlineData("Declined", false, "Earlier")]
     public void Offer_bucket_follows_the_contract(string state, bool bookingActive, string? bucket)
         => Assert.Equal(bucket, OfferBuckets.For(state, bookingActive));
 
