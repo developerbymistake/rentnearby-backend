@@ -91,8 +91,9 @@ internal static class Be2Sql
                t."PlanJson"::text AS "PlanJson", t."CityName",
         """ + "\n" + InviteRest;
 
+    // SqlQueryRaw runs string.Format on the SQL: a literal brace pair must be doubled ('{{}}' reads '{}').
     public const string InviteLeanSql = InviteSelect + "\n" + """
-               '{}'::text AS "PlanJson", ''::text AS "CityName",
+               '{{}}'::text AS "PlanJson", ''::text AS "CityName",
         """ + "\n" + InviteRest;
 
     // Deletes the TripInvite notices of (user, trip) pairs in one statement (block participant and expiry job).
