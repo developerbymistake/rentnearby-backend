@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using RentNearBy.Core.DTOs.Buddy;
+using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
@@ -13,8 +15,9 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be2;
 public sealed record TripViewResult(TripViewerDto? View, string ETag, bool NotModified);
 
 // S14 (contract 2.2): access; stamp (first travellers + counts); trip; enquiries; taxi summary; money cards (2) = 7.
-// A matching If-None-Match answers after 2 statements.
-public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access, ITripMoneyCards money, TimeProvider clock)
+// A matching If-None-Match answers after 2 statements. Day road lines come from the road cache (Redis/OSRM), no SQL.
+public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access, ITripMoneyCards money, TimeProvider clock,
+    ITripRoadCache roads, IOptions<TripPlannerOptions> options)
 {
     // Owner + the first two joined viewers; the counts and stamps are uncorrelated subqueries (evaluated once).
     internal static readonly string StampSql = $"""
@@ -82,6 +85,7 @@ public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access
             info.OwnerName, head.Username, travellerCount, Chips(stamp),
             enquiries, taxi, card, TripSharingRules.TodayIst(clock.GetUtcNow().UtcDateTime),
             CloudinaryThumb.Apply(head.PhotoUrl, CloudinaryThumb.PersonFace)));
+        await TripViewerRoutes.FillAsync(view.Days, roads, options.Value.RouteGeometryMaxDays, ct);
         return SharingResult<TripViewResult>.Success(new TripViewResult(view, etag, false));
     }
 

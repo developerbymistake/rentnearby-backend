@@ -4,6 +4,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Models.TaxiRequests;
+using RentNearBy.Tests.Support.Buddy;
 
 namespace RentNearBy.Tests.Buddy.Be2;
 
@@ -88,6 +89,30 @@ public class TripViewerProjectionTests
         Assert.Equal(expected.OrderBy(x => x), typeof(TripViewerDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
         Assert.Equal(["Name", "PhotoUrl", "Username"], typeof(TripOwnerRefDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
         Assert.Equal(["DriverFirstName", "PickupDate", "PickupTime", "State", "VehicleType"], typeof(TripViewerTaxiDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
+        Assert.Equal(["Date", "Day", "Leg", "PlaceCount", "RestDay", "RouteGeoJson", "Spots", "TotalMinutes"],
+            typeof(TripViewerDayDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
+        Assert.Equal(["Category", "Id", "Latitude", "Longitude", "Name", "StartTime", "TravelMinutesToNext", "VisitMinutes"],
+            typeof(TripViewerSpotDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
+    }
+
+    [Fact]
+    public async Task Allow_list_holds_with_the_road_lines_filled()
+    {
+        var taxi = new TripTaxiRequestSummary(Guid.Parse("66666666-0000-4000-8000-000000000001"), RequestStates.Booked, "booked", 3,
+            new TripTaxiBookingSummary(Guid.Parse("55555555-0000-4000-8000-000000000001"), BookingStates.Booked, Start, Start.AddDays(2),
+                "Suresh Kumar", "Dzire", 4, "Haldwani"));
+        var view = Build([Stay(TripEnquiryStatuses.ConfirmedByBoth)], taxi);
+        await TripViewerRoutes.FillAsync(view.Days, new FakeRoadCache(), 14);
+        Assert.NotNull(view.Days[0].RouteGeoJson);
+        var json = JsonSerializer.Serialize(view, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Contains("\"routeGeoJson\":{\"type\":\"LineString\"", json);
+        string[] forbidden =
+        [
+            "phone", "whatsapp", "agreedTotal", "8123", "price", "fare", "conversationId", "88888888", "listingId", "77777777",
+            "inviteCode", "99999999", "planLock", "mutedAt", "adults", "kids", "planJson", "guide", "taxiRequest", "66666666",
+            "55555555", "Kumar", "upi", "offer", "plate", "steps", "mark", "Haldwani",
+        ];
+        foreach (var f in forbidden) Assert.DoesNotContain(f, json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

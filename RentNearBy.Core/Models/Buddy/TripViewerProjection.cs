@@ -1,5 +1,6 @@
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Entities;
+using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models.TaxiRequests;
 
 namespace RentNearBy.Core.Models.Buddy;
@@ -122,6 +123,7 @@ public static class TripViewerProjection
     }
 
     // Times and road minutes are not stored with the plan; the app lays the day out as it does for the owner.
+    // RouteGeoJson stays null here; TripViewerRoutes fills it from the road cache.
     public static List<TripViewerDayDto> Days(Trip trip, TripPlan plan)
         => (plan.Days ?? []).Where(d => d != null).OrderBy(d => d.Day).Select(d => new TripViewerDayDto
         {
@@ -131,7 +133,6 @@ public static class TripViewerProjection
             Date = trip.StartDate?.AddDays(d.Day - 1),
             TotalMinutes = (d.Spots ?? []).Sum(p => p.VisitMinutes),
             PlaceCount = d.Spots?.Count ?? 0,
-            RouteGeoJson = null,
             Spots = (d.Spots ?? []).Select(p => new TripViewerSpotDto
             {
                 Id = p.Id,
@@ -188,5 +189,26 @@ public static class TripViewerProjection
             return new TripViewerTaxiDto { State = TripPartWords.Booked };
         if (taxis.Any(e => OpenStay.Contains(e.Status))) return new TripViewerTaxiDto { State = TripPartWords.Arranging };
         return new TripViewerTaxiDto();
+    }
+}
+
+// Bug 15: the viewer gets the same road line the owner sees, over the day's spots only (no stay anchor, which is not
+// shared), through the planner's road cache (trip:route:{sha256}); OSRM down or no route leaves null.
+public static class TripViewerRoutes
+{
+    // Days with two or more spots, in day order, the first maxDays of them (the planner's RouteGeometryMaxDays cap).
+    public static List<(TripViewerDayDto Day, IReadOnlyList<(double Lat, double Lon)> Points)> RouteDays(IReadOnlyList<TripViewerDayDto> days, int maxDays)
+        => days.Where(d => d.Spots.Count >= 2)
+            .Take(Math.Max(0, maxDays))
+            .Select(d => (d, (IReadOnlyList<(double Lat, double Lon)>)d.Spots.Select(s => (s.Latitude, s.Longitude)).ToList()))
+            .ToList();
+
+    public static async Task FillAsync(IReadOnlyList<TripViewerDayDto> days, ITripRoadCache roads, int maxDays, CancellationToken ct = default)
+    {
+        var routes = RouteDays(days, maxDays);
+        if (routes.Count == 0) return;
+        var geometries = await roads.GetRouteGeometriesAsync(routes.Select(r => r.Points).ToList(), ct);
+        for (var k = 0; k < routes.Count; k++)
+            routes[k].Day.RouteGeoJson = geometries[k];
     }
 }

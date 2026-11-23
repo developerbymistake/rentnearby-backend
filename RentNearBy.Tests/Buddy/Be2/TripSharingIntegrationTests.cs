@@ -33,7 +33,8 @@ public class TripSharingIntegrationTests(TestDatabase db) : IntegrationTestBase(
     private static TripMemberService Members(ApplicationDbContext ctx) =>
         new(ctx, new TripAccess(ctx), Cards(ctx), new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripMemberService>.Instance);
 
-    private static TripViewerReader Viewer(ApplicationDbContext ctx) => new(ctx, new TripAccess(ctx), Cards(ctx), TimeProvider.System);
+    private static TripViewerReader Viewer(ApplicationDbContext ctx) => new(ctx, new TripAccess(ctx), Cards(ctx), TimeProvider.System,
+        new FakeRoadCache(), Microsoft.Extensions.Options.Options.Create(new TripPlannerOptions()));
 
     private static TripSharedListReader Shared(ApplicationDbContext ctx) => new(ctx, Cards(ctx), TimeProvider.System);
 

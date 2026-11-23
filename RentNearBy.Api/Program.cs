@@ -148,10 +148,11 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine("[STARTUP] Seeder complete.");
 
         // TEST DATA: Development, or DemoSeed:Enabled=true outside Production (never Production). Remove this statement with the Data/DemoSeed folder (see its README).
-        if (RentNearBy.Core.Models.DemoSeedGate.ShouldRun(app.Environment.EnvironmentName, app.Configuration[RentNearBy.Core.Models.DemoSeedGate.ConfigKey]))
-            await RentNearBy.Infrastructure.Data.DemoSeed.NainitalDemoSeeder.SeedAsync(db,
-                    scope.ServiceProvider.GetRequiredService<RentNearBy.Core.Interfaces.IIdentityCipher>(),
-                    scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
+        // DISABLED for now (owner order 2026-11-24): the fake stay and taxi demo data is not seeded. Uncomment to seed it again.
+        // if (RentNearBy.Core.Models.DemoSeedGate.ShouldRun(app.Environment.EnvironmentName, app.Configuration[RentNearBy.Core.Models.DemoSeedGate.ConfigKey]))
+        //     await RentNearBy.Infrastructure.Data.DemoSeed.NainitalDemoSeeder.SeedAsync(db,
+        //             scope.ServiceProvider.GetRequiredService<RentNearBy.Core.Interfaces.IIdentityCipher>(),
+        //             scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
     }
     catch (Exception ex)
     {
