@@ -150,7 +150,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(r => r.Name).IsRequired();
             e.Property(r => r.Description).IsRequired();
             e.HasData(
-                new Role { Id = UserRoles.SeekerId, Key = UserRoles.Seeker, Name = "Seeker", Description = "Plan trips, find stays and taxis", SortOrder = 1, IsActive = true },
+                new Role { Id = UserRoles.SeekerId, Key = UserRoles.Seeker, Name = "Traveller", Description = "Plan trips, find stays and taxis", SortOrder = 1, IsActive = true },
                 new Role { Id = UserRoles.StayOwnerId, Key = UserRoles.StayOwner, Name = "Stay Owner", Description = "List your stay", SortOrder = 4, IsActive = true },
                 new Role { Id = UserRoles.TaxiDriverId, Key = UserRoles.TaxiDriver, Name = "Taxi Driver", Description = "List your taxi", SortOrder = 5, IsActive = true });
         });

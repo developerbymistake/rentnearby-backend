@@ -92,7 +92,7 @@ public class Be2RouteMapTests
     public void Festival_reads_need_a_sign_in_and_admin_routes_are_admin_only()
     {
         Assert.Contains("MapGet(\"\", FestivalHandlers.List).RequireAuthorization()", Festivals);
-        var admin = Regex.Matches(Festivals, @"Map(Get|Post|Put|Delete)\(""/festivals[^\n]*").Select(m => m.Value).ToList();
+        var admin = Regex.Matches(Festivals, @"Map(Get|Post|Put|Delete)\(""/festivals[^\r\n]*").Select(m => m.Value).ToList();
         Assert.Equal(5, admin.Count);
         Assert.All(admin, line => Assert.EndsWith(".RequireAuthorization(\"AdminOnly\");", line));
     }

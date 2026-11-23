@@ -76,7 +76,7 @@ public class AccountDeletionRulesTests
     }
 
     [Theory]
-    [InlineData(UserRoles.Seeker, "Seeker")]
+    [InlineData(UserRoles.Seeker, "Traveller")]
     [InlineData(UserRoles.StayOwner, "Stay Owner")]
     [InlineData(UserRoles.TaxiDriver, "Taxi Driver")]
     public void Role_names_match_the_seeded_roles(string key, string name)

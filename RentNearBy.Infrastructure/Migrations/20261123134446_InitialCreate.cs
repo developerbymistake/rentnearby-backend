@@ -2645,7 +2645,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: new[] { "Id", "Description", "IsActive", "Key", "Name", "SortOrder" },
                 values: new object[,]
                 {
-                    { new Guid("10000000-0000-0000-0000-000000000001"), "Plan trips, find stays and taxis", true, "SEEKER", "Seeker", 1 },
+                    { new Guid("10000000-0000-0000-0000-000000000001"), "Plan trips, find stays and taxis", true, "SEEKER", "Traveller", 1 },
                     { new Guid("10000000-0000-0000-0000-000000000004"), "List your stay", true, "STAY_OWNER", "Stay Owner", 4 },
                     { new Guid("10000000-0000-0000-0000-000000000005"), "List your taxi", true, "TAXI_DRIVER", "Taxi Driver", 5 }
                 });

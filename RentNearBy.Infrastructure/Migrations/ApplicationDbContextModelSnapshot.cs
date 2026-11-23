@@ -3082,7 +3082,7 @@ namespace RentNearBy.Infrastructure.Migrations
                             Description = "Plan trips, find stays and taxis",
                             IsActive = true,
                             Key = "SEEKER",
-                            Name = "Seeker",
+                            Name = "Traveller",
                             SortOrder = 1
                         },
                         new

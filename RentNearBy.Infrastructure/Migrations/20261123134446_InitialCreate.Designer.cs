@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261122192445_InitialCreate")]
+    [Migration("20261123134446_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -3085,7 +3085,7 @@ namespace RentNearBy.Infrastructure.Migrations
                             Description = "Plan trips, find stays and taxis",
                             IsActive = true,
                             Key = "SEEKER",
-                            Name = "Seeker",
+                            Name = "Traveller",
                             SortOrder = 1
                         },
                         new

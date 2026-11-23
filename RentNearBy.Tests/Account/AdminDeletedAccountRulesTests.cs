@@ -93,7 +93,7 @@ public class AdminDeletedAccountRulesTests
     }
 
     [Theory]
-    [InlineData(UserRoles.Seeker, "Seeker")]
+    [InlineData(UserRoles.Seeker, "Traveller")]
     [InlineData(UserRoles.StayOwner, "Stay Owner")]
     [InlineData(UserRoles.TaxiDriver, "Taxi Driver")]
     public void ToDto_maps_role_key_and_name(string key, string name)
