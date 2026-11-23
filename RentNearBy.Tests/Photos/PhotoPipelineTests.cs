@@ -129,4 +129,57 @@ public class PhotoPipelineTests
         using var image = await Image.LoadAsync(output);
         Assert.InRange(image.Metadata.GetJpegMetadata().Quality, 1, 45);
     }
+    [Theory]
+    [InlineData("broken")]
+    [InlineData("vp8x")]
+    public async Task Damaged_webp_is_an_invalid_photo_not_a_server_error(string kind)
+    {
+        var bytes = kind == "broken" ? TestImages.BrokenWebp() : TestImages.EmptyVp8xWebp();
+        await Assert.ThrowsAsync<InvalidPhotoException>(() => PhotoService.ProcessImageAsync(new MemoryStream(bytes)));
+    }
+
+    [Fact]
+    public async Task Never_more_than_two_decodes_at_once()
+    {
+        Assert.Equal(2, PhotoService.DecodePermits);
+        var big = TestImages.Noisy(2400);
+        var lowest = PhotoService.DecodePermits;
+        var runs = Enumerable.Range(0, 6).Select(_ => Task.Run(async () =>
+        {
+            using var output = await PhotoService.ProcessImageAsync(new MemoryStream(big));
+            return output.Length;
+        })).ToArray();
+        var all = Task.WhenAll(runs);
+        while (!all.IsCompleted)
+        {
+            lowest = Math.Min(lowest, PhotoService.FreeDecodeSlots);
+            Assert.InRange(PhotoService.FreeDecodeSlots, 0, PhotoService.DecodePermits);
+            await Task.Delay(1);
+        }
+        await all;
+        Assert.Equal(0, lowest);
+        Assert.All(runs, r => Assert.True(r.Result <= 300 * 1024));
+    }
+
+    [Fact]
+    public async Task A_refused_file_gives_its_decode_slot_back()
+    {
+        for (var i = 0; i < PhotoService.DecodePermits + 3; i++)
+            await Assert.ThrowsAsync<InvalidPhotoException>(() => PhotoService.ProcessImageAsync(new MemoryStream(TestImages.EmptyVp8xWebp())));
+
+        using var output = await PhotoService.ProcessImageAsync(new MemoryStream(TestImages.SmallJpeg()));
+        Assert.True(output.Length > 0);
+    }
+
+    [Fact]
+    public void The_gate_wraps_the_decode_and_not_the_upload()
+    {
+        var src = File.ReadAllText(Path.Combine(RentNearBy.Tests.Trips.CompletionCounterGuardTests.Root(),
+            "RentNearBy.Infrastructure", "Services", "PhotoService.cs"));
+        var body = src[src.IndexOf("ProcessImageAsync(Stream", StringComparison.Ordinal)..];
+        var gate = body.IndexOf("await Decode.WaitAsync();", StringComparison.Ordinal);
+        Assert.True(gate >= 0 && gate < body.IndexOf("Image.IdentifyAsync", StringComparison.Ordinal));
+        Assert.Contains("using var gate = new DecodeRelease();", body);
+        Assert.DoesNotContain("_cloudinary", body);
+    }
 }

@@ -79,6 +79,20 @@ public static class TestImages
 
     public static byte[] Empty() => [];
 
+    // RIFF/WEBP with an unknown chunk: passes every magic-byte check, the decoder throws ImageFormatException.
+    public static byte[] BrokenWebp() => Riff([.. "ABCD"u8.ToArray(), 4, 0, 0, 0, 1, 2, 3, 4]);
+
+    // RIFF/WEBP with a VP8X chunk of zero bytes: Identify answers, Load throws NullReferenceException.
+    public static byte[] EmptyVp8xWebp() => Riff([.. "VP8X"u8.ToArray(), 0, 0, 0, 0]);
+
+    private static byte[] Riff(byte[] chunks)
+    {
+        var body = (byte[])[.. "WEBP"u8.ToArray(), .. chunks];
+        var size = new byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(size, (uint)body.Length);
+        return [.. "RIFF"u8.ToArray(), .. size, .. body];
+    }
+
     public static byte[] Bmp()
     {
         using var image = new Image<Rgba32>(20, 20, Red);

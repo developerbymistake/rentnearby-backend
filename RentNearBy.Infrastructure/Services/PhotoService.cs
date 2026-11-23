@@ -141,12 +141,24 @@ public class PhotoService : IPhotoService
 
     private static readonly DecoderOptions Decoder = new() { Configuration = DecodeConfiguration, MaxFrames = 1 };
 
+    // At most two full decodes at once (about 160 MB per 40 MP image); the Cloudinary upload stays outside the gate.
+    internal const int DecodePermits = 2;
+    private static readonly SemaphoreSlim Decode = new(DecodePermits, DecodePermits);
+    internal static int FreeDecodeSlots => Decode.CurrentCount;
+
+    private readonly struct DecodeRelease : IDisposable
+    {
+        public void Dispose() => Decode.Release();
+    }
+
     // --- Image processing pipeline (stay, taxi, banner, profile) ---
     // Identify + 40 MP cap, first frame only, auto-orient, resize (long edge, or centre square), flatten onto white,
     // strip EXIF / IPTC / XMP, JPEG q=82 then 70..40 until <= 300 KB.
-    // A broken body or a huge declared size is refused before the full decode (InvalidPhotoException, answered 400).
+    // A broken body, any decoder failure or a huge declared size is refused (InvalidPhotoException, answered 400).
     internal static async Task<MemoryStream> ProcessImageAsync(Stream input, int maxDimension = MaxDimension, bool square = false)
     {
+        await Decode.WaitAsync();
+        using var gate = new DecodeRelease();
         var start = input.CanSeek ? input.Position : 0;
         Image image;
         try
@@ -157,8 +169,9 @@ public class PhotoService : IPhotoService
             input.Position = start;
             image = await Image.LoadAsync(Decoder, input);
         }
-        catch (ImageFormatException ex)
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not InvalidPhotoException)
         {
+            // A decoder failure on uploaded bytes (incl. NullReferenceException of an empty VP8X WebP) is an invalid photo.
             throw new InvalidPhotoException(ex);
         }
         using var _ = image;

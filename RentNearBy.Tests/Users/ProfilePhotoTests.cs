@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -56,6 +57,32 @@ public class ProfilePhotoTests
         Assert.Equal(400, Status(await Upload(file, Caller(Guid.NewGuid()), photos)));
         Assert.Empty(photos.ProfileSaves);
         Assert.Empty(photos.Saved);
+    }
+
+    // AU7-1: the real pipeline behind PUT /users/me/photo; a decoder crash must reach the user as 400, before Cloudinary or SQL.
+    [Theory]
+    [InlineData("broken")]
+    [InlineData("vp8x")]
+    public async Task Damaged_webp_is_400_with_no_save_and_no_sql(string kind)
+    {
+        var bytes = kind == "broken" ? TestImages.BrokenWebp() : TestImages.EmptyVp8xWebp();
+        var photos = new PhotoService(new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Cloudinary:CloudName"] = "unit", ["Cloudinary:ApiKey"] = "unit", ["Cloudinary:ApiSecret"] = "unit",
+            }).Build());
+        var http = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
+        var middleware = new RentNearBy.Api.Middleware.ErrorHandlingMiddleware(async ctx =>
+        {
+            var result = await UserPhotoHandlers.UploadPhoto(Form(bytes), Caller(Guid.NewGuid()), null!, null!, photos, null!, null!, null!);
+            await result.ExecuteAsync(ctx);
+        }, Microsoft.Extensions.Logging.Abstractions.NullLogger<RentNearBy.Api.Middleware.ErrorHandlingMiddleware>.Instance);
+
+        await middleware.InvokeAsync(http);
+
+        Assert.Equal(400, http.Response.StatusCode);
+        http.Response.Body.Position = 0;
+        Assert.Contains(InvalidPhotoException.UserMessage, new StreamReader(http.Response.Body).ReadToEnd());
     }
 
     [Fact]

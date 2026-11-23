@@ -57,6 +57,15 @@ public class PhotoUploadCheckTests
     }
 
     [Fact]
+    public void Png_needs_the_full_8_byte_signature()
+    {
+        byte[] fake = [0x89, 0x50, 0x4E, 0x47, 0x00, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0, 0];
+        Assert.Equal((400, PhotoUpload.NotImage), Refusal(PhotoUpload.Check(File(fake))));
+        Assert.Null(PhotoUpload.Check(File(TestImages.Png())));
+        Assert.Null(PhotoUpload.Check(File(TestImages.TransparentPng())));
+    }
+
+    [Fact]
     public void Passed_in_texts_are_returned_verbatim()
     {
         Assert.Equal((400, "Not a photo"), Refusal(PhotoUpload.Check(null, "Not a photo", "Too big")));
