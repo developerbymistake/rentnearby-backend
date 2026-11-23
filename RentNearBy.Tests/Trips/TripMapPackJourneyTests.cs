@@ -17,9 +17,9 @@ public class TripMapPackJourneyTests
 {
     private static readonly Guid UserId = Guid.Parse("7a1b2c3d-0000-4000-8000-000000000002");
     private static readonly Guid State = Guid.Parse("0b6e1f2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b");
-    private const string V1 = "a7dc2cc534fc7243";
-    private const string VCover = "9fe966ff62737494";
-    private const string VRemoved = "ad70ac8117d71816";
+    private const string V1 = "dae37ac8212fb1a5";
+    private const string VCover = "ebe0abd518687028";
+    private const string VRemoved = "3459e47ffe5e9aff";
 
     private static string FixtureDir()
     {
@@ -187,6 +187,8 @@ public class TripMapPackJourneyTests
         Assert.Equal(GoldenBytes("pack"), TripMapPackService.Gunzip(gz));
         Assert.Equal(200, plainStatus);
         Assert.Equal(GoldenBytes("pack"), plain);
+        using (var doc = System.Text.Json.JsonDocument.Parse(plain))
+            Assert.Equal("vm", doc.RootElement.GetProperty("fields").EnumerateArray().Last().GetString());
         Assert.Equal(1, rig.Atlas.PackCalls);
     }
 
