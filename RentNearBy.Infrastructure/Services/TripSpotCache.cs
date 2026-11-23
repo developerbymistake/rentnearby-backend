@@ -30,10 +30,12 @@ public class TripSpotCache(
     private static readonly TimeSpan LockWaitDelay = TimeSpan.FromMilliseconds(300);
     internal const int MemoryMaxEntries = 500;
     internal static readonly TimeSpan MemoryTtl = TimeSpan.FromSeconds(300);
+    internal static readonly TimeSpan FailGap = TripMapPackService.ForceGap;
 
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly ConcurrentDictionary<long, Lazy<Task<CachedCitySpots?>>> _inflight = new();
     private readonly ConcurrentDictionary<long, (CachedCitySpots Entry, DateTime At)> _memory = new();
+    private readonly ConcurrentDictionary<long, (DateTime At, CachedCitySpots? Answer)> _failedAt = new();
     private long _memoryGen;
 
     public async Task<CachedCitySpots?> GetAsync(long cityKey, CancellationToken ct = default)
@@ -48,6 +50,10 @@ public class TripSpotCache(
             if (hit != null) return Remember(cityKey, hit, gen);
             if (failed && FromMemory(cityKey, true) is { } kept) return kept;
         }
+
+        // Atlas failed less than FailGap ago: answer what that load answered (stale copy) without a new flight.
+        if (_failedAt.TryGetValue(cityKey, out var failure) && _clock.GetUtcNow().UtcDateTime - failure.At < FailGap)
+            return failure.Answer;
 
         var lazy = _inflight.GetOrAdd(cityKey, key => new Lazy<Task<CachedCitySpots?>>(() => LoadOnceAsync(redis, key)));
         return await lazy.Value.WaitAsync(ct);
@@ -94,6 +100,7 @@ public class TripSpotCache(
     {
         Interlocked.Increment(ref _memoryGen);
         _memory.TryRemove(cityKey, out _);
+        _failedAt.TryRemove(cityKey, out _);
         var redis = sp.GetService<IConnectionMultiplexer>();
         if (redis == null) return;
         try
@@ -113,6 +120,8 @@ public class TripSpotCache(
         try
         {
             var (entry, fresh) = await LoadAsync(redis, cityKey);
+            if (fresh) _failedAt.TryRemove(cityKey, out _);
+            else if (gen == Volatile.Read(ref _memoryGen)) _failedAt[cityKey] = (_clock.GetUtcNow().UtcDateTime, entry);
             return entry != null && fresh ? Remember(cityKey, entry, gen) : entry;
         }
         finally
@@ -121,7 +130,7 @@ public class TripSpotCache(
         }
     }
 
-    // Fresh = from Atlas or the fresh Redis key (memorised); stale and legacy copies are not.
+    // Fresh = from Atlas or the fresh Redis key (memorised); stale and legacy copies are not (not fresh = Atlas failed).
     private async Task<(CachedCitySpots? Entry, bool Fresh)> LoadAsync(IConnectionMultiplexer? redis, long cityKey)
     {
         var o = options.Value;

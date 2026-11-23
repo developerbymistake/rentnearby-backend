@@ -22,6 +22,8 @@ public class TripMapPackService(
     private static readonly TimeSpan LockWaitDelay = TimeSpan.FromMilliseconds(300);
     // Gap between two forced index refreshes, and the retry delay after a failed refresh.
     internal static readonly TimeSpan ForceGap = TimeSpan.FromSeconds(10);
+    // After an Invalidate a known list waits this long for Atlas, then answers the known list (the refresh goes on).
+    internal static readonly TimeSpan InvalidatedWait = TimeSpan.FromSeconds(2);
 
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly object _gate = new();
@@ -48,15 +50,28 @@ public class TripMapPackService(
             lock (_gate) { index = _index; at = _indexAt; invalidated = _invalidated; }
             if (_clock.GetUtcNow() - at < Revalidate) return index?.Packs ?? (IReadOnlyList<TripMapPackInfo>)[];
 
-            // Stale while revalidate: a list that is only old answers at once; a process that knows nothing, or was told
-            // the data changed (Invalidate), waits for the refresh.
+            // Stale while revalidate: a list that is only old answers at once; a process told the data changed
+            // (Invalidate) waits up to InvalidatedWait; a process that knows nothing waits for the refresh.
             if (index != null && !invalidated)
             {
                 _ = RefreshIndexAsync(CancellationToken.None);
                 return index.Packs;
             }
 
-            await RefreshIndexAsync(ct);
+            if (index != null)
+            {
+                try
+                {
+                    await RefreshIndexAsync(ct).WaitAsync(InvalidatedWait, ct);
+                }
+                catch (TimeoutException)
+                {
+                }
+            }
+            else
+            {
+                await RefreshIndexAsync(ct);
+            }
             lock (_gate) return _index?.Packs ?? (IReadOnlyList<TripMapPackInfo>)[];
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)

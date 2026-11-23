@@ -152,6 +152,59 @@ public class TripSpotCacheMemoryTests
     }
 
     [Fact]
+    public async Task AtlasDown_50CallsInsideTheGap_OneAtlasCall_AllStale_ThenRetriesAfterTheGap()
+    {
+        var clock = new ManualClock(Start);
+        var (_, mux) = BinaryRedis.Create();
+        var atlas = new SpotsAtlas();
+        var cache = Cache(atlas, mux, clock);
+        await cache.GetAsync(Key);
+        await cache.InvalidateAsync(Key);
+        atlas.Down = true;
+
+        var answers = new List<CachedCitySpots?>();
+        for (var i = 0; i < 50; i++)
+        {
+            clock.Now += TimeSpan.FromMilliseconds(150);
+            answers.Add(await cache.GetAsync(Key));
+        }
+
+        Assert.Equal(2, atlas.Calls);
+        Assert.All(answers, a => Assert.Equal(TripSpotStatuses.Stale, a!.Status));
+        Assert.All(answers, a => Assert.Equal(45, a!.Spots.Count));
+
+        clock.Now += TripSpotCache.FailGap;
+        await cache.GetAsync(Key);
+        Assert.Equal(3, atlas.Calls);
+
+        atlas.Down = false;
+        clock.Now += TripSpotCache.FailGap;
+        Assert.Equal(TripSpotStatuses.Ready, (await cache.GetAsync(Key))!.Status);
+        Assert.Equal(4, atlas.Calls);
+        Assert.Equal(TripSpotStatuses.Ready, (await cache.GetAsync(Key))!.Status);
+        Assert.Equal(4, atlas.Calls);
+    }
+
+    [Fact]
+    public async Task AtlasDown_InvalidateClearsTheGap_NextCallTriesAtlas()
+    {
+        var clock = new ManualClock(Start);
+        var (_, mux) = BinaryRedis.Create();
+        var atlas = new SpotsAtlas();
+        var cache = Cache(atlas, mux, clock);
+        await cache.GetAsync(Key);
+        await cache.InvalidateAsync(Key);
+        atlas.Down = true;
+        await cache.GetAsync(Key);
+        Assert.Equal(2, atlas.Calls);
+
+        atlas.Down = false;
+        await cache.InvalidateAsync(Key);
+        Assert.Equal(TripSpotStatuses.Ready, (await cache.GetAsync(Key))!.Status);
+        Assert.Equal(3, atlas.Calls);
+    }
+
+    [Fact]
     public async Task Invalidate_NoRedis_DropsMemory_NextReadReloads()
     {
         var atlas = new SpotsAtlas();

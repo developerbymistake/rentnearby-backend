@@ -377,6 +377,46 @@ public class TripMapPackServiceTests
         Assert.Equal(V1, list.Single().Version);
     }
 
+    // AU11-03: after an admin edit the version poll waits at most InvalidatedWait for a slow Atlas.
+    [Fact]
+    public async Task Invalidate_SlowAtlas_KnownListAnswersWithinTheWait_NextCallGetsTheNewList()
+    {
+        var atlas = new PackAtlas();
+        var service = Service(atlas);
+        await service.ListAsync();
+
+        var slow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        atlas.ListGate = slow.Task;
+        atlas.Versions[StateA] = V2;
+        service.Invalidate();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var list = await service.ListAsync();
+        watch.Stop();
+
+        Assert.Equal(V1, list.Single().Version);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2.5), watch.Elapsed.ToString());
+        Assert.True(watch.Elapsed >= TripMapPackService.InvalidatedWait - TimeSpan.FromMilliseconds(100), watch.Elapsed.ToString());
+
+        slow.SetResult();
+        Assert.Equal(V2, (await service.ListAsync()).Single().Version);
+        Assert.Equal(2, atlas.ListCalls);
+    }
+
+    [Fact]
+    public async Task NoIndex_SlowAtlas_WaitsForTheAnswer()
+    {
+        var slow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var atlas = new PackAtlas { ListGate = slow.Task };
+        var service = Service(atlas);
+
+        var call = service.ListAsync();
+        await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(2.6)));
+        Assert.False(call.IsCompleted);
+
+        slow.SetResult();
+        Assert.Equal(V1, (await call).Single().Version);
+    }
+
     // CF-journey D-3: an Invalidate during a running list refresh must not be swallowed by that refresh.
     [Fact]
     public async Task Invalidate_DuringRefresh_NextCallReloads()
