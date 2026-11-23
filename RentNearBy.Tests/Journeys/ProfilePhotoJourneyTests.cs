@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Handlers;
 using RentNearBy.Api.Handlers.Photos;
-using RentNearBy.Api.Mappings;
 using RentNearBy.Api.Validators;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -98,7 +97,7 @@ public class ProfilePhotoJourneyTests
 
     private static IMemoryCache Cache()
     {
-        DtoMappings.ConfigureMappings();
+        MappingsOnce.Ensure();
         var cache = new MemoryCache(new MemoryCacheOptions());
         cache.Set(AppTabCache.Key, new List<AppTabDto>());
         return cache;
@@ -109,8 +108,11 @@ public class ProfilePhotoJourneyTests
             new PhoneLoginVerifyOtpRequestValidator(), w.Uow, new Jwt(), new AllowAll(), new OtpOk(),
             new DefaultHttpContext(), Cache(), w.Service());
 
-    private static Task<IResult> Complete(UsernameWorld w)
-        => AuthHandlers.PhoneCompleteOnboarding(new PhoneOnboardingRequest { PhoneNumber = Phone, Name = "Asha" },
+    private static string HeldUsername(IResult verified)
+        => ((ApiResponse<PhoneLoginResponse>)((IValueHttpResult)verified).Value!).Data!.Username!;
+
+    private static Task<IResult> Complete(UsernameWorld w, string? username = null)
+        => AuthHandlers.PhoneCompleteOnboarding(new PhoneOnboardingRequest { PhoneNumber = Phone, Name = "Asha", Username = username },
             new PhoneOnboardingRequestValidator(), w.Uow, new Jwt(), Cache(), w.Service(),
             new AllowAll(), new DefaultHttpContext(), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
 
@@ -132,10 +134,10 @@ public class ProfilePhotoJourneyTests
     public async Task Onboarding_after_verify_creates_one_user_and_the_proof_is_used_up()
     {
         var w = new UsernameWorld();
-        await Verify(w);
+        var held = HeldUsername(await Verify(w));
 
-        var first = await Complete(w);
-        var replay = await Complete(w);
+        var first = await Complete(w, held);
+        var replay = await Complete(w, held);
 
         Assert.Equal(200, ((IStatusCodeHttpResult)first).StatusCode);
         Assert.Single(w.Repo.Added);
@@ -148,10 +150,11 @@ public class ProfilePhotoJourneyTests
     public async Task A_new_user_has_no_picture_yet_so_the_app_gate_asks_for_one()
     {
         var w = new UsernameWorld();
-        await Verify(w);
+        var held = HeldUsername(await Verify(w));
 
-        var result = await Complete(w);
+        var result = await Complete(w, held);
 
+        Assert.Equal("token", ((ApiResponse<PhoneLoginResponse>)((IValueHttpResult)result).Value!).Data!.Token);
         var user = ((ApiResponse<PhoneLoginResponse>)((IValueHttpResult)result).Value!).Data!.User!;
         Assert.Null(user.ProfilePhotoUrl);
         Assert.False(user.ProfilePhotoRemoved);

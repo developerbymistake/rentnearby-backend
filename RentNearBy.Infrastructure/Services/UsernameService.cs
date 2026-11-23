@@ -44,13 +44,15 @@ public sealed class UsernameService(IUnitOfWork unitOfWork, IPendingUsernameStor
     public async Task<bool> HasSignupReservationAsync(string phoneNumber)
         => await pending.GetAsync(phoneNumber) != null;
 
-    public async Task<bool> HasSignupReservationAsync(string phoneNumber, string? username, bool allowWithoutUsername)
+    public async Task<SignupProof> ClassifySignupAsync(string phoneNumber, string? username)
     {
         var held = await pending.GetAsync(phoneNumber);
-        if (held == null) return false;
-        if (string.IsNullOrEmpty(username)) return allowWithoutUsername;
+        if (held == null) return SignupProof.None;
+        if (string.IsNullOrEmpty(username)) return SignupProof.Unbound;
         return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
-            System.Text.Encoding.UTF8.GetBytes(held), System.Text.Encoding.UTF8.GetBytes(username));
+            System.Text.Encoding.UTF8.GetBytes(held), System.Text.Encoding.UTF8.GetBytes(username))
+            ? SignupProof.Bound
+            : SignupProof.None;
     }
 
     public async Task SaveNewUserAsync(User newUser)

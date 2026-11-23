@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Handlers;
-using RentNearBy.Api.Mappings;
 using RentNearBy.Api.Validators;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -34,7 +33,7 @@ public class AuthUsernameTests
 
     private static IMemoryCache Cache()
     {
-        DtoMappings.ConfigureMappings();
+        MappingsOnce.Ensure();
         var cache = new MemoryCache(new MemoryCacheOptions());
         cache.Set(AppTabCache.Key, new List<AppTabDto>());
         return cache;
@@ -70,7 +69,7 @@ public class AuthUsernameTests
         w.UowState.OnSave = _ => atSave ??= w.Repo.Added.SingleOrDefault();
 
         var body = Body(await AuthHandlers.PhoneCompleteOnboarding(
-            new PhoneOnboardingRequest { PhoneNumber = Phone, Name = "Asha" },
+            new PhoneOnboardingRequest { PhoneNumber = Phone, Name = "Asha", Username = shown },
             new PhoneOnboardingRequestValidator(), w.Uow, new Jwt(), Cache(), w.Service("Bakhli#11111111"),
             new AllowAll(), new DefaultHttpContext(), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()));
 

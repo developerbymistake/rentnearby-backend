@@ -113,22 +113,26 @@ public static class AuthHandlers
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
 
-        // Limits before the proof read, so the route cannot be polled for a number that is being verified.
-        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        foreach (var (key, max) in new[] { ($"onboard:{request.PhoneNumber}", OnboardPhoneMax), ($"onboard:ip:{ip}", OnboardIpMax) })
-        {
-            var limit = await rateLimiter.CheckAsync(key, max, OnboardWindow);
-            if (!limit.IsAllowed)
-            {
-                httpContext.Response.Headers["Retry-After"] = ((int)Math.Ceiling(limit.RetryAfter!.Value.TotalSeconds)).ToString();
-                return TooManyRequestsResponse();
-            }
-        }
+        // Proof before the registered check, so the route cannot probe which numbers exist.
+        var proof = await usernames.ClassifySignupAsync(request.PhoneNumber, request.Username);
 
-        // Proof of verify-otp first (before the registered check, so the route cannot probe which numbers exist).
-        var allowWithoutUsername = configuration.GetValue("Auth:AllowOnboardingWithoutProof", true);
-        if (!await usernames.HasSignupReservationAsync(request.PhoneNumber, request.Username, allowWithoutUsername))
-            return BadRequestResponse("Please verify your phone number again.", "OtpRequired");
+        // Limits apply to calls without the bound proof.
+        if (proof != SignupProof.Bound)
+        {
+            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            foreach (var (key, max) in new[] { ($"onboard:{request.PhoneNumber}", OnboardPhoneMax), ($"onboard:ip:{ip}", OnboardIpMax) })
+            {
+                var limit = await rateLimiter.CheckAsync(key, max, OnboardWindow);
+                if (!limit.IsAllowed)
+                {
+                    httpContext.Response.Headers["Retry-After"] = ((int)Math.Ceiling(limit.RetryAfter!.Value.TotalSeconds)).ToString();
+                    return TooManyRequestsResponse();
+                }
+            }
+
+            if (proof == SignupProof.None || !configuration.GetValue("Auth:AllowOnboardingWithoutProof", false))
+                return BadRequestResponse("Please verify your phone number again.", "OtpRequired");
+        }
 
         // Guard: phone already registered
         if (await unitOfWork.Users.IsPhoneVerifiedByAnyUserAsync(request.PhoneNumber))

@@ -56,7 +56,7 @@ public class ProfilePhotoGuardTests
     public void Complete_onboarding_checks_the_reservation_before_the_registered_lookup()
     {
         var body = Method(Src("RentNearBy.Api", "Handlers", "AuthHandlers.cs"), "public static async Task<IResult> PhoneCompleteOnboarding(");
-        var proof = body.IndexOf("HasSignupReservationAsync", StringComparison.Ordinal);
+        var proof = body.IndexOf("ClassifySignupAsync", StringComparison.Ordinal);
         Assert.True(proof > body.IndexOf("validator.ValidateAsync", StringComparison.Ordinal));
         Assert.True(proof < body.IndexOf("IsPhoneVerifiedByAnyUserAsync", StringComparison.Ordinal));
         Assert.Contains("BadRequestResponse(\"Please verify your phone number again.\", \"OtpRequired\")", body);

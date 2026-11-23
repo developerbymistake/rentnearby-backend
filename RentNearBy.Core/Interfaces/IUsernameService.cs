@@ -13,12 +13,14 @@ public interface IUsernameService
     // True while verify-otp's signup reservation for the phone exists (proof the phone was verified, single use, 24 h).
     Task<bool> HasSignupReservationAsync(string phoneNumber);
 
-    // Same proof bound to the caller: a sent username must equal the held one; none is accepted only when allowed.
-    Task<bool> HasSignupReservationAsync(string phoneNumber, string? username, bool allowWithoutUsername);
+    // Same proof bound to the caller: Bound = held and the sent username equals it, Unbound = held and none sent, else None.
+    Task<SignupProof> ClassifySignupAsync(string phoneNumber, string? username);
 
     // Adds the new user with the username held for its phone (or a fresh one) in the same save.
     Task SaveNewUserAsync(User newUser);
 }
+
+public enum SignupProof { None, Unbound, Bound }
 
 public interface IPendingUsernameStore
 {
