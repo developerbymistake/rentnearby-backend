@@ -38,16 +38,9 @@ public class TaxiWaysSearch(
         var snapshot = await network.GetAsync(ct);
         if (snapshot == null) return null;
 
-        var from = TaxiWaysSearchEngine.Resolve(snapshot, q.FromLat, q.FromLng, q.FromMyLocation, o, null, await PinAsync(q.FromLat, q.FromLng));
-        var to = TaxiWaysSearchEngine.Resolve(snapshot, q.ToLat, q.ToLng, false, o, TaxiWaysLabels.Drop, await PinAsync(q.ToLat, q.ToLng));
-        var people = Math.Clamp(q.People, 1, o.MaxPeople);
         var redis = sp.GetService<IConnectionMultiplexer>();
         var memoryTtl = TimeSpan.FromSeconds(o.MemoryCacheSeconds);
-
-        var (core, source) = await TaxiWaysPlanCache.GetAsync(
-            memory, redis, TaxiWaysKeys.Plan(snapshot.CityGrid.Count == 0 ? snapshot.Version + "~nc" + CacheRules : CacheVersion(snapshot), from.Ref, to.Ref, people),
-            TimeSpan.FromMinutes(o.PlanCacheMinutes), memoryTtl,
-            () => ComputeCoreAsync(snapshot, from, to, people, o), logger, ct);
+        var (from, to, core, source) = await CoreAsync(snapshot, q, o, redis, ct);
 
         var citiesUnavailable = snapshot.CityGrid.Count == 0;
         var (dest, _) = await TaxiWaysPlanCache.GetAsync(
@@ -82,10 +75,54 @@ public class TaxiWaysSearch(
         return result;
     }
 
+    // Answers from the ways feed's own plan list (same key, so a check warms the feed and the feed warms the check), then
+    // keeps the bool per from/to cell for AvailableCacheSeconds under the network version: a rebuild is a new key.
+    public async Task<TaxiWaysAvailabilityDto?> AvailableAsync(TaxiWaysQuery q, CancellationToken ct = default)
+    {
+        var o = options.Value;
+        var snapshot = await network.GetAsync(ct);
+        if (snapshot == null) return null;
+
+        var redis = sp.GetService<IConnectionMultiplexer>();
+        var people = Math.Clamp(q.People, 1, o.MaxPeople);
+        var ttl = TimeSpan.FromSeconds(Math.Max(1, o.AvailableCacheSeconds));
+        var memoryTtl = TimeSpan.FromSeconds(Math.Max(1, Math.Min(o.MemoryCacheSeconds, o.AvailableCacheSeconds)));
+        var key = TaxiWaysKeys.Available(PlanVersion(snapshot), q.FromLat, q.FromLng, q.ToLat, q.ToLng, people, q.FromMyLocation);
+
+        var (answer, source) = await TaxiWaysPlanCache.GetAsync(
+            memory, redis, key, ttl, memoryTtl,
+            async () =>
+            {
+                // Shared single flight: one caller's cancel must not fail the others waiting on the same key.
+                var (_, _, core, _) = await CoreAsync(snapshot, q with { People = people }, o, redis, CancellationToken.None);
+                return core == null ? null : new TaxiWaysAvailabilityDto { Available = TaxiWaysAvailability.HasWay(core) };
+            },
+            logger, ct);
+
+        logger.LogDebug("taxi.ways.available {Available} {Cache}", answer?.Available, source);
+        return answer;
+    }
+
+    private async Task<(TaxiWaysAnchor From, TaxiWaysAnchor To, TaxiWaysResultDto? Core, string Source)> CoreAsync(
+        TaxiWaysNetworkSnapshot snapshot, TaxiWaysQuery q, TaxiWaysOptions o, IConnectionMultiplexer? redis, CancellationToken ct)
+    {
+        var from = TaxiWaysSearchEngine.Resolve(snapshot, q.FromLat, q.FromLng, q.FromMyLocation, o, null, await PinAsync(q.FromLat, q.FromLng));
+        var to = TaxiWaysSearchEngine.Resolve(snapshot, q.ToLat, q.ToLng, false, o, TaxiWaysLabels.Drop, await PinAsync(q.ToLat, q.ToLng));
+        var people = Math.Clamp(q.People, 1, o.MaxPeople);
+
+        var (core, source) = await TaxiWaysPlanCache.GetAsync(
+            memory, redis, TaxiWaysKeys.Plan(PlanVersion(snapshot), from.Ref, to.Ref, people),
+            TimeSpan.FromMinutes(o.PlanCacheMinutes), TimeSpan.FromSeconds(o.MemoryCacheSeconds),
+            () => ComputeCoreAsync(snapshot, from, to, people, o), logger, ct);
+        return (from, to, core, source);
+    }
+
     // CacheRules: bumped whenever the shown ways change shape or rule, so cached plans of an older engine are never served.
     private const string CacheRules = "~w3";
 
     private static string CacheVersion(TaxiWaysNetworkSnapshot s) => (s.ParentResolved ? s.Version + "~p" : s.Version) + CacheRules;
+
+    private static string PlanVersion(TaxiWaysNetworkSnapshot s) => s.CityGrid.Count == 0 ? s.Version + "~nc" + CacheRules : CacheVersion(s);
 
     private async Task<CityPin?> PinAsync(double lat, double lng)
     {

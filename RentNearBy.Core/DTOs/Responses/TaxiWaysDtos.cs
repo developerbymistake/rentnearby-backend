@@ -21,6 +21,12 @@ public class TaxiWaysResultDto
     public bool CitiesUnavailable { get; set; }
 }
 
+// GET /taxis/ways/available: whether GET /taxis/ways would show at least one way for the same input.
+public class TaxiWaysAvailabilityDto
+{
+    public bool Available { get; set; }
+}
+
 public class WayPlaceDto
 {
     public string Key { get; set; } = string.Empty;

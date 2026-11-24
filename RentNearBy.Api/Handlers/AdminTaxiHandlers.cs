@@ -149,8 +149,8 @@ public static class AdminTaxiHandlers
         try
         {
             var now = DateTime.UtcNow;
-            // D-33: the first approval keeps the taxi offline; a re-approval keeps the driver's switch. A suspended
-            // driver's taxi stays off (reactivation does not turn it on, D-13).
+            // The first approval turns the taxi on (D-33 superseded 2026-11-24); a re-approval keeps the driver's switch.
+            // A suspended driver's taxi stays off (reactivation does not turn it on, D-13).
             taxi.IsAvailable = ListingSwitchRules.TaxiAvailableAfterApproval(taxi.EverApproved, ownerActive, taxi.IsAvailable);
             taxi.Status = TaxiStatuses.Approved;
             taxi.EverApproved = true;

@@ -17,9 +17,10 @@ public static class TaxiWaysHandlers
     private static IResult Unavailable() =>
         ErrorResponse(503, "Ways to go are not available right now", TaxiWaysErrorTypes.TaxiWaysUnavailable);
 
-    private static async Task<IResult?> RateLimitedAsync(Guid userId, IRateLimitService rateLimiter, HttpContext httpContext, int maxPerMinute)
+    private static async Task<IResult?> RateLimitedAsync(
+        Guid userId, IRateLimitService rateLimiter, HttpContext httpContext, int maxPerMinute, string scope = "search")
     {
-        var rl = await rateLimiter.CheckAsync($"taxi:ways:search:{userId}", maxPerMinute, SearchWindow);
+        var rl = await rateLimiter.CheckAsync($"taxi:ways:{scope}:{userId}", maxPerMinute, SearchWindow);
         if (rl.IsAllowed) return null;
         httpContext.Response.Headers["Retry-After"] = ((int)(rl.RetryAfter ?? SearchWindow).TotalSeconds).ToString(CultureInfo.InvariantCulture);
         return TooManyRequestsResponse();
@@ -64,6 +65,29 @@ public static class TaxiWaysHandlers
 
         var result = await search.SearchAsync(
             new TaxiWaysQuery(fromLat.Value, fromLng.Value, toLat.Value, toLng.Value, count, fromMyLocation, from, to), ct);
+        return result == null ? Unavailable() : OkResponse(result);
+    }
+
+    // Light check for the taxi list's entry card: same input and validation as GetWays, own per-user bucket so list loads
+    // never eat the ways feed's budget. Names are accepted for parity and do not change the answer.
+    public static async Task<IResult> GetWaysAvailable(
+        double? fromLat, double? fromLng, double? toLat, double? toLng, string? date, int? people,
+        string? fromName, string? toName,
+        ITaxiWaysSearch search, IRateLimitService rateLimiter, ClaimsPrincipal principal, HttpContext httpContext,
+        Microsoft.Extensions.Options.IOptions<TaxiWaysOptions> options, CancellationToken ct, bool fromMyLocation = false)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+        var limited = await RateLimitedAsync(userId, rateLimiter, httpContext, options.Value.SearchPerMinute, "available");
+        if (limited != null) return limited;
+
+        if (fromLat is not (>= -90 and <= 90) || toLat is not (>= -90 and <= 90)
+            || fromLng is not (>= -180 and <= 180) || toLng is not (>= -180 and <= 180))
+            return BadRequestResponse("Invalid coordinates");
+        if (!DateValid(date, options.Value)) return BadRequestResponse("Pick a date within the next year", TaxiWaysErrorTypes.InvalidDate);
+        if (!PeopleValid(people, options.Value, out var count)) return BadRequestResponse("Invalid number of people");
+
+        var result = await search.AvailableAsync(
+            new TaxiWaysQuery(fromLat.Value, fromLng.Value, toLat.Value, toLng.Value, count, fromMyLocation, CleanName(fromName), CleanName(toName)), ct);
         return result == null ? Unavailable() : OkResponse(result);
     }
 

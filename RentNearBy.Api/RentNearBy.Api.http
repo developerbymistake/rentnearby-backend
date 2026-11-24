@@ -197,6 +197,13 @@ Accept: application/json
 
 ###
 
+# Ways to go, light check for the taxi list entry card: same query as GET /taxis/ways, answers {"available": true|false}
+GET {{baseUrl}}/api/v1/taxis/ways/available?fromLat=29.2183&fromLng=79.5130&toLat=29.3919&toLng=79.4542&date=2026-12-01&people=2
+Authorization: Bearer {{userToken}}
+Accept: application/json
+
+###
+
 # ============================================================================
 # Taxi request system. One example per route of
 # F:/Dhasu/TaxiRequest_resume/CONTRACT_TAXI_REQUEST.md (sections 3, 5, 6, 7, 11).

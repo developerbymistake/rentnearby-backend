@@ -7,6 +7,8 @@ public interface ITaxiWaysSearch
 {
     // null = the network is not available (handler answers 503).
     Task<TaxiWaysResultDto?> SearchAsync(TaxiWaysQuery q, CancellationToken ct = default);
+    // Same plan cache as SearchAsync, no destination block and no DB; null = the network is not available.
+    Task<TaxiWaysAvailabilityDto?> AvailableAsync(TaxiWaysQuery q, CancellationToken ct = default);
     // null = the key does not match the current network; throws TaxiWaysUnavailableException when there is no network.
     Task<WayPlanDetailDto?> PlanAsync(string planKey, int people, CancellationToken ct = default);
     Task<WayDriverPageDto?> LegDriversAsync(string legKey, LegDriverQuery q, CancellationToken ct = default);

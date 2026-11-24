@@ -3,7 +3,7 @@ using RentNearBy.Tests.Trips;
 
 namespace RentNearBy.Tests.Owner.Journeys;
 
-// FB-07 (D-33, JT-B-TX-1 step "Free, first day") and FB-21 / FB-24 (D-13, JT-B-LC-4).
+// FB-07 (D-33 superseded by Bug 2 of 2026-11-24: first approval turns the taxi on) and FB-21 / FB-24 (D-13, JT-B-LC-4).
 public class ListingSwitchJourneyTests
 {
     private static string Src(params string[] parts) => File.ReadAllText(Path.Combine([CompletionCounterGuardTests.Root(), .. parts]));
@@ -13,12 +13,13 @@ public class ListingSwitchJourneyTests
         => Assert.False(ListingSwitchRules.TaxiAvailableOnCreate);
 
     [Theory]
-    [InlineData(false, true, true, false)]   // first approval: stays offline whatever the stored value
-    [InlineData(false, true, false, false)]
+    [InlineData(false, true, true, true)]    // first approval: on whatever the stored value
+    [InlineData(false, true, false, true)]
     [InlineData(true, true, true, true)]     // re-approval of a live edit keeps the driver's switch
     [InlineData(true, true, false, false)]
     [InlineData(true, false, true, false)]   // suspended owner: off
-    public void Approval_never_turns_a_taxi_on(bool everApproved, bool ownerActive, bool current, bool expected)
+    [InlineData(false, false, false, false)] // suspended owner, first approval: off
+    public void First_approval_turns_a_taxi_on_and_re_approval_keeps_the_switch(bool everApproved, bool ownerActive, bool current, bool expected)
         => Assert.Equal(expected, ListingSwitchRules.TaxiAvailableAfterApproval(everApproved, ownerActive, current));
 
     [Theory]

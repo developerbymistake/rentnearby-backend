@@ -9,6 +9,7 @@ public static class TaxiWaysEndpoints
     public static RouteGroupBuilder MapTaxiWaysEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/ways", TaxiWaysHandlers.GetWays).RequireAuthorization();
+        group.MapGet("/ways/available", TaxiWaysHandlers.GetWaysAvailable).RequireAuthorization();
         group.MapGet("/ways/plans/{planKey}", TaxiWaysHandlers.GetPlan).RequireAuthorization();
         group.MapGet("/ways/legs/{legKey}/drivers", TaxiWaysHandlers.GetLegDrivers).RequireAuthorization();
         group.MapPost("/ways/ask", TaxiWaysAskHandlers.AskDrivers).RequireAuthorization()

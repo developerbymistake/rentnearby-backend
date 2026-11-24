@@ -31,6 +31,7 @@ public sealed class TaxiWaysOptions
     public int PlanCacheMinutes { get; set; } = 10;
     public int DestCacheMinutes { get; set; } = 5;
     public int MemoryCacheSeconds { get; set; } = 60;
+    public int AvailableCacheSeconds { get; set; } = 120;
     public int RebuildSafetyMinutes { get; set; } = 10;
 
     public int SearchPerMinute { get; set; } = 60;
@@ -64,6 +65,14 @@ public static class TaxiWaysBestKinds
 {
     public const string Driver = "driver";
     public const string Plan = "plan";
+}
+
+// A way = a driver all the way or a plan of cars reaching the destination (the app's hasWays). Local taxis of the
+// destination city and the nearest reaching place are not ways.
+public static class TaxiWaysAvailability
+{
+    public static bool HasWay(RentNearBy.Core.DTOs.Responses.TaxiWaysResultDto? core) =>
+        core != null && (core.AllTheWay.Count > 0 || core.Plans.Count > 0);
 }
 
 public sealed class TaxiWaysUnavailableException() : Exception("Ways to go are not available right now");
@@ -392,6 +401,10 @@ public static class TaxiWaysKeys
 
     public static string Plan(string ver, string from, string to, int people) => $"taxi:ways:{ver}:{from}:{to}:{people}";
     public static string Dest(string ver, string to) => $"taxi:ways:dest:{ver}:{to}";
+
+    // One answer per ~110 m cell of each end (the VirtualKey grid), so taps near the same pin share it.
+    public static string Available(string ver, double fromLat, double fromLng, double toLat, double toLng, int people, bool myLocation) =>
+        $"taxi:ways:avail:{ver}:{(myLocation ? "m" : "v")}:{F3(fromLat)}:{F3(fromLng)}:{F3(toLat)}:{F3(toLng)}:{people}";
 
     private static string F2(double v) => v.ToString("F2", CultureInfo.InvariantCulture);
     private static string F3(double v) => v.ToString("F3", CultureInfo.InvariantCulture);

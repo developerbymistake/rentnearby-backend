@@ -27,6 +27,7 @@ public class TaxiWaysLegDriversHandlerTests
         public bool Throw;
 
         public Task<TaxiWaysResultDto?> SearchAsync(TaxiWaysQuery q, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<TaxiWaysAvailabilityDto?> AvailableAsync(TaxiWaysQuery q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<WayPlanDetailDto?> PlanAsync(string planKey, int people, CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<WayDriverPageDto?> LegDriversAsync(string legKey, LegDriverQuery q, CancellationToken ct = default)
