@@ -229,7 +229,7 @@ public class PlanPurchaseService(
         var rows = await Owner.Be3.OwnerHiddenCounts.ReadAsync(db, userId, feature, today);
         dto.Hidden = rows.Hidden;
         dto.Usage = rows.Usage;
-        dto.PausedByPlanCount = rows.Hidden.Total;
+        dto.PausedByPlanCount = rows.Hidden.Total + rows.InactiveJobs;
         dto.PaymentStartsOn = Owner.Be3.OwnerHiddenCounts.PaymentStartsOn(flag.Enabled, rows.AnnounceDate, today);
         dto.PlansStartedToday = Owner.Be3.OwnerHiddenCounts.PlansStartedToday(flag.Enabled, rows.PaymentEnabledAt, today);
 

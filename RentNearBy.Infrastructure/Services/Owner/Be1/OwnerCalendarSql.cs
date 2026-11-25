@@ -12,14 +12,16 @@ public static class OwnerCalendarSql
     public const string Manual = CalendarEntryKinds.Manual;
     public const string Auto = CalendarEntryKinds.Auto;
 
-    // Every column of CalendarEntryRow over alias c; @available decides the SourceAvailable expression.
-    public static string Columns(string alias = "c", bool sourceAvailable = false) => $"""
+    // Every column of CalendarEntryRow over alias c; @available decides the SourceAvailable expression, inactive the
+    // InactiveByPlan one (needs @today and @limit).
+    public static string Columns(string alias = "c", bool sourceAvailable = false, bool inactive = false) => $"""
         {alias}."Id", {alias}."OwnerUserId", {alias}."ListingKind", {alias}."ListingId", {alias}."Kind", {alias}."SourceType", {alias}."SourceId",
         {alias}."TravellerUserId", {alias}."DateFrom", {alias}."DateTo", {alias}."TimeOfDay", {alias}."FromPlace", {alias}."ToPlace", {alias}."Label",
         {alias}."Detail", {alias}."Note", {alias}."ListedTotal", {alias}."AgreedTotal", {alias}."Guests", {alias}."Seats", {alias}."RoomNames",
         {alias}."PlacesJson"::text AS "PlacesJson", {alias}."FinalAmount", {alias}."AdvanceReceived", {alias}."PaidInFull", {alias}."Cancelled",
-        {alias}."CancelledBy", {alias}."CancelledOn", {alias}."Version",
-        {(sourceAvailable ? SourceAvailable(alias) : "NULL::boolean")} AS "SourceAvailable"
+        {alias}."CancelledBy", {alias}."CancelledOn", {alias}."Version", {alias}."CreatedAt",
+        {(sourceAvailable ? SourceAvailable(alias) : "NULL::boolean")} AS "SourceAvailable",
+        {(inactive ? $"NOT {Visible(alias)}" : "false")} AS "InactiveByPlan"
         """;
 
     private static string SourceAvailable(string a) => $"""
@@ -30,11 +32,11 @@ public static class OwnerCalendarSql
           ELSE NULL END
         """;
 
-    // The `limit` active manual rows with the earliest (DateTo, Id) (doc 6.1.10).
+    // The `limit` active manual rows added last, (CreatedAt DESC, Id) (doc 6.1.10, plan rule: the last added stay).
     public const string VisibleManualSet = """
         SELECT m."Id", m."DateFrom" FROM "CalendarEntries" m
         WHERE m."ListingKind" = @k AND m."ListingId" = @l AND m."Kind" = 'Manual' AND m."DateTo" >= @today
-        ORDER BY m."DateTo", m."Id" LIMIT @limit
+        ORDER BY m."CreatedAt" DESC, m."Id" LIMIT @limit
         """;
 
     // One predicate for C1, C2, C3: Auto always, past rows always, the visible manual set.
@@ -59,17 +61,19 @@ public static class OwnerCalendarSql
         ];
     }
 
-    // C1: entries touching [@from, @to] (visible), plus the visible manual rows past @windowEnd (the manual window end,
-    // FB-05: a Free row inside today + 15 is never "hidden") for hiddenCount.
+    // C1: entries touching [@from, @to], the manual rows above the plan limit too (InactiveByPlan, shown greyed with Delete only),
+    // plus the visible manual rows past @windowEnd (the manual window end, FB-05: a Free row inside today + 15 is never "hidden")
+    // for hiddenCount.
     public static readonly string Month = $"""
         SELECT COALESCE((SELECT json_agg(x ORDER BY x."DateFrom", x."Id") FROM (
-                   SELECT {Columns()} FROM "CalendarEntries" c
-                   WHERE c."ListingKind" = @k AND c."ListingId" = @l AND c."DateTo" >= @from AND c."DateFrom" <= @to AND {Visible()}) x), '[]')::text AS "Items",
+                   SELECT {Columns(inactive: true)} FROM "CalendarEntries" c
+                   WHERE c."ListingKind" = @k AND c."ListingId" = @l AND c."DateTo" >= @from AND c."DateFrom" <= @to) x), '[]')::text AS "Items",
                (SELECT count(*) FROM ({VisibleManualSet}) w WHERE w."DateFrom" > @windowEnd) AS "VisibleBeyond",
                NULL::bigint AS "AutoBeyond", NULL::date AS "AutoBeyondFirst"
         """;
 
-    // C2: one keyset page of upcoming entries; the counts are computed on the first page only. The first page has no row
+    // C2: one keyset page of upcoming entries, plus every manual row above the plan limit (InactiveByPlan, Delete only) at any
+    // date so it can be cleared; the counts are computed on the first page only. The first page has no row
     // comparison, a later page a plain one, so the cursor is an index condition (no "@cd IS NULL OR" form).
     public static readonly string Upcoming = UpcomingSql(afterCursor: false);
 
@@ -77,8 +81,9 @@ public static class OwnerCalendarSql
 
     private static string UpcomingSql(bool afterCursor) => $"""
         SELECT COALESCE((SELECT json_agg(x ORDER BY x."DateFrom", x."Id") FROM (
-                   SELECT {Columns()} FROM "CalendarEntries" c
-                   WHERE c."ListingKind" = @k AND c."ListingId" = @l AND c."DateTo" >= @today AND c."DateFrom" <= @upcomingTo AND {Visible()}
+                   SELECT {Columns(inactive: true)} FROM "CalendarEntries" c
+                   WHERE c."ListingKind" = @k AND c."ListingId" = @l AND c."DateTo" >= @today
+                     AND ((c."DateFrom" <= @upcomingTo AND {Visible()}) OR (c."Kind" = 'Manual' AND NOT {Visible()}))
                      {(afterCursor ? "AND (c.\"DateFrom\", c.\"Id\") > (@cd, @cid)" : "")}
                    ORDER BY c."DateFrom", c."Id" LIMIT @take) x), '[]')::text AS "Items",
                CASE WHEN @first THEN (SELECT count(*) FROM ({VisibleManualSet}) w WHERE w."DateFrom" > @manualTo) END AS "VisibleBeyond",

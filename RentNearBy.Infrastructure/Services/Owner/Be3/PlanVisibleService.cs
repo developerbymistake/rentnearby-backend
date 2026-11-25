@@ -59,13 +59,16 @@ public sealed class PlanVisibleService(
             await using var tx = await db.Database.BeginTransactionAsync(c);
             var listing = await LockAsync("\"StayListings\"", userId, c);
             if (listing == null) return PlanVisibleOutcome.Fail(OwnerErrorTypes.ListingNotFound);
+            // L15: a grant or expiry that landed before the lock wins; re-read the limits under it.
+            var locked = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
+            if (!locked.PaymentEnabled) return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);
 
             var photos = PlanRows.AsRows(await PlanRows.PhotosAsync(db, listing.Id, c));
             var rooms = PlanRows.AsRows(await PlanRows.RoomsAsync(db, listing.Id, c));
-            if (!PlanRowChoice.ChoiceNeeded(photos, limits.Photos) && !PlanRowChoice.ChoiceNeeded(rooms, limits.RoomTypes))
+            if (!PlanRowChoice.ChoiceNeeded(photos, locked.Photos) && !PlanRowChoice.ChoiceNeeded(rooms, locked.RoomTypes))
                 return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);
-            if (!PlanRowChoice.ValidOwnerChoice(photos.Select(p => p.Id).ToHashSet(), photoIds, limits.Photos)
-                || !PlanRowChoice.ValidOwnerChoice(rooms.Select(r => r.Id).ToHashSet(), roomIds, limits.RoomTypes))
+            if (!PlanRowChoice.ValidOwnerChoice(photos.Select(p => p.Id).ToHashSet(), photoIds, locked.Photos)
+                || !PlanRowChoice.ValidOwnerChoice(rooms.Select(r => r.Id).ToHashSet(), roomIds, locked.RoomTypes))
                 return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleInvalid);
 
             var photoTargets = PlanRowChoice.OwnerPhotos(photos, photoIds);
@@ -115,17 +118,30 @@ public sealed class PlanVisibleService(
                 _closed = await closure.RoutesChangedAsync(db, taxiId.Value, keep, c, OfferEndReasons.RoutePausedByPlan);
 
             var listing = await LockAsync("\"TaxiListings\"", userId, c);
-            if (listing == null || listing.Id != taxiId) return PlanVisibleOutcome.Fail(OwnerErrorTypes.ListingNotFound);
+            if (listing == null || listing.Id != taxiId) { _closed = null; return PlanVisibleOutcome.Fail(OwnerErrorTypes.ListingNotFound); }
             var routes = PlanRows.AsRows(await PlanRows.RoutesAsync(db, listing.Id, c));
-            if (!PlanRowChoice.ValidOwnerChoice(routes.Select(r => r.Id).ToHashSet(), routeIds, limits.Routes))
+            // L15: re-read the limits under the lock; a refusal rolls back the closure writes, so drop their hints.
+            var locked = await entitlements.GetLimitsAsync(userId, ListingKinds.Taxi);
+            if (!locked.PaymentEnabled || !PlanRowChoice.ChoiceNeeded(routes, locked.Routes))
+            {
+                _closed = null;
+                return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);
+            }
+            if (!PlanRowChoice.ValidOwnerChoice(routes.Select(r => r.Id).ToHashSet(), routeIds, locked.Routes))
+            {
+                _closed = null;
                 return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleInvalid);
+            }
 
             var targets = PlanRowChoice.OwnerIndexed(routes, chosen);
             var changes = PlanRowChoice.Changed(routes, targets);
             var used = OwnerContext.CountToday(listing.PlanVisibleSavesDay, listing.PlanVisibleSavesCount, today);
-            if (changes.Count == 0) return new PlanVisibleOutcome(null, null, listing.Id, listing.DistrictId, false, used);
+            if (changes.Count == 0) { _closed = null; return new PlanVisibleOutcome(null, null, listing.Id, listing.DistrictId, false, used); }
             if (used >= OwnerLimits.PlanVisibleSavesPerDay)
+            {
+                _closed = null;
                 return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleLimit, new DailyLimitRefusalDto(OwnerLimits.PlanVisibleSavesPerDay, used));
+            }
 
             await PlanRows.WriteRoutesAsync(db, listing.Id, targets, c);
             await CountAsync("\"TaxiListings\"", listing.Id, today, used + 1, minPrice: true, c);

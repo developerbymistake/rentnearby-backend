@@ -21,6 +21,7 @@ public static class TaxiEndpoints
         group.MapPost("/me/display-photo", TaxiHandlers.UploadDisplayPhoto).RequireAuthorization("CanListTaxis").DisableAntiforgery().OwnerPhotoLimited().PhotoBodyLimited();
         group.MapPut("/me/routes", TaxiHandlers.UpsertRoutes).RequireAuthorization("CanListTaxis").OwnerWriteLimited();
         group.MapPut("/me/routes/{routeId:guid}/fare", TaxiHandlers.UpdateFare).RequireAuthorization("CanListTaxis").OwnerWriteLimited();
+        group.MapDelete("/me/routes/{routeId:guid}", TaxiHandlers.DeleteHiddenRoute).RequireAuthorization("CanListTaxis").OwnerWriteLimited();
         group.MapPut("/me/local-rate", TaxiHandlers.UpdateLocalRate).RequireAuthorization("CanListTaxis").OwnerWriteLimited();
         group.MapPost("/me/submit", TaxiHandlers.Submit).RequireAuthorization("CanListTaxis").OwnerWriteLimited();
         group.MapPut("/me/availability", TaxiHandlers.UpdateAvailability).RequireAuthorization("CanListTaxis").OwnerWriteLimited();

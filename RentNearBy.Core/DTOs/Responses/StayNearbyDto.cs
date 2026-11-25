@@ -59,6 +59,9 @@ public class StayNearbyDto
     public int? OfferPricePerNight { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? OfferPercent { get; set; }
+    // Only true or absent (StayReplyRules); the raw counters never leave the server.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RepliesFast { get; set; }
 
     public void SetOffer((int Old, int Offer, int Percent)? offer)
     {

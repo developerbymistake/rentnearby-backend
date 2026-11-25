@@ -914,7 +914,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.PrimaryKey("PK_StayJobs", x => x.Id);
                     table.CheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" BETWEEN 0 AND 20");
                     table.CheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
-                    table.CheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Closed')");
+                    table.CheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Inactive', 'Closed')");
                     table.ForeignKey(
                         name: "FK_StayJobs_JobDepartments_JobDepartmentId",
                         column: x => x.JobDepartmentId,

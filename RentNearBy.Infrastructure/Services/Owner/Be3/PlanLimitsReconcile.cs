@@ -20,7 +20,7 @@ public sealed record PlanRowsEffect(Guid? ListingId, Guid? DistrictId, int Hidde
 
 public sealed record LimitsReconcileResult(int Listings, int Notified, IReadOnlyList<Guid> DistrictIds);
 
-// Contract 3.3 / 3.4: what the plan does to rooms, photos, routes and special prices. Hidden, never deleted; nothing is hidden
+// Contract 3.3 / 3.4: what the plan does to rooms, photos, routes, special prices and jobs. Hidden, never deleted; nothing is hidden
 // while payment is OFF (Q1). Single owner (grant, expiry) = ApplyForOwnerAsync under the caller's Users lock; the daily pass and
 // the payment switch = ReconcileAsync, set-based per batch of 500 listings.
 public sealed class PlanLimitsReconcile(
@@ -61,6 +61,7 @@ public sealed class PlanLimitsReconcile(
         public int Rooms { get; set; }
         public int Routes { get; set; }
         public int Rules { get; set; }
+        public int Jobs { get; set; }
     }
 
     // ---- single owner (caller holds the transaction and the Users row lock, contract 4.1 level 2) ----
@@ -91,12 +92,13 @@ public sealed class PlanLimitsReconcile(
 
         await PlanRows.WritePhotosAsync(db, listing.Id, photoChanges, ct);
         if (roomChanges.Count > 0) await PlanRows.WriteRoomsAsync(db, listing.Id, roomTargets, ct);
-        var rules = await PlanRows.ApplySpecialPricesAsync(db, listing.Id, limits.SpecialPrices, hide, today, ct);
+        var rules = await PlanRows.ApplySpecialPricesEffectAsync(db, listing.Id, limits.SpecialPrices, hide, today, ct);
+        var jobs = await PlanRows.ApplyJobsAsync(db, userId, limits.JobsPosts, hide, ct);
         if (roomChanges.Count > 0) await PlanRows.RecomputeMinPriceAsync(db, listing.Id, ct);
 
-        var before = photos.Count(r => r.Hidden) + rooms.Count(r => r.Hidden);
-        var after = PlanRowChoice.HiddenCount(photoTargets) + PlanRowChoice.HiddenCount(roomTargets);
-        return new PlanRowsEffect(listing.Id, listing.DistrictId, before, after, photoChanges.Count + roomChanges.Count + rules > 0);
+        var before = photos.Count(r => r.Hidden) + rooms.Count(r => r.Hidden) + jobs.InactiveBefore + rules.PausedBefore;
+        var after = PlanRowChoice.HiddenCount(photoTargets) + PlanRowChoice.HiddenCount(roomTargets) + jobs.InactiveAfter + rules.PausedAfter;
+        return new PlanRowsEffect(listing.Id, listing.DistrictId, before, after, photoChanges.Count + roomChanges.Count + rules.Changed + jobs.Changed > 0);
     }
 
     // Lock order 4.1: the offers closure (request rows, then the driver ring lock) runs before the listing row lock.
@@ -150,6 +152,14 @@ public sealed class PlanLimitsReconcile(
     // Contract 5.3: the PlanLimitsChanged notice goes when nothing is hidden any more (a grant brought every row back).
     public Task ClearLimitsNoticeAsync(Guid userId, CancellationToken ct = default)
         => notifier.ClearAsync(NoticeKinds.PlanLimitsChanged, NoticeKinds.NoTrip, [userId], ct);
+
+    // Expiry, refund, hold and revoke paths already push PlanExpired / Ended in the same transaction: store the notice only (one push).
+    public async Task<bool> StoreLostNoticeAsync(Guid userId, string kind, PlanRowsEffect effect, CancellationToken ct = default)
+    {
+        if (effect.ListingId is not { } listingId || effect.HiddenAfter <= effect.HiddenBefore) return false;
+        await notifier.StoreAsync([new NoticeUpsert(userId, NoticeKinds.PlanLimitsChanged, NoticeKinds.NoTrip, null, listingId)], ct);
+        return true;
+    }
 
     public void DropAfterCommit()
     {
@@ -228,7 +238,7 @@ public sealed class PlanLimitsReconcile(
             if (effect.HiddenAfter > effect.HiddenBefore)
             {
                 var counts = await OwnerHiddenCounts.ReadAsync(db, row.UserId, kind, IstTime.TodayIst(DateTime.UtcNow), c);
-                await NotifyAsync(kind, [(row.UserId, row.Id, counts.Hidden.Photos, counts.Hidden.RoomTypes, counts.Hidden.Routes, counts.Hidden.SpecialPrices)], c);
+                await NotifyAsync(kind, [(row.UserId, row.Id, counts.Hidden.Photos, counts.Hidden.RoomTypes, counts.Hidden.Routes, counts.Hidden.SpecialPrices, counts.InactiveJobs)], c);
                 sent = true;
             }
             else if (effect.HiddenAfter == 0)
@@ -269,10 +279,18 @@ public sealed class PlanLimitsReconcile(
         WHERE o."DriverListingId" = ANY(@ids) AND o."Status" IN ('{OfferStates.Ringing}', '{OfferStates.Accepted}')
         """;
 
+    // L15: owners first (KEY SHARE, id order), the level grant / expiry / owner writes take before the listing row, so the
+    // notice insert (FK on Users) can never close a cycle with them. Order: Users, ring, listing.
+    internal const string UsersKeyShareSql = """
+        SELECT 1 FROM (SELECT "Id" FROM "Users" WHERE "Id" = ANY(@users) ORDER BY "Id" FOR KEY SHARE) x
+        """;
+
     private async Task<(int Changed, int Notified, List<BatchRow> Raced)> ApplyBatchAsync(
         string kind, string cte, bool hide, DateOnly today, IReadOnlyList<BatchRow> rows, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlRawAsync(UsersKeyShareSql,
+            [new NpgsqlParameter("users", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = rows.Select(r => r.UserId).Distinct().ToArray() }], ct);
         var raced = new List<BatchRow>();
         if (kind == ListingKinds.Taxi)
         {
@@ -306,6 +324,7 @@ public sealed class PlanLimitsReconcile(
                 await db.Database.ExecuteSqlRawAsync(StayRoomsBatchSql(cte), [Ids(roomIds), Bool("hide", hide), Date("today", today)], ct);
             }
             await db.Database.ExecuteSqlRawAsync(StayRulesBatchSql(cte), Clone(p), ct);
+            await db.Database.ExecuteSqlRawAsync(StayJobsBatchSql(cte), Clone(p), ct);
             await db.Database.ExecuteSqlRawAsync("""
                 UPDATE "StayListings" s SET "MinPricePerNight" =
                     (SELECT min(r."PricePerNight") FROM "StayRooms" r WHERE r."StayListingId" = s."Id" AND NOT r."HiddenByPlan")
@@ -326,9 +345,9 @@ public sealed class PlanLimitsReconcile(
 
         var hidden = await db.Database.SqlQueryRaw<HiddenRow>(HiddenAfterSql(kind), Ids(ids), Date("today", today)).ToListAsync(ct);
         var before = rows.ToDictionary(r => r.Id, r => r.HiddenBefore);
-        var rose = hidden.Where(h => h.Photos + h.Rooms + h.Routes + h.Rules > before.GetValueOrDefault(h.Id)).ToList();
-        var cleared = hidden.Where(h => h.Photos + h.Rooms + h.Routes + h.Rules == 0).Select(h => h.UserId).Distinct().ToList();
-        await NotifyAsync(kind, rose.Select(h => (h.UserId, h.Id, h.Photos, h.Rooms, h.Routes, h.Rules)).ToList(), ct);
+        var rose = hidden.Where(h => h.Photos + h.Rooms + h.Routes + h.Rules + h.Jobs > before.GetValueOrDefault(h.Id)).ToList();
+        var cleared = hidden.Where(h => h.Photos + h.Rooms + h.Routes + h.Rules + h.Jobs == 0).Select(h => h.UserId).Distinct().ToList();
+        await NotifyAsync(kind, rose.Select(h => (h.UserId, h.Id, h.Photos, h.Rooms, h.Routes, h.Rules, h.Jobs)).ToList(), ct);
         if (cleared.Count > 0) await notifier.ClearAsync(NoticeKinds.PlanLimitsChanged, NoticeKinds.NoTrip, cleared, ct);
 
         await tx.CommitAsync(ct);
@@ -341,7 +360,7 @@ public sealed class PlanLimitsReconcile(
     // PlanLimitsChanged (contract 5.3): one stored row per owner (upserted) and one push per owner per IST day.
     // FB-39: the words depend on why (switch day or Plus ended); FB-40: special-price-only losses get their own words and route.
     private async Task NotifyAsync(
-        string kind, IReadOnlyList<(Guid UserId, Guid ListingId, int Photos, int Rooms, int Routes, int Rules)> owners, CancellationToken ct)
+        string kind, IReadOnlyList<(Guid UserId, Guid ListingId, int Photos, int Rooms, int Routes, int Rules, int Jobs)> owners, CancellationToken ct)
     {
         if (owners.Count == 0) return;
         var today = IstTime.TodayIst(DateTime.UtcNow);
@@ -349,7 +368,7 @@ public sealed class PlanLimitsReconcile(
         var startedToday = OwnerHiddenCounts.PlansStartedToday(flag.Enabled, flag.PaymentEnabledAt, today);
         await notifier.StoreAsync(owners.Select(o => new NoticeUpsert(o.UserId, NoticeKinds.PlanLimitsChanged, NoticeKinds.NoTrip, null, o.ListingId)).ToList(), ct);
         var pushes = owners.Select(o => kind == ListingKinds.Stay
-            ? StayOwnerPushCopy.PlansStarted(o.UserId, o.Photos, o.Rooms, today, o.Rules, startedToday)
+            ? StayOwnerPushCopy.PlansStarted(o.UserId, o.Photos, o.Rooms, today, o.Rules, startedToday, o.Jobs)
             : TaxiDriverPushCopy.PlansStarted(o.UserId, o.Routes, today, startedToday)).ToList();
         await notifier.PushAsync(pushes, ct);
     }
@@ -391,33 +410,59 @@ public sealed class PlanLimitsReconcile(
         FROM ranked r WHERE x."Id" = r."Id" AND x."HiddenByPlan" <> (r.rn > r.n)
         """;
 
+    // PlanRowChoice.ChooseIndexed in SQL: the last added are kept (rn by index DESC); each group (kept, hidden) is numbered in the
+    // order the rows were added, rows from the hidden band first (the indexes are shifted by 1000 before, the order holds).
+    private const string Numbered = """
+        numbered AS (
+            SELECT "Id", rn <= n AS keep,
+                   row_number() OVER (PARTITION BY l, rn <= n ORDER BY h DESC, ix, "Id") AS pos
+            FROM ranked)
+        """;
+
     internal static string StayRoomsBatchSql(string cte) => $"""
         WITH {cte}, {Lim(ListingKinds.Stay, PlanFeatureKeys.RoomTypes)},
         ranked AS (
-            SELECT r."Id", row_number() OVER (PARTITION BY r."StayListingId" ORDER BY r."HiddenByPlan", r."RoomIndex", r."Id") AS rn, lim.n
-            FROM "StayRooms" r JOIN lim ON lim."Id" = r."StayListingId")
-        UPDATE "StayRooms" x SET "HiddenByPlan" = (r.rn > r.n),
-            "RoomIndex" = (CASE WHEN r.rn <= r.n THEN r.rn ELSE {PlanRowBands.HiddenBase} + r.rn - r.n END)::smallint
-        FROM ranked r WHERE x."Id" = r."Id"
+            SELECT r."Id", r."StayListingId" AS l, r."HiddenByPlan" AS h, r."RoomIndex" AS ix,
+                   row_number() OVER (PARTITION BY r."StayListingId" ORDER BY r."HiddenByPlan", r."RoomIndex" DESC, r."Id") AS rn, lim.n
+            FROM "StayRooms" r JOIN lim ON lim."Id" = r."StayListingId"),
+        {Numbered}
+        UPDATE "StayRooms" x SET "HiddenByPlan" = NOT k.keep,
+            "RoomIndex" = (CASE WHEN k.keep THEN k.pos ELSE {PlanRowBands.HiddenBase} + k.pos END)::smallint
+        FROM numbered k WHERE x."Id" = k."Id"
         """;
 
     internal static string StayRulesBatchSql(string cte) => $"""
         WITH {cte}, {Lim(ListingKinds.Stay, PlanFeatureKeys.SpecialPrices)},
         ranked AS (
-            SELECT sp."Id", row_number() OVER (PARTITION BY sp."StayListingId" ORDER BY sp."PausedByPlan", sp."DateTo", sp."Id") AS rn, lim.n
+            SELECT sp."Id", row_number() OVER (PARTITION BY sp."StayListingId" ORDER BY sp."PausedByPlan", sp."CreatedAt" DESC, sp."Id") AS rn, lim.n
             FROM "StaySpecialPrices" sp JOIN lim ON lim."Id" = sp."StayListingId" WHERE sp."DateTo" >= @today)
         UPDATE "StaySpecialPrices" x SET "PausedByPlan" = (r.rn > r.n), "Version" = x."Version" + 1, "UpdatedAt" = now()
         FROM ranked r WHERE x."Id" = r."Id" AND x."PausedByPlan" <> (r.rn > r.n)
         """;
 
+    // PlanRows.JobsSql per batch: the newest n open jobs of each owner are Active, the rest Inactive (n = no limit while OFF).
+    internal static string StayJobsBatchSql(string cte) => $"""
+        WITH {cte}, {Lim(ListingKinds.Stay, PlanFeatureKeys.JobsPosts)},
+        ranked AS (
+            SELECT j."Id", row_number() OVER (PARTITION BY j."UserId" ORDER BY j."CreatedAt" DESC, j."Id") AS rn, lim.n
+            FROM "StayJobs" j JOIN "StayListings" s ON s."UserId" = j."UserId" JOIN lim ON lim."Id" = s."Id"
+            WHERE j."Status" IN ('{StayJobStatuses.Active}', '{StayJobStatuses.Inactive}'))
+        UPDATE "StayJobs" x SET "Status" = CASE WHEN r.rn <= r.n THEN '{StayJobStatuses.Active}' ELSE '{StayJobStatuses.Inactive}' END,
+            "UpdatedAt" = now()
+        FROM ranked r
+        WHERE x."Id" = r."Id" AND x."Status" <> CASE WHEN r.rn <= r.n THEN '{StayJobStatuses.Active}' ELSE '{StayJobStatuses.Inactive}' END
+        """;
+
     internal static string TaxiRoutesBatchSql(string cte) => $"""
         WITH {cte}, {Lim(ListingKinds.Taxi, PlanFeatureKeys.Routes)},
         ranked AS (
-            SELECT r."Id", row_number() OVER (PARTITION BY r."TaxiListingId" ORDER BY r."HiddenByPlan", r."RouteIndex", r."Id") AS rn, lim.n
-            FROM "TaxiRoutes" r JOIN lim ON lim."Id" = r."TaxiListingId")
-        UPDATE "TaxiRoutes" x SET "HiddenByPlan" = (r.rn > r.n),
-            "RouteIndex" = (CASE WHEN r.rn <= r.n THEN r.rn ELSE {PlanRowBands.HiddenBase} + r.rn - r.n END)::smallint
-        FROM ranked r WHERE x."Id" = r."Id"
+            SELECT r."Id", r."TaxiListingId" AS l, r."HiddenByPlan" AS h, r."RouteIndex" AS ix,
+                   row_number() OVER (PARTITION BY r."TaxiListingId" ORDER BY r."HiddenByPlan", r."RouteIndex" DESC, r."Id") AS rn, lim.n
+            FROM "TaxiRoutes" r JOIN lim ON lim."Id" = r."TaxiListingId"),
+        {Numbered}
+        UPDATE "TaxiRoutes" x SET "HiddenByPlan" = NOT k.keep,
+            "RouteIndex" = (CASE WHEN k.keep THEN k.pos ELSE {PlanRowBands.HiddenBase} + k.pos END)::smallint
+        FROM numbered k WHERE x."Id" = k."Id"
         """;
 
     // One page of 500 listings by Id with "differs" = visible counts not min(limit, rows), a hidden row while nothing may be
@@ -428,12 +473,12 @@ public sealed class PlanLimitsReconcile(
         var table = stay ? "\"StayListings\"" : "\"TaxiListings\"";
         var counts = stay
             ? """
-              pc.photos, pc.photos_vis, rc.rooms, rc.rooms_vis, sc.rules, sc.rules_live,
+              pc.photos, pc.photos_vis, rc.rooms, rc.rooms_vis, sc.rules, sc.rules_live, jc.jobs, jc.jobs_act,
               0::bigint AS routes, 0::bigint AS routes_vis, false AS live_offer
               """
             : $"""
               0::bigint AS photos, 0::bigint AS photos_vis, 0::bigint AS rooms, 0::bigint AS rooms_vis, 0::bigint AS rules, 0::bigint AS rules_live,
-              tc.routes, tc.routes_vis,
+              0::bigint AS jobs, 0::bigint AS jobs_act, tc.routes, tc.routes_vis,
               (EXISTS (SELECT 1 FROM "TaxiRequestOffers" o WHERE o."DriverListingId" = l."Id" AND o."Status" = '{OfferStates.Ringing}')
                OR EXISTS (SELECT 1 FROM "TaxiRequestOffers" o WHERE o."DriverListingId" = l."Id" AND o."Status" = '{OfferStates.Accepted}')) AS live_offer
               """;
@@ -446,6 +491,8 @@ public sealed class PlanLimitsReconcile(
                                  FROM "StayRooms" r WHERE r."StayListingId" = l."Id") rc ON true
               LEFT JOIN LATERAL (SELECT count(*) AS rules, count(*) FILTER (WHERE NOT sp."PausedByPlan") AS rules_live
                                  FROM "StaySpecialPrices" sp WHERE sp."StayListingId" = l."Id" AND sp."DateTo" >= @today) sc ON true
+              LEFT JOIN LATERAL (SELECT count(*) AS jobs, count(*) FILTER (WHERE j."Status" = 'Active') AS jobs_act
+                                 FROM "StayJobs" j WHERE j."UserId" = l."UserId" AND j."Status" IN ('Active', 'Inactive')) jc ON true
               """
             : """
               LEFT JOIN LATERAL (SELECT count(*) AS routes, count(*) FILTER (WHERE NOT r."HiddenByPlan") AS routes_vis
@@ -455,6 +502,7 @@ public sealed class PlanLimitsReconcile(
         var rooms = stay ? $"CASE WHEN @hide THEN {PlanKeySql.Column(PlanFeatureKeys.RoomTypes)} ELSE 2147483647 END" : "0";
         var rules = stay ? $"CASE WHEN @hide THEN {PlanKeySql.Column(PlanFeatureKeys.SpecialPrices)} ELSE 2147483647 END" : "0";
         var routes = stay ? "0" : $"CASE WHEN @hide THEN {PlanKeySql.Column(PlanFeatureKeys.Routes)} ELSE 2147483647 END";
+        var jobs = stay ? $"CASE WHEN @hide THEN {PlanKeySql.Column(PlanFeatureKeys.JobsPosts)} ELSE 2147483647 END" : "0";
         return $"""
             WITH {cte},
             page AS (
@@ -469,10 +517,11 @@ public sealed class PlanLimitsReconcile(
                 LIMIT {Batch})
             SELECT "Id", "UserId", "DistrictId",
                    (photos_vis <> LEAST(photos, {Strip(photos)}) OR rooms_vis <> LEAST(rooms, {Strip(rooms)})
-                    OR rules_live <> LEAST(rules, {Strip(rules)}) OR routes_vis <> LEAST(routes, {Strip(routes)})) AS "Differs",
+                    OR rules_live <> LEAST(rules, {Strip(rules)}) OR routes_vis <> LEAST(routes, {Strip(routes)})
+                    OR jobs_act <> LEAST(jobs, {Strip(jobs)})) AS "Differs",
                    (rooms_vis <> LEAST(rooms, {Strip(rooms)})) AS "RoomsDiffer",
                    live_offer AS "HasLiveOffer",
-                   ((photos - photos_vis) + (rooms - rooms_vis) + (rules - rules_live) + (routes - routes_vis))::int AS "HiddenBefore"
+                   ((photos - photos_vis) + (rooms - rooms_vis) + (rules - rules_live) + (routes - routes_vis) + (jobs - jobs_act))::int AS "HiddenBefore"
             FROM page ORDER BY "Id"
             """;
     }
@@ -486,13 +535,14 @@ public sealed class PlanLimitsReconcile(
             (SELECT count(*) FROM "StayPhotos" p WHERE p."StayListingId" = l."Id" AND p."HiddenByPlan")::int AS "Photos",
             (SELECT count(*) FROM "StayRooms" r WHERE r."StayListingId" = l."Id" AND r."HiddenByPlan")::int AS "Rooms",
             0 AS "Routes",
-            (SELECT count(*) FROM "StaySpecialPrices" sp WHERE sp."StayListingId" = l."Id" AND sp."PausedByPlan" AND sp."DateTo" >= @today)::int AS "Rules"
+            (SELECT count(*) FROM "StaySpecialPrices" sp WHERE sp."StayListingId" = l."Id" AND sp."PausedByPlan" AND sp."DateTo" >= @today)::int AS "Rules",
+            (SELECT count(*) FROM "StayJobs" j WHERE j."UserId" = l."UserId" AND j."Status" = 'Inactive')::int AS "Jobs"
           FROM "StayListings" l WHERE l."Id" = ANY(@ids)
           """
         : """
           SELECT l."Id", l."UserId", 0 AS "Photos", 0 AS "Rooms",
             (SELECT count(*) FROM "TaxiRoutes" r WHERE r."TaxiListingId" = l."Id" AND r."HiddenByPlan")::int AS "Routes",
-            0 AS "Rules"
+            0 AS "Rules", 0 AS "Jobs"
           FROM "TaxiListings" l WHERE l."Id" = ANY(@ids)
           """;
 

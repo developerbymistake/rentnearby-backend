@@ -10,8 +10,8 @@ public class UserNotificationRoutesTests
         => Assert.Equal(expected, UserNotificationRoutes.ForListingKind(kind));
 
     [Theory]
-    [InlineData(ListingKinds.Stay, "/my-stays,/stay-enquiries,/stay-calendar,/stay-special-prices,/stay-plan-visible")]
-    [InlineData(ListingKinds.Taxi, "/my-taxi,/trip-leads,/taxi-request-ring,/taxi-requests,/taxi-request-detail,/taxi-bookings,/taxi-rating,/taxi-ready,/taxi-plan-visible")]
+    [InlineData(ListingKinds.Stay, "/my-stays,/stay-enquiries,/stay-calendar,/stay-special-prices,/stay-plan-visible,/stay-upcoming")]
+    [InlineData(ListingKinds.Taxi, "/my-taxi,/trip-leads,/taxi-request-ring,/taxi-requests,/taxi-request-detail,/taxi-bookings,/taxi-rating,/taxi-ready,/taxi-plan-visible,/taxi-upcoming")]
     [InlineData("Anything", "")]
     public void OwnedByKind_Kind_Routes(string kind, string expected)
         => Assert.Equal(expected, string.Join(",", UserNotificationRoutes.OwnedByKind(kind)));

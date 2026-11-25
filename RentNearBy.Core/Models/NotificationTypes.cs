@@ -97,10 +97,12 @@ public static class NotificationTypes
     public const string PlanLimitsChanged = "PlanLimitsChanged";
     public const string OwnerMorningReminder = "OwnerMorningReminder";
     public const string PlansStarting = "PlansStarting";
+    public const string OwnerBookingTomorrow = "OwnerBookingTomorrow";
 
     public static readonly IReadOnlyList<string> OwnerPushKinds =
     [
         StayEditApproved, StayEditRejected, FestivalReminder, PlanLimitsChanged, OwnerMorningReminder, PlansStarting,
+        OwnerBookingTomorrow,
     ];
 
     public static readonly IReadOnlyList<string> BuddyPushKinds =
@@ -198,6 +200,7 @@ public static class NotificationTypes
         [PlanLimitsChanged] = "plan_limits_changed",
         [OwnerMorningReminder] = "owner_morning_reminder",
         [PlansStarting] = "plans_starting",
+        [OwnerBookingTomorrow] = "owner_booking_tomorrow",
     };
 
     public static string ToWireValue(string type) => WireValues.TryGetValue(type, out var wire) ? wire : type;

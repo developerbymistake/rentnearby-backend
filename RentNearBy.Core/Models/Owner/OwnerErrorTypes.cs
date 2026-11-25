@@ -41,6 +41,10 @@ public static class OwnerErrorTypes
     public const string BadRequest = "BadRequest";
     public const string StayLocked = "StayLocked";
     public const string PaymentAlreadyOn = "PaymentAlreadyOn";
+    public const string PlanRowInactive = "PlanRowInactive";
+
+    // A write to a row the plan made inactive (room, route, special price, job, calendar entry): only Delete is open.
+    public const string PlanRowInactiveMessage = "This one is inactive on the Free plan. Get Plus to use it again.";
 
     // D-07 / FB-04: an ended manual entry keeps only its money note and Delete.
     public const string EntryEndedStay = "This booking has passed. You can still edit the amounts.";
@@ -96,6 +100,7 @@ public static class OwnerErrorTypes
         [BadRequest] = (400, "Invalid request."),
         [StayLocked] = (409, "Your stay is under review."),
         [PaymentAlreadyOn] = (400, "Payments are already on."),
+        [PlanRowInactive] = (409, PlanRowInactiveMessage),
     };
 
     public static IReadOnlyCollection<string> All => Table.Keys;

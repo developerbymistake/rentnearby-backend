@@ -13,6 +13,8 @@ public interface ITripEnquiryClosure
     Task OnBlockAsync(Guid userA, Guid userB);
     // Driver cleared his local rate: open Asked/FareSent leads -> NotAvailable; booked rows untouched.
     Task<IReadOnlyList<TripClosurePush>> OnTaxiRateClearedAsync(Guid taxiId);
+    // Stay paused (AcceptingGuests off): open asks -> NotAvailable / StayPaused + push; ConfirmedByBoth untouched.
+    Task<IReadOnlyList<TripClosurePush>> OnStayPausedAsync(Guid stayId) => Task.FromResult<IReadOnlyList<TripClosurePush>>([]);
     // After commit: chat broadcasts of the system lines written by the last call, then the pushes. Never throws.
     Task AfterCommitAsync(IReadOnlyList<TripClosurePush> pushes);
 }

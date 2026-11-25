@@ -49,6 +49,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPaymentFeatureReader, PaymentFeatureReader>();
         services.AddScoped<IPlanEntitlementService, PlanEntitlementService>();
         services.AddScoped<ILiveSlotService, PlanSlotService>();
+        services.AddScoped<PlanExpiryOnRead>();
         services.AddScoped<IPlanPurchaseService, PlanPurchaseService>();
         services.AddScoped<IListingCacheInvalidator, ListingCacheInvalidator>();
 

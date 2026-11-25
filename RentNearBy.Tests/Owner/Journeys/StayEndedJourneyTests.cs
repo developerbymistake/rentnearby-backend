@@ -53,8 +53,9 @@ public class StayEndedJourneyTests
         Assert.True(At("planRows.ApplyForOwnerAsync") < At("CommitTransactionAsync"));
         Assert.True(At("CommitTransactionAsync") < At("PhotoCleanup.TryDeleteAsync(photoService, photo.FilePath"));
         Assert.DoesNotContain("db.StayPhotos.Remove", body);
-        Assert.Contains("NOT p.\"HiddenByPlan\"", StayHandlers.DeletePhotoSql);
+        Assert.Contains("AND (p.\"HiddenByPlan\"", StayHandlers.DeletePhotoSql);
         Assert.Contains("o.\"Id\" <> @p AND NOT o.\"HiddenByPlan\"", StayHandlers.DeletePhotoSql);
+        Assert.Contains("db.StayPhotos.IgnoreQueryFilters()", body);
     }
 
     // FB-19 + FB-38: room save re-reads the limits under the locks and refills after a visible room was removed.
@@ -181,9 +182,9 @@ public class StayEndedJourneyIntegrationTests(TestDatabase db) : IntegrationTest
         Assert.Equal(1, await check.StayPhotos.CountAsync(p => p.StayListingId == owner.ListingId));
     }
 
-    // FB-54: a hidden photo is never deleted by the owner route (it is chosen in "Choose what stays").
+    // Plan rule: a photo the plan hides is inactive, and Delete is its one open action (it never takes the last visible photo).
     [IntegrationFact]
-    public async Task Hidden_photo_is_not_deleted_by_the_owner_route()
+    public async Task Hidden_photo_is_deleted_by_the_owner_route()
     {
         OwnerSeed.OwnerRow owner;
         List<StayPhoto> photos;
@@ -198,6 +199,7 @@ public class StayEndedJourneyIntegrationTests(TestDatabase db) : IntegrationTest
             new NpgsqlParameter("p", NpgsqlDbType.Uuid) { Value = hidden.Id },
             new NpgsqlParameter("s", NpgsqlDbType.Uuid) { Value = owner.ListingId },
             new NpgsqlParameter("approved", NpgsqlDbType.Varchar) { Value = StayStatuses.Approved });
-        Assert.Equal(0, n);
+        Assert.Equal(1, n);
+        Assert.Equal(2, await db.StayPhotos.IgnoreQueryFilters().CountAsync(p => p.StayListingId == owner.ListingId));
     }
 }

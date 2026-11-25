@@ -129,9 +129,14 @@ public static class CalendarAutoText
         return parts.Count == 0 ? null : Cut(string.Join(" · ", parts), OwnerLimits.DetailMax);
     }
 
+    // B4.R: a local lead the traveller marked "I booked" is a booking for the driver's calendar too.
+    public static bool IsConfirmed(string status, string sourceType)
+        => status == TripEnquiryStatuses.ConfirmedByBoth
+           || (sourceType == CalendarSourceTypes.TaxiLead && status == TripEnquiryStatuses.BookedByTraveller);
+
     public static string? CancelledByOfEnquiry(EnquiryFacts e, string sourceType)
     {
-        if (e.Status == TripEnquiryStatuses.ConfirmedByBoth) return null;
+        if (IsConfirmed(e.Status, sourceType)) return null;
         var host = sourceType == CalendarSourceTypes.TaxiLead ? CalendarCancelledBy.Driver : CalendarCancelledBy.Owner;
         if (e.Status == TripEnquiryStatuses.CancelledByTraveller) return CalendarCancelledBy.Traveller;
         if (e.Status == TripEnquiryStatuses.CancelledByOwner) return host;
@@ -154,7 +159,7 @@ public static class CalendarAutoText
     {
         var sourceType = SourceTypeOf(e.Kind, e.TripId, e.Day);
         if (sourceType == null) return null;
-        var confirmed = e.Status == TripEnquiryStatuses.ConfirmedByBoth;
+        var confirmed = IsConfirmed(e.Status, sourceType);
         var context = ReadContext(e.ContextJson);
         var label = Cut(FirstText(e.TravellerName, context.TravellerName), OwnerLimits.LabelMax) ?? string.Empty;
         var cancelledOn = confirmed ? (DateOnly?)null : IstTime.TodayIst(e.CancelledAt ?? e.UpdatedAt);

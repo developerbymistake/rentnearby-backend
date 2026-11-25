@@ -18,13 +18,13 @@ public static class OwnerHomeShared
 {
     public const int UpcomingTake = 3;
 
-    // Statement 3: the first 3 visible rows of the Upcoming window (Auto always; Manual only among the plan's first active rows by
-    // (DateTo, Id), contract 2.1 visibility rule), the window count, Auto rows past the window and check-ins of the next 7 days.
+    // Statement 3: the first 3 visible rows of the Upcoming window (Auto always; Manual only among the plan's last added active rows by
+    // (CreatedAt DESC, Id), contract 2.1 visibility rule), the window count, Auto rows past the window and check-ins of the next 7 days.
     internal const string UpcomingSql = """
         WITH vis AS (
             SELECT v."Id" FROM "CalendarEntries" v
             WHERE v."ListingKind" = @kind AND v."ListingId" = @listing AND v."Kind" = 'Manual' AND v."DateTo" >= @today
-            ORDER BY v."DateTo", v."Id" LIMIT @manualLimit),
+            ORDER BY v."CreatedAt" DESC, v."Id" LIMIT @manualLimit),
         w AS (
             SELECT e."Id", e."Kind", e."DateFrom", e."DateTo", e."TimeOfDay", e."Label", e."Detail", e."FromPlace", e."ToPlace",
                    e."FinalAmount", e."AdvanceReceived", e."PaidInFull", e."Cancelled", e."TravellerUserId"

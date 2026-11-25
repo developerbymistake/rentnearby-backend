@@ -108,7 +108,7 @@ public static class OwnerSeed
             {
                 Id = Guid.NewGuid(), OwnerUserId = owner.UserId, ListingKind = owner.Kind, ListingId = owner.ListingId,
                 Kind = CalendarEntryKinds.Manual, DateFrom = from, DateTo = owner.Kind == ListingKinds.Stay ? from.AddDays(1) : from,
-                Label = $"Phone booking {i + 1}", FinalAmount = finalAmount, AdvanceReceived = advance, CreatedAt = now, UpdatedAt = now,
+                Label = $"Phone booking {i + 1}", FinalAmount = finalAmount, AdvanceReceived = advance, CreatedAt = now.AddSeconds(i), UpdatedAt = now,
             };
         }).ToList();
         db.Set<CalendarEntry>().AddRange(rows);

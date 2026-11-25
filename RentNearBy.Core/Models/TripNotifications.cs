@@ -167,6 +167,50 @@ public static class TripNotifications
         Host(e, ctx, NotificationTypes.TripProblemReported, $"Problem on {Name(ctx.TravellerName, IsTaxi(e) ? "a traveller" : "a guest")}'s trip",
             IsTaxi(e) ? "The driver did not come." : "The host could not give the room.", IsTaxi(e) ? Leads(e) : Enquiries(e, ctx));
 
+    // -- stay enquiry simple: Quiet, end of ask, host nudge, paused stay (stay rows only) --
+
+    public static NotificationEvent TripQuiet(TripEnquiry e, TripPushContext ctx, int count)
+    {
+        var n = TripReminderPush.Short(Listing(e, ctx));
+        var body = count <= 1
+            ? $"{n} has not replied yet. See similar stays?"
+            : $"{n} and {count - 1} more have not replied yet. See similar stays?";
+        return Traveller(e, ctx, NotificationTypes.TripNoReply, "No reply yet", body,
+            MyEnquiries(e, TripMyBuckets.Waiting, Similar(ActionSimilar, ActionOpenTrip)));
+    }
+
+    public static NotificationEvent TripAskEnded(TripEnquiry e, TripPushContext ctx, int count, bool offerLapsed)
+    {
+        var n = TripReminderPush.Short(Listing(e, ctx));
+        var title = offerLapsed ? "Your offer has ended" : count <= 1 ? $"No reply from {n}" : $"No reply from {n} and {count - 1} more";
+        var body = offerLapsed ? $"The offer from {n} ended. See similar stays?" : "Ask another stay or call.";
+        return Traveller(e, ctx, NotificationTypes.TripEnquiryExpired, title, body,
+            MyEnquiries(e, TripMyBuckets.Past, Similar(ActionSimilar, ActionOpenTrip)));
+    }
+
+    public static NotificationEvent TripHostNudge(TripEnquiry e, TripPushContext ctx, int waitingHours)
+    {
+        var who = TripDateText.FirstName(ctx.TravellerName);
+        var when = e.CheckIn is { } d ? $" for {d.ToString("d MMM", Inv)}" : string.Empty;
+        var hours = Math.Max(1, waitingHours);
+        var args = new JsonObject
+        {
+            ["enquiryId"] = e.Id.ToString(),
+            ["bucket"] = TripOwnerBuckets.New,
+            ["waitingHours"] = hours,
+            ["actions"] = new JsonArray(JsonValue.Create(ActionReply), JsonValue.Create(ActionNotAvailable)),
+        };
+        return Host(e, ctx, NotificationTypes.TripReminder, "1 traveller waiting",
+            $"Please reply to {who}'s enquiry{when}. Waiting {hours} h.", new(UserNotificationRoutes.StayEnquiries, args.ToJsonString()));
+    }
+
+    public static NotificationEvent TripStayPaused(TripEnquiry e, TripPushContext ctx) =>
+        Traveller(e, ctx, NotificationTypes.TripNotAvailable, $"{TripReminderPush.Short(Listing(e, ctx))} is not taking guests now",
+            $"See similar stays for {Dates(e, ctx)}.", MyEnquiries(e, TripMyBuckets.Past, Similar()));
+
+    // Plain action ids in the args map; the app builds the buttons.
+    public const string ActionSimilar = "similar", ActionOpenTrip = "openTrip", ActionReply = "reply", ActionNotAvailable = "notAvailable";
+
     // ── formatting ───────────────────────────────────────────────────────────
 
     // Stay rows read as nights ("Night of 05 Nov", "2 nights from 05 Nov"); the check-out morning is not a stay day.
@@ -290,26 +334,60 @@ public static class TripNotifications
 
     private readonly record struct Target(string Route, string? ArgsJson);
 
-    private static Target Chat(TripEnquiry e, TripPushContext ctx) => ctx.ChatArgsJson != null
-        ? new(UserNotificationRoutes.ChatConversation, ctx.ChatArgsJson)
-        : Plan(e, ctx);
+    // Stay enquiries left chat: stay rows open My enquiries (traveller) or the Enquiries tab (host); taxi rows keep their target.
+    private static Target Chat(TripEnquiry e, TripPushContext ctx) => !IsTaxi(e)
+        ? MyEnquiries(e)
+        : ctx.ChatArgsJson != null ? new(UserNotificationRoutes.ChatConversation, ctx.ChatArgsJson) : Plan(e, ctx);
 
-    private static Target Enquiries(TripEnquiry e, TripPushContext ctx) =>
-        new(UserNotificationRoutes.StayEnquiries, JsonSerializer.Serialize(new { enquiryId = e.Id }));
+    private static Target Enquiries(TripEnquiry e, TripPushContext ctx) => StayHost(e);
+
+    // Host side of a stay row: the Enquiries tab, box of the row.
+    private static Target StayHost(TripEnquiry e) =>
+        new(UserNotificationRoutes.StayEnquiries,
+            new JsonObject { ["enquiryId"] = e.Id.ToString(), ["bucket"] = TripOwnerBuckets.Of(e.Status) }.ToJsonString());
+
+    public const string OpenMyEnquiries = "myEnquiries";
+
+    // Traveller side of a stay row: today's plan args (old builds) plus the My enquiries keys new builds read first.
+    private static Target MyEnquiries(TripEnquiry e, string? bucket = null, Action<JsonObject>? extra = null)
+    {
+        var node = new JsonObject();
+        var route = UserNotificationRoutes.MyTrips;
+        if (e.TripId is { } t)
+        {
+            route = UserNotificationRoutes.TripPlan;
+            node["tripId"] = t.ToString();
+            node["row"] = new TripRowKey(TripRowKinds.Stay, TripEnquiryContexts.Read(e.ContextJson).CityIndex ?? 1).Id;
+        }
+        node["open"] = OpenMyEnquiries;
+        node["enquiryId"] = e.Id.ToString();
+        node["bucket"] = bucket ?? TripMyBuckets.Of(e.Status, e.CheckOut, IstTime.TodayIst(DateTime.UtcNow));
+        if (!string.IsNullOrEmpty(e.StepKey)) node["stepKey"] = e.StepKey;
+        extra?.Invoke(node);
+        return new(route, node.ToJsonString());
+    }
+
+    private static Action<JsonObject> Similar(params string[] actions) => node =>
+    {
+        node["similar"] = true;
+        if (actions.Length > 0) node["actions"] = new JsonArray(actions.Select(a => (JsonNode)JsonValue.Create(a)!).ToArray());
+    };
 
     private static Target Leads(TripEnquiry e) =>
         new(UserNotificationRoutes.TripLeads, JsonSerializer.Serialize(new { enquiryId = e.Id }));
 
     // Owner-side list: the chat when one exists, else the driver's Trip leads (taxi) or the stay Enquiries list.
     private static Target OwnerList(TripEnquiry e, TripPushContext ctx) =>
-        ctx.ChatArgsJson != null ? Chat(e, ctx) : IsTaxi(e) ? Leads(e) : Enquiries(e, ctx);
+        !IsTaxi(e) ? StayHost(e) : ctx.ChatArgsJson != null ? Chat(e, ctx) : Leads(e);
 
-    private static Target ChatOrEnquiries(TripEnquiry e, TripPushContext ctx) => ctx.ChatArgsJson != null ? Chat(e, ctx) : Enquiries(e, ctx);
+    private static Target ChatOrEnquiries(TripEnquiry e, TripPushContext ctx) =>
+        !IsTaxi(e) ? StayHost(e) : ctx.ChatArgsJson != null ? Chat(e, ctx) : Enquiries(e, ctx);
 
     // Traveller side: a trip's local taxi opens the Local taxi row of the plan, a stay its city's Stay row, a journey row its row
     // (city change: between:k; Getting there / Coming back: that row); a journey lead (no trip) opens its saved journey.
     private static Target Plan(TripEnquiry e, TripPushContext ctx)
     {
+        if (!IsTaxi(e) && !TripSegmentRows.IsSegment(e)) return MyEnquiries(e);
         if (e.TripId is { } t)
         {
             if (!TripSegmentRows.IsSegment(e))

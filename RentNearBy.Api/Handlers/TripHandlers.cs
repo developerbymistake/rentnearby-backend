@@ -657,7 +657,7 @@ public static class TripHandlers
         var linked = await LinkedJourneysAsync(journeys, trip, viewerId);
         var taxiRequest = await TripTaxiRequestReads.ReadAsync(db, trip);
         var dto = ToDto(trip, plan, enquiries, linked, await RevisedPendingAsync(unitOfWork, enquiries), taxiRequest);
-        dto.Enquiries = await TripEnquiryDtoBuilder.BuildManyAsync(unitOfWork, enquiries, viewerId, nowUtc);
+        dto.Enquiries = await TripEnquiryDtoBuilder.BuildManyAsync(unitOfWork, enquiries, viewerId, nowUtc, db);
         dto.Journeys = await JourneyDtosAsync(journeys, linked, plan, enquiries);
         return dto;
     }

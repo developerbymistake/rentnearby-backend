@@ -250,7 +250,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
         string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured,
         int? MaxGuests, string? Meals, TimeOnly? CheckInTime, int RoomCount, string? RoomsJson, bool HasGroundFloorRoom,
-        string? CityName, string? DistrictName, string? RulesJson, string? BlocksJson);
+        string? CityName, string? DistrictName, string? RulesJson, string? BlocksJson,
+        int TripEnquiriesReceived, int TripEnquiriesAnsweredIn24h);
 
     private static string? CheckInText(TimeOnly? t) => t?.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
@@ -312,7 +313,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     c."Name" AS "CityName",
                     d."Name" AS "DistrictName",
                     sr."RulesJson",
-                    sb."BlocksJson"
+                    sb."BlocksJson",
+                    s."TripEnquiriesReceived",
+                    s."TripEnquiriesAnsweredIn24h"
                 FROM page pg
                 JOIN "StayListings" s ON s."Id" = pg."Id"
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
@@ -385,6 +388,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 Rooms = StayNearbyRooms.Parse(x.Row.RoomsJson),
                 Rules = StayPriceFacts.ParseRules(x.Row.RulesJson),
                 Blocks = StayPriceFacts.ParseBlocks(x.Row.BlocksJson),
+                RepliesFast = StayReplyRules.RepliesFast(x.Row.TripEnquiriesReceived, x.Row.TripEnquiriesAnsweredIn24h) ? true : null,
             })
             .ToList();
     }
@@ -392,7 +396,8 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
     private record KnnQueryResult(
         Guid Id, string? Name, Guid? StayTypeId, string? StayTypeName, int? MinPricePerNight, double Lat, double Lng,
         string? OwnerName, string? OwnerPhone, string? ThumbnailUrl, short PriorityRank, bool IsFeatured, double DistanceMeters,
-        string? RoomsJson, bool HasGroundFloorRoom, string? CityName, string? DistrictName, string? RulesJson, string? BlocksJson);
+        string? RoomsJson, bool HasGroundFloorRoom, string? CityName, string? DistrictName, string? RulesJson, string? BlocksJson,
+        int TripEnquiriesReceived, int TripEnquiriesAnsweredIn24h);
 
     public async Task<IEnumerable<StayNearbyDto>> GetNearestAsync(
         double latitude, double longitude, int count, Guid? districtId, Guid? stayTypeId, double? maxKm = null)
@@ -421,7 +426,9 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                     c."Name" AS "CityName",
                     d."Name" AS "DistrictName",
                     sr."RulesJson",
-                    sb."BlocksJson"
+                    sb."BlocksJson",
+                    s."TripEnquiriesReceived",
+                    s."TripEnquiriesAnsweredIn24h"
                 FROM "StayListings" s
                 LEFT JOIN "Users" u ON u."Id" = s."UserId"
                 LEFT JOIN "StayTypes" t ON t."Id" = s."StayTypeId"
@@ -489,6 +496,7 @@ public class StayListingRepository(ApplicationDbContext context) : Repository<St
                 Rooms = StayNearbyRooms.Parse(r.RoomsJson),
                 Rules = StayPriceFacts.ParseRules(r.RulesJson),
                 Blocks = StayPriceFacts.ParseBlocks(r.BlocksJson),
+                RepliesFast = StayReplyRules.RepliesFast(r.TripEnquiriesReceived, r.TripEnquiriesAnsweredIn24h) ? true : null,
             })
             .ToList();
     }

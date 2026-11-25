@@ -1,3 +1,4 @@
+using RentNearBy.Api.Filters;
 using RentNearBy.Api.Handlers;
 
 namespace RentNearBy.Api.Endpoints;
@@ -9,7 +10,7 @@ public static class StayJobEndpoints
         group.MapGet("/lookups", StayJobHandlers.GetLookups);
         group.MapGet("/", StayJobHandlers.GetBrowse);
 
-        group.MapGet("/me", StayJobHandlers.GetMine).RequireAuthorization("CanListStays");
+        group.MapGet("/me", StayJobHandlers.GetMine).RequireAuthorization("CanListStays").ExpiresPlanOnRead();
         group.MapGet("/me/{id:guid}", StayJobHandlers.GetMineById).RequireAuthorization("CanListStays");
         group.MapPost("/me", StayJobHandlers.Create).RequireAuthorization("CanListStays");
         group.MapPut("/me/{id:guid}", StayJobHandlers.Update).RequireAuthorization("CanListStays");

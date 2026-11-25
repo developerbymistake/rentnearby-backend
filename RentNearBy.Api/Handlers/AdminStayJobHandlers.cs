@@ -4,8 +4,10 @@ using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Owner;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.Owner.Be3;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -33,32 +35,67 @@ public static class AdminStayJobHandlers
         return OkResponse(new { items, hasMore });
     }
 
-    public static async Task<IResult> CloseJob(Guid id, IUnitOfWork unitOfWork)
+    // An Inactive job closes too (else a re-bought Plus would bring it back); an open job leaving frees a plan slot at once.
+    public static async Task<IResult> CloseJob(
+        Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IPlanEntitlementService entitlements, IOwnerNotifier notifier)
     {
         var job = await unitOfWork.StayJobs.GetByIdAsync(id);
         if (job == null) return NotFoundResponse(JobNotFound);
 
-        if (job.Status == StayJobStatuses.Active)
+        if (job.Status is StayJobStatuses.Active or StayJobStatuses.Inactive)
         {
-            var now = DateTime.UtcNow;
-            job.Status = StayJobStatuses.Closed;
-            job.ClosedAt = now;
-            job.UpdatedAt = now;
-            await unitOfWork.SaveChangesAsync();
+            await InStayLockAsync(job, unitOfWork, db, entitlements, notifier, () =>
+            {
+                var now = DateTime.UtcNow;
+                job.Status = StayJobStatuses.Closed;
+                job.ClosedAt = now;
+                job.UpdatedAt = now;
+                return Task.CompletedTask;
+            });
         }
 
         return OkResponse(new { success = true });
     }
 
-    public static async Task<IResult> DeleteJob(Guid id, IUnitOfWork unitOfWork)
+    public static async Task<IResult> DeleteJob(
+        Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, IPlanEntitlementService entitlements, IOwnerNotifier notifier)
     {
         var job = await unitOfWork.StayJobs.GetByIdAsync(id);
         if (job == null) return NotFoundResponse(JobNotFound);
 
-        await unitOfWork.StayJobs.DeleteAsync(job);
-        await unitOfWork.SaveChangesAsync();
+        if (job.Status is StayJobStatuses.Active or StayJobStatuses.Inactive)
+        {
+            await InStayLockAsync(job, unitOfWork, db, entitlements, notifier, () => unitOfWork.StayJobs.DeleteAsync(job));
+        }
+        else
+        {
+            await unitOfWork.StayJobs.DeleteAsync(job);
+            await unitOfWork.SaveChangesAsync();
+        }
 
         return NoContentResponse();
+    }
+
+    // Same shape as the owner close: stay row lock, the change, plan jobs re-applied, notice cleared when nothing is inactive.
+    private static async Task InStayLockAsync(
+        StayJob job, IUnitOfWork unitOfWork, ApplicationDbContext db, IPlanEntitlementService entitlements, IOwnerNotifier notifier, Func<Task> change)
+    {
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"StayListings\" WHERE \"Id\" = {job.StayListingId} FOR UPDATE");
+            await change();
+            await unitOfWork.SaveChangesAsync();
+            var limits = await entitlements.GetLimitsAsync(job.UserId, ListingKinds.Stay);
+            await PlanRows.ApplyJobsAsync(db, job.UserId, limits.JobsPosts, limits.PaymentEnabled);
+            await OwnerHiddenCounts.ClearStayNoticeIfNothingHiddenAsync(db, notifier, job.UserId);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
     }
 
     // ---- Lookups (all rows, active or not) ----

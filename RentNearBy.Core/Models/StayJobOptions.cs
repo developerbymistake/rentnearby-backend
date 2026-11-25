@@ -3,9 +3,11 @@ namespace RentNearBy.Core.Models;
 public static class StayJobStatuses
 {
     public const string Active = "Active";
+    // Kept but off browse after Plus ends: the newest JobsPosts open jobs stay Active (PlanLimitsReconcile); Close and Delete only.
+    public const string Inactive = "Inactive";
     public const string Closed = "Closed";
 
-    public static readonly string[] All = [Active, Closed];
+    public static readonly string[] All = [Active, Inactive, Closed];
 }
 
 public static class StayJobRules

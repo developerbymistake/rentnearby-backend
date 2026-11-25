@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261123200452_InitialCreate")]
+    [Migration("20261125190705_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -3538,7 +3538,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
 
-                            t.HasCheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Closed')");
+                            t.HasCheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Inactive', 'Closed')");
                         });
                 });
 

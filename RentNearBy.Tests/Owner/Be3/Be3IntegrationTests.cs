@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Interfaces.Owner;
@@ -147,7 +148,7 @@ public class Be3IntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         }
         Assert.Equal(big.UserId, Assert.Single(notifier.Stored).UserId);
         var push = Assert.Single(notifier.Pushed);
-        Assert.Equal("4 photos and 1 room type are hidden on Free. Nothing is deleted.", push.Body);
+        Assert.Equal("4 photos and 1 room type are inactive on Free. Nothing is deleted.", push.Body);
 
         await using (var c = CreateContext())
             await Reconcile(c, false, new RecordingNotifier()).ReconcileAsync(ListingKinds.Stay);
@@ -207,7 +208,7 @@ public class Be3IntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         {
             var now = DateTime.UtcNow;
             s.Db.TaxiRoutes.AddRange(
-                Route(listing, 1, Kept, now), Route(listing, 2, Gone, now));
+                Route(listing, 1, Gone, now), Route(listing, 2, Kept, now)); // the last added route stays on Free
             await s.Db.SaveChangesAsync();
         }
         var ringing = await OfferAsync(h, await RequestAsync(h, traveller, RequestStates.Open, Gone), listing, user, OfferStates.Ringing);
@@ -342,6 +343,97 @@ public class Be3IntegrationTests(TestDatabase db) : IntegrationTestBase(db)
             },
             c => Reconcile(c, true, new RecordingNotifier()).ReconcileAsync(ListingKinds.Stay),
             budget: 14, small: 3, large: 30);
+    }
+
+    private async Task<List<TaxiRoute>> RoutesOfAsync(Guid listing)
+    {
+        await using var c = CreateContext();
+        return await c.TaxiRoutes.IgnoreQueryFilters().AsNoTracking().Where(r => r.TaxiListingId == listing).OrderBy(r => r.RouteIndex).ToListAsync();
+    }
+
+    private async Task<(Guid User, Guid Listing, List<Guid> Ids)> DriverWithRoutesAsync(JourneyHarness h, int count)
+    {
+        var user = await h.AddTaxiDriverAsync("Routes driver");
+        var listing = await h.AddTaxiAsync(user);
+        var now = DateTime.UtcNow;
+        var routes = Enumerable.Range(1, count).Select(i =>
+        {
+            var r = Route(listing, (short)i, Kept + i, now.AddMinutes(i - count));
+            r.ToLatitude += i / 100m;
+            return r;
+        }).ToList();
+        await using var s = h.NewScope();
+        s.Db.TaxiRoutes.AddRange(routes);
+        await s.Db.SaveChangesAsync();
+        return (user, listing, routes.Select(r => r.Id).ToList());
+    }
+
+    // L6 / L9 on a real database, the daily set-based taxi path: the last added route stays, four go to 101..104 (kept), one
+    // stored notice; Plus again restores the original order. The batch covers every taxi of the shared test database.
+    [IntegrationFact]
+    public async Task Taxi_daily_batch_keeps_the_newest_route_hides_four_one_notice_and_plus_restores_the_order()
+    {
+        await using var h = new JourneyHarness(Db);
+        var (user, listing, ids) = await DriverWithRoutesAsync(h, 5);
+
+        var notifier = new RecordingNotifier();
+        await using (var c = CreateContext())
+            await Reconcile(c, true, notifier).ReconcileAsync(ListingKinds.Taxi);
+        var routes = await RoutesOfAsync(listing);
+        Assert.Equal(5, routes.Count);
+        Assert.Equal([ids[4]], routes.Where(r => !r.HiddenByPlan).Select(r => r.Id).ToList());
+        Assert.Equal(1, routes.Single(r => !r.HiddenByPlan).RouteIndex);
+        Assert.Equal([101, 102, 103, 104], routes.Where(r => r.HiddenByPlan).Select(r => (int)r.RouteIndex).ToList());
+        Assert.Equal(ids.Take(4).ToList(), routes.Where(r => r.HiddenByPlan).Select(r => r.Id).ToList());
+        Assert.Single(notifier.Stored, n => n.UserId == user && n.Kind == NoticeKinds.PlanLimitsChanged);
+
+        var second = new RecordingNotifier();
+        await using (var c = CreateContext())
+            await Reconcile(c, true, second).ReconcileAsync(ListingKinds.Taxi);
+        Assert.DoesNotContain(second.Stored, n => n.UserId == user);
+
+        await using (var c = CreateContext())
+            await OwnerSeed.ActivePlanAsync(c, user, ListingKinds.Taxi, OwnerPlanCatalog.TaxiPlusId);
+        await using (var c = CreateContext())
+            await Reconcile(c, true, new RecordingNotifier()).ReconcileAsync(ListingKinds.Taxi);
+        routes = await RoutesOfAsync(listing);
+        Assert.DoesNotContain(routes, r => r.HiddenByPlan);
+        Assert.Equal(ids, routes.Select(r => r.Id).ToList());
+        Assert.Equal([1, 2, 3, 4, 5], routes.Select(r => (int)r.RouteIndex).ToList());
+    }
+
+    // L6: a Free driver who removes his one visible route gets the newest hidden one back at once (the route save runs this).
+    [IntegrationFact]
+    public async Task Taxi_removing_the_visible_route_on_free_brings_back_the_newest_hidden_one_at_once()
+    {
+        await using var h = new JourneyHarness(Db);
+        var (user, listing, ids) = await DriverWithRoutesAsync(h, 3);
+        await using (var c = CreateContext())
+        {
+            await using var tx = await c.Database.BeginTransactionAsync();
+            await c.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Users\" WHERE \"Id\" = {user} FOR UPDATE");
+            await Reconcile(c, true, new RecordingNotifier()).ApplyForOwnerAsync(user, ListingKinds.Taxi, Be3Kit.Free(ListingKinds.Taxi));
+            await tx.CommitAsync();
+        }
+        await using (var c = CreateContext())
+            await c.TaxiRoutes.IgnoreQueryFilters().Where(r => r.Id == ids[2]).ExecuteDeleteAsync();
+
+        await using (var c = CreateContext())
+        {
+            var catalog = new Catalog(OwnerPlanCatalog.Seeded());
+            var payment = new Payment(true);
+            var entitlements = new PlanEntitlementService(c, catalog, payment);
+            var reconcile = Reconcile(c, true, new RecordingNotifier());
+            var sp = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
+                .AddSingleton<ILiveSlotService>(new PlanSlotService(c, entitlements, catalog, payment, reconcile))
+                .AddSingleton(reconcile)
+                .AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(NullLoggerFactory.Instance)
+                .BuildServiceProvider();
+            Assert.True(await RentNearBy.Api.Handlers.TaxiHandlers.RefillHiddenRoutesAsync(user, new RentNearBy.Infrastructure.Repositories.UnitOfWork(c), sp, entitlements));
+        }
+        var routes = await RoutesOfAsync(listing);
+        Assert.Equal([ids[1]], routes.Where(r => !r.HiddenByPlan).Select(r => r.Id).ToList());
+        Assert.Equal([ids[0]], routes.Where(r => r.HiddenByPlan).Select(r => r.Id).ToList());
     }
 
     private static TaxiRoute Route(Guid listing, short index, long toKey, DateTime now) => new()

@@ -15,7 +15,7 @@ public sealed record CalendarEntryWrite(CalendarEntryRow Entry, IReadOnlyList<Me
 // before the listing, so it cannot deadlock with account deletion) then the listing row lock (level 5) serialises the limit check,
 // so two phones saving the last free slot get one 200 and one 409. Edit and delete are version-guarded or idempotent single statements.
 // Edit (D-07, FB-04): an ended entry is read-only except its money note, so no edit can revive a row and edits need no limit
-// check; a date that does not move always passes, a moved date must be inside the manual window; a hidden entry is 404 (D-30).
+// check; a date that does not move always passes, a moved date must be inside the manual window; an entry above the plan limit is 409 PlanRowInactive (D-30).
 // Create also stops at the kept-rows ceiling (OwnerLimits.ManualRowsCeiling), so past-dated rows cannot be spammed.
 public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCalendarWriter> logger)
 {
@@ -83,7 +83,7 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
             if (!current.IsManual) return Be1Error.Of(OwnerErrorTypes.EntryNotManual);
             if (OwnerCalendarRules.Ended(current.DateTo, ctx.Today))
                 return new Be1Error(OwnerErrorTypes.EntryEnded, OwnerErrorTypes.EntryEndedMessage(ctx.Kind));
-            if (await OwnerCalendarReader.ReadVisibleAsync(db, ctx, id, ct) == null) return NotFound();
+            if (await OwnerCalendarReader.ReadVisibleAsync(db, ctx, id, ct) == null) return Be1Error.Of(OwnerErrorTypes.PlanRowInactive);
             if (OwnerCalendarRules.SameManual(current, input)) saved = current;
             else if (current.Version != v) return Stale(current);
             else return Be1Error.Of(OwnerErrorTypes.CalendarOutsideWindow);

@@ -30,7 +30,7 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
         => await _dbSet
             .AsNoTracking()
             .Where(j => j.UserId == userId)
-            .OrderBy(j => j.Status == StayJobStatuses.Active ? 0 : 1)
+            .OrderBy(j => j.Status == StayJobStatuses.Active ? 0 : j.Status == StayJobStatuses.Inactive ? 1 : 2)
             .ThenByDescending(j => j.CreatedAt)
             .Take(OwnerListMax)
             .GroupJoin(context.StayListings, j => j.StayListingId, s => s.Id, (j, stays) => new { j, stays })
@@ -202,7 +202,7 @@ public class StayJobRepository(ApplicationDbContext context) : Repository<StayJo
     {
         var now = DateTime.UtcNow;
         return await _dbSet
-            .Where(j => j.StayListingId == stayListingId && j.Status == StayJobStatuses.Active)
+            .Where(j => j.StayListingId == stayListingId && (j.Status == StayJobStatuses.Active || j.Status == StayJobStatuses.Inactive))
             .ExecuteUpdateAsync(set => set
                 .SetProperty(j => j.Status, StayJobStatuses.Closed)
                 .SetProperty(j => j.ClosedAt, (DateTime?)now)

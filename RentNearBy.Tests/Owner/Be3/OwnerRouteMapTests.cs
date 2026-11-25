@@ -22,6 +22,18 @@ public class OwnerRouteMapTests
         Assert.Contains("taxi.MapPut(\"/plan-visible\", PlanVisibleHandlers.SaveTaxi)", Owner);
     }
 
+    // Matrix L6 "on the first request": every owner read first claims the caller's own ended non-Play plan row.
+    [Theory]
+    [InlineData("stay.MapGet(\"\", StayHandlers.GetMine).ExpiresPlanOnRead();", "Owner", "PlanVisibleEndpoints.cs")]
+    [InlineData("taxi.MapGet(\"\", TaxiHandlers.GetMine).ExpiresPlanOnRead();", "Owner", "PlanVisibleEndpoints.cs")]
+    [InlineData("group.MapGet(\"/home\", OwnerHomeHandlers.Get).ExpiresPlanOnRead();", "Owner", "OwnerHomeEndpoints.cs")]
+    [InlineData("group.MapGet(\"/me\", PlanHandlers.GetMe).RequireAuthorization().ExpiresPlanOnRead();", null, "PlanEndpoints.cs")]
+    [InlineData("group.MapGet(\"/me\", StayJobHandlers.GetMine).RequireAuthorization(\"CanListStays\").ExpiresPlanOnRead();", null, "StayJobEndpoints.cs")]
+    public void Owner_reads_expire_an_ended_plan_first(string line, string? folder, string file)
+        => Assert.Contains(line, folder == null
+            ? Be3Kit.Source("RentNearBy.Api", "Endpoints", file)
+            : Be3Kit.Source("RentNearBy.Api", "Endpoints", folder, file));
+
     [Fact]
     public void The_gated_groups_no_longer_map_the_read_and_keep_every_write()
     {

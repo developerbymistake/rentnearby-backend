@@ -47,10 +47,10 @@ public class OwnerPushCopyTests
     [Fact]
     public void Plans_started_copy_counts_what_is_hidden()
     {
-        Assert.Equal("4 photos and 2 room types are hidden on Free. Nothing is deleted.", StayOwnerPushCopy.PlansStarted(User, 4, 2, Today).Body);
-        Assert.Equal("1 photo is hidden on Free. Nothing is deleted.", StayOwnerPushCopy.PlansStarted(User, 1, 0, Today).Body);
-        Assert.Equal("3 routes are hidden on Free. Nothing is deleted.", TaxiDriverPushCopy.PlansStarted(User, 3, Today).Body);
-        Assert.Equal("1 route is hidden on Free. Nothing is deleted.", TaxiDriverPushCopy.PlansStarted(User, 1, Today).Body);
+        Assert.Equal("4 photos and 2 room types are inactive on Free. Nothing is deleted.", StayOwnerPushCopy.PlansStarted(User, 4, 2, Today).Body);
+        Assert.Equal("1 photo is inactive on Free. Nothing is deleted.", StayOwnerPushCopy.PlansStarted(User, 1, 0, Today).Body);
+        Assert.Equal("3 routes are inactive on Free. Nothing is deleted.", TaxiDriverPushCopy.PlansStarted(User, 3, Today).Body);
+        Assert.Equal("1 route is inactive on Free. Nothing is deleted.", TaxiDriverPushCopy.PlansStarted(User, 1, Today).Body);
         Assert.Equal("Plans have started", TaxiDriverPushCopy.PlansStarted(User, 1, Today).Title);
         Assert.Equal($"planlimits:{User}:20261121", TaxiDriverPushCopy.PlansStarted(User, 1, Today).Key);
     }

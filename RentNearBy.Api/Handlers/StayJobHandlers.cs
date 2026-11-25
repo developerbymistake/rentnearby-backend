@@ -6,11 +6,13 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Owner;
 using RentNearBy.Api.Handlers.Owner;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Owner;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.Owner.Be3;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -175,7 +177,8 @@ public static class StayJobHandlers
         var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
         var maxActive = limits.JobsPosts;
 
-        // AU-22: jobs above the cap after Plus ends are never closed; only a new post is refused.
+        // After Plus ends the newest JobsPosts open jobs stay Active and the rest go Inactive (PlanLimitsReconcile); Inactive jobs
+        // are kept, off browse, and only closed. OverCap stays on the wire for old builds.
         return OkResponse(new MyStayJobsDto
         {
             Items = items,
@@ -307,6 +310,7 @@ public static class StayJobHandlers
 
         var job = await unitOfWork.StayJobs.GetOwnedTrackedAsync(id, userId);
         if (job == null) return NotFoundResponse(JobNotFound);
+        if (job.Status == StayJobStatuses.Inactive) return OwnerHttp.RowInactive();
         if (job.Status != StayJobStatuses.Active) return JobClosed();
 
         var stayStatus = await unitOfWork.Stays.GetStatusByUserAsync(userId);
@@ -315,34 +319,82 @@ public static class StayJobHandlers
         var invalid = await CheckLookupsAsync(request, db);
         if (invalid != null) return InvalidLookup(invalid);
 
-        Apply(job, request);
-        job.UpdatedAt = DateTime.UtcNow;
-        await unitOfWork.SaveChangesAsync();
+        // Same stay lock as create and close, so an expiry or a downgrade that turns the job Inactive cannot race the edit.
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"StayListings\" WHERE \"Id\" = {job.StayListingId} FOR UPDATE");
+            var status = await db.StayJobs.AsNoTracking().Where(j => j.Id == id).Select(j => j.Status).FirstOrDefaultAsync();
+            if (status != StayJobStatuses.Active)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return status switch
+                {
+                    null => NotFoundResponse(JobNotFound),
+                    StayJobStatuses.Inactive => OwnerHttp.RowInactive(),
+                    _ => JobClosed(),
+                };
+            }
+
+            Apply(job, request);
+            job.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.SaveChangesAsync();
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
 
         return OkResponse(await OwnerDetailAsync(job.Id, userId, unitOfWork));
     }
 
-    // Closed is terminal; closing twice just returns the job.
-    public static async Task<IResult> Close(Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, IRateLimitService limiter, HttpContext http)
+    // Closed is terminal; closing twice just returns the job. Closing an Active job frees a slot: the newest Inactive job turns
+    // Active at once (same stay lock as create).
+    public static async Task<IResult> Close(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IPlanEntitlementService entitlements,
+        IOwnerNotifier notifier, IRateLimitService limiter, HttpContext http)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
-        return await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(userId), () => CloseCoreAsync(id, userId, unitOfWork));
+        return await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(userId),
+            () => CloseCoreAsync(id, userId, unitOfWork, db, entitlements, notifier));
     }
 
-    private static async Task<IResult> CloseCoreAsync(Guid id, Guid userId, IUnitOfWork unitOfWork)
+    private static async Task<IResult> CloseCoreAsync(
+        Guid id, Guid userId, IUnitOfWork unitOfWork, ApplicationDbContext db, IPlanEntitlementService entitlements,
+        IOwnerNotifier notifier)
     {
 
         var job = await unitOfWork.StayJobs.GetOwnedTrackedAsync(id, userId);
         if (job == null) return NotFoundResponse(JobNotFound);
 
-        if (job.Status == StayJobStatuses.Active)
+        if (job.Status is StayJobStatuses.Active or StayJobStatuses.Inactive)
         {
-            var now = DateTime.UtcNow;
-            job.Status = StayJobStatuses.Closed;
-            job.ClosedAt = now;
-            job.UpdatedAt = now;
-            await unitOfWork.SaveChangesAsync();
+            var freesSlot = job.Status == StayJobStatuses.Active;
+            await unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"StayListings\" WHERE \"Id\" = {job.StayListingId} FOR UPDATE");
+                var now = DateTime.UtcNow;
+                job.Status = StayJobStatuses.Closed;
+                job.ClosedAt = now;
+                job.UpdatedAt = now;
+                await unitOfWork.SaveChangesAsync();
+                if (freesSlot)
+                {
+                    var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
+                    await PlanRows.ApplyJobsAsync(db, userId, limits.JobsPosts, limits.PaymentEnabled);
+                }
+                await OwnerHiddenCounts.ClearStayNoticeIfNothingHiddenAsync(db, notifier, userId);
+                await unitOfWork.CommitTransactionAsync();
+            }
+            catch
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
         }
 
         return OkResponse(await OwnerDetailAsync(job.Id, userId, unitOfWork));

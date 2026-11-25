@@ -173,7 +173,7 @@ public class StayPhotoReplaceIntegrationTests(TestDatabase db) : IntegrationTest
     }
 
     [IntegrationFact]
-    public async Task Replace_foreign_or_hidden_photo_is_404_and_deletes_new_file()
+    public async Task Replace_foreign_photo_is_404_hidden_photo_is_409_and_both_delete_new_file()
     {
         OwnerSeed.OwnerRow owner, other;
         List<StayPhoto> mine, theirs;
@@ -185,11 +185,11 @@ public class StayPhotoReplaceIntegrationTests(TestDatabase db) : IntegrationTest
             theirs = await OwnerSeed.PhotosAsync(c, other.ListingId, visible: 1);
         }
 
-        foreach (var photoId in new[] { theirs[0].Id, mine.Single(p => p.HiddenByPlan).Id, Guid.NewGuid() })
+        foreach (var (photoId, status) in new[] { (theirs[0].Id, 404), (mine.Single(p => p.HiddenByPlan).Id, 409), (Guid.NewGuid(), 404) })
         {
             var photos = new RecordingPhotoService();
             var result = await ReplaceAsync(owner.UserId, photoId, photos);
-            Assert.Equal(404, StatusOf(result));
+            Assert.Equal(status, StatusOf(result));
             Assert.Equal(photos.Saved.ToArray(), photos.Deleted.ToArray());
         }
         await using var check = CreateContext();

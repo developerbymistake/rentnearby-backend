@@ -42,12 +42,12 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
 
     private static readonly JsonSerializerOptions HiddenJson = new(JsonSerializerDefaults.Web);
 
-    // Visible manual rows: the CalendarEntries-limit soonest active ones by (DateTo, Id), and every past one; Auto rows always.
+    // Visible manual rows: the CalendarEntries-limit active ones added last (CreatedAt DESC, Id), and every past one; Auto rows always.
     private const string Visible = """
         (c."Kind" = 'Auto' OR c."DateTo" < @today OR c."Id" IN (
             SELECT m."Id" FROM "CalendarEntries" m
             WHERE m."ListingKind" = 'Stay' AND m."ListingId" = @l AND m."Kind" = 'Manual' AND m."DateTo" >= @today
-            ORDER BY m."DateTo", m."Id" LIMIT @lim))
+            ORDER BY m."CreatedAt" DESC, m."Id" LIMIT @lim))
         """;
 
     public static readonly string FactsSql = $"""

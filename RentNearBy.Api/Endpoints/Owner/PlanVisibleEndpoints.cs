@@ -1,3 +1,4 @@
+using RentNearBy.Api.Filters;
 using RentNearBy.Api.Handlers;
 using RentNearBy.Api.Handlers.Owner.Be3;
 
@@ -10,11 +11,11 @@ public static class PlanVisibleEndpoints
     public static IEndpointRouteBuilder MapPlanVisibleEndpoints(this IEndpointRouteBuilder app)
     {
         var stay = app.MapGroup("/api/v1/stays/me").WithTags("Stay owner").RequireAuthorization("CanListStays");
-        stay.MapGet("", StayHandlers.GetMine);
+        stay.MapGet("", StayHandlers.GetMine).ExpiresPlanOnRead();
         stay.MapPut("/plan-visible", PlanVisibleHandlers.SaveStay);
 
         var taxi = app.MapGroup("/api/v1/taxis/me").WithTags("Taxi driver").RequireAuthorization("CanListTaxis");
-        taxi.MapGet("", TaxiHandlers.GetMine);
+        taxi.MapGet("", TaxiHandlers.GetMine).ExpiresPlanOnRead();
         taxi.MapPut("/plan-visible", PlanVisibleHandlers.SaveTaxi);
         return app;
     }

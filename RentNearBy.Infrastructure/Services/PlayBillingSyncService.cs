@@ -91,27 +91,24 @@ public class PlayBillingSyncService(
         var token = request.PurchaseToken;
         var started = Stopwatch.GetTimestamp();
 
-        PlaySubscriptionSnapshot snapshot;
-        try
-        {
-            snapshot = await client.GetSubscriptionAsync(token);
-        }
-        catch (PlayApiException ex)
-        {
-            logger.LogWarning(PlaySyncLogEvents.ApiError, "Play get failed ({Kind}) for token {TokenTail} from {Source}: {Message}",
-                ex.Kind, PlaySyncLogEvents.Tail(token), request.Source, ex.Message);
-            await db.PlaySubscriptions
-                .Where(s => s.PurchaseToken == token)
-                .ExecuteUpdateAsync(u => u.SetProperty(s => s.LastSyncError, Truncate($"{ex.Kind}: {ex.Message}", 300)));
-            return Result(PlaySyncOutcome.ApiError, apiError: ex.Kind);
-        }
+        var fetched = await FetchAsync(request);
+        if (fetched.Error is { } failed) return failed;
+        var (snapshot, fetchedAt) = (fetched.Snapshot!, fetched.At);
 
         Applied? applied = null;
         for (var attempt = 1; applied == null; attempt++)
         {
-            applied = await TryApplyAsync(request, snapshot);
+            applied = await TryApplyAsync(request, snapshot, fetchedAt);
             if (applied == null && attempt >= MaxApplyAttempts)
                 throw new InvalidOperationException("Play sync could not settle the subscription row; it is retried later.");
+            if (applied == null && _staleSnapshot)
+            {
+                // L15: another sync applied a snapshot newer than ours (out-of-order notifications): read Google again.
+                _staleSnapshot = false;
+                fetched = await FetchAsync(request);
+                if (fetched.Error is { } again) return again;
+                (snapshot, fetchedAt) = (fetched.Snapshot!, fetched.At);
+            }
         }
 
         await AfterCommitAsync(applied);
@@ -124,8 +121,33 @@ public class PlayBillingSyncService(
         return result;
     }
 
-    // Returns null when the row changed under us (insert race or 3.5 step 3b mismatch): the caller re-resolves.
-    private async Task<Applied?> TryApplyAsync(PlaySyncRequest request, PlaySubscriptionSnapshot snapshot)
+    private bool _staleSnapshot;
+
+    private async Task<(PlaySubscriptionSnapshot? Snapshot, DateTime At, PlaySyncResult? Error)> FetchAsync(PlaySyncRequest request)
+    {
+        var token = request.PurchaseToken;
+        var at = DateTime.UtcNow;
+        try
+        {
+            return (await client.GetSubscriptionAsync(token), at, null);
+        }
+        catch (PlayApiException ex)
+        {
+            logger.LogWarning(PlaySyncLogEvents.ApiError, "Play get failed ({Kind}) for token {TokenTail} from {Source}: {Message}",
+                ex.Kind, PlaySyncLogEvents.Tail(token), request.Source, ex.Message);
+            await db.PlaySubscriptions
+                .Where(s => s.PurchaseToken == token)
+                .ExecuteUpdateAsync(u => u.SetProperty(s => s.LastSyncError, Truncate($"{ex.Kind}: {ex.Message}", 300)));
+            return (null, at, Result(PlaySyncOutcome.ApiError, apiError: ex.Kind));
+        }
+    }
+
+    // A row synced after this snapshot was fetched holds a newer (or equally new) Google answer: never apply an older one over it.
+    internal static bool IsStale(DateTime? lastSyncedAt, DateTime fetchedAt) => lastSyncedAt is { } synced && synced > fetchedAt;
+
+    // Returns null when the row changed under us (insert race or 3.5 step 3b mismatch) or a newer snapshot was applied first
+    // (_staleSnapshot): the caller re-resolves, re-fetching in the second case.
+    private async Task<Applied?> TryApplyAsync(PlaySyncRequest request, PlaySubscriptionSnapshot snapshot, DateTime fetchedAt)
     {
         var token = request.PurchaseToken;
         var now = DateTime.UtcNow;
@@ -201,6 +223,14 @@ public class PlayBillingSyncService(
                 await tx.RollbackAsync();
                 slots.DropAfterCommit();
                 db.ChangeTracker.Clear();
+                return null;
+            }
+            if (!inserted && IsStale(sub.LastSyncedAt, fetchedAt))
+            {
+                await tx.RollbackAsync();
+                slots.DropAfterCommit();
+                db.ChangeTracker.Clear();
+                _staleSnapshot = true;
                 return null;
             }
 

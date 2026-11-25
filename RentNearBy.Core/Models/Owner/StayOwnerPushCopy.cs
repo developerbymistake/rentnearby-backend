@@ -15,20 +15,26 @@ public static class StayOwnerPushCopy
 
     // FB-39 (D-12): "Plans have started" only on the day the payment switch went on; any other loss (Plus ended) says so.
     // FB-40 (D-27): when the only loss is paused special prices, the words and the route lead to the Special prices list.
-    public static OwnerPush PlansStarted(Guid userId, int photos, int roomTypes, DateOnly todayIst, int pausedRules = 0, bool plansStartedToday = true)
+    public static OwnerPush PlansStarted(Guid userId, int photos, int roomTypes, DateOnly todayIst, int pausedRules = 0, bool plansStartedToday = true,
+        int inactiveJobs = 0)
     {
         var title = OwnerPushText.LimitsTitle(plansStartedToday);
         if (photos == 0 && roomTypes == 0 && pausedRules > 0)
             return new(userId, NotificationTypes.PlanLimitsChanged, $"planlimits:{userId}:{Ymd(todayIst)}",
                 title, Cut($"{Count(pausedRules, "special price is", "special prices are")} paused on Free. Nothing is deleted."),
                 UserNotificationRoutes.StaySpecialPrices, Args(), $"owner_planlimits_{userId}");
+        if (photos == 0 && roomTypes == 0 && inactiveJobs > 0)
+            return new(userId, NotificationTypes.PlanLimitsChanged, $"planlimits:{userId}:{Ymd(todayIst)}",
+                title, Cut($"{Count(inactiveJobs, "job is", "jobs are")} inactive on Free. Nothing is deleted."),
+                UserNotificationRoutes.MyJobs, Args(), $"owner_planlimits_{userId}");
         var parts = new List<string>();
         if (photos > 0) parts.Add(Count(photos, "photo", "photos"));
         if (roomTypes > 0) parts.Add(Count(roomTypes, "room type", "room types"));
+        if (inactiveJobs > 0) parts.Add(Count(inactiveJobs, "job", "jobs"));
         var what = parts.Count == 0 ? "Some items" : string.Join(" and ", parts);
-        var verb = parts.Count == 1 && (photos == 1 || roomTypes == 1) ? "is" : "are";
+        var verb = parts.Count == 1 && (photos == 1 || roomTypes == 1 || inactiveJobs == 1) ? "is" : "are";
         return new(userId, NotificationTypes.PlanLimitsChanged, $"planlimits:{userId}:{Ymd(todayIst)}",
-            title, Cut($"{what} {verb} hidden on Free. Nothing is deleted."),
+            title, Cut($"{what} {verb} inactive on Free. Nothing is deleted."),
             UserNotificationRoutes.StayPlanVisible, Args(), $"owner_planlimits_{userId}");
     }
 
@@ -48,6 +54,17 @@ public static class StayOwnerPushCopy
             JoinFitting(lines.Select(l => string.IsNullOrWhiteSpace(l.Detail) ? Label(l) : $"{Label(l)} ({l.Detail!.Trim()})")),
             UserNotificationRoutes.StayCalendar, Args(("date", todayIst.ToString("yyyy-MM-dd"))), $"owner_morning_{listingId}",
             NoonIstUtc(todayIst));
+
+    // Evening before, every owner (D11): one push per booking, sent once by its key.
+    public static OwnerPush CheckInTomorrow(Guid userId, Guid entryId, DateOnly dateFrom, string? label, string? detail)
+    {
+        var line = new OwnerReminderLine(CalendarEntryKinds.Auto, label ?? string.Empty, detail, null);
+        return new(userId, NotificationTypes.OwnerBookingTomorrow, $"ownereve:{ListingKinds.Stay}:{entryId}:{Ymd(dateFrom)}",
+            "Check-in tomorrow",
+            Cut(string.IsNullOrWhiteSpace(detail) ? Label(line) : $"{Label(line)} ({detail.Trim()})"),
+            UserNotificationRoutes.StayUpcoming, Args(("date", dateFrom.ToString("yyyy-MM-dd")), ("entryId", entryId)), $"owner_eve_{entryId}",
+            IstTime.IstMidnightUtc(dateFrom));
+    }
 
     public static OwnerPush PlansStarting(Guid userId, DateOnly announceDate, int freePhotos, int freeRoomTypes, int trialDays)
         => new(userId, NotificationTypes.PlansStarting, $"plansstarting:{userId}:{Ymd(announceDate)}",

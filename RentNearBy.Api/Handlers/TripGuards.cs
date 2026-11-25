@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
@@ -127,6 +128,47 @@ public static class TripGuards
         => ConflictResponse("This step is already settled. Reopen it to ask hosts.", TripEnquiryErrorTypes.StepClosed);
 
     public static IResult StepFullError() => ConflictResponse(TripBulkRules.StepFullMessage, TripEnquiryErrorTypes.StepFull);
+
+    // 409 StepFull with data: which case, the numbers and the asks the traveller can withdraw.
+    public static IResult StepFullError(TripStepSlots slots, string fullCase, IEnumerable<TripEnquiry> stepRows, DateTime nowUtc)
+        => ErrorResponse(409, TripBulkRules.StepFullMessageOf(fullCase), TripEnquiryErrorTypes.StepFull, StepFullData(slots, fullCase, stepRows, nowUtc));
+
+    public static StepFullDto StepFullData(TripStepSlots slots, string fullCase, IEnumerable<TripEnquiry> stepRows, DateTime nowUtc)
+    {
+        var open = stepRows.Where(x => TripEnquiryStatuses.IsOpen(x.Status)).OrderBy(x => x.CreatedAt).ToList();
+        static StepFullAskDto Ask(TripEnquiry x) => new() { EnquiryId = x.Id, ListingId = x.ListingId, ListingName = x.ListingName, AskedAt = x.CreatedAt };
+        return new StepFullDto
+        {
+            Case = fullCase,
+            Counted = slots.Counted,
+            Quiet = slots.Quiet,
+            Shortlisted = slots.Shortlisted,
+            Free = slots.Free,
+            MaxCounted = TripStepSlotRules.MaxCounted,
+            MaxTotal = TripStepSlotRules.MaxTotal,
+            NextQuietAt = slots.NextQuietAt,
+            QuietAsks = open.Where(x => TripQuietRules.IsQuiet(x, nowUtc)).Select(Ask).ToList(),
+            WaitingAsks = open.Where(x => !TripQuietRules.IsQuiet(x, nowUtc) && TripEnquiryStatuses.IsUnconfirmed(x.Status)).Select(Ask).ToList(),
+        };
+    }
+
+    public static TripStepSlotsDto SlotsDto(string stepKey, TripStepSlots s) => new()
+    {
+        StepKey = stepKey,
+        Counted = s.Counted,
+        Quiet = s.Quiet,
+        Shortlisted = s.Shortlisted,
+        Free = s.Free,
+        MaxCounted = TripStepSlotRules.MaxCounted,
+        MaxTotal = TripStepSlotRules.MaxTotal,
+        NextQuietAt = s.NextQuietAt,
+    };
+
+    // Open rows of one step (any kind), read under the caller's trip lock.
+    public static async Task<List<TripEnquiry>> OpenStepRowsAsync(ApplicationDbContext db, Guid tripId, string stepKey)
+        => await db.TripEnquiries.AsNoTracking()
+            .Where(x => x.TripId == tripId && x.StepKey == stepKey && TripEnquiryStatuses.Open.Contains(x.Status))
+            .ToListAsync();
 
     // ---------- shortlist ownership ----------
 

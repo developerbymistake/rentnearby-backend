@@ -127,6 +127,11 @@ public static class TripSendStatuses
     };
 }
 
+public static class TripSendReasons
+{
+    public const string FullOnDates = "FullOnDates";
+}
+
 public static class TripSkipReasons
 {
     public const string AlreadyOpen = "AlreadyOpen";
@@ -502,6 +507,25 @@ public static class TripExecutionRules
         return true;
     }
 
+    // Quiet rows of other stays count apart: refuse at 3 counted or 6 counted + quiet on any night.
+    public static bool FitsNightCap(IEnumerable<TripEnquiry> open, Guid listingId, int alreadyAdded, DateOnly checkIn, DateOnly checkOut, DateTime nowUtc)
+    {
+        var others = open.Where(x => x.ListingId != listingId && x.CheckIn != null && x.CheckOut != null).ToList();
+        for (var night = checkIn; night < checkOut; night = night.AddDays(1))
+        {
+            var next = night.AddDays(1);
+            var onNight = others.Where(x => NightsOverlap(x.CheckIn!.Value, x.CheckOut!.Value, night, next)).ToList();
+            var quiet = onNight.Count(x => TripQuietRules.IsQuiet(x, nowUtc));
+            var counted = onNight.Count - quiet;
+            if (counted + alreadyAdded >= MaxOpenPerNight || counted + quiet + alreadyAdded >= TripStepSlotRules.MaxTotal) return false;
+        }
+        return true;
+    }
+
+    // Offers that still hold one of the host's 3 places: expired and declined ones are freed.
+    public static int CountedOffers(IEnumerable<TripOffer> offers)
+        => offers.Count(o => o.Kind == TripOfferKinds.Offer && o.Status != TripOfferStatuses.Expired && o.Status != TripOfferStatuses.Declined);
+
     // Saturates at int.MaxValue so the MaxAmount check rejects an overflowing total.
     public static int ComputeTotal(IReadOnlyList<TripOfferLine> lines, int nights)
         => Saturate((long)nights * lines.Sum(l => (long)l.Units * l.PricePerNight));
@@ -553,6 +577,8 @@ public sealed class TripEnquiryContext
     public int? CityIndex { get; set; }
     public int? CityCount { get; set; }
     public int? TripDayCount { get; set; }
+    // Stay asks of the new app: the traveller's phone goes to the host while the ask is open.
+    public bool? PhoneShared { get; set; }
 }
 
 public static class TripEnquiryCity
@@ -864,9 +890,11 @@ public static class TripSystemLines
     public const string TripDatesChanged = "tripDatesChanged";
     // Mark as booked: neutral for stays and taxis, the host is not pushed.
     public const string GuestBookedElsewhere = "guestBookedElsewhere";
+    public const string Restored = "restored";
 
     public static string Text(string kind) => kind switch
     {
+        Restored => "The guest reopened this enquiry.",
         GuestBookedElsewhere => "The guest booked this elsewhere.",
         TripDatesChanged => "The guest changed the trip dates. This enquiry is closed.",
         RevisedAccepted => "The guest accepted the new price.",
@@ -940,6 +968,10 @@ public static class TripDateText
 public static class TripBulkRules
 {
     public const string StepFullMessage = "You already have 3 open enquiries here. Wait for a reply or withdraw one.";
+    public const string StepFullTotalMessage = "This day has 6 asks. Withdraw quiet asks to choose new ones.";
+
+    public static string StepFullMessageOf(string fullCase)
+        => fullCase == TripStepSlotRules.CaseTotal ? StepFullTotalMessage : StepFullMessage;
     public static readonly TimeSpan OfferReplayWindow = TimeSpan.FromMinutes(2);
 
     // Skip reason for a send that meets overlapping open rows of the same traveller and host: a row of THIS trip is
@@ -978,4 +1010,139 @@ public static class TripBulkRules
     // Outbox key of a push to a host about a row that already exists: unique per change (the new-row key is enq:{id}:new).
     public static string UpdateKey(Guid enquiryId, string kind, DateTime updatedAt)
         => $"enq:{enquiryId:N}:{kind}:{updatedAt.Ticks}";
+}
+
+// Stay ask with no live offer and no host answer for a while: still alive, but frees its place in the step.
+public static class TripQuietRules
+{
+    public const int QuietAfterHours = 12, QuietFloorHours = 2;
+
+    // CreatedAt + min(12 h, max(2 h, life / 2)).
+    public static DateTime QuietAt(DateTime createdAtUtc, DateTime expiresAtUtc)
+    {
+        var half = TimeSpan.FromTicks(Math.Max(0, (expiresAtUtc - createdAtUtc).Ticks) / 2);
+        var wait = TimeSpan.FromHours(QuietFloorHours) > half ? TimeSpan.FromHours(QuietFloorHours) : half;
+        if (wait > TimeSpan.FromHours(QuietAfterHours)) wait = TimeSpan.FromHours(QuietAfterHours);
+        return createdAtUtc + wait;
+    }
+
+    public static bool IsQuiet(TripEnquiry e, DateTime nowUtc)
+        => e.Kind == TripEnquiryKinds.Stay && e.Status == TripEnquiryStatuses.Asked && nowUtc >= QuietAt(e.CreatedAt, e.ExpiresAt);
+
+    // e = table alias. Raw SQL only.
+    public const string QuietAtSql =
+        """(e."CreatedAt" + LEAST(interval '12 hours', GREATEST(interval '2 hours', (e."ExpiresAt" - e."CreatedAt") / 2)))""";
+}
+
+public sealed record TripStepSlots(int Counted, int Quiet, int Shortlisted, int Free, DateTime? NextQuietAt, IReadOnlyList<Guid> QuietIds);
+
+// Per step: 3 counted asks (waiting, offered, booked) and at most 6 with the quiet ones.
+public static class TripStepSlotRules
+{
+    public const int MaxCounted = TripExecutionRules.MaxShortlistPerStep, MaxTotal = 6;
+    public const string CaseWaiting = "waiting", CaseTotal = "total";
+
+    public static TripStepSlots Compute(IEnumerable<TripEnquiry> openRowsOfStep, int activeShortlistRows, DateTime nowUtc)
+    {
+        var open = openRowsOfStep.Where(x => TripEnquiryStatuses.IsOpen(x.Status)).ToList();
+        var quiet = open.Where(x => TripQuietRules.IsQuiet(x, nowUtc)).ToList();
+        var counted = open.Count - quiet.Count;
+        var shortlisted = Math.Max(0, activeShortlistRows);
+        var free = Math.Max(0, Math.Min(MaxCounted - counted - shortlisted, MaxTotal - counted - quiet.Count - shortlisted));
+        DateTime? next = open
+            .Where(x => x.Kind == TripEnquiryKinds.Stay && x.Status == TripEnquiryStatuses.Asked && !TripQuietRules.IsQuiet(x, nowUtc))
+            .Select(x => (DateTime?)TripQuietRules.QuietAt(x.CreatedAt, x.ExpiresAt))
+            .Min();
+        return new TripStepSlots(counted, quiet.Count, shortlisted, free, next, quiet.Select(x => x.Id).ToList());
+    }
+
+    // Null = fits. A send turns shortlist rows into asks, so only a shortlist add counts the shortlisted rows.
+    public static string? FullCase(TripStepSlots s, int addingRows, bool addingIsShortlistRow)
+    {
+        var held = addingIsShortlistRow ? s.Shortlisted : 0;
+        if (s.Counted + s.Quiet + held + addingRows > MaxTotal) return CaseTotal;
+        if (s.Counted + held + addingRows > MaxCounted) return CaseWaiting;
+        return null;
+    }
+
+    // Undo of a withdraw: a row that comes back quiet needs only a total place.
+    public static string? RestoreCase(TripStepSlots s, bool comesBackQuiet)
+        => comesBackQuiet ? (s.Counted + s.Quiet + 1 > MaxTotal ? CaseTotal : null) : FullCase(s, 1, addingIsShortlistRow: false);
+
+    public static bool ComesBackQuiet(TripEnquiry e, bool offerRestored, DateTime nowUtc)
+        => !offerRestored && e.Kind == TripEnquiryKinds.Stay && nowUtc >= TripQuietRules.QuietAt(e.CreatedAt, e.ExpiresAt);
+}
+
+// No timer push to a traveller or host between 22:00 and 07:00 IST: the pass waits for the morning.
+public static class TripQuietHours
+{
+    public const int NightStartHour = 22, DayStartHour = 7;
+
+    public static bool IsNight(DateTime nowUtc)
+    {
+        var hour = (nowUtc + TripExecutionRules.IstOffset).Hour;
+        return hour >= NightStartHour || hour < DayStartHour;
+    }
+
+    // Next 07:00 IST at or after now, in UTC.
+    public static DateTime NextMorningUtc(DateTime nowUtc)
+    {
+        var ist = nowUtc + TripExecutionRules.IstOffset;
+        var morning = ist.Date.AddHours(DayStartHour);
+        if (ist >= morning) morning = morning.AddDays(1);
+        return DateTime.SpecifyKind(morning - TripExecutionRules.IstOffset, DateTimeKind.Utc);
+    }
+}
+
+// Host reminders while a stay ask waits: 2, 12, 24 h (1, 4, 8 h for an ask that lives 24 h or less).
+public static class TripHostNudgeRules
+{
+    public static readonly int[] NormalHours = [2, 12, 24];
+    public static readonly int[] NearTripHours = [1, 4, 8];
+    public const int NearTripLifeHours = 24;
+
+    public static int[] Ladder(DateTime createdAtUtc, DateTime expiresAtUtc)
+        => expiresAtUtc - createdAtUtc <= TimeSpan.FromHours(NearTripLifeHours) ? NearTripHours : NormalHours;
+
+    // Highest stage (1..3) whose time has passed before the ask ends; 0 = none yet.
+    public static int DueStage(DateTime createdAtUtc, DateTime expiresAtUtc, DateTime nowUtc)
+    {
+        var ladder = Ladder(createdAtUtc, expiresAtUtc);
+        for (var stage = ladder.Length; stage >= 1; stage--)
+        {
+            var due = createdAtUtc.AddHours(ladder[stage - 1]);
+            if (nowUtc >= due && due < expiresAtUtc) return stage;
+        }
+        return 0;
+    }
+
+    public static string Key(Guid enquiryId, int stage) => $"hostnudge:{enquiryId}:{stage}";
+
+    public static int WaitingHours(DateTime createdAtUtc, DateTime nowUtc)
+        => Math.Max(1, (int)Math.Floor((nowUtc - createdAtUtc).TotalHours));
+}
+
+// Withdraw with Undo: the app shows 10 s, the server accepts 15 s, the host push leaves at 20 s.
+public static class TripUndoRules
+{
+    public const int UndoSeconds = 10, ServerWindowSeconds = 15, HostPushDelaySeconds = 20;
+
+    public static bool CanRestore(TripEnquiry e, DateTime nowUtc)
+        => e.Kind == TripEnquiryKinds.Stay
+           && e.Status == TripEnquiryStatuses.Closed
+           && e.FailReason == TripCloseReasons.Withdrawn
+           && nowUtc <= e.UpdatedAt.AddSeconds(ServerWindowSeconds)
+           && e.ExpiresAt > nowUtc;
+
+    public static string WithdrawKeyPrefix(Guid enquiryId) => $"enq:{enquiryId:N}:wd:";
+
+    public static string WithdrawKey(Guid enquiryId, DateTime nowUtc)
+        => WithdrawKeyPrefix(enquiryId) + new DateTimeOffset(DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+}
+
+// SendOnce keys of the frequent stay pass.
+public static class TripStayNudgeKeys
+{
+    public static string Quiet(Guid enquiryId) => $"quiet:{enquiryId}";
+    public static string Ended(Guid enquiryId) => $"ended:{enquiryId}";
 }

@@ -84,8 +84,24 @@ public static class ChatHandlers
             dtos.Add(await BuildConversationDtoAsync(c, callerId, db, otherPartyNames, listingInfo, otherPartyPhotos));
 
         await AttachTripEnquiriesAsync(dtos, callerId, unitOfWork);
+        await AttachHasChatAsync(dtos, db);
 
         return OkResponse(new { items = dtos, hasMore, nextCursor });
+    }
+
+    // Message types a person wrote in chat (not trip enquiry cards, the share card the enquiry flow posts, or system lines).
+    internal static readonly string[] RealChatTypes =
+        ["text", "quick_reply", "contact_request", "contact_response", "schedule_proposal", "schedule_response"];
+
+    private static async Task AttachHasChatAsync(IReadOnlyList<ConversationDto> dtos, ApplicationDbContext db)
+    {
+        var ids = dtos.Where(d => d.TripEnquiry != null).Select(d => d.Id).ToList();
+        if (ids.Count == 0) return;
+        var withChat = await db.Messages.AsNoTracking()
+            .Where(m => ids.Contains(m.ConversationId) && RealChatTypes.Contains(m.Type))
+            .Select(m => m.ConversationId).Distinct().ToListAsync();
+        foreach (var d in dtos)
+            if (d.TripEnquiry != null) d.HasChat = withChat.Contains(d.Id);
     }
 
     public static async Task<IResult> CreateConversation(
@@ -338,11 +354,17 @@ public static class ChatHandlers
 
     // Same `{ count }` shape as NotificationInboxHandlers.GetUnreadCount so the client can
     // parse both unread-count endpoints identically.
-    public static async Task<IResult> GetUnreadCount(ClaimsPrincipal principal, IUnitOfWork unitOfWork)
+    // chatOnly (new builds): leaves out conversations that hold only trip enquiry cards.
+    public static async Task<IResult> GetUnreadCount(ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, bool? chatOnly)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
-        var count = await unitOfWork.Conversations.GetTotalUnreadForUserAsync(callerId);
+        if (chatOnly != true) return OkResponse(new { count = await unitOfWork.Conversations.GetTotalUnreadForUserAsync(callerId) });
+        var count = await db.Conversations.AsNoTracking()
+            .Where(c => (c.RenterId == callerId || c.OwnerId == callerId)
+                && (!db.TripEnquiries.Any(e => e.ConversationId == c.Id)
+                    || db.Messages.Any(m => m.ConversationId == c.Id && RealChatTypes.Contains(m.Type))))
+            .SumAsync(c => c.RenterId == callerId ? c.UnreadCountForRenter : c.UnreadCountForOwner);
         return OkResponse(new { count });
     }
 

@@ -418,8 +418,8 @@ public class RoomsPlotsRemovalGuardTests
     [Fact]
     public void UserNotificationRoutes_OwnedByKind()
     {
-        Assert.Equal(new[] { "/my-stays", "/stay-enquiries", "/stay-calendar", "/stay-special-prices", "/stay-plan-visible" }, UserNotificationRoutes.OwnedByKind(ListingKinds.Stay));
-        Assert.Equal(new[] { "/my-taxi", "/trip-leads", "/taxi-request-ring", "/taxi-requests", "/taxi-request-detail", "/taxi-bookings", "/taxi-rating", "/taxi-ready", "/taxi-plan-visible" }, UserNotificationRoutes.OwnedByKind(ListingKinds.Taxi));
+        Assert.Equal(new[] { "/my-stays", "/stay-enquiries", "/stay-calendar", "/stay-special-prices", "/stay-plan-visible", "/stay-upcoming" }, UserNotificationRoutes.OwnedByKind(ListingKinds.Stay));
+        Assert.Equal(new[] { "/my-taxi", "/trip-leads", "/taxi-request-ring", "/taxi-requests", "/taxi-request-detail", "/taxi-bookings", "/taxi-rating", "/taxi-ready", "/taxi-plan-visible", "/taxi-upcoming" }, UserNotificationRoutes.OwnedByKind(ListingKinds.Taxi));
         Assert.Empty(UserNotificationRoutes.OwnedByKind("Room"));
         Assert.Empty(UserNotificationRoutes.OwnedByKind("Plot"));
     }

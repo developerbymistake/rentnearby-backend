@@ -37,6 +37,7 @@ public class TripNotificationsTests
         (NotificationTypes.TripStartsToday, "trip_starts_today"),
         (NotificationTypes.TripMarkComplete, "trip_mark_complete"),
         (NotificationTypes.TripTravelEve, "trip_travel_eve"),
+        (NotificationTypes.TripReminder, "trip_reminder"),
     ];
 
     private static readonly HashSet<string> AllowedRoutes =
@@ -304,6 +305,148 @@ public class TripNotificationsTests
             Assert.Equal(TripId.ToString(), doc.RootElement.GetProperty("tripId").GetString());
             Assert.Equal(TripRowKinds.Taxi, doc.RootElement.GetProperty("row").GetString());
         }
+    }
+
+    [Fact]
+    public void Stay_host_pushes_open_the_enquiries_tab_even_with_a_chat()
+    {
+        var e = StayRow();
+        var chat = Ctx(Owner, SampleJson("chatargsjson"));
+        foreach (var n in new[]
+        {
+            TripNotifications.TripEnquiryReceived(e, chat),
+            TripNotifications.TripOfferAccepted(e, chat),
+            TripNotifications.TripOfferDeclined(e, chat),
+            TripNotifications.TripTravellerLeft(e, chat),
+            TripNotifications.TripTravellerCancelled(e, chat),
+            TripNotifications.TripCounterReceived(e, chat),
+            TripNotifications.TripRevisedKept(e, chat),
+            TripNotifications.TripChangeRequest(e, chat),
+            TripNotifications.TripOfferLapsed(e, chat),
+            TripNotifications.TripEnquiryClosedByAdmin(e, chat),
+            TripNotifications.TripProblemReported(e, chat),
+        })
+        {
+            Assert.Equal(UserNotificationRoutes.StayEnquiries, n.ActionRoute);
+            using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+            Assert.Equal(e.Id.ToString(), doc.RootElement.GetProperty("enquiryId").GetString());
+            Assert.Equal(TripOwnerBuckets.New, doc.RootElement.GetProperty("bucket").GetString());
+        }
+    }
+
+    [Fact]
+    public void Stay_traveller_pushes_open_my_enquiries_and_keep_the_plan_args()
+    {
+        var e = StayRow();
+        e.StepKey = "stay:1";
+        e.Status = TripEnquiryStatuses.Offered;
+        var chat = Ctx(Traveller, SampleJson("chatargsjson"));
+        foreach (var n in new[]
+        {
+            TripNotifications.TripOfferReceived(e, chat),
+            TripNotifications.TripRevisedOffer(e, chat),
+            TripNotifications.TripOfferExpired(e, chat),
+            TripNotifications.TripChangeAccepted(e, chat),
+            TripNotifications.TripListingRemoved(e, chat),
+            TripNotifications.TripEnquiryExpired(e, chat),
+            TripNotifications.TripNotAvailable(e, chat),
+            TripNotifications.TripOwnerCancelled(e, chat),
+            TripNotifications.TripEnquiryClosedByAdmin(e, chat),
+        })
+        {
+            Assert.Equal(UserNotificationRoutes.TripPlan, n.ActionRoute);
+            using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+            var root = doc.RootElement;
+            Assert.Equal(TripId.ToString(), root.GetProperty("tripId").GetString());
+            Assert.Equal("stay:1", root.GetProperty("row").GetString());
+            Assert.Equal("myEnquiries", root.GetProperty("open").GetString());
+            Assert.Equal(e.Id.ToString(), root.GetProperty("enquiryId").GetString());
+            Assert.Equal(TripMyBuckets.Offers, root.GetProperty("bucket").GetString());
+            Assert.Equal("stay:1", root.GetProperty("stepKey").GetString());
+        }
+    }
+
+    [Fact]
+    public void Stay_traveller_push_without_a_trip_opens_my_trips_with_the_keys()
+    {
+        var e = StayRow();
+        e.TripId = null;
+        var n = TripNotifications.TripNotAvailable(e, Ctx(Traveller));
+        Assert.Equal(UserNotificationRoutes.MyTrips, n.ActionRoute);
+        using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+        Assert.Equal("myEnquiries", doc.RootElement.GetProperty("open").GetString());
+        Assert.False(doc.RootElement.TryGetProperty("tripId", out _));
+    }
+
+    [Fact]
+    public void Taxi_pushes_keep_their_targets()
+    {
+        var e = TaxiRow();
+        using var doc = JsonDocument.Parse(TripNotifications.TripNotAvailable(e, Ctx(Traveller)).ActionArgumentsJson!);
+        Assert.False(doc.RootElement.TryGetProperty("open", out _));
+        Assert.Equal(UserNotificationRoutes.TripLeads, TripNotifications.TripTravellerCancelled(e, Ctx(Owner)).ActionRoute);
+    }
+
+    [Fact]
+    public void Quiet_push_asks_about_similar_stays_not_about_booking()
+    {
+        var e = StayRow();
+        var one = TripNotifications.TripQuiet(e, Ctx(Traveller), 1);
+        Assert.Equal(NotificationTypes.TripNoReply, one.Type);
+        Assert.Equal("No reply yet", one.Title);
+        Assert.Equal("Bisht Cabs has not replied yet. See similar stays?", one.Body);
+        Assert.DoesNotContain("book", one.Body, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Bisht Cabs and 2 more have not replied yet. See similar stays?", TripNotifications.TripQuiet(e, Ctx(Traveller), 3).Body);
+        using var doc = JsonDocument.Parse(one.ActionArgumentsJson!);
+        Assert.Equal(TripMyBuckets.Waiting, doc.RootElement.GetProperty("bucket").GetString());
+        Assert.True(doc.RootElement.GetProperty("similar").GetBoolean());
+        Assert.Equal(new[] { "similar", "openTrip" }, doc.RootElement.GetProperty("actions").EnumerateArray().Select(a => a.GetString()!).ToArray());
+    }
+
+    [Fact]
+    public void Ask_ended_push_names_the_stay_or_the_lapsed_offer()
+    {
+        var e = StayRow();
+        var ended = TripNotifications.TripAskEnded(e, Ctx(Traveller), 1, offerLapsed: false);
+        Assert.Equal(NotificationTypes.TripEnquiryExpired, ended.Type);
+        Assert.Equal("No reply from Bisht Cabs", ended.Title);
+        Assert.Equal("Ask another stay or call.", ended.Body);
+        Assert.Equal("No reply from Bisht Cabs and 1 more", TripNotifications.TripAskEnded(e, Ctx(Traveller), 2, false).Title);
+        var lapsed = TripNotifications.TripAskEnded(e, Ctx(Traveller), 1, offerLapsed: true);
+        Assert.Equal("Your offer has ended", lapsed.Title);
+        Assert.Equal("The offer from Bisht Cabs ended. See similar stays?", lapsed.Body);
+        using var doc = JsonDocument.Parse(lapsed.ActionArgumentsJson!);
+        Assert.Equal(TripMyBuckets.Past, doc.RootElement.GetProperty("bucket").GetString());
+    }
+
+    [Fact]
+    public void Host_nudge_says_how_long_and_carries_reply_and_not_available()
+    {
+        var e = StayRow();
+        var n = TripNotifications.TripHostNudge(e, new TripPushContext(Owner, "Rahul Sharma", "Deodar Homestay", null), 12);
+        Assert.Equal(Owner, n.TargetUserId);
+        Assert.Equal(NotificationTypes.TripReminder, n.Type);
+        Assert.Equal("1 traveller waiting", n.Title);
+        Assert.Equal("Please reply to Rahul's enquiry for 1 Nov. Waiting 12 h.", n.Body);
+        Assert.Equal(UserNotificationRoutes.StayEnquiries, n.ActionRoute);
+        using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+        Assert.Equal(TripOwnerBuckets.New, doc.RootElement.GetProperty("bucket").GetString());
+        Assert.Equal(12, doc.RootElement.GetProperty("waitingHours").GetInt32());
+        Assert.Equal(new[] { "reply", "notAvailable" }, doc.RootElement.GetProperty("actions").EnumerateArray().Select(a => a.GetString()!).ToArray());
+    }
+
+    [Fact]
+    public void Stay_paused_push_offers_similar_stays()
+    {
+        var e = StayRow();
+        e.Status = TripEnquiryStatuses.NotAvailable;
+        var n = TripNotifications.TripStayPaused(e, new TripPushContext(Traveller, "Rahul", "Deodar Homestay", null));
+        Assert.Equal(NotificationTypes.TripNotAvailable, n.Type);
+        Assert.Equal("Deodar Homestay is not taking guests now", n.Title);
+        Assert.StartsWith("See similar stays for ", n.Body);
+        using var doc = JsonDocument.Parse(n.ActionArgumentsJson!);
+        Assert.Equal(TripMyBuckets.Past, doc.RootElement.GetProperty("bucket").GetString());
+        Assert.True(doc.RootElement.GetProperty("similar").GetBoolean());
     }
 
     [Fact]

@@ -58,6 +58,64 @@ public class TripEnquiryDto
     public string? CancelReason { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public string? StepKey { get; set; }
+    public bool IsQuiet { get; set; }
+    public DateTime? QuietAt { get; set; }
+    public string? EndReason { get; set; }
+    public DateTime? UndoUntil { get; set; }
+    public int? OffersLeft { get; set; }
+    public int? WaitingHours { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public TripOwnerShareDto? OwnerShare { get; set; }
+}
+
+public class TripOwnerShareDto
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? UpiId { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? WhatsApp { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? SharedAt { get; set; }
+}
+
+public class TripMyCountsDto
+{
+    public int Waiting { get; set; }
+    public int Offers { get; set; }
+    public int Booked { get; set; }
+    public int Past { get; set; }
+}
+
+public class TripMyEnquiryPageDto
+{
+    public List<TripEnquiryDto> Items { get; set; } = new();
+    public bool HasMore { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? NextCursor { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public TripMyCountsDto? Counts { get; set; }
+}
+
+public class TripMyOpenCountDto
+{
+    public int Offers { get; set; }
+    public int Waiting { get; set; }
+    public int Booked { get; set; }
+}
+
+public class SimilarStaysReferenceDto
+{
+    public Guid? ListingId { get; set; }
+    public int? PricePerNight { get; set; }
+    public Guid? StayTypeId { get; set; }
+}
+
+public class SimilarStaysDto
+{
+    public int Free { get; set; }
+    public SimilarStaysReferenceDto? Reference { get; set; }
+    public List<StayNearbyDto> Items { get; set; } = new();
 }
 
 public class TripEnquiryContextDto
@@ -157,6 +215,12 @@ public class TripSkippedDto
 {
     public Guid ListingId { get; set; }
     public string Reason { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? OtherTripId { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? OtherTripTitle { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? OtherEnquiryId { get; set; }
 }
 
 public class TripEnquiryBatchDto
@@ -176,6 +240,12 @@ public class TripSendResultDto
     public string Status { get; set; } = string.Empty;
     public Guid? EnquiryId { get; set; }
     public string? Reason { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? OtherTripId { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? OtherTripTitle { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? OtherEnquiryId { get; set; }
 }
 
 public class ShortlistItemDto
@@ -196,6 +266,7 @@ public class TripShortlistDto
 {
     public int Max { get; set; }
     public List<ShortlistItemDto> Items { get; set; } = new();
+    public List<TripStepSlotsDto> Steps { get; set; } = new();
 }
 
 public class StepShortlistDto

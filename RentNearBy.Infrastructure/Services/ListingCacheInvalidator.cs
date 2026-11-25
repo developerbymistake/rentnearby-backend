@@ -16,7 +16,13 @@ public class ListingCacheInvalidator(ApplicationDbContext db, IServiceProvider s
 
     public async Task BustForUsersAsync(IReadOnlyCollection<Guid> userIds, string kind)
     {
-        if (userIds.Count == 0 || services.GetService<IConnectionMultiplexer>() == null) return;
+        if (userIds.Count == 0) return;
+        var redis = services.GetService<IConnectionMultiplexer>();
+        if (redis == null)
+        {
+            if (kind == ListingKinds.Taxi) await TaxiWaysVersion.BumpAsync(null);
+            return;
+        }
 
         var ids = userIds.Distinct().ToList();
         List<Guid> districts;
@@ -36,6 +42,7 @@ public class ListingCacheInvalidator(ApplicationDbContext db, IServiceProvider s
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Cache bust: could not read districts for {Count} users ({Kind})", ids.Count, kind);
+            if (kind == ListingKinds.Taxi) await TaxiWaysVersion.BumpAsync(redis);
             return;
         }
 
@@ -45,6 +52,8 @@ public class ListingCacheInvalidator(ApplicationDbContext db, IServiceProvider s
     public async Task BustDistrictsAsync(string kind, IEnumerable<Guid> districtIds)
     {
         var redis = services.GetService<IConnectionMultiplexer>();
+        // Routes hidden or shown again move the taxi ways network too (the process counter even without Redis).
+        if (kind == ListingKinds.Taxi) await TaxiWaysVersion.BumpAsync(redis);
         if (redis == null) return;
 
         try

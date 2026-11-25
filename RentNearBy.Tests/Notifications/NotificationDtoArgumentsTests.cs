@@ -49,7 +49,9 @@ public class NotificationDtoArgumentsTests
             CheckIn = new DateOnly(2026, 11, 1), CheckOut = new DateOnly(2026, 11, 2),
         };
         var n = TripNotifications.TripEnquiryReceived(e, new TripPushContext(Guid.NewGuid(), "Rahul", "Deodar Homestay", ChatArgs));
-        Assert.Equal(UserNotificationRoutes.ChatConversation, n.ActionRoute);
-        Assert.True(NotificationDto.ParseArguments(n.ActionArgumentsJson)!.Value.GetProperty("isOwner").GetBoolean());
+        Assert.Equal(UserNotificationRoutes.StayEnquiries, n.ActionRoute);
+        var args = NotificationDto.ParseArguments(n.ActionArgumentsJson)!.Value;
+        Assert.Equal(e.Id.ToString(), args.GetProperty("enquiryId").GetString());
+        Assert.Equal("new", args.GetProperty("bucket").GetString());
     }
 }

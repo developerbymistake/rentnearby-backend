@@ -148,7 +148,7 @@ public class CalendarEditJourneyIntegrationTests(TestDatabase db) : IntegrationT
     }
 
     [IntegrationFact]
-    public async Task Hidden_entry_is_not_found_for_read_edit_and_money_but_delete_works()
+    public async Task Inactive_entry_is_not_readable_edit_and_money_answer_plan_row_inactive_and_delete_works()
     {
         OwnerSeed.OwnerRow owner;
         List<CalendarEntry> rows;
@@ -157,12 +157,16 @@ public class CalendarEditJourneyIntegrationTests(TestDatabase db) : IntegrationT
             owner = await OwnerSeed.StayOwnerAsync(c);
             rows = await OwnerSeed.ManualEntriesAsync(c, owner, 6, TodayIst.AddDays(1), stepDays: 2);
         }
-        var hidden = rows.OrderBy(r => r.DateTo).ThenBy(r => r.Id).Last();
+        // The plan keeps the last added: the first added row is the inactive one, even though its dates are the soonest.
+        var hidden = rows.OrderBy(r => r.CreatedAt).First();
+        var kept = rows.OrderBy(r => r.CreatedAt).Last();
         var ctx = Ctx(owner, Be1Kit.Free(ListingKinds.Stay));
         await using var db = CreateContext();
         Assert.Null(await OwnerCalendarReader.ReadVisibleAsync(db, ctx, hidden.Id, default));
-        Assert.Equal(Be1ErrorTypes.NotFound, (await Writer(db).UpdateAsync(ctx, hidden.Id, 1, Input(hidden.DateFrom, hidden.DateTo, "x"))).Error!.Type);
-        Assert.Equal(Be1ErrorTypes.NotFound, (await new MoneyNoteService(db).SetAsync(ctx, hidden.Id, 1, new MoneyNote(100, null, false))).Error!.Type);
+        Assert.NotNull(await OwnerCalendarReader.ReadVisibleAsync(db, ctx, kept.Id, default));
+        Assert.Equal(OwnerErrorTypes.PlanRowInactive, (await Writer(db).UpdateAsync(ctx, hidden.Id, 1, Input(hidden.DateFrom, hidden.DateTo, "x"))).Error!.Type);
+        Assert.Equal(OwnerErrorTypes.PlanRowInactive, (await new MoneyNoteService(db).SetAsync(ctx, hidden.Id, 1, new MoneyNote(100, null, false))).Error!.Type);
+        Assert.Equal(Be1ErrorTypes.NotFound, (await new MoneyNoteService(db).SetAsync(ctx, Guid.NewGuid(), 1, new MoneyNote(100, null, false))).Error!.Type);
         Assert.Null(await Writer(db).DeleteAsync(ctx, hidden.Id));
     }
 

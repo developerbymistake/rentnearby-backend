@@ -19,6 +19,7 @@ using RentNearBy.Core.Interfaces.Owner;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
+using RentNearBy.Infrastructure.Services.Owner;
 using RentNearBy.Infrastructure.Services.Owner.Be3;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using StackExchange.Redis;
@@ -819,12 +820,25 @@ public static class TaxiHandlers
             await unitOfWork.RollbackTransactionAsync();
             return Concurrent();
         }
+        // L15: two saves racing on a new (TaxiListingId, RouteIndex) row; the loser gets the same 409 as an xmin clash.
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            return Concurrent();
+        }
         catch
         {
             await unitOfWork.RollbackTransactionAsync();
             throw;
         }
         await taxiRequests.AfterCommitAsync(taxiSignals, poolChanged: false);
+        // L6: a visible route removed on Free while some are hidden brings the newest hidden one back at once (as stay rooms do).
+        if (hiddenKeys.Count > 0 && limits.PaymentEnabled && request.Routes.Count < limits.Routes
+            && await RefillHiddenRoutesAsync(userId, unitOfWork, sp, entitlements))
+        {
+            db.ChangeTracker.Clear();
+            taxi = await unitOfWork.Taxis.GetLiveByUserAsync(userId) ?? taxi;
+        }
         await pickupPlaces.BumpAsync();
 
         if (taxi.Status == TaxiStatuses.Approved)
@@ -855,7 +869,10 @@ public static class TaxiHandlers
         if (taxi.Status == TaxiStatuses.PendingReview) return LockedResponse();
 
         var route = taxi.Routes.FirstOrDefault(r => r.Id == routeId);
-        if (route == null) return NotFoundResponse("Route not found");
+        if (route == null)
+            return await HiddenRouteAsync(sp.GetRequiredService<ApplicationDbContext>(), taxi.Id, routeId)
+                ? OwnerHttp.RowInactive()
+                : NotFoundResponse("Route not found");
 
         var now = DateTime.UtcNow;
         route.Fare = request.Fare;
@@ -870,6 +887,100 @@ public static class TaxiHandlers
             await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
         return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
     }
+
+    // A route the plan hides (inactive after Plus ends): Delete is its one open action; visible routes go through the full replace
+    // (PUT /me/routes). A hidden route rings nothing (its offers closed when it was hidden), so no closure runs and no visible row
+    // moves. Lock order Users -> TaxiListings -> TaxiRoutes.
+    public static async Task<IResult> DeleteHiddenRoute(
+        Guid routeId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, ILiveSlotService slots,
+        PlanLimitsReconcile planRows, ICityResolver resolver, IServiceProvider sp)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var taxi = await unitOfWork.Taxis.GetLiveByUserAsync(userId);
+        if (taxi == null) return NotFoundResponse(TaxiNotFound);
+        if (taxi.Status == TaxiStatuses.PendingReview) return LockedResponse();
+        if (taxi.Routes.Any(r => r.Id == routeId))
+            return OwnerHttp.Refuse(OwnerErrorTypes.BadRequest, VisibleRouteDelete);
+
+        IResult? refused = null;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await slots.LockOwnerAsync(userId);
+            if (!await OwnerLocks.LockTaxiAsync(db, taxi.Id)) refused = NotFoundResponse(TaxiNotFound);
+            else
+            {
+                var deleted = await db.Database.ExecuteSqlRawAsync(DeleteHiddenRouteSql,
+                    new NpgsqlParameter("r", NpgsqlDbType.Uuid) { Value = routeId },
+                    new NpgsqlParameter("t", NpgsqlDbType.Uuid) { Value = taxi.Id });
+                if (deleted == 0)
+                    refused = await db.TaxiRoutes.IgnoreQueryFilters().AsNoTracking().AnyAsync(r => r.Id == routeId && r.TaxiListingId == taxi.Id)
+                        ? OwnerHttp.Refuse(OwnerErrorTypes.BadRequest, RouteActiveAgain)
+                        : NotFoundResponse("Route not found");
+                else
+                {
+                    var hidden =(await OwnerHiddenCounts.ReadAsync(db, userId, ListingKinds.Taxi, IstTime.TodayIst(DateTime.UtcNow))).Hidden;
+                    if (hidden.Total == 0) await planRows.ClearLimitsNoticeAsync(userId);
+                    await db.Database.ExecuteSqlRawAsync("""UPDATE "TaxiListings" SET "UpdatedAt" = now() WHERE "Id" = @t""",
+                        new NpgsqlParameter("t", NpgsqlDbType.Uuid) { Value = taxi.Id });
+                }
+            }
+            if (refused != null) await unitOfWork.RollbackTransactionAsync();
+            else await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        if (refused != null) return refused;
+
+        db.ChangeTracker.Clear();
+        taxi = await unitOfWork.Taxis.GetLiveByUserAsync(userId) ?? taxi;
+        if (taxi.Status == TaxiStatuses.Approved)
+            await TaxiCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), taxi.DistrictId);
+        return OkResponse(await ToOwnerDtoAsync(taxi, unitOfWork, resolver));
+    }
+
+    // Own transaction after the route save: Users lock, then the plan rows (closure before the listing lock, contract 4.1).
+    public static async Task<bool> RefillHiddenRoutesAsync(Guid userId, IUnitOfWork unitOfWork, IServiceProvider sp, IPlanEntitlementService entitlements)
+    {
+        var slots = sp.GetRequiredService<ILiveSlotService>();
+        var planRows = sp.GetRequiredService<PlanLimitsReconcile>();
+        PlanRowsEffect effect;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await slots.LockOwnerAsync(userId);
+            var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Taxi);
+            effect = await planRows.ApplyForOwnerAsync(userId, ListingKinds.Taxi, limits);
+            if (effect.Changed && effect.HiddenAfter == 0) await planRows.ClearLimitsNoticeAsync(userId);
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch (Exception ex)
+        {
+            // The save is committed; the daily pass repairs the rows.
+            await unitOfWork.RollbackTransactionAsync();
+            planRows.DropAfterCommit();
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger("TaxiRoutes").LogWarning(ex, "taxi.routes.refill failed for {UserId}", userId);
+            return false;
+        }
+        await planRows.AfterCommitAsync();
+        return effect.Changed;
+    }
+
+    public const string VisibleRouteDelete = "Remove this route from Edit routes.";
+
+    public const string RouteActiveAgain = "This route is active again.";
+
+    public const string DeleteHiddenRouteSql = """
+        DELETE FROM "TaxiRoutes" WHERE "Id" = @r AND "TaxiListingId" = @t AND "HiddenByPlan"
+        """;
+
+    private static Task<bool> HiddenRouteAsync(ApplicationDbContext db, Guid taxiId, Guid routeId)
+        => db.TaxiRoutes.IgnoreQueryFilters().AsNoTracking().AnyAsync(r => r.Id == routeId && r.TaxiListingId == taxiId && r.HiddenByPlan);
 
     // A rate change never sends an Approved taxi back to review.
     public static async Task<IResult> UpdateLocalRate(

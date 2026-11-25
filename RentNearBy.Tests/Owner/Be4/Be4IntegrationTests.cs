@@ -59,6 +59,35 @@ public class Be4IntegrationTests(TestDatabase db) : IntegrationTestBase(db)
     }
 
     [IntegrationFact]
+    public async Task Taxi_home_listing_carries_the_local_day_rate()
+    {
+        OwnerSeed.OwnerRow o;
+        await using (var c = CreateContext())
+        {
+            o = await OwnerSeed.TaxiDriverAsync(c);
+            await c.TaxiListings.Where(t => t.Id == o.ListingId).ExecuteUpdateAsync(u => u.SetProperty(t => t.LocalDayRate, 2500));
+        }
+        await using var read = CreateContext();
+        var home = await new TaxiDriverHomeReader(read, new Be4Catalog(), new Be4Payment(true), Clock).ReadAsync(o.UserId, Env);
+        Assert.Equal(2500, home!.Listing.LocalDayRate);
+    }
+
+    [IntegrationFact]
+    public async Task Taxi_home_listing_carries_the_display_photo()
+    {
+        OwnerSeed.OwnerRow o;
+        await using (var c = CreateContext())
+        {
+            o = await OwnerSeed.TaxiDriverAsync(c);
+            await c.TaxiListings.Where(t => t.Id == o.ListingId)
+                .ExecuteUpdateAsync(u => u.SetProperty(t => t.DisplayPhotoUrl, "https://res.cloudinary.com/x/image/upload/taxi.jpg"));
+        }
+        await using var read = CreateContext();
+        var home = await new TaxiDriverHomeReader(read, new Be4Catalog(), new Be4Payment(true), Clock).ReadAsync(o.UserId, Env);
+        Assert.Equal("https://res.cloudinary.com/x/image/upload/taxi.jpg", home!.Listing.DisplayPhotoUrl);
+    }
+
+    [IntegrationFact]
     public async Task Home_of_a_fresh_stay_owner_has_every_field_and_no_attention()
     {
         OwnerSeed.OwnerRow o;

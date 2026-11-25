@@ -17,6 +17,7 @@ public class OwnerSeamsTests
     [InlineData(NotificationTypes.PlanLimitsChanged, "plan_limits_changed")]
     [InlineData(NotificationTypes.OwnerMorningReminder, "owner_morning_reminder")]
     [InlineData(NotificationTypes.PlansStarting, "plans_starting")]
+    [InlineData(NotificationTypes.OwnerBookingTomorrow, "owner_booking_tomorrow")]
     public void Owner_push_types_have_their_wire_values(string type, string wire)
     {
         Assert.Equal(wire, NotificationTypes.ToWireValue(type));
@@ -34,6 +35,8 @@ public class OwnerSeamsTests
         Assert.Equal("/main", UserNotificationRoutes.OwnerHome);
         Assert.Equal("/trip-settle", UserNotificationRoutes.TripSettle);
         Assert.Equal("/trip-replies", UserNotificationRoutes.TripReplies);
+        Assert.Equal("/stay-upcoming", UserNotificationRoutes.StayUpcoming);
+        Assert.Equal("/taxi-upcoming", UserNotificationRoutes.TaxiUpcoming);
     }
 
     [Theory]

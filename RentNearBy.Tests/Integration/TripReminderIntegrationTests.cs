@@ -55,9 +55,10 @@ public class TripReminderIntegrationTests(TestDatabase db) : IntegrationTestBase
         State = state, ClosedReason = reason, ClosedAt = state == "Closed" ? RunAt.AddHours(-3) : null,
     };
 
-    private static TripEnquiry Enquiry(Guid trip, Guid traveller, Guid owner, string status = "Asked") => new()
+    // Taxi: stay enquiries left the morning run (TripStayNudgeRunner covers them).
+    private static TripEnquiry Enquiry(Guid trip, Guid traveller, Guid owner, string status = "Asked", string kind = "Taxi") => new()
     {
-        Id = Guid.NewGuid(), TripId = trip, TravellerUserId = traveller, OwnerUserId = owner, Kind = "Stay", ListingId = Guid.NewGuid(),
+        Id = Guid.NewGuid(), TripId = trip, TravellerUserId = traveller, OwnerUserId = owner, Kind = kind, ListingId = Guid.NewGuid(),
         ListingName = "Hill View", Status = status, StepKey = "stay:1", ExpiresAt = RunAt.AddDays(1), CreatedAt = RunAt.AddDays(-1), UpdatedAt = RunAt.AddDays(-1),
     };
 
@@ -283,6 +284,28 @@ public class TripReminderIntegrationTests(TestDatabase db) : IntegrationTestBase
         }
         await RunAsync();
         Assert.Equal(2, (await OutboxKeysAsync(both)).Count);
+    }
+
+    [IntegrationFact]
+    public async Task Stay_enquiries_get_no_morning_push_on_either_side()
+    {
+        Guid host, traveller;
+        await using (var ctx = CreateContext())
+        {
+            traveller = await UserAsync(ctx, "Asha");
+            host = await UserAsync(ctx, "Host");
+            var trip = await TripAsync(ctx, traveller);
+            var expired = Enquiry(trip, traveller, host, "Expired", kind: "Stay");
+            expired.StepKey = null;
+            expired.CreatedAt = RunAt.AddHours(-80);
+            expired.ExpiresAt = expired.CreatedAt.AddHours(TripExecutionRules.EnquiryHours);
+            expired.UpdatedAt = RunAt.AddHours(-3);
+            ctx.TripEnquiries.AddRange(Enquiry(trip, traveller, host, kind: "Stay"), expired);
+            await ctx.SaveChangesAsync();
+        }
+        await RunAsync();
+        Assert.Empty(await OutboxKeysAsync(host));
+        Assert.Empty(await OutboxKeysAsync(traveller));
     }
 
     // B3 gaps (run on PostgreSQL; the same predicates were also run against a scratch PostgreSQL 18.3 schema without PostGIS).

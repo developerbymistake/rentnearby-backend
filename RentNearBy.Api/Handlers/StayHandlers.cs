@@ -273,9 +273,22 @@ public static class StayHandlers
         long cityKey, double? latitude, double? longitude, int? count, Guid? stayTypeId, IUnitOfWork unitOfWork, ICityResolver resolver,
         ClaimsPrincipal principal, IServiceProvider sp, int? guests, bool? groundFloor, int? rooms, int? nights, DateOnly? checkIn)
     {
+        var city = await CityStayItemsAsync(cityKey, latitude, longitude, count, stayTypeId, unitOfWork, resolver, sp, guests, groundFloor, rooms, nights, checkIn);
+        if (!city.Available) return ErrorResponse(503, "Cities are not available right now", TripErrorTypes.CitiesUnavailable);
+        var items = city.Items;
+        if (principal.Identity?.IsAuthenticated != true) RedactForAnonymous(items);
+        if (principal.FindFirst(ClaimTypes.Role)?.Value != UserRoles.StayOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.AddListed(items.Select(s => s.Id));
+        return OkResponse(new { items = StayGeoRefine.WithMapThumbs(items) });
+    }
+
+    // The stay picker list of one city (same cache, rooms and dated pricing); Available false = Atlas down, a city that is off = empty.
+    public static async Task<(bool Available, List<StayNearbyDto> Items)> CityStayItemsAsync(
+        long cityKey, double? latitude, double? longitude, int? count, Guid? stayTypeId, IUnitOfWork unitOfWork, ICityResolver resolver,
+        IServiceProvider sp, int? guests, bool? groundFloor, int? rooms, int? nights, DateOnly? checkIn)
+    {
         var pin = await resolver.FindAsync(cityKey);
-        if (!pin.Available) return ErrorResponse(503, "Cities are not available right now", TripErrorTypes.CitiesUnavailable);
-        if (pin.City is not { } city) return OkResponse(new { items = new List<StayNearbyDto>() });
+        if (!pin.Available) return (false, new List<StayNearbyDto>());
+        if (pin.City is not { } city) return (true, new List<StayNearbyDto>());
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         var cacheKey = StayCache.CityKey(cityKey, stayTypeId);
@@ -292,9 +305,7 @@ public static class StayHandlers
         var items = StayCityRank.Order(candidates, latitude ?? city.Latitude, longitude ?? city.Longitude, count);
         items = StayNearbyRooms.Apply(items, guests, groundFloor == true, rooms, nights ?? 1);
         items = Dated(sp.GetService<IStayDatedPricing>(), items, checkIn, nights, guests, rooms, groundFloor);
-        if (principal.Identity?.IsAuthenticated != true) RedactForAnonymous(items);
-        if (principal.FindFirst(ClaimTypes.Role)?.Value != UserRoles.StayOwner) sp.GetService<RentNearBy.Infrastructure.Services.Owner.Be4.OwnerShownCounter>()?.AddListed(items.Select(s => s.Id));
-        return OkResponse(new { items = StayGeoRefine.WithMapThumbs(items) });
+        return (true, items);
     }
 
     private static async Task<(List<StayNearbyDto>? Items, long? Generation)> ReadCityStaysAsync(IConnectionMultiplexer? redis, string key)
@@ -881,7 +892,9 @@ public static class StayHandlers
         if (stay == null) return NotFoundResponse(StayNotFound);
         if (!IsLiveEditable(stay)) return LockedResponse(stay);
 
-        var photo = stay.Photos.FirstOrDefault(p => p.Id == photoId);
+        // A photo the plan hides is not in the filtered graph; it can still be deleted (Delete is its one open action).
+        var photo = stay.Photos.FirstOrDefault(p => p.Id == photoId)
+            ?? await db.StayPhotos.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.Id == photoId && p.StayListingId == stay.Id);
         if (photo == null) return NotFoundResponse("Photo not found");
 
         IResult? refused = null;
@@ -904,7 +917,8 @@ public static class StayHandlers
                 {
                     var limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
                     var effect = await planRows.ApplyForOwnerAsync(userId, ListingKinds.Stay, limits);
-                    if (effect.HiddenBefore > 0 && effect.HiddenAfter == 0) await planRows.ClearLimitsNoticeAsync(userId);
+                    if (photo.HiddenByPlan && effect.HiddenAfter == 0) await ClearNoticeIfNothingHiddenAsync(db, planRows, userId);
+                    else if (effect.HiddenBefore > 0 && effect.HiddenAfter == 0) await ClearNoticeIfNothingHiddenAsync(db, planRows, userId);
                     await db.Database.ExecuteSqlRawAsync("""UPDATE "StayListings" SET "UpdatedAt" = now() WHERE "Id" = @s""",
                         new NpgsqlParameter("s", NpgsqlDbType.Uuid) { Value = stay.Id });
                 }
@@ -966,7 +980,11 @@ public static class StayHandlers
                 {
                     // Submit may have committed during the upload: under review answers 409, anything else 404.
                     var current = await db.StayListings.AsNoTracking().Where(s => s.Id == stay.Id).Select(s => s.Status).FirstOrDefaultAsync();
-                    refused = current == StayStatuses.PendingReview ? LockedResponse(current) : NotFoundResponse("Photo not found");
+                    refused = current == StayStatuses.PendingReview ? LockedResponse(current)
+                        : await db.StayPhotos.IgnoreQueryFilters().AsNoTracking()
+                            .AnyAsync(p => p.Id == photoId && p.StayListingId == stay.Id && p.HiddenByPlan)
+                            ? OwnerHttp.RowInactive()
+                            : NotFoundResponse("Photo not found");
                 }
                 else
                 {
@@ -1020,12 +1038,13 @@ public static class StayHandlers
         public string Status { get; set; } = string.Empty;
     }
 
-    // One statement: a visible photo of this stay, and (live stay) at least one other visible photo stays. Hidden photos are not
-    // deletable here (the hub shows them in "Choose what stays").
+    // One statement: a photo of this stay; a visible one only while (live stay) at least one other visible photo stays. A photo the
+    // plan hides is always deletable (inactive: Delete only).
     public const string DeletePhotoSql = """
         DELETE FROM "StayPhotos" p
-        WHERE p."Id" = @p AND p."StayListingId" = @s AND NOT p."HiddenByPlan"
-          AND ((SELECT l."Status" FROM "StayListings" l WHERE l."Id" = @s) <> @approved
+        WHERE p."Id" = @p AND p."StayListingId" = @s
+          AND (p."HiddenByPlan"
+               OR (SELECT l."Status" FROM "StayListings" l WHERE l."Id" = @s) <> @approved
                OR EXISTS (SELECT 1 FROM "StayPhotos" o WHERE o."StayListingId" = @s AND o."Id" <> @p AND NOT o."HiddenByPlan"))
         """;
 
@@ -1131,7 +1150,7 @@ public static class StayHandlers
                     if (removedVisible)
                     {
                         var effect = await planRows.ApplyForOwnerAsync(userId, ListingKinds.Stay, limits);
-                        if (effect.HiddenBefore > 0 && effect.HiddenAfter == 0) await planRows.ClearLimitsNoticeAsync(userId);
+                        if (effect.HiddenBefore > 0 && effect.HiddenAfter == 0) await ClearNoticeIfNothingHiddenAsync(db, planRows, userId);
                         refilled = effect.Changed;
                     }
                 }
@@ -1272,8 +1291,35 @@ public static class StayHandlers
         stay.AcceptingGuests = request.AcceptingGuests.Value;
         stay.UpdatedAt = DateTime.UtcNow;
 
-        try { await unitOfWork.SaveChangesAsync(); }
-        catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        // Pausing closes the open stay asks (StayPaused) with a push in the same transaction; turning it on touches nothing.
+        var tripClosure = stay.AcceptingGuests ? null : sp.GetService<ITripEnquiryClosure>();
+        IReadOnlyList<TripClosurePush> pausedPushes = [];
+        if (tripClosure == null)
+        {
+            try { await unitOfWork.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException) { return Concurrent(); }
+        }
+        else
+        {
+            await unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await unitOfWork.SaveChangesAsync();
+                pausedPushes = await tripClosure.OnStayPausedAsync(stay.Id);
+                await unitOfWork.CommitTransactionAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return Concurrent();
+            }
+            catch
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
+            await tripClosure.AfterCommitAsync(pausedPushes);
+        }
 
         await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
         return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
@@ -1330,7 +1376,10 @@ public static class StayHandlers
         if (stay.Status == StayStatuses.PendingReview) return LockedResponse(stay);
 
         var room = stay.Rooms.FirstOrDefault(r => r.Id == roomId);
-        if (room == null) return NotFoundResponse("Room not found");
+        if (room == null)
+            return await HiddenRoomAsync(sp.GetRequiredService<ApplicationDbContext>(), stay.Id, roomId)
+                ? OwnerHttp.RowInactive()
+                : NotFoundResponse("Room not found");
 
         var now = DateTime.UtcNow;
         room.PricePerNight = request.PricePerNight;
@@ -1344,6 +1393,81 @@ public static class StayHandlers
         if (stay.Status == StayStatuses.Approved)
             await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
         return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub));
+    }
+
+    // A room the plan hides (inactive after Plus ends): Delete is its one open action. Visible rooms go through the full replace
+    // (PUT /me/rooms). Lock order Users -> StayListings -> StayRooms; the plan rows are applied again in the same transaction.
+    public static async Task<IResult> DeleteHiddenRoom(
+        Guid roomId, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, ILiveSlotService slots,
+        IPlanEntitlementService entitlements, PlanLimitsReconcile planRows, StayHubReader hub, IServiceProvider sp)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var userId))
+            return UnauthorizedResponse();
+
+        var stay = await unitOfWork.Stays.GetLiveByUserAsync(userId);
+        if (stay == null) return NotFoundResponse(StayNotFound);
+        if (!IsLiveEditable(stay)) return LockedResponse(stay);
+        if (stay.Rooms.Any(r => r.Id == roomId))
+            return OwnerHttp.Refuse(OwnerErrorTypes.BadRequest, VisibleRoomDelete);
+
+        IResult? refused = null;
+        PlanLimits? limits = null;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await slots.LockOwnerAsync(userId);
+            if (!await OwnerLocks.LockStayAsync(db, stay.Id)) refused = NotFoundResponse(StayNotFound);
+            else
+            {
+                var deleted = await db.Database.ExecuteSqlRawAsync(DeleteHiddenRoomSql,
+                    new NpgsqlParameter("r", NpgsqlDbType.Uuid) { Value = roomId },
+                    new NpgsqlParameter("s", NpgsqlDbType.Uuid) { Value = stay.Id });
+                if (deleted == 0)
+                    refused = await db.StayRooms.IgnoreQueryFilters().AsNoTracking().AnyAsync(r => r.Id == roomId && r.StayListingId == stay.Id)
+                        ? OwnerHttp.Refuse(OwnerErrorTypes.BadRequest, RoomActiveAgain)
+                        : NotFoundResponse("Room not found");
+                else
+                {
+                    limits = await entitlements.GetLimitsAsync(userId, ListingKinds.Stay);
+                    var effect = await planRows.ApplyForOwnerAsync(userId, ListingKinds.Stay, limits);
+                    if (effect.HiddenAfter == 0) await ClearNoticeIfNothingHiddenAsync(db, planRows, userId);
+                    await db.Database.ExecuteSqlRawAsync("""UPDATE "StayListings" SET "UpdatedAt" = now() WHERE "Id" = @s""",
+                        new NpgsqlParameter("s", NpgsqlDbType.Uuid) { Value = stay.Id });
+                }
+            }
+            if (refused != null) await unitOfWork.RollbackTransactionAsync();
+            else await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        if (refused != null) return refused;
+
+        db.ChangeTracker.Clear();
+        stay = await unitOfWork.Stays.GetLiveByUserAsync(userId) ?? stay;
+        if (stay.Status == StayStatuses.Approved)
+            await StayCache.InvalidateAsync(sp.GetService<IConnectionMultiplexer>(), stay.DistrictId);
+        return OkResponse(await ToHubDtoAsync(stay, unitOfWork, hub, limits));
+    }
+
+    public const string VisibleRoomDelete = "Remove this room from Edit rooms.";
+
+    public const string RoomActiveAgain = "This room is active again.";
+
+    public const string DeleteHiddenRoomSql = """
+        DELETE FROM "StayRooms" WHERE "Id" = @r AND "StayListingId" = @s AND "HiddenByPlan"
+        """;
+
+    private static Task<bool> HiddenRoomAsync(ApplicationDbContext db, Guid stayId, Guid roomId)
+        => db.StayRooms.IgnoreQueryFilters().AsNoTracking().AnyAsync(r => r.Id == roomId && r.StayListingId == stayId && r.HiddenByPlan);
+
+    // The PlanLimitsChanged notice goes once nothing of the stay is hidden or paused by the plan any more.
+    private static async Task ClearNoticeIfNothingHiddenAsync(ApplicationDbContext db, PlanLimitsReconcile planRows, Guid userId)
+    {
+        var counts = await OwnerHiddenCounts.ReadAsync(db, userId, ListingKinds.Stay, IstTime.TodayIst(DateTime.UtcNow));
+        if (counts.Hidden.Total + counts.InactiveJobs == 0) await planRows.ClearLimitsNoticeAsync(userId);
     }
 
     // Soft delete (contract 6.2): the owner tables of the stay go through the purge seam in the same transaction (the soft delete

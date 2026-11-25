@@ -37,6 +37,21 @@ public static class TripPushSender
             }
         }
     }
+
+    // Night hold: inbox row now, push written to the outbox in the caller's transaction and sent by the relay at `atUtc`.
+    public static async Task HoldAsync(
+        IReadOnlyList<TripPendingPush> pushes, ApplicationDbContext db, IOutboxWriter outbox, ITripEnquiryRepository enquiries, DateTime atUtc)
+    {
+        foreach (var p in pushes)
+        {
+            if (p.RecipientUserId is not { } recipient || p.DedupeKey == null) continue;
+            var n = p.Build(p.Enquiry, await enquiries.LoadPushContextAsync(p.Enquiry, recipient, p.Total));
+            db.NotificationEvents.Add(n);
+            outbox.AddPush(new OutboxPushPayload(p.DedupeKey, recipient, n.Id, n.Title, n.Body, n.ActionRoute, n.ActionArgumentsJson,
+                $"trip-enq-{p.Enquiry.Id:N}"), atUtc);
+        }
+        await db.SaveChangesAsync();
+    }
 }
 
 // Shared state-change steps used by the handlers, the closure and the timer. All run inside the caller's transaction.
@@ -207,10 +222,43 @@ public class TripEnquiryClosure(
         foreach (var e in rows)
         {
             e.Status = TripEnquiryStatuses.NotAvailable;
+            e.FailReason = TripEndReasons.HostBlocked;
             e.UpdatedAt = now;
             await TripEnquiryOps.CloseOpenOfferAsync(db, chat, e, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, _posts, now);
         }
         await db.SaveChangesAsync();
+    }
+
+    // The host stopped taking guests: open stay asks end NotAvailable / StayPaused with a push; bookings stand.
+    public async Task<IReadOnlyList<TripClosurePush>> OnStayPausedAsync(Guid stayId)
+    {
+        await CloseShortlistAsync(i => i.Kind == TripShortlistKinds.Stay && i.ListingId == stayId);
+        var rows = await db.TripEnquiries
+            .Where(e => e.Kind == TripEnquiryKinds.Stay && e.ListingId == stayId && TripEnquiryStatuses.Unconfirmed.Contains(e.Status))
+            .ToListAsync();
+        if (rows.Count == 0) return [];
+
+        var now = DateTime.UtcNow;
+        var pushes = new List<TripClosurePush>();
+        foreach (var e in rows)
+        {
+            e.Status = TripEnquiryStatuses.NotAvailable;
+            e.FailReason = TripEndReasons.StayPaused;
+            e.UpdatedAt = now;
+            await TripEnquiryOps.CloseOpenOfferAsync(db, chat, e, TripOfferStatuses.Superseded, TripCardStatuses.Superseded, _posts, now);
+            await TripEnquiryOps.PostSystemAsync(db, chat, e, e.OwnerUserId, TripSystemLines.NotAvailable, _posts);
+            if (e.TripId is { } tripId && e.StepKey is { } stepKey)
+                await db.TripShortlistItems
+                    .Where(x => x.TripId == tripId && x.StepKey == stepKey && x.ListingId == stayId && x.State == TripShortlistStates.Sent)
+                    .ExecuteUpdateAsync(set => set
+                        .SetProperty(x => x.State, TripShortlistStates.Closed)
+                        .SetProperty(x => x.ClosedReason, TripShortlistClosedReasons.Declined)
+                        .SetProperty(x => x.ClosedAt, now));
+            if (e.TravellerUserId is { } travellerId)
+                pushes.Add(await BuildAsync(e, travellerId, TripNotifications.TripStayPaused, $"paused:{e.Id}", e.TripId));
+        }
+        await db.SaveChangesAsync();
+        return pushes;
     }
 
     // Local sightseeing leads only (trip row, no travel day): journey cars and trip-less journey leads ride a route, not the day rate.

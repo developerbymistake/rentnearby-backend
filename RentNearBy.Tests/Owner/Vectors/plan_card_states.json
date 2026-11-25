@@ -12,6 +12,7 @@
   { "name": "plus", "paymentEnabled": true, "source": "Subscription", "playState": "SUBSCRIPTION_STATE_ACTIVE", "playAutoRenew": true, "endedRecently": false, "inPlayTrial": false, "expected": "Plus" },
   { "name": "prepaid plus", "paymentEnabled": true, "source": "Prepaid", "playState": null, "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "Plus" },
   { "name": "on hold", "paymentEnabled": true, "source": null, "playState": "SUBSCRIPTION_STATE_ON_HOLD", "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "OnHold" },
+  { "name": "paused", "paymentEnabled": true, "source": null, "playState": "SUBSCRIPTION_STATE_PAUSED", "playAutoRenew": true, "endedRecently": true, "inPlayTrial": false, "expected": "OnHold" },
   { "name": "ended", "paymentEnabled": true, "source": null, "playState": null, "playAutoRenew": false, "endedRecently": true, "inPlayTrial": false, "expected": "Ended" },
   { "name": "free", "paymentEnabled": true, "source": null, "playState": null, "playAutoRenew": false, "endedRecently": false, "inPlayTrial": false, "expected": "Free" }
 ]

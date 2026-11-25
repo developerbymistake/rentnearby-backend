@@ -93,6 +93,21 @@ public class TripBulkEnquiryRulesTests
     }
 
     [Fact]
+    public void A_full_stay_keeps_status_not_available_and_says_full_on_dates()
+    {
+        var full = Guid.NewGuid();
+        var gone = Guid.NewGuid();
+        var results = TripBulk.MarkFullOnDates(
+            TripBulk.BuildResults([full, gone], [], [], [(full, TripSkipReasons.NotAvailable), (gone, TripSkipReasons.NotAvailable)], [], null),
+            new HashSet<Guid> { full });
+
+        Assert.Equal(TripSendStatuses.NotAvailable, results[0].Status);
+        Assert.Equal(TripSendReasons.FullOnDates, results[0].Reason);
+        Assert.Equal(TripSendStatuses.NotAvailable, results[1].Status);
+        Assert.Equal(TripSkipReasons.NotAvailable, results[1].Reason);
+    }
+
+    [Fact]
     public void A_listing_nothing_answers_for_is_reported_failed_never_dropped()
     {
         var id = Guid.NewGuid();

@@ -48,6 +48,7 @@ public static class TripErrorTypes
     public const string TripHasLiveEnquiries = "TripHasLiveEnquiries";
     public const string TripChanged = "TripChanged";
     public const string SpotNotFound = "SpotNotFound";
+    public const string UndoWindowOver = "UndoWindowOver";
 }
 
 public static class TripSpotLimits

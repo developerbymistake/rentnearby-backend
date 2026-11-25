@@ -20,6 +20,8 @@ public class CreateTripEnquiryRequest
     public Guid? ClientRequestId { get; set; }
     // Guided-flow step (stay:1, taxi ...) the enquiry belongs to; ties the reminder clock and the shortlist to it.
     public string? StepKey { get; set; }
+    // Stay only: true = the traveller's phone goes to the host with the ask (new app); null = hidden until both confirm.
+    public bool? SharePhone { get; set; }
 }
 
 // PUT /trips/{tripId}/steps/{stepKey}/shortlist/{listingId}

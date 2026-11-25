@@ -177,7 +177,30 @@ public class FcmService : IFcmService
         spec.Data.TryGetValue("notification_type", out var type);
         if (type == RingWireType) return RingMessage(spec, utcNow);
         if (type == RingEndWireType) return RingEndMessage(spec);
+        if (IsHostNudge(spec.Data)) return HostNudgeMessage(spec);
         return LegacyMessage(spec);
+    }
+
+    private static readonly string ReminderWireType = NotificationTypes.ToWireValue(NotificationTypes.TripReminder);
+
+    // The host nudge carries Reply and Not available actions, which only an app-drawn notification can show.
+    public static bool IsHostNudge(IReadOnlyDictionary<string, string> data)
+        => data.TryGetValue("notification_type", out var type) && type == ReminderWireType
+            && data.TryGetValue("action_route", out var route) && route == UserNotificationRoutes.StayEnquiries
+            && data.TryGetValue("action_args_json", out var args) && args.Contains($"\"{TripNotifications.ActionNotAvailable}\"", StringComparison.Ordinal);
+
+    // Data-only and high priority so the app draws it with its buttons from the background isolate too.
+    private static Message HostNudgeMessage(FcmMessageSpec spec)
+    {
+        var data = spec.Data.ToDictionary(kv => kv.Key, kv => kv.Value);
+        data.TryAdd("title", spec.Title);
+        data.TryAdd("body", spec.Body);
+        return new Message
+        {
+            Token = spec.Token,
+            Data = data,
+            Android = new AndroidConfig { Priority = Priority.High, CollapseKey = spec.CollapseKey },
+        };
     }
 
     private static readonly string RingWireType = NotificationTypes.ToWireValue(NotificationTypes.TaxiRequestRing);

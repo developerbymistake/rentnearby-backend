@@ -21,7 +21,7 @@ public class TaxiRequestClosureWiringTests
     };
 
     // A cleared local day rate only touches legacy local sightseeing leads: it is not a taxi request eligibility rule.
-    private static readonly string[] NotTaxiRequestEvents = [nameof(ITripEnquiryClosure.OnTaxiRateClearedAsync)];
+    private static readonly string[] NotTaxiRequestEvents = [nameof(ITripEnquiryClosure.OnTaxiRateClearedAsync), nameof(ITripEnquiryClosure.OnStayPausedAsync)];
 
     [Fact]
     public void Every_closure_entry_point_calls_the_taxi_closure()

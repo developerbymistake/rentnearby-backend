@@ -149,9 +149,9 @@ public sealed class TripReminderRunner(ILogger logger)
     private static readonly string ShortlistActive = """s."State" = 'Active' AND s."ClosesAt" > {1} AND s."AddedAt" < {2} - interval '""" + TripReminderRules.TravellerMinAgeHours + """ hours' AND (s."RemindedOn" IS NULL OR s."RemindedOn" < {0}) AND """ + ShortlistSettled + " AND " + ShortlistOpen + " AND (" + ShortlistListingLive + ")";
     // Only an enquiry that ran out its full clock: one cut short by the check-in day expires earlier than CreatedAt + EnquiryHours.
     // A row without a StepKey is included (generic line that opens the trip plan); ix_tripenquiries_final stays StepKey-bound, so those rows are not served by it.
-    private static readonly string EnquiryFinal = """e."Status" = 'Expired' AND e."FinalPushedAt" IS NULL AND e."UpdatedAt" >= {1} - """ + FinalWindow + """ AND e."ExpiresAt" >= e."CreatedAt" + interval '""" + TripExecutionRules.EnquiryHours + """ hours' AND """ + EnquirySettled;
-    private static readonly string EnquiryOut = """e."Status" = 'Asked' AND e."ExpiresAt" > {1} AND e."CreatedAt" < {2} - interval '""" + TripReminderRules.TravellerMinAgeHours + """ hours' AND """ + NoLapsedOffer;
-    private static readonly string EnquiryHostWaiting = """e."Status" IN ('Asked', 'Countered') AND e."ExpiresAt" > {1} AND e."CreatedAt" < {2} - interval '""" + TripReminderRules.HostMinAgeHours + """ hours' AND (e."RemindedOn" IS NULL OR e."RemindedOn" < {0}) AND """
+    private static readonly string EnquiryFinal = """e."Kind" <> 'Stay' AND e."Status" = 'Expired' AND e."FinalPushedAt" IS NULL AND e."UpdatedAt" >= {1} - """ + FinalWindow + """ AND e."ExpiresAt" >= e."CreatedAt" + interval '""" + TripExecutionRules.EnquiryHours + """ hours' AND """ + EnquirySettled;
+    private static readonly string EnquiryOut = """e."Kind" <> 'Stay' AND e."Status" = 'Asked' AND e."ExpiresAt" > {1} AND e."CreatedAt" < {2} - interval '""" + TripReminderRules.TravellerMinAgeHours + """ hours' AND """ + NoLapsedOffer;
+    private static readonly string EnquiryHostWaiting = """e."Kind" <> 'Stay' AND e."Status" IN ('Asked', 'Countered') AND e."ExpiresAt" > {1} AND e."CreatedAt" < {2} - interval '""" + TripReminderRules.HostMinAgeHours + """ hours' AND (e."RemindedOn" IS NULL OR e."RemindedOn" < {0}) AND """
         + NoLapsedOffer + " AND NOT " + OwnerChatted + " AND " + EnquirySettled;
 
     private const string ShortlistCols = """s."TravellerUserId" AS "UserId", s."Id" AS "Id", s."TripId" AS "TripId", s."StepKey" AS "StepKey", s."ListingName" AS "Name", COALESCE(s."ClosedAt", s."AddedAt") AS "At", NULL::date AS "On", s."Kind" AS "Kind", false AS "HostChatted", false AS "OfferLapsed" """;
@@ -334,5 +334,181 @@ public sealed class TripReminderService(
         _doneDate = today;
         logger.LogInformation("Trip reminders {Date}: {Sent} pushes queued", today, sent);
         return true;
+    }
+}
+
+// Frequent stay pass (every timer tick, after the expiry pass): traveller Quiet push, traveller ask-ended push, host nudge ladder.
+// Held during IST quiet hours: nothing is dropped, every item stays "due and key not logged" and goes out after 07:00.
+public static class TripStayNudgeRunner
+{
+    private const int QuietMaxAgeDays = 4, HostMinAgeHours = 1, HostMaxAgeHours = 34;
+
+    public static async Task<int> RunAsync(
+        ApplicationDbContext db, ITripEnquiryRepository enquiries, ITripPushLogRepository pushLogs, ITripNotifier notifier,
+        DateTime nowUtc, int batch, ILogger logger, CancellationToken ct)
+    {
+        if (TripQuietHours.IsNight(nowUtc)) return 0;
+        var take = Math.Max(1, batch);
+        var sent = 0;
+        sent += await QuietAsync(db, enquiries, pushLogs, notifier, nowUtc, take, logger, ct);
+        sent += await EndedAsync(db, enquiries, pushLogs, notifier, nowUtc, take, logger, ct);
+        sent += await HostLadderAsync(db, enquiries, notifier, nowUtc, take, logger, ct);
+        return sent;
+    }
+
+    // A. One push per traveller, trip and step for asks that turned Quiet (key quiet:{id}, once per ask).
+    private static async Task<int> QuietAsync(
+        ApplicationDbContext db, ITripEnquiryRepository enquiries, ITripPushLogRepository pushLogs, ITripNotifier notifier,
+        DateTime nowUtc, int take, ILogger logger, CancellationToken ct)
+    {
+        var floor = nowUtc.AddHours(-TripQuietRules.QuietFloorHours);
+        var oldest = nowUtc.AddDays(-QuietMaxAgeDays);
+        var due = new List<TripEnquiry>();
+        var after = Guid.Empty;
+        while (!ct.IsCancellationRequested)
+        {
+            var page = await TravellerOpen(db)
+                .Where(e => e.Status == TripEnquiryStatuses.Asked && e.ExpiresAt > nowUtc && e.CreatedAt <= floor && e.CreatedAt > oldest
+                    && e.Id.CompareTo(after) > 0
+                    && !db.TripPushLogs.Any(p => p.DedupeKey == "quiet:" + e.Id))
+                .OrderBy(e => e.Id).Take(take).ToListAsync(ct);
+            due.AddRange(page.Where(e => TripQuietRules.IsQuiet(e, nowUtc)));
+            if (page.Count < take) break;
+            after = page[^1].Id;
+        }
+        return await SendGroupsAsync(due, TripStayNudgeKeys.Quiet, enquiries, pushLogs, notifier, logger, ct,
+            (first, ctx, count) => Task.FromResult(TripNotifications.TripQuiet(first, ctx, count)), null);
+    }
+
+    // B. Asks that ended with no answer (short-notice ones too): one push per traveller, trip and step, then FinalPushedAt.
+    private static async Task<int> EndedAsync(
+        ApplicationDbContext db, ITripEnquiryRepository enquiries, ITripPushLogRepository pushLogs, ITripNotifier notifier,
+        DateTime nowUtc, int take, ILogger logger, CancellationToken ct)
+    {
+        var since = nowUtc.AddDays(-TripReminderRules.FinalWindowDays);
+        var due = new List<TripEnquiry>();
+        var after = Guid.Empty;
+        while (!ct.IsCancellationRequested)
+        {
+            var page = await TravellerOpen(db)
+                .Where(e => e.Status == TripEnquiryStatuses.Expired && e.FinalPushedAt == null && e.UpdatedAt >= since
+                    && e.Id.CompareTo(after) > 0)
+                .OrderBy(e => e.Id).Take(take).ToListAsync(ct);
+            due.AddRange(page);
+            if (page.Count < take) break;
+            after = page[^1].Id;
+        }
+        return await SendGroupsAsync(due, TripStayNudgeKeys.Ended, enquiries, pushLogs, notifier, logger, ct,
+            async (first, ctx, count) =>
+            {
+                var lapsed = await db.TripOffers.AsNoTracking()
+                    .AnyAsync(o => o.TripEnquiryId == first.Id && o.Status == TripOfferStatuses.Expired, ct);
+                return TripNotifications.TripAskEnded(first, ctx, count, lapsed);
+            },
+            async group =>
+            {
+                var ids = group.Select(e => e.Id).ToArray();
+                await db.TripEnquiries.Where(e => ids.Contains(e.Id) && e.FinalPushedAt == null)
+                    .ExecuteUpdateAsync(s => s.SetProperty(e => e.FinalPushedAt, nowUtc), ct);
+                // The morning run must not push "Your shortlist has ended" for the same stays.
+                var first = group[0];
+                var listings = group.Select(e => e.ListingId).ToArray();
+                await db.TripShortlistItems
+                    .Where(s => s.TripId == first.TripId && s.StepKey == first.StepKey && listings.Contains(s.ListingId)
+                        && s.State == TripShortlistStates.Closed && s.ClosedReason == TripShortlistClosedReasons.NoReply && s.FinalPushedAt == null)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.FinalPushedAt, nowUtc), ct);
+            });
+    }
+
+    // C. Host ladder: only the highest due stage is sent (key hostnudge:{id}:{stage}), one push per ask. Trip mute does not silence hosts.
+    private static async Task<int> HostLadderAsync(
+        ApplicationDbContext db, ITripEnquiryRepository enquiries, ITripNotifier notifier, DateTime nowUtc, int take, ILogger logger, CancellationToken ct)
+    {
+        var today = TripExecutionRules.TodayIst(nowUtc);
+        var newest = nowUtc.AddHours(-HostMinAgeHours);
+        var oldest = nowUtc.AddHours(-HostMaxAgeHours);
+        var sent = 0;
+        var after = Guid.Empty;
+        while (!ct.IsCancellationRequested)
+        {
+            var page = await db.TripEnquiries.AsNoTracking()
+                .Where(e => e.Kind == TripEnquiryKinds.Stay && e.Status == TripEnquiryStatuses.Asked && e.ExpiresAt > nowUtc
+                    && e.OwnerUserId != null && e.CreatedAt <= newest && e.CreatedAt > oldest && e.Id.CompareTo(after) > 0
+                    && !db.TripOffers.Any(o => o.TripEnquiryId == e.Id && o.Status == TripOfferStatuses.Expired)
+                    && (e.TripId == null || db.Trips.Any(t => t.Id == e.TripId && t.Status != TripStatuses.Completed
+                        && (t.StartDate == null || t.StartDate > today)))
+                    && !db.TripEnquiries.Any(c => c.TripId == e.TripId && c.StepKey == e.StepKey
+                        && (c.Status == TripEnquiryStatuses.ConfirmedByBoth || c.Status == TripEnquiryStatuses.BookedByTraveller)))
+                .OrderBy(e => e.Id).Take(take).ToListAsync(ct);
+
+            var staged = page
+                .Select(e => (Row: e, Stage: TripHostNudgeRules.DueStage(e.CreatedAt, e.ExpiresAt, nowUtc)))
+                .Where(x => x.Stage > 0)
+                .Select(x => (x.Row, Key: TripHostNudgeRules.Key(x.Row.Id, x.Stage)))
+                .ToList();
+            var keys = staged.Select(x => x.Key).ToList();
+            var logged = keys.Count == 0
+                ? new HashSet<string>()
+                : (await db.TripPushLogs.AsNoTracking().Where(p => keys.Contains(p.DedupeKey)).Select(p => p.DedupeKey).ToListAsync(ct)).ToHashSet();
+            foreach (var (row, key) in staged.Where(x => !logged.Contains(x.Key)))
+            {
+                if (ct.IsCancellationRequested) break;
+                try
+                {
+                    var ctx = await enquiries.LoadPushContextAsync(row, row.OwnerUserId!.Value);
+                    var n = TripNotifications.TripHostNudge(row, ctx, TripHostNudgeRules.WaitingHours(row.CreatedAt, nowUtc));
+                    if (await notifier.SendOnceAsync(n, key, row.TripId, row.Id)) sent++;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogError(ex, "Trip stay nudge: host nudge failed for {EnquiryId}", row.Id);
+                }
+            }
+            if (page.Count < take) break;
+            after = page[^1].Id;
+        }
+        return sent;
+    }
+
+    // Stay asks of a live, unmuted trip whose step is not settled.
+    private static IQueryable<TripEnquiry> TravellerOpen(ApplicationDbContext db)
+        => db.TripEnquiries.AsNoTracking()
+            .Where(e => e.Kind == TripEnquiryKinds.Stay && e.TripId != null && e.TravellerUserId != null
+                && db.Trips.Any(t => t.Id == e.TripId && t.MutedAt == null && t.Status != TripStatuses.Completed)
+                && !db.TripEnquiries.Any(c => c.TripId == e.TripId && c.StepKey == e.StepKey
+                    && (c.Status == TripEnquiryStatuses.ConfirmedByBoth || c.Status == TripEnquiryStatuses.BookedByTraveller)));
+
+    // One push per (traveller, trip, step) keyed by the oldest row; the other rows only get their key logged.
+    private static async Task<int> SendGroupsAsync(
+        IReadOnlyList<TripEnquiry> due, Func<Guid, string> keyOf, ITripEnquiryRepository enquiries, ITripPushLogRepository pushLogs,
+        ITripNotifier notifier, ILogger logger, CancellationToken ct,
+        Func<TripEnquiry, TripPushContext, int, Task<NotificationEvent>> build, Func<List<TripEnquiry>, Task>? afterSend)
+    {
+        var sent = 0;
+        foreach (var group in due.GroupBy(e => (e.TravellerUserId, e.TripId, e.StepKey)))
+        {
+            if (ct.IsCancellationRequested) break;
+            var rows = group.OrderBy(e => e.CreatedAt).ThenBy(e => e.Id).ToList();
+            var first = rows[0];
+            try
+            {
+                var ctx = await enquiries.LoadPushContextAsync(first, first.TravellerUserId!.Value);
+                var n = await build(first, ctx, rows.Count);
+                var outcome = await notifier.TrySendOnceAsync(n, keyOf(first.Id), first.TripId, first.Id);
+                if (outcome == TripSendOutcome.Failed) continue;
+                if (outcome == TripSendOutcome.Sent) sent++;
+                foreach (var other in rows.Skip(1))
+                    await pushLogs.TryInsertAsync(new TripPushLog
+                    {
+                        Id = Guid.NewGuid(), TripId = other.TripId, TripEnquiryId = other.Id, DedupeKey = keyOf(other.Id), Kind = n.Type, SentAt = DateTime.UtcNow,
+                    });
+                if (afterSend != null) await afterSend(rows);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Trip stay nudge: traveller push failed for {EnquiryId}", first.Id);
+            }
+        }
+        return sent;
     }
 }

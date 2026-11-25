@@ -1046,7 +1046,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
             e.ToTable(t =>
             {
-                t.HasCheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Closed')");
+                t.HasCheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Inactive', 'Closed')");
                 t.HasCheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
                 t.HasCheckConstraint("ck_stayjobs_min_exp", "\"MinimumExperienceYears\" BETWEEN 0 AND 20");
             });

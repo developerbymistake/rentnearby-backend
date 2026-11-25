@@ -9,6 +9,7 @@ public sealed class OwnerFeatureOptions
     public string StayReminderIst { get; set; } = "08:00";
     public string FestivalJobIst { get; set; } = "10:00";
     public string StatsFlushIst { get; set; } = "00:30";
+    public string EveAlertIst { get; set; } = "18:00";
     public int RepairMinutes { get; set; } = 15;
     public int JobBatch { get; set; } = 500;
 

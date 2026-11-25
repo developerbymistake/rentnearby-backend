@@ -178,6 +178,8 @@ public sealed class StaySpecialPriceService(
             var row = await FindAsync(id, c);
             if (row == null || row.StayListingId != ctx.ListingId || !StaySpecialPriceRules.IsActive(row.DateTo, ctx.Today))
                 return Be2Result<SpecialPriceWriteDto>.Missing(NotFoundMessage);
+            // Inactive on the plan: only Delete and "make this one live" are open.
+            if (row.PausedByPlan) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.PlanRowInactive);
             var check = await CheckAsync(ctx.ListingId, ctx.Today, id, request.DateFrom, request.DateTo, c);
             var meters = Meters(check.Active, ctx.Limits.SpecialPrices);
 
@@ -263,6 +265,7 @@ public sealed class StaySpecialPriceService(
                 // limits as they are under the lock. Not counted as a save.
                 ctx = await OwnerContextReader.WithLimitsUnderLockAsync(db, ctx, c);
                 await PlanRows.ApplySpecialPricesAsync(db, ctx.ListingId, ctx.Limits.SpecialPrices, ctx.Limits.PaymentEnabled, ctx.Today, c);
+                await OwnerHiddenCounts.ClearStayNoticeIfNothingHiddenAsync(db, notifier, me, c);
             }
             await tx.CommitAsync(c);
             return new Be2Result<bool>(true, Replay: deleted.Count == 0, DistrictId: ctx.DistrictId, Changed: deleted.Count > 0);
@@ -283,6 +286,7 @@ public sealed class StaySpecialPriceService(
             if (lockRow == null) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.ListingNotFound);
             var savesLeft = StaySpecialPriceRules.SavesLeft(lockRow.SavesDay, lockRow.SavesCount, ctx.Today);
             if (lockRow.Rule is not { } row) return Be2Result<SpecialPriceWriteDto>.Missing(NotFoundMessage);
+            if (row.PausedByPlan) return Be2Result<SpecialPriceWriteDto>.Fail(OwnerErrorTypes.PlanRowInactive);
 
             if (row.Version != request.Version || row.IsPaused == request.Paused)
             {
@@ -321,7 +325,7 @@ public sealed class StaySpecialPriceService(
 
     // ---------- P6 ----------
 
-    // "Make this one live" while rules are paused by the plan: the chosen rule ranks first, then the rules live now (DateTo, Id),
+    // "Make this one live" while rules are paused by the plan: the chosen rule ranks first, then the rules live now (CreatedAt DESC, Id),
     // then the rest; rank <= SpecialPrices is live. With the Free limit 1 this is PausedByPlan = (Id <> @id) (contract 2.3).
     public async Task<Be2Result<SpecialPriceWriteDto>> MakeLiveAsync(Guid me, Guid id, LiveSpecialPriceRequest request, CancellationToken ct = default)
     {
@@ -352,7 +356,7 @@ public sealed class StaySpecialPriceService(
 
             var updated = await db.Database.SqlQuery<SpecialPriceRow>($"""
                 WITH ranked AS (
-                    SELECT p."Id", row_number() OVER (ORDER BY (p."Id" = {id}) DESC, p."PausedByPlan", p."DateTo", p."Id") AS rk
+                    SELECT p."Id", row_number() OVER (ORDER BY (p."Id" = {id}) DESC, p."PausedByPlan", p."CreatedAt" DESC, p."Id") AS rk
                     FROM "StaySpecialPrices" p
                     WHERE p."StayListingId" = {ctx.ListingId} AND p."DateTo" >= {ctx.Today}
                 ), upd AS (

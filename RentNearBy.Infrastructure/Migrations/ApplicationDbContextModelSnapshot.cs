@@ -3535,7 +3535,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_stayjobs_salary", "\"MinSalary\" >= 100 AND \"MaxSalary\" >= \"MinSalary\" AND \"MaxSalary\" <= 9900000");
 
-                            t.HasCheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Closed')");
+                            t.HasCheckConstraint("ck_stayjobs_status", "\"Status\" IN ('Active', 'Inactive', 'Closed')");
                         });
                 });
 

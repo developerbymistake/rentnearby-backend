@@ -3,7 +3,9 @@ using Npgsql;
 using NpgsqlTypes;
 using RentNearBy.Core.DTOs.Owner;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Owner;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services.Owner.Be3;
@@ -13,7 +15,8 @@ namespace RentNearBy.Infrastructure.Services.Owner.Be3;
 // No listing = zero counts.
 public static class OwnerHiddenCounts
 {
-    public sealed record Counts(PlanHiddenDto Hidden, PlanUsageDto Usage, DateOnly? AnnounceDate = null, DateTime? PaymentEnabledAt = null);
+    public sealed record Counts(PlanHiddenDto Hidden, PlanUsageDto Usage, DateOnly? AnnounceDate = null, DateTime? PaymentEnabledAt = null,
+        int InactiveJobs = 0);
 
     public static readonly Counts None = new(PlanHiddenDto.None, new PlanUsageDto(0, 0, 0));
 
@@ -23,6 +26,7 @@ public static class OwnerHiddenCounts
         public int HiddenRooms { get; set; }
         public int HiddenRoutes { get; set; }
         public int PausedRules { get; set; }
+        public int InactiveJobs { get; set; }
         public int Photos { get; set; }
         public int Rooms { get; set; }
         public int Routes { get; set; }
@@ -46,6 +50,7 @@ public static class OwnerHiddenCounts
           (SELECT count(*) FROM "StayRooms" r WHERE r."StayListingId" = l."Id" AND r."HiddenByPlan")::int AS "HiddenRooms",
           0 AS "HiddenRoutes",
           (SELECT count(*) FROM "StaySpecialPrices" sp WHERE sp."StayListingId" = l."Id" AND sp."PausedByPlan" AND sp."DateTo" >= @today)::int AS "PausedRules",
+          (SELECT count(*) FROM "StayJobs" j WHERE l."Id" IS NOT NULL AND j."UserId" = @me AND j."Status" = 'Inactive')::int AS "InactiveJobs",
           (SELECT count(*) FROM "StayPhotos" p WHERE p."StayListingId" = l."Id" AND NOT p."HiddenByPlan")::int AS "Photos",
           (SELECT count(*) FROM "StayRooms" r WHERE r."StayListingId" = l."Id" AND NOT r."HiddenByPlan")::int AS "Rooms",
           0 AS "Routes",
@@ -58,7 +63,7 @@ public static class OwnerHiddenCounts
     public static readonly string TaxiSql = $"""
         SELECT 0 AS "HiddenPhotos", 0 AS "HiddenRooms",
           (SELECT count(*) FROM "TaxiRoutes" r WHERE r."TaxiListingId" = l."Id" AND r."HiddenByPlan")::int AS "HiddenRoutes",
-          0 AS "PausedRules", 0 AS "Photos", 0 AS "Rooms",
+          0 AS "PausedRules", 0 AS "InactiveJobs", 0 AS "Photos", 0 AS "Rooms",
           (SELECT count(*) FROM "TaxiRoutes" r WHERE r."TaxiListingId" = l."Id" AND NOT r."HiddenByPlan")::int AS "Routes",
         {Flag}
         FROM (SELECT 1) one
@@ -81,7 +86,15 @@ public static class OwnerHiddenCounts
         if (rows.Count == 0) return None;
         var r = rows[0];
         return new Counts(new PlanHiddenDto(r.HiddenPhotos, r.HiddenRooms, r.HiddenRoutes, r.PausedRules),
-            new PlanUsageDto(r.Photos, r.Rooms, r.Routes), r.AnnounceDate, r.PaymentEnabledAt);
+            new PlanUsageDto(r.Photos, r.Rooms, r.Routes), r.AnnounceDate, r.PaymentEnabledAt, r.InactiveJobs);
+    }
+
+    // The PlanLimitsChanged notice goes once nothing of the stay is hidden, paused or inactive by the plan any more.
+    public static async Task ClearStayNoticeIfNothingHiddenAsync(ApplicationDbContext db, IOwnerNotifier notifier, Guid userId, CancellationToken ct = default)
+    {
+        var counts = await ReadAsync(db, userId, ListingKinds.Stay, IstTime.TodayIst(DateTime.UtcNow), ct);
+        if (counts.Hidden.Total + counts.InactiveJobs == 0)
+            await notifier.ClearAsync(NoticeKinds.PlanLimitsChanged, NoticeKinds.NoTrip, [userId], ct);
     }
 
     // AU-18: the announced start while payment is OFF and the date is ahead; "plans started today" on the IST day of the switch.

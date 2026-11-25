@@ -78,6 +78,7 @@ public class PlanSlotService(
         var limits = await entitlements.GetLimitsAsync(userId, featureKey);
         var reranked = await SetRankAsync(userId, featureKey, limits.PriorityRank, limits.IsFeatured, limits.RingWeight);
         var rows = await planRows.ApplyForOwnerAsync(userId, featureKey, limits);
+        await planRows.StoreLostNoticeAsync(userId, featureKey, rows);
         return new ExpireEffectsResult(Math.Max(0, rows.HiddenAfter - rows.HiddenBefore), 0, reranked);
     }
 

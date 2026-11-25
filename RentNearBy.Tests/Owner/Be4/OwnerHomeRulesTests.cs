@@ -206,6 +206,7 @@ public class OwnerPlanCardStateTests
     [InlineData(true, "Subscription", "SUBSCRIPTION_STATE_CANCELED", false, false, OwnerPlanCardStates.Cancelled)]
     [InlineData(true, "Subscription", "SUBSCRIPTION_STATE_ACTIVE", true, false, OwnerPlanCardStates.Plus)]
     [InlineData(true, null, "SUBSCRIPTION_STATE_ON_HOLD", false, false, OwnerPlanCardStates.OnHold)]
+    [InlineData(true, null, "SUBSCRIPTION_STATE_PAUSED", true, true, OwnerPlanCardStates.OnHold)]
     [InlineData(true, null, null, false, true, OwnerPlanCardStates.Ended)]
     [InlineData(true, null, null, false, false, OwnerPlanCardStates.Free)]
     public void State_follows_the_plan_row_and_play(bool payment, string? source, string? play, bool autoRenew, bool ended, string expected)
@@ -321,6 +322,19 @@ public class OwnerUpcomingTests
         Assert.Equal("Tempo Traveller · 12+ seats", TaxiDriverHomeReader.Sub("Tempo Traveller", 12));
         Assert.Equal("6 seats", TaxiDriverHomeReader.Sub(null, 6));
         Assert.Null(TaxiDriverHomeReader.Sub(null, null));
+    }
+
+    [Fact]
+    public void Taxi_home_listing_reads_the_display_photo_vehicle_and_seats()
+    {
+        Assert.Contains("l.\"DisplayPhotoUrl\"", TaxiDriverHomeReader.ContextSql);
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            new OwnerHomeListingDto { VehicleName = "Maruti Ertiga", Seats = 6, DisplayPhotoUrl = "https://x/taxi.jpg" },
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Contains("\"displayPhotoUrl\":\"https://x/taxi.jpg\"", json);
+        Assert.Contains("\"vehicleName\":\"Maruti Ertiga\"", json);
+        Assert.Contains("\"seats\":6", json);
+        Assert.Null(new OwnerHomeListingDto().DisplayPhotoUrl);
     }
 
     [Fact]

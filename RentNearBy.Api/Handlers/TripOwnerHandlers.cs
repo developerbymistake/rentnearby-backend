@@ -146,7 +146,7 @@ public static class TripOwnerHandlers
             return OkResponse(new TripOfferResultDto { Enquiry = replayDto, Offer = replayDto.OpenOffer ?? new TripOfferDto { Id = sent.Id } });
         }
 
-        if (offers.Count(o => o.Kind == TripOfferKinds.Offer) >= TripExecutionRules.MaxOffersPerEnquiry)
+        if (TripExecutionRules.CountedOffers(offers) >= TripExecutionRules.MaxOffersPerEnquiry)
             return ErrorResponse(409, "Offer limit reached for this enquiry.", TripEnquiryErrorTypes.OfferLimit);
 
         TripOffer? counter = null;
@@ -329,6 +329,67 @@ public static class TripOwnerHandlers
 
         return OkResponse(await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId));
     }
+
+    // POST /trips/enquiries/{id}/share-details: the host shares UPI / WhatsApp on a booking confirmed by both.
+    public static async Task<IResult> ShareDetails(
+        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IRateLimitService rateLimiter,
+        ITripChatService chat, HttpContext httpContext)
+    {
+        if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
+        var rl = await rateLimiter.CheckAsync($"trip:share:{callerId}", ShareDetailsPerHour, OwnerActionWindow);
+        if (!rl.IsAllowed)
+        {
+            if (rl.RetryAfter is { } retry) httpContext.Response.Headers["Retry-After"] = ((int)Math.Ceiling(retry.TotalSeconds)).ToString();
+            return TooManyRequestsResponse();
+        }
+
+        var e = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(id);
+        if (e == null) return ErrorResponse(404, "Enquiry not found", TripEnquiryErrorTypes.TripEnquiryNotFound);
+        if (await TripEnquiryAuth.RequireOwnerAsync(e, callerId, db) is { } denied) return denied;
+        if (e.Kind != TripEnquiryKinds.Stay || e.Status != TripEnquiryStatuses.ConfirmedByBoth) return Closed();
+
+        var stay = await db.StayListings.AsNoTracking()
+            .Where(x => x.Id == e.ListingId && x.UserId == callerId && !x.IsDeleted && x.Status == StayStatuses.Approved)
+            .Select(x => new { x.Name, x.UpiId, x.WhatsAppNumber })
+            .FirstOrDefaultAsync();
+        if (stay == null) return ErrorResponse(409, "This listing is not available any more.", TripEnquiryErrorTypes.ListingNotAvailable);
+        var payload = StayShareRules.Payload(stay.Name, stay.UpiId, stay.WhatsAppNumber);
+        if (payload == null) return BadRequestResponse("Add your UPI ID or WhatsApp number first", StayShareRules.NotSetError);
+
+        // Old-build travellers still read the chat card; the new app reads ownerShare.
+        var posts = new List<TripChatPost>();
+        var conversation = e.ConversationId is { } cid ? await unitOfWork.Conversations.GetByIdAsync(cid) : null;
+        if (conversation != null && conversation.Status == ConversationActiveStatus)
+        {
+            await unitOfWork.BeginTransactionAsync();
+            try
+            {
+                posts.Add(await chat.PostAsync(conversation, callerId, StayShareRules.MessageType, payload, StayShareRules.Preview));
+                await unitOfWork.CommitTransactionAsync();
+            }
+            catch
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
+        }
+        await unitOfWork.TripPushLogs.TryInsertAsync(new TripPushLog
+        {
+            Id = Guid.NewGuid(),
+            TripId = e.TripId,
+            TripEnquiryId = e.Id,
+            DedupeKey = ShareKey(e.Id),
+            Kind = "ShareDetails",
+            SentAt = DateTime.UtcNow,
+        });
+        await chat.AfterCommitAsync(posts);
+        return OkResponse(await TripEnquiryViews.BuildOneAsync(unitOfWork, e, callerId));
+    }
+
+    public const int ShareDetailsPerHour = 10;
+    private const string ConversationActiveStatus = "Active";
+
+    public static string ShareKey(Guid enquiryId) => $"share:{enquiryId}";
 
     // POST /trips/enquiries/{id}/revised-offer. Price lock: the enquiry's AgreedTotal, AcceptedOfferId and dates stay
     // as they are until the guest accepts.

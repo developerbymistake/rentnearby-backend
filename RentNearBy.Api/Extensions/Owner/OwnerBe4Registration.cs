@@ -20,6 +20,10 @@ public static class OwnerBe4Registration
         services.AddSingleton<OwnerShownCounter>();
         services.AddScoped<IBuddyFeatureJob, StayMorningReminderJob>();
         services.AddScoped<IBuddyFeatureJob, TaxiMorningReminderJob>();
+        services.AddScoped<IBuddyFeatureJob, StayEveAlertJob>();
+        services.AddScoped<IBuddyFeatureJob, TaxiEveAlertJob>();
+        services.AddScoped<IBuddyFeatureJob, StayEveLateAlertJob>();
+        services.AddScoped<IBuddyFeatureJob, TaxiEveLateAlertJob>();
         services.AddScoped<IBuddyFeatureJob, FestivalReminderJob>();
         services.AddScoped<IBuddyFeatureJob, OwnerWeeklyStatsFlushJob>();
         services.AddScoped<IBuddyFeatureJob, OwnerPlansAnnounceJob>();

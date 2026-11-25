@@ -25,7 +25,8 @@ namespace RentNearBy.Infrastructure.Services;
 //  10. Planned trips 7 days past the last day with nothing open -> Completed (no push, runs even when muted).
 //  11. Travel-eve: 18:00 IST the evening before a travel day between two cities, once (trv:{tripId}:{date}); muted trips skipped.
 // Passes 9, 10 and 11 read keyset pages of only un-done work (key not logged / nothing open) until exhausted.
-// Order: 1, 2, 7, 8, 9, 11, 10, 3, 4. Skipped while the trip bookings setting is off.
+//  12. Stay nudges (TripStayNudgeRunner): Quiet and ended pushes to the traveller, host ladder; held 22:00-07:00 IST.
+// Order: 1, 2, 12, 7, 8, 9, 11, 10, 3, 4. Skipped while the trip bookings setting is off.
 public class TripTimerService(
     IServiceScopeFactory scopeFactory, ITripExecutionFeatureReader reader, ILogger<TripTimerService> logger,
     WorkerHeartbeats? heartbeats = null)
@@ -79,6 +80,7 @@ public class TripTimerService(
         [
             ("offers", OfferExpiryPassAsync),
             ("enquiries", EnquiryExpiryPassAsync),
+            ("nudges", StayNudgePassAsync),
             ("leads", FareSentExpiryPassAsync),
             ("closed", ShortlistClosePassAsync),
             ("bookedsilence", BookedSilencePassAsync),
@@ -88,12 +90,12 @@ public class TripTimerService(
             ("urgent", (sp, _) => UrgentPassAsync(sp)),
             ("purged", DailyStampIfDueAsync),
         ], scopeFactory, logger, ct);
-        var (offers, enquiries, leads, closed) = (c[0], c[1], c[2], c[3]);
-        var (bookedSilence, dates, travelEve, completed, urgent, purged) = (c[4], c[5], c[6], c[7], c[8], c[9]);
+        var (offers, enquiries, nudges, leads, closed) = (c[0], c[1], c[2], c[3], c[4]);
+        var (bookedSilence, dates, travelEve, completed, urgent, purged) = (c[5], c[6], c[7], c[8], c[9], c[10]);
         if (c.Sum() > 0)
             logger.LogInformation(
-                "Trip timer: offers={Offers} enquiries={Enquiries} urgent={Urgent} purged={Purged} leads={Leads} closed={Closed} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
-                offers, enquiries, urgent, purged, leads, closed, bookedSilence, dates, travelEve, completed);
+                "Trip timer: offers={Offers} enquiries={Enquiries} nudges={Nudges} urgent={Urgent} purged={Purged} leads={Leads} closed={Closed} bookedsilence={BookedSilence} dates={Dates} traveleve={TravelEve} completed={Completed}",
+                offers, enquiries, nudges, urgent, purged, leads, closed, bookedSilence, dates, travelEve, completed);
     }
 
     // Once per IST day; a failed run leaves the stamp so the next tick retries.
@@ -112,6 +114,7 @@ public class TripTimerService(
         var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
         var chat = sp.GetRequiredService<ITripChatService>();
         var notifier = sp.GetRequiredService<ITripNotifier>();
+        var outbox = sp.GetService<IOutboxWriter>();
         var now = DateTime.UtcNow;
         var due = await unitOfWork.TripOffers.GetExpiredPendingAsync(now, Batch);
         var done = 0;
@@ -121,6 +124,7 @@ public class TripTimerService(
             if (ct.IsCancellationRequested) break;
             var posts = new List<TripChatPost>();
             TripEnquiry? lapsed = null;
+            List<TripPendingPush> pushes = [];
             await unitOfWork.BeginTransactionAsync();
             try
             {
@@ -150,6 +154,16 @@ public class TripTimerService(
                     }
                 }
 
+                if (lapsed != null)
+                {
+                    pushes = OfferExpiryPushes(lapsed, row.Id);
+                    if (outbox != null && TripQuietHours.IsNight(now))
+                    {
+                        await TripPushSender.HoldAsync(pushes, db, outbox, unitOfWork.TripEnquiries, TripQuietHours.NextMorningUtc(now));
+                        pushes = [];
+                    }
+                }
+
                 await unitOfWork.CommitTransactionAsync();
                 done++;
             }
@@ -157,13 +171,13 @@ public class TripTimerService(
             {
                 await unitOfWork.RollbackTransactionAsync();
                 posts.Clear();
-                lapsed = null;
+                pushes = [];
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 await unitOfWork.RollbackTransactionAsync();
                 posts.Clear();
-                lapsed = null;
+                pushes = [];
                 logger.LogError(ex, "Trip timer: offer expiry failed for {OfferId}", row.Id);
             }
             finally
@@ -171,16 +185,19 @@ public class TripTimerService(
                 db.ChangeTracker.Clear();
             }
             await chat.AfterCommitAsync(posts);
-            if (lapsed != null)
-                await TripPushSender.SendAsync(
-                [
-                    new TripPendingPush(lapsed, lapsed.TravellerUserId, TripNotifications.TripOfferExpired,
-                        DedupeKey: $"offerexp:{row.Id}:t"),
-                    new TripPendingPush(lapsed, lapsed.OwnerUserId, TripNotifications.TripOfferLapsed,
-                        DedupeKey: $"offerexp:{row.Id}:o"),
-                ], unitOfWork.TripEnquiries, notifier, logger);
+            if (pushes.Count > 0) await TripPushSender.SendAsync(pushes, unitOfWork.TripEnquiries, notifier, logger);
         }
         return done;
+    }
+
+    // A stay ask that ends here gets the single end-of-ask push from the reminder pass.
+    private static List<TripPendingPush> OfferExpiryPushes(TripEnquiry lapsed, Guid offerId)
+    {
+        var pushes = new List<TripPendingPush>();
+        if (!(lapsed.Kind == TripEnquiryKinds.Stay && lapsed.Status == TripEnquiryStatuses.Expired))
+            pushes.Add(new(lapsed, lapsed.TravellerUserId, TripNotifications.TripOfferExpired, DedupeKey: $"offerexp:{offerId}:t"));
+        pushes.Add(new(lapsed, lapsed.OwnerUserId, TripNotifications.TripOfferLapsed, DedupeKey: $"offerexp:{offerId}:o"));
+        return pushes;
     }
 
     private async Task<int> EnquiryExpiryPassAsync(IServiceProvider sp, CancellationToken ct)
@@ -308,6 +325,15 @@ public class TripTimerService(
                                   AND c."Status" IN ('ConfirmedByBoth', 'BookedByTraveller'))
                 """, ct)
             : Task.FromResult(0);
+
+    // Stay Quiet / ended / host nudge pushes (TripStayNudgeRunner), held during IST quiet hours.
+    private async Task<int> StayNudgePassAsync(IServiceProvider sp, CancellationToken ct)
+    {
+        var db = sp.GetRequiredService<ApplicationDbContext>();
+        var unitOfWork = sp.GetRequiredService<IUnitOfWork>();
+        var notifier = sp.GetRequiredService<ITripNotifier>();
+        return await TripStayNudgeRunner.RunAsync(db, unitOfWork.TripEnquiries, unitOfWork.TripPushLogs, notifier, DateTime.UtcNow, Batch, logger, ct);
+    }
 
     private async Task<int> BookedSilencePassAsync(IServiceProvider sp, CancellationToken ct)
     {

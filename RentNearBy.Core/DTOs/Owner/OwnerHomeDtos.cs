@@ -25,6 +25,9 @@ public sealed class OwnerHomeListingDto
     public string? Sub { get; set; }
     public string? CityName { get; set; }
     public string? Plate { get; set; }
+    public string? VehicleName { get; set; }
+    public short? Seats { get; set; }
+    public string? DisplayPhotoUrl { get; set; }
     public bool SwitchOn { get; set; }
     public bool IsFeatured { get; set; }
     public bool TakenDown { get; set; }
@@ -36,6 +39,7 @@ public sealed class OwnerHomeListingDto
     public bool? RingReady { get; set; }
     public DateOnly? OnTripUntil { get; set; }
     public OwnerMeterDto? RoutesMeter { get; set; }
+    public int? LocalDayRate { get; set; }
     public OwnerStatusLineDto? StatusLine { get; set; }
 }
 

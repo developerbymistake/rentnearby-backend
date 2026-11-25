@@ -24,4 +24,5 @@ public class ConversationDto
     public string? LastMessagePreview { get; set; }
     public int UnreadCount { get; set; } // resolved to the caller's side
     public TripEnquiryDto? TripEnquiry { get; set; } // latest trip enquiry of a Stay conversation
+    public bool HasChat { get; set; } = true; // false = only trip enquiry cards, no real chat message
 }

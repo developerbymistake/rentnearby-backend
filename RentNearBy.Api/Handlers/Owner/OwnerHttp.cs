@@ -69,6 +69,9 @@ public static class OwnerHttp
 
     public static IResult ListingNotFound() => Refuse(OwnerErrorTypes.ListingNotFound);
 
+    // 409 PlanRowInactive: a write to a row the plan made inactive; Delete stays open.
+    public static IResult RowInactive() => Refuse(OwnerErrorTypes.PlanRowInactive);
+
     public static IResult StaleEdit<T>(T current) => Refuse(OwnerErrorTypes.StaleEdit, new StaleEditDto<T>(current));
 
     public static IResult Invalid(FluentValidation.Results.ValidationResult validation)

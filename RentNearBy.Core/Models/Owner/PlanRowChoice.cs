@@ -21,15 +21,20 @@ public static class PlanRowChoice
     // How many rows stay visible: everything while nothing may be hidden (payment OFF), else min(limit, rows).
     public static int VisibleCount(int rows, int limit, bool hide) => hide ? Math.Min(Math.Max(0, limit), rows) : rows;
 
-    // Server choice (plan effects, reconcile): rank by (Hidden, Index, Id); rank <= limit is visible, the rest hidden. The owner's
-    // own choice is never reshuffled, extras are hidden highest index first, returning rows come back lowest index first.
-    // Indexed rows (rooms, routes): visible 1..V, hidden HiddenBase+1.. in their old relative order.
+    // Server choice (plan effects, reconcile) for rooms and routes: the last added stay. Rank by (Hidden, Index DESC, Id); rank <=
+    // limit is kept, the rest hidden (a new row always takes the highest visible index, so highest index = last added). The
+    // owner's own choice is never reshuffled (visible rows rank first). Both groups keep the order they were added in: rows from
+    // the hidden band first (they are the older ones), then the visible ones. Kept rows take 1..V, hidden rows HiddenBase+1..,
+    // so a new Plus restores the original order and the newest hidden row comes back first.
     public static IReadOnlyList<PlanRowTarget> ChooseIndexed(IEnumerable<PlanRow> rows, int limit, bool hide)
     {
-        var ranked = Rank(rows);
+        var ranked = rows.OrderBy(r => r.Hidden).ThenByDescending(r => r.Index).ThenBy(r => r.Id).ToList();
         var visible = VisibleCount(ranked.Count, limit, hide);
-        return Number(ranked.Take(visible), ranked.Skip(visible));
+        return Number(OldOrder(ranked.Take(visible)), OldOrder(ranked.Skip(visible)));
     }
+
+    private static IEnumerable<PlanRow> OldOrder(IEnumerable<PlanRow> rows)
+        => rows.OrderByDescending(r => r.Hidden).ThenBy(r => r.Index).ThenBy(r => r.Id);
 
     // Photos: the hidden flag only, PhotoOrder keeps its value (no unique index); the cover is the visible photo with the lowest order.
     public static IReadOnlyList<PlanRowTarget> ChoosePhotos(IEnumerable<PlanRow> rows, int limit, bool hide)
@@ -89,14 +94,29 @@ public static class PlanRowChoice
     }
 }
 
-// Special prices (PausedByPlan, contract 3.4): active rules ranked by (PausedByPlan, DateTo, Id); rank <= limit is live.
-public readonly record struct PlanRuleRow(Guid Id, bool PausedByPlan, DateOnly DateTo);
+// Special prices (PausedByPlan, contract 3.4): the last added stay live. Active rules ranked by (PausedByPlan, CreatedAt DESC, Id);
+// rank <= limit is live, so the owner's swap is never undone.
+public readonly record struct PlanRuleRow(Guid Id, bool PausedByPlan, DateTime CreatedAt);
+
+// Stay jobs (Active / Inactive, plan rule): of the owner's open jobs the newest `limit` by (CreatedAt DESC, Id) are Active, the
+// rest Inactive; nothing goes Inactive while payment is OFF, and a new Plus makes them Active again. Returns Id -> inactive.
+public readonly record struct PlanJobRow(Guid Id, bool Inactive, DateTime CreatedAt);
+
+public static class PlanJobChoice
+{
+    public static IReadOnlyDictionary<Guid, bool> Inactive(IEnumerable<PlanJobRow> openJobs, int limit, bool hide)
+    {
+        var ranked = openJobs.OrderByDescending(j => j.CreatedAt).ThenBy(j => j.Id).ToList();
+        var active = PlanRowChoice.VisibleCount(ranked.Count, limit, hide);
+        return ranked.Select((j, i) => (j.Id, Inactive: i >= active)).ToDictionary(x => x.Id, x => x.Inactive);
+    }
+}
 
 public static class PlanRuleChoice
 {
     public static IReadOnlyDictionary<Guid, bool> PausedByPlan(IEnumerable<PlanRuleRow> activeRules, int limit, bool hide)
     {
-        var ranked = activeRules.OrderBy(r => r.PausedByPlan).ThenBy(r => r.DateTo).ThenBy(r => r.Id).ToList();
+        var ranked = activeRules.OrderBy(r => r.PausedByPlan).ThenByDescending(r => r.CreatedAt).ThenBy(r => r.Id).ToList();
         var live = PlanRowChoice.VisibleCount(ranked.Count, limit, hide);
         return ranked.Select((r, i) => (r.Id, Paused: i >= live)).ToDictionary(x => x.Id, x => x.Paused);
     }

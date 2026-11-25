@@ -1,3 +1,4 @@
+using RentNearBy.Api.Filters;
 using RentNearBy.Api.Handlers.Owner.Be4;
 
 namespace RentNearBy.Api.Endpoints.Owner;
@@ -7,7 +8,7 @@ public static class OwnerHomeEndpoints
 {
     public static RouteGroupBuilder MapOwnerHomeEndpoints(this RouteGroupBuilder group)
     {
-        group.MapGet("/home", OwnerHomeHandlers.Get);
+        group.MapGet("/home", OwnerHomeHandlers.Get).ExpiresPlanOnRead();
         return group;
     }
 

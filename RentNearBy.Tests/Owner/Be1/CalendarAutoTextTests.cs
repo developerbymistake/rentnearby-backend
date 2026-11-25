@@ -107,6 +107,20 @@ public class CalendarAutoTextTests
     }
 
     [Fact]
+    public void Booked_by_traveller_lead_is_a_live_row_but_a_stay_is_not()
+    {
+        var lead = Lead(TripEnquiryStatuses.BookedByTraveller);
+        var plan = CalendarAutoText.ForEnquiry(lead)!;
+        Assert.True(plan.Confirmed);
+        Assert.Equal(CalendarSourceTypes.TaxiLead, plan.SourceType);
+        Assert.Equal((D, D.AddDays(1)), (plan.DateFrom, plan.DateTo));
+        Assert.Null(plan.CancelledBy);
+        Assert.Null(CalendarAutoText.CancelledByOfEnquiry(lead, CalendarSourceTypes.TaxiLead));
+        Assert.False(CalendarAutoText.IsConfirmed(TripEnquiryStatuses.BookedByTraveller, CalendarSourceTypes.StayEnquiry));
+        Assert.False(CalendarAutoText.IsConfirmed(TripEnquiryStatuses.FareSent, CalendarSourceTypes.TaxiLead));
+    }
+
+    [Fact]
     public void Confirmed_lead_covers_first_to_last_day_with_place_and_travellers()
     {
         var plan = CalendarAutoText.ForEnquiry(Lead())!;

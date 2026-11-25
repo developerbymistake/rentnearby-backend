@@ -76,4 +76,19 @@ public class TripReminderScheduleTests
         Assert.NotEqual(TripReminderRules.TravellerKey(user, day), TripReminderRules.TravellerKey(user, day.AddDays(1)));
         Assert.NotEqual(TripReminderRules.TravellerKey(user, day), TripReminderRules.HostKey(user, day));
     }
+
+    // Stay enquiries left the 08:00 run (TripStayNudgeRunner); shortlist rows and taxi leads stay on it.
+    [Theory]
+    [InlineData("EnquiryFinal", true)]
+    [InlineData("EnquiryOut", true)]
+    [InlineData("EnquiryHostWaiting", true)]
+    [InlineData("ShortlistFinal", false)]
+    [InlineData("ShortlistActive", false)]
+    public void Morning_run_drops_stay_enquiries_only(string name, bool dropsStays)
+    {
+        var field = typeof(RentNearBy.Infrastructure.Services.TripReminderRunner)
+            .GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var sql = (string)field.GetValue(null)!;
+        Assert.Equal(dropsStays, sql.Contains("e.\"Kind\" <> 'Stay'"));
+    }
 }

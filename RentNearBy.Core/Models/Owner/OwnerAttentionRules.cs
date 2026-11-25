@@ -226,7 +226,7 @@ public static class OwnerPlanCardStates
             if (activeSource == UserPlanSources.Trial || inPlayTrial) return Trial;
             return Plus;
         }
-        if (playState == PlayStates.OnHold) return OnHold;
+        if (playState is PlayStates.OnHold or PlayStates.Paused) return OnHold;
         return endedRecently ? Ended : Free;
     }
 }

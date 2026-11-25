@@ -40,7 +40,7 @@ public class TripReminderInboxIntegrationTests(TestDatabase db) : IntegrationTes
             });
             ctx.TripEnquiries.Add(new TripEnquiry
             {
-                Id = Guid.NewGuid(), TripId = trip, TravellerUserId = traveller, OwnerUserId = host, Kind = "Stay", ListingId = Guid.NewGuid(),
+                Id = Guid.NewGuid(), TripId = trip, TravellerUserId = traveller, OwnerUserId = host, Kind = "Taxi", ListingId = Guid.NewGuid(),
                 ListingName = "Hill View", Status = "Asked", StepKey = "stay:1", ExpiresAt = RunAt.AddDays(1),
                 CreatedAt = RunAt.AddDays(-1), UpdatedAt = RunAt.AddDays(-1),
             });

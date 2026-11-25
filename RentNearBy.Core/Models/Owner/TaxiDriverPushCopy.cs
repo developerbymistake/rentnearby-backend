@@ -13,7 +13,7 @@ public static class TaxiDriverPushCopy
 
     public static OwnerPush PlansStarted(Guid userId, int routes, DateOnly todayIst, bool plansStartedToday = true)
         => new(userId, NotificationTypes.PlanLimitsChanged, $"planlimits:{userId}:{Ymd(todayIst)}",
-            OwnerPushText.LimitsTitle(plansStartedToday), Cut($"{Count(routes, "route is", "routes are")} hidden on Free. Nothing is deleted."),
+            OwnerPushText.LimitsTitle(plansStartedToday), Cut($"{Count(routes, "route is", "routes are")} inactive on Free. Nothing is deleted."),
             UserNotificationRoutes.TaxiPlanVisible, Args(), $"owner_planlimits_{userId}");
 
     // "3 trips today" / label + " (all day)" for app bookings, or the time "9:00 am" for a trip he added.
@@ -23,6 +23,13 @@ public static class TaxiDriverPushCopy
             JoinFitting(lines.OrderBy(l => l.TimeOfDay ?? TimeOnly.MinValue).Select(Line)),
             UserNotificationRoutes.TaxiBookings, Args(("date", todayIst.ToString("yyyy-MM-dd"))), $"owner_morning_{listingId}",
             NoonIstUtc(todayIst));
+
+    // Evening before, every driver (D11): one push per booking, sent once by its key; the pickup place, never the traveller's name.
+    public static OwnerPush TripTomorrow(Guid userId, Guid entryId, DateOnly dateFrom, string? fromPlace)
+        => new(userId, NotificationTypes.OwnerBookingTomorrow, $"ownereve:{ListingKinds.Taxi}:{entryId}:{Ymd(dateFrom)}",
+            "Trip tomorrow", Cut(Line(new OwnerReminderLine(CalendarEntryKinds.Auto, string.Empty, null, null, fromPlace))),
+            UserNotificationRoutes.TaxiUpcoming, Args(("date", dateFrom.ToString("yyyy-MM-dd")), ("entryId", entryId)), $"owner_eve_{entryId}",
+            IstTime.IstMidnightUtc(dateFrom));
 
     public static OwnerPush PlansStarting(Guid userId, DateOnly announceDate, int freeRoutes, int trialDays)
         => new(userId, NotificationTypes.PlansStarting, $"plansstarting:{userId}:{Ymd(announceDate)}",

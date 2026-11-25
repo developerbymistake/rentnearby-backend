@@ -36,7 +36,10 @@ public sealed class CalendarEntryRow
     public string? CancelledBy { get; set; }
     public DateOnly? CancelledOn { get; set; }
     public int Version { get; set; }
+    public DateTime CreatedAt { get; set; }
     public bool? SourceAvailable { get; set; }
+    // A manual row above the plan limit (month read only): shown greyed, Delete only; edits answer PlanRowInactive.
+    public bool InactiveByPlan { get; set; }
 
     public bool IsManual => Kind == CalendarEntryKinds.Manual;
 
@@ -156,12 +159,12 @@ public static class OwnerCalendarRules
     // D-07: an entry whose stored end is before today is read-only except its money note and Delete.
     public static bool Ended(DateOnly storedTo, DateOnly today) => storedTo < today;
 
-    // Doc 6.1.10 visibility: Auto always, past rows always, and the `limit` active manual rows with the earliest (DateTo, Id).
+    // Doc 6.1.10 visibility: Auto always, past rows always, and the `limit` active manual rows added last (CreatedAt DESC, Id).
     public static HashSet<Guid> VisibleIds(IEnumerable<CalendarEntryRow> rows, DateOnly today, int limit)
     {
         var all = rows.ToList();
         var visible = all.Where(r => !r.IsActiveManual(today)).Select(r => r.Id).ToHashSet();
-        foreach (var r in all.Where(r => r.IsActiveManual(today)).OrderBy(r => r.DateTo).ThenBy(r => r.Id).Take(Math.Max(0, limit)))
+        foreach (var r in all.Where(r => r.IsActiveManual(today)).OrderByDescending(r => r.CreatedAt).ThenBy(r => r.Id).Take(Math.Max(0, limit)))
             visible.Add(r.Id);
         return visible;
     }

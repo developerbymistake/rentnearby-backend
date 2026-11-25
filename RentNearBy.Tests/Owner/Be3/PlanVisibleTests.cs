@@ -99,7 +99,7 @@ public class PlanVisibleTests
     {
         var service = Be3Kit.Source("RentNearBy.Infrastructure", "Services", "Owner", "Be3", "PlanVisibleService.cs");
         Assert.Contains("if (!limits.PaymentEnabled) return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);", service);
-        Assert.Contains("if (!PlanRowChoice.ChoiceNeeded(photos, limits.Photos) && !PlanRowChoice.ChoiceNeeded(rooms, limits.RoomTypes))", service);
+        Assert.Contains("if (!PlanRowChoice.ChoiceNeeded(photos, locked.Photos) && !PlanRowChoice.ChoiceNeeded(rooms, locked.RoomTypes))", service);
         Assert.Contains("if (!PlanRowChoice.ChoiceNeeded(PlanRows.AsRows(planned), limits.Routes)) return PlanVisibleOutcome.Fail(OwnerErrorTypes.PlanVisibleNotNeeded);", service);
         Assert.Contains("notifier.ClearAsync(NoticeKinds.PlanLimitsChanged", service);
         Assert.Equal(409, OwnerErrorTypes.StatusOf(OwnerErrorTypes.PlanVisibleLimit));

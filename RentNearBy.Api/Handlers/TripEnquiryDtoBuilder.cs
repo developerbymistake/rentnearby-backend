@@ -1,10 +1,12 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Owner;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Owner;
+using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Api.Handlers;
 
@@ -13,7 +15,8 @@ public static class TripEnquiryDtoBuilder
     public const string DeletedTraveller = "Deleted user";
     public const string DeletedOwner = "This host left Bakhli";
 
-    // Stay phones: the traveller's reaches the owner only on ConfirmedByBoth; the owner's reaches the traveller when
+    // Stay phones: the traveller's reaches the owner while the row is open and she shared it at send (phoneShared), or on
+    // ConfirmedByBoth; the owner's reaches the traveller when
     // contact is visible or on ConfirmedByBoth. The host phone typed into a phone booking is shown to the traveller only.
     // Taxi phones: the traveller's reaches the driver while the lead is open or closed less than 7 days ago (consent at send);
     // the traveller sees the taxi listing's own contact numbers.
@@ -26,6 +29,7 @@ public static class TripEnquiryDtoBuilder
         var bothConfirmed = e.Status == TripEnquiryStatuses.ConfirmedByBoth;
         var isTaxi = e.Kind == TripEnquiryKinds.Taxi;
         var days = ReadDays(e.DaysJson);
+        var context = ReadContext(e.ContextJson);
 
         string? travellerPhone;
         string? ownerPhone;
@@ -40,7 +44,7 @@ public static class TripEnquiryDtoBuilder
         }
         else
         {
-            travellerPhone = ownerViewer && bothConfirmed ? traveller.Phone : null;
+            travellerPhone = StayTravellerPhone(e, context, ownerViewer) ? traveller.Phone : null;
             ownerPhone = travellerViewer && e.OwnerUserId != null && (owner.ContactVisible || bothConfirmed) ? owner.Phone : null;
             ownerWhatsApp = travellerViewer ? owner.WhatsApp : null;
         }
@@ -48,8 +52,7 @@ public static class TripEnquiryDtoBuilder
         var ordered = offers.OrderByDescending(o => o.CreatedAt).ToList();
         var open = Pending(ordered, TripOfferKinds.Offer);
         var accepted = e.AcceptedOfferId is { } acceptedId ? ordered.FirstOrDefault(o => o.Id == acceptedId) : null;
-
-        var context = ReadContext(e.ContextJson);
+        var isStayAsked = !isTaxi && e.Status == TripEnquiryStatuses.Asked;
 
         return new TripEnquiryDto
         {
@@ -123,12 +126,112 @@ public static class TripEnquiryDtoBuilder
             CancelReason = e.CancelReason,
             CreatedAt = e.CreatedAt,
             UpdatedAt = e.UpdatedAt,
+            StepKey = e.StepKey,
+            IsQuiet = TripQuietRules.IsQuiet(e, nowUtc),
+            QuietAt = travellerViewer && isStayAsked ? TripQuietRules.QuietAt(e.CreatedAt, e.ExpiresAt) : null,
+            EndReason = TripEndReasons.Of(e.Status, e.FailReason, ordered.Any(o => o.Status == TripOfferStatuses.Expired)),
+            UndoUntil = travellerViewer && TripUndoRules.CanRestore(e, nowUtc) ? e.UpdatedAt.AddSeconds(TripUndoRules.UndoSeconds) : null,
+            OffersLeft = ownerViewer && !isTaxi
+                ? Math.Max(0, TripExecutionRules.MaxOffersPerEnquiry - TripExecutionRules.CountedOffers(ordered))
+                : null,
+            WaitingHours = ownerViewer && isStayAsked ? WaitingHoursOf(e.CreatedAt, nowUtc) : null,
         };
     }
 
+    // Stay contact rule: an open row whose traveller shared her phone at send, or a booking confirmed by both. No WhatsApp.
+    public static bool StayTravellerPhone(TripEnquiry e, TripEnquiryContext context, bool ownerViewer)
+        => ownerViewer && (e.Status == TripEnquiryStatuses.ConfirmedByBoth
+            || (TripEnquiryStatuses.IsOpen(e.Status) && context.PhoneShared == true));
+
+    public static int WaitingHoursOf(DateTime createdAtUtc, DateTime nowUtc)
+        => Math.Max(0, (int)Math.Floor((nowUtc - createdAtUtc).TotalHours));
+
+    // Traveller view of a stay booking only: the newest share card since the ask, else the share mark with live values.
+    public static TripOwnerShareDto? OwnerShare(
+        TripEnquiry e, Guid viewerId, (string PayloadJson, DateTime At)? card, DateTime? markAt, (string? UpiId, string? WhatsApp)? live)
+    {
+        if (e.Kind != TripEnquiryKinds.Stay || e.Status != TripEnquiryStatuses.ConfirmedByBoth || e.TravellerUserId != viewerId) return null;
+        if (card is { } c && ReadShare(c.PayloadJson) is { } fromCard)
+            return new TripOwnerShareDto { UpiId = fromCard.UpiId, WhatsApp = fromCard.WhatsApp, SharedAt = c.At };
+        if (markAt is { } at && live is { } l)
+        {
+            var upi = string.IsNullOrWhiteSpace(l.UpiId) ? null : l.UpiId.Trim();
+            var wa = string.IsNullOrWhiteSpace(l.WhatsApp) ? null : l.WhatsApp.Trim();
+            if (upi != null || wa != null) return new TripOwnerShareDto { UpiId = upi, WhatsApp = wa, SharedAt = at };
+        }
+        return null;
+    }
+
+    private static (string? UpiId, string? WhatsApp)? ReadShare(string payloadJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+            string? Read(string key) => root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(v.GetString()) ? v.GetString()!.Trim() : null;
+            var upi = Read("upiId");
+            var wa = Read("whatsApp");
+            return upi == null && wa == null ? null : (upi, wa);
+        }
+        catch (JsonException) { return null; }
+    }
+
+    public static string ShareMarkKey(Guid enquiryId) => $"share:{enquiryId}";
+
+    // One cards query, one marks query and (only for marks without a card) one stays query; only with the viewer's stay bookings in the batch.
+    private static async Task ApplyOwnerShareAsync(
+        ApplicationDbContext db, IReadOnlyList<TripEnquiry> enquiries, List<TripEnquiryDto> dtos, Guid viewerId)
+    {
+        var booked = enquiries
+            .Select((e, i) => (e, i))
+            .Where(x => x.e.Kind == TripEnquiryKinds.Stay && x.e.Status == TripEnquiryStatuses.ConfirmedByBoth && x.e.TravellerUserId == viewerId)
+            .ToList();
+        if (booked.Count == 0) return;
+
+        var conversationIds = booked.Where(x => x.e.ConversationId != null).Select(x => x.e.ConversationId!.Value).Distinct().ToList();
+        var cards = conversationIds.Count == 0
+            ? new List<ShareCardRow>()
+            : await db.Messages.AsNoTracking()
+                .Where(m => conversationIds.Contains(m.ConversationId) && m.Type == StayShareRules.MessageType)
+                .Select(m => new ShareCardRow(m.ConversationId, m.CreatedAt, m.PayloadJson))
+                .ToListAsync();
+        var keys = booked.Select(x => ShareMarkKey(x.e.Id)).ToList();
+        var marks = await db.TripPushLogs.AsNoTracking()
+            .Where(p => keys.Contains(p.DedupeKey))
+            .Select(p => new { p.DedupeKey, p.SentAt })
+            .ToListAsync();
+
+        (string, DateTime)? CardOf(TripEnquiry e) => e.ConversationId is { } cid
+            && cards.Where(c => c.ConversationId == cid && c.CreatedAt >= e.CreatedAt).MaxBy(c => c.CreatedAt) is { } c
+            ? (c.PayloadJson, c.CreatedAt) : null;
+
+        var needLive = booked.Where(x => CardOf(x.e) == null && marks.Any(m => m.DedupeKey == ShareMarkKey(x.e.Id)))
+            .Select(x => x.e.ListingId).Distinct().ToList();
+        var live = needLive.Count == 0
+            ? new List<ShareLiveRow>()
+            : await db.StayListings.AsNoTracking()
+                .Where(s => needLive.Contains(s.Id))
+                .Select(s => new ShareLiveRow(s.Id, s.UpiId, s.WhatsAppNumber))
+                .ToListAsync();
+
+        foreach (var (e, i) in booked)
+        {
+            var mark = marks.FirstOrDefault(m => m.DedupeKey == ShareMarkKey(e.Id));
+            var stay = live.FirstOrDefault(s => s.Id == e.ListingId);
+            dtos[i].OwnerShare = OwnerShare(e, viewerId, CardOf(e), mark?.SentAt,
+                stay == null ? null : (stay.UpiId, stay.WhatsApp));
+        }
+    }
+
+    private sealed record ShareCardRow(Guid ConversationId, DateTime CreatedAt, string PayloadJson);
+    private sealed record ShareLiveRow(Guid Id, string? UpiId, string? WhatsApp);
+
     // Batched: one offers query, one users query and (only with taxi rows) one taxi-contacts query for the whole list.
+    // db (optional) fills ownerShare on the traveller's stay bookings.
     public static async Task<List<TripEnquiryDto>> BuildManyAsync(
-        IUnitOfWork unitOfWork, IReadOnlyList<TripEnquiry> enquiries, Guid viewerId, DateTime nowUtc)
+        IUnitOfWork unitOfWork, IReadOnlyList<TripEnquiry> enquiries, Guid viewerId, DateTime nowUtc, ApplicationDbContext? db = null)
     {
         if (enquiries.Count == 0) return new List<TripEnquiryDto>();
         var offers = await unitOfWork.TripOffers.GetByEnquiriesAsync(enquiries.Select(e => e.Id).ToList());
@@ -158,7 +261,7 @@ public static class TripEnquiryDtoBuilder
                 tripPlans[tripId] = plan;
         }
 
-        return enquiries.Select(e =>
+        var dtos = enquiries.Select(e =>
         {
             var dto = Build(
                 e,
@@ -176,6 +279,8 @@ public static class TripEnquiryDtoBuilder
             }
             return dto;
         }).ToList();
+        if (db != null) await ApplyOwnerShareAsync(db, enquiries, dtos, viewerId);
+        return dtos;
     }
 
     // Wrong city and outside trip are a view of the row's dates against the current plan; a host or driver never sees them.
@@ -201,8 +306,9 @@ public static class TripEnquiryDtoBuilder
         dto.OutsideTrip = TripLegRules.OutsideTrip(e, plan, start);
     }
 
-    public static async Task<TripEnquiryDto> BuildOneAsync(IUnitOfWork unitOfWork, TripEnquiry e, Guid viewerId, DateTime nowUtc)
-        => (await BuildManyAsync(unitOfWork, [e], viewerId, nowUtc))[0];
+    public static async Task<TripEnquiryDto> BuildOneAsync(
+        IUnitOfWork unitOfWork, TripEnquiry e, Guid viewerId, DateTime nowUtc, ApplicationDbContext? db = null)
+        => (await BuildManyAsync(unitOfWork, [e], viewerId, nowUtc, db))[0];
 
     public static TripOfferDto ToOfferDto(TripOffer o, TripEnquiry e)
     {

@@ -61,12 +61,31 @@ public static class TripShortlistHandlers
         var (trip, error) = await LoadTripAsync(tripId, callerId, unitOfWork, db);
         if (error != null) return error;
 
-        var items = await unitOfWork.TripShortlist.GetForTripAsync(trip!.Id, DateTime.UtcNow);
+        var now = DateTime.UtcNow;
+        var items = await unitOfWork.TripShortlist.GetForTripAsync(trip!.Id, now);
         return OkResponse(new TripShortlistDto
         {
             Max = TripExecutionRules.MaxShortlistPerStep,
             Items = items.Select(ToDto).ToList(),
+            Steps = await StepSlotsAsync(db, trip.Id, now),
         });
+    }
+
+    // One entry per step that has an open ask or an Active shortlist row; a missing step has 3 free places.
+    private static async Task<List<TripStepSlotsDto>> StepSlotsAsync(ApplicationDbContext db, Guid tripId, DateTime now)
+    {
+        var open = await db.TripEnquiries.AsNoTracking()
+            .Where(x => x.TripId == tripId && x.StepKey != null && TripEnquiryStatuses.Open.Contains(x.Status))
+            .ToListAsync();
+        var active = await db.TripShortlistItems.AsNoTracking()
+            .Where(x => x.TripId == tripId && x.State == TripShortlistStates.Active)
+            .GroupBy(x => x.StepKey).Select(g => new { StepKey = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.StepKey, x => x.Count);
+        var rowsByStep = open.ToLookup(x => x.StepKey!);
+        return rowsByStep.Select(g => g.Key).Concat(active.Keys).Distinct().OrderBy(k => k, StringComparer.Ordinal)
+            .Select(step => TripGuards.SlotsDto(step,
+                TripStepSlotRules.Compute(rowsByStep[step], active.TryGetValue(step, out var n) ? n : 0, now)))
+            .ToList();
     }
 
     // PUT /trips/{tripId}/steps/{stepKey}/shortlist/{listingId}
@@ -120,14 +139,14 @@ public static class TripShortlistHandlers
                     return ConflictResponse("You already asked this one.", TripEnquiryErrorTypes.AlreadyAsked);
                 }
 
-                // Open enquiries of the step use the same three places as the shortlist (a second round is refused up front).
-                var openInStep = await db.TripEnquiries.CountAsync(x => x.TripId == trip.Id && x.StepKey == stepKey
-                    && TripEnquiryStatuses.Open.Contains(x.Status));
+                // Counted asks and Active rows share 3 places; quiet asks only count toward the hard total of 6.
+                var stepRows = await TripGuards.OpenStepRowsAsync(db, trip.Id, stepKey);
                 var activeInStep = await unitOfWork.TripShortlist.CountActiveAsync(trip.Id, stepKey);
-                if (!TripBulkRules.StepHasRoom(openInStep, activeInStep))
+                var slots = TripStepSlotRules.Compute(stepRows, activeInStep, now);
+                if (TripStepSlotRules.FullCase(slots, 1, addingIsShortlistRow: true) is { } fullCase)
                 {
                     await unitOfWork.RollbackTransactionAsync();
-                    return ConflictResponse(TripBulkRules.StepFullMessage, TripEnquiryErrorTypes.StepFull);
+                    return TripGuards.StepFullError(slots, fullCase, stepRows, now);
                 }
 
                 var name = TripTextSafety.Clean(listing.Name, NameMax);
@@ -372,6 +391,42 @@ public static class TripBulk
                 result.Reason = "Try again";
             }
             results.Add(result);
+        }
+        return results;
+    }
+
+    // OpenInAnotherTrip skips name the other trip (one Trips query for all of them).
+    public static async Task FillOtherTripTitlesAsync(ApplicationDbContext db, IReadOnlyCollection<TripSkippedDto> skipped)
+    {
+        var ids = skipped.Where(x => x.OtherTripId != null).Select(x => x.OtherTripId!.Value).Distinct().ToList();
+        if (ids.Count == 0) return;
+        var titles = await db.Trips.AsNoTracking().Where(t => ids.Contains(t.Id))
+            .Select(t => new { t.Id, t.Title }).ToDictionaryAsync(t => t.Id, t => t.Title);
+        foreach (var skip in skipped)
+            if (skip.OtherTripId is { } id && titles.TryGetValue(id, out var title))
+                skip.OtherTripTitle = TripTextSafety.CleanOrNull(title, 120);
+    }
+
+    // Status stays NotAvailable for old builds; the reason tells new builds the stay is full on these dates.
+    public static List<TripSendResultDto> MarkFullOnDates(List<TripSendResultDto> results, IReadOnlySet<Guid> full)
+    {
+        if (full.Count == 0) return results;
+        foreach (var result in results)
+            if (result.Status == TripSendStatuses.NotAvailable && full.Contains(result.ListingId)) result.Reason = TripSendReasons.FullOnDates;
+        return results;
+    }
+
+    public static List<TripSendResultDto> CopyOtherTrip(List<TripSendResultDto> results, IEnumerable<TripSkippedDto> skipped)
+    {
+        var other = new Dictionary<Guid, TripSkippedDto>();
+        foreach (var skip in skipped)
+            if (skip.OtherTripId != null || skip.OtherEnquiryId != null) other.TryAdd(skip.ListingId, skip);
+        foreach (var result in results)
+        {
+            if (result.Status != TripSendStatuses.OpenInAnotherTrip || !other.TryGetValue(result.ListingId, out var skip)) continue;
+            result.OtherTripId = skip.OtherTripId;
+            result.OtherTripTitle = skip.OtherTripTitle;
+            result.OtherEnquiryId = skip.OtherEnquiryId;
         }
         return results;
     }

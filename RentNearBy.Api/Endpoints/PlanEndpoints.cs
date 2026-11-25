@@ -1,3 +1,4 @@
+using RentNearBy.Api.Filters;
 using RentNearBy.Api.Handlers;
 
 namespace RentNearBy.Api.Endpoints;
@@ -8,7 +9,7 @@ public static class PlanEndpoints
     public static RouteGroupBuilder MapPlanEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/catalog", PlanHandlers.GetCatalog).AllowAnonymous();
-        group.MapGet("/me", PlanHandlers.GetMe).RequireAuthorization();
+        group.MapGet("/me", PlanHandlers.GetMe).RequireAuthorization().ExpiresPlanOnRead();
         group.MapPost("/quote", PlanHandlers.Quote).RequireAuthorization();
         group.MapPost("/purchases", PlanHandlers.CreatePurchase).RequireAuthorization();
         group.MapGet("/purchases", PlanHandlers.GetPurchases).RequireAuthorization();

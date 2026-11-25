@@ -80,22 +80,38 @@ public class OwnerCalendarRulesTests
     }
 
     [Fact]
-    public void Twelve_manual_rows_on_free_show_the_four_soonest_and_hide_eight()
+    public void Twelve_manual_rows_on_free_show_the_four_added_last_and_hide_eight()
     {
-        var rows = Enumerable.Range(0, 12).Select(i => Be1Kit.Manual(D.AddDays(i), D.AddDays(i + 1))).ToList();
+        // Added in date order; the plan rule keeps the last added, so the four latest stay active even though they are later dates.
+        var rows = Enumerable.Range(0, 12).Select(i => Added(Be1Kit.Manual(D.AddDays(i), D.AddDays(i + 1)), i)).ToList();
         var visible = OwnerCalendarRules.VisibleIds(rows, D, 4);
-        Assert.Equal(rows.Take(4).Select(r => r.Id).ToHashSet(), visible);
+        Assert.Equal(rows.Skip(8).Select(r => r.Id).ToHashSet(), visible);
         Assert.Equal(8, OwnerCalendarRules.HiddenCount(OwnerCalendarRules.ActiveManualCount(rows, D), 4, 0));
     }
 
     [Fact]
     public void Visibility_is_recomputed_after_a_date_passes()
     {
-        var rows = Enumerable.Range(0, 6).Select(i => Be1Kit.Manual(D.AddDays(i), D.AddDays(i))).ToList();
+        var rows = Enumerable.Range(0, 6).Select(i => Added(Be1Kit.Manual(D.AddDays(i), D.AddDays(i)), i)).ToList();
         var tomorrow = OwnerCalendarRules.VisibleIds(rows, D.AddDays(1), 4);
         Assert.Contains(rows[0].Id, tomorrow);                       // past now, always visible
-        Assert.Equal(rows.Skip(1).Take(4).Select(r => r.Id), rows.Skip(1).Where(r => tomorrow.Contains(r.Id)).Select(r => r.Id));
-        Assert.DoesNotContain(rows[5].Id, tomorrow);
+        Assert.Equal(rows.Skip(2).Select(r => r.Id), rows.Skip(1).Where(r => tomorrow.Contains(r.Id)).Select(r => r.Id));
+        Assert.DoesNotContain(rows[1].Id, tomorrow);                 // the oldest active row is the inactive one
+    }
+
+    [Fact]
+    public void The_row_added_last_stays_active_whatever_its_date()
+    {
+        var soon = Added(Be1Kit.Manual(D.AddDays(1), D.AddDays(2)), 2);
+        var later = Added(Be1Kit.Manual(D.AddDays(30), D.AddDays(31)), 5);
+        var visible = OwnerCalendarRules.VisibleIds([soon, later], D, 1);
+        Assert.Equal([later.Id], visible);
+    }
+
+    private static CalendarEntryRow Added(CalendarEntryRow row, int minute)
+    {
+        row.CreatedAt = new DateTime(2026, 11, 1, 0, minute, 0, DateTimeKind.Utc);
+        return row;
     }
 
     [Fact]

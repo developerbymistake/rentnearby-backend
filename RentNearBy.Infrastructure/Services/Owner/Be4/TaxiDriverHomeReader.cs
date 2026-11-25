@@ -30,7 +30,7 @@ public sealed class TaxiDriverHomeReader(
         SELECT l."Id" AS "ListingId", l."Status", l."DistrictId", d."StateName", l."RemindersOn",
                NULL::date AS "SpecialPriceSavesDay", 0::smallint AS "SpecialPriceSavesCount", l."PlanVisibleSavesDay", l."PlanVisibleSavesCount",
                up."Id" AS "UserPlanId", up."PlanId", up."Source", up."StartsAt", up."EndsAt", up."PlaySubscriptionId",
-               own."Name" AS "DriverName", vt."Name" AS "VehicleName", l."Seats", l."NumberPlate", c."Name" AS "CityName",
+               own."Name" AS "DriverName", vt."Name" AS "VehicleName", l."Seats", l."NumberPlate", l."DisplayPhotoUrl", c."Name" AS "CityName",
                l."IsAvailable" AS "SwitchOn", l."IsFeatured", l."EverApproved", l."RejectedReason",
                l."RingReadyAt", l."RingNotificationsOn", l."RingMissStreak", l."LocalDayRate", l."RatingSum", l."RatingCount", l."RingWeight",
                COALESCE(d."IsActive", false) AS "DistrictActive",
@@ -153,6 +153,9 @@ public sealed class TaxiDriverHomeReader(
                 Sub = Sub(ctx.VehicleName, ctx.Seats),
                 CityName = ctx.CityName,
                 Plate = ctx.NumberPlate,
+                VehicleName = ctx.VehicleName,
+                Seats = ctx.Seats,
+                DisplayPhotoUrl = ctx.DisplayPhotoUrl,
                 SwitchOn = ctx.SwitchOn,
                 IsFeatured = ctx.IsFeatured,
                 TakenDown = ctx.Status == TaxiStatuses.Rejected && ctx.EverApproved,
@@ -164,6 +167,7 @@ public sealed class TaxiDriverHomeReader(
                 RingReady = ringReady,
                 OnTripUntil = work.OnTripUntil,
                 RoutesMeter = new OwnerMeterDto(ctx.VisibleRoutes, limits.Routes),
+                LocalDayRate = ctx.LocalDayRate,
                 StatusLine = ToDto(OwnerStatusLineRules.Choose(approved, ctx.SwitchOn, plansStartedToday, newRequests, 0,
                     ctx.IsFeatured, ctx.CityName)),
             },
@@ -215,6 +219,7 @@ public sealed class TaxiDriverHomeReader(
         public string? VehicleName { get; set; }
         public short? Seats { get; set; }
         public string? NumberPlate { get; set; }
+        public string? DisplayPhotoUrl { get; set; }
         public string? CityName { get; set; }
         public bool SwitchOn { get; set; }
         public bool IsFeatured { get; set; }

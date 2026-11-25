@@ -157,7 +157,7 @@ public class Be1CalendarIntegrationTests(TestDatabase db) : IntegrationTestBase(
     }
 
     [IntegrationFact]
-    public async Task Free_month_shows_four_soonest_manual_rows_every_auto_row_and_the_hidden_count()
+    public async Task Free_month_shows_four_active_manual_rows_the_rest_inactive_every_auto_row_and_the_hidden_count()
     {
         OwnerSeed.OwnerRow owner;
         var monthStart = new DateOnly(TodayIst.Year, TodayIst.Month, 1);
@@ -171,7 +171,9 @@ public class Be1CalendarIntegrationTests(TestDatabase db) : IntegrationTestBase(
         await using var db = CreateContext();
         var month = (await Reader(db).MonthAsync(ctx, monthStart, monthStart.AddMonths(1).AddDays(-1))).Value!;
         Assert.Single(month.Entries, e => e.Kind == CalendarEntryKinds.Auto);
-        Assert.True(month.Entries.Count(e => e.Kind == CalendarEntryKinds.Manual) <= 4);
+        Assert.True(month.Entries.Count(e => e.Kind == CalendarEntryKinds.Manual && !e.InactiveByPlan) <= 4);
+        Assert.All(month.Entries.Where(e => e.InactiveByPlan), e => Assert.Equal(CalendarEntryKinds.Manual, e.Kind));
+        Assert.DoesNotContain(month.Entries, e => e.Kind == CalendarEntryKinds.Auto && e.InactiveByPlan);
         Assert.True(month.HiddenCount >= 8);
     }
 

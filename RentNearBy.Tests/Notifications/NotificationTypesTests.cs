@@ -35,6 +35,7 @@ public class NotificationTypesTests
     [InlineData(NotificationTypes.TaxiChooseDriver, "taxi_choose_driver")]
     [InlineData(NotificationTypes.TaxiRequestRing, "taxi_request_ring")]
     [InlineData(NotificationTypes.TaxiRequestRingEnded, "taxi_request_ring_ended")]
+    [InlineData(NotificationTypes.OwnerBookingTomorrow, "owner_booking_tomorrow")]
     public void ToWireValue_KnownType_SnakeValue(string type, string expected)
         => Assert.Equal(expected, NotificationTypes.ToWireValue(type));
 
