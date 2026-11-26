@@ -59,7 +59,9 @@ public sealed class OwnerHomeNumbersDto
 public sealed record OwnerStayNumbersDto(int NewEnquiries, int OffersWaiting, int Confirmed);
 
 // MissedRequests: offers of his listing in state Missed in the last TaxiDispatchRules.MissedWindowDays days (Bug 25).
-public sealed record OwnerTaxiNumbersDto(int NewRequests, DateOnly? NextBookingDate, double? RatingAvg, int RatingCount, int MissedRequests);
+// Availability: this IST month's From app bookings and days off (contract R3/R4); null on old paths.
+public sealed record OwnerTaxiNumbersDto(int NewRequests, DateOnly? NextBookingDate, double? RatingAvg, int RatingCount, int MissedRequests,
+    TaxiAvailabilityCountsDto? Availability = null);
 
 // The first 3 upcoming rows (a subset of the calendar row; no money note field ever leaves here except the chip).
 public sealed class OwnerUpcomingRowDto

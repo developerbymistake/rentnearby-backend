@@ -1,4 +1,7 @@
+using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 using RentNearBy.Api.Handlers;
+using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Tests.Trips;
@@ -100,6 +103,90 @@ public class TaxiCityBrowseTests
         Assert.Equal([big.Item.Id, small.Item.Id], page.Items.Select(t => t.Id));
         Assert.True(page.Items[0].TripSeatsFit);
         Assert.NotNull(page.Items[0].TripPickupKm);
+    }
+
+    // Contract R11: browse always lists one IST day; absent = today, so a taxi off or booked today never shows by default.
+    public class DayStub : DispatchProxy
+    {
+        public List<DateOnly?> Days = [];
+
+        protected override object? Invoke(MethodInfo? m, object?[]? a)
+        {
+            switch (m?.Name)
+            {
+                case nameof(ITaxiListingRepository.BrowseLocalNearAsync):
+                    Days.Add((DateOnly?)a![6]);
+                    return Task.FromResult<IReadOnlyList<(TaxiBrowseDto Item, double Lat, double Lng)>>([]);
+                case nameof(ITaxiListingRepository.BrowseLocalPagedAsync) when a!.Length == 9:
+                    Days.Add((DateOnly?)a![8]);
+                    return Task.FromResult<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)>(([], false));
+                default:
+                    throw new NotSupportedException(m?.Name);
+            }
+        }
+    }
+
+    private sealed class FixedClock(DateTime utc) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(utc, TimeSpan.Zero);
+    }
+
+    // 20:00 UTC on 26 Nov is 01:30 IST on 27 Nov.
+    private static readonly DateOnly IstToday = new(2026, 11, 27);
+
+    private static IServiceProvider At2000Utc() =>
+        new ServiceCollection().AddSingleton<TimeProvider>(new FixedClock(new DateTime(2026, 11, 26, 20, 0, 0, DateTimeKind.Utc))).BuildServiceProvider();
+
+    private static (IUnitOfWork Uow, DayStub Taxis) DayUow()
+    {
+        var (uow, _, _) = CityFixture.Uow();
+        var taxis = DispatchProxy.Create<ITaxiListingRepository, DayStub>();
+        ((CityFixture.UowStub)(object)uow).Taxis = taxis;
+        return (uow, (DayStub)(object)taxis);
+    }
+
+    private static Task<Microsoft.AspNetCore.Http.IResult> CityBrowseOn(IUnitOfWork uow, string? date)
+        => TaxiHandlers.GetBrowse(null, null, null, CityFixture.Haldwani.CityKey, uow, CityFixture.Resolver(CityFixture.Haldwani), At2000Utc(),
+            date: date);
+
+    [Fact]
+    public async Task City_browse_without_a_date_lists_ist_today()
+    {
+        var (uow, taxis) = DayUow();
+        Assert.Equal(200, CityFixture.Read(await CityBrowseOn(uow, null)).Status);
+        Assert.Equal(IstToday, Assert.Single(taxis.Days));
+    }
+
+    [Fact]
+    public async Task District_browse_without_a_date_lists_ist_today()
+    {
+        var (uow, taxis) = DayUow();
+        var r = await TaxiHandlers.GetBrowse(Guid.NewGuid(), null, null, null, uow, CityFixture.Resolver(CityFixture.Haldwani), At2000Utc());
+        Assert.Equal(200, CityFixture.Read(r).Status);
+        Assert.Equal(IstToday, Assert.Single(taxis.Days));
+    }
+
+    [Theory]
+    [InlineData("2026-12-01", 2026, 12, 1)]
+    [InlineData("2026-11-20", 2026, 11, 27)]
+    public async Task City_browse_lists_the_sent_day_and_a_past_day_reads_as_today(string date, int y, int m, int d)
+    {
+        var (uow, taxis) = DayUow();
+        Assert.Equal(200, CityFixture.Read(await CityBrowseOn(uow, date)).Status);
+        Assert.Equal(new DateOnly(y, m, d), Assert.Single(taxis.Days));
+    }
+
+    [Theory]
+    [InlineData("2026-13-01")]
+    [InlineData("soon")]
+    [InlineData("2027-02-26")]
+    public async Task Browse_with_a_malformed_or_too_far_date_is_invalid_date_and_reads_nothing(string date)
+    {
+        var (uow, taxis) = DayUow();
+        var read = CityFixture.Read(await CityBrowseOn(uow, date));
+        Assert.Equal(400, read.Status);
+        Assert.Equal("InvalidDate", read.ErrorType);
+        Assert.Empty(taxis.Days);
     }
 
     [Fact]

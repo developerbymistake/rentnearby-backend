@@ -75,6 +75,9 @@ public sealed class TaxiDriverHomeReader(
                (SELECT count(*) FROM "TaxiRequestOffers" o WHERE o."DriverListingId" = @listing AND o."Status" = '{OfferStates.Missed}'
                   AND o."OfferedAt" >= now() - interval '{TaxiDispatchRules.MissedWindowDays} days')::int AS "MissedRequests",
                (SELECT max(b."DateTo") FROM "TaxiBookings" b WHERE b."DriverListingId" = @listing AND b."Status" = '{BookingStates.InProgress}') AS "OnTripUntil",
+               (SELECT count(*) FROM "CalendarEntries" ce WHERE ce."ListingKind" = '{ListingKinds.Taxi}' AND ce."ListingId" = @listing
+                  AND ce."Kind" = '{CalendarEntryKinds.Auto}' AND NOT ce."Cancelled" AND ce."DateFrom" >= @m1 AND ce."DateFrom" < @m2)::int AS "MonthBookings",
+               (SELECT count(*) FROM "TaxiDayOffs" dof WHERE dof."TaxiListingId" = @listing AND dof."Date" >= @today AND dof."Date" < @m2)::int AS "MonthDaysOff",
                CASE WHEN @wantSuggestion THEN (
                    SELECT max(r."DropCityName") FILTER (WHERE r."DropCityKey" = r."MatchToCityKey")
                    FROM "TaxiRequests" r
@@ -107,8 +110,12 @@ public sealed class TaxiDriverHomeReader(
         var needSuggestion = approved && ctx.VisibleRoutes < limits.Routes;
         string? cachedSuggestion = null;
         var suggestionCached = needSuggestion && cache != null && cache.TryGetValue(SuggestionKey(ctx.ListingId, ctx.VisibleRoutes), out cachedSuggestion);
+        var (m1, m2) = TaxiDayOffRules.Month(today);
         var work = (await db.Database.SqlQueryRaw<TaxiWorkRow>(WorkSql, Uuid("listing", ctx.ListingId),
-            new Npgsql.NpgsqlParameter("wantSuggestion", NpgsqlTypes.NpgsqlDbType.Boolean) { Value = needSuggestion && !suggestionCached })
+            new Npgsql.NpgsqlParameter("wantSuggestion", NpgsqlTypes.NpgsqlDbType.Boolean) { Value = needSuggestion && !suggestionCached },
+            new Npgsql.NpgsqlParameter("m1", NpgsqlTypes.NpgsqlDbType.Date) { Value = m1 },
+            new Npgsql.NpgsqlParameter("m2", NpgsqlTypes.NpgsqlDbType.Date) { Value = m2 },
+            new Npgsql.NpgsqlParameter("today", NpgsqlTypes.NpgsqlDbType.Date) { Value = today })
             .ToListAsync(ct)).FirstOrDefault() ?? new TaxiWorkRow();
         if (suggestionCached) work.SuggestedToCityName = cachedSuggestion;
         else if (needSuggestion) cache?.Set(SuggestionKey(ctx.ListingId, ctx.VisibleRoutes), work.SuggestedToCityName, SuggestionTtl);
@@ -177,7 +184,8 @@ public sealed class TaxiDriverHomeReader(
             {
                 Taxi = new OwnerTaxiNumbersDto(newRequests, upcoming.Rows.FirstOrDefault(r => !r.Cancelled)?.DateFrom,
                     ctx.RatingCount > 0 ? Math.Round((double)ctx.RatingSum / ctx.RatingCount, 1) : null, ctx.RatingCount,
-                    work.MissedRequests),
+                    work.MissedRequests,
+                    new TaxiAvailabilityCountsDto(TaxiDayOffRules.MonthText(today), work.MonthBookings, work.MonthDaysOff)),
                 CentreBadge = newRequests,
             },
             Upcoming = upcoming,
@@ -261,6 +269,8 @@ public sealed class TaxiDriverHomeReader(
         public int WeekAccepted { get; set; }
         public int MissedRequests { get; set; }
         public DateOnly? OnTripUntil { get; set; }
+        public int MonthBookings { get; set; }
+        public int MonthDaysOff { get; set; }
         public string? SuggestedToCityName { get; set; }
     }
 }

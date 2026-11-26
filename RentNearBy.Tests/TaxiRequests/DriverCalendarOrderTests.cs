@@ -141,5 +141,6 @@ public class DriverCalendarOrderTests
         Assert.DoesNotContain("SaveAsync(unitOfWork", confirm);
         Assert.Contains("public static async Task<IResult> Confirm(\n        Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ApplicationDbContext db, IRateLimitService rateLimiter,\n        ITripNotifier notifier, HttpContext httpContext, ILoggerFactory loggers)",
             source.Replace("\r\n", "\n"));
+        Assert.DoesNotContain("FeedCache.BumpAsync", confirm);
     }
 }

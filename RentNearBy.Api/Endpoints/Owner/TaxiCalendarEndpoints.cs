@@ -1,3 +1,4 @@
+using RentNearBy.Api.Filters;
 using RentNearBy.Api.Handlers.Owner.Be1;
 
 namespace RentNearBy.Api.Endpoints.Owner;
@@ -11,10 +12,11 @@ public static class TaxiCalendarEndpoints
         group.MapGet("/calendar/upcoming", TaxiCalendarHandlers.Upcoming);
         group.MapGet("/calendar/past", TaxiCalendarHandlers.Past);
         group.MapGet("/calendar/entries/{id:guid}", TaxiCalendarHandlers.Entry);
-        group.MapPost("/calendar/entries", TaxiCalendarHandlers.Create);
-        group.MapPut("/calendar/entries/{id:guid}", TaxiCalendarHandlers.Update);
-        group.MapDelete("/calendar/entries/{id:guid}", TaxiCalendarHandlers.Delete);
-        group.MapPut("/calendar/entries/{id:guid}/money", TaxiCalendarHandlers.Money);
+        // Bucket B (SPEC 6): the four calendar writes; reads and the reminder switch are not in it.
+        group.MapPost("/calendar/entries", TaxiCalendarHandlers.Create).BookingHourLimited();
+        group.MapPut("/calendar/entries/{id:guid}", TaxiCalendarHandlers.Update).BookingHourLimited();
+        group.MapDelete("/calendar/entries/{id:guid}", TaxiCalendarHandlers.Delete).BookingHourLimited();
+        group.MapPut("/calendar/entries/{id:guid}/money", TaxiCalendarHandlers.Money).BookingHourLimited();
         group.MapGet("/calendar/summary", TaxiCalendarHandlers.Summary);
         group.MapGet("/calendar/balance-due", TaxiCalendarHandlers.BalanceDue);
         group.MapPut("/calendar/reminder", TaxiCalendarHandlers.Reminder);

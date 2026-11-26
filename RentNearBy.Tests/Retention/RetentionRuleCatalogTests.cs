@@ -14,7 +14,7 @@ public class RetentionRuleCatalogTests
         "Sessions", "AdminSessions", "StayJobs", "BannerDismissals",
         "DueActions", "TaxiRequests",
         "BuddyRequests", "UserNotices", "TripPaymentsEnded", "TripMemberInvites",
-        "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats",
+        "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats", "TaxiDayOffs",
     };
 
     // Never auto-deleted (owner list), so no declarative rule may name them as its table.
@@ -28,7 +28,7 @@ public class RetentionRuleCatalogTests
     private static IReadOnlyList<IRetentionRule> Rules() => RetentionRuleRegistration.Discover(typeof(RetentionRunner).Assembly);
 
     [Fact]
-    public void Exactly_the_eighteen_contract_rules_exist()
+    public void Exactly_the_contract_rules_exist()
         => Assert.Equal(ExpectedNames.OrderBy(x => x), Rules().Select(r => r.Name).OrderBy(x => x));
 
     [Fact]
@@ -85,7 +85,7 @@ public class RetentionRuleCatalogTests
 
     [Fact]
     public void Exempt_rules_are_exactly_the_rolling_ones()
-        => Assert.Equal(new[] { "DueActions", "OutboxMessages", "TripReminderRuns", "TripShortlistItems", "UserNotices" },
+        => Assert.Equal(new[] { "DueActions", "OutboxMessages", "TaxiDayOffs", "TripReminderRuns", "TripShortlistItems", "UserNotices" },
             Rules().Where(r => r.GuardExempt).Select(r => r.Name).OrderBy(x => x));
 
     [Fact]

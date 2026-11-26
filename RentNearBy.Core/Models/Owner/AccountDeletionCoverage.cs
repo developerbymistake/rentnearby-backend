@@ -30,6 +30,8 @@ public static class AccountDeletionCoverage
         new("OwnerWeeklyStats", DeletionModes.Purge, "Counts only; deleted by the purge seam with the listing."),
         new("UserNotices", DeletionModes.Cascade, "Users cascade; the role purge deletes the owner kinds explicitly."),
         new("OutboxMessages", DeletionModes.Purge, "Unsent rnb.push rows addressed to him are deleted by OwnerAccountDeletion (payload user id)."),
+        new("TaxiDayOffs", DeletionModes.Purge | DeletionModes.Cascade,
+            "Purge seam on soft taxi delete; TaxiListings cascade. The private reason goes with the row."),
         new("OwnerReminderRuns", DeletionModes.Anonymised, "LastListingId is a resume cursor, no person data; rows go after 30 days."),
 
         new("StayListings", DeletionModes.Purge | DeletionModes.Cascade, "ListingPurgeService deletes the rows; Users cascade is the net."),

@@ -98,5 +98,6 @@ public class DeletionCoverageGuardTests
         Assert.True(c["TripEnquiries"].Mode.HasFlag(DeletionModes.Anonymised));
         Assert.True(c["TaxiBookings"].Mode.HasFlag(DeletionModes.Anonymised));
         Assert.Equal(DeletionModes.Purge, c["OutboxMessages"].Mode);
+        Assert.Equal(DeletionModes.Purge | DeletionModes.Cascade, c["TaxiDayOffs"].Mode);
     }
 }

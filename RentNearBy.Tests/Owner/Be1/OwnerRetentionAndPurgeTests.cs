@@ -6,7 +6,7 @@ using RentNearBy.Infrastructure.Services.Retention.Owner;
 
 namespace RentNearBy.Tests.Owner.Be1;
 
-// Contract 5.1 nightly clean-up (six declarative rules of group D) and the purge seam (6.2 step 6, AU-26).
+// Contract 5.1 nightly clean-up (seven declarative rules of group D) and the purge seam (6.2 step 6, AU-26).
 public class OwnerRetentionAndPurgeTests
 {
     private static readonly (string Name, string Table, string End, int Days)[] Expected =
@@ -17,10 +17,11 @@ public class OwnerRetentionAndPurgeTests
         ("FestivalReminderSent", "FestivalReminderSent", "FestivalDateTo", 30),
         ("OwnerReminderRuns", "OwnerReminderRuns", "RunDate", 30),
         ("OwnerWeeklyStats", "OwnerWeeklyStats", "Day", 56),
+        ("TaxiDayOffs", "TaxiDayOffs", "Date", 1),
     ];
 
     [Fact]
-    public void Six_rules_in_group_d_with_their_days_and_end_dates()
+    public void Seven_rules_in_group_d_with_their_days_and_end_dates()
     {
         var defs = OwnerRetentionRules.Definitions.ToDictionary(d => d.Name);
         Assert.Equal(Expected.Length, defs.Count);
@@ -34,6 +35,12 @@ public class OwnerRetentionAndPurgeTests
             Assert.Equal(end, d.OrderBy);
         }
     }
+
+    // One row per day with a 1-day window: a month start or a skipped night passes the 20 percent guard, so it is exempt.
+    [Fact]
+    public void Only_the_day_off_rule_is_guard_exempt_in_group_d()
+        => Assert.Equal(new[] { "TaxiDayOffs" },
+            OwnerRetentionRules.Definitions.Where(d => d.GuardExempt).Select(d => d.Name).ToArray());
 
     [Fact]
     public void Rules_are_discovered_in_the_contract_order_and_use_only_allowed_parameters()
@@ -59,6 +66,7 @@ public class OwnerRetentionAndPurgeTests
         Assert.Contains("(t.\"UserId\", t.\"FestivalDateId\") IN", rules["FestivalReminderSent"].BuildDeleteSql());
         Assert.Contains("(t.\"RunDate\", t.\"ListingKind\") IN", rules["OwnerReminderRuns"].BuildDeleteSql());
         Assert.Contains("(t.\"ListingKind\", t.\"ListingId\", t.\"Day\") IN", rules["OwnerWeeklyStats"].BuildDeleteSql());
+        Assert.Contains("(t.\"TaxiListingId\", t.\"Date\") IN", rules["TaxiDayOffs"].BuildDeleteSql());
         Assert.Contains("t.\"Id\" IN", rules["OwnerCalendarEntries"].BuildDeleteSql());
     }
 
@@ -72,9 +80,12 @@ public class OwnerRetentionAndPurgeTests
             s => Assert.Contains("\"StaySpecialPrices\"", s),
             s => Assert.Contains("\"OwnerWeeklyStats\"", s));
         var taxi = OwnerListingPurge.Statements(ListingKinds.Taxi);
-        Assert.Equal(2, taxi.Count);
+        Assert.Collection(taxi,
+            s => Assert.Contains("\"CalendarEntries\"", s),
+            s => Assert.Contains("\"TaxiDayOffs\"", s),
+            s => Assert.Contains("\"OwnerWeeklyStats\"", s));
         Assert.All(stay.Concat(taxi), s => Assert.Contains("= ANY(@ids)", s));
-        var purgeTables = new[] { "CalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "OwnerWeeklyStats" };
+        var purgeTables = new[] { "CalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "OwnerWeeklyStats", "TaxiDayOffs" };
         foreach (var t in purgeTables)
             Assert.True(AccountDeletionCoverage.Tables.Single(c => c.Table == t).Mode.HasFlag(DeletionModes.Purge), t);
     }

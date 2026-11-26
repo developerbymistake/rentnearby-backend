@@ -82,12 +82,9 @@ public sealed class OwnerCalendarSyncInterceptor(IOwnerCalendarSync sync) : Save
         return isModified(nameof(TripEnquiry.Status)) && status == originalStatus;
     }
 
-    private State? Collect(DbContext? context)
+    // SavingChanges runs before EF's own DetectChanges, so each tracked enquiry is detected here (that entity only, not the context).
+    public static List<TripEnquiry>? WatchedEnquiries(ApplicationDbContext context)
     {
-        if (!IsActive || context is not ApplicationDbContext) return null;
-        if (_states.TryGetValue(context, out var existing) && existing.Running) return null;
-
-        // EF has detected changes before SavingChanges; do not run detection a second time for the whole context.
         List<TripEnquiry>? found = null;
         var tracker = context.ChangeTracker;
         var autoDetect = tracker.AutoDetectChangesEnabled;
@@ -96,6 +93,7 @@ public sealed class OwnerCalendarSyncInterceptor(IOwnerCalendarSync sync) : Save
         {
             foreach (var entry in tracker.Entries<TripEnquiry>())
             {
+                entry.DetectChanges();
                 var original = entry.State == EntityState.Modified
                     ? entry.Property(e => e.Status).OriginalValue
                     : null;
@@ -107,6 +105,15 @@ public sealed class OwnerCalendarSyncInterceptor(IOwnerCalendarSync sync) : Save
         {
             tracker.AutoDetectChangesEnabled = autoDetect;
         }
+        return found;
+    }
+
+    private State? Collect(DbContext? context)
+    {
+        if (!IsActive || context is not ApplicationDbContext) return null;
+        if (_states.TryGetValue(context, out var existing) && existing.Running) return null;
+
+        var found = WatchedEnquiries((ApplicationDbContext)context);
         if (found == null) return null;
 
         var state = _states.GetValue(context, _ => new State());

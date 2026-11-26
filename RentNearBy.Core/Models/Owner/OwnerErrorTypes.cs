@@ -42,6 +42,15 @@ public static class OwnerErrorTypes
     public const string StayLocked = "StayLocked";
     public const string PaymentAlreadyOn = "PaymentAlreadyOn";
     public const string PlanRowInactive = "PlanRowInactive";
+    public const string DayOffBooked = "DayOffBooked";
+    public const string DayOffPast = "DayOffPast";
+    public const string DayOffReasonTooLong = "DayOffReasonTooLong";
+    public const string DayIsOff = "DayIsOff";
+    public const string PopularRouteDuplicate = "PopularRouteDuplicate";
+    public const string PopularRouteSameCity = "PopularRouteSameCity";
+    public const string PopularRouteCityUnknown = "PopularRouteCityUnknown";
+    public const string PopularRouteLimit = "PopularRouteLimit";
+    public const string PopularRouteOrderStale = "PopularRouteOrderStale";
 
     // A write to a row the plan made inactive (room, route, special price, job, calendar entry): only Delete is open.
     public const string PlanRowInactiveMessage = "This one is inactive on the Free plan. Get Plus to use it again.";
@@ -101,6 +110,15 @@ public static class OwnerErrorTypes
         [StayLocked] = (409, "Your stay is under review."),
         [PaymentAlreadyOn] = (400, "Payments are already on."),
         [PlanRowInactive] = (409, PlanRowInactiveMessage),
+        [DayOffBooked] = (409, "This day has a booking"),
+        [DayOffPast] = (409, "Pick today or a later day."),
+        [DayOffReasonTooLong] = (400, "Keep the reason under 200 characters."),
+        [DayIsOff] = (409, "This day is off. Change it on Home."),
+        [PopularRouteDuplicate] = (409, "This route is already added."),
+        [PopularRouteSameCity] = (400, "From and To must be different places"),
+        [PopularRouteCityUnknown] = (400, "Pick a city from the list."),
+        [PopularRouteLimit] = (409, "You can add up to 30 routes."),
+        [PopularRouteOrderStale] = (409, "The list changed. Reload."),
     };
 
     public static IReadOnlyCollection<string> All => Table.Keys;

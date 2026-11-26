@@ -73,9 +73,10 @@ public static class CityListings
         }
     }
 
-    public static Task<CityFetch<TaxiAt>> TaxisAsync(ITaxiListingRepository taxis, ICityResolver resolver, TripCityInfo city, bool localRateOnly)
+    public static Task<CityFetch<TaxiAt>> TaxisAsync(ITaxiListingRepository taxis, ICityResolver resolver, TripCityInfo city, bool localRateOnly,
+        DateOnly? day = null)
         => CollectAsync<TaxiAt>(
-            async (take, skip) => (await taxis.BrowseLocalNearAsync(city.Latitude, city.Longitude, resolver.BoxKm, localRateOnly, take, skip))
+            async (take, skip) => (await taxis.BrowseLocalNearAsync(city.Latitude, city.Longitude, resolver.BoxKm, localRateOnly, take, skip, day))
                 .Select(x => new TaxiAt(x.Item, x.Lat, x.Lng)).ToList(),
             async rows => await resolver.FilterAsync(rows, t => (t.Lat, t.Lng), city.CityKey));
 

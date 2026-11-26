@@ -30,7 +30,7 @@ public static class RetentionSchedule
         "DueActions", "TaxiRequests",
         "TripOffers", "TripEnquiries", "TripEnquiryOrphans",
         "Chat",
-        "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats",
+        "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats", "TaxiDayOffs",
     };
 
     public static int OrderOf(string ruleName)

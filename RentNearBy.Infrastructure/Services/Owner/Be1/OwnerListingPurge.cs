@@ -16,10 +16,12 @@ public sealed class OwnerListingPurge(ApplicationDbContext db) : IOwnerListingPu
     public const string StayBlockedRangesSql = """DELETE FROM "StayBlockedRanges" WHERE "StayListingId" = ANY(@ids)""";
     public const string StaySpecialPricesSql = """DELETE FROM "StaySpecialPrices" WHERE "StayListingId" = ANY(@ids)""";
     public const string OwnerWeeklyStatsSql = """DELETE FROM "OwnerWeeklyStats" WHERE "ListingKind" = @k AND "ListingId" = ANY(@ids)""";
+    // Soft taxi delete keeps the listing row, so the days off (and their private reasons) go here.
+    public const string TaxiDayOffsSql = """DELETE FROM "TaxiDayOffs" WHERE "TaxiListingId" = ANY(@ids)""";
 
     public static IReadOnlyList<string> Statements(string listingKind) => listingKind == ListingKinds.Stay
         ? [CalendarEntriesSql, StayBlockedRangesSql, StaySpecialPricesSql, OwnerWeeklyStatsSql]
-        : [CalendarEntriesSql, OwnerWeeklyStatsSql];
+        : [CalendarEntriesSql, TaxiDayOffsSql, OwnerWeeklyStatsSql];
 
     public async Task PurgeAsync(string listingKind, IReadOnlyCollection<Guid> listingIds, CancellationToken ct = default)
     {
@@ -32,6 +34,10 @@ public sealed class OwnerListingPurge(ApplicationDbContext db) : IOwnerListingPu
         {
             await RunAsync(StayBlockedRangesSql, listingKind, ids, ct);
             await RunAsync(StaySpecialPricesSql, listingKind, ids, ct);
+        }
+        else
+        {
+            await RunAsync(TaxiDayOffsSql, listingKind, ids, ct);
         }
         await RunAsync(OwnerWeeklyStatsSql, listingKind, ids, ct);
     }

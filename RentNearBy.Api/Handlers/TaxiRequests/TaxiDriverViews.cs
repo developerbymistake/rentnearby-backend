@@ -310,7 +310,7 @@ public static class TaxiDriverViews
                 phone = u?.PhoneNumber;
             }
             var conflict = o.Status == OfferStates.Selected
-                ? await DriverCalendar.ConflictForAsync(db, o.DriverListingId, r.DateFrom, r.DateTo, ct)
+                ? await DriverCalendar.SelectedConflictForAsync(db, o.DriverListingId, r.DateFrom, r.DateTo, ct)
                 : null;
             result.Add(new DriverOfferSource(o, r, booking, name, phone, conflict));
         }

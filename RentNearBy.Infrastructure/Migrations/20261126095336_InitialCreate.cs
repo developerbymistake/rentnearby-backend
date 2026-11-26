@@ -323,6 +323,26 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "PopularRoutes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    FromCityKey = table.Column<long>(type: "bigint", nullable: false),
+                    ToCityKey = table.Column<long>(type: "bigint", nullable: false),
+                    FromCityName = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
+                    ToCityName = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
+                    SortOrder = table.Column<int>(type: "integer", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PopularRoutes", x => x.Id);
+                    table.CheckConstraint("ck_popularroutes_pair", "\"FromCityKey\" <> \"ToCityKey\"");
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ReportReasons",
                 columns: table => new
                 {
@@ -1810,6 +1830,28 @@ namespace RentNearBy.Infrastructure.Migrations
                         name: "FK_StaySpecialPrices_StayListings_StayListingId",
                         column: x => x.StayListingId,
                         principalTable: "StayListings",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TaxiDayOffs",
+                columns: table => new
+                {
+                    TaxiListingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Date = table.Column<DateOnly>(type: "date", nullable: false),
+                    Reason = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TaxiDayOffs", x => new { x.TaxiListingId, x.Date });
+                    table.CheckConstraint("ck_taxidayoffs_reason", "\"Reason\" IS NULL OR char_length(\"Reason\") BETWEEN 1 AND 200");
+                    table.ForeignKey(
+                        name: "FK_TaxiDayOffs_TaxiListings_TaxiListingId",
+                        column: x => x.TaxiListingId,
+                        principalTable: "TaxiListings",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -3363,6 +3405,17 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: new[] { "UserId", "FeatureKey" });
 
             migrationBuilder.CreateIndex(
+                name: "ix_popularroutes_order",
+                table: "PopularRoutes",
+                columns: new[] { "SortOrder", "Id" });
+
+            migrationBuilder.CreateIndex(
+                name: "ux_popularroutes_pair",
+                table: "PopularRoutes",
+                columns: new[] { "FromCityKey", "ToCityKey" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_QuestionTemplates_Key",
                 table: "QuestionTemplates",
                 column: "Key",
@@ -3711,6 +3764,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "RequestId",
                 unique: true,
                 filter: "\"Status\" IN ('Booked', 'InProgress')");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_taxidayoffs_date",
+                table: "TaxiDayOffs",
+                columns: new[] { "Date", "TaxiListingId" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_taxilistings_browse_district_city_fare",
@@ -4512,6 +4570,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "PlanFeatures");
 
             migrationBuilder.DropTable(
+                name: "PopularRoutes");
+
+            migrationBuilder.DropTable(
                 name: "QuestionTemplates");
 
             migrationBuilder.DropTable(
@@ -4537,6 +4598,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "StaySpecialPrices");
+
+            migrationBuilder.DropTable(
+                name: "TaxiDayOffs");
 
             migrationBuilder.DropTable(
                 name: "TaxiDispatchCities");

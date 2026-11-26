@@ -60,6 +60,20 @@ public static class TaxiLimits
     public const int VehicleTypeNameMax = 60;
     public const int PhoneLength = 10;
     public const int LocalDayKmMax = 1000;
+    public const int SearchDaysAhead = 90;
+}
+
+// SPEC 5: a popular route's results match drivers by the two Atlas city keys (either direction), the same rule as its card count.
+public sealed record TaxiRouteCityPair(long FromCityKey, long ToCityKey)
+{
+    public static bool TryCreate(long? from, long? to, out TaxiRouteCityPair? pair)
+    {
+        pair = null;
+        if (from == null && to == null) return true;
+        if (from is not > 0 || to is not > 0 || from == to) return false;
+        pair = new TaxiRouteCityPair(from.Value, to.Value);
+        return true;
+    }
 }
 
 public static class TaxiTripReplyLabels

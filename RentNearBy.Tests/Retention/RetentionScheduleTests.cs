@@ -85,9 +85,9 @@ public class RetentionScheduleTests
         var o = RetentionSchedule.RuleOrder;
         Assert.True(o.ToList().IndexOf("TripOffers") < o.ToList().IndexOf("TripEnquiries"));
         Assert.True(o.ToList().IndexOf("TripEnquiries") < o.ToList().IndexOf("Chat"));
-        Assert.Equal(new[] { "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats" },
+        Assert.Equal(new[] { "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats", "TaxiDayOffs" },
             o.Skip(o.ToList().IndexOf("Chat") + 1));
-        Assert.Equal(28, o.Distinct().Count());
+        Assert.Equal(29, o.Distinct().Count());
         Assert.Equal(o.Count, RetentionSchedule.OrderOf("Nope"));
     }
 }

@@ -19,6 +19,9 @@ public static class OwnerBe1Registration
         services.AddScoped<OwnerCalendarWriter>();
         services.AddScoped<MoneyNoteService>();
         services.AddScoped<BlockedRangeService>();
+        services.AddScoped<TaxiDayOffService>();
+        services.AddScoped<RentNearBy.Infrastructure.Services.PopularRouteReader>();
+        services.AddScoped<RentNearBy.Infrastructure.Services.PopularRouteAdminStore>();
         services.AddScoped<OwnerCalendarRepairJob>();
         services.AddScoped<IBuddyFeatureJob>(sp => sp.GetRequiredService<OwnerCalendarRepairJob>());
         services.AddScoped<IBuddyFeatureJob, OwnerCalendarRepairNightlyJob>();
@@ -28,7 +31,7 @@ public static class OwnerBe1Registration
     public static IEndpointRouteBuilder MapOwnerBe1(this IEndpointRouteBuilder app)
     {
         app.MapGroup("/api/v1/stays/me").WithTags("Stay owner").RequireAuthorization("CanListStays").MapStayCalendarEndpoints();
-        app.MapGroup("/api/v1/taxis/me").WithTags("Taxi driver").RequireAuthorization("CanListTaxis").MapTaxiCalendarEndpoints();
+        app.MapGroup("/api/v1/taxis/me").WithTags("Taxi driver").RequireAuthorization("CanListTaxis").MapTaxiCalendarEndpoints().MapTaxiDayOffEndpoints();
         return app;
     }
 }

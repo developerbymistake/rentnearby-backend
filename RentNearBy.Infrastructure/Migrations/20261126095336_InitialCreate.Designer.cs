@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261125190705_InitialCreate")]
+    [Migration("20261126095336_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -2330,6 +2330,38 @@ namespace RentNearBy.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.Owner.TaxiDayOff", b =>
+                {
+                    b.Property<Guid>("TaxiListingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("TaxiListingId", "Date");
+
+                    b.HasIndex(new[] { "Date", "TaxiListingId" }, "ix_taxidayoffs_date");
+
+                    b.ToTable("TaxiDayOffs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_taxidayoffs_reason", "\"Reason\" IS NULL OR char_length(\"Reason\") BETWEEN 1 AND 200");
+                        });
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.PaymentEvent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2955,6 +2987,60 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasIndex(new[] { "UserId", "FeatureKey" }, "ix_playsubscriptions_user_feature");
 
                     b.ToTable("PlaySubscriptions");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.PopularRoute", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<long>("FromCityKey")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("FromCityName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("ToCityKey")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ToCityName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "SortOrder", "Id" }, "ix_popularroutes_order");
+
+                    b.HasIndex(new[] { "FromCityKey", "ToCityKey" }, "ux_popularroutes_pair")
+                        .IsUnique();
+
+                    b.ToTable("PopularRoutes", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_popularroutes_pair", "\"FromCityKey\" <> \"ToCityKey\"");
+                        });
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.QuestionTemplate", b =>
@@ -6352,6 +6438,15 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasOne("RentNearBy.Core.Entities.StayListing", null)
                         .WithMany()
                         .HasForeignKey("StayListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Owner.TaxiDayOff", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.TaxiListing", null)
+                        .WithMany()
+                        .HasForeignKey("TaxiListingId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
