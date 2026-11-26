@@ -106,10 +106,15 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
                 RuleForEach(x => x.Plan.Legs!).SetValidator(new TripCityLegValidator());
             });
 
+            // A draft may have no day yet (a public post is a Draft trip with only its cities, social contract 2.4); a Planned save
+            // needs days (and places, below).
+            RuleFor(x => x.Plan.Days)
+                .Must(d => d is { Count: >= 1 }).WithMessage("Add at least one day")
+                .When(x => x.Status == TripStatuses.Planned);
+
             RuleFor(x => x.Plan.Days)
                 .Cascade(CascadeMode.Stop)
                 .NotNull().WithMessage("Add at least one day")
-                .Must(d => d.Count >= 1).WithMessage("Add at least one day")
                 .Must(d => d.Count <= TripLimits.MaxDays).WithMessage(PlanTripRequestValidator.TooManyDaysMessage)
                 .Must(d => d.All(i => i != null && i.Spots != null)).WithMessage("Add at least one day")
                 .Must(d => d.Select((i, n) => i.Day == n + 1).All(ok => ok)).WithMessage("Days must be numbered from 1 in order");

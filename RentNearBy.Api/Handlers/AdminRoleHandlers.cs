@@ -255,6 +255,10 @@ public static class AdminRoleHandlers
                     await unitOfWork.Notifications.DeleteByActionRouteForUserAsync(user.Id, route);
             }
 
+            // A seeker leaving the role: his Bakhli Plus plan is detached like a listing plan (social contract 4).
+            if (user.RoleId == UserRoles.SeekerId && target.Id != UserRoles.SeekerId)
+                await purchases.CancelActivePlansAsync(user.Id, PlanFeatures.Seeker, "Role changed");
+
             await unitOfWork.Users.SetRoleAsync(user.Id, target.Id);
 
             var notification = BuildRoleApprovedNotification(user.Id, target.Name);
@@ -269,6 +273,8 @@ public static class AdminRoleHandlers
             await RentNearBy.Infrastructure.Services.Owner.Be4.DeviceTokenCleanup.DeleteAllAsync(db, user.Id);
 
             await unitOfWork.CommitTransactionAsync();
+            // Social chat sockets of the old role end now (contract 3.1); the hub statements re-check the role anyway.
+            if (sp.GetService<RentNearBy.Core.Interfaces.Social.IHubSessionRevoker>() is { } revoker) await revoker.RevokeAsync(user.Id, "roleChanged");
 
             if (purgeKind != null)
                 await InvalidateListingCachesAsync(sp.GetService<IConnectionMultiplexer>(), purgeKind, purgedDistrictIds);

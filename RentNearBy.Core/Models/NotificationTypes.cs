@@ -90,6 +90,14 @@ public static class NotificationTypes
     public const string TripPaymentReceived = "TripPaymentReceived";
     public const string TripPaymentWithdrawn = "TripPaymentWithdrawn";
     public const string TripPaymentNotReceived = "TripPaymentNotReceived";
+    // Bakhli social (contract 3.6, 5): outbox pushes only; the stored rows live in UserNotices. Chat pushes have no inbox row.
+    public const string SocialFollowRequest = "SocialFollowRequest";
+    public const string SocialNewFollower = "SocialNewFollower";
+    public const string SocialFollowAccepted = "SocialFollowAccepted";
+    public const string SocialJoinRequest = "SocialJoinRequest";
+    public const string SocialJoinAccepted = "SocialJoinAccepted";
+    public const string SocialChatMessage = "SocialChatMessage";
+    public const string SocialTripChatMessage = "SocialTripChatMessage";
     // Owner roles (contract 5.3, R-0): outbox pushes with NotificationId null; the stored ones live in UserNotices.
     public const string StayEditApproved = "StayEditApproved";
     public const string StayEditRejected = "StayEditRejected";
@@ -110,6 +118,8 @@ public static class NotificationTypes
         BuddyRequestReceived, BuddyRequestAccepted, TripInvite, TripMemberJoined, TripPlanUpdated, TripMemberRemoved,
         TripDeletedForViewer, TripExpensesUpdated, TripSettleReminder, TripPaymentSaidPaid, TripPaymentReceived,
         TripPaymentWithdrawn, TripPaymentNotReceived,
+        SocialFollowRequest, SocialNewFollower, SocialFollowAccepted, SocialJoinRequest, SocialJoinAccepted, SocialChatMessage,
+        SocialTripChatMessage,
     ];
 
     // The lowercase-snake value sent as the FCM data payload's "notification_type" key — kept
@@ -194,6 +204,13 @@ public static class NotificationTypes
         [TripPaymentReceived] = "trip_payment_received",
         [TripPaymentWithdrawn] = "trip_payment_withdrawn",
         [TripPaymentNotReceived] = "trip_payment_not_received",
+        [SocialFollowRequest] = "social_follow_request",
+        [SocialNewFollower] = "social_new_follower",
+        [SocialFollowAccepted] = "social_follow_accepted",
+        [SocialJoinRequest] = "social_join_request",
+        [SocialJoinAccepted] = "social_join_accepted",
+        [SocialChatMessage] = "social_chat_message",
+        [SocialTripChatMessage] = "social_trip_chat_message",
         [StayEditApproved] = "stay_edit_approved",
         [StayEditRejected] = "stay_edit_rejected",
         [FestivalReminder] = "festival_reminder",

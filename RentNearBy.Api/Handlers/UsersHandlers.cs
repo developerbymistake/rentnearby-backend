@@ -115,6 +115,8 @@ public static class UsersHandlers
     {
         await usernames.EnsureAsync(user);
         var dto = user.Adapt<UserDto>();
+        dto.Gender = await unitOfWork.Users.GetSocialGenderAsync(user.Id);
+        dto.ProfileCompleted = dto.Gender != null;
         dto.RoleTabActive = TabState.IsActive(await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache), UserRoles.TabKeyOf(user.RoleId));
         var latest = await unitOfWork.RoleChangeRequests.GetLatestForUserAsync(user.Id);
         dto.RoleRequestStatus = latest?.Status;

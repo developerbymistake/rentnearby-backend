@@ -4,11 +4,12 @@ namespace RentNearBy.Core.Models.Buddy;
 
 public enum TripAccessLevel { Owner, Viewer, Former }
 
-// EndedHow: "Left" | "Removed" (Former only).
+// EndedHow: "Left" | "Removed" (Former only). DetailsLocked: a viewer who joined by a public post join request before the
+// trip's start date (social contract 2.5): plan and travellers only, no stay, taxi, enquiry or money.
 public sealed record TripAccessInfo(
     Guid TripId, Guid OwnerUserId, string OwnerName, string Title, string Status,
     DateOnly? StartDate, DateOnly? EndDate, int DayCount, int SpotCount, DateTime? CompletedAt, DateTime UpdatedAt,
-    TripAccessLevel Level, Guid? MemberId, DateTime? JoinedAt, string? EndedHow);
+    TripAccessLevel Level, Guid? MemberId, DateTime? JoinedAt, string? EndedHow, bool DetailsLocked = false);
 
 // Status: "Owner" | "Joined" | "Left" | "Removed". PhotoUrl = the 160 face thumb (null when none).
 public sealed record TripTraveller(Guid UserId, string Name, string? Username, bool IsOwner, string Status, DateTime? JoinedAt, string? PhotoUrl = null);
@@ -45,4 +46,6 @@ public sealed record TripLedgerSnapshot(
 
 public sealed record NoticeUpsert(Guid UserId, string Kind, Guid TripId, Guid? ActorUserId, Guid? RefId = null, int? Amount = null);
 
-public sealed record PushSpec(Guid UserId, string PushKind, string Key, string Title, string Body, string Route, string ArgsJson, string Tag, TimeSpan? Delay = null);
+// Expires: the outbox payload is never sent after now + Delay + Expires (social chat pushes: 1 h, contract 3.6). Null = no expiry.
+public sealed record PushSpec(Guid UserId, string PushKind, string Key, string Title, string Body, string Route, string ArgsJson, string Tag, TimeSpan? Delay = null,
+    TimeSpan? Expires = null);

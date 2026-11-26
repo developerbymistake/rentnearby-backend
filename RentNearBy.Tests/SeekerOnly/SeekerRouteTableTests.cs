@@ -26,11 +26,11 @@ public class SeekerRouteTableTests
     }
 
     [Fact]
-    public void Gate_total_is_95()
+    public void Gate_total_is_123()
     {
-        Assert.Equal(95, Seeker.Length);
-        Assert.Equal(95, Seeker.Distinct().Count());
-        Assert.Equal(95, Routes.Values.Count(r => r.Policies.Contains(AuthPolicies.SeekerOnly)));
+        Assert.Equal(123, Seeker.Length);
+        Assert.Equal(123, Seeker.Distinct().Count());
+        Assert.Equal(123, Routes.Values.Count(r => r.Policies.Contains(AuthPolicies.SeekerOnly)));
     }
 
     [Fact]

@@ -8,6 +8,7 @@ using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Services;
 using RentNearBy.Infrastructure.Services.Owner.Be4;
+using RentNearBy.Infrastructure.Services.Social;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -107,11 +108,27 @@ public static class AuthHandlers
         IUsernameService usernames,
         IRateLimitService rateLimiter,
         HttpContext httpContext,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Infrastructure.Data.ApplicationDbContext? db = null)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
             return BadRequestResponse(validation.Errors[0].ErrorMessage);
+
+        // Bakhli social (contract 2.2): the optional profile block is checked before anything is stored; under 18 = no account.
+        var social = new RentNearBy.Core.DTOs.Social.SocialOnboardingRequest
+        {
+            Gender = request.Gender, BirthMonth = request.BirthMonth, BirthYear = request.BirthYear, Interests = request.Interests,
+            Skills = request.Skills, Places = request.Places, About = request.About,
+            HomeCityName = request.HomeCityName, HomeStateName = request.HomeStateName,
+        };
+        RentNearBy.Core.Entities.Social.UserProfile? profile = null;
+        if (SocialProfileService.HasOnboarding(social))
+        {
+            var built = SocialProfileService.Build(Guid.Empty, social, IstTime.TodayIst(DateTime.UtcNow));
+            if (built.Profile is null) return RentNearBy.Api.Handlers.Social.SocialHttp.Error(built.ErrorType!, built.ErrorData);
+            profile = built.Profile;
+        }
 
         // Proof before the registered check, so the route cannot probe which numbers exist.
         var proof = await usernames.ClassifySignupAsync(request.PhoneNumber, request.Username);
@@ -148,6 +165,15 @@ public static class AuthHandlers
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
+        if (profile is not null)
+        {
+            if (db is null) throw new InvalidOperationException("The database context is required to store the social profile.");
+            // Saved with the user by the same SaveChanges (one transaction, retried with it on a username clash).
+            profile.UserId = newUser.Id;
+            profile.CompletedAt = newUser.CreatedAt;
+            profile.UpdatedAt = newUser.CreatedAt;
+            db.Set<RentNearBy.Core.Entities.Social.UserProfile>().Add(profile);
+        }
         try
         {
             await usernames.SaveNewUserAsync(newUser);
@@ -290,7 +316,8 @@ public static class AuthHandlers
         return OkResponse(await UsersHandlers.BuildUserDtoAsync(user, unitOfWork, cache, usernames));
     }
 
-    public static async Task<IResult> Logout(ClaimsPrincipal principal, IUnitOfWork unitOfWork, Infrastructure.Data.ApplicationDbContext db)
+    public static async Task<IResult> Logout(ClaimsPrincipal principal, IUnitOfWork unitOfWork, Infrastructure.Data.ApplicationDbContext db,
+        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Core.Interfaces.Social.IHubSessionRevoker? hubSessions = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
@@ -323,6 +350,8 @@ public static class AuthHandlers
             await unitOfWork.RollbackTransactionAsync();
             throw;
         }
+        // Social chat sockets of this account end after the commit (contract 3.1).
+        if (hubSessions != null) await hubSessions.RevokeAsync(userId, "loggedOut");
         return OkResponse(new { message = "Logged out successfully" });
     }
 }

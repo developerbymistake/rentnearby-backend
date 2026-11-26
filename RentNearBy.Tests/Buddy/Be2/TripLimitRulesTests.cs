@@ -12,7 +12,14 @@ public class TripLimitRulesTests
     [InlineData(2, false)]
     [InlineData(3, true)]
     [InlineData(4, true)]
-    public void IsFull_at_and_above_the_limit(int count, bool full) => Assert.Equal(full, TripSlotRules.IsFull(count));
+    public void IsFull_at_and_above_the_limit(int count, bool full) => Assert.Equal(full, TripSlotRules.IsFull(count, 3));
+
+    [Theory]
+    [InlineData(0, 1, false)]
+    [InlineData(1, 1, true)]
+    [InlineData(9, 10, false)]
+    [InlineData(10, 10, true)]
+    public void IsFull_uses_the_plan_limit(int count, int limit, bool full) => Assert.Equal(full, TripSlotRules.IsFull(count, limit));
 
     [Fact]
     public void Limit_is_three() => Assert.Equal(3, TripLimits.MaxTripsPerUser);
@@ -40,6 +47,9 @@ public class TripLimitRulesTests
         Assert.Contains("m.\"Status\" = 'Joined'", sql);
         Assert.Contains("'Owner'::text", sql);
         Assert.Contains("'Viewer'::text", sql);
+        // Active trips only (social contract 2.4): owned Draft/Planned, joined on trips not Completed.
+        Assert.Contains("t.\"Status\" IN ('Draft', 'Planned')", sql);
+        Assert.Contains("t.\"Status\" <> 'Completed'", sql);
     }
 
     private static string Source(params string[] parts)
@@ -73,7 +83,7 @@ public class TripLimitRulesTests
         var create = src[src.IndexOf("public static async Task<IResult> Create(", StringComparison.Ordinal)..];
         create = create[..create.IndexOf("public static Trip NewTrip(", StringComparison.Ordinal)];
         var begin = create.IndexOf("BeginTransactionAsync()", StringComparison.Ordinal);
-        var check = create.IndexOf("TripSlots.RefusalUnderLockAsync(db, userId)", StringComparison.Ordinal);
+        var check = create.IndexOf("TripSlots.RefusalUnderLockAsync(db, userId, activeTripLimit)", StringComparison.Ordinal);
         var add = create.IndexOf("Trips.AddAsync(trip)", StringComparison.Ordinal);
         var commit = create.IndexOf("CommitTransactionAsync()", StringComparison.Ordinal);
         Assert.True(begin > 0 && begin < check && check < add && add < commit);

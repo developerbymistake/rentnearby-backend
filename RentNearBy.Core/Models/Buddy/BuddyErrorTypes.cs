@@ -53,6 +53,8 @@ public static class BuddyErrorTypes
     public const string ReminderAlreadySent = "ReminderAlreadySent";
     public const string TooManyRequests = "TooManyRequests";
     public const string BadRequest = "BadRequest";
+    // Social contract 2.5: a member joined by request before the trip starts.
+    public const string OpensAtStart = "OpensAtStart";
 
     // NotOnTrip is 409 on S12 and 403 on S14.
     public const int NotOnTripViewStatus = 403;
@@ -109,6 +111,7 @@ public static class BuddyErrorTypes
         [ReminderAlreadySent] = (409, "Reminder sent"),
         [TooManyRequests] = (429, "Too many tries. Please wait."),
         [BadRequest] = (400, "Invalid request."),
+        [OpensAtStart] = (409, "This opens when the trip starts."),
     };
 
     public static IReadOnlyCollection<string> All => Table.Keys;

@@ -2,6 +2,7 @@ using FluentValidation;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Owner;
+using RentNearBy.Core.Models.Social;
 
 namespace RentNearBy.Api.Validators;
 
@@ -12,7 +13,7 @@ public class UpsertPlanRequestValidator : AbstractValidator<UpsertPlanRequest>
 
     public UpsertPlanRequestValidator()
     {
-        RuleFor(x => x.FeatureKey).Must(PlanFeatures.IsValid).WithMessage("FeatureKey must be Stay or Taxi");
+        RuleFor(x => x.FeatureKey).Must(PlanFeatures.IsValid).WithMessage("FeatureKey must be Stay, Taxi or Seeker");
         RuleFor(x => x.Code).NotEmpty().MaximumLength(40).Matches("^[A-Za-z0-9_]+$")
             .WithMessage("Code may contain only letters, digits and underscores");
         RuleFor(x => x.Name).NotEmpty().MaximumLength(60);
@@ -25,9 +26,21 @@ public class UpsertPlanRequestValidator : AbstractValidator<UpsertPlanRequest>
 
         RuleForEach(x => x.Features).ChildRules(f =>
         {
-            f.RuleFor(v => v.Key).Must(k => PlanFeatureKeys.All.Contains(k))
-                .WithMessage($"Feature key must be one of: {string.Join(", ", PlanFeatureKeys.All)}");
             f.RuleFor(v => v.Value).InclusiveBetween(0, 10_000);
+        });
+        // Listing plans take the listing keys; a Seeker plan only the six Seeker keys (SeekerPlanValueRules).
+        RuleFor(x => x).Custom((x, ctx) =>
+        {
+            var seeker = x.FeatureKey == PlanFeatures.Seeker;
+            foreach (var f in x.Features ?? [])
+            {
+                var error = seeker
+                    ? SeekerPlanValueRules.KeyError(f.Key, f.Value)
+                    : PlanFeatureKeys.All.Contains(f.Key) ? null : $"Feature key must be one of: {string.Join(", ", PlanFeatureKeys.All)}";
+                if (error is null) continue;
+                ctx.AddFailure(nameof(x.Features), error);
+                return;
+            }
         });
         RuleFor(x => x.Features)
             .Must(fs => fs == null || fs.Select(f => f.Key).Distinct().Count() == fs.Count)
@@ -35,7 +48,7 @@ public class UpsertPlanRequestValidator : AbstractValidator<UpsertPlanRequest>
         // Section 9 A1: each value inside its key's Min..Max and only keys of the plan's kind (PlanKeyCatalog).
         RuleFor(x => x).Custom((x, ctx) =>
         {
-            if (!PlanFeatures.IsValid(x.FeatureKey)) return;
+            if (x.FeatureKey == null || !PlanFeatures.All.Contains(x.FeatureKey)) return;
             foreach (var f in x.Features ?? [])
             {
                 if (!PlanFeatureKeys.All.Contains(f.Key)) continue;

@@ -33,6 +33,12 @@ public class PlanSeedIdsGuardTests(TestDatabase db) : IntegrationTestBase(db)
         AssertPrices(plans, "b1000000-0000-0000-0000-000000000302", "03");
         AssertPrices(plans, "b1000000-0000-0000-0000-000000000402", "04");
 
+        // Owner decision 2026-11-27: Play Console prices, no trial on any plan.
+        AssertAmounts(plans, "b1000000-0000-0000-0000-000000000302", 500, 1400, 4800);
+        AssertAmounts(plans, "b1000000-0000-0000-0000-000000000402", 300, 800, 2800);
+        Assert.All(plans.Where(p => p.FeatureKey is ListingKinds.Stay or ListingKinds.Taxi), p => Assert.Equal(0, p.TrialDays));
+        Assert.All(plans.SelectMany(p => p.Prices), x => Assert.Null(x.PlayTrialOfferId));
+
         Assert.DoesNotContain(plans, p => p.FeatureKey is "Room" or "Plot");
         Assert.DoesNotContain(plans, p => p.PlayProductId is "room_plus" or "plot_plus");
 
@@ -46,6 +52,12 @@ public class PlanSeedIdsGuardTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.Equal(code, plan.Code);
         Assert.Equal(isDefault, plan.IsDefault);
         Assert.Equal(product, plan.PlayProductId);
+    }
+
+    private static void AssertAmounts(List<Plan> plans, string planId, int m1, int m3, int m12)
+    {
+        var plan = Assert.Single(plans, p => p.Id == new Guid(planId));
+        Assert.Equal(new[] { m1, m3, m12 }, plan.Prices.OrderBy(p => p.CycleMonths).Select(p => p.PriceInr));
     }
 
     private static void AssertPrices(List<Plan> plans, string planId, string feature)

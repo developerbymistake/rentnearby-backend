@@ -49,6 +49,9 @@ public static class TravellerOnly
         UserNotificationRoutes.Buddies, UserNotificationRoutes.TripInvite, UserNotificationRoutes.TripTravellers,
         UserNotificationRoutes.TripView, UserNotificationRoutes.TripExpenses, UserNotificationRoutes.TripSettle,
         JourneyNotifications.Route,
+        UserNotificationRoutes.People, UserNotificationRoutes.Traveller, UserNotificationRoutes.JoinRequests,
+        UserNotificationRoutes.TripPost, UserNotificationRoutes.TravelBuddies, UserNotificationRoutes.DmRoom,
+        UserNotificationRoutes.SeekerPlus,
     };
 
     private static readonly HashSet<string> PushTypes = new(NotificationTypes, StringComparer.Ordinal);

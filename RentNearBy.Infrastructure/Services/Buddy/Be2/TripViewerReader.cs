@@ -70,14 +70,18 @@ public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access
         var travellerCount = 1 + head.ViewerCount;
         var etag = TripSharingRules.ViewETag(info.UpdatedAt, head.BalancesVersion, travellerCount, head.BookingAt?.Ticks ?? 0,
             TripSharingRules.FaceStamp(stamp.Take(3).Select(r => r.PhotoUrl)));
+        // A request-joined viewer unlocks at the start date: the tag moves with the lock so a cached locked view is never kept.
+        if (info.DetailsLocked) etag = etag[..^1] + "-locked\"";
         if (TripSharingRules.ETagMatches(ifNoneMatch, etag))
             return SharingResult<TripViewResult>.Success(new TripViewResult(null, etag, true));
 
         var trip = await ViewerTrip(db.Trips.Where(t => t.Id == tripId)).FirstOrDefaultAsync(ct);
         if (trip is null) return SharingResult<TripViewResult>.Fail(BuddyErrorTypes.TripNotFound);
-        var enquiries = await ViewerEnquiries(db.TripEnquiries.Where(e => e.TripId == tripId)).ToListAsync(ct);
-        var taxi = await TripTaxiRequestReads.ReadAsync(db, trip, ct);
-        var card = (await money.GetCardsAsync([tripId], callerId, ct)).GetValueOrDefault(tripId);
+        // Joined by a join request and the trip has not started: plan and travellers only (no stay, taxi, enquiry or money).
+        var locked = info.DetailsLocked;
+        List<RentNearBy.Core.Entities.TripEnquiry> enquiries = locked ? [] : await ViewerEnquiries(db.TripEnquiries.Where(e => e.TripId == tripId)).ToListAsync(ct);
+        var taxi = locked ? null : await TripTaxiRequestReads.ReadAsync(db, trip, ct);
+        var card = locked ? null : (await money.GetCardsAsync([tripId], callerId, ct)).GetValueOrDefault(tripId);
 
         var view = TripViewerProjection.Build(new TripViewerSource(
             trip, TripPlanReader.Read(trip),
@@ -85,6 +89,7 @@ public sealed class TripViewerReader(ApplicationDbContext db, ITripAccess access
             info.OwnerName, head.Username, travellerCount, Chips(stamp),
             enquiries, taxi, card, TripSharingRules.TodayIst(clock.GetUtcNow().UtcDateTime),
             CloudinaryThumb.Apply(head.PhotoUrl, CloudinaryThumb.PersonFace)));
+        view.DetailsLocked = locked;
         await TripViewerRoutes.FillAsync(view.Days, roads, options.Value.RouteGeometryMaxDays, ct);
         return SharingResult<TripViewResult>.Success(new TripViewResult(view, etag, false));
     }

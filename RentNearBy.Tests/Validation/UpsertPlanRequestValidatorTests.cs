@@ -1,6 +1,7 @@
 using FluentValidation.TestHelper;
 using RentNearBy.Api.Validators;
 using RentNearBy.Core.DTOs.Requests;
+using RentNearBy.Core.Models.Social;
 
 namespace RentNearBy.Tests.Validation;
 
@@ -204,4 +205,46 @@ public class UpsertPlanRequestValidatorTests
     [InlineData(65, false)]
     public void Prices_RazorpayPlanIdLength(int length, bool valid)
         => Assert.Equal(valid, Validate(WithPrices(new PlanPriceInput(1, 299, new string('r', length), true, "cycle-1m"))).IsValid);
+
+    private static UpsertPlanRequest Seeker(params PlanFeatureInput[] features)
+        => Requests.UpsertPlan() with { FeatureKey = PlanFeatures.Seeker, Code = "SEEKER_PLUS", Features = [.. features] };
+
+    [Fact]
+    public void Seeker_plan_takes_the_seeker_keys()
+        => Validate(Seeker(
+                new PlanFeatureInput(SeekerPlanKeys.ActiveTrips, 10), new PlanFeatureInput(SeekerPlanKeys.PublicTrips, 3),
+                new PlanFeatureInput(SeekerPlanKeys.JoinRequestsPerMonth, 5), new PlanFeatureInput(SeekerPlanKeys.NewChatsPerMonth, 15),
+                new PlanFeatureInput(SeekerPlanKeys.GenderOnlyTrips, 1), new PlanFeatureInput(SeekerPlanKeys.NearMe, 1)))
+            .ShouldNotHaveAnyValidationErrors();
+
+    [Fact]
+    public void Seeker_plan_refuses_a_listing_key()
+    {
+        var result = Validate(Seeker(new PlanFeatureInput(PlanFeatureKeys.Priority, 1)));
+        ValidationAssert.HasErrorOn(result, "Features");
+        ValidationAssert.HasMessage(result, $"Unknown Seeker plan value: {PlanFeatureKeys.Priority}");
+    }
+
+    [Theory]
+    [InlineData(SeekerPlanKeys.GenderOnlyTrips, 2, false)]
+    [InlineData(SeekerPlanKeys.NearMe, 0, true)]
+    [InlineData(SeekerPlanKeys.ActiveTrips, 0, false)]
+    [InlineData(SeekerPlanKeys.NewChatsPerMonth, SeekerPlanValueRules.CountMax, true)]
+    [InlineData(SeekerPlanKeys.NewChatsPerMonth, SeekerPlanValueRules.CountMax + 1, false)]
+    public void Seeker_plan_values_stay_in_range(string key, int value, bool valid)
+        => Assert.Equal(valid, Validate(Seeker(new PlanFeatureInput(key, value))).IsValid);
+
+    [Fact]
+    public void Listing_plan_refuses_a_seeker_key()
+        => ValidationAssert.HasMessage(Validate(WithFeatures(new PlanFeatureInput(SeekerPlanKeys.NearMe, 1))),
+            $"Feature key must be one of: {string.Join(", ", PlanFeatureKeys.All)}");
+
+    [Fact]
+    public void Seeker_paid_plan_below_free_is_found_on_any_key()
+    {
+        var free = new Dictionary<string, int> { [SeekerPlanKeys.ActiveTrips] = 2 };
+        var hit = SeekerPlanValueRules.BelowFree(free, new Dictionary<string, int> { [SeekerPlanKeys.ActiveTrips] = 1 });
+        Assert.Equal(new RentNearBy.Core.Models.Owner.PlanValueBelowFree(SeekerPlanKeys.ActiveTrips, 2, 1), hit);
+        Assert.Null(SeekerPlanValueRules.BelowFree(free, new Dictionary<string, int> { [SeekerPlanKeys.ActiveTrips] = 10 }));
+    }
 }

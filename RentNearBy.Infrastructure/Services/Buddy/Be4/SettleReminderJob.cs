@@ -5,6 +5,7 @@ using NpgsqlTypes;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Models.Social;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 
@@ -13,6 +14,7 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be4;
 // Contract 6: the morning reminder (09:00 IST) on trip end + 3 and + 7 days to every payer with an open row (the owner too).
 // Per batch of 200 trips: trips (1) + travellers (1) + ledger (3) + one conditional notice upsert + one push insert = 7.
 // A second run on the same day writes nothing new (the notice is not older than today, the push keys exist).
+// Social contract 2.5: a member who joined by a join request is skipped while his details are locked (before the start date).
 public sealed class SettleReminderJob(
     ApplicationDbContext db,
     ITripAccess access,
@@ -24,7 +26,9 @@ public sealed class SettleReminderJob(
     public static readonly TimeOnly RunsAtIst = new(9, 0);
 
     internal const string BatchSql = """
-        SELECT t."Id", t."Title", t."EndDate", t."OwnerUserId"
+        SELECT t."Id", t."Title", t."StartDate", t."EndDate", t."OwnerUserId",
+               ARRAY(SELECT m."UserId" FROM "TripMembers" m
+                     WHERE m."TripId" = t."Id" AND m."Status" = 'Joined' AND m."JoinedVia" = 'Request') AS "RequestJoinedIds"
         FROM "Trips" t JOIN "TripExpenseState" s ON s."TripId" = t."Id"
         WHERE t."EndDate" = ANY(@dates) AND s."OpenPayments" > 0 AND t."Id" > @after
         ORDER BY t."Id"
@@ -95,9 +99,12 @@ public sealed class SettleReminderJob(
             if (!ledgers.TryGetValue(trip.Id, out var snapshot)) continue;
             var people = travellers.GetValueOrDefault(trip.Id) ?? [];
             var known = people.Select(p => p.UserId).ToHashSet();
+            HashSet<Guid> locked = TripAccessRules.DetailsLocked(TripAccessLevel.Viewer, TripJoinedVia.Request, trip.StartDate, today)
+                ? new HashSet<Guid>(trip.RequestJoinedIds ?? [])
+                : new HashSet<Guid>();
             foreach (var payer in snapshot.Open.GroupBy(o => o.FromUserId))
             {
-                if (!known.Contains(payer.Key)) continue;
+                if (!known.Contains(payer.Key) || locked.Contains(payer.Key)) continue;
                 var owed = payer.Select(o => (PayeeName(people, o.ToUserId), (long)o.Amount)).ToList();
                 var total = TripPaymentRules.ClampAmount(owed.Sum(o => o.Item2));
                 result.Add(new Reminder(
@@ -115,7 +122,9 @@ public sealed class SettleReminderJob(
     {
         public Guid Id { get; set; }
         public string Title { get; set; } = string.Empty;
+        public DateOnly? StartDate { get; set; }
         public DateOnly? EndDate { get; set; }
         public Guid OwnerUserId { get; set; }
+        public Guid[]? RequestJoinedIds { get; set; }
     }
 }

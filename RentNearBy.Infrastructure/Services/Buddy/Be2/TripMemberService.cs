@@ -2,10 +2,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
+using RentNearBy.Core.Interfaces.Social;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.Social;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using static RentNearBy.Infrastructure.Services.Buddy.Be2.Be2Sql;
 
@@ -14,7 +16,7 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be2;
 // S1, S12, S13, S16, S17 (contract 2.2).
 public sealed class TripMemberService(
     ApplicationDbContext db, ITripAccess access, ITripMoneyCards money, INoticeWriter notices, IBuddyLiveHints hints,
-    TimeProvider clock, ILogger<TripMemberService> logger)
+    TimeProvider clock, ILogger<TripMemberService> logger, ITripGroupChat groupChat, SocialAfterCommit afterCommit)
 {
     // Owner row, Joined rows and (owner caller only) waiting invites, with "is the caller's buddy" per person.
     private static readonly string PeopleSql = $"""
@@ -138,6 +140,7 @@ public sealed class TripMemberService(
     {
         var result = await PgRetry.OnceAsync(db, async c =>
         {
+            afterCommit.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(c);
             var trip = await LockTripAsync(db, tripId, c);
             if (trip is null || trip.OwnerUserId != ownerId) return SharingResult<TripRemovedDto>.Fail(BuddyErrorTypes.TripNotFound);
@@ -147,11 +150,13 @@ public sealed class TripMemberService(
             await notices.UpsertAsync([new NoticeUpsert(userId, NoticeKinds.TripRemoved, tripId, ownerId)], c);
             await notices.DeletePairsAsync(tripId, NoticeKinds.GoneOnRemove.Select(k => (k, userId)).ToList(), c);
             await notices.PushAsync([BuddyPushCopy.TripMemberRemoved(userId, removed.Id, removed.Version, tripId, trip.OwnerName, trip.Title)], c);
+            await groupChat.OnMemberGoneAsync(tripId, userId, c);
             await tx.CommitAsync(c);
             return SharingResult<TripRemovedDto>.Success(new TripRemovedDto { Status = TripMemberStatuses.Removed, SharesExpenses = shares });
         }, ct, logger);
         if (result.Ok)
         {
+            await afterCommit.FlushAsync();
             notices.Wake();
             await hints.TripViewChangedAsync(tripId, [ownerId, userId]);
         }
@@ -164,12 +169,17 @@ public sealed class TripMemberService(
         Guid ownerId = default;
         var left = await PgRetry.OnceAsync(db, async c =>
         {
+            afterCommit.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(c);
             var trip = await LockTripAsync(db, tripId, c);
             if (trip is null || trip.OwnerUserId == callerId) return false;
             ownerId = trip.OwnerUserId;
             var changed = await db.Database.ExecuteSqlRawAsync(LeaveSql, [Id("trip", tripId), Id("user", callerId)], c);
-            if (changed > 0) await notices.DeleteAsync(NoticeKinds.PlanUpdated, tripId, [callerId], c);
+            if (changed > 0)
+            {
+                await notices.DeleteAsync(NoticeKinds.PlanUpdated, tripId, [callerId], c);
+                await groupChat.OnMemberGoneAsync(tripId, callerId, c);
+            }
             if (changed == 0)
             {
                 var status = (await db.Database.SqlQueryRaw<string>(MemberStatusSql, Id("trip", tripId), Id("user", callerId)).ToListAsync(c)).FirstOrDefault();
@@ -180,6 +190,7 @@ public sealed class TripMemberService(
         }, ct, logger);
         if (!left) return SharingResult<TripLeftDto>.Fail(BuddyErrorTypes.TripNotFound);
 
+        await afterCommit.FlushAsync();
         await hints.TripViewChangedAsync(tripId, [ownerId, callerId]);
         var standing = (await money.GetStandingsAsync([tripId], callerId, ct)).GetValueOrDefault(tripId);
         return SharingResult<TripLeftDto>.Success(new TripLeftDto { Status = TripMemberStatuses.Left, HasShare = standing?.HasShare ?? false });

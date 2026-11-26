@@ -8,4 +8,7 @@ public interface IBuddyLiveHints
     Task TripExpensesChangedAsync(Guid tripId, long balancesVersion, IReadOnlyCollection<Guid> userIds);
 
     Task BuddiesChangedAsync(IReadOnlyCollection<Guid> userIds);
+
+    // Social: NotificationHub event SocialChanged {scope} (scope = SocialLiveScopes).
+    Task SocialChangedAsync(string scope, IReadOnlyCollection<Guid> userIds);
 }

@@ -5,6 +5,7 @@ using NetTopologySuite.IO;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Social;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Models.Owner;
 using RentNearBy.Core.Utils;
@@ -33,6 +34,7 @@ public static class DataSeeder
         await SeedReportReasonsAsync(db);
         await SeedQuestionTemplatesAsync(db);
         await SeedPlansAsync(db);
+        await SeedSeekerPlansAsync(db);
         await SeedDistrictsAsync(db);
         await SeedCitiesAsync(db, logger);
         await SeedAppFeatureFlagsAsync(db);
@@ -141,7 +143,7 @@ public static class DataSeeder
         if (added) await db.SaveChangesAsync();
     }
 
-    // Starting plan catalog (prices are guesses; admin-editable). Free is the default plan of each
+    // Starting plan catalog (Play Console prices of 2026-11-27, no free trial; admin-editable). Free is the default plan of each
     // feature (no prices); paid plans carry 1/3/12-month prices with a longer-cycle discount. Stable ids:
     // plans b1000000-...-0000000FFNN (FF feature 03 Stay / 04 Taxi, NN 01 free / 02 paid), prices b2000000-...-0000FFCC.
     private static async Task SeedPlansAsync(ApplicationDbContext db)
@@ -149,6 +151,7 @@ public static class DataSeeder
         if (await db.Plans.AnyAsync())
         {
             await SyncSeedPlayPricesAsync(db);
+            await SyncSeedNoTrialAsync(db);
             return;
         }
 
@@ -191,7 +194,7 @@ public static class DataSeeder
                 Tagline = "Featured and shown first",
                 IsDefault = false,
                 IsEnabled = true,
-                TrialDays = 7,
+                TrialDays = 0,
                 SortOrder = 1,
                 PlayProductId = $"{code.ToLowerInvariant()}_plus",
                 CreatedAt = now,
@@ -202,11 +205,11 @@ public static class DataSeeder
 
             var (m1, m3, m12) = kind switch
             {
-                ListingKinds.Stay => (400, 1100, 3800),
-                ListingKinds.Taxi => (150, 400, 1400),
+                ListingKinds.Stay => (500, 1400, 4800),
+                ListingKinds.Taxi => (300, 800, 2800),
                 _ => throw new InvalidOperationException($"No seed prices for plan feature {kind}"),
             };
-            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 1), CycleMonths = 1, PriceInr = m1, IsEnabled = true, PlayBasePlanId = "cycle-1m", PlayTrialOfferId = "trial-7d" });
+            plus.Prices.Add(new PlanPrice { Id = PriceId(index, 1), CycleMonths = 1, PriceInr = m1, IsEnabled = true, PlayBasePlanId = "cycle-1m" });
             plus.Prices.Add(new PlanPrice { Id = PriceId(index, 3), CycleMonths = 3, PriceInr = m3, IsEnabled = true, PlayBasePlanId = "cycle-3m" });
             plus.Prices.Add(new PlanPrice { Id = PriceId(index, 12), CycleMonths = 12, PriceInr = m12, IsEnabled = true, PlayBasePlanId = "cycle-12m" });
 
@@ -215,13 +218,43 @@ public static class DataSeeder
         await db.SaveChangesAsync();
     }
 
+    // Bakhli Plus (social contract 4): the Seeker Free (default) and Plus plans, also added when listing plans already exist.
+    private static async Task SeedSeekerPlansAsync(ApplicationDbContext db)
+    {
+        if (await db.Plans.AnyAsync(p => p.FeatureKey == PlanFeatures.Seeker)) return;
+        var now = DateTime.UtcNow;
+        var free = new Plan
+        {
+            Id = SeekerPlanSeed.FreePlanId, FeatureKey = PlanFeatures.Seeker, Code = SeekerPlanSeed.FreeCode, Name = "Free",
+            Tagline = "Get started", IsDefault = true, IsEnabled = true, TrialDays = 0, SortOrder = 0, CreatedAt = now, UpdatedAt = now,
+        };
+        var plus = new Plan
+        {
+            Id = SeekerPlanSeed.PlusPlanId, FeatureKey = PlanFeatures.Seeker, Code = SeekerPlanSeed.PlusCode, Name = SeekerPlanSeed.PlusName,
+            Tagline = SeekerPlanSeed.PlusTagline, IsDefault = false, IsEnabled = true, TrialDays = 0, SortOrder = 1,
+            PlayProductId = SeekerPlanSeed.PlayProductId, CreatedAt = now, UpdatedAt = now,
+        };
+        foreach (var key in SeekerPlanKeys.All)
+        {
+            free.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = key, Value = SeekerPlanKeys.FreeDefault(key) });
+            plus.Features.Add(new PlanFeature { Id = Guid.NewGuid(), Key = key, Value = SeekerPlanKeys.PlusDefault(key) });
+        }
+        plus.Prices.Add(new PlanPrice { Id = SeekerPlanSeed.Price1mId, CycleMonths = 1, PriceInr = SeekerPlanSeed.Price1m, IsEnabled = true, PlayBasePlanId = "cycle-1m" });
+        plus.Prices.Add(new PlanPrice { Id = SeekerPlanSeed.Price3mId, CycleMonths = 3, PriceInr = SeekerPlanSeed.Price3m, IsEnabled = true, PlayBasePlanId = "cycle-3m" });
+        plus.Prices.Add(new PlanPrice { Id = SeekerPlanSeed.Price12mId, CycleMonths = 12, PriceInr = SeekerPlanSeed.Price12m, IsEnabled = true, PlayBasePlanId = "cycle-12m" });
+        db.Plans.AddRange(free, plus);
+        await db.SaveChangesAsync();
+    }
+
     // Moves seeded plan prices that still hold the first guess to the Play Console price points; an admin edit is left alone.
     private static async Task SyncSeedPlayPricesAsync(ApplicationDbContext db)
     {
         var changes = new (int Feature, int Cycle, int Old, int New)[]
         {
-            (3, 1, 399, 400), (3, 3, 1077, 1100), (3, 12, 3830, 3800),
-            (4, 1, 149, 150), (4, 3, 402, 400), (4, 12, 1430, 1400),
+            (3, 1, 399, 500), (3, 3, 1077, 1400), (3, 12, 3830, 4800),
+            (3, 1, 400, 500), (3, 3, 1100, 1400), (3, 12, 3800, 4800),
+            (4, 1, 149, 300), (4, 3, 402, 800), (4, 12, 1430, 2800),
+            (4, 1, 150, 300), (4, 3, 400, 800), (4, 12, 1400, 2800),
         };
         static Guid PriceId(int feature, int cycle) => new($"b2000000-0000-0000-0000-00000000{feature:D2}{cycle:D2}");
 
@@ -236,6 +269,22 @@ public static class DataSeeder
             changed = true;
         }
         if (changed) await db.SaveChangesAsync();
+    }
+
+    // Owner decision 2026-11-27, no free trial: a seeded Stay / Taxi Plus plan that still holds the first seed trial (7 days) drops
+    // it on an existing database, and its 1-month price loses the trial offer id, so no trial can surface on either provider.
+    private static async Task SyncSeedNoTrialAsync(ApplicationDbContext db)
+    {
+        var planIds = new[] { new Guid("b1000000-0000-0000-0000-000000000302"), new Guid("b1000000-0000-0000-0000-000000000402") };
+        var plans = await db.Plans.Include(p => p.Prices).Where(p => planIds.Contains(p.Id) && p.TrialDays == 7).ToListAsync();
+        if (plans.Count == 0) return;
+        foreach (var plan in plans)
+        {
+            plan.TrialDays = 0;
+            foreach (var price in plan.Prices) price.PlayTrialOfferId = null;
+            plan.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync();
     }
 
     private static async Task SeedStayTypesAsync(ApplicationDbContext db)
@@ -453,6 +502,13 @@ public static class DataSeeder
             new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000002"), Scope = ReportScopes.User, Name = "Harassment",   SortOrder = 2, CreatedAt = DateTime.UtcNow },
             new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000003"), Scope = ReportScopes.User, Name = "Fake account", SortOrder = 3, CreatedAt = DateTime.UtcNow },
             new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000004"), Scope = ReportScopes.User, Name = "Other",        SortOrder = 4, CreatedAt = DateTime.UtcNow },
+            // Bakhli social person reasons (contract 2.7).
+            new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000005"), Scope = ReportScopes.User, Name = "Asking for money",    SortOrder = 5, CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000006"), Scope = ReportScopes.User, Name = "Fake profile",        SortOrder = 6, CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000007"), Scope = ReportScopes.User, Name = "Spam or selling",     SortOrder = 7, CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000008"), Scope = ReportScopes.User, Name = "Rude or unsafe",      SortOrder = 8, CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000009"), Scope = ReportScopes.User, Name = "Inappropriate photo", SortOrder = 9, CreatedAt = DateTime.UtcNow },
+            new ReportReason { Id = Guid.Parse("c2000000-0000-0000-0000-000000000010"), Scope = ReportScopes.User, Name = "Seems under 18",      SortOrder = 10, CreatedAt = DateTime.UtcNow },
         };
 
         var toAdd = reasons.Where(r => !existingIds.Contains(r.Id) && !existingNames.Contains(r.Scope + "|" + r.Name.ToLowerInvariant())).ToList();

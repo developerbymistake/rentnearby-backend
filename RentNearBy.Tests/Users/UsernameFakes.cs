@@ -26,6 +26,7 @@ public class UserRepoStub : DispatchProxy
         nameof(IRepository<User>.UpdateAsync) => Task.CompletedTask,
         nameof(IUserRepository.GetByVerifiedPhoneAsync) => Task.FromResult(Row),
         nameof(IUserRepository.IsPhoneVerifiedByAnyUserAsync) => Task.FromResult(false),
+        nameof(IUserRepository.GetSocialGenderAsync) => Task.FromResult<string?>(null),
         _ => throw new NotSupportedException(m?.Name),
     };
 

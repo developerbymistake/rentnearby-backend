@@ -99,10 +99,12 @@ public static class ApiRouteMap
         app.MapGroup("/api/v1/trips")
             .WithTags("Trips")
             .AddEndpointFilter<TripPlannerGateFilter>()
+            .AddEndpointFilter<TripPlanPauseFilter>()
             .MapTripEndpoints();
 
         app.MapTaxiRequests();
         app.MapBuddyFeature();
+        app.MapSocialFeature();
         app.MapOwnerFeature();
 
         app.MapHub<BannerHub>("/hubs/banner");

@@ -40,7 +40,8 @@ public static class RoleHandlers
         IUnitOfWork unitOfWork,
         IJwtService jwtService,
         IMemoryCache cache,
-        IUsernameService usernames)
+        IUsernameService usernames,
+        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Core.Interfaces.Social.IHubSessionRevoker? hubSessions = null)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -80,6 +81,9 @@ public static class RoleHandlers
         if (updated == 0 && user.RoleId != role.Id)
             return ConflictResponse("Role already chosen.", "RoleAlreadyChosen");
 
+        // Social chat sockets opened under the default (Seeker) role end once a non-seeker first choice commits (contract 3.1).
+        if (updated > 0 && role.Id != UserRoles.SeekerId && hubSessions != null) await hubSessions.RevokeAsync(userId, "roleChanged");
+
         return OkResponse(new AuthResponse
         {
             Token = jwtService.GenerateToken(user, sessionId),
@@ -99,7 +103,8 @@ public static class RoleHandlers
         IJwtService jwtService,
         IMemoryCache cache,
         ITripEnquiryClosure tripClosure,
-        IUsernameService usernames)
+        IUsernameService usernames,
+        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Core.Interfaces.Social.IHubSessionRevoker? hubSessions = null)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -210,6 +215,8 @@ public static class RoleHandlers
 
         await tripClosure.AfterCommitAsync(tripPushes);
         await listingPurge.DeleteListingPhotosBestEffortAsync(userId, purgedIds);
+        // Social chat sockets of the old role end after the commit (contract 3.1).
+        if (hubSessions != null) await hubSessions.RevokeAsync(userId, "roleChanged");
 
         var fresh = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
         if (fresh == null) return NotFoundResponse("User not found");

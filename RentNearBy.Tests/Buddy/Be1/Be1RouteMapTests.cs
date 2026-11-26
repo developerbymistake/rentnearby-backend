@@ -14,19 +14,13 @@ using RentNearBy.Infrastructure.Services.Buddy.Be1;
 
 namespace RentNearBy.Tests.Buddy.Be1;
 
-// Contract 2.1 as mapped by MapBe1Buddies: every route once, user JWT (admin policy on buddy-hold), and the BE1 services resolve.
+// Contract 2.1 as mapped by MapBe1Buddies (buddy request routes retired by social D3): every route once, user JWT (admin policy on buddy-hold), and the BE1 services resolve.
 public class Be1RouteMapTests
 {
     private static readonly (string Method, string Template, bool Admin)[] Contract =
     [
         ("POST", "/api/v1/buddies/find", false),
-        ("POST", "/api/v1/buddies/requests", false),
-        ("GET", "/api/v1/buddies/requests", false),
-        ("POST", "/api/v1/buddies/requests/{id:guid}/accept", false),
-        ("POST", "/api/v1/buddies/requests/{id:guid}/decline", false),
-        ("POST", "/api/v1/buddies/requests/{id:guid}/cancel", false),
         ("GET", "/api/v1/buddies", false),
-        ("POST", "/api/v1/buddies/seen", false),
         ("DELETE", "/api/v1/buddies/{userId:guid}", false),
         ("GET", "/api/v1/buddies/summary", false),
         ("POST", "/api/v1/users/{userId:guid}/block", false),

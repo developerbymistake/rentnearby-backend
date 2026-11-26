@@ -233,10 +233,21 @@ public class OwnerJobRulesTests
     public void Announce_pushes_use_free_values_and_the_trial_days()
     {
         var users = new[] { Guid.NewGuid() };
-        var stay = Assert.Single(OwnerPlansAnnounceJob.Pushes(ListingKinds.Stay, new DateOnly(2027, 2, 1), OwnerPlanCatalog.Seeded(), users));
+        var stay = Assert.Single(OwnerPlansAnnounceJob.Pushes(ListingKinds.Stay, new DateOnly(2027, 2, 1), OwnerPlanCatalog.Seeded(trialDays: 7), users));
         Assert.Equal("Free keeps 2 photos and 2 room types. Try Plus free for 7 days.", stay.Body);
         var taxi = Assert.Single(OwnerPlansAnnounceJob.Pushes(ListingKinds.Taxi, new DateOnly(2027, 2, 1), OwnerPlanCatalog.Seeded(plusEnabled: false), users));
         Assert.Equal("Free keeps 1 route.", taxi.Body);
+    }
+
+    [Fact]
+    public void Announce_pushes_of_the_seeded_catalog_never_mention_a_trial()
+    {
+        var users = new[] { Guid.NewGuid() };
+        var stay = Assert.Single(OwnerPlansAnnounceJob.Pushes(ListingKinds.Stay, new DateOnly(2027, 2, 1), OwnerPlanCatalog.Seeded(), users));
+        Assert.Equal("Free keeps 2 photos and 2 room types.", stay.Body);
+        var taxi = Assert.Single(OwnerPlansAnnounceJob.Pushes(ListingKinds.Taxi, new DateOnly(2027, 2, 1), OwnerPlanCatalog.Seeded(), users));
+        Assert.Equal("Free keeps 1 route.", taxi.Body);
+        Assert.DoesNotContain("free for", stay.Body + taxi.Body, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

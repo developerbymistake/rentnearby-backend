@@ -149,14 +149,14 @@ public class TripSharingRulesTests
         => Assert.Equal(expected, TripSharingRules.DayToday(start is null ? null : DateOnly.Parse(start), days, DateOnly.Parse(today)));
 
     [Fact]
-    public void Viewer_sees_usernames_of_self_owner_and_own_buddies_only()
+    public void Every_co_member_sees_the_public_username()
     {
         var other = Guid.NewGuid();
         Assert.Equal("u", TripSharingRules.VisibleUsername(true, Owner, other, false, false, "u"));
         Assert.Equal("u", TripSharingRules.VisibleUsername(false, Aman, Aman, false, false, "u"));
         Assert.Equal("u", TripSharingRules.VisibleUsername(false, Aman, Owner, true, false, "u"));
         Assert.Equal("u", TripSharingRules.VisibleUsername(false, Aman, other, false, true, "u"));
-        Assert.Null(TripSharingRules.VisibleUsername(false, Aman, other, false, false, "u"));
+        Assert.Equal("u", TripSharingRules.VisibleUsername(false, Aman, other, false, false, "u"));
     }
 
     [Theory]

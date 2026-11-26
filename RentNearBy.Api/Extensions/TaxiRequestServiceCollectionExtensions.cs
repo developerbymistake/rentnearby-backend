@@ -66,6 +66,7 @@ public static class TaxiRequestServiceCollectionExtensions
         app.MapGroup("/api/v1/trips")
             .WithTags("Trips")
             .AddEndpointFilter<TripPlannerGateFilter>()
+            .AddEndpointFilter<TripPlanPauseFilter>()
             .MapTripTaxiRequestEndpoints();
 
         app.MapGroup("/api/v1/taxi-requests")

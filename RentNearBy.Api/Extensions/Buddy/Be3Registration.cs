@@ -24,6 +24,7 @@ public static class Be3Registration
         app.MapGroup("/api/v1/trips")
             .WithTags("Trips")
             .AddEndpointFilter<TripPlannerGateFilter>()
+            .AddEndpointFilter<TripPlanPauseFilter>()
             .MapTripExpenseEndpoints();
         return app;
     }

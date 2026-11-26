@@ -11,6 +11,7 @@ public static class UsersEndpoints
         group.MapPut("/profile/name", UsersHandlers.UpdateName).RequireAuthorization();
         group.MapPut("/profile/contact-visibility", UsersHandlers.UpdateContactVisibility).RequireAuthorization();
         group.MapPut("/me/photo", UserPhotoHandlers.UploadPhoto).RequireAuthorization().DisableAntiforgery().UserPhotoLimited().PhotoBodyLimited();
+        group.MapDelete("/me/photo", UserPhotoHandlers.RemovePhoto).RequireAuthorization().UserPhotoLimited();
         group.MapGet("/reports", UsersHandlers.GetMyReports).RequireAuthorization();
         group.MapPut("/me/role-choice", RoleHandlers.ChooseRole).RequireAuthorization();
         group.MapPut("/me/role-correction", RoleHandlers.CorrectRole).RequireAuthorization();

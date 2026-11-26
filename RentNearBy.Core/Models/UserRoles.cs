@@ -32,5 +32,8 @@ public static class UserRoles
         : roleId == SeekerId ? null
         : throw new InvalidOperationException($"Unknown role id {roleId}");
 
+    // The plan feature of a role: its listing kind, else Seeker (Bakhli Plus). Used only at the plan sites.
+    public static string PlanFeatureOf(Guid roleId) => ListingKindOf(roleId) ?? PlanFeatures.Seeker;
+
     public static string? TabKeyOf(Guid roleId) => AppTabKeys.ForListingKind(ListingKindOf(roleId));
 }

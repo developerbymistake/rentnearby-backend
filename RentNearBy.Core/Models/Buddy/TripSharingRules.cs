@@ -131,9 +131,10 @@ public static class TripSharingRules
         return Math.Clamp(day, 1, Math.Max(1, dayCount));
     }
 
-    // A viewer sees usernames only of himself, the owner and his own buddies (frame 3.14); the owner sees all.
+    // Bakhli social (spec 6): name and user id are public, so every co-member sees the username. The parameters stay for
+    // the callers; no contact detail is ever part of it.
     public static string? VisibleUsername(bool callerIsOwner, Guid callerId, Guid personId, bool personIsOwner, bool isCallersBuddy, string? username)
-        => callerIsOwner || personId == callerId || personIsOwner || isCallersBuddy ? username : null;
+        => username;
 
     public static string? FirstWord(string? name)
     {

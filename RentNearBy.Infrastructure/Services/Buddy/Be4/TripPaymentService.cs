@@ -254,7 +254,8 @@ public sealed class TripPaymentService(
         return unit.Result;
     }
 
-    // Trip lock (+ title), travellers; 404 for a stranger, 403 NotTripOwner when the owner is required.
+    // Trip lock (+ title), travellers; 404 for a stranger, 403 NotTripOwner when the owner is required, 409 OpensAtStart for a
+    // request-joined member before the start date.
     private async Task<(Facts? Facts, PaymentResult? Denied)> OpenAsync(Guid tripId, Guid callerId, bool ownerOnly, CancellationToken ct)
     {
         var title = (await db.Database.SqlQueryRaw<string>(LockTripSql, Uuid("trip", tripId), Uuid("caller", callerId),
@@ -267,6 +268,9 @@ public sealed class TripPaymentService(
         var owner = travellers.FirstOrDefault(t => t.IsOwner);
         if (me is null || owner is null) return (null, PaymentResult.Fail(BuddyErrorTypes.TripNotFound));
         if (ownerOnly && !me.IsOwner) return (null, PaymentResult.Fail(BuddyErrorTypes.NotTripOwner));
+        // Social contract 2.5: a member who joined by a join request has no money until the start date.
+        if (!me.IsOwner && (await access.GetAsync(tripId, callerId, ct))?.DetailsLocked == true)
+            return (null, PaymentResult.Fail(BuddyErrorTypes.OpensAtStart));
         return (new Facts(title, travellers, me, owner), null);
     }
 

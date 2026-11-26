@@ -346,12 +346,31 @@ public class TripRequestValidatorsTests
     }
 
     [Fact]
-    public void Save_NoDays_Invalid()
+    public void Save_NoDays_Planned_Invalid()
+    {
+        var request = Save(TripStatuses.Planned);
+        request.Plan.Days.Clear();
+
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Add at least one day");
+    }
+
+    // Social contract 2.4 (risk 1): a public post is a Draft trip with its cities and no day; it must open and save.
+    [Fact]
+    public void Save_NoDays_Draft_Valid()
+    {
+        var request = Save(TripStatuses.Draft);
+        request.Plan.Days.Clear();
+
+        Assert.True(SaveValidator.Validate(request).IsValid);
+    }
+
+    [Fact]
+    public void Save_NoDays_NoStatus_Valid()
     {
         var request = Save();
         request.Plan.Days.Clear();
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Add at least one day");
+        Assert.True(SaveValidator.Validate(request).IsValid);
     }
 
     [Fact]

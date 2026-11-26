@@ -152,7 +152,7 @@ public sealed class TripExpenseService(
             done = null;
             await using var tx = await db.Database.BeginTransactionAsync(c);
             if (!await BuddyLocks.LockOwnedTripAsync(db, tripId, callerId, c))
-                return ExpenseResult<SaveExpenseResponseDto>.Fail(await access.GetAsync(tripId, callerId, c) is null ? BuddyErrorTypes.TripNotFound : BuddyErrorTypes.NotTripOwner);
+                return ExpenseResult<SaveExpenseResponseDto>.Fail(NotOwnerError(await access.GetAsync(tripId, callerId, c)));
             var trip = await access.GetAsync(tripId, callerId, c);
             if (trip is null) return ExpenseResult<SaveExpenseResponseDto>.Fail(BuddyErrorTypes.TripNotFound);
             if (trip.Level != TripAccessLevel.Owner) return ExpenseResult<SaveExpenseResponseDto>.Fail(BuddyErrorTypes.NotTripOwner);
@@ -233,7 +233,7 @@ public sealed class TripExpenseService(
             done = null;
             await using var tx = await db.Database.BeginTransactionAsync(c);
             if (!await BuddyLocks.LockOwnedTripAsync(db, tripId, callerId, c))
-                return ExpenseResult<BalancesVersionDto>.Fail(await access.GetAsync(tripId, callerId, c) is null ? BuddyErrorTypes.TripNotFound : BuddyErrorTypes.NotTripOwner);
+                return ExpenseResult<BalancesVersionDto>.Fail(NotOwnerError(await access.GetAsync(tripId, callerId, c)));
             var trip = await access.GetAsync(tripId, callerId, c);
             if (trip is null) return ExpenseResult<BalancesVersionDto>.Fail(BuddyErrorTypes.TripNotFound);
             if (trip.Level != TripAccessLevel.Owner) return ExpenseResult<BalancesVersionDto>.Fail(BuddyErrorTypes.NotTripOwner);
@@ -279,7 +279,7 @@ public sealed class TripExpenseService(
             done = null;
             await using var tx = await db.Database.BeginTransactionAsync(c);
             if (!await BuddyLocks.LockOwnedTripAsync(db, tripId, callerId, c))
-                return ExpenseResult<ShareWithResponseDto>.Fail(await access.GetAsync(tripId, callerId, c) is null ? BuddyErrorTypes.TripNotFound : BuddyErrorTypes.NotTripOwner);
+                return ExpenseResult<ShareWithResponseDto>.Fail(NotOwnerError(await access.GetAsync(tripId, callerId, c)));
             var trip = await access.GetAsync(tripId, callerId, c);
             if (trip is null) return ExpenseResult<ShareWithResponseDto>.Fail(BuddyErrorTypes.TripNotFound);
             if (trip.Level != TripAccessLevel.Owner) return ExpenseResult<ShareWithResponseDto>.Fail(BuddyErrorTypes.NotTripOwner);
@@ -384,10 +384,15 @@ public sealed class TripExpenseService(
     private async Task<string?> OwnerOpenAsync(Guid tripId, Guid callerId, CancellationToken ct)
     {
         var trip = await access.GetAsync(tripId, callerId, ct);
-        if (trip is null) return BuddyErrorTypes.TripNotFound;
-        if (trip.Level != TripAccessLevel.Owner) return BuddyErrorTypes.NotTripOwner;
+        if (trip is null || trip.Level != TripAccessLevel.Owner) return NotOwnerError(trip);
         return TripExpenseRules.Frozen(trip.EndDate, trip.CompletedAt, TodayIst) ? BuddyErrorTypes.TripExpensesFrozen : null;
     }
+
+    // Stranger 404; a request-joined member before the start date 409 OpensAtStart (social contract 2.5); other members 403.
+    private static string NotOwnerError(TripAccessInfo? trip)
+        => trip is null ? BuddyErrorTypes.TripNotFound
+            : trip.DetailsLocked ? BuddyErrorTypes.OpensAtStart
+            : BuddyErrorTypes.NotTripOwner;
 
     // Ledger refresh, one notice row (ExpenseAdded, ShareChanged or ExpensesChanged) + coalesced push for the people whose money
     // changed, SettleReminder clean-up.

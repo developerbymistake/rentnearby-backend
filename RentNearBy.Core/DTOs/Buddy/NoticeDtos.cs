@@ -7,6 +7,8 @@ public class NoticeItemDto
     public string Kind { get; set; } = string.Empty;
     public Guid? TripId { get; set; }
     public string? TripTitle { get; set; }
+    // Social trip kinds (JoinRequest, JoinAccepted, JoinDeclined, FollowedPosted): the first post city, else the trip city. Null otherwise.
+    public string? TripCity { get; set; }
     public Guid? ActorUserId { get; set; }
     public string? ActorName { get; set; }
     public Guid? RefId { get; set; }
@@ -18,6 +20,10 @@ public class NoticeItemDto
     // the stay name (StayEditApproved) or the reason (StayEditRejected).
     public DateOnly? RefDateFrom { get; set; }
     public DateOnly? RefDateTo { get; set; }
+    // Social kinds: the actor's face thumb and username, and the grey preview line (JoinRequest: the note, 80 chars).
+    public string? ActorPhotoUrl { get; set; }
+    public string? ActorUsername { get; set; }
+    public string? Preview { get; set; }
     public int Count { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

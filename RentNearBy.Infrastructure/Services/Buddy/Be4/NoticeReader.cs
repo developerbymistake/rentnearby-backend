@@ -4,6 +4,8 @@ using NpgsqlTypes;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Models.Social;
+using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services.Buddy.Be4;
@@ -24,7 +26,12 @@ public sealed class NoticeReader(ApplicationDbContext db)
           WHERE m."Status" = '{TripMemberStatuses.Joined}'
             AND m."TripId" IN (SELECT p."TripId" FROM p WHERE p."Kind" = '{NoticeKinds.TripJoined}')
           GROUP BY m."TripId")
-        SELECT n."Id", n."Kind", n."TripId", t."Title" AS "TripTitle", n."ActorUserId", a."Name" AS "ActorName", n."RefId", n."Amount",
+        SELECT n."Id", n."Kind", n."TripId", COALESCE(t."Title", jt."Title") AS "TripTitle",
+               CASE WHEN n."Kind" IN ('{NoticeKinds.JoinRequest}', '{NoticeKinds.JoinAccepted}', '{NoticeKinds.JoinDeclined}', '{NoticeKinds.FollowedPosted}')
+                    THEN COALESCE(NULLIF((COALESCE(jt."PostCityNames", t."PostCityNames"))[1], ''), NULLIF(COALESCE(jt."CityName", t."CityName"), '')) END AS "TripCity",
+               n."ActorUserId", a."Name" AS "ActorName",
+               a."ProfilePhotoUrl" AS "ActorPhotoUrl", a."Username" AS "ActorUsername", left(jr."Note", {SocialLimits.JoinNoticePreviewMax}) AS "Preview",
+               n."RefId", n."Amount",
                n."Count", n."CreatedAt", n."UpdatedAt", n."ReadAt",
                COALESCE(e."Title", f."Name",
                         CASE WHEN n."Kind" = '{NoticeKinds.StayEditApproved}' THEN s."Name"
@@ -34,6 +41,8 @@ public sealed class NoticeReader(ApplicationDbContext db)
         FROM p n
         LEFT JOIN "Trips" t ON t."Id" = n."TripId"
         LEFT JOIN "Users" a ON a."Id" = n."ActorUserId"
+        LEFT JOIN "TripJoinRequests" jr ON jr."Id" = n."TripId" AND n."Kind" = '{NoticeKinds.JoinRequest}'
+        LEFT JOIN "Trips" jt ON jt."Id" = n."RefId" AND n."Kind" = '{NoticeKinds.JoinRequest}'
         LEFT JOIN "Users" me ON me."Id" = @user
         LEFT JOIN "TripExpenses" e ON e."Id" = n."RefId" AND e."TripId" = n."TripId" AND e."DeletedAt" IS NULL
           AND n."Kind" IN ('{NoticeKinds.ExpenseAdded}', '{NoticeKinds.ShareChanged}')
@@ -112,16 +121,23 @@ public sealed class NoticeReader(ApplicationDbContext db)
         var route = NoticeRoutes.For(r.Kind, r.TripId, r.RefId, ViewerKind(r.ViewerRoleId));
         if (r.Kind == NoticeKinds.FestivalReminder && r.RefDateFrom is { } from && r.RefDateTo is { } to && route.Args.ContainsKey("festivalId"))
             route = route with { Args = new Dictionary<string, string>(route.Args) { ["dateFrom"] = from.ToString("yyyy-MM-dd"), ["dateTo"] = to.ToString("yyyy-MM-dd") } };
+        var isJoin = r.Kind == NoticeKinds.JoinRequest;
+        var isFollow = r.Kind is NoticeKinds.FollowRequest or NoticeKinds.NewFollower or NoticeKinds.FollowAccepted;
         return new NoticeItemDto
         {
             Id = r.Id,
             Kind = r.Kind,
-            TripId = r.TripId == NoticeKinds.NoTrip ? null : r.TripId,
+            // JoinRequest: the slot is the request id and RefId the trip; follow kinds: the slot is the actor, not a trip.
+            TripId = isJoin ? r.RefId : isFollow || r.TripId == NoticeKinds.NoTrip ? null : r.TripId,
             TripTitle = r.TripTitle,
+            TripCity = r.TripCity,
             ActorUserId = r.ActorUserId,
             ActorName = r.ActorName,
-            RefId = r.RefId,
+            RefId = isJoin ? r.TripId : r.RefId,
             Amount = r.Amount,
+            ActorPhotoUrl = CloudinaryThumb.Apply(r.ActorPhotoUrl, CloudinaryThumb.PersonFace),
+            ActorUsername = r.ActorUsername,
+            Preview = r.Preview,
             RefTitle = r.RefTitle,
             RefDateFrom = r.RefDateFrom,
             RefDateTo = r.RefDateTo,
@@ -149,8 +165,12 @@ public sealed class NoticeReader(ApplicationDbContext db)
         public string Kind { get; set; } = string.Empty;
         public Guid TripId { get; set; }
         public string? TripTitle { get; set; }
+        public string? TripCity { get; set; }
         public Guid? ActorUserId { get; set; }
         public string? ActorName { get; set; }
+        public string? ActorPhotoUrl { get; set; }
+        public string? ActorUsername { get; set; }
+        public string? Preview { get; set; }
         public Guid? RefId { get; set; }
         public int? Amount { get; set; }
         public int Count { get; set; }

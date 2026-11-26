@@ -188,7 +188,7 @@ public class BuddyModelTests
     }
 
     [Fact]
-    // CompletionCountedAt: the owner's completed-trips counter guard (FB-W1), not a Buddy column.
+    // CompletionCountedAt: the owner's completed-trips counter guard (FB-W1), not a Buddy column. Social adds only the listed post and plan columns.
     public void Trips_has_no_new_column()
     {
         var columns = Entity<Trip>().GetProperties().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
@@ -197,6 +197,9 @@ public class BuddyModelTests
             "CityKey", "CityLatitude", "CityLongitude", "CityName", "ClientTripId", "CompletedAt", "CompletionCountedAt", "CreatedAt", "DayCount",
             "DistrictId", "EndDate", "Id", "InviteCode", "MutedAt", "NameChosen", "OwnerUserId", "PlanJson", "SpotCount",
             "StartDate", "Status", "Title", "UpdatedAt", "xmin",
+            // CONTRACT_SOCIAL D1: a public post is the Trips row (post columns); PLAN_STATES_SOCIAL: the plan pause flags.
+            "InactiveByPlan", "IsPublic", "JoinGender", "PausedByPlan", "PostCityNames", "PostDays", "PostStartMonth", "PostStateName",
+            "PostText", "PostWindowMonths", "PublishedAt", "Seats",
         ];
         Assert.Equal(expected.OrderBy(n => n, StringComparer.Ordinal), columns);
     }
@@ -218,6 +221,8 @@ public class BuddyModelTests
         [
             "BuddyRequests", "Buddies", "TripMembers", "TripExpenses", "TripExpenseShares", "TripExpenseRevisions",
             "TripPayments", "TripExpenseSuggestionSkips", "TripExpenseState", "UserNotices",
+            // Bakhli social (in the InitialCreate regenerated at the social gate).
+            "UserProfiles", "ProfileIdentityAudit", "Follows", "TripJoinRequests", "ChatRooms", "ChatRoomMembers", "ChatMessages", "MessageSnapshots",
         ];
         foreach (var t in newTables) Assert.True(tables.ContainsKey(t), $"Snapshot has no table {t}");
 

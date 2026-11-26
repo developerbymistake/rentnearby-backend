@@ -19,4 +19,6 @@ public class TripMember
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public int Version { get; set; } = 1;
+    // Invite | Request (joined through a public post join request).
+    public string JoinedVia { get; set; } = "Invite";
 }

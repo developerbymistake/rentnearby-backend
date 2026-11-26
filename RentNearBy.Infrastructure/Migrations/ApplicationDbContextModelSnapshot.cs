@@ -739,6 +739,13 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateTime?>("JoinedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("JoinedVia")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasDefaultValue("Invite");
+
                     b.Property<DateTime?>("RespondedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -784,6 +791,8 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.ToTable("TripMembers", null, t =>
                         {
+                            t.HasCheckConstraint("ck_tripmembers_joinedvia", "\"JoinedVia\" IN ('Invite', 'Request')");
+
                             t.HasCheckConstraint("ck_tripmembers_status", "\"Status\" IN ('Invited', 'Joined', 'Declined', 'Cancelled', 'Expired', 'Left', 'Removed')");
                         });
                 });
@@ -926,7 +935,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_usernotices_count", "\"Count\" >= 1");
 
-                            t.HasCheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged', 'StayEditApproved', 'StayEditRejected', 'FestivalReminder', 'PlanLimitsChanged', 'PlansStarting')");
+                            t.HasCheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged', 'StayEditApproved', 'StayEditRejected', 'FestivalReminder', 'PlanLimitsChanged', 'PlansStarting', 'FollowRequest', 'NewFollower', 'FollowAccepted', 'JoinRequest', 'JoinAccepted', 'JoinDeclined', 'FollowedPosted')");
                         });
                 });
 
@@ -1614,6 +1623,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<string>("ListingType")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<long?>("MessageSeq")
+                        .HasColumnType("bigint");
 
                     b.Property<Guid>("ReasonId")
                         .HasColumnType("uuid");
@@ -3509,6 +3521,518 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("Sessions");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.ChatMessage", b =>
+                {
+                    b.Property<Guid>("RoomId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Seq")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("ClientMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Masked")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid?>("SenderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SystemKind")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.HasKey("RoomId", "Seq");
+
+                    b.HasIndex(new[] { "ExpiresAt" }, "ix_chatmessages_expiry");
+
+                    b.HasIndex(new[] { "RoomId", "SenderId", "ClientMessageId" }, "ux_chatmessages_client")
+                        .IsUnique()
+                        .HasFilter("\"ClientMessageId\" IS NOT NULL");
+
+                    b.ToTable("ChatMessages", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_chatmessages_system", "\"SystemKind\" IS NULL OR \"SystemKind\" IN ('joined', 'left')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.ChatRoom", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime?>("BlockedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ChargedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("DeclinedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("char(1)");
+
+                    b.Property<DateTime?>("LastMessageAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastPreview")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<long>("LastSeq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<Guid?>("PairHighId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PairLowId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid?>("TripId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "RequestedByUserId", "ChargedAt" }, "ix_chatrooms_charged")
+                        .IsDescending(false, true)
+                        .HasFilter("\"ChargedAt\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "LastMessageAt" }, "ix_chatrooms_lastmessage")
+                        .HasFilter("\"Kind\" = 'D'");
+
+                    b.HasIndex(new[] { "LastMessageAt" }, "ix_chatrooms_preview")
+                        .HasFilter("\"LastPreview\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "PairLowId", "PairHighId" }, "ux_chatrooms_pair")
+                        .IsUnique()
+                        .HasFilter("\"Kind\" = 'D'");
+
+                    b.HasIndex(new[] { "TripId" }, "ux_chatrooms_trip")
+                        .IsUnique()
+                        .HasFilter("\"Kind\" = 'T'");
+
+                    b.ToTable("ChatRooms", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_chatrooms_kind", "\"Kind\" IN ('D', 'T')");
+
+                            t.HasCheckConstraint("ck_chatrooms_pair", "(\"Kind\" = 'D' AND \"PairLowId\" IS NOT NULL AND \"PairHighId\" IS NOT NULL AND \"PairLowId\" < \"PairHighId\" AND \"TripId\" IS NULL) OR (\"Kind\" = 'T' AND \"TripId\" IS NOT NULL AND \"PairLowId\" IS NULL AND \"PairHighId\" IS NULL)");
+
+                            t.HasCheckConstraint("ck_chatrooms_status", "\"Status\" IN ('Request', 'Active', 'Declined')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.ChatRoomMember", b =>
+                {
+                    b.Property<Guid>("RoomId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ClearedUpToSeq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<long>("JoinedSeq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<long>("LastReadSeq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<DateTime?>("LeftAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ListBucket")
+                        .IsRequired()
+                        .HasColumnType("char(1)");
+
+                    b.Property<DateTime>("SortAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int>("UnreadCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.HasKey("RoomId", "UserId");
+
+                    b.HasIndex(new[] { "UserId", "ListBucket", "SortAt", "RoomId" }, "ix_chatmembers_list")
+                        .IsDescending(false, false, true, false);
+
+                    b.HasIndex(new[] { "UserId" }, "ix_chatmembers_unread")
+                        .HasFilter("\"UnreadCount\" > 0");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "UserId" }, "ix_chatmembers_unread"), new[] { "UnreadCount", "ListBucket" });
+
+                    b.ToTable("ChatRoomMembers", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_chatmembers_bucket", "\"ListBucket\" IN ('P', 'T', 'R', 'X')");
+
+                            t.HasCheckConstraint("ck_chatmembers_unread", "\"UnreadCount\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.Follow", b =>
+                {
+                    b.Property<Guid>("FollowerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FolloweeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("char(1)");
+
+                    b.HasKey("FollowerId", "FolloweeId");
+
+                    b.HasIndex(new[] { "FolloweeId", "CreatedAt", "FollowerId" }, "ix_follows_followers")
+                        .IsDescending(false, true, false)
+                        .HasFilter("\"Status\" = 'A'");
+
+                    b.HasIndex(new[] { "FollowerId", "CreatedAt", "FolloweeId" }, "ix_follows_following")
+                        .IsDescending(false, true, false)
+                        .HasFilter("\"Status\" = 'A'");
+
+                    b.HasIndex(new[] { "FolloweeId", "CreatedAt", "FollowerId" }, "ix_follows_requests")
+                        .IsDescending(false, true, false)
+                        .HasFilter("\"Status\" = 'R'");
+
+                    b.ToTable("Follows", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_follows_not_self", "\"FollowerId\" <> \"FolloweeId\"");
+
+                            t.HasCheckConstraint("ck_follows_status", "\"Status\" IN ('A', 'R')");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.MessageSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("AboutUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("AnchorSeq")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("MessagesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("PurgeAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RoomId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TakenForUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "PurgeAt" }, "ix_messagesnapshots_purge");
+
+                    b.HasIndex(new[] { "ReportId" }, "ix_messagesnapshots_report")
+                        .HasFilter("\"ReportId\" IS NOT NULL");
+
+                    b.ToTable("MessageSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.ProfileIdentityAudit", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("AdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<short>("NewBirthMonth")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("NewBirthYear")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("NewGender")
+                        .IsRequired()
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)");
+
+                    b.Property<short>("OldBirthMonth")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("OldBirthYear")
+                        .HasColumnType("smallint");
+
+                    b.Property<string>("OldGender")
+                        .IsRequired()
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "UserId", "CreatedAt" }, "ix_profileidentityaudit_user")
+                        .IsDescending(false, true);
+
+                    b.ToTable("ProfileIdentityAudit", (string)null);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.TripJoinRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("ClientRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RequesterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(14)
+                        .HasColumnType("character varying(14)");
+
+                    b.Property<short>("Tier")
+                        .HasColumnType("smallint");
+
+                    b.Property<Guid>("TripId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "EndedAt" }, "ix_tripjoinrequests_ended")
+                        .HasFilter("\"EndedAt\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "RequesterId", "CreatedAt" }, "ix_tripjoinrequests_requester")
+                        .IsDescending(false, true);
+
+                    b.HasIndex(new[] { "TripId", "Tier", "CreatedAt" }, "ix_tripjoinrequests_trip")
+                        .IsDescending(false, false, true)
+                        .HasFilter("\"Status\" = 'Waiting'");
+
+                    b.HasIndex(new[] { "TripId", "RequesterId" }, "ux_tripjoinrequests_live")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Waiting'");
+
+                    b.HasIndex(new[] { "RequesterId", "ClientRequestId" }, "ux_tripjoinrequests_requester_client")
+                        .IsUnique();
+
+                    b.ToTable("TripJoinRequests", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_tripjoinrequests_not_self", "\"OwnerUserId\" <> \"RequesterId\"");
+
+                            t.HasCheckConstraint("ck_tripjoinrequests_status", "\"Status\" IN ('Waiting', 'Accepted', 'Declined', 'Cancelled', 'Expired', 'ClosedByBlock')");
+
+                            t.HasCheckConstraint("ck_tripjoinrequests_tier", "\"Tier\" BETWEEN 0 AND 2");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.UserProfile", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("About")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<short>("BirthMonth")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("BirthYear")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime>("CompletedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int>("FollowerCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("FollowingCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("Gender")
+                        .IsRequired()
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)");
+
+                    b.Property<string>("HomeCityName")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("HomeStateName")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.PrimitiveCollection<string[]>("Interests")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<bool>("IsPrivate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("MessagePolicy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("Everyone");
+
+                    b.Property<bool>("NotifyFollowedTrips")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("NotifyFollows")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("NotifyMessages")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.PrimitiveCollection<string[]>("Places")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.PrimitiveCollection<string[]>("Skills")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("UserProfiles", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_userprofiles_birthmonth", "\"BirthMonth\" BETWEEN 1 AND 12");
+
+                            t.HasCheckConstraint("ck_userprofiles_birthyear", "\"BirthYear\" BETWEEN 1900 AND 2100");
+
+                            t.HasCheckConstraint("ck_userprofiles_followers", "\"FollowerCount\" >= 0");
+
+                            t.HasCheckConstraint("ck_userprofiles_following", "\"FollowingCount\" >= 0");
+
+                            t.HasCheckConstraint("ck_userprofiles_gender", "\"Gender\" IN ('Male', 'Female', 'Other')");
+
+                            t.HasCheckConstraint("ck_userprofiles_messagepolicy", "\"MessagePolicy\" IN ('Everyone', 'Following', 'Buddies')");
+                        });
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.StayJob", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5160,10 +5684,26 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<DateOnly?>("EndDate")
                         .HasColumnType("date");
 
+                    b.Property<bool>("InactiveByPlan")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<Guid>("InviteCode")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<bool>("IsPublic")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("JoinGender")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(1)")
+                        .HasDefaultValue("A");
 
                     b.Property<DateTime?>("MutedAt")
                         .HasColumnType("timestamp with time zone");
@@ -5176,9 +5716,43 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid>("OwnerUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("PausedByPlan")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("PlanJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
+
+                    b.PrimitiveCollection<string[]>("PostCityNames")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'::text[]");
+
+                    b.Property<short?>("PostDays")
+                        .HasColumnType("smallint");
+
+                    b.Property<int?>("PostStartMonth")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PostStateName")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("PostText")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<short?>("PostWindowMonths")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<short?>("Seats")
+                        .HasColumnType("smallint");
 
                     b.Property<int>("SpotCount")
                         .HasColumnType("integer");
@@ -5223,6 +5797,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"ClientTripId\" IS NOT NULL");
 
+                    b.HasIndex(new[] { "PublishedAt", "Id" }, "ix_trips_public")
+                        .IsDescending()
+                        .HasFilter("\"IsPublic\"");
+
                     b.HasIndex(new[] { "StartDate" }, "ix_trips_startdate")
                         .HasFilter("\"StartDate\" IS NOT NULL");
 
@@ -5232,6 +5810,16 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("Trips", t =>
                         {
                             t.HasCheckConstraint("ck_trips_citykey_positive", "\"CityKey\" > 0");
+
+                            t.HasCheckConstraint("ck_trips_joingender", "\"JoinGender\" IN ('A', 'M', 'F')");
+
+                            t.HasCheckConstraint("ck_trips_postdays", "\"PostDays\" IS NULL OR \"PostDays\" BETWEEN 1 AND 11");
+
+                            t.HasCheckConstraint("ck_trips_postwindow", "\"PostWindowMonths\" IS NULL OR \"PostWindowMonths\" BETWEEN 1 AND 6");
+
+                            t.HasCheckConstraint("ck_trips_public_fields", "NOT \"IsPublic\" OR (\"PublishedAt\" IS NOT NULL AND \"Seats\" IS NOT NULL AND \"PostDays\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_trips_seats", "\"Seats\" IS NULL OR \"Seats\" BETWEEN 1 AND 11");
                         });
                 });
 
@@ -6599,6 +7187,94 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.ChatMessage", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Social.ChatRoom", null)
+                        .WithMany()
+                        .HasForeignKey("RoomId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.ChatRoom", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Trip", null)
+                        .WithMany()
+                        .HasForeignKey("TripId")
+                        .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.ChatRoomMember", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.Social.ChatRoom", null)
+                        .WithMany()
+                        .HasForeignKey("RoomId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.Follow", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("FolloweeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("FollowerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.MessageSnapshot", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.ListingReport", null)
+                        .WithMany()
+                        .HasForeignKey("ReportId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.ProfileIdentityAudit", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.TripJoinRequest", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("RequesterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RentNearBy.Core.Entities.Trip", null)
+                        .WithMany()
+                        .HasForeignKey("TripId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.Social.UserProfile", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithOne()
+                        .HasForeignKey("RentNearBy.Core.Entities.Social.UserProfile", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("RentNearBy.Core.Entities.StayJob", b =>

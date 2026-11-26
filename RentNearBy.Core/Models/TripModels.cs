@@ -86,13 +86,14 @@ public static class TripLimits
     public const int MaxLegs = 4;
     public const int MaxSpotsPerDay = 6;
 
-    // Trips a traveller holds at once: owned (any status) + joined as a viewer.
+    // Message fallback only: the live limit of active trips comes from the Seeker plan (ISeekerLimits, key SeekerActiveTrips).
     public const int MaxTripsPerUser = 3;
 }
 
 public static class TripSlotRules
 {
-    public static bool IsFull(int count) => count >= TripLimits.MaxTripsPerUser;
+    // Active trips: owned Draft/Planned + joined on trips not Completed; the limit is the caller's plan value.
+    public static bool IsFull(int count, int limit) => count >= limit;
 }
 
 public static class TripCacheKeys

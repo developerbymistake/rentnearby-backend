@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Models.Social;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using static RentNearBy.Infrastructure.Services.Buddy.Be2.Be2Sql;
@@ -44,6 +45,16 @@ public sealed class TripSharingHooks(
         """;
 
     private static readonly string[] KeepOnDelete = [NoticeKinds.TripDeleted];
+
+    // The trip's join requests go with the trip (FK cascade). Their owner inbox rows key on the REQUEST id (TripId = request id,
+    // RefId = trip id), so DeleteForTripAsync never sees them: delete them here and return the requesters who were waiting.
+    private static readonly string JoinRequestsGoneSql = $"""
+        WITH r AS (SELECT j."Id", j."RequesterId", j."Status" FROM "TripJoinRequests" j WHERE j."TripId" = @trip),
+        n AS (DELETE FROM "UserNotices" WHERE "Kind" = '{NoticeKinds.JoinRequest}' AND ("TripId" IN (SELECT "Id" FROM r) OR "RefId" = @trip))
+        SELECT DISTINCT r."RequesterId" AS "Value" FROM r WHERE r."Status" = '{JoinRequestStatuses.Waiting}'
+        """;
+
+    private List<Guid> _requestersOfDeleted = [];
 
     // 1 statement + money cards (2).
     public Task<TripSharingBlockDto?> GetSharingAsync(Guid tripId, Guid ownerId, CancellationToken ct = default)
@@ -98,10 +109,28 @@ public sealed class TripSharingHooks(
     {
         var viewers = await ReadViewersAsync(tripId, ownerId, ct);
         await notices.DeleteForTripAsync(tripId, KeepOnDelete, ct);
+        _requestersOfDeleted = await db.Database.SqlQueryRaw<Guid>(JoinRequestsGoneSql, Id("trip", tripId)).ToListAsync(ct);
         if (viewers.Count == 0) return 0;
         await notices.UpsertAsync(viewers.Select(v => new NoticeUpsert(v.UserId, NoticeKinds.TripDeleted, tripId, ownerId)).ToList(), ct);
         await notices.PushAsync(viewers.Select(v => BuddyPushCopy.TripDeletedForViewer(v.UserId, tripId, v.OwnerName, v.Title)).ToList(), ct);
         return viewers.Count;
+    }
+
+    public async Task AfterTripDeletedAsync(CancellationToken ct = default)
+    {
+        if (_requestersOfDeleted.Count == 0) return;
+        try
+        {
+            await hints.SocialChangedAsync(SocialLiveScopes.MyJoinRequests, _requestersOfDeleted);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "social.trip_deleted_hint failed");
+        }
+        finally
+        {
+            _requestersOfDeleted = [];
+        }
     }
 
     private Task<List<ViewerRow>> ReadViewersAsync(Guid tripId, Guid ownerId, CancellationToken ct)

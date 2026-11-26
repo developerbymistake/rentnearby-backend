@@ -25,4 +25,7 @@ public class UserDto
     public string? ProfilePhotoUrl { get; set; }   // stored 640 square; key always present (app gate)
     public bool ProfilePhotoRemoved { get; set; }   // removed by the admin, the user must add a new one
     public DateTime CreatedAt { get; set; }
+    // Bakhli social: the UserProfiles row exists (onboarding done) and its gender (own account only).
+    public bool ProfileCompleted { get; set; }
+    public string? Gender { get; set; }
 }

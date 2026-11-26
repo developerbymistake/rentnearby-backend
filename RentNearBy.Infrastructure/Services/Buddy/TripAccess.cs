@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;
 using RentNearBy.Core.Interfaces.Buddy;
+using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
@@ -14,7 +15,7 @@ public sealed class TripAccess(ApplicationDbContext db) : ITripAccess
     internal const string AccessSql = """
         SELECT t."Id" AS "TripId", t."OwnerUserId", COALESCE(u."Name", '') AS "OwnerName", t."Title", t."Status",
                t."StartDate", t."EndDate", t."DayCount", t."SpotCount", t."CompletedAt", t."UpdatedAt",
-               m."Id" AS "MemberId", m."Status" AS "MemberStatus", m."JoinedAt"
+               m."Id" AS "MemberId", m."Status" AS "MemberStatus", m."JoinedAt", m."JoinedVia"
         FROM "Trips" t
         JOIN "Users" u ON u."Id" = t."OwnerUserId"
         LEFT JOIN "TripMembers" m ON m."TripId" = t."Id" AND m."UserId" = @user
@@ -55,7 +56,8 @@ public sealed class TripAccess(ApplicationDbContext db) : ITripAccess
             r.CompletedAt, r.UpdatedAt, level.Value,
             isOwner ? null : r.MemberId,
             isOwner ? null : r.JoinedAt,
-            level == TripAccessLevel.Former ? r.MemberStatus : null);
+            level == TripAccessLevel.Former ? r.MemberStatus : null,
+            TripAccessRules.DetailsLocked(level.Value, r.JoinedVia, r.StartDate, IstTime.TodayIst(DateTime.UtcNow)));
     }
 
     public async Task<IReadOnlyList<TripTraveller>> GetTravellersAsync(Guid tripId, bool includeFormer, CancellationToken ct = default)
@@ -99,6 +101,7 @@ public sealed class TripAccess(ApplicationDbContext db) : ITripAccess
         public Guid? MemberId { get; set; }
         public string? MemberStatus { get; set; }
         public DateTime? JoinedAt { get; set; }
+        public string? JoinedVia { get; set; }
     }
 
     private sealed class TravellerRow

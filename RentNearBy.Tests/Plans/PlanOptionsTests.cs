@@ -29,6 +29,8 @@ public class PlanOptionsTests
     [Theory]
     [InlineData("Stay", true)]
     [InlineData("Taxi", true)]
+    [InlineData("Seeker", true)]
+    [InlineData("seeker", false)]
     [InlineData("Room", false)]
     [InlineData(null, false)]
     [InlineData("", false)]

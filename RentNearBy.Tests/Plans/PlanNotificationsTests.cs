@@ -5,13 +5,14 @@ namespace RentNearBy.Tests.Plans;
 public class PlanNotificationsTests
 {
     private static readonly Guid User = TestIds.User1;
+    private const string Feature = ListingKinds.Stay;
 
     [Fact]
     public void Activated_EveningUtc_RollsToNextIstDay()
     {
         using var _ = Culture.Invariant();
 
-        var n = PlanNotifications.Activated(User, "Plus", Dates.Utc(2026, 11, 29, 20, 0));
+        var n = PlanNotifications.Activated(User, Feature, "Plus", Dates.Utc(2026, 11, 29, 20, 0));
 
         Assert.Equal(NotificationTypes.PlanActivated, n.Type);
         Assert.Equal("Plan active", n.Title);
@@ -27,21 +28,21 @@ public class PlanNotificationsTests
     {
         using var _ = Culture.Invariant();
 
-        var n = PlanNotifications.Activated(User, "Plus", Dates.Utc(2026, 11, 29, 18, 29, 59));
+        var n = PlanNotifications.Activated(User, Feature, "Plus", Dates.Utc(2026, 11, 29, 18, 29, 59));
 
         Assert.Equal("Plus is active till 29 Nov 2026.", n.Body);
     }
 
     [Fact]
     public void Activated_TwoCalls_DistinctIds()
-        => Assert.NotEqual(PlanNotifications.Activated(User, "Plus", Dates.Far).Id, PlanNotifications.Activated(User, "Plus", Dates.Far).Id);
+        => Assert.NotEqual(PlanNotifications.Activated(User, Feature, "Plus", Dates.Far).Id, PlanNotifications.Activated(User, Feature, "Plus", Dates.Far).Id);
 
     [Fact]
     public void Expiring_RenewCopy()
     {
         using var _ = Culture.Invariant();
 
-        var n = PlanNotifications.Expiring(User, "Plus", Dates.Utc(2026, 12, 1, 6, 0));
+        var n = PlanNotifications.Expiring(User, Feature, "Plus", Dates.Utc(2026, 12, 1, 6, 0));
 
         Assert.Equal(NotificationTypes.PlanExpiring, n.Type);
         Assert.Equal("Plan ends soon", n.Title);
@@ -53,7 +54,7 @@ public class PlanNotificationsTests
     {
         using var _ = Culture.Invariant();
 
-        var n = PlanNotifications.ExpiringCancelled(User, "Plus", Dates.Utc(2026, 12, 1, 6, 0));
+        var n = PlanNotifications.ExpiringCancelled(User, Feature, "Plus", Dates.Utc(2026, 12, 1, 6, 0));
 
         Assert.Equal(NotificationTypes.PlanExpiring, n.Type);
         Assert.Equal("Plus ends on 01 Dec 2026. Resubscribe to keep your benefits.", n.Body);
@@ -64,7 +65,7 @@ public class PlanNotificationsTests
     [InlineData(false, "Subscription ended. You are on the free plan now.")]
     public void Ended_Refunded_PicksCopy(bool refunded, string expectedBody)
     {
-        var n = PlanNotifications.Ended(User, "Plus", refunded);
+        var n = PlanNotifications.Ended(User, Feature, "Plus", refunded);
 
         Assert.Equal(NotificationTypes.PlanExpired, n.Type);
         Assert.Equal("Plan ended", n.Title);
@@ -74,7 +75,7 @@ public class PlanNotificationsTests
     [Fact]
     public void Paused_NoResumeDate_PointsToPlay()
     {
-        var n = PlanNotifications.Paused(User, "Plus", null);
+        var n = PlanNotifications.Paused(User, Feature, "Plus", null);
 
         Assert.Equal(NotificationTypes.PlanPaused, n.Type);
         Assert.Equal("Subscription paused", n.Title);
@@ -86,7 +87,7 @@ public class PlanNotificationsTests
     {
         using var _ = Culture.Invariant();
 
-        Assert.Equal("Resumes on 05 Dec 2026.", PlanNotifications.Paused(User, "Plus", Dates.Utc(2026, 12, 5)).Body);
+        Assert.Equal("Resumes on 05 Dec 2026.", PlanNotifications.Paused(User, Feature, "Plus", Dates.Utc(2026, 12, 5)).Body);
     }
 
     [Fact]
@@ -94,7 +95,7 @@ public class PlanNotificationsTests
     {
         using var _ = Culture.Invariant();
 
-        var n = PlanNotifications.CarryOverActivated(User, "Plus", 9, Dates.Utc(2026, 12, 10));
+        var n = PlanNotifications.CarryOverActivated(User, Feature, "Plus", 9, Dates.Utc(2026, 12, 10));
 
         Assert.Equal(NotificationTypes.PlanCarryOverActivated, n.Type);
         Assert.Equal("Bonus days active", n.Title);
@@ -104,7 +105,7 @@ public class PlanNotificationsTests
     [Fact]
     public void AdminGrantCarryOver_IsActivatedType()
     {
-        var n = PlanNotifications.AdminGrantCarryOver(User, 9);
+        var n = PlanNotifications.AdminGrantCarryOver(User, Feature, 9);
 
         Assert.Equal(NotificationTypes.PlanActivated, n.Type);
         Assert.Equal("Days added", n.Title);
@@ -117,9 +118,33 @@ public class PlanNotificationsTests
     {
         using var _ = Culture.Invariant();
 
-        Assert.Equal("Plus has ended. You are on the free plan now.", PlanNotifications.Expired(User, "Plus").Body);
-        Assert.Equal("Plus renewed till 01 Dec 2026.", PlanNotifications.Renewed(User, "Plus", Dates.Utc(2026, 12, 1)).Body);
-        Assert.Equal("Plus is paused until the payment is fixed in Google Play.", PlanNotifications.OnHold(User, "Plus").Body);
-        Assert.Equal(NotificationTypes.PlanPaymentIssue, PlanNotifications.PaymentIssue(User, "Plus").Type);
+        Assert.Equal("Plus has ended. You are on the free plan now.", PlanNotifications.Expired(User, Feature, "Plus").Body);
+        Assert.Equal("Plus renewed till 01 Dec 2026.", PlanNotifications.Renewed(User, Feature, "Plus", Dates.Utc(2026, 12, 1)).Body);
+        Assert.Equal("Plus is paused until the payment is fixed in Google Play.", PlanNotifications.OnHold(User, Feature, "Plus").Body);
+        Assert.Equal(NotificationTypes.PlanPaymentIssue, PlanNotifications.PaymentIssue(User, Feature, "Plus").Type);
+    }
+
+    // A seeker cannot open the owner-only /plans page: every Bakhli Plus notice opens the Plus screen.
+    [Fact]
+    public void Every_builder_with_the_seeker_feature_routes_to_seeker_plus()
+    {
+        const string seeker = PlanFeatures.Seeker;
+        NotificationEvent[] all =
+        [
+            PlanNotifications.Activated(User, seeker, "Plus", Dates.Far),
+            PlanNotifications.Expiring(User, seeker, "Plus", Dates.Far),
+            PlanNotifications.Expired(User, seeker, "Plus"),
+            PlanNotifications.Renewed(User, seeker, "Plus", Dates.Far),
+            PlanNotifications.PaymentIssue(User, seeker, "Plus"),
+            PlanNotifications.OnHold(User, seeker, "Plus"),
+            PlanNotifications.Paused(User, seeker, "Plus", null),
+            PlanNotifications.ExpiringCancelled(User, seeker, "Plus", Dates.Far),
+            PlanNotifications.Ended(User, seeker, "Plus", refunded: false),
+            PlanNotifications.CarryOverActivated(User, seeker, "Plus", 3, Dates.Far),
+            PlanNotifications.AdminGrantCarryOver(User, seeker, 3),
+        ];
+        Assert.All(all, n => Assert.Equal(UserNotificationRoutes.SeekerPlus, n.ActionRoute));
+        Assert.Equal(UserNotificationRoutes.Plans, PlanNotifications.RouteOf(ListingKinds.Taxi));
+        Assert.Contains(UserNotificationRoutes.SeekerPlus, TravellerOnly.PushRoutes);
     }
 }

@@ -16,7 +16,8 @@ public class ListingCacheInvalidator(ApplicationDbContext db, IServiceProvider s
 
     public async Task BustForUsersAsync(IReadOnlyCollection<Guid> userIds, string kind)
     {
-        if (userIds.Count == 0) return;
+        // Seeker plans (Bakhli Plus) cache nothing per listing.
+        if (userIds.Count == 0 || kind is not (ListingKinds.Stay or ListingKinds.Taxi)) return;
         var redis = services.GetService<IConnectionMultiplexer>();
         if (redis == null)
         {

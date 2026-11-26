@@ -13,6 +13,7 @@ using RentNearBy.Tests.Buddy.Be1;
 using RentNearBy.Tests.Data;
 using RentNearBy.Tests.Integration;
 using RentNearBy.Tests.Support.Buddy;
+using RentNearBy.Tests.Support.Social;
 
 namespace RentNearBy.Tests.SeekerOnly;
 
@@ -41,7 +42,11 @@ public class SeekerOnlyIntegrationTests(TestDatabase db) : IntegrationTestBase(d
     private static TripMoneyCards Cards(ApplicationDbContext ctx) => new(ctx, new TripLedger(ctx, NullLogger<TripLedger>.Instance));
 
     private static TripInviteService Invites(ApplicationDbContext ctx) =>
-        new(ctx, new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripInviteService>.Instance);
+        Invites(ctx, SocialTestSeams.AfterCommit(ctx));
+
+    private static TripInviteService Invites(ApplicationDbContext ctx, RentNearBy.Infrastructure.Services.Social.SocialAfterCommit afterCommit) =>
+        new(ctx, new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripInviteService>.Instance,
+            SocialTestSeams.Limits(TripLimits.MaxTripsPerUser), SocialTestSeams.GroupChat(ctx, afterCommit), afterCommit);
 
     private static TripSharedListReader Shared(ApplicationDbContext ctx) => new(ctx, Cards(ctx), TimeProvider.System);
 

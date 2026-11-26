@@ -8,14 +8,10 @@ public static class BuddyEndpoints
 {
     public static RouteGroupBuilder MapBuddyEndpoints(this RouteGroupBuilder group)
     {
+        // Social contract D3: the buddy request routes and /seen are retired (My Buddies is a one-way list picked from followers);
+        // their handlers, services and table stay.
         group.MapPost("/find", BuddyHandlers.Find).SeekerOnly();
-        group.MapPost("/requests", BuddyHandlers.SendRequest).SeekerOnly();
-        group.MapGet("/requests", BuddyHandlers.GetRequests).SeekerOnly();
-        group.MapPost("/requests/{id:guid}/accept", BuddyHandlers.Accept).SeekerOnly();
-        group.MapPost("/requests/{id:guid}/decline", BuddyHandlers.Decline).SeekerOnly();
-        group.MapPost("/requests/{id:guid}/cancel", BuddyHandlers.Cancel).SeekerOnly();
         group.MapGet("/", BuddyHandlers.GetBuddies).SeekerOnly();
-        group.MapPost("/seen", BuddyHandlers.Seen).SeekerOnly();
         group.MapGet("/summary", BuddyHandlers.Summary).SeekerOnly();
         group.MapDelete("/{userId:guid}", BuddyHandlers.Remove).SeekerOnly();
         return group;

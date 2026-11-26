@@ -108,6 +108,7 @@ public sealed class TripExpenseReader(ApplicationDbContext db, ITripAccess acces
     {
         var trip = await access.GetAsync(tripId, callerId, ct);
         if (trip is null) return ExpenseResult<ExpenseListDto>.Fail(BuddyErrorTypes.TripNotFound);
+        if (trip.DetailsLocked) return ExpenseResult<ExpenseListDto>.Fail(BuddyErrorTypes.OpensAtStart);
         var former = trip.Level == TripAccessLevel.Former;
         var isOwner = trip.Level == TripAccessLevel.Owner;
 
@@ -210,6 +211,7 @@ public sealed class TripExpenseReader(ApplicationDbContext db, ITripAccess acces
     {
         var trip = await access.GetAsync(tripId, callerId, ct);
         if (trip is null) return ExpenseResult<ExpenseDetailResponseDto>.Fail(BuddyErrorTypes.TripNotFound);
+        if (trip.DetailsLocked) return ExpenseResult<ExpenseDetailResponseDto>.Fail(BuddyErrorTypes.OpensAtStart);
         var rows = await db.Database.SqlQueryRaw<DetailRow>(DetailSql, Uuid("trip", tripId), Uuid("id", expenseId)).ToListAsync(ct);
         if (rows.Count == 0) return ExpenseResult<ExpenseDetailResponseDto>.Fail(BuddyErrorTypes.ExpenseNotFound);
         var row = rows[0];

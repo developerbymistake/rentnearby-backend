@@ -51,4 +51,6 @@ public sealed class NullTripSharingHooks : ITripSharingHooks
     public Task OnPlanSavedAsync(Guid tripId, Guid ownerId, int? changedDay = null, CancellationToken ct = default) => Task.CompletedTask;
 
     public Task<int> OnTripDeletingAsync(Guid tripId, Guid ownerId, CancellationToken ct = default) => Task.FromResult(0);
+
+    public Task AfterTripDeletedAsync(CancellationToken ct = default) => Task.CompletedTask;
 }

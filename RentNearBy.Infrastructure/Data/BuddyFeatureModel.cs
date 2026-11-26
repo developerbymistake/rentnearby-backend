@@ -64,13 +64,18 @@ public static class BuddyFeatureModel
 
         modelBuilder.Entity<TripMember>(e =>
         {
-            e.ToTable("TripMembers", t => t.HasCheckConstraint("ck_tripmembers_status", $"\"Status\" IN ({TripMemberStatuses.SqlList})"));
+            e.ToTable("TripMembers", t =>
+            {
+                t.HasCheckConstraint("ck_tripmembers_status", $"\"Status\" IN ({TripMemberStatuses.SqlList})");
+                t.HasCheckConstraint("ck_tripmembers_joinedvia", $"\"JoinedVia\" IN ({RentNearBy.Core.Models.Social.TripJoinedVia.SqlList})");
+            });
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(x => x.Status).HasMaxLength(10).IsRequired();
             e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
             e.Property(x => x.Version).HasDefaultValue(1).HasSentinel(1);
+            e.Property(x => x.JoinedVia).HasMaxLength(8).HasDefaultValue(RentNearBy.Core.Models.Social.TripJoinedVia.Invite).IsRequired();
 
             e.HasOne<Trip>().WithMany().HasForeignKey(x => x.TripId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);

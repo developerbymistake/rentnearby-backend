@@ -36,6 +36,14 @@ public class BuddyPushCopyTests
         BuddyPushCopy.PaymentReceived(User, Other, Trip, "Aman", "Rahul", 5000, toPayer: true),
         BuddyPushCopy.PaymentWithdrawn(User, Other, Trip, "Aman", 5000, "Uttarakhand Hills Trip"),
         BuddyPushCopy.PaymentNotReceived(User, Other, Trip, "Rahul", 5000),
+        // Bakhli social pushes ride the same kind list (traveller-only delivery).
+        RentNearBy.Core.Models.Social.SocialPushCopy.FollowRequest(User, Other, "Aman"),
+        RentNearBy.Core.Models.Social.SocialPushCopy.NewFollower(User, Other, "Aman", Now),
+        RentNearBy.Core.Models.Social.SocialPushCopy.FollowAccepted(User, Other, "Aman"),
+        RentNearBy.Core.Models.Social.SocialPushCopy.JoinRequest(User, Other, Trip, "Aman"),
+        RentNearBy.Core.Models.Social.SocialPushCopy.JoinAccepted(User, Other, Trip, "Rahul"),
+        RentNearBy.Core.Models.Social.SocialPushCopy.DirectMessage(User, Other, "Aman", Now),
+        RentNearBy.Core.Models.Social.SocialPushCopy.TripMessage(User, Other, Now),
     ];
 
     [Fact]

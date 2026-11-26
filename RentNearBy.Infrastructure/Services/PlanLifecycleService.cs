@@ -245,8 +245,9 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
                 var effects = await slots.ExpireEffectsAsync(plan.UserId, plan.FeatureKey);
                 var planName = (await catalog.GetAsync()).GetPlan(plan.PlanId)?.Name ?? "Your plan";
                 notification = playClaim == PlayClaim.None
-                    ? PlanNotifications.Expired(plan.UserId, planName)
-                    : PlanNotifications.Ended(plan.UserId, planName, refunded: false);
+                    ? PlanNotifications.Expired(plan.UserId, plan.FeatureKey, planName)
+                    : PlanNotifications.Ended(plan.UserId, plan.FeatureKey, planName, refunded: false);
+                await PlanNotifications.ForSeekerEndAsync(db, notification, plan.FeatureKey, plan.UserId);
                 db.NotificationEvents.Add(notification);
                 await db.SaveChangesAsync();
                 await tx.CommitAsync();
@@ -356,8 +357,8 @@ public class PlanLifecycleService(IServiceScopeFactory scopeFactory, IRabbitMqPu
                 {
                     var name = snapshot.GetPlan(p.PlanId)?.Name ?? "Your plan";
                     var n = p.PlaySubscriptionId == null
-                        ? PlanNotifications.Expiring(p.UserId, name, p.EndsAt)
-                        : PlanNotifications.ExpiringCancelled(p.UserId, name, p.EndsAt);
+                        ? PlanNotifications.Expiring(p.UserId, p.FeatureKey, name, p.EndsAt)
+                        : PlanNotifications.ExpiringCancelled(p.UserId, p.FeatureKey, name, p.EndsAt);
                     db.NotificationEvents.Add(n);
                     notifications.Add(n);
                 }

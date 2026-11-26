@@ -1652,6 +1652,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         TaxiWaysModel.Configure(modelBuilder);
         TaxiRequestModel.Configure(modelBuilder);
         BuddyFeatureModel.Configure(modelBuilder);
+        SocialFeatureModel.Configure(modelBuilder);
         modelBuilder.Entity<PopularRoute>(e =>
         {
             e.ToTable("PopularRoutes", t => t.HasCheckConstraint("ck_popularroutes_pair", "\"FromCityKey\" <> \"ToCityKey\""));

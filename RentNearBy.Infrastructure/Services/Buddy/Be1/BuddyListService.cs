@@ -6,11 +6,12 @@ using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.Social;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 
 namespace RentNearBy.Infrastructure.Services.Buddy.Be1;
 
-// B3, B4, B8 to B11, B14, B17: every read is one statement (B8 with forTripId and B17: two). Keyset pages, projection only.
+// B3, B4, B8 to B11, B14, B17: every read is one statement (B8: two, plus the shared mutuals read without forTripId or the owner check with it; B17: two). Keyset pages, projection only.
 public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hints, ILogger<BuddyListService> logger)
 {
     internal static readonly string ReceivedSql = $"""
@@ -38,19 +39,34 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
 
     private const string CursorFilter = """AND (r."CreatedAt", r."Id") < (@at, @id)""";
 
+    // Trips together = trips both of us are on (owner or Joined member); counted for the page rows only.
     internal const string BuddiesSql = $"""
-        SELECT b."BuddyUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", lower(COALESCE(u."Name", '')) AS "LowerName",
-               u."Username", u."ProfilePhotoUrl" AS "PhotoUrl", b."SeenAt", b."CreatedAt" AS "Since",
-               (SELECT count(*) FROM "Buddies" c JOIN "Users" cu ON cu."Id" = c."BuddyUserId" AND cu."RoleId" = {TravellerOnly.SeekerRoleSql}
-                 WHERE c."UserId" = @me)::int AS "Total",
-               m."Status" AS "MemberStatus", m."InviteExpiresAt", m."RespondedAt", now() AS "Now"
-        FROM "Buddies" b
-        JOIN "Users" u ON u."Id" = b."BuddyUserId" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}
-        LEFT JOIN "TripMembers" m ON m."TripId" = @trip AND m."UserId" = b."BuddyUserId"
-        WHERE b."UserId" = @me
-          /*cursor*/
-        ORDER BY lower(COALESCE(u."Name", '')), b."BuddyUserId"
-        LIMIT @take
+        WITH page AS (
+          SELECT b."BuddyUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", lower(COALESCE(u."Name", '')) AS "LowerName",
+                 u."Username", u."ProfilePhotoUrl" AS "PhotoUrl", b."SeenAt", b."CreatedAt" AS "Since",
+                 (SELECT count(*) FROM "Buddies" c JOIN "Users" cu ON cu."Id" = c."BuddyUserId" AND cu."RoleId" = {TravellerOnly.SeekerRoleSql}
+                   WHERE c."UserId" = @me)::int AS "Total",
+                 m."Status" AS "MemberStatus", m."InviteExpiresAt", m."RespondedAt", now() AS "Now"
+          FROM "Buddies" b
+          JOIN "Users" u ON u."Id" = b."BuddyUserId" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}
+          LEFT JOIN "TripMembers" m ON m."TripId" = @trip AND m."UserId" = b."BuddyUserId"
+          WHERE b."UserId" = @me
+            /*cursor*/
+          ORDER BY lower(COALESCE(u."Name", '')), b."BuddyUserId"
+          LIMIT @take),
+        mine AS (
+          SELECT t."Id" FROM "Trips" t WHERE t."OwnerUserId" = @me
+          UNION
+          SELECT tm."TripId" FROM "TripMembers" tm WHERE tm."UserId" = @me AND tm."Status" = '{TripMemberStatuses.Joined}')
+        SELECT page.*, gp."Gender",
+               (SELECT count(*) FROM mine
+                 WHERE mine."Id" IN (SELECT ht."Id" FROM "Trips" ht WHERE ht."OwnerUserId" = page."UserId"
+                                     UNION ALL
+                                     SELECT hm."TripId" FROM "TripMembers" hm
+                                     WHERE hm."UserId" = page."UserId" AND hm."Status" = '{TripMemberStatuses.Joined}'))::int AS "TripsTogether"
+        FROM page
+        LEFT JOIN "UserProfiles" gp ON gp."UserId" = page."UserId"
+        ORDER BY page."LowerName", page."UserId"
         """;
 
     private const string NameCursorFilter = """AND (lower(COALESCE(u."Name", '')), b."BuddyUserId") > (@name, @id)""";
@@ -62,7 +78,7 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         """;
 
     private const string RemoveSql = """
-        DELETE FROM "Buddies" WHERE ("UserId" = @me AND "BuddyUserId" = @him) OR ("UserId" = @him AND "BuddyUserId" = @me)
+        DELETE FROM "Buddies" WHERE "UserId" = @me AND "BuddyUserId" = @him
         """;
 
     internal static readonly string SummarySql = $"""
@@ -171,13 +187,16 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         var rows = await db.Database.SqlQueryRaw<BuddyRow>(sql, ps.ToArray()).ToListAsync(ct);
         var page = rows.Take(limit).ToList();
         var last = page.LastOrDefault();
+        // The invite picker (forTripId) shows no mutual line, so it keeps its two statements.
+        var mutuals = forTripId is null ? await SocialSql.MutualsAsync(db, me, page.Select(r => r.UserId).ToArray(), ct) : [];
         return new CountedPageDto<BuddyItemDto>
         {
             Items = page.Select(r => new BuddyItemDto
             {
                 UserId = r.UserId, Name = r.Name, Username = r.Username, Initial = MoneyPeople.Initial(r.Name),
                 PhotoUrl = CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace),
-                IsNew = r.SeenAt is null, Since = r.Since,
+                IsNew = r.SeenAt is null, Since = r.Since, Gender = r.Gender, TripsTogether = r.TripsTogether,
+                MutualCount = mutuals.TryGetValue(r.UserId, out var mu) ? mu.Count : 0,
                 TripState = forTripId is null ? null : BuddyRules.TripState(r.MemberStatus, r.InviteExpiresAt, r.RespondedAt, r.Now),
             }).ToList(),
             Count = rows.Count > 0 ? rows[0].Total : 0,
@@ -202,7 +221,8 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
             await tx.CommitAsync(c);
             return n;
         }, ct, logger);
-        if (removed > 0) await hints.BuddiesChangedAsync([me, buddyUserId]);
+        // My Buddies is my own list: only my row goes and the other person is never told.
+        if (removed > 0) await hints.BuddiesChangedAsync([me]);
     }
 
     public async Task<BuddySummaryDto> SummaryAsync(Guid me, CancellationToken ct = default)
@@ -288,6 +308,8 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         public DateTime? InviteExpiresAt { get; set; }
         public DateTime? RespondedAt { get; set; }
         public DateTime Now { get; set; }
+        public string? Gender { get; set; }
+        public int TripsTogether { get; set; }
     }
 
     private sealed class BlockRow
