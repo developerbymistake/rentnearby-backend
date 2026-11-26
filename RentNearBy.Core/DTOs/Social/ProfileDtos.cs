@@ -152,6 +152,8 @@ public class SocialCatalogDto
 
 public class SocialMeDto
 {
+    // Spec 25: true only when the current version of the community guidelines was accepted.
+    public bool GuidelinesAccepted { get; set; }
     public MyProfileDto? Profile { get; set; }
     public SocialLimitsDto Limits { get; set; } = new();
     public SocialMeCountsDto Counts { get; set; } = new();

@@ -39,6 +39,10 @@ public static class SocialRules
     // Spec 22: only Women only needs Plus; Anyone and Men only are free.
     public static bool NeedsPlus(string joinGender) => joinGender == JoinGenders.Women;
 
+    // Spec 25: accepted only when a time is stored and the stored version is the current one or newer.
+    public static bool GuidelinesAccepted(DateTime? acceptedAt, int? version)
+        => acceptedAt != null && version is { } v && v >= SocialLimits.GuidelinesVersion;
+
     public static bool IsValidSeats(int seats) => SocialLimits.SeatChoices.Contains(seats);
 
     public static int SeatsLeft(int seats, int joined) => Math.Max(0, seats - joined);

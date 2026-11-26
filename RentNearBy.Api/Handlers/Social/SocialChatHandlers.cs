@@ -28,9 +28,11 @@ public static class SocialChatHandlers
         => SocialHttp.ReadAsync(principal, limiter, http, async me => SocialHttp.From(await chat.WithUserAsync(me, userId, ct)));
 
     public static Task<IResult> TripRoom(
-        Guid tripId, ClaimsPrincipal principal, SocialChatService chat, IRateLimitService limiter, HttpContext http, CancellationToken ct)
+        Guid tripId, ClaimsPrincipal principal, SocialChatService chat, ApplicationDbContext db, IRateLimitService limiter, HttpContext http,
+        CancellationToken ct)
         => SocialHttp.ReadAsync(principal, limiter, http, async me =>
-            await chat.TripRoomAsync(me, tripId, ct) is { } room ? OkResponse(room) : SocialHttp.Error(SocialErrorTypes.RoomNotFound));
+            !await SocialSql.GuidelinesAcceptedAsync(db, me, ct) ? SocialHttp.Error(SocialErrorTypes.GuidelinesNotAccepted)
+            : await chat.TripRoomAsync(me, tripId, ct) is { } room ? OkResponse(room) : SocialHttp.Error(SocialErrorTypes.RoomNotFound));
 
     public static Task<IResult> Room(
         Guid roomId, ClaimsPrincipal principal, SocialChatService chat, IRateLimitService limiter, HttpContext http, CancellationToken ct)
@@ -45,6 +47,8 @@ public static class SocialChatHandlers
         if (!validation.IsValid) return SocialHttp.Invalid(validation);
         if (!BuddyHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         if (await SocialSql.GuardAsync(db, me, true, ct) is { } fail) return SocialHttp.Error(fail.Type, fail.Data);
+        // Spec 25: refused before the new-chat permit is taken.
+        if (!await SocialSql.GuidelinesAcceptedAsync(db, me, ct)) return SocialHttp.Error(SocialErrorTypes.GuidelinesNotAccepted);
         var lease = new RateLimitPermits(limiter);
         if (await BuddyHttp.TakeAsync(lease, http, SocialRateLimits.ChatNew(me)) is { } denied) return denied;
         RentNearBy.Core.Models.Buddy.BuddyResult<StartedChatDto> result;
@@ -61,7 +65,8 @@ public static class SocialChatHandlers
         // start gives it back like every other social write (BuddyHttp.ActionLimitAsync).
         var giveBack = result.Ok
             ? result.Value!.IntoExistingRoom
-            : SocialErrorTypes.StatusOf(result.ErrorType!) is not (401 or 403 or 404);
+            : result.ErrorType == SocialErrorTypes.GuidelinesNotAccepted
+              || SocialErrorTypes.StatusOf(result.ErrorType!) is not (401 or 403 or 404);
         if (giveBack) await lease.ReleaseAllAsync();
         return SocialHttp.From(result);
     }
@@ -77,6 +82,9 @@ public static class SocialChatHandlers
     {
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return SocialHttp.Invalid(validation);
+        // Spec 25: refused before the per-sender send permit is taken.
+        if (BuddyHttp.TryCaller(principal, out var caller) && !await SocialSql.GuidelinesAcceptedAsync(db, caller, ct))
+            return SocialHttp.Error(SocialErrorTypes.GuidelinesNotAccepted);
         return await SocialHttp.WriteAsync(principal, db, limiter, http, SocialRateLimits.ChatSend(ProfileHandlers.BuddyCaller(principal)), false,
             async me => SocialHttp.From(await chat.SendAsync(me, roomId, request.ClientMessageId, request.Text, ct)), ct);
     }

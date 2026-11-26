@@ -7,14 +7,17 @@ namespace RentNearBy.Tests.Support.Social;
 // Seed builders for the social integration tests (plain context).
 public static class SocialSeed
 {
-    public static async Task ProfileAsync(ApplicationDbContext db, Guid userId, string gender = SocialGenders.Male, bool isPrivate = false)
+    public static async Task ProfileAsync(ApplicationDbContext db, Guid userId, string gender = SocialGenders.Male, bool isPrivate = false,
+        bool guidelines = true, string messagePolicy = MessagePolicies.Everyone, bool notifyMessages = true, bool notifyFollows = true,
+        bool notifyFollowedTrips = true)
     {
         var now = DateTime.UtcNow;
         db.Set<UserProfile>().Add(new UserProfile
         {
             UserId = userId, Gender = gender, BirthMonth = 5, BirthYear = 1995, About = "Weekend trekker.",
             Interests = ["Treks", "Food", "Culture"], Skills = ["Driver"], Places = ["Manali"], IsPrivate = isPrivate,
-            MessagePolicy = MessagePolicies.Everyone, NotifyMessages = true, NotifyFollows = true, NotifyFollowedTrips = true,
+            MessagePolicy = messagePolicy, NotifyMessages = notifyMessages, NotifyFollows = notifyFollows, NotifyFollowedTrips = notifyFollowedTrips,
+            GuidelinesAcceptedAt = guidelines ? now : null, GuidelinesVersion = guidelines ? SocialLimits.GuidelinesVersion : 0,
             CompletedAt = now, UpdatedAt = now,
         });
         await db.SaveChangesAsync();

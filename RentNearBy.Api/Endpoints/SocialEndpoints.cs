@@ -12,6 +12,7 @@ public static class SocialEndpoints
         group.MapPut("/me/onboarding", ProfileHandlers.Onboard).RequireAuthorization();
         group.MapPut("/me/profile", ProfileHandlers.UpdateProfile).SeekerOnly();
         group.MapPut("/me/privacy", ProfileHandlers.UpdatePrivacy).SeekerOnly();
+        group.MapPost("/me/guidelines", ProfileHandlers.AcceptGuidelines).SeekerOnly();
         group.MapGet("/travellers/{userId:guid}", ProfileHandlers.GetTraveller).SeekerOnly();
 
         group.MapPut("/travellers/{userId:guid}/follow", FollowHandlers.Follow).SeekerOnly();

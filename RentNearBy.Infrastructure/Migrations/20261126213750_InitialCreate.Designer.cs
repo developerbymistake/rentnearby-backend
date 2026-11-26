@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261126204527_InitialCreate")]
+    [Migration("20261126213750_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -3973,6 +3973,14 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(6)
                         .HasColumnType("character varying(6)");
+
+                    b.Property<DateTime?>("GuidelinesAcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("GuidelinesVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("HomeCityName")
                         .HasMaxLength(80)

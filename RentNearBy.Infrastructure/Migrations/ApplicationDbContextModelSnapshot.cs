@@ -3971,6 +3971,14 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(6)
                         .HasColumnType("character varying(6)");
 
+                    b.Property<DateTime?>("GuidelinesAcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("GuidelinesVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("HomeCityName")
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");

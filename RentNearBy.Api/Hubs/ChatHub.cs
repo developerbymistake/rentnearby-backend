@@ -68,7 +68,8 @@ public class ChatHub(HubConnectionRegistry registry) : Hub
             throw;
         }
         if (result.Ok) return new DmSendResultDto { Ok = true, Message = result.Value };
-        if (SocialErrorTypes.StatusOf(result.ErrorType!) is not (401 or 403 or 404)) await lease.ReleaseAllAsync();
+        if (result.ErrorType == SocialErrorTypes.GuidelinesNotAccepted
+            || SocialErrorTypes.StatusOf(result.ErrorType!) is not (401 or 403 or 404)) await lease.ReleaseAllAsync();
         return Fail(result.ErrorType!, result.ErrorData);
     }
 

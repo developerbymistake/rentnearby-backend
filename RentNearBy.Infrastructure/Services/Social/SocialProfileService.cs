@@ -89,7 +89,7 @@ public sealed class SocialProfileService(
                u."CompletedTripsCount", p."UserId" IS NOT NULL AS "HasProfile",
                p."Gender", p."BirthMonth", p."BirthYear", p."About", p."Interests", p."Skills", p."Places", p."HomeCityName", p."HomeStateName",
                p."IsPrivate", p."MessagePolicy", p."NotifyMessages", p."NotifyFollows", p."NotifyFollowedTrips",
-               p."FollowerCount", p."FollowingCount", p."NameChangedAt",
+               p."FollowerCount", p."FollowingCount", p."NameChangedAt", p."GuidelinesAcceptedAt", p."GuidelinesVersion",
                (SELECT count(*) FROM "Buddies" b JOIN "Users" bu ON bu."Id" = b."BuddyUserId" AND {ActiveSeeker("bu")} WHERE b."UserId" = @me)::int AS "Buddies",
                (SELECT count(*) FROM "UserBlocks" ub WHERE ub."BlockerId" = @me)::int AS "Blocked"
         FROM "Users" u LEFT JOIN "UserProfiles" p ON p."UserId" = u."Id"
@@ -117,6 +117,7 @@ public sealed class SocialProfileService(
         var (limits, usage) = await LimitsAndUsageAsync(me, ct);
         var dto = new SocialMeDto
         {
+            GuidelinesAccepted = row is { HasProfile: true } && SocialRules.GuidelinesAccepted(row.GuidelinesAcceptedAt, row.GuidelinesVersion),
             Limits = limits,
             Counts = new SocialMeCountsDto
             {
@@ -299,6 +300,20 @@ public sealed class SocialProfileService(
         SELECT "FollowerId" AS "Value" FROM a
         """;
 
+    // Spec 25: stores the acceptance of the current guidelines version; idempotent (a second call keeps the first time).
+    private static readonly string AcceptGuidelinesSql = $"""
+        UPDATE "UserProfiles" SET "GuidelinesAcceptedAt" = CASE WHEN "GuidelinesVersion" >= {SocialLimits.GuidelinesVersion} AND "GuidelinesAcceptedAt" IS NOT NULL THEN "GuidelinesAcceptedAt" ELSE now() END,
+               "GuidelinesVersion" = GREATEST("GuidelinesVersion", {SocialLimits.GuidelinesVersion})
+        WHERE "UserId" = @me
+        RETURNING "UserId" AS "Value"
+        """;
+
+    public async Task<BuddyResult<bool>> AcceptGuidelinesAsync(Guid me, CancellationToken ct = default)
+    {
+        var rows = await db.Database.SqlQueryRaw<Guid>(AcceptGuidelinesSql, Uuid("me", me)).ToListAsync(ct);
+        return rows.Count == 0 ? BuddyResult<bool>.Fail(SocialErrorTypes.ProfileRequired) : BuddyResult<bool>.Success(true);
+    }
+
     public async Task<BuddyResult<MyProfileDto>> UpdatePrivacyAsync(Guid me, UpdatePrivacyRequest r, CancellationToken ct = default)
     {
         if (r.MessagePolicy != null && !MessagePolicies.All.Contains(r.MessagePolicy))
@@ -461,6 +476,8 @@ public sealed class SocialProfileService(
         public int? FollowerCount { get; set; }
         public int? FollowingCount { get; set; }
         public DateTime? NameChangedAt { get; set; }
+        public DateTime? GuidelinesAcceptedAt { get; set; }
+        public int? GuidelinesVersion { get; set; }
         public int Buddies { get; set; }
         public int Blocked { get; set; }
     }

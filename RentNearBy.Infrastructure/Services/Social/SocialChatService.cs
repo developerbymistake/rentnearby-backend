@@ -247,6 +247,7 @@ public sealed class SocialChatService(
     {
         var clean = CleanText(text);
         if (clean is null) return BuddyResult<StartedChatDto>.Fail(SocialErrorTypes.TextTooLong);
+        if (!await GuidelinesAcceptedAsync(db, me, ct)) return BuddyResult<StartedChatDto>.Fail(SocialErrorTypes.GuidelinesNotAccepted);
         var p = await PairAsync(me, him, ct);
         if (p is null) return BuddyResult<StartedChatDto>.Fail(SocialErrorTypes.PersonNotFound);
         if (IDeclined(p, me)) return BuddyResult<StartedChatDto>.Fail(SocialErrorTypes.CannotMessage);
@@ -300,7 +301,7 @@ public sealed class SocialChatService(
 
     private async Task<BuddyResult<StartedChatDto>> SendAsStartAsync(Guid me, Guid roomId, Guid clientMessageId, string text, CancellationToken ct)
     {
-        var sent = await SendAsync(me, roomId, clientMessageId, text, ct);
+        var sent = await SendCoreAsync(me, roomId, clientMessageId, text, ct);
         if (!sent.Ok) return BuddyResult<StartedChatDto>.Fail(sent.ErrorType!, sent.ErrorData);
         var room = await RoomAsync(me, roomId, ct);
         return room is null
@@ -368,7 +369,16 @@ public sealed class SocialChatService(
         SELECT p."UserId" AS "Value" FROM "UserProfiles" p WHERE p."UserId" = ANY(@users) AND p."NotifyMessages"
         """;
 
+    // Spec 25: every send (first message, a receiver's reply, a trip group line) needs the accepted guidelines, checked before
+    // any limit is charged and before anything is stored.
     public async Task<BuddyResult<ChatMessageDto>> SendAsync(Guid me, Guid roomId, Guid clientMessageId, string text, CancellationToken ct = default)
+    {
+        if (CleanText(text) is null) return BuddyResult<ChatMessageDto>.Fail(SocialErrorTypes.TextTooLong);
+        if (!await GuidelinesAcceptedAsync(db, me, ct)) return BuddyResult<ChatMessageDto>.Fail(SocialErrorTypes.GuidelinesNotAccepted);
+        return await SendCoreAsync(me, roomId, clientMessageId, text, ct);
+    }
+
+    private async Task<BuddyResult<ChatMessageDto>> SendCoreAsync(Guid me, Guid roomId, Guid clientMessageId, string text, CancellationToken ct)
     {
         var clean = CleanText(text);
         if (clean is null) return BuddyResult<ChatMessageDto>.Fail(SocialErrorTypes.TextTooLong);

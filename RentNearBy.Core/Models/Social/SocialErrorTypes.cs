@@ -42,6 +42,8 @@ public static class SocialErrorTypes
     // PLAN_STATES_SOCIAL 3: a write to a trip kept inactive after Plus ended (409, data {limit}).
     public const string TripInactiveByPlan = "TripInactiveByPlan";
     public const string SeekerOnly = "SeekerOnly";
+    // Spec 25: a chat send or a trip group entry before the community guidelines were accepted (403).
+    public const string GuidelinesNotAccepted = "GuidelinesNotAccepted";
     // Spec 23.9: a second name change inside 14 days (409, data {nextAllowedAt}).
     public const string NameChangeTooSoon = "NameChangeTooSoon";
 
@@ -85,6 +87,7 @@ public static class SocialErrorTypes
         [NotAllowed] = (409, "This cannot be done here."),
         [TripInactiveByPlan] = (409, "This trip is inactive on the Free plan. Buy Plus to use it again."),
         [SeekerOnly] = (403, AuthPolicies.SeekerOnlyMessage),
+        [GuidelinesNotAccepted] = (403, "Read and accept the chat guidelines first."),
         [NameChangeTooSoon] = (409, "You can change your name once every 14 days."),
     };
 

@@ -1734,7 +1734,9 @@ namespace RentNearBy.Infrastructure.Migrations
                     FollowingCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    NameChangedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                    NameChangedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    GuidelinesAcceptedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    GuidelinesVersion = table.Column<int>(type: "integer", nullable: false, defaultValue: 0)
                 },
                 constraints: table =>
                 {

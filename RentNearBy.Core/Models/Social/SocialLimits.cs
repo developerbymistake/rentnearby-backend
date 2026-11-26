@@ -53,6 +53,8 @@ public static class SocialLimits
     // Spec 23.9: a user may change his name once every 14 days (like Instagram).
     public const int NameChangeDays = 14;
     public const int RoomFacesMax = 3;
+    // Spec 25: bump to show the community guidelines sheet to everyone again.
+    public const int GuidelinesVersion = 1;
 
     public static readonly TimeSpan MessageLife = TimeSpan.FromHours(24);
     public static readonly TimeSpan RequestFirstMessageLife = TimeSpan.FromDays(7);

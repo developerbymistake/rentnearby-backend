@@ -36,6 +36,7 @@ public static class SocialFeatureModel
             e.Property(x => x.NotifyMessages).HasDefaultValue(true).HasSentinel(true);
             e.Property(x => x.NotifyFollows).HasDefaultValue(true).HasSentinel(true);
             e.Property(x => x.NotifyFollowedTrips).HasDefaultValue(true).HasSentinel(true);
+            e.Property(x => x.GuidelinesVersion).HasDefaultValue(0);
             e.Property(x => x.FollowerCount).HasDefaultValue(0);
             e.Property(x => x.FollowingCount).HasDefaultValue(0);
             e.Property(x => x.CompletedAt).HasDefaultValueSql("now()");

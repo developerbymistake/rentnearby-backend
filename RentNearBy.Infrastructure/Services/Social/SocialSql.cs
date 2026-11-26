@@ -68,6 +68,15 @@ public static class SocialSql
     public static string InBuddies(string owner, string x) =>
         $"""EXISTS (SELECT 1 FROM "Buddies" bb WHERE bb."UserId" = {owner} AND bb."BuddyUserId" = {x})""";
 
+    // Spec 25: the caller accepted the CURRENT community guidelines (no profile = not accepted).
+    private static readonly string GuidelinesSql = $"""
+        SELECT EXISTS (SELECT 1 FROM "UserProfiles" p WHERE p."UserId" = @me AND p."GuidelinesAcceptedAt" IS NOT NULL
+                       AND p."GuidelinesVersion" >= {SocialLimits.GuidelinesVersion}) AS "Value"
+        """;
+
+    public static async Task<bool> GuidelinesAcceptedAsync(ApplicationDbContext db, Guid me, CancellationToken ct = default)
+        => (await db.Database.SqlQueryRaw<bool>(GuidelinesSql, Uuid("me", me)).ToListAsync(ct)).FirstOrDefault();
+
     // Write guard of every social write (403 ProfileRequired / SocialOnHold).
     private const string GuardSql = """
         SELECT EXISTS (SELECT 1 FROM "UserProfiles" p WHERE p."UserId" = @me) AS "HasProfile",

@@ -48,6 +48,16 @@ public static class ProfileHandlers
             async me => SocialHttp.From(await profiles.UpdatePrivacyAsync(me, request, ct)), ct);
     }
 
+    // Spec 25: accept the community guidelines (idempotent).
+    public static Task<IResult> AcceptGuidelines(
+        ClaimsPrincipal principal, SocialProfileService profiles, ApplicationDbContext db, IRateLimitService limiter, HttpContext http, CancellationToken ct)
+        => SocialHttp.WriteAsync(principal, db, limiter, http, SocialRateLimits.Write(BuddyCaller(principal)), false,
+            async me =>
+            {
+                var result = await profiles.AcceptGuidelinesAsync(me, ct);
+                return result.Ok ? OkResponse(new { guidelinesAccepted = true }) : SocialHttp.Error(result.ErrorType!, result.ErrorData);
+            }, ct);
+
     public static Task<IResult> GetTraveller(
         Guid userId, ClaimsPrincipal principal, SocialProfileService profiles, IRateLimitService limiter, HttpContext http, CancellationToken ct)
         => SocialHttp.ReadAsync(principal, limiter, http, async me =>
