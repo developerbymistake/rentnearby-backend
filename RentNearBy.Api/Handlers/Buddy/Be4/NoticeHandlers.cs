@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using RentNearBy.Api.Extensions;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Infrastructure.Services.Buddy.Be4;
@@ -17,7 +18,7 @@ public static class NoticeHandlers
         if (await BuddyHttp.ReadLimitAsync(limiter, http, BuddyRateLimitKeys.NoticeRead(userId)) is { } limited) return limited;
         if (!BuddyHttp.TryKeyset(cursor, out var after)) return BuddyHttp.BadCursor();
         var take = BuddyHttp.ClampLimit(limit, BuddyLimits.NoticesPageDefault, BuddyLimits.NoticesPageMax);
-        return OkResponse(await reader.PageAsync(userId, after, take, ct));
+        return OkResponse(await reader.PageAsync(userId, SeekerGate.IsSeeker(principal), after, take, ct));
     }
 
     // Always the same answer: no existence oracle.

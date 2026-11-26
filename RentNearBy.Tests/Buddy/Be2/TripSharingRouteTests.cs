@@ -40,6 +40,7 @@ public class TripSharingRouteTests
             $"{e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.Single()} {e.RoutePattern.RawText}").ToList();
         Assert.Equal(expected.OrderBy(x => x), routes.OrderBy(x => x));
         Assert.All(endpoints, e => Assert.NotEmpty(e.Metadata.GetOrderedMetadata<IAuthorizeData>()));
+        Assert.All(endpoints, e => Assert.Equal([AuthPolicies.SeekerOnly], e.Metadata.GetOrderedMetadata<IAuthorizeData>().Select(a => a.Policy).ToList()));
         Assert.All(routes, r => Assert.DoesNotContain("upi", r, StringComparison.OrdinalIgnoreCase));
         Assert.All(routes, r => Assert.DoesNotContain("link", r, StringComparison.OrdinalIgnoreCase));
     }

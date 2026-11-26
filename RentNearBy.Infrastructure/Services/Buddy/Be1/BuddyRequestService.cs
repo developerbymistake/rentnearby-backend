@@ -5,6 +5,7 @@ using Npgsql;
 using NpgsqlTypes;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
+using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
@@ -69,7 +70,7 @@ public sealed record SendOutcome(SendKind Kind, BuddyRequestCreatedDto? Request,
 // B2, B5, B6, B7. Lock order: sender -> pair -> rows (contract 5.1). Every unit retried once on 40P01/40001.
 public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter notices, IBuddyLiveHints hints, ILogger<BuddyRequestService> logger)
 {
-    private static readonly string SendStateSql = $"""
+    internal static readonly string SendStateSql = $"""
         SELECT COALESCE(me."Name", '') AS "MyName", me."Username" AS "MyUsername",
                COALESCE(me."BuddyRequestsHeldUntil" > now(), FALSE) AS "OnHold",
                t."Id" AS "TargetId", t."Name" AS "TargetName", t."Username" AS "TargetUsername", t."ProfilePhotoUrl" AS "TargetPhotoUrl",
@@ -83,7 +84,7 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
                r."Id" AS "ReqId", r."Status" AS "ReqStatus", r."CreatedAt" AS "ReqCreatedAt", r."ExpiresAt" AS "ReqExpiresAt", r."BlockedSender" AS "ReqBlockedSender",
                p."Id" AS "TheirPendingId", now() AS "Now"
         FROM "Users" me
-        LEFT JOIN "Users" t ON t."Id" = @to AND t."IsActive"
+        LEFT JOIN "Users" t ON t."Id" = @to AND t."IsActive" AND t."RoleId" = {TravellerOnly.SeekerRoleSql}
         LEFT JOIN "BuddyRequests" c ON c."FromUserId" = @me AND c."ClientRequestId" = @client
         LEFT JOIN LATERAL (
           SELECT x."Id", x."Status", x."CreatedAt", x."ExpiresAt", x."BlockedSender" FROM "BuddyRequests" x
@@ -116,7 +117,7 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
         SELECT "Id", "FromUserId", "ToUserId", "Status" FROM "BuddyRequests" WHERE "Id" = @id AND (@asSender AND "FromUserId" = @me OR NOT @asSender AND "ToUserId" = @me)
         """;
 
-    private const string AcceptStateSql = """
+    internal const string AcceptStateSql = $"""
         SELECT r."Status", r."ExpiresAt" > now() AS "Live",
                EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = r."FromUserId") AS "IsBuddy",
                (SELECT count(*) FROM "Buddies" b WHERE b."UserId" = @me)::int AS "MyBuddies",
@@ -125,7 +126,7 @@ public sealed class BuddyRequestService(ApplicationDbContext db, INoticeWriter n
                s."ProfilePhotoUrl" AS "SenderPhotoUrl"
         FROM "BuddyRequests" r
         JOIN "Users" me ON me."Id" = @me
-        LEFT JOIN "Users" s ON s."Id" = r."FromUserId"
+        LEFT JOIN "Users" s ON s."Id" = r."FromUserId" AND s."RoleId" = {TravellerOnly.SeekerRoleSql}
         WHERE r."Id" = @id
         """;
 

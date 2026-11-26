@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Buddy;
+using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
@@ -9,7 +10,7 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be1;
 // B1: one statement for every answer (doc 2.0.6 same-response rule).
 public sealed class BuddyFindService(ApplicationDbContext db)
 {
-    internal const string FindSql = """
+    internal const string FindSql = $"""
         SELECT u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username", u."ProfilePhotoUrl" AS "PhotoUrl",
                EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = u."Id") AS "IsBuddy",
                r."Id" AS "ReqId", r."Status" AS "ReqStatus", r."CreatedAt" AS "ReqCreatedAt", r."ExpiresAt" AS "ReqExpiresAt",
@@ -26,7 +27,7 @@ public sealed class BuddyFindService(ApplicationDbContext db)
           WHERE y."PairLowId" = LEAST(@me, u."Id") AND y."PairHighId" = GREATEST(@me, u."Id") AND y."FromUserId" = u."Id"
             AND y."Status" = 'Pending' AND y."ExpiresAt" > now()
           LIMIT 1) p ON TRUE
-        WHERE u."Username" = @username AND u."IsActive"
+        WHERE u."Username" = @username AND u."IsActive" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}
           AND NOT EXISTS (SELECT 1 FROM "UserBlocks" ub
                           WHERE (ub."BlockerId" = @me AND ub."BlockedId" = u."Id") OR (ub."BlockerId" = u."Id" AND ub."BlockedId" = @me))
         """;

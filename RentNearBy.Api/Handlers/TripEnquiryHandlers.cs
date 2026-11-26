@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Filters;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
@@ -51,14 +52,23 @@ public static class TripEnquiryAuth
         return owns ? null : forbidden;
     }
 
-    public static IResult? RequireParty(TripEnquiry? e, Guid callerId, out string side)
+    // A traveller side caller whose account is no longer a seeker is refused (SeekerOnly 403, only about his own role).
+    public static IResult? RequireParty(TripEnquiry? e, Guid callerId, ClaimsPrincipal principal, out string side)
     {
         side = string.Empty;
         if (e == null) return NotFound();
-        if (e.TravellerUserId == callerId) { side = Traveller; return null; }
+        if (e.TravellerUserId == callerId)
+        {
+            side = Traveller;
+            return SeekerGate.IsSeeker(principal) ? null : SeekerGate.Forbidden();
+        }
         if (e.OwnerUserId == callerId) { side = Owner; return null; }
         return ForbiddenResponse("Forbidden");
     }
+
+    // Chat list: the guest's own enquiry card is shown only while his account is a seeker; the host side always sees it.
+    public static bool VisibleTo(TripEnquiry e, Guid callerId, ClaimsPrincipal principal)
+        => e.TravellerUserId != callerId || SeekerGate.IsSeeker(principal);
 }
 
 public static class TripEnquiryHandlers
@@ -1733,7 +1743,7 @@ public static class TripEnquiryHandlers
         if (!validation.IsValid) return Invalid(validation);
 
         var e = await unitOfWork.TripEnquiries.GetByIdTrackedAsync(id);
-        if (TripEnquiryAuth.RequireParty(e, callerId, out var side) is { } denied) return denied;
+        if (TripEnquiryAuth.RequireParty(e, callerId, principal, out var side) is { } denied) return denied;
         var byOwner = side == TripEnquiryAuth.Owner;
         if (byOwner)
         {
@@ -2429,7 +2439,7 @@ public static class TripEnquiryHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var callerId)) return UnauthorizedResponse();
 
         var e = await unitOfWork.TripEnquiries.GetByIdAsync(id);
-        if (TripEnquiryAuth.RequireParty(e, callerId, out _) is { } denied) return denied;
+        if (TripEnquiryAuth.RequireParty(e, callerId, principal, out _) is { } denied) return denied;
         return OkResponse(await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e!, callerId, DateTime.UtcNow, db));
     }
 
@@ -2445,7 +2455,7 @@ public static class TripEnquiryHandlers
         if (!isParty) return TripEnquiryAuth.NotFound();
 
         var e = await unitOfWork.TripEnquiries.GetLatestByConversationAsync(conversationId);
-        if (TripEnquiryAuth.RequireParty(e, callerId, out _) != null) return TripEnquiryAuth.NotFound();
+        if (TripEnquiryAuth.RequireParty(e, callerId, principal, out _) != null) return TripEnquiryAuth.NotFound();
         return OkResponse(await TripEnquiryDtoBuilder.BuildOneAsync(unitOfWork, e!, callerId, DateTime.UtcNow, db));
     }
 

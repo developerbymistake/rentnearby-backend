@@ -1,3 +1,4 @@
+using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Handlers.Buddy.Be4;
 
 namespace RentNearBy.Api.Endpoints;
@@ -7,11 +8,11 @@ public static class TripPaymentEndpoints
 {
     public static RouteGroupBuilder MapTripPaymentEndpoints(this RouteGroupBuilder group)
     {
-        group.MapPost("/{tripId:guid}/payments/said-paid", TripPaymentHandlers.SaidPaid).RequireAuthorization();
-        group.MapPost("/{tripId:guid}/payments/remind", TripPaymentHandlers.Remind).RequireAuthorization();
-        group.MapPost("/{tripId:guid}/payments/{paymentId:guid}/received", TripPaymentHandlers.Received).RequireAuthorization();
-        group.MapPost("/{tripId:guid}/payments/{paymentId:guid}/withdraw", TripPaymentHandlers.Withdraw).RequireAuthorization();
-        group.MapPost("/{tripId:guid}/payments/{paymentId:guid}/not-received", TripPaymentHandlers.NotReceived).RequireAuthorization();
+        group.MapPost("/{tripId:guid}/payments/said-paid", TripPaymentHandlers.SaidPaid).SeekerOnly();
+        group.MapPost("/{tripId:guid}/payments/remind", TripPaymentHandlers.Remind).SeekerOnly();
+        group.MapPost("/{tripId:guid}/payments/{paymentId:guid}/received", TripPaymentHandlers.Received).SeekerOnly();
+        group.MapPost("/{tripId:guid}/payments/{paymentId:guid}/withdraw", TripPaymentHandlers.Withdraw).SeekerOnly();
+        group.MapPost("/{tripId:guid}/payments/{paymentId:guid}/not-received", TripPaymentHandlers.NotReceived).SeekerOnly();
         return group;
     }
 }

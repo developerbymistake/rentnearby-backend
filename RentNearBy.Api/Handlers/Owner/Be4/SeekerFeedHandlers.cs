@@ -6,7 +6,7 @@ using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers.Owner.Be4;
 
-// H2 GET /api/v1/home/seeker-feed (any signed-in user): trip card, status line and plan slots in one call.
+// H2 GET /api/v1/home/seeker-feed (SeekerOnly): trip card, status line and plan slots in one call.
 public static class SeekerFeedHandlers
 {
     public static async Task<IResult> Get(

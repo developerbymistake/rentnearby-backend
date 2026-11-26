@@ -1,38 +1,41 @@
+using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Filters;
 using RentNearBy.Api.Handlers;
+using RentNearBy.Core.Models;
 
 namespace RentNearBy.Api.Endpoints;
 
 // Trip bookings under /api/v1/trips (the group already carries TripPlannerGateFilter). Not tab-gated:
-// enquiry create checks the Stays/Taxi tab itself; owner and driver actions check ownership, not the policy.
+// enquiry create checks the Stays/Taxi tab itself; owner and driver actions check ownership. Traveller routes are SeekerOnly;
+// get one, by-conversation and cancel serve both sides and refuse a non-seeker traveller side in TripEnquiryAuth.
 public static class TripExecutionEndpoints
 {
     public static RouteGroupBuilder MapTripExecutionEndpoints(this RouteGroupBuilder group)
     {
-        group.MapPost("/{tripId:guid}/enquiries", TripEnquiryHandlers.Create).Gated();
+        group.MapPost("/{tripId:guid}/enquiries", TripEnquiryHandlers.Create).Gated(AuthPolicies.SeekerOnly);
 
         // Guided-flow shortlist (server-owned, max 3 per step) and the phone-booking close.
-        group.MapGet("/{tripId:guid}/shortlist", TripShortlistHandlers.Get).RequireAuthorization();
-        group.MapPut("/{tripId:guid}/steps/{stepKey}/shortlist/{listingId:guid}", TripShortlistHandlers.Add).RequireAuthorization();
-        group.MapDelete("/{tripId:guid}/steps/{stepKey}/shortlist/{listingId:guid}", TripShortlistHandlers.Remove).RequireAuthorization();
-        group.MapPost("/{tripId:guid}/steps/{stepKey}/shortlist/close", TripShortlistHandlers.Close).RequireAuthorization();
-        group.MapPost("/{tripId:guid}/steps/{stepKey}/mark-booked", TripShortlistHandlers.MarkBooked).RequireAuthorization();
+        group.MapGet("/{tripId:guid}/shortlist", TripShortlistHandlers.Get).SeekerOnly();
+        group.MapPut("/{tripId:guid}/steps/{stepKey}/shortlist/{listingId:guid}", TripShortlistHandlers.Add).SeekerOnly();
+        group.MapDelete("/{tripId:guid}/steps/{stepKey}/shortlist/{listingId:guid}", TripShortlistHandlers.Remove).SeekerOnly();
+        group.MapPost("/{tripId:guid}/steps/{stepKey}/shortlist/close", TripShortlistHandlers.Close).SeekerOnly();
+        group.MapPost("/{tripId:guid}/steps/{stepKey}/mark-booked", TripShortlistHandlers.MarkBooked).SeekerOnly();
 
         group.MapGet("/enquiries/owner", TripOwnerHandlers.GetMine).Gated("CanListStays").WithMetadata(new SkipTripPlannerGateAttribute());
         // Get one, withdraw and cancel serve journey leads too (no planner gate, party checked in the handlers).
         group.MapGet("/enquiries/by-conversation/{conversationId:guid}", TripEnquiryHandlers.GetByConversation).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapGet("/enquiries/{id:guid}", TripEnquiryHandlers.GetOne).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
-        group.MapPost("/enquiries/{id:guid}/withdraw", TripEnquiryHandlers.Withdraw).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
-        group.MapPost("/enquiries/{id:guid}/restore", TripEnquiryHandlers.Restore).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/enquiries/{id:guid}/withdraw", TripEnquiryHandlers.Withdraw).Gated(AuthPolicies.SeekerOnly).WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapPost("/enquiries/{id:guid}/restore", TripEnquiryHandlers.Restore).Gated(AuthPolicies.SeekerOnly).WithMetadata(new SkipTripPlannerGateAttribute());
         // Traveller My enquiries and similar stays (stay rows only).
-        group.MapGet("/enquiries/mine", TripMyEnquiryHandlers.GetMine).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
-        group.MapGet("/enquiries/mine/count", TripMyEnquiryHandlers.GetMineCount).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
-        group.MapGet("/{tripId:guid}/steps/{stepKey}/similar-stays", TripMyEnquiryHandlers.GetSimilarStays).Gated();
-        group.MapPost("/enquiries/{id:guid}/refresh-context", TripEnquiryHandlers.RefreshContext).Gated();
-        group.MapPost("/enquiries/{id:guid}/lead-update", TripEnquiryHandlers.UpdateLead).Gated();
+        group.MapGet("/enquiries/mine", TripMyEnquiryHandlers.GetMine).Gated(AuthPolicies.SeekerOnly).WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapGet("/enquiries/mine/count", TripMyEnquiryHandlers.GetMineCount).Gated(AuthPolicies.SeekerOnly).WithMetadata(new SkipTripPlannerGateAttribute());
+        group.MapGet("/{tripId:guid}/steps/{stepKey}/similar-stays", TripMyEnquiryHandlers.GetSimilarStays).Gated(AuthPolicies.SeekerOnly);
+        group.MapPost("/enquiries/{id:guid}/refresh-context", TripEnquiryHandlers.RefreshContext).Gated(AuthPolicies.SeekerOnly);
+        group.MapPost("/enquiries/{id:guid}/lead-update", TripEnquiryHandlers.UpdateLead).Gated(AuthPolicies.SeekerOnly);
         group.MapPost("/enquiries/{id:guid}/cancel", TripEnquiryHandlers.Cancel).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
-        group.MapPost("/enquiries/{id:guid}/offers/{offerId:guid}/accept", TripEnquiryHandlers.AcceptOffer).Gated();
-        group.MapPost("/enquiries/{id:guid}/offers/{offerId:guid}/decline", TripEnquiryHandlers.DeclineOffer).Gated();
+        group.MapPost("/enquiries/{id:guid}/offers/{offerId:guid}/accept", TripEnquiryHandlers.AcceptOffer).Gated(AuthPolicies.SeekerOnly);
+        group.MapPost("/enquiries/{id:guid}/offers/{offerId:guid}/decline", TripEnquiryHandlers.DeclineOffer).Gated(AuthPolicies.SeekerOnly);
 
         // Host side answers open enquiries whatever the planner flag says; only new asks stay planner-gated.
         group.MapPost("/enquiries/{id:guid}/offers", TripOwnerHandlers.SendOffer).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
@@ -40,20 +43,20 @@ public static class TripExecutionEndpoints
         group.MapPost("/enquiries/{id:guid}/share-details", TripOwnerHandlers.ShareDetails).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
 
         // Counter and change request: guest side. Revised offer and accept change: host side (checked in the handlers).
-        group.MapPost("/enquiries/{id:guid}/counter", TripEnquiryHandlers.Counter).Gated();
-        group.MapPost("/enquiries/{id:guid}/change-request", TripEnquiryHandlers.ChangeRequest).Gated();
+        group.MapPost("/enquiries/{id:guid}/counter", TripEnquiryHandlers.Counter).Gated(AuthPolicies.SeekerOnly);
+        group.MapPost("/enquiries/{id:guid}/change-request", TripEnquiryHandlers.ChangeRequest).Gated(AuthPolicies.SeekerOnly);
         group.MapPost("/enquiries/{id:guid}/revised-offer", TripOwnerHandlers.RevisedOffer).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapPost("/enquiries/{id:guid}/change-request/{offerId:guid}/accept", TripOwnerHandlers.AcceptChange).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
 
         // Trip lifecycle. complete / mute / summary have no booking side effect, so they skip the execution gate.
-        group.MapPost("/{tripId:guid}/problems", TripLifecycleHandlers.Problem).Gated();
-        group.MapPost("/{tripId:guid}/complete", TripLifecycleHandlers.Complete).RequireAuthorization();
-        group.MapPut("/{tripId:guid}/mute", TripLifecycleHandlers.Mute).RequireAuthorization();
-        group.MapGet("/{tripId:guid}/summary", TripLifecycleHandlers.Summary).RequireAuthorization();
+        group.MapPost("/{tripId:guid}/problems", TripLifecycleHandlers.Problem).Gated(AuthPolicies.SeekerOnly);
+        group.MapPost("/{tripId:guid}/complete", TripLifecycleHandlers.Complete).SeekerOnly();
+        group.MapPut("/{tripId:guid}/mute", TripLifecycleHandlers.Mute).SeekerOnly();
+        group.MapGet("/{tripId:guid}/summary", TripLifecycleHandlers.Summary).SeekerOnly();
         group.MapPost("/enquiries/{id:guid}/report-traveller", TripLifecycleHandlers.ReportTraveller).Gated().WithMetadata(new SkipTripPlannerGateAttribute());
 
         // Taxi: "I booked" by the traveller; the driver's Trip leads list and actions.
-        group.MapPost("/{tripId:guid}/taxi-bookings", TripEnquiryHandlers.CreateTaxiBooking).Gated();
+        group.MapPost("/{tripId:guid}/taxi-bookings", TripEnquiryHandlers.CreateTaxiBooking).Gated(AuthPolicies.SeekerOnly);
         // Journey leads come from /taxis/ways/ask, which has no planner gate: the driver side answers whatever the planner flag says.
         group.MapGet("/leads/driver", TripLeadHandlers.GetMine).Gated("CanListTaxis").WithMetadata(new SkipTripPlannerGateAttribute());
         group.MapPost("/leads/{id:guid}/fare", TripLeadHandlers.Fare).Gated().WithMetadata(new SkipTripPlannerGateAttribute());

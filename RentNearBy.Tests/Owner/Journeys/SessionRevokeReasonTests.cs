@@ -31,7 +31,10 @@ public class SessionRevokeReasonTests
     public void The_reason_is_read_only_after_a_failed_check()
     {
         var src = Src("RentNearBy.Api", "Extensions", "AuthenticationExtensions.cs");
-        Assert.True(src.IndexOf("if (session == null)", StringComparison.Ordinal) < src.IndexOf("GetRevokeReasonAsync", StringComparison.Ordinal));
+        // The session check now reads the live role in the same query (seeker-only contract 2.2); null = not an active session.
+        var check = src.IndexOf("if (roleId == null)", StringComparison.Ordinal);
+        Assert.True(check >= 0);
+        Assert.True(check < src.IndexOf("GetRevokeReasonAsync", StringComparison.Ordinal));
         Assert.Contains("OnChallenge", src);
         Assert.False(SessionRevokeReasons.IsKnown(null));
         Assert.False(SessionRevokeReasons.IsKnown("Other"));

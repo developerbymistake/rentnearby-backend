@@ -77,6 +77,7 @@ public class Be1RouteMapTests
             var e = Assert.Single(endpoints, x => x.Template == template && x.Methods.SequenceEqual([method]));
             Assert.NotEmpty(e.Authorize);
             Assert.Equal(admin, e.Authorize.Any(a => a.Policy == "AdminOnly"));
+            if (!admin) Assert.Equal([AuthPolicies.SeekerOnly], e.Authorize.Select(a => a.Policy).ToList());
         }
         Assert.DoesNotContain(endpoints, e => e.Template.Contains("upi") || e.Template.Contains("link") || e.Template.Contains("share"));
     }

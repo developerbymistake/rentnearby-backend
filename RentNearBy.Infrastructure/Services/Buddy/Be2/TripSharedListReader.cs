@@ -40,13 +40,14 @@ public sealed class TripSharedListReader(ApplicationDbContext db, ITripMoneyCard
         LIMIT @take
         """;
 
-    private static readonly string InvitesSql = $"""
+    internal static readonly string InvitesSql = $"""
         SELECT m."Id" AS "MemberId", m."InviteExpiresAt", t."Title", t."StartDate", t."EndDate", t."DayCount",
                jsonb_build_object('legs', t."PlanJson"->'legs')::text AS "PlanJson", t."CityName", COALESCE(o."Name", '') AS "OwnerName"
         FROM "TripMembers" m
         JOIN "Trips" t ON t."Id" = m."TripId"
         JOIN "Users" o ON o."Id" = t."OwnerUserId"
         WHERE m."UserId" = @me AND m."Status" = 'Invited' AND m."InviteExpiresAt" > now()
+          AND o."RoleId" = {TravellerOnly.SeekerRoleSql}
           AND NOT EXISTS (SELECT 1 FROM "UserBlocks" k
                           WHERE (k."BlockerId" = @me AND k."BlockedId" = t."OwnerUserId")
                              OR (k."BlockerId" = t."OwnerUserId" AND k."BlockedId" = @me))

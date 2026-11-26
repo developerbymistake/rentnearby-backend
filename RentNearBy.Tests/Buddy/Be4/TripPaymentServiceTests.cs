@@ -276,9 +276,9 @@ public class TripPaymentServiceTests(TestDatabase db) : IntegrationTestBase(db)
         {
             var reader = new NoticeReader(c);
             await reader.MarkReadAsync(row.Id, _aman);
-            Assert.Equal(0, await reader.UnreadCountAsync(_aman));
+            Assert.Equal(0, await reader.UnreadCountAsync(_aman, true));
             await new NoticeWriter(c).UpsertAsync([new NoticeUpsert(_aman, NoticeKinds.ExpensesChanged, _trip, _owner)]);
-            Assert.Equal(1, await reader.UnreadCountAsync(_aman));
+            Assert.Equal(1, await reader.UnreadCountAsync(_aman, true));
         }
         row = Assert.Single(await NoticesAsync(_aman));
         Assert.Equal(1, row.Count);
@@ -384,7 +384,7 @@ public class TripPaymentServiceTests(TestDatabase db) : IntegrationTestBase(db)
 
     [IntegrationFact]
     public Task Notices_QueryCount_IsFixed() => QueryAssert.SameCountAsync(Db, SeedNoticesAsync,
-        async ctx => Assert.NotEmpty((await new NoticeReader(ctx).PageAsync(_aman, null, BuddyLimits.NoticesPageDefault)).Items), budget: 2);
+        async ctx => Assert.NotEmpty((await new NoticeReader(ctx).PageAsync(_aman, true, null, BuddyLimits.NoticesPageDefault)).Items), budget: 2);
 
     private Guid _paid;
 

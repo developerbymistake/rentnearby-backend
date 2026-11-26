@@ -8,4 +8,6 @@ public interface ISessionRepository : IRepository<Entities.Session>
     Task<string?> GetRevokeReasonAsync(Guid sessionId);
     Task<int> RevokeSessionAsync(Guid userId, Guid sessionId);
     Task<Entities.Session?> GetActiveSessionAsync(Guid sessionId);
+    // Same predicate as GetActiveSessionAsync; the live role of the session's user, null when the session is not active.
+    Task<Guid?> GetActiveSessionRoleAsync(Guid sessionId);
 }

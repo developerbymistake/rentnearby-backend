@@ -68,8 +68,14 @@ public class TaxiRequestEventsTests
         public override void Abort() { }
     }
 
-    internal static ClaimsPrincipal Caller(Guid? userId)
-        => new(new ClaimsIdentity(userId is { } id ? [new Claim(ClaimTypes.NameIdentifier, id.ToString())] : [], "test"));
+    // The live role claim is set at token validation (RoleClaimSync); the subscription is for a SEEKER caller only.
+    internal static ClaimsPrincipal Caller(Guid? userId, string? role = UserRoles.Seeker)
+    {
+        var claims = new List<Claim>();
+        if (userId is { } id) claims.Add(new Claim(ClaimTypes.NameIdentifier, id.ToString()));
+        if (role != null) claims.Add(new Claim(ClaimTypes.Role, role));
+        return new(new ClaimsIdentity(claims, "test"));
+    }
 
     private static (NotificationHub Hub, GroupManager Groups) Hub(ClaimsPrincipal user)
     {
@@ -157,7 +163,19 @@ public class TaxiRequestEventsTests
         Assert.Empty(anonGroups.Added);
     }
 
-    // Contract section 9 names ownership as the only rule; reads stay open while the master switch is off (section 1).
+    // Seeker-only contract 4.4: an owner-role caller joins nothing and never reads, even with a valid id (a null context proves it).
+    [Theory]
+    [InlineData(UserRoles.TaxiDriver)]
+    [InlineData(UserRoles.StayOwner)]
+    [InlineData(null)]
+    public async Task Hub_subscribe_by_a_non_seeker_joins_nothing_and_never_reads(string? role)
+    {
+        var (hub, groups) = Hub(Caller(Guid.NewGuid(), role));
+        await hub.SubscribeTaxiRequest(RequestId.ToString(), null!);
+        Assert.Empty(groups.Added);
+    }
+
+    // Contract section 9 names ownership as the rule beside the seeker role; reads stay open while the master switch is off (section 1).
     [Fact]
     public void Hub_subscribe_does_not_depend_on_the_master_switch()
     {

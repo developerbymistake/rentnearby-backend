@@ -13,20 +13,20 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be1;
 // B3, B4, B8 to B11, B14, B17: every read is one statement (B8 with forTripId and B17: two). Keyset pages, projection only.
 public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hints, ILogger<BuddyListService> logger)
 {
-    private static readonly string ReceivedSql = $"""
+    internal static readonly string ReceivedSql = $"""
         SELECT r."Id" AS "RequestId", r."CreatedAt", u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username",
                u."ProfilePhotoUrl" AS "PhotoUrl"
         FROM "BuddyRequests" r JOIN "Users" u ON u."Id" = r."FromUserId"
-        WHERE r."ToUserId" = @me AND r."Status" = '{BuddyRequestStatuses.Pending}' AND r."ExpiresAt" > now() AND u."IsActive"
+        WHERE r."ToUserId" = @me AND r."Status" = '{BuddyRequestStatuses.Pending}' AND r."ExpiresAt" > now() AND u."IsActive" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}
           /*cursor*/
         ORDER BY r."CreatedAt" DESC, r."Id" DESC
         LIMIT @take
         """;
 
-    private static readonly string SentSql = $"""
+    internal static readonly string SentSql = $"""
         SELECT r."Id" AS "RequestId", r."CreatedAt", r."ExpiresAt", now() AS "Now",
                u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username", u."ProfilePhotoUrl" AS "PhotoUrl"
-        FROM "BuddyRequests" r JOIN "Users" u ON u."Id" = r."ToUserId"
+        FROM "BuddyRequests" r JOIN "Users" u ON u."Id" = r."ToUserId" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}
         WHERE r."FromUserId" = @me
           AND (r."Status" IN ('{BuddyRequestStatuses.Pending}', '{BuddyRequestStatuses.Declined}', '{BuddyRequestStatuses.Expired}')
                OR (r."Status" = '{BuddyRequestStatuses.ClosedByBlock}' AND r."BlockedSender"))
@@ -38,13 +38,14 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
 
     private const string CursorFilter = """AND (r."CreatedAt", r."Id") < (@at, @id)""";
 
-    private const string BuddiesSql = """
+    internal const string BuddiesSql = $"""
         SELECT b."BuddyUserId" AS "UserId", COALESCE(u."Name", '') AS "Name", lower(COALESCE(u."Name", '')) AS "LowerName",
                u."Username", u."ProfilePhotoUrl" AS "PhotoUrl", b."SeenAt", b."CreatedAt" AS "Since",
-               (SELECT count(*) FROM "Buddies" c WHERE c."UserId" = @me)::int AS "Total",
+               (SELECT count(*) FROM "Buddies" c JOIN "Users" cu ON cu."Id" = c."BuddyUserId" AND cu."RoleId" = {TravellerOnly.SeekerRoleSql}
+                 WHERE c."UserId" = @me)::int AS "Total",
                m."Status" AS "MemberStatus", m."InviteExpiresAt", m."RespondedAt", now() AS "Now"
         FROM "Buddies" b
-        JOIN "Users" u ON u."Id" = b."BuddyUserId"
+        JOIN "Users" u ON u."Id" = b."BuddyUserId" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}
         LEFT JOIN "TripMembers" m ON m."TripId" = @trip AND m."UserId" = b."BuddyUserId"
         WHERE b."UserId" = @me
           /*cursor*/
@@ -64,10 +65,12 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         DELETE FROM "Buddies" WHERE ("UserId" = @me AND "BuddyUserId" = @him) OR ("UserId" = @him AND "BuddyUserId" = @me)
         """;
 
-    private static readonly string SummarySql = $"""
-        SELECT (SELECT count(*) FROM "Buddies" b WHERE b."UserId" = @me)::int AS "Buddies",
-               (SELECT count(*) FROM "Buddies" b WHERE b."UserId" = @me AND b."SeenAt" IS NULL)::int AS "NewBuddies",
-               (SELECT count(*) FROM "BuddyRequests" r JOIN "Users" s ON s."Id" = r."FromUserId" AND s."IsActive"
+    internal static readonly string SummarySql = $"""
+        SELECT (SELECT count(*) FROM "Buddies" b JOIN "Users" bu ON bu."Id" = b."BuddyUserId" AND bu."RoleId" = {TravellerOnly.SeekerRoleSql}
+                 WHERE b."UserId" = @me)::int AS "Buddies",
+               (SELECT count(*) FROM "Buddies" b JOIN "Users" bu ON bu."Id" = b."BuddyUserId" AND bu."RoleId" = {TravellerOnly.SeekerRoleSql}
+                 WHERE b."UserId" = @me AND b."SeenAt" IS NULL)::int AS "NewBuddies",
+               (SELECT count(*) FROM "BuddyRequests" r JOIN "Users" s ON s."Id" = r."FromUserId" AND s."IsActive" AND s."RoleId" = {TravellerOnly.SeekerRoleSql}
                  WHERE r."ToUserId" = @me AND r."Status" = '{BuddyRequestStatuses.Pending}' AND r."ExpiresAt" > now())::int AS "ReceivedPending",
                (SELECT count(*) FROM "UserBlocks" ub WHERE ub."BlockerId" = @me)::int AS "Blocked"
         """;

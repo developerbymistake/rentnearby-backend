@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using RentNearBy.Api.Extensions;
 using RentNearBy.Api.Handlers;
 using RentNearBy.Api.Services;
 using RentNearBy.Core.Entities.TaxiRequests;
@@ -30,10 +31,11 @@ public class NotificationHub : Hub
         await base.OnDisconnectedAsync(exception);
     }
 
-    // Contract section 9: ownership is the only rule; reads stay open while the master switch is off, so hints keep flowing.
+    // Contract section 9: a seeker caller and ownership are the rules; reads stay open while the master switch is off, so hints keep flowing.
     public async Task SubscribeTaxiRequest(string requestId, ApplicationDbContext db)
     {
         if (!Guid.TryParse(requestId, out var id) || !UsersHandlers.TryGetUserId(Context.User!, out var userId)) return;
+        if (!SeekerGate.IsSeeker(Context.User!)) return;
         var aborted = Context.ConnectionAborted;
         await TaxiRequestSubscriptions.JoinIfTravellerAsync(Groups, Context.ConnectionId, userId, id,
             () => db.Set<TaxiRequest>().AsNoTracking().Where(r => r.Id == id).Select(r => (Guid?)r.TravellerUserId).FirstOrDefaultAsync(aborted));

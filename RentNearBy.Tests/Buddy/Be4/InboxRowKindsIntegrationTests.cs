@@ -91,12 +91,12 @@ public class InboxRowKindsIntegrationTests(TestDatabase db) : IntegrationTestBas
             ]);
         await using var ctx = Db.CreateCountingContext(out var counter);
         counter.Reset();
-        var added = Assert.Single((await new NoticeReader(ctx).PageAsync(aman, null, 20)).Items);
+        var added = Assert.Single((await new NoticeReader(ctx).PageAsync(aman, true, null, 20)).Items);
         Assert.Equal(2, counter.Count);
         var title = await ctx.Set<TripExpense>().Where(e => e.Id == expense).Select(e => e.Title).SingleAsync();
         Assert.Equal(title, added.RefTitle);
         Assert.Null(added.Travellers);
-        var joined = Assert.Single((await new NoticeReader(ctx).PageAsync(owner, null, 20)).Items);
+        var joined = Assert.Single((await new NoticeReader(ctx).PageAsync(owner, true, null, 20)).Items);
         Assert.Equal(3, joined.Travellers);
         Assert.Null(joined.RefTitle);
     }

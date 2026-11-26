@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
@@ -75,13 +76,22 @@ public static class AuthenticationExtensions
                     }
                     else
                     {
-                        var session = await unitOfWork.Sessions.GetActiveSessionAsync(sessionId);
-                        if (session == null)
+                        var roleId = await unitOfWork.Sessions.GetActiveSessionRoleAsync(sessionId);
+                        if (roleId == null)
                         {
                             // FB-42: only on failure, one more read tells the app why (role changed, account paused).
                             if (await unitOfWork.Sessions.GetRevokeReasonAsync(sessionId) is { } reason && SessionRevokeReasons.IsKnown(reason))
                                 context.HttpContext.Items[RevokeReasonItem] = reason;
                             context.Fail("Session revoked or expired");
+                            return;
+                        }
+                        try
+                        {
+                            RoleClaimSync.Apply(context.Principal!, roleId.Value);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            context.Fail("Invalid role");
                         }
                     }
                 },
@@ -96,17 +106,22 @@ public static class AuthenticationExtensions
             };
         });
 
-        services.AddAuthorization(options =>
-        {
-            options.AddPolicy("AdminOnly", policy =>
-                policy.RequireClaim("actor_type", "admin"));
-            // JwtBearer's inbound claim map turns the token's "role" claim into ClaimTypes.Role.
-            options.AddPolicy("CanListStays", policy =>
-                policy.RequireClaim(ClaimTypes.Role, UserRoles.StayOwner));
-            options.AddPolicy("CanListTaxis", policy =>
-                policy.RequireClaim(ClaimTypes.Role, UserRoles.TaxiDriver));
-        });
+        services.AddAuthorization(ConfigurePolicies);
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler, SeekerForbiddenResultHandler>();
 
         return services;
+    }
+
+    public static void ConfigurePolicies(AuthorizationOptions options)
+    {
+        options.AddPolicy("AdminOnly", policy =>
+            policy.RequireClaim("actor_type", "admin"));
+        // JwtBearer's inbound claim map turns the token's "role" claim into ClaimTypes.Role; OnTokenValidated keeps it live.
+        options.AddPolicy("CanListStays", policy =>
+            policy.RequireClaim(ClaimTypes.Role, UserRoles.StayOwner));
+        options.AddPolicy("CanListTaxis", policy =>
+            policy.RequireClaim(ClaimTypes.Role, UserRoles.TaxiDriver));
+        options.AddPolicy(AuthPolicies.SeekerOnly, policy =>
+            policy.RequireClaim(ClaimTypes.Role, UserRoles.Seeker));
     }
 }
