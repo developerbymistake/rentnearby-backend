@@ -14,4 +14,7 @@ public interface ITripSharingHooks
 
     // Inside the delete transaction; returns viewers told.
     Task<int> OnTripDeletingAsync(Guid tripId, Guid ownerId, CancellationToken ct = default);
+
+    // After the delete commit, never throws: live hints to the people whose join requests the delete ended.
+    Task AfterTripDeletedAsync(CancellationToken ct = default);
 }

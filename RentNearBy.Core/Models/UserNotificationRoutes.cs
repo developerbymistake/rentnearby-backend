@@ -46,6 +46,16 @@ public static class UserNotificationRoutes
     public const string StayUpcoming = "/stay-upcoming";
     public const string TaxiUpcoming = "/taxi-upcoming";
 
+    // Bakhli social (contract 5).
+    public const string People = "/people";
+    public const string Traveller = "/traveller";
+    public const string JoinRequests = "/join-requests";
+    public const string TripPost = "/trip-post";
+    public const string TravelBuddies = "/travel-buddies";
+    public const string DmRoom = "/dm-room";
+    // Bakhli Plus screen (the end notice of PLAN_STATES_SOCIAL 2).
+    public const string SeekerPlus = "/seeker-plus";
+
     public static readonly IReadOnlyList<string> TaxiDriverRoutes = [TaxiRequestRing, TaxiRequests, TaxiRequestDetail, TaxiBookings, TaxiRating, TaxiReady];
     public static readonly IReadOnlyList<string> TravellerTaxiRoutes = [TripName, TripCustomize, TripOverview, TripTaxiRequest, TripTaxiStatus];
 

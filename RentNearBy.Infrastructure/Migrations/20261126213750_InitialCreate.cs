@@ -1172,6 +1172,35 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Follows",
+                columns: table => new
+                {
+                    FollowerId = table.Column<Guid>(type: "uuid", nullable: false),
+                    FolloweeId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Status = table.Column<string>(type: "char(1)", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    AcceptedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Follows", x => new { x.FollowerId, x.FolloweeId });
+                    table.CheckConstraint("ck_follows_not_self", "\"FollowerId\" <> \"FolloweeId\"");
+                    table.CheckConstraint("ck_follows_status", "\"Status\" IN ('A', 'R')");
+                    table.ForeignKey(
+                        name: "FK_Follows_Users_FolloweeId",
+                        column: x => x.FolloweeId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_Follows_Users_FollowerId",
+                        column: x => x.FollowerId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "NotificationEvents",
                 columns: table => new
                 {
@@ -1287,6 +1316,36 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ProfileIdentityAudit",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityAlwaysColumn),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    OldGender = table.Column<string>(type: "character varying(6)", maxLength: 6, nullable: false),
+                    NewGender = table.Column<string>(type: "character varying(6)", maxLength: 6, nullable: false),
+                    OldBirthMonth = table.Column<short>(type: "smallint", nullable: false),
+                    NewBirthMonth = table.Column<short>(type: "smallint", nullable: false),
+                    OldBirthYear = table.Column<short>(type: "smallint", nullable: false),
+                    NewBirthYear = table.Column<short>(type: "smallint", nullable: false),
+                    OldName = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    NewName = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    AdminId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Reason = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ProfileIdentityAudit", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_ProfileIdentityAudit_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -1584,6 +1643,18 @@ namespace RentNearBy.Infrastructure.Migrations
                     CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     CompletionCountedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     MutedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    IsPublic = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    PublishedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    PostText = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    PostDays = table.Column<short>(type: "smallint", nullable: true),
+                    PostWindowMonths = table.Column<short>(type: "smallint", nullable: true),
+                    PostStartMonth = table.Column<int>(type: "integer", nullable: true),
+                    JoinGender = table.Column<string>(type: "char(1)", nullable: false, defaultValue: "A"),
+                    Seats = table.Column<short>(type: "smallint", nullable: true),
+                    PostCityNames = table.Column<string[]>(type: "text[]", nullable: false, defaultValueSql: "'{}'::text[]"),
+                    PostStateName = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: true),
+                    InactiveByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    PausedByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
@@ -1592,6 +1663,11 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_Trips", x => x.Id);
                     table.CheckConstraint("ck_trips_citykey_positive", "\"CityKey\" > 0");
+                    table.CheckConstraint("ck_trips_joingender", "\"JoinGender\" IN ('A', 'M', 'F')");
+                    table.CheckConstraint("ck_trips_postdays", "\"PostDays\" IS NULL OR \"PostDays\" BETWEEN 1 AND 11");
+                    table.CheckConstraint("ck_trips_postwindow", "\"PostWindowMonths\" IS NULL OR \"PostWindowMonths\" BETWEEN 1 AND 6");
+                    table.CheckConstraint("ck_trips_public_fields", "NOT \"IsPublic\" OR (\"PublishedAt\" IS NOT NULL AND \"Seats\" IS NOT NULL AND \"PostDays\" IS NOT NULL)");
+                    table.CheckConstraint("ck_trips_seats", "\"Seats\" IS NULL OR \"Seats\" BETWEEN 1 AND 11");
                     table.ForeignKey(
                         name: "FK_Trips_Districts_DistrictId",
                         column: x => x.DistrictId,
@@ -1626,9 +1702,53 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_UserNotices", x => x.Id);
                     table.CheckConstraint("ck_usernotices_count", "\"Count\" >= 1");
-                    table.CheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged', 'StayEditApproved', 'StayEditRejected', 'FestivalReminder', 'PlanLimitsChanged', 'PlansStarting')");
+                    table.CheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged', 'StayEditApproved', 'StayEditRejected', 'FestivalReminder', 'PlanLimitsChanged', 'PlansStarting', 'FollowRequest', 'NewFollower', 'FollowAccepted', 'JoinRequest', 'JoinAccepted', 'JoinDeclined', 'FollowedPosted')");
                     table.ForeignKey(
                         name: "FK_UserNotices_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "UserProfiles",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Gender = table.Column<string>(type: "character varying(6)", maxLength: 6, nullable: false),
+                    BirthMonth = table.Column<short>(type: "smallint", nullable: false),
+                    BirthYear = table.Column<short>(type: "smallint", nullable: false),
+                    About = table.Column<string>(type: "character varying(150)", maxLength: 150, nullable: false),
+                    Interests = table.Column<string[]>(type: "text[]", nullable: false),
+                    Skills = table.Column<string[]>(type: "text[]", nullable: false),
+                    Places = table.Column<string[]>(type: "text[]", nullable: false),
+                    HomeCityName = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: true),
+                    HomeStateName = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: true),
+                    IsPrivate = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    MessagePolicy = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false, defaultValue: "Everyone"),
+                    NotifyMessages = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    NotifyFollows = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    NotifyFollowedTrips = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    FollowerCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    FollowingCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    NameChangedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    GuidelinesAcceptedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    GuidelinesVersion = table.Column<int>(type: "integer", nullable: false, defaultValue: 0)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_UserProfiles", x => x.UserId);
+                    table.CheckConstraint("ck_userprofiles_birthmonth", "\"BirthMonth\" BETWEEN 1 AND 12");
+                    table.CheckConstraint("ck_userprofiles_birthyear", "\"BirthYear\" BETWEEN 1900 AND 2100");
+                    table.CheckConstraint("ck_userprofiles_followers", "\"FollowerCount\" >= 0");
+                    table.CheckConstraint("ck_userprofiles_following", "\"FollowingCount\" >= 0");
+                    table.CheckConstraint("ck_userprofiles_gender", "\"Gender\" IN ('Male', 'Female', 'Other')");
+                    table.CheckConstraint("ck_userprofiles_messagepolicy", "\"MessagePolicy\" IN ('Everyone', 'Following', 'Buddies')");
+                    table.ForeignKey(
+                        name: "FK_UserProfiles_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
                         principalColumn: "Id",
@@ -1896,6 +2016,39 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "ChatRooms",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    Kind = table.Column<string>(type: "char(1)", nullable: false),
+                    PairLowId = table.Column<Guid>(type: "uuid", nullable: true),
+                    PairHighId = table.Column<Guid>(type: "uuid", nullable: true),
+                    TripId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Status = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
+                    RequestedByUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    ChargedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    DeclinedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    BlockedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LastSeq = table.Column<long>(type: "bigint", nullable: false, defaultValue: 0L),
+                    LastPreview = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: true),
+                    LastMessageAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ChatRooms", x => x.Id);
+                    table.CheckConstraint("ck_chatrooms_kind", "\"Kind\" IN ('D', 'T')");
+                    table.CheckConstraint("ck_chatrooms_pair", "(\"Kind\" = 'D' AND \"PairLowId\" IS NOT NULL AND \"PairHighId\" IS NOT NULL AND \"PairLowId\" < \"PairHighId\" AND \"TripId\" IS NULL) OR (\"Kind\" = 'T' AND \"TripId\" IS NOT NULL AND \"PairLowId\" IS NULL AND \"PairHighId\" IS NULL)");
+                    table.CheckConstraint("ck_chatrooms_status", "\"Status\" IN ('Request', 'Active', 'Declined')");
+                    table.ForeignKey(
+                        name: "FK_ChatRooms_Trips_TripId",
+                        column: x => x.TripId,
+                        principalTable: "Trips",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "SavedJourneys",
                 columns: table => new
                 {
@@ -2092,6 +2245,42 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "TripJoinRequests",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    TripId = table.Column<Guid>(type: "uuid", nullable: false),
+                    OwnerUserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    RequesterId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ClientRequestId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Note = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    Tier = table.Column<short>(type: "smallint", nullable: false),
+                    Status = table.Column<string>(type: "character varying(14)", maxLength: 14, nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    DecidedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    EndedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TripJoinRequests", x => x.Id);
+                    table.CheckConstraint("ck_tripjoinrequests_not_self", "\"OwnerUserId\" <> \"RequesterId\"");
+                    table.CheckConstraint("ck_tripjoinrequests_status", "\"Status\" IN ('Waiting', 'Accepted', 'Declined', 'Cancelled', 'Expired', 'ClosedByBlock')");
+                    table.CheckConstraint("ck_tripjoinrequests_tier", "\"Tier\" BETWEEN 0 AND 2");
+                    table.ForeignKey(
+                        name: "FK_TripJoinRequests_Trips_TripId",
+                        column: x => x.TripId,
+                        principalTable: "Trips",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_TripJoinRequests_Users_RequesterId",
+                        column: x => x.RequesterId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "TripMembers",
                 columns: table => new
                 {
@@ -2108,11 +2297,13 @@ namespace RentNearBy.Infrastructure.Migrations
                     ExpensePromptDoneAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    Version = table.Column<int>(type: "integer", nullable: false, defaultValue: 1)
+                    Version = table.Column<int>(type: "integer", nullable: false, defaultValue: 1),
+                    JoinedVia = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: false, defaultValue: "Invite")
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_TripMembers", x => x.Id);
+                    table.CheckConstraint("ck_tripmembers_joinedvia", "\"JoinedVia\" IN ('Invite', 'Request')");
                     table.CheckConstraint("ck_tripmembers_status", "\"Status\" IN ('Invited', 'Joined', 'Declined', 'Cancelled', 'Expired', 'Left', 'Removed')");
                     table.ForeignKey(
                         name: "FK_TripMembers_Trips_TripId",
@@ -2356,6 +2547,66 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "ChatMessages",
+                columns: table => new
+                {
+                    RoomId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Seq = table.Column<long>(type: "bigint", nullable: false),
+                    SenderId = table.Column<Guid>(type: "uuid", nullable: true),
+                    SystemKind = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: true),
+                    ActorUserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    ClientMessageId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Body = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+                    Masked = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    ExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ChatMessages", x => new { x.RoomId, x.Seq });
+                    table.CheckConstraint("ck_chatmessages_system", "\"SystemKind\" IS NULL OR \"SystemKind\" IN ('joined', 'left')");
+                    table.ForeignKey(
+                        name: "FK_ChatMessages_ChatRooms_RoomId",
+                        column: x => x.RoomId,
+                        principalTable: "ChatRooms",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ChatRoomMembers",
+                columns: table => new
+                {
+                    RoomId = table.Column<Guid>(type: "uuid", nullable: false),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    LastReadSeq = table.Column<long>(type: "bigint", nullable: false, defaultValue: 0L),
+                    UnreadCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    ListBucket = table.Column<string>(type: "char(1)", nullable: false),
+                    ClearedUpToSeq = table.Column<long>(type: "bigint", nullable: false, defaultValue: 0L),
+                    JoinedSeq = table.Column<long>(type: "bigint", nullable: false, defaultValue: 0L),
+                    LeftAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    SortAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ChatRoomMembers", x => new { x.RoomId, x.UserId });
+                    table.CheckConstraint("ck_chatmembers_bucket", "\"ListBucket\" IN ('P', 'T', 'R', 'X')");
+                    table.CheckConstraint("ck_chatmembers_unread", "\"UnreadCount\" >= 0");
+                    table.ForeignKey(
+                        name: "FK_ChatRoomMembers_ChatRooms_RoomId",
+                        column: x => x.RoomId,
+                        principalTable: "ChatRooms",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_ChatRoomMembers_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "TaxiRequestOffers",
                 columns: table => new
                 {
@@ -2496,7 +2747,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     ResolvedByAdminId = table.Column<Guid>(type: "uuid", nullable: true),
                     TripEnquiryId = table.Column<Guid>(type: "uuid", nullable: true),
                     ReportedUsername = table.Column<string>(type: "character varying(24)", maxLength: 24, nullable: true),
-                    Context = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true)
+                    Context = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
+                    MessageSeq = table.Column<long>(type: "bigint", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -2513,6 +2765,31 @@ namespace RentNearBy.Infrastructure.Migrations
                         principalTable: "ReportReasons",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "MessageSnapshots",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    ReportId = table.Column<Guid>(type: "uuid", nullable: true),
+                    RoomId = table.Column<Guid>(type: "uuid", nullable: false),
+                    TakenForUserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    AboutUserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    AnchorSeq = table.Column<long>(type: "bigint", nullable: true),
+                    MessagesJson = table.Column<string>(type: "jsonb", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    PurgeAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_MessageSnapshots", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_MessageSnapshots_ListingReports_ReportId",
+                        column: x => x.ReportId,
+                        principalTable: "ListingReports",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
                 });
 
             migrationBuilder.CreateTable(
@@ -2867,6 +3144,64 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"Kind\" = 'Auto'");
 
             migrationBuilder.CreateIndex(
+                name: "ix_chatmessages_expiry",
+                table: "ChatMessages",
+                column: "ExpiresAt");
+
+            migrationBuilder.CreateIndex(
+                name: "ux_chatmessages_client",
+                table: "ChatMessages",
+                columns: new[] { "RoomId", "SenderId", "ClientMessageId" },
+                unique: true,
+                filter: "\"ClientMessageId\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_chatmembers_list",
+                table: "ChatRoomMembers",
+                columns: new[] { "UserId", "ListBucket", "SortAt", "RoomId" },
+                descending: new[] { false, false, true, false });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_chatmembers_unread",
+                table: "ChatRoomMembers",
+                column: "UserId",
+                filter: "\"UnreadCount\" > 0")
+                .Annotation("Npgsql:IndexInclude", new[] { "UnreadCount", "ListBucket" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_chatrooms_charged",
+                table: "ChatRooms",
+                columns: new[] { "RequestedByUserId", "ChargedAt" },
+                descending: new[] { false, true },
+                filter: "\"ChargedAt\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_chatrooms_lastmessage",
+                table: "ChatRooms",
+                column: "LastMessageAt",
+                filter: "\"Kind\" = 'D'");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_chatrooms_preview",
+                table: "ChatRooms",
+                column: "LastMessageAt",
+                filter: "\"LastPreview\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ux_chatrooms_pair",
+                table: "ChatRooms",
+                columns: new[] { "PairLowId", "PairHighId" },
+                unique: true,
+                filter: "\"Kind\" = 'D'");
+
+            migrationBuilder.CreateIndex(
+                name: "ux_chatrooms_trip",
+                table: "ChatRooms",
+                column: "TripId",
+                unique: true,
+                filter: "\"Kind\" = 'T'");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_cities_citykey_unique",
                 table: "Cities",
                 column: "CityKey",
@@ -3055,6 +3390,27 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "FestivalDateId");
 
             migrationBuilder.CreateIndex(
+                name: "ix_follows_followers",
+                table: "Follows",
+                columns: new[] { "FolloweeId", "CreatedAt", "FollowerId" },
+                descending: new[] { false, true, false },
+                filter: "\"Status\" = 'A'");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_follows_following",
+                table: "Follows",
+                columns: new[] { "FollowerId", "CreatedAt", "FolloweeId" },
+                descending: new[] { false, true, false },
+                filter: "\"Status\" = 'A'");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_follows_requests",
+                table: "Follows",
+                columns: new[] { "FolloweeId", "CreatedAt", "FollowerId" },
+                descending: new[] { false, true, false },
+                filter: "\"Status\" = 'R'");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_JobDepartments_Name",
                 table: "JobDepartments",
                 column: "Name",
@@ -3158,6 +3514,17 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "RespondsToMessageId",
                 unique: true,
                 filter: "\"RespondsToMessageId\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_messagesnapshots_purge",
+                table: "MessageSnapshots",
+                column: "PurgeAt");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_messagesnapshots_report",
+                table: "MessageSnapshots",
+                column: "ReportId",
+                filter: "\"ReportId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_notificationevents_created",
@@ -3414,6 +3781,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "PopularRoutes",
                 columns: new[] { "FromCityKey", "ToCityKey" },
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_profileidentityaudit_user",
+                table: "ProfileIdentityAudit",
+                columns: new[] { "UserId", "CreatedAt" },
+                descending: new[] { false, true });
 
             migrationBuilder.CreateIndex(
                 name: "IX_QuestionTemplates_Key",
@@ -4154,6 +4527,38 @@ namespace RentNearBy.Infrastructure.Migrations
                 .Annotation("Npgsql:IndexInclude", new[] { "Share" });
 
             migrationBuilder.CreateIndex(
+                name: "ix_tripjoinrequests_ended",
+                table: "TripJoinRequests",
+                column: "EndedAt",
+                filter: "\"EndedAt\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_tripjoinrequests_requester",
+                table: "TripJoinRequests",
+                columns: new[] { "RequesterId", "CreatedAt" },
+                descending: new[] { false, true });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_tripjoinrequests_trip",
+                table: "TripJoinRequests",
+                columns: new[] { "TripId", "Tier", "CreatedAt" },
+                descending: new[] { false, false, true },
+                filter: "\"Status\" = 'Waiting'");
+
+            migrationBuilder.CreateIndex(
+                name: "ux_tripjoinrequests_live",
+                table: "TripJoinRequests",
+                columns: new[] { "TripId", "RequesterId" },
+                unique: true,
+                filter: "\"Status\" = 'Waiting'");
+
+            migrationBuilder.CreateIndex(
+                name: "ux_tripjoinrequests_requester_client",
+                table: "TripJoinRequests",
+                columns: new[] { "RequesterId", "ClientRequestId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "ix_tripmembers_ended",
                 table: "TripMembers",
                 column: "EndedAt",
@@ -4274,6 +4679,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_trips_owner_updated",
                 table: "Trips",
                 columns: new[] { "OwnerUserId", "UpdatedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_trips_public",
+                table: "Trips",
+                columns: new[] { "PublishedAt", "Id" },
+                descending: new bool[0],
+                filter: "\"IsPublic\"");
 
             migrationBuilder.CreateIndex(
                 name: "ix_trips_startdate",
@@ -4490,8 +4902,8 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "Trips");
 
             migrationBuilder.DropForeignKey(
-                name: "FK_Trips_Districts_DistrictId",
-                table: "Trips");
+                name: "FK_TripEnquiries_Trips_TripId",
+                table: "TripEnquiries");
 
             migrationBuilder.DropForeignKey(
                 name: "FK_TripOffers_TripEnquiries_TripEnquiryId",
@@ -4525,6 +4937,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "CalendarEntries");
 
             migrationBuilder.DropTable(
+                name: "ChatMessages");
+
+            migrationBuilder.DropTable(
+                name: "ChatRoomMembers");
+
+            migrationBuilder.DropTable(
                 name: "CouponRedemptions");
 
             migrationBuilder.DropTable(
@@ -4543,10 +4961,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "FestivalReminderSent");
 
             migrationBuilder.DropTable(
-                name: "ListingReports");
+                name: "Follows");
 
             migrationBuilder.DropTable(
                 name: "Messages");
+
+            migrationBuilder.DropTable(
+                name: "MessageSnapshots");
 
             migrationBuilder.DropTable(
                 name: "NotificationLogs");
@@ -4571,6 +4992,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "PopularRoutes");
+
+            migrationBuilder.DropTable(
+                name: "ProfileIdentityAudit");
 
             migrationBuilder.DropTable(
                 name: "QuestionTemplates");
@@ -4627,6 +5051,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "TripExpenseSuggestionSkips");
 
             migrationBuilder.DropTable(
+                name: "TripJoinRequests");
+
+            migrationBuilder.DropTable(
                 name: "TripMembers");
 
             migrationBuilder.DropTable(
@@ -4651,7 +5078,13 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "UserNotices");
 
             migrationBuilder.DropTable(
+                name: "UserProfiles");
+
+            migrationBuilder.DropTable(
                 name: "DistrictBanners");
+
+            migrationBuilder.DropTable(
+                name: "ChatRooms");
 
             migrationBuilder.DropTable(
                 name: "PlanPurchases");
@@ -4660,7 +5093,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "FestivalDates");
 
             migrationBuilder.DropTable(
-                name: "ReportReasons");
+                name: "ListingReports");
 
             migrationBuilder.DropTable(
                 name: "NotificationEvents");
@@ -4702,6 +5135,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "UserPlans");
 
             migrationBuilder.DropTable(
+                name: "ReportReasons");
+
+            migrationBuilder.DropTable(
                 name: "JobDepartments");
 
             migrationBuilder.DropTable(
@@ -4738,6 +5174,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "Roles");
 
             migrationBuilder.DropTable(
+                name: "Trips");
+
+            migrationBuilder.DropTable(
                 name: "Districts");
 
             migrationBuilder.DropTable(
@@ -4748,9 +5187,6 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "TripOffers");
-
-            migrationBuilder.DropTable(
-                name: "Trips");
         }
     }
 }

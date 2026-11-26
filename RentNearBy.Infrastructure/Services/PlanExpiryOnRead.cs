@@ -56,9 +56,10 @@ public sealed class PlanExpiryOnRead(
                     await slots.ExpireEffectsAsync(userId, kind);
                     kinds.Add(kind);
                 }
-                foreach (var row in claimed)
+                foreach (var row in claimed) // batch-loop: one claimed row per feature
                 {
-                    var n = PlanNotifications.Expired(userId, snapshot.GetPlan(row.PlanId)?.Name ?? "Your plan");
+                    var n = PlanNotifications.Expired(userId, row.FeatureKey, snapshot.GetPlan(row.PlanId)?.Name ?? "Your plan");
+                    await PlanNotifications.ForSeekerEndAsync(db, n, row.FeatureKey, userId);
                     db.NotificationEvents.Add(n);
                     notifications.Add(n);
                 }

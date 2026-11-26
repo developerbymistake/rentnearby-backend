@@ -46,14 +46,14 @@ public class TripSharingBuildersTests
     }
 
     [Fact]
-    public void Viewer_members_hide_invites_seats_and_non_buddy_usernames_sample_3_14()
+    public void Viewer_members_hide_invites_and_seats_and_see_public_usernames()
     {
         var dto = TripMemberService.BuildMembers(Info(TripAccessLevel.Viewer), Rows(), Aman, Now);
         Assert.Equal(("Viewer", 0, 0), (dto.Role, dto.PendingInvites, dto.SeatsLeft));
         Assert.Empty(dto.Invited);
         Assert.Equal("Bakhli#48291736", dto.Joined[0].Username);
         Assert.Equal("Bakhli#61408275", dto.Joined[1].Username);
-        Assert.Null(dto.Joined[2].Username);
+        Assert.Equal("Bakhli#50267139", dto.Joined[2].Username);
         Assert.Equal("7139", dto.Joined[2].Last4);
         Assert.False(dto.CanInvite);
         Assert.True(dto.CanLeave);

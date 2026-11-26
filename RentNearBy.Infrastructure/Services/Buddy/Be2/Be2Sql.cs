@@ -19,6 +19,7 @@ internal sealed class LockedTripRow
     public int DayCount { get; set; }
     public int SpotCount { get; set; }
     public string OwnerName { get; set; } = string.Empty;
+    public bool InactiveByPlan { get; set; }
 }
 
 // One invite row with its trip and owner (S7, S8, S9).
@@ -53,7 +54,7 @@ internal static class Be2Sql
     // Trip row lock (contract 5.1 step 3) that also returns the row; counted like any statement.
     private const string LockTripSql = """
         SELECT t."Id", t."OwnerUserId", t."Title", t."Status", t."StartDate", t."EndDate", t."DayCount", t."SpotCount",
-               COALESCE(u."Name", '') AS "OwnerName"
+               COALESCE(u."Name", '') AS "OwnerName", t."InactiveByPlan"
         FROM "Trips" t JOIN "Users" u ON u."Id" = t."OwnerUserId"
         WHERE t."Id" = @trip
         FOR UPDATE OF t

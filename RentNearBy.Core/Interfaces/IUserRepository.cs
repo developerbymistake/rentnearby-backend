@@ -5,6 +5,8 @@ namespace RentNearBy.Core.Interfaces;
 public interface IUserRepository : IRepository<User>
 {
     Task<User?> GetByPhoneAsync(string phoneNumber);
+    // Bakhli social: the user's profile gender, null = no UserProfiles row (onboarding not done).
+    Task<string?> GetSocialGenderAsync(Guid userId);
     Task<bool> PhoneExistsAsync(string phoneNumber);
     Task<User?> GetByVerifiedPhoneAsync(string phoneNumber);
     Task<bool> IsPhoneUsedByOtherUserAsync(string phoneNumber, Guid currentUserId);

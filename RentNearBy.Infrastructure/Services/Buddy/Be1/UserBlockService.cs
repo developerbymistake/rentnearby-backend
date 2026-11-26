@@ -100,6 +100,7 @@ public sealed class UserBlockService(
                 return new BlockOutcome(BlockResult.Done, []);
             }
             var flipped = await db.Database.SqlQueryRaw<Guid>(UnblockConversationsSql, Me(blockerId), Him(blockedId)).ToListAsync(c);
+            await db.Database.ExecuteSqlRawAsync(RentNearBy.Infrastructure.Services.Social.SocialBlockParticipant.UnblockRoomSql, [Me(blockerId), Him(blockedId)], c);
             await tx.CommitAsync(c);
             return new BlockOutcome(BlockResult.Done, flipped);
         }, ct, logger);

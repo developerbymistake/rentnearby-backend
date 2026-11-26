@@ -76,5 +76,15 @@ public static class AccountDeletionCoverage
         new("TripExpenseShares", DeletionModes.Anonymised | DeletionModes.Participant, "Kept for the other travellers' ledger, shown as a deleted user."),
         new("TripExpenseRevisions", DeletionModes.Anonymised, "Edit history of shared expenses for the other travellers; ActorUserId is a plain reference."),
         new("TripPayments", DeletionModes.Anonymised | DeletionModes.Participant, "Kept for the other travellers' ledger; MoneyAccountDeletion blocks while a payment is open."),
+
+        // Bakhli social (CONTRACT_SOCIAL 1.10); SocialDeletionParticipant.
+        new("UserProfiles", DeletionModes.Cascade, "Users cascade."),
+        new("ProfileIdentityAudit", DeletionModes.Cascade, "Users cascade."),
+        new("Follows", DeletionModes.Cascade | DeletionModes.Participant, "SocialDeletionParticipant deletes both directions and lowers the other side's counters set-based; Users cascade."),
+        new("TripJoinRequests", DeletionModes.Cascade | DeletionModes.Participant, "His waiting requests end Cancelled first (owners' lists refresh); Users and Trips cascade."),
+        new("ChatRooms", DeletionModes.Participant, "His direct rooms are deleted; a trip room goes with the trip and his member row with the Users cascade."),
+        new("ChatRoomMembers", DeletionModes.Cascade | DeletionModes.Participant, "Users cascade and the room delete."),
+        new("ChatMessages", DeletionModes.Participant, "His direct rooms are deleted with their messages (room cascade); trip room messages expire in 24 hours."),
+        new("MessageSnapshots", DeletionModes.Anonymised, "Kept to PurgeAt for the report; ids kept, his name replaced by Deleted account."),
     ];
 }

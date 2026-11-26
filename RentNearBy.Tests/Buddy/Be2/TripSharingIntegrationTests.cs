@@ -12,6 +12,7 @@ using RentNearBy.Infrastructure.Services.Buddy.Be4;
 using RentNearBy.Tests.Data;
 using RentNearBy.Tests.Integration;
 using RentNearBy.Tests.Support.Buddy;
+using RentNearBy.Tests.Support.Social;
 
 namespace RentNearBy.Tests.Buddy.Be2;
 
@@ -28,10 +29,18 @@ public class TripSharingIntegrationTests(TestDatabase db) : IntegrationTestBase(
     private static TripMoneyCards Cards(ApplicationDbContext ctx) => new(ctx, new TripLedger(ctx, NullLogger<TripLedger>.Instance));
 
     private static TripInviteService Invites(ApplicationDbContext ctx) =>
-        new(ctx, new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripInviteService>.Instance);
+        Invites(ctx, SocialTestSeams.AfterCommit(ctx));
+
+    private static TripInviteService Invites(ApplicationDbContext ctx, RentNearBy.Infrastructure.Services.Social.SocialAfterCommit afterCommit) =>
+        new(ctx, new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripInviteService>.Instance,
+            SocialTestSeams.Limits(TripLimits.MaxTripsPerUser), SocialTestSeams.GroupChat(ctx, afterCommit), afterCommit);
 
     private static TripMemberService Members(ApplicationDbContext ctx) =>
-        new(ctx, new TripAccess(ctx), Cards(ctx), new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripMemberService>.Instance);
+        Members(ctx, SocialTestSeams.AfterCommit(ctx));
+
+    private static TripMemberService Members(ApplicationDbContext ctx, RentNearBy.Infrastructure.Services.Social.SocialAfterCommit afterCommit) =>
+        new(ctx, new TripAccess(ctx), Cards(ctx), new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripMemberService>.Instance,
+            SocialTestSeams.GroupChat(ctx, afterCommit), afterCommit);
 
     private static TripViewerReader Viewer(ApplicationDbContext ctx) => new(ctx, new TripAccess(ctx), Cards(ctx), TimeProvider.System,
         new FakeRoadCache(), Microsoft.Extensions.Options.Options.Create(new TripPlannerOptions()));

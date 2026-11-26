@@ -30,6 +30,12 @@ public static class NoticeRoutes
                 ? new(UserNotificationRoutes.TaxiPlanVisible, Args())
                 : new(UserNotificationRoutes.StayPlanVisible, Args()),
             NoticeKinds.PlansStarting => new(UserNotificationRoutes.Plans, Args()),
+            NoticeKinds.FollowRequest => new(UserNotificationRoutes.People, Args(("tab", "requests"))),
+            NoticeKinds.NewFollower or NoticeKinds.FollowAccepted => new(UserNotificationRoutes.Traveller, Args(("userId", trip))),
+            NoticeKinds.JoinRequest => new(UserNotificationRoutes.JoinRequests, Args(("tripId", refId?.ToString() ?? string.Empty))),
+            NoticeKinds.JoinAccepted => new(UserNotificationRoutes.TripView, Args(("tripId", trip))),
+            NoticeKinds.JoinDeclined => new(UserNotificationRoutes.TravelBuddies, Args()),
+            NoticeKinds.FollowedPosted => new(UserNotificationRoutes.TripPost, Args(("tripId", trip))),
             _ => new(UserNotificationRoutes.Notifications, Args()),
         };
     }

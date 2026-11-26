@@ -263,12 +263,34 @@ public class OwnerPlanCardStateTests
     [Fact]
     public void Trial_is_offered_only_while_payment_is_on_and_unused()
     {
-        var snapshot = OwnerPlanCatalog.Seeded();
+        var snapshot = OwnerPlanCatalog.Seeded(trialDays: 7);
         var off = new PaymentFeatureState(false, 30, null, PaymentProviders.Razorpay);
         var on = new PaymentFeatureState(true, 30, null, PaymentProviders.Razorpay);
         Assert.False(OwnerHomeShared.TrialAvailable(snapshot, off, ListingKinds.Stay, new OwnerHomeShared.PlanExtrasRow()));
         Assert.True(OwnerHomeShared.TrialAvailable(snapshot, on, ListingKinds.Stay, new OwnerHomeShared.PlanExtrasRow()));
         Assert.False(OwnerHomeShared.TrialAvailable(snapshot, on, ListingKinds.Stay, new OwnerHomeShared.PlanExtrasRow { AnyPlan = true }));
+    }
+
+    [Fact]
+    public void Seeded_catalog_offers_no_trial_on_either_provider()
+    {
+        var snapshot = OwnerPlanCatalog.Seeded();
+        foreach (var provider in new[] { PaymentProviders.Play, PaymentProviders.Razorpay })
+        {
+            var on = new PaymentFeatureState(true, 30, null, provider);
+            Assert.False(OwnerHomeShared.TrialAvailable(snapshot, on, ListingKinds.Stay, new OwnerHomeShared.PlanExtrasRow()));
+            Assert.False(OwnerHomeShared.TrialAvailable(snapshot, on, ListingKinds.Taxi, new OwnerHomeShared.PlanExtrasRow()));
+        }
+    }
+
+    [Fact]
+    public void Play_trial_offer_left_on_a_price_is_not_offered_when_the_plan_has_no_trial_days()
+    {
+        var on = new PaymentFeatureState(true, 30, null, PaymentProviders.Play);
+        var withDays = new PlanCatalogSnapshot([CatalogPlanBuilder.Free().Build(), CatalogPlanBuilder.Plus().Build()]);
+        var noDays = new PlanCatalogSnapshot([CatalogPlanBuilder.Free().Build(), CatalogPlanBuilder.Plus().WithTrialDays(0).Build()]);
+        Assert.True(OwnerHomeShared.TrialAvailable(withDays, on, ListingKinds.Stay, new OwnerHomeShared.PlanExtrasRow()));
+        Assert.False(OwnerHomeShared.TrialAvailable(noDays, on, ListingKinds.Stay, new OwnerHomeShared.PlanExtrasRow()));
     }
 
     private static PlanLimits PlanEntitlementCompute(bool enabled)

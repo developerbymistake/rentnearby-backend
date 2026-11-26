@@ -192,14 +192,14 @@ public static class OwnerHomeShared
     public static OwnerFestivalDto? ToDto(OwnerFestivalFacts? f)
         => f is null ? null : new OwnerFestivalDto(f.Id, f.Name, f.DateFrom, f.DateTo, f.StateName, f.DaysAway);
 
-    // The /plans/me trial rule: a trial is offered (Play: a trial offer on a 1-month Play price; Razorpay: an enabled plan with trial
+    // The /plans/me trial rule: a trial is offered (Play: trial days above 0 and a trial offer on a 1-month Play price; Razorpay: an enabled plan with trial
     // days) and none was used for the feature.
     public static bool TrialAvailable(PlanCatalogSnapshot snapshot, PaymentFeatureState flag, string kind, PlanExtrasRow extras)
     {
         if (!flag.Enabled) return false;
         if (flag.Provider == PaymentProviders.Play)
         {
-            var offered = snapshot.PlansOf(kind).Any(p => p.IsEnabled && !p.IsDefault && p.PlayProductId != null
+            var offered = snapshot.PlansOf(kind).Any(p => p.IsEnabled && !p.IsDefault && p.TrialDays > 0 && p.PlayProductId != null
                 && p.Prices.Any(x => x.IsEnabled && x.CycleMonths == 1 && x.PlayBasePlanId != null && x.PlayTrialOfferId != null));
             return offered && !extras.AnyPlay && !extras.TrialUsed;
         }

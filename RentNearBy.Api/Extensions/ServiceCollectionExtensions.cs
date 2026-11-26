@@ -247,6 +247,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<PlanPurchaseAdminWorkerService>();
 
         services.AddBuddyFeature(configuration);
+        services.AddSocialFeature(configuration);
         services.AddOwnerFeature(configuration);
         return services;
     }

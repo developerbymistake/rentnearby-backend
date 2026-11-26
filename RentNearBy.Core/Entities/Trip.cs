@@ -31,6 +31,21 @@ public class Trip
     // Set once when this trip raised the owner's CompletedTripsCount (TripCompletionCounter).
     public DateTime? CompletionCountedAt { get; set; }
     public DateTime? MutedAt { get; set; }
+    // Bakhli social: a public post IS the trip (contract 1.5). Post fields are written by PublicTripService only.
+    public bool IsPublic { get; set; }
+    public DateTime? PublishedAt { get; set; }
+    public string? PostText { get; set; }
+    public short? PostDays { get; set; }
+    public short? PostWindowMonths { get; set; }
+    public int? PostStartMonth { get; set; }
+    public string JoinGender { get; set; } = "A";
+    public short? Seats { get; set; }
+    public string[] PostCityNames { get; set; } = [];
+    public string? PostStateName { get; set; }
+    // Seeker plan states (PLAN_STATES_SOCIAL 1), written by SeekerPlanReconcile only. InactiveByPlan: kept read-only after Plus
+    // ends (beyond the Free active-trips limit). PausedByPlan: the post was taken off by the plan and comes back with Plus.
+    public bool InactiveByPlan { get; set; }
+    public bool PausedByPlan { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

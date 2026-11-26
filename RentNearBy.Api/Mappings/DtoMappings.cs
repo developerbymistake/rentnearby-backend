@@ -24,7 +24,9 @@ public static class DtoMappings
             .Map(dest => dest.Role, src => UserRoles.KeyOf(src.RoleId))
             .Map(dest => dest.RoleConfirmed, src => src.RoleConfirmedAt != null)
             .Map(dest => dest.ProfilePhotoUrl, src => src.ProfilePhotoUrl)
-            .Map(dest => dest.ProfilePhotoRemoved, src => src.ProfilePhotoUrl == null && src.ProfilePhotoUpdatedAt != null);
+            .Map(dest => dest.ProfilePhotoRemoved, src => src.ProfilePhotoUrl == null && src.ProfilePhotoUpdatedAt != null)
+            .Ignore(dest => dest.ProfileCompleted)
+            .Ignore(dest => dest.Gender);
 
         TypeAdapterConfig<Role, RoleDto>.NewConfig();
         TypeAdapterConfig<RoleChangeRequest, RoleChangeRequestDto>.NewConfig()

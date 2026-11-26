@@ -43,6 +43,26 @@ public class MoneyJobsAndGuardsTests
     }
 
     [Fact]
+    public void Morning_job_skips_a_request_joined_member_before_the_start_date()
+    {
+        var today = new DateOnly(2026, 5, 25);
+        var snapshot = Snapshot([new TripLedgerOpenRow(Aman, Rahul, 100, null)]);
+        var travellers = new Dictionary<Guid, IReadOnlyList<TripTraveller>> { [Trip] = Travellers };
+        var ledgers = new Dictionary<Guid, TripLedgerSnapshot> { [Trip] = snapshot };
+        var noStart = new SettleReminderJob.TripRow
+        {
+            Id = Trip, Title = "T", EndDate = new DateOnly(2026, 5, 22), OwnerUserId = Rahul, StartDate = null, RequestJoinedIds = [Aman],
+        };
+        Assert.Empty(SettleReminderJob.Plan([noStart], travellers, ledgers, today));
+        var started = new SettleReminderJob.TripRow
+        {
+            Id = Trip, Title = "T", EndDate = new DateOnly(2026, 5, 22), OwnerUserId = Rahul, StartDate = new DateOnly(2026, 5, 20), RequestJoinedIds = [Aman],
+        };
+        Assert.Equal(Aman, Assert.Single(SettleReminderJob.Plan([started], travellers, ledgers, today)).Notice.UserId);
+        Assert.Contains("\"JoinedVia\" = 'Request'", SettleReminderJob.BatchSql);
+    }
+
+    [Fact]
     public void Morning_job_skips_other_days_and_deleted_payers()
     {
         var ghost = Guid.NewGuid();

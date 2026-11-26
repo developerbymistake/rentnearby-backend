@@ -10,6 +10,7 @@ public sealed class BuddyLiveHints(IHubContext<NotificationHub> hub, ILogger<Bud
     public const string TripViewChanged = "TripViewChanged";
     public const string TripExpensesChanged = "TripExpensesChanged";
     public const string BuddiesChanged = "BuddiesChanged";
+    public const string SocialChanged = "SocialChanged";
 
     public Task TripViewChangedAsync(Guid tripId, IReadOnlyCollection<Guid> userIds)
         => SendAsync(userIds, TripViewChanged, new { tripId });
@@ -19,6 +20,9 @@ public sealed class BuddyLiveHints(IHubContext<NotificationHub> hub, ILogger<Bud
 
     public Task BuddiesChangedAsync(IReadOnlyCollection<Guid> userIds)
         => SendAsync(userIds, BuddiesChanged, new { });
+
+    public Task SocialChangedAsync(string scope, IReadOnlyCollection<Guid> userIds)
+        => SendAsync(userIds, SocialChanged, new { scope });
 
     private async Task SendAsync(IReadOnlyCollection<Guid> userIds, string eventName, object payload)
     {

@@ -54,4 +54,9 @@ public class AdminListingReportDto
     public bool? ReportedUserActive { get; set; }
     public DateTime? BuddyRequestsHeldUntil { get; set; }
     public RentNearBy.Core.DTOs.Buddy.PersonReportCountsDto? Counts { get; set; }
+
+    // Bakhli social: ListingType Message carries the reported seq; a snapshot of the chat may be attached; TripPost the post.
+    public long? MessageSeq { get; set; }
+    public bool HasSnapshot { get; set; }
+    public RentNearBy.Core.DTOs.Social.ReportTripPostDto? TripPost { get; set; }
 }

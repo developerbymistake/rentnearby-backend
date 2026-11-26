@@ -7,7 +7,9 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Owner;
+using RentNearBy.Core.Models.Social;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.Social;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -35,7 +37,7 @@ public static class AdminPlanHandlers
             return BadRequestResponse("A paid plan needs at least one price.");
 
         var snapshotForCheck = await catalog.GetAsync();
-        if (BelowFreeRefusal(request.FeatureKey, isDefault: false, ToValues(request), snapshotForCheck, null) is { } refusal) return refusal;
+        if (BelowFreeRefusal(request.FeatureKey, isDefault: false, ToRaw(request), snapshotForCheck, null) is { } refusal) return refusal;
 
         var code = NormalizeCode(request.Code);
         if (await unitOfWork.Plans.CodeExistsAsync(request.FeatureKey, code, null))
@@ -85,7 +87,8 @@ public static class AdminPlanHandlers
     public static async Task<IResult> UpdatePlan(
         Guid id, UpsertPlanRequest request, IValidator<UpsertPlanRequest> validator,
         IUnitOfWork unitOfWork, IPlanCatalogCache catalog,
-        ILiveSlotService slots, IListingCacheInvalidator invalidator, ILoggerFactory loggerFactory, ApplicationDbContext db)
+        ILiveSlotService slots, IListingCacheInvalidator invalidator, ILoggerFactory loggerFactory, ApplicationDbContext db,
+        [Microsoft.AspNetCore.Mvc.FromServices] SeekerPlanReconcile? seekerPlans = null)
     {
         var logger = loggerFactory.CreateLogger(nameof(AdminPlanHandlers));
         var validation = await validator.ValidateAsync(request);
@@ -112,7 +115,7 @@ public static class AdminPlanHandlers
         // A key the request leaves out keeps its stored value (section 9 A1); Plus never below Free for a limit key, both directions.
         var merged = PlanValueRules.Merge(plan.Features.ToDictionary(f => f.Key, f => f.Value),
             (request.Features ?? []).Select(f => (f.Key, f.Value)));
-        if (BelowFreeRefusal(plan.FeatureKey, plan.IsDefault, PlanFeatureValues.From(merged), await catalog.GetAsync(), plan.Id) is { } refusal)
+        if (BelowFreeRefusal(plan.FeatureKey, plan.IsDefault, merged, await catalog.GetAsync(), plan.Id) is { } refusal)
             return refusal;
 
         var code = NormalizeCode(request.Code);
@@ -154,6 +157,23 @@ public static class AdminPlanHandlers
             throw;
         }
         await catalog.RefreshAsync();
+        // Seeker plans rank no listings: the owners whose trips the new values move are reconciled now (PLAN_STATES_SOCIAL 3).
+        if (plan.FeatureKey == PlanFeatures.Seeker)
+        {
+            if (seekerPlans != null)
+            {
+                try
+                {
+                    var owners = await seekerPlans.ReconcileAllAsync();
+                    logger.LogInformation("Seeker plan {PlanId} edit reconciled {Owners} owners", plan.Id, owners);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Seeker reconcile after plan {PlanId} edit failed; the lazy read will repair it", plan.Id);
+                }
+            }
+            return OkResponse(ToDto(plan, await PlayPricesAsync(db)));
+        }
 
         try
         {
@@ -172,12 +192,14 @@ public static class AdminPlanHandlers
         return OkResponse(ToDto(plan, await PlayPricesAsync(db)));
     }
 
-    private static PlanFeatureValues ToValues(UpsertPlanRequest request)
-        => PlanFeatureValues.From((request.Features ?? []).GroupBy(f => f.Key).ToDictionary(g => g.Key, g => g.Last().Value));
+    private static Dictionary<string, int> ToRaw(UpsertPlanRequest request)
+        => (request.Features ?? []).GroupBy(f => f.Key).ToDictionary(g => g.Key, g => g.Last().Value);
 
     // 400 PlanValueBelowFree { key, free, plus } when a limit key of a paid plan would sit below the default (Free) plan.
-    private static IResult? BelowFreeRefusal(string featureKey, bool isDefault, PlanFeatureValues values, PlanCatalogSnapshot snapshot, Guid? planId)
+    private static IResult? BelowFreeRefusal(string featureKey, bool isDefault, IReadOnlyDictionary<string, int> raw, PlanCatalogSnapshot snapshot, Guid? planId)
     {
+        if (featureKey == PlanFeatures.Seeker) return SeekerBelowFreeRefusal(isDefault, raw, snapshot, planId);
+        var values = PlanFeatureValues.From(raw);
         if (isDefault)
         {
             foreach (var other in snapshot.PlansOf(featureKey).Where(p => !p.IsDefault && p.Id != planId))
@@ -185,6 +207,20 @@ public static class AdminPlanHandlers
             return null;
         }
         return PlanValueRules.BelowFree(featureKey, snapshot.DefaultValues(featureKey), values) is { } below ? Refusal(below) : null;
+    }
+
+    // Seeker plans: the same rule on the six Seeker keys, from the raw catalog features (SeekerPlanValueRules).
+    private static IResult? SeekerBelowFreeRefusal(bool isDefault, IReadOnlyDictionary<string, int> raw, PlanCatalogSnapshot snapshot, Guid? planId)
+    {
+        var plans = snapshot.PlansOf(PlanFeatures.Seeker);
+        if (isDefault)
+        {
+            foreach (var other in plans.Where(p => !p.IsDefault && p.Id != planId))
+                if (SeekerPlanValueRules.BelowFree(raw, other.Features) is { } hit) return Refusal(hit);
+            return null;
+        }
+        var free = plans.FirstOrDefault(p => p.IsDefault)?.Features ?? new Dictionary<string, int>();
+        return SeekerPlanValueRules.BelowFree(free, raw) is { } below ? Refusal(below) : null;
     }
 
     private static IResult Refusal(PlanValueBelowFree hit)

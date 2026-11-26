@@ -8,6 +8,10 @@ namespace RentNearBy.Infrastructure.Repositories;
 
 public class UserRepository(ApplicationDbContext context) : Repository<User>(context), IUserRepository
 {
+    public async Task<string?> GetSocialGenderAsync(Guid userId)
+        => await context.Set<RentNearBy.Core.Entities.Social.UserProfile>().AsNoTracking()
+            .Where(p => p.UserId == userId).Select(p => p.Gender).FirstOrDefaultAsync();
+
     public async Task<User?> GetByPhoneAsync(string phoneNumber)
         => await _dbSet.AsNoTracking()
             .FirstOrDefaultAsync(u => u.PhoneNumber == phoneNumber);

@@ -19,6 +19,7 @@ using RentNearBy.Tests.Data;
 using RentNearBy.Tests.Integration;
 using RentNearBy.Tests.Integration.Journeys;
 using RentNearBy.Tests.Support.Buddy;
+using RentNearBy.Tests.Support.Social;
 using static RentNearBy.Tests.Integration.Journeys.JourneyHarness;
 
 namespace RentNearBy.Tests.Buddy.Be2;
@@ -29,10 +30,18 @@ public class TripLimitIntegrationTests(TestDatabase db) : IntegrationTestBase(db
     private static TripMoneyCards Cards(ApplicationDbContext ctx) => new(ctx, new TripLedger(ctx, NullLogger<TripLedger>.Instance));
 
     private static TripInviteService Invites(ApplicationDbContext ctx) =>
-        new(ctx, new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripInviteService>.Instance);
+        Invites(ctx, SocialTestSeams.AfterCommit(ctx));
+
+    private static TripInviteService Invites(ApplicationDbContext ctx, RentNearBy.Infrastructure.Services.Social.SocialAfterCommit afterCommit) =>
+        new(ctx, new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripInviteService>.Instance,
+            SocialTestSeams.Limits(TripLimits.MaxTripsPerUser), SocialTestSeams.GroupChat(ctx, afterCommit), afterCommit);
 
     private static TripMemberService Members(ApplicationDbContext ctx) =>
-        new(ctx, new TripAccess(ctx), Cards(ctx), new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripMemberService>.Instance);
+        Members(ctx, SocialTestSeams.AfterCommit(ctx));
+
+    private static TripMemberService Members(ApplicationDbContext ctx, RentNearBy.Infrastructure.Services.Social.SocialAfterCommit afterCommit) =>
+        new(ctx, new TripAccess(ctx), Cards(ctx), new NoticeWriter(ctx), new RecordingLiveHints(), TimeProvider.System, NullLogger<TripMemberService>.Instance,
+            SocialTestSeams.GroupChat(ctx, afterCommit), afterCommit);
 
     private static async Task<IResult> CreateAsync(JourneyHarness h, Guid user, Guid? clientId = null)
     {
@@ -57,7 +66,7 @@ public class TripLimitIntegrationTests(TestDatabase db) : IntegrationTestBase(db
     private async Task<int> CountAsync(Guid user)
     {
         await using var ctx = CreateContext();
-        return (await TripSlots.ReadAsync(ctx, user)).Count;
+        return (await TripSlots.ReadAsync(ctx, user, TripLimits.MaxTripsPerUser)).Count;
     }
 
     // User with `owned` own trips and `joined` trips of another owner; returns the other owner.
@@ -85,6 +94,30 @@ public class TripLimitIntegrationTests(TestDatabase db) : IntegrationTestBase(db
     }
 
     [IntegrationFact]
+    public async Task Invite_into_an_owner_trip_kept_inactive_by_plan_is_refused_and_keeps_waiting()
+    {
+        await using var h = new JourneyHarness(Db);
+        var me = await h.AddSeekerAsync();
+        var (trip, member, _) = await InviteAsync(me);
+        await using (var ctx = CreateContext())
+            await ctx.Trips.Where(t => t.Id == trip).ExecuteUpdateAsync(s => s.SetProperty(t => t.InactiveByPlan, true));
+
+        await using (var ctx = CreateContext())
+        {
+            var refused = await Invites(ctx).AcceptAsync(member, me);
+            Assert.Equal(RentNearBy.Core.Models.Social.SocialErrorTypes.TripInactiveByPlan, refused.ErrorType);
+            Assert.Equal(409, refused.Status);
+        }
+        await using (var ctx = CreateContext())
+            Assert.Equal(TripMemberStatuses.Invited, (await ctx.Set<TripMember>().AsNoTracking().FirstAsync(m => m.Id == member)).Status);
+
+        await using (var ctx = CreateContext())
+            await ctx.Trips.Where(t => t.Id == trip).ExecuteUpdateAsync(s => s.SetProperty(t => t.InactiveByPlan, false));
+        await using (var ctx = CreateContext())
+            Assert.True((await Invites(ctx).AcceptAsync(member, me)).Ok);
+    }
+
+    [IntegrationFact]
     public async Task Count_is_owned_plus_joined_only_and_past_trips_count()
     {
         await using var ctx = CreateContext();
@@ -101,7 +134,7 @@ public class TripLimitIntegrationTests(TestDatabase db) : IntegrationTestBase(db
             await BuddySeed.MembersAsync(ctx, t, other, [me], status); // batch-loop
         }
 
-        var slots = await TripSlots.ReadAsync(ctx, me);
+        var slots = await TripSlots.ReadAsync(ctx, me, TripLimits.MaxTripsPerUser);
         Assert.Equal(3, slots.Count);
         Assert.Equal(TripLimits.MaxTripsPerUser, slots.Limit);
         Assert.Equal(past, slots.Trips[0].Id);
@@ -147,7 +180,7 @@ public class TripLimitIntegrationTests(TestDatabase db) : IntegrationTestBase(db
         Assert.Equal(201, StatusOf(await CreateAsync(h, me)));
         Assert.Equal(409, StatusOf(await CreateAsync(h, me)));
         Guid oldest;
-        await using (var ctx = CreateContext()) oldest = (await TripSlots.ReadAsync(ctx, me)).Trips[0].Id;
+        await using (var ctx = CreateContext()) oldest = (await TripSlots.ReadAsync(ctx, me, TripLimits.MaxTripsPerUser)).Trips[0].Id;
         Assert.Equal(200, StatusOf(await DeleteAsync(h, oldest, me)));
         Assert.Equal(201, StatusOf(await CreateAsync(h, me)));
     }
@@ -183,7 +216,7 @@ public class TripLimitIntegrationTests(TestDatabase db) : IntegrationTestBase(db
 
         await using (var ctx = CreateContext())
         {
-            var joinedTrip = (await TripSlots.ReadAsync(ctx, me)).Trips.First(t => t.Role == TripSharingRoles.Viewer).Id;
+            var joinedTrip = (await TripSlots.ReadAsync(ctx, me, TripLimits.MaxTripsPerUser)).Trips.First(t => t.Role == TripSharingRoles.Viewer).Id;
             Assert.True((await Members(ctx).LeaveAsync(joinedTrip, me)).Ok);
             Assert.True((await Invites(ctx).AcceptAsync(member, me)).Ok);
         }
@@ -193,7 +226,7 @@ public class TripLimitIntegrationTests(TestDatabase db) : IntegrationTestBase(db
         await using (var ctx = CreateContext())
         {
             Assert.Equal(BuddyErrorTypes.TripLimitReached, (await Invites(ctx).AcceptAsync(second, me)).ErrorType);
-            var otherTrip = (await TripSlots.ReadAsync(ctx, me)).Trips.First(t => t.Role == TripSharingRoles.Viewer && t.OwnerName == "Owner 1").Id;
+            var otherTrip = (await TripSlots.ReadAsync(ctx, me, TripLimits.MaxTripsPerUser)).Trips.First(t => t.Role == TripSharingRoles.Viewer && t.OwnerName == "Owner 1").Id;
             Assert.True((await Members(ctx).RemoveAsync(otherTrip, other, me)).Ok);
             Assert.True((await Invites(ctx).AcceptAsync(second, me)).Ok);
         }
@@ -321,7 +354,7 @@ public class TripLimitIntegrationTests(TestDatabase db) : IntegrationTestBase(db
             }
             await using var counting = Db.CreateCountingContext(out var counter);
             counter.Reset();
-            var slots = await TripSlots.ReadAsync(counting, me);
+            var slots = await TripSlots.ReadAsync(counting, me, TripLimits.MaxTripsPerUser);
             Assert.Equal(1, counter.Count);
             Assert.Equal(n, slots.Count);
             Assert.Equal(Math.Min(n, TripLimits.MaxTripsPerUser), slots.Trips.Count);

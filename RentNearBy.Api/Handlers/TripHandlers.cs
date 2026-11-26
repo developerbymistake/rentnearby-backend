@@ -13,6 +13,7 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Interfaces.Buddy;
+using RentNearBy.Core.Interfaces.Social;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Core.DTOs.TaxiRequests;
@@ -445,9 +446,12 @@ public static class TripHandlers
 
     public static async Task<IResult> GetMine(
         ClaimsPrincipal principal, IUnitOfWork unitOfWork, ISavedJourneyRepository journeys, ApplicationDbContext db,
-        int page = 1, int pageSize = DefaultPageSize, string? state = null)
+        int page = 1, int pageSize = DefaultPageSize, string? state = null,
+        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Infrastructure.Services.Social.SeekerPlanReconcile? seekerPlans = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
+        // PLAN_STATES_SOCIAL 3: the seeker plan reconcile also runs lazily on read (no lock when nothing drifted).
+        if (seekerPlans != null) await seekerPlans.EnsureAsync(userId);
 
         var listState = TripListRules.Resolve(state);
         if (listState == null) return BadRequestResponse("State must be active or past");
@@ -482,7 +486,8 @@ public static class TripHandlers
         SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
         ITripCityCatalog catalog, ISavedJourneyRepository journeys, ILoggerFactory loggers,
         IRateLimitService rateLimiter, HttpContext httpContext, ApplicationDbContext db,
-        [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null)
+        [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null,
+        [Microsoft.AspNetCore.Mvc.FromServices] ISeekerLimits? seekerLimits = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -527,12 +532,14 @@ public static class TripHandlers
         plan.Guide = TripGuideGate.Apply(plan.Guide, newRows);
 
         var trip = NewTrip(userId, request, plan, DateTime.UtcNow);
+        // The seeker's plan value (Free 1, Plus 10); the constant is only the fallback when the seam is not wired.
+        var activeTripLimit = seekerLimits is null ? TripLimits.MaxTripsPerUser : (await seekerLimits.GetAsync(userId)).ActiveTrips;
 
         // Trip limit: the caller's slot lock serialises his creates and invite accepts, so the count cannot pass the limit.
         await unitOfWork.BeginTransactionAsync();
         try
         {
-            if (await TripSlots.RefusalUnderLockAsync(db, userId) is { } full)
+            if (await TripSlots.RefusalUnderLockAsync(db, userId, activeTripLimit) is { } full)
             {
                 await unitOfWork.RollbackTransactionAsync();
                 // A parallel create with the same client id may have won while this one waited for the lock.
@@ -763,6 +770,10 @@ public static class TripHandlers
         var oldStart = trip.StartDate;
         var oldEnd = trip.EndDate;
         ApplyPlan(trip, plan);
+        // A public trip's post shows the state of its first city: one cached catalog read, public trips only.
+        string? postState = null;
+        if (trip.IsPublic && plan.Legs is { Count: > 0 } postLegs) postState = (await catalog.FindAsync(postLegs[0].CityKey)).City?.StateName;
+        RentNearBy.Infrastructure.Services.Social.PublicTripService.RefreshPostSnapshot(trip, plan, postState);
         var now = DateTime.UtcNow;
         trip.UpdatedAt = now;
 
@@ -1066,6 +1077,7 @@ public static class TripHandlers
 
         await closure.AfterCommitAsync(pushes);
         if (viewersTold > 0) noticeWriter?.Wake();
+        if (sharingHooks != null) await sharingHooks.AfterTripDeletedAsync();
         var ownersTold = pushes.Select(p => p.Notification.TargetUserId).Where(t => t != null).Distinct().Count();
         return OkResponse(new { message = "Trip deleted", ownersTold, viewersTold });
     }
@@ -1198,6 +1210,9 @@ public static class TripHandlers
             Progress = TripEasyRows.Compute(trip, plan, rows, linked, revisedPending, taxiRequest),
             PlanLock = TripTaxiRequestFields.PlanLock(taxiRequest, rows),
             TaxiRequest = TripTaxiRequestFields.Ref(taxiRequest),
+            InactiveByPlan = trip.InactiveByPlan,
+            IsPublic = RentNearBy.Core.Models.Social.SocialRules.IsLivePost(trip.IsPublic, trip.Status, trip.StartDate, trip.PostWindowMonths,
+                trip.PublishedAt, DateTime.UtcNow),
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,
             CreatedAt = trip.CreatedAt,
@@ -1261,6 +1276,7 @@ public static class TripHandlers
                 : TripBookingStates.OfRows(rows),
             Progress = TripEasyRows.Progress(trip.SpotCount, rows, enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt), TripEasyRows.GuideStepOf(plan)),
             AgreedTotal = TripEasyRows.AgreedTotal(enquiries),
+            InactiveByPlan = trip.InactiveByPlan,
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,
             UpdatedAt = trip.UpdatedAt,

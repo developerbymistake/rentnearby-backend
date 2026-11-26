@@ -5,6 +5,8 @@ using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Models.Social;
+using RentNearBy.Api.Handlers.Social;
 using RentNearBy.Infrastructure.Services.Buddy.Be2;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -157,6 +159,7 @@ public static class TripSharingHandlers
     public static IResult Fail<T>(SharingResult<T> result)
     {
         if (result.ErrorType == BuddyErrorTypes.TripNotFound) return BuddyHttp.TripNotFound();
+        if (result.ErrorType == SocialErrorTypes.TripInactiveByPlan) return SocialHttp.Error(result.ErrorType, result.ErrorData);
         return result.Status is { } status
             ? BuddyHttp.Error(status, result.ErrorType!, result.ErrorData)
             : BuddyHttp.Error(result.ErrorType!, result.ErrorData);

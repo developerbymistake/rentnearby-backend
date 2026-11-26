@@ -85,6 +85,8 @@ public class TripViewerProjectionTests
         [
             "TripId", "Title", "Status", "Role", "Owner", "LegCities", "DayCount", "SpotCount", "StartDate", "EndDate", "TravellerCount",
             "FirstTravellers", "Legs", "Days", "Stay", "Taxi", "ProgressPercent", "Expenses", "UpdatedAt",
+            // CONTRACT_SOCIAL 2.5: a member who joined by request sees stay, taxi and money only from the start date.
+            "DetailsLocked",
         ];
         Assert.Equal(expected.OrderBy(x => x), typeof(TripViewerDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
         Assert.Equal(["Name", "PhotoUrl", "Username"], typeof(TripOwnerRefDto).GetProperties().Select(p => p.Name).OrderBy(x => x));

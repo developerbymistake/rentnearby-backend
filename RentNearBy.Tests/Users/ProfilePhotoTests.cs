@@ -129,7 +129,7 @@ public class ProfilePhotoTests
     }
 
     [Fact]
-    public void Route_is_put_only_with_body_cap_and_the_photo_limit()
+    public void Routes_are_put_with_body_cap_and_delete_both_under_the_photo_limit()
     {
         var src = Src("RentNearBy.Api", "Endpoints", "UsersEndpoints.cs");
         var line = src.Split('\n').Single(l => l.Contains("UserPhotoHandlers.UploadPhoto"));
@@ -137,8 +137,13 @@ public class ProfilePhotoTests
         Assert.Contains(".UserPhotoLimited()", line);
         Assert.Contains(".PhotoBodyLimited();", line);
         Assert.DoesNotContain("OwnerPhotoLimited", line);
-        Assert.DoesNotContain("/me/photo\", ", src.Replace(line, string.Empty));
-        Assert.DoesNotContain("MapDelete", src);
+        var remove = src.Split('\n').Single(l => l.Contains("UserPhotoHandlers.RemovePhoto"));
+        Assert.Contains("group.MapDelete(\"/me/photo\", UserPhotoHandlers.RemovePhoto).RequireAuthorization().UserPhotoLimited();", remove);
+        Assert.DoesNotContain("/me/photo\", ", src.Replace(line, string.Empty).Replace(remove, string.Empty));
+        Assert.Single(src.Split('\n'), l => l.Contains("MapDelete"));
+        // Own removal clears UpdatedAt (an admin removal sets it and asks for a new photo) and never touches a user with no photo.
+        Assert.Contains("\"ProfilePhotoUpdatedAt\" = NULL", UserPhotoHandlers.RemoveOwnPhotoSql);
+        Assert.Contains("\"ProfilePhotoUrl\" IS NOT NULL FOR UPDATE", UserPhotoHandlers.RemoveOwnPhotoSql);
         Assert.Equal(11 * 1024 * 1024, PhotoBodyLimit.MaxRequestBytes);
     }
 

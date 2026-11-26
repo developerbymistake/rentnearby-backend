@@ -1001,6 +1001,9 @@ public static class AdminHandlers
         }
         await taxiClosure.AfterCommitAsync(taxiSignals, poolChanged: true);
         if (leadPushes.Count > 0) await sp.GetRequiredService<ITripEnquiryClosure>().AfterCommitAsync(leadPushes);
+        // Social chat sockets of a paused account end now (contract 3.1).
+        if (!request.IsActive && sp.GetService<RentNearBy.Core.Interfaces.Social.IHubSessionRevoker>() is { } revoker)
+            await revoker.RevokeAsync(id, "accountPaused");
 
         var redis = sp.GetService<IConnectionMultiplexer>();
         foreach (var districtId in stayDistrictIds)
@@ -1041,8 +1044,8 @@ public static class AdminHandlers
     }
 
     public static async Task<IResult> GetReports(
-        IUnitOfWork unitOfWork, ApplicationDbContext db, int page = 1, int pageSize = 20, string? status = "Pending",
-        string? cursor = null)
+        IUnitOfWork unitOfWork, ApplicationDbContext db, RentNearBy.Infrastructure.Services.Social.SocialReportService socialReports,
+        int page = 1, int pageSize = 20, string? status = "Pending", string? cursor = null, string? types = null)
     {
         pageSize = Math.Clamp(pageSize, 1, 100);
         page = Math.Max(1, page);
@@ -1056,9 +1059,14 @@ public static class AdminHandlers
             afterAt = at;
             afterId = id;
         }
-        var paged = afterAt == null && page > 1
-            ? await unitOfWork.ListingReports.GetPagedAsync(page, pageSize, status)
-            : await KeysetReportsAsync(unitOfWork, pageSize, status, afterAt, afterId);
+        // Social queue (contract 2.8): ?types=User,TripPost,Message filters on ListingType (keyset only).
+        var typeFilter = string.IsNullOrWhiteSpace(types) ? null
+            : types.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct().ToList();
+        var paged = typeFilter != null
+            ? await TypedReportsAsync(db, pageSize, status, typeFilter, afterAt, afterId)
+            : afterAt == null && page > 1
+                ? await unitOfWork.ListingReports.GetPagedAsync(page, pageSize, status)
+                : await KeysetReportsAsync(unitOfWork, pageSize, status, afterAt, afterId);
         var nextCursor = KeysetCursor.EncodeLast(paged.Items, paged.HasMore, r => r.CreatedAt, r => r.Id);
 
         // Batched lookup instead of N+1 — ListingReport has no FK/nav to StayListing/TaxiListing
@@ -1099,8 +1107,22 @@ public static class AdminHandlers
             else if (r.ListingType == ListingKinds.Taxi && taxisById.TryGetValue(r.ListingId, out var taxi)) AdminTaxiHandlers.ApplyTaxiReportDetails(dto, taxi);
             return dto;
         }).ToList();
+        await socialReports.EnrichAdminAsync(paged.Items.Zip(items).ToList());
 
         return OkResponse(new { items, hasMore = paged.HasMore, nextCursor });
+    }
+
+    private static async Task<PagedResult<ListingReport>> TypedReportsAsync(
+        ApplicationDbContext db, int pageSize, string? status, IReadOnlyList<string> types, DateTime? afterAt, Guid? afterId)
+    {
+        var query = db.ListingReports.AsNoTracking().Include(r => r.Reason).Where(r => types.Contains(r.ListingType));
+        if (!string.IsNullOrWhiteSpace(status) && !status.Equals("All", StringComparison.OrdinalIgnoreCase))
+            query = query.Where(r => r.Status == status);
+        if (afterAt is { } at && afterId is { } id)
+            query = query.Where(r => r.CreatedAt <= at && (r.CreatedAt < at || r.Id.CompareTo(id) < 0));
+        var rows = await query.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).Take(pageSize + 1).ToListAsync();
+        var hasMore = rows.Count > pageSize;
+        return new PagedResult<ListingReport> { Items = hasMore ? rows.Take(pageSize).ToList() : rows, Page = 1, PageSize = pageSize, HasMore = hasMore };
     }
 
     private static async Task<PagedResult<ListingReport>> KeysetReportsAsync(
@@ -1110,11 +1132,13 @@ public static class AdminHandlers
         return new PagedResult<ListingReport> { Items = rows, Page = 1, PageSize = pageSize, HasMore = hasMore };
     }
 
-    public static async Task<IResult> GetReportById(Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, UserReportService personReports)
+    public static async Task<IResult> GetReportById(Guid id, IUnitOfWork unitOfWork, ApplicationDbContext db, UserReportService personReports,
+        RentNearBy.Infrastructure.Services.Social.SocialReportService socialReports)
     {
         var report = await unitOfWork.ListingReports.GetByIdAsync(id);
         if (report == null) return NotFoundResponse("Report not found");
         var dto = ToAdminListingReportDto(report);
+        await socialReports.EnrichAdminAsync([(report, dto)]);
 
         if (report.ListingType == ReportScopes.User)
         {
@@ -1193,8 +1217,17 @@ public static class AdminHandlers
             ListingKinds.Stay => await AdminStayHandlers.RejectReportedStayAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
             ListingKinds.Taxi => await AdminTaxiHandlers.RejectReportedTaxiAsync(report, request.Reason, adminId, unitOfWork, db, sp, hubContext, publisher),
             ListingReportTypes.TripEnquiry => BadRequestResponse("A traveller report has no listing to take down"),
+            ReportScopes.User or RentNearBy.Core.Models.Social.SocialReportTypes.TripPost or RentNearBy.Core.Models.Social.SocialReportTypes.Message
+                => await RejectSocialReportAsync(report.Id, adminId, unitOfWork),
             _ => BadRequestResponse($"Unknown listing type '{report.ListingType}' on this report"),
         };
+    }
+
+    // Social reports (person, trip post, message) have no listing to take down: Reject closes the report with no action.
+    private static async Task<IResult> RejectSocialReportAsync(Guid reportId, Guid? adminId, IUnitOfWork unitOfWork)
+    {
+        await unitOfWork.ListingReports.ResolveAsync(reportId, adminId, "Rejected");
+        return OkResponse(new { success = true });
     }
 
     // Single-notification push shape — SignalR

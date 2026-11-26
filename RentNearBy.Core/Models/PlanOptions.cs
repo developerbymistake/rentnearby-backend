@@ -33,9 +33,14 @@ public static class PlanFeatureKeys
 // Plans are scoped by listing kind; a role's feature is UserRoles.ListingKindOf(roleId).
 public static class PlanFeatures
 {
+    // Seeker plans (Bakhli Plus) ride the same pipeline; All stays the listing kinds (rank, limits, admin listing passes).
+    public const string Seeker = "Seeker";
+
     public static readonly string[] All = [ListingKinds.Stay, ListingKinds.Taxi];
 
-    public static bool IsValid(string? featureKey) => featureKey != null && All.Contains(featureKey);
+    public static readonly string[] Purchasable = [ListingKinds.Stay, ListingKinds.Taxi, Seeker];
+
+    public static bool IsValid(string? featureKey) => featureKey != null && Purchasable.Contains(featureKey);
 }
 
 public static class PlanCycles

@@ -2,10 +2,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
+using RentNearBy.Core.Interfaces.Social;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Models.Social;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.Social;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using static RentNearBy.Infrastructure.Services.Buddy.Be2.Be2Sql;
 
@@ -13,7 +16,8 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be2;
 
 // S2, S3, S7, S8, S9 (contract 2.2). Lock order: trip-slots (S8 only) -> pair locks -> trip row -> TripMembers -> UserNotices -> OutboxMessages.
 public sealed class TripInviteService(
-    ApplicationDbContext db, INoticeWriter notices, IBuddyLiveHints hints, TimeProvider clock, ILogger<TripInviteService> logger)
+    ApplicationDbContext db, INoticeWriter notices, IBuddyLiveHints hints, TimeProvider clock, ILogger<TripInviteService> logger,
+    ISeekerLimits seekerLimits, ITripGroupChat groupChat, SocialAfterCommit afterCommit)
 {
     internal static readonly string CandidatesSql = $"""
         SELECT x.id AS "UserId", (u."Id" IS NOT NULL) AS "Exists", COALESCE(u."IsActive" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}, FALSE) AS "IsActive",
@@ -175,12 +179,19 @@ public sealed class TripInviteService(
         if (first.Status == TripMemberStatuses.Joined) return Joined(first.TripId);
 
         Guid? ownerToTell = null;
+        var activeTripLimit = (await seekerLimits.GetAsync(callerId, ct)).ActiveTrips;
         var result = await PgRetry.OnceAsync(db, async c =>
         {
+            afterCommit.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(c);
             await BuddyLocks.LockTripSlotsAsync(db, callerId, c);
             var trip = await LockTripAsync(db, first.TripId, c);
             if (trip is null) return EndedResult<TripJoinedDto>(null);
+            // PLAN_STATES_SOCIAL 1: a trip kept inactive after its owner's Plus ended is read-only; joining it is a write (409, the
+            // invite keeps waiting and works again once the owner's trip is active).
+            if (trip.InactiveByPlan)
+                return SharingResult<TripJoinedDto>.Fail(SocialErrorTypes.TripInactiveByPlan,
+                    new { limit = (await seekerLimits.GetAsync(trip.OwnerUserId, c)).ActiveTrips }, SocialErrorTypes.StatusOf(SocialErrorTypes.TripInactiveByPlan));
             var row = await ReadInviteLeanAsync(db, memberId, c);
             if (row is null || row.UserId != callerId) return EndedResult<TripJoinedDto>(null);
             if (row.Status == TripMemberStatuses.Joined) return Joined(row.TripId);
@@ -189,7 +200,7 @@ public sealed class TripInviteService(
             if (row.JoinedViewers >= BuddyLimits.MaxViewers)
                 return SharingResult<TripJoinedDto>.Fail(BuddyErrorTypes.TripFull, new { seatsLeft = 0 });
             // At the trip limit nothing is written: the invite keeps waiting until a slot is freed.
-            if (await TripSlots.ReadAsync(db, callerId, c) is { } slots && TripSlotRules.IsFull(slots.Count))
+            if (await TripSlots.ReadAsync(db, callerId, activeTripLimit, c) is { } slots && TripSlotRules.IsFull(slots.Count, activeTripLimit))
                 return SharingResult<TripJoinedDto>.Fail(BuddyErrorTypes.TripLimitReached, slots);
 
             var version = (await db.Database.SqlQueryRaw<int>(AcceptSql, Id("member", memberId)).ToListAsync(c)).FirstOrDefault();
@@ -202,6 +213,7 @@ public sealed class TripInviteService(
             await notices.UpsertAsync([new NoticeUpsert(row.OwnerUserId, NoticeKinds.TripJoined, row.TripId, callerId)], c);
             await notices.PushAsync([BuddyPushCopy.TripMemberJoined(row.OwnerUserId, memberId, version, row.TripId,
                 row.InviteeName, row.Title, row.JoinedViewers + 2)], c);
+            await groupChat.OnMemberJoinedAsync(row.TripId, callerId, c);
             await tx.CommitAsync(c);
             ownerToTell = row.OwnerUserId;
             return Joined(row.TripId);
@@ -209,6 +221,7 @@ public sealed class TripInviteService(
 
         if (ownerToTell is { } owner)
         {
+            await afterCommit.FlushAsync();
             notices.Wake();
             await hints.TripViewChangedAsync(first.TripId, [owner, callerId]);
         }

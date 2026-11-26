@@ -16,13 +16,15 @@ namespace RentNearBy.Infrastructure.Services.Owner.Be4;
 // (FB-58: never from the 3-row slots list); owner only: (3) its enquiries, projected; (4) the trip's taxi request summary.
 // A joined viewer never gets the owner's enquiry data (FB-02): no status, no next step, no progress.
 // Progress is TripEasyRows output (the same rows as the trip screen); the status line comes from the same enquiry rows.
-public sealed class SeekerFeedReader(ApplicationDbContext db, TimeProvider clock)
+// The active-trip limit is the seeker's plan value (ISeekerLimits); without the seam the message fallback limit is used.
+public sealed class SeekerFeedReader(ApplicationDbContext db, TimeProvider clock, RentNearBy.Core.Interfaces.Social.ISeekerLimits? seekerLimits = null)
 {
     public async Task<SeekerFeedDto> ReadAsync(Guid userId, CancellationToken ct = default)
     {
         var today = IstTime.TodayIst(clock.GetUtcNow().UtcDateTime);
-        var slots = await TripSlots.ReadAsync(db, userId, ct);
-        var dto = new SeekerFeedDto { Slots = new SeekerSlotsDto(slots.Count, slots.Limit, TripSlotRules.IsFull(slots.Count)) };
+        var limit = seekerLimits is null ? TripLimits.MaxTripsPerUser : (await seekerLimits.GetAsync(userId, ct)).ActiveTrips;
+        var slots = await TripSlots.ReadAsync(db, userId, limit, ct);
+        var dto = new SeekerFeedDto { Slots = new SeekerSlotsDto(slots.Count, slots.Limit, TripSlotRules.IsFull(slots.Count, limit)) };
         if (slots.Count == 0) return dto;
 
         // Same order as SeekerStatusRules.Choose: not ended, start date (nulls last), end date, id.

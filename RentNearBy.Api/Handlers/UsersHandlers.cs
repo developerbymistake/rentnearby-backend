@@ -6,7 +6,9 @@ using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Social;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Social;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers;
@@ -35,7 +37,8 @@ public static class UsersHandlers
         IValidator<UpdateNameRequest> validator,
         IUnitOfWork unitOfWork,
         IMemoryCache cache,
-        IUsernameService usernames)
+        IUsernameService usernames,
+        INameChangeGate nameGate)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -46,6 +49,11 @@ public static class UsersHandlers
 
         var user = await unitOfWork.Users.GetByIdAsync(userId);
         if (user == null) return NotFoundResponse("User not found");
+
+        // Spec 23.9: an account with a traveller profile keeps the 14-day name rule on this route too.
+        if (SocialRules.IsNameChange(user.Name, request.Name!.Trim()) && await nameGate.TryStampAsync(userId) is { } nextAllowedAt)
+            return ErrorResponse(SocialErrorTypes.StatusOf(SocialErrorTypes.NameChangeTooSoon),
+                SocialErrorTypes.MessageOf(SocialErrorTypes.NameChangeTooSoon), SocialErrorTypes.NameChangeTooSoon, new { nextAllowedAt });
 
         user.Name = request.Name!;
         user.UpdatedAt = DateTime.UtcNow;
@@ -115,6 +123,8 @@ public static class UsersHandlers
     {
         await usernames.EnsureAsync(user);
         var dto = user.Adapt<UserDto>();
+        dto.Gender = await unitOfWork.Users.GetSocialGenderAsync(user.Id);
+        dto.ProfileCompleted = dto.Gender != null;
         dto.RoleTabActive = TabState.IsActive(await ConfigHandlers.GetAppTabsCachedAsync(unitOfWork, cache), UserRoles.TabKeyOf(user.RoleId));
         var latest = await unitOfWork.RoleChangeRequests.GetLatestForUserAsync(user.Id);
         dto.RoleRequestStatus = latest?.Status;

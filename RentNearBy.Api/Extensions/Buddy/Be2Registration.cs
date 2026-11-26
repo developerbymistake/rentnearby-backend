@@ -29,6 +29,7 @@ public static class Be2Registration
         app.MapGroup("/api/v1/trips")
             .WithTags("Trips")
             .AddEndpointFilter<TripPlannerGateFilter>()
+            .AddEndpointFilter<TripPlanPauseFilter>()
             .MapTripSharingEndpoints();
         return app;
     }

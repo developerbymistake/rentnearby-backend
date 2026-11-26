@@ -531,7 +531,8 @@ public class Be1BuddyIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.NotNull(await ctx.Users.AsNoTracking().Where(u => u.Id == p[0]).Select(u => u.BuddyRequestsHeldUntil).SingleAsync());
         var counts = await kit.Reports.CountsAsync(p[0]);
         Assert.Equal((3, 3), (counts.Reports30d, counts.Reporters30d));
-        Assert.Equal(4, (await kit.Reports.ReasonsAsync()).Count);
+        // 4 buddy reasons + 6 social person reasons (social contract 2.7), all seeded by DataSeeder.
+        Assert.Equal(10, (await kit.Reports.ReasonsAsync()).Count);
     }
 
     // ---------- job, account deletion ----------

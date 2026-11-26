@@ -5,6 +5,7 @@ using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.Owner.Be3;
+using RentNearBy.Infrastructure.Services.Social;
 
 // Interpolated parts are table names from the fixed Table() whitelist and catalog-typed values; every
 // user-controlled value is a positional parameter.
@@ -17,7 +18,7 @@ namespace RentNearBy.Infrastructure.Services;
 // input) with the state predicate repeated in the UPDATE.
 public class PlanSlotService(
     ApplicationDbContext db, IPlanEntitlementService entitlements, IPlanCatalogCache catalog, IPaymentFeatureReader payment,
-    PlanLimitsReconcile planRows)
+    PlanLimitsReconcile planRows, SeekerPlanReconcile? seekerPlans = null)
     : ILiveSlotService
 {
     private sealed class DistrictRow
@@ -67,6 +68,12 @@ public class PlanSlotService(
 
     public async Task ApplyGrantEffectsAsync(Guid userId, string featureKey)
     {
+        // Bakhli Plus has no listing effects (rank, featured, hidden rows); it brings back the trips and posts the plan took off.
+        if (featureKey == PlanFeatures.Seeker)
+        {
+            await SeekerPlansAsync(userId);
+            return;
+        }
         var limits = await entitlements.GetLimitsAsync(userId, featureKey);
         await SetRankAsync(userId, featureKey, limits.PriorityRank, limits.IsFeatured, limits.RingWeight);
         var rows = await planRows.ApplyForOwnerAsync(userId, featureKey, limits);
@@ -75,6 +82,9 @@ public class PlanSlotService(
 
     public async Task<ExpireEffectsResult> ExpireEffectsAsync(Guid userId, string featureKey)
     {
+        // Bakhli Plus (PLAN_STATES_SOCIAL 1): the last trips and posts stay, older ones go inactive or paused, never deleted.
+        if (featureKey == PlanFeatures.Seeker)
+            return new ExpireEffectsResult((await SeekerPlansAsync(userId)).Lost, 0, 0);
         var limits = await entitlements.GetLimitsAsync(userId, featureKey);
         var reranked = await SetRankAsync(userId, featureKey, limits.PriorityRank, limits.IsFeatured, limits.RingWeight);
         var rows = await planRows.ApplyForOwnerAsync(userId, featureKey, limits);
@@ -82,9 +92,26 @@ public class PlanSlotService(
         return new ExpireEffectsResult(Math.Max(0, rows.HiddenAfter - rows.HiddenBefore), 0, reranked);
     }
 
-    public Task AfterCommitAsync() => planRows.AfterCommitAsync();
+    // Inside the caller's transaction (the normal plan paths hold it with the owner lock); a caller without one gets the lazy path.
+    private async Task<SeekerPlanEffect> SeekerPlansAsync(Guid userId)
+    {
+        if (seekerPlans == null) return SeekerPlanEffect.None;
+        if (db.Database.CurrentTransaction != null) return await seekerPlans.ApplyAsync(userId);
+        await seekerPlans.EnsureAsync(userId);
+        return SeekerPlanEffect.None;
+    }
 
-    public void DropAfterCommit() => planRows.DropAfterCommit();
+    public async Task AfterCommitAsync()
+    {
+        await planRows.AfterCommitAsync();
+        if (seekerPlans != null) await seekerPlans.AfterCommitAsync();
+    }
+
+    public void DropAfterCommit()
+    {
+        planRows.DropAfterCommit();
+        seekerPlans?.DropAfterCommit();
+    }
 
     public async Task<LimitsReconcileSummary> ReconcileLimitsAsync(string kind, CancellationToken ct = default)
     {

@@ -143,6 +143,9 @@ public class NotOnTripDataDto
 
 public class TripViewerDto
 {
+    // Social contract 2.5: joined by request before the start date; stay, taxi and money blocks are empty.
+    public bool DetailsLocked { get; set; }
+
     public Guid TripId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;

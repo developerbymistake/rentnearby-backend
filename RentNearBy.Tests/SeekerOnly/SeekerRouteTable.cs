@@ -204,17 +204,11 @@ public static class SeekerRouteTable
         "POST /api/v1/taxi-requests/{requestId:guid}/rating",
     ];
 
-    // 10 routes
+    // 4 routes (6 buddy request routes retired by social D3)
     public static readonly string[] Buddies =
     [
         "POST /api/v1/buddies/find",
-        "POST /api/v1/buddies/requests",
-        "GET /api/v1/buddies/requests",
-        "POST /api/v1/buddies/requests/{id:guid}/accept",
-        "POST /api/v1/buddies/requests/{id:guid}/decline",
-        "POST /api/v1/buddies/requests/{id:guid}/cancel",
         "GET /api/v1/buddies",
-        "POST /api/v1/buddies/seen",
         "GET /api/v1/buddies/summary",
         "DELETE /api/v1/buddies/{userId:guid}",
     ];
@@ -243,13 +237,53 @@ public static class SeekerRouteTable
         "PUT /api/v1/taxis/journeys/{id:guid}/status",
     ];
 
+    // 35 routes: Bakhli social (CONTRACT_SOCIAL section 2), every one SeekerOnly
+    public static readonly string[] Social =
+    [
+        "GET /api/v1/social/me",
+        "PUT /api/v1/social/me/profile",
+        "PUT /api/v1/social/me/privacy",
+        "POST /api/v1/social/me/guidelines",
+        "GET /api/v1/social/travellers/{userId:guid}",
+        "PUT /api/v1/social/travellers/{userId:guid}/follow",
+        "DELETE /api/v1/social/travellers/{userId:guid}/follow",
+        "GET /api/v1/social/followers",
+        "GET /api/v1/social/following",
+        "DELETE /api/v1/social/followers/{userId:guid}",
+        "GET /api/v1/social/follow-requests",
+        "POST /api/v1/social/follow-requests/{userId:guid}/accept",
+        "POST /api/v1/social/follow-requests/{userId:guid}/decline",
+        "PUT /api/v1/social/buddies/{userId:guid}",
+        "GET /api/v1/social/trips/feed",
+        "GET /api/v1/social/trips/rail",
+        "GET /api/v1/social/trips/{tripId:guid}",
+        "POST /api/v1/social/trips",
+        "PUT /api/v1/social/trips/{tripId:guid}/post",
+        "DELETE /api/v1/social/trips/{tripId:guid}/post",
+        "POST /api/v1/social/trips/{tripId:guid}/join-requests",
+        "DELETE /api/v1/social/trips/{tripId:guid}/join-requests/mine",
+        "GET /api/v1/social/trips/{tripId:guid}/join-requests",
+        "POST /api/v1/social/join-requests/{id:guid}/accept",
+        "POST /api/v1/social/join-requests/{id:guid}/decline",
+        "GET /api/v1/social/chat/rooms",
+        "GET /api/v1/social/chat/with/{userId:guid}",
+        "GET /api/v1/social/chat/trip/{tripId:guid}",
+        "GET /api/v1/social/chat/rooms/{roomId:guid}",
+        "POST /api/v1/social/chat/rooms",
+        "GET /api/v1/social/chat/rooms/{roomId:guid}/messages",
+        "POST /api/v1/social/chat/rooms/{roomId:guid}/messages",
+        "POST /api/v1/social/chat/rooms/{roomId:guid}/read",
+        "DELETE /api/v1/social/chat/rooms/{roomId:guid}",
+        "POST /api/v1/social/reports",
+    ];
+
     // 1 routes
     public static readonly string[] SeekerFeed =
     [
         "GET /api/v1/home/seeker-feed",
     ];
 
-    // 72 routes
+    // 74 routes
     public static readonly string[] OpenUser =
     [
         "POST /api/v1/auth/send-otp",
@@ -259,6 +293,7 @@ public static class SeekerRouteTable
         "PUT /api/v1/users/profile/name",
         "PUT /api/v1/users/profile/contact-visibility",
         "PUT /api/v1/users/me/photo",
+        "DELETE /api/v1/users/me/photo",
         "GET /api/v1/users/reports",
         "PUT /api/v1/users/me/role-choice",
         "PUT /api/v1/users/me/role-correction",
@@ -324,6 +359,7 @@ public static class SeekerRouteTable
         "PUT /api/v1/notifications/notices/{id:guid}/read",
         "GET /api/v1/festivals",
         "GET /api/v1/owner/home",
+        "PUT /api/v1/social/me/onboarding",
     ];
 
     // 42 routes
@@ -417,7 +453,7 @@ public static class SeekerRouteTable
         "PUT /api/v1/taxis/me/plan-visible",
     ];
 
-    // 124 routes
+    // 127 routes
     public static readonly string[] Admin =
     [
         "POST /api/v1/admin-auth/logout",
@@ -544,6 +580,9 @@ public static class SeekerRouteTable
         "GET /api/v1/admin/stays/pending-edits",
         "POST /api/v1/admin/stays/{id:guid}/pending-edit/approve",
         "POST /api/v1/admin/stays/{id:guid}/pending-edit/reject",
+        "GET /api/v1/admin/reports/{id:guid}/snapshot",
+        "POST /api/v1/admin/social/trips/{tripId:guid}/unpublish",
+        "PUT /api/v1/admin/users/{id:guid}/identity",
     ];
 
     // 45 routes
@@ -599,6 +638,6 @@ public static class SeekerRouteTable
     public static readonly string[] Seeker =
     [
         .. TripsCore, .. PlannerReads, .. ExecutionTravellerSide, .. Shortlist, .. Lifecycle, .. Sharing, .. Expenses, .. Payments,
-        .. TaxiRequestOnTrip, .. TaxiRequest, .. Buddies, .. PersonSafety, .. Journeys, .. SeekerFeed,
+        .. TaxiRequestOnTrip, .. TaxiRequest, .. Buddies, .. PersonSafety, .. Journeys, .. SeekerFeed, .. Social,
     ];
 }

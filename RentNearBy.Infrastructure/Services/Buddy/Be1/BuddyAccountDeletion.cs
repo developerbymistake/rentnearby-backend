@@ -24,6 +24,7 @@ public sealed class BuddyAccountDeletion(ApplicationDbContext db) : IAccountDele
     // Everyone he shares a pair lock with: buddies (B10, block, S2 invites) and open requests either way (accept, decline, cancel).
     internal static readonly string PartnersSql = $"""
         SELECT b."BuddyUserId" AS "Value" FROM "Buddies" b WHERE b."UserId" = @me
+        UNION SELECT b."UserId" FROM "Buddies" b WHERE b."BuddyUserId" = @me
         UNION SELECT r."ToUserId" FROM "BuddyRequests" r WHERE r."FromUserId" = @me AND r."Status" = '{BuddyRequestStatuses.Pending}'
         UNION SELECT r."FromUserId" FROM "BuddyRequests" r WHERE r."ToUserId" = @me AND r."Status" = '{BuddyRequestStatuses.Pending}'
         """;

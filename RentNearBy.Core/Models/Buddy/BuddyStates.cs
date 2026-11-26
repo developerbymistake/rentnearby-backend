@@ -147,6 +147,17 @@ public static class NoticeKinds
     public const string FestivalReminder = "FestivalReminder";
     public const string PlanLimitsChanged = "PlanLimitsChanged";
     public const string PlansStarting = "PlansStarting";
+    // Bakhli social (contract 5). TripId is the entity slot: the actor for follow kinds, the request id for JoinRequest
+    // (RefId = the trip), the trip for the others.
+    public const string FollowRequest = "FollowRequest";
+    public const string NewFollower = "NewFollower";
+    public const string FollowAccepted = "FollowAccepted";
+    public const string JoinRequest = "JoinRequest";
+    public const string JoinAccepted = "JoinAccepted";
+    public const string JoinDeclined = "JoinDeclined";
+    public const string FollowedPosted = "FollowedPosted";
+
+    public static readonly IReadOnlyList<string> Social = [FollowRequest, NewFollower, FollowAccepted, JoinRequest, JoinAccepted, JoinDeclined, FollowedPosted];
 
     public static readonly IReadOnlyList<string> Owner = [StayEditApproved, StayEditRejected, FestivalReminder, PlanLimitsChanged, PlansStarting];
 
@@ -155,6 +166,7 @@ public static class NoticeKinds
         BuddyRequest, TripInvite, PaymentSaidPaid, SettleReminder, PaymentNotReceived, ExpensesChanged, TripRemoved, TripDeleted,
         BuddyAccepted, NewBuddy, TripJoined, PlanUpdated, ExpenseAdded, ShareChanged,
         StayEditApproved, StayEditRejected, FestivalReminder, PlanLimitsChanged, PlansStarting,
+        FollowRequest, NewFollower, FollowAccepted, JoinRequest, JoinAccepted, JoinDeclined, FollowedPosted,
     ];
     public static readonly IReadOnlyList<string> WithAmount = [PaymentSaidPaid, SettleReminder, PaymentNotReceived, ExpenseAdded, ShareChanged];
     // Rows of a viewer that go when he is removed from the trip (or leaves, plan rows only).
@@ -179,8 +191,12 @@ public static class UserReportContexts
     public const string Buddy = "Buddy";
     public const string Find = "Find";
     public const string Trip = "Trip";
+    public const string Profile = "Profile";
+    public const string TripPost = "TripPost";
+    public const string Chat = "Chat";
+    public const string JoinReq = "JoinReq";
 
-    public static readonly IReadOnlyList<string> All = [Request, Buddy, Find, Trip];
+    public static readonly IReadOnlyList<string> All = [Request, Buddy, Find, Trip, Profile, TripPost, Chat, JoinReq];
 }
 
 public static class TripAccessStatuses

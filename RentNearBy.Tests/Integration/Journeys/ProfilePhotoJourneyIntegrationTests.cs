@@ -156,6 +156,41 @@ public class ProfilePhotoJourneyIntegrationTests(TestDatabase db) : IntegrationT
     }
 
     [IntegrationFact]
+    public async Task Own_remove_clears_the_picture_without_the_admin_ask_and_is_idempotent()
+    {
+        await using var h = new JourneyHarness(Db);
+        var userId = await h.AddSeekerAsync();
+        var photos = new FreshPathPhotoService();
+        await UploadAsync(h, userId, photos);
+        var storedPath = (await ReadAsync(userId)).Path;
+
+        async Task<UserDto> OwnRemoveAsync()
+        {
+            MappingsOnce.Ensure();
+            await using var c = CreateContext();
+            var result = await UserPhotoHandlers.RemovePhoto(Principal(userId), c, new UnitOfWork(c), photos, h.Cache,
+                new UsernameService(new UnitOfWork(c), new FakePendingStore()), Services());
+            Assert.Equal(200, StatusOf(result));
+            return DataOf<UserDto>(result);
+        }
+
+        var dto = await OwnRemoveAsync();
+        Assert.Null(dto.ProfilePhotoUrl);
+        Assert.False(dto.ProfilePhotoRemoved);
+        var row = await ReadAsync(userId);
+        Assert.Null(row.Url);
+        Assert.Null(row.Path);
+        Assert.Null(row.At);
+        Assert.Equal([storedPath], photos.Deleted.ToArray());
+
+        var again = await OwnRemoveAsync();
+        Assert.Null(again.ProfilePhotoUrl);
+        Assert.Single(photos.Deleted);
+        await using var check = CreateContext();
+        Assert.False(await check.NotificationEvents.AnyAsync(n => n.TargetUserId == userId && n.Type == NotificationTypes.ProfilePhotoRemoved));
+    }
+
+    [IntegrationFact]
     public async Task Account_deletion_after_an_upload_deletes_the_users_cloudinary_prefix()
     {
         await using var h = new JourneyHarness(Db);

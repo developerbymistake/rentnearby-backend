@@ -209,7 +209,7 @@ public class PlayEntitlementApplier(
 
         if (snapshot.State == PlayStates.InGracePeriod && prevState != PlayStates.InGracePeriod)
         {
-            notification = PlanNotifications.PaymentIssue(row.UserId, target.Plan.Name);
+            notification = PlanNotifications.PaymentIssue(row.UserId, row.FeatureKey, target.Plan.Name);
             db.NotificationEvents.Add(notification);
             await db.SaveChangesAsync();
         }

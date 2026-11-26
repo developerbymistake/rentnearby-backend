@@ -150,6 +150,11 @@ public class TripDto
     public RentNearBy.Core.DTOs.TaxiRequests.TripTaxiRequestRefDto? TaxiRequest { get; set; }
     // Owner answers only (GET /trips/{id}, create, plan save, complete-plan; ITripSharingHooks); null elsewhere.
     public RentNearBy.Core.DTOs.Buddy.TripSharingBlockDto? Sharing { get; set; }
+    // PLAN_STATES_SOCIAL 3: kept read-only after Plus ended (beyond the Free active-trips limit).
+    public bool InactiveByPlan { get; set; }
+    // Bakhli social: the trip is a LIVE public post now (public, Draft/Planned, not started, inside its window), so the owner
+    // overview shows "posted" instead of "Post to find buddies". An expired window reads false (post it again).
+    public bool IsPublic { get; set; }
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -229,6 +234,7 @@ public class TripSummaryDto
     public string BookingState { get; set; } = TripBookingStates.Draft;
     public TripProgress Progress { get; set; } = new();
     public int AgreedTotal { get; set; }
+    public bool InactiveByPlan { get; set; }
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

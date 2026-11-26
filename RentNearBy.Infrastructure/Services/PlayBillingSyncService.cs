@@ -510,8 +510,8 @@ public class PlayBillingSyncService(
             if (await ExpirePlayRowInTxAsync(ownedPlan, sub.Id, snapshot.State, now))
             {
                 var n = paused
-                    ? PlanNotifications.Paused(userId, planName, snapshot.PausedAutoResumeTime)
-                    : PlanNotifications.OnHold(userId, planName);
+                    ? PlanNotifications.Paused(userId, ownedPlan.FeatureKey, planName, snapshot.PausedAutoResumeTime)
+                    : PlanNotifications.OnHold(userId, ownedPlan.FeatureKey, planName);
                 db.NotificationEvents.Add(n);
                 var expired = new Applied
                 {
@@ -528,8 +528,8 @@ public class PlayBillingSyncService(
         {
             var planName = cat.GetPlan(ownedPlan?.PlanId ?? mapping.Plan.Id)?.Name ?? mapping.Plan.Name;
             var n = paused
-                ? PlanNotifications.Paused(userId, planName, snapshot.PausedAutoResumeTime)
-                : PlanNotifications.OnHold(userId, planName);
+                ? PlanNotifications.Paused(userId, feature, planName, snapshot.PausedAutoResumeTime)
+                : PlanNotifications.OnHold(userId, feature, planName);
             db.NotificationEvents.Add(n);
             var pushed = new Applied { Result = applied.Result with { Notification = n } };
             pushed.Notifications.Add(n);
@@ -567,7 +567,8 @@ public class PlayBillingSyncService(
                     ? await CancelPlayRowInTxAsync(ownedPlan, sub.Id, snapshot.State, now)
                     : await ExpirePlayRowInTxAsync(ownedPlan, sub.Id, snapshot.State, now);
                 if (!ended) return applied;
-                n = PlanNotifications.Ended(userId, planName, await LatestChargeRefundedAsync(sub, snapshot));
+                n = PlanNotifications.Ended(userId, feature, planName, await LatestChargeRefundedAsync(sub, snapshot));
+                await PlanNotifications.ForSeekerEndAsync(db, n, feature, userId);
                 db.NotificationEvents.Add(n);
             }
             var done = new Applied
@@ -583,7 +584,8 @@ public class PlayBillingSyncService(
         if (ownedPlan is { Status: UserPlanStatuses.Expired } && prevState is PlayStates.OnHold or PlayStates.Paused)
         {
             var planName = cat.GetPlan(ownedPlan.PlanId)?.Name ?? mapping.Plan.Name;
-            var n = PlanNotifications.Ended(userId, planName, await LatestChargeRefundedAsync(sub, snapshot));
+            var n = PlanNotifications.Ended(userId, ownedPlan.FeatureKey, planName, await LatestChargeRefundedAsync(sub, snapshot));
+            await PlanNotifications.ForSeekerEndAsync(db, n, ownedPlan.FeatureKey, userId);
             db.NotificationEvents.Add(n);
             var pushed = new Applied { Result = applied.Result with { UserPlanId = ownedPlan.Id, Notification = n } };
             pushed.Notifications.Add(n);
@@ -643,7 +645,7 @@ public class PlayBillingSyncService(
 
         logger.LogInformation(PlaySyncLogEvents.CarryOverApplied, "Plan {UserPlanId} of user {UserId} moved to {Days} carry-over days",
             row.Id, row.UserId, days);
-        var n = PlanNotifications.CarryOverActivated(row.UserId, planName, days, endsAt);
+        var n = PlanNotifications.CarryOverActivated(row.UserId, row.FeatureKey, planName, days, endsAt);
         db.NotificationEvents.Add(n);
         return n;
     }
@@ -870,7 +872,7 @@ public class PlayBillingSyncService(
     private async Task<string?> RoleFeatureAsync(Guid userId)
     {
         var roleId = await db.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => (Guid?)u.RoleId).FirstOrDefaultAsync();
-        return roleId == null ? null : UserRoles.ListingKindOf(roleId.Value);
+        return roleId == null ? null : UserRoles.PlanFeatureOf(roleId.Value);
     }
 
     // D-11: a token that names an obfuscated account must name this user's.
@@ -1146,7 +1148,8 @@ public class PlayBillingSyncService(
             .AnyAsync(u => u.UserId == charge.UserId && u.FeatureKey == charge.FeatureKey && u.Status == UserPlanStatuses.Active);
         if (entitled) return result;
 
-        var n = PlanNotifications.Ended(charge.UserId.Value, charge.PlanNameSnapshot, refunded: true);
+        var n = PlanNotifications.Ended(charge.UserId.Value, charge.FeatureKey, charge.PlanNameSnapshot, refunded: true);
+        await PlanNotifications.ForSeekerEndAsync(db, n, charge.FeatureKey, charge.UserId.Value);
         db.NotificationEvents.Add(n);
         await db.SaveChangesAsync();
         await PlanNotifications.PublishAsync(publisher, n, logger);

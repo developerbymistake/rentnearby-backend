@@ -34,6 +34,7 @@ public sealed class TripBalanceReader(ApplicationDbContext db, ITripAccess acces
     {
         var trip = await access.GetAsync(tripId, callerId, ct);
         if (trip is null) return ExpenseResult<BalancesDto>.Fail(BuddyErrorTypes.TripNotFound);
+        if (trip.DetailsLocked) return ExpenseResult<BalancesDto>.Fail(BuddyErrorTypes.OpensAtStart);
         var travellers = await access.GetTravellersAsync(tripId, includeFormer: true, ct);
         var order = MoneyPeople.CanonicalOrder(travellers, []);
         var snapshot = await ledger.LoadAsync(tripId, order, ct);
@@ -151,6 +152,7 @@ public sealed class TripBalanceReader(ApplicationDbContext db, ITripAccess acces
     {
         var trip = await access.GetAsync(tripId, callerId, ct);
         if (trip is null || trip.Level == TripAccessLevel.Former) return ExpenseResult<ExpenseSummaryDto>.Fail(BuddyErrorTypes.TripNotFound);
+        if (trip.DetailsLocked) return ExpenseResult<ExpenseSummaryDto>.Fail(BuddyErrorTypes.OpensAtStart);
         var travellers = await access.GetTravellersAsync(tripId, includeFormer: true, ct);
         var order = MoneyPeople.CanonicalOrder(travellers, []);
         var snapshot = await ledger.LoadAsync(tripId, order, ct);

@@ -12,6 +12,7 @@ using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.Social;
 using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
@@ -24,50 +25,66 @@ public static class PlanNotifications
 
     private static string Day(DateTime utc) => utc.AddMinutes(330).ToString("dd MMM yyyy");
 
-    public static NotificationEvent Activated(Guid userId, string planName, DateTime endsAt) =>
-        Make(userId, NotificationTypes.PlanActivated, "Plan active", $"{planName} is active till {Day(endsAt)}.");
+    public static NotificationEvent Activated(Guid userId, string featureKey, string planName, DateTime endsAt) =>
+        Make(userId, featureKey, NotificationTypes.PlanActivated, "Plan active", $"{planName} is active till {Day(endsAt)}.");
 
-    public static NotificationEvent Expiring(Guid userId, string planName, DateTime endsAt) =>
-        Make(userId, NotificationTypes.PlanExpiring, "Plan ends soon", $"{planName} ends on {Day(endsAt)}. Renew to keep your benefits.");
+    public static NotificationEvent Expiring(Guid userId, string featureKey, string planName, DateTime endsAt) =>
+        Make(userId, featureKey, NotificationTypes.PlanExpiring, "Plan ends soon", $"{planName} ends on {Day(endsAt)}. Renew to keep your benefits.");
 
-    public static NotificationEvent Expired(Guid userId, string planName) =>
-        Make(userId, NotificationTypes.PlanExpired, "Plan ended", $"{planName} has ended. You are on the free plan now.");
+    public static NotificationEvent Expired(Guid userId, string featureKey, string planName) =>
+        Make(userId, featureKey, NotificationTypes.PlanExpired, "Plan ended", $"{planName} has ended. You are on the free plan now.");
 
-    public static NotificationEvent Renewed(Guid userId, string planName, DateTime endsAt) =>
-        Make(userId, NotificationTypes.PlanRenewed, "Plan renewed", $"{planName} renewed till {Day(endsAt)}.");
+    public static NotificationEvent Renewed(Guid userId, string featureKey, string planName, DateTime endsAt) =>
+        Make(userId, featureKey, NotificationTypes.PlanRenewed, "Plan renewed", $"{planName} renewed till {Day(endsAt)}.");
 
-    public static NotificationEvent PaymentIssue(Guid userId, string planName) =>
-        Make(userId, NotificationTypes.PlanPaymentIssue, "Payment issue", "Payment failed. Update your payment method in Google Play.");
+    public static NotificationEvent PaymentIssue(Guid userId, string featureKey, string planName) =>
+        Make(userId, featureKey, NotificationTypes.PlanPaymentIssue, "Payment issue", "Payment failed. Update your payment method in Google Play.");
 
-    public static NotificationEvent OnHold(Guid userId, string planName) =>
-        Make(userId, NotificationTypes.PlanOnHold, "Payment on hold", $"{planName} is paused until the payment is fixed in Google Play.");
+    public static NotificationEvent OnHold(Guid userId, string featureKey, string planName) =>
+        Make(userId, featureKey, NotificationTypes.PlanOnHold, "Payment on hold", $"{planName} is paused until the payment is fixed in Google Play.");
 
-    public static NotificationEvent Paused(Guid userId, string planName, DateTime? resumesAt) =>
-        Make(userId, NotificationTypes.PlanPaused, "Subscription paused",
+    public static NotificationEvent Paused(Guid userId, string featureKey, string planName, DateTime? resumesAt) =>
+        Make(userId, featureKey, NotificationTypes.PlanPaused, "Subscription paused",
             resumesAt != null ? $"Resumes on {Day(resumesAt.Value)}." : "Resume it in Google Play.");
 
-    public static NotificationEvent ExpiringCancelled(Guid userId, string planName, DateTime endsAt) =>
-        Make(userId, NotificationTypes.PlanExpiring, "Plan ends soon", $"{planName} ends on {Day(endsAt)}. Resubscribe to keep your benefits.");
+    public static NotificationEvent ExpiringCancelled(Guid userId, string featureKey, string planName, DateTime endsAt) =>
+        Make(userId, featureKey, NotificationTypes.PlanExpiring, "Plan ends soon", $"{planName} ends on {Day(endsAt)}. Resubscribe to keep your benefits.");
 
-    public static NotificationEvent Ended(Guid userId, string planName, bool refunded) =>
-        Make(userId, NotificationTypes.PlanExpired, "Plan ended", refunded
+    public static NotificationEvent Ended(Guid userId, string featureKey, string planName, bool refunded) =>
+        Make(userId, featureKey, NotificationTypes.PlanExpired, "Plan ended", refunded
             ? "Subscription refunded. You are on the free plan now."
             : "Subscription ended. You are on the free plan now.");
 
-    public static NotificationEvent CarryOverActivated(Guid userId, string planName, int days, DateTime endsAt) =>
-        Make(userId, NotificationTypes.PlanCarryOverActivated, "Bonus days active", $"{days} bonus days on {planName} till {Day(endsAt)}.");
+    public static NotificationEvent CarryOverActivated(Guid userId, string featureKey, string planName, int days, DateTime endsAt) =>
+        Make(userId, featureKey, NotificationTypes.PlanCarryOverActivated, "Bonus days active", $"{days} bonus days on {planName} till {Day(endsAt)}.");
 
-    public static NotificationEvent AdminGrantCarryOver(Guid userId, int days) =>
-        Make(userId, NotificationTypes.PlanActivated, "Days added", $"+{days} days added after your subscription.");
+    public static NotificationEvent AdminGrantCarryOver(Guid userId, string featureKey, int days) =>
+        Make(userId, featureKey, NotificationTypes.PlanActivated, "Days added", $"+{days} days added after your subscription.");
 
-    private static NotificationEvent Make(Guid userId, string type, string title, string body) => new()
+    // The one place that picks a plan notice's page: Bakhli Plus opens the Plus screen (a seeker cannot open the owner-only
+    // /plans page), every other feature opens /plans.
+    public static string RouteOf(string? featureKey) =>
+        featureKey == PlanFeatures.Seeker ? UserNotificationRoutes.SeekerPlus : UserNotificationRoutes.Plans;
+
+    // Bakhli Plus (PLAN_STATES_SOCIAL 2): the one end notice says what stayed active and what was paused, and opens the Plus
+    // screen. Called after the expiry effects, before the caller's SaveChanges; other features keep their words.
+    public static async Task ForSeekerEndAsync(ApplicationDbContext db, NotificationEvent n, string featureKey, Guid userId)
+    {
+        if (featureKey != PlanFeatures.Seeker) return;
+        var counts = await Social.SeekerPlanReconcile.CountsAsync(db, userId);
+        n.Title = SeekerPlanCopy.EndedTitle;
+        n.Body = SeekerPlanCopy.Ended(counts.Active, counts.Paused);
+        n.ActionRoute = UserNotificationRoutes.SeekerPlus;
+    }
+
+    private static NotificationEvent Make(Guid userId, string featureKey, string type, string title, string body) => new()
     {
         Id = Guid.NewGuid(),
         TargetUserId = userId,
         Type = type,
         Title = title,
         Body = body,
-        ActionRoute = UserNotificationRoutes.Plans,
+        ActionRoute = RouteOf(featureKey),
         CreatedAt = DateTime.UtcNow,
     };
 
@@ -141,7 +158,7 @@ public class PlanPurchaseService(
     {
         var snapshot = await catalog.GetAsync();
         var dto = new PlanCatalogDto { PaymentProvider = (await payment.GetAsync()).Provider };
-        foreach (var feature in PlanFeatures.All)
+        foreach (var feature in PlanFeatures.Purchasable)
         {
             if (featureKey != null && feature != featureKey) continue;
             var plans = snapshot.PlansOf(feature).Where(p => p.IsEnabled).ToList();
@@ -169,7 +186,9 @@ public class PlanPurchaseService(
             IsEnabled = p.IsEnabled,
             TrialDays = p.TrialDays,
             PlayProductId = p.PlayProductId,
-            Features = PlanFeatureKeys.All.ToDictionary(k => k, k => p.Features.GetValueOrDefault(k)),
+            // Seeker plans (Bakhli Plus) carry the seeker keys (contract 4); listing plans the listing keys.
+            Features = (p.FeatureKey == PlanFeatures.Seeker ? SeekerPlanKeys.All : PlanFeatureKeys.All)
+                .ToDictionary(k => k, k => p.Features.GetValueOrDefault(k)),
             Prices = prices.Select(x =>
             {
                 var perMonth = x.PriceInr / Math.Max(1, (int)x.CycleMonths);
@@ -193,9 +212,8 @@ public class PlanPurchaseService(
     {
         var user = await GetUserAsync(userId);
         var flag = await payment.GetAsync();
-        var feature = UserRoles.ListingKindOf(user.RoleId);
+        var feature = UserRoles.PlanFeatureOf(user.RoleId);
         var dto = new MyPlanDto { PaymentEnabled = flag.Enabled, FreeDays = flag.FreeDays, FeatureKey = feature, PaymentProvider = flag.Provider };
-        if (feature == null) return dto;
 
         var limits = await entitlements.GetLimitsAsync(userId, feature);
         dto.Plan = new MyPlanRefDto { Id = limits.PlanId, Name = limits.PlanName, IsDefault = limits.IsDefaultPlan };
@@ -205,6 +223,14 @@ public class PlanPurchaseService(
         dto.StartsAt = limits.StartsAt;
         dto.EndsAt = limits.EndsAt;
         dto.DaysLeft = limits.EndsAt == null ? null : PlanTime.DaysLeft(limits.EndsAt.Value, DateTime.UtcNow);
+        // Bakhli Plus: the seeker numbers come from GET /social/me (ISeekerLimits); the listing blocks (typed limits, hidden rows,
+        // usage, plan card state) do not apply. Play facts and the open purchase do.
+        if (feature == PlanFeatures.Seeker)
+        {
+            await FillPlayAsync(dto, userId, feature);
+            dto.OpenPurchaseId = (await unitOfWork.PlanPurchases.GetOpenByUserFeatureAsync(userId, feature))?.Id;
+            return dto;
+        }
         dto.Limits = new MyPlanLimitsDto
         {
             ListingLimit = limits.ListingLimit,
@@ -308,11 +334,11 @@ public class PlanPurchaseService(
         return string.IsNullOrEmpty(package) ? url : $"{url}&package={Uri.EscapeDataString(package)}";
     }
 
-    // F-19 guard under Play: a configured trial offer, no Play subscription of the feature in any state and
+    // F-19 guard under Play: trial days above 0 and a configured trial offer, no Play subscription of the feature in any state and
     // no backend trial row. Google decides the per-Google-account eligibility on top of this.
     private async Task<bool> PlayTrialAvailableAsync(Guid userId, string feature, PlanCatalogSnapshot snapshot)
     {
-        var offered = snapshot.PlansOf(feature).Any(p => p.IsEnabled && !p.IsDefault && p.PlayProductId != null
+        var offered = snapshot.PlansOf(feature).Any(p => p.IsEnabled && !p.IsDefault && p.TrialDays > 0 && p.PlayProductId != null
             && p.Prices.Any(x => x.IsEnabled && x.CycleMonths == 1 && x.PlayBasePlanId != null && x.PlayTrialOfferId != null));
         return offered && !await PlayTrialUsedAsync(userId, feature);
     }
@@ -431,7 +457,7 @@ public class PlanPurchaseService(
             ?? throw PlanServiceException.BadRequest(PlanErrorTypes.PlanNotFound, "Plan not found.");
 
         var user = await GetUserAsync(userId);
-        if (UserRoles.ListingKindOf(user.RoleId) != plan.FeatureKey)
+        if (UserRoles.PlanFeatureOf(user.RoleId) != plan.FeatureKey)
             throw PlanServiceException.Forbidden(PlanErrorTypes.RoleMismatch, "This plan is not for your role.");
 
         var tabs = await AppTabCache.GetAsync(unitOfWork, memoryCache);
@@ -575,7 +601,7 @@ public class PlanPurchaseService(
         {
             if (!string.IsNullOrWhiteSpace(couponCode))
                 throw PlanServiceException.BadRequest(PlanErrorTypes.CouponInvalid, CouponInvalidMessage);
-            if (intent != PurchaseIntents.New || price.CycleMonths != 1 || plan.PlayProductId == null
+            if (intent != PurchaseIntents.New || price.CycleMonths != 1 || plan.TrialDays <= 0 || plan.PlayProductId == null
                 || price.PlayBasePlanId == null || price.PlayTrialOfferId == null || await PlayTrialUsedAsync(user.Id, feature))
                 throw PlanServiceException.Conflict(PlanErrorTypes.TrialNotAvailable, "Free trial is not available.");
         }
@@ -614,7 +640,7 @@ public class PlanPurchaseService(
             throw PlanServiceException.BadRequest(PlanErrorTypes.PlayNotConfigured, "This plan is not available yet.");
 
         if (useTrial)
-            return new QuoteCalc(plan, price, feature, PurchaseIntents.New, list, list, 0, 0, Math.Max(1, plan.TrialDays), null, false)
+            return new QuoteCalc(plan, price, feature, PurchaseIntents.New, list, list, 0, 0, plan.TrialDays, null, false)
             {
                 Provider = PaymentProviders.Play,
                 RequiresPayment = true,
@@ -1148,7 +1174,7 @@ public class PlanPurchaseService(
                 outcome = CaptureOutcome.Blocked;
             }
             else if (featureNow == null || purchase.UserId is not { } buyerId || buyerId != ownerId
-                || UserRoles.ListingKindOf(featureNow.Value) != purchase.FeatureKey)
+                || UserRoles.PlanFeatureOf(featureNow.Value) != purchase.FeatureKey)
             {
                 // Money taken but the role moved on: the reconciler refunds it in full.
                 purchase.Status = PurchaseStatuses.Paid;
@@ -1220,7 +1246,7 @@ public class PlanPurchaseService(
             .Where(u => u.Id == userId)
             .Select(u => (Guid?)u.RoleId)
             .FirstOrDefaultAsync();
-        if (roleId == null || UserRoles.ListingKindOf(roleId.Value) != featureKey)
+        if (roleId == null || UserRoles.PlanFeatureOf(roleId.Value) != featureKey)
             throw PlanServiceException.Forbidden(PlanErrorTypes.RoleMismatch, "This plan is not for the user's role.");
     }
 
@@ -1318,7 +1344,7 @@ public class PlanPurchaseService(
 
         await slots.ApplyGrantEffectsAsync(userId, featureKey);
 
-        var notification = PlanNotifications.Activated(userId, planName, active.EndsAt);
+        var notification = PlanNotifications.Activated(userId, featureKey, planName, active.EndsAt);
         db.NotificationEvents.Add(notification);
         await db.SaveChangesAsync();
         return new GrantOutcome(active, notification);
@@ -1412,8 +1438,8 @@ public class PlanPurchaseService(
         await slots.ApplyGrantEffectsAsync(play.UserId, play.FeatureKey);
 
         var notification = renewed
-            ? PlanNotifications.Renewed(play.UserId, planName, active.EndsAt)
-            : PlanNotifications.Activated(play.UserId, planName, active.EndsAt);
+            ? PlanNotifications.Renewed(play.UserId, play.FeatureKey, planName, active.EndsAt)
+            : PlanNotifications.Activated(play.UserId, play.FeatureKey, planName, active.EndsAt);
         if (persistNotification)
         {
             db.NotificationEvents.Add(notification);
@@ -1433,7 +1459,7 @@ public class PlanPurchaseService(
 
         logger.LogInformation(new EventId(0, "play.carryover.applied"),
             "{Days} days parked as carry-over on Play plan {UserPlanId} of user {UserId}", days, active.Id, userId);
-        var notification = PlanNotifications.AdminGrantCarryOver(userId, days);
+        var notification = PlanNotifications.AdminGrantCarryOver(userId, active.FeatureKey, days);
         db.NotificationEvents.Add(notification);
         await db.SaveChangesAsync();
         return new GrantOutcome(active, notification);
@@ -1592,10 +1618,12 @@ public class PlanPurchaseService(
                     {
                         Cancel(plan, now, note);
                         // FB-13: the owner is told that Plus ended (refunded), in the same transaction.
-                        ended = PlanNotifications.Ended(userId.Value, (await catalog.GetAsync()).GetPlan(plan.PlanId)?.Name ?? "Your plan", refunded: true);
+                        ended = PlanNotifications.Ended(userId.Value, feature, (await catalog.GetAsync()).GetPlan(plan.PlanId)?.Name ?? "Your plan", refunded: true);
                         db.NotificationEvents.Add(ended);
                         await db.SaveChangesAsync();
                         await slots.ExpireEffectsAsync(userId.Value, feature);
+                        await PlanNotifications.ForSeekerEndAsync(db, ended, feature, userId.Value);
+                        await db.SaveChangesAsync();
                     }
                 }
             }
@@ -1948,7 +1976,7 @@ public class PlanPurchaseService(
         if (plan == null || plan.IsDefault)
             throw PlanServiceException.BadRequest(PlanErrorTypes.PlanNotFound, "Plan not found.");
         var user = await GetUserAsync(userId);
-        if (UserRoles.ListingKindOf(user.RoleId) != plan.FeatureKey)
+        if (UserRoles.PlanFeatureOf(user.RoleId) != plan.FeatureKey)
             throw PlanServiceException.Forbidden(PlanErrorTypes.RoleMismatch, "This plan is not for the user's role.");
 
         var now = DateTime.UtcNow;
@@ -2045,10 +2073,12 @@ public class PlanPurchaseService(
             }
             Cancel(plan, now, $"Revoked: {request.Reason}");
             // FB-13: the owner is told that Plus ended, in the same transaction.
-            ended = PlanNotifications.Ended(userId, (await catalog.GetAsync()).GetPlan(plan.PlanId)?.Name ?? "Your plan", refunded: false);
+            ended = PlanNotifications.Ended(userId, feature, (await catalog.GetAsync()).GetPlan(plan.PlanId)?.Name ?? "Your plan", refunded: false);
             db.NotificationEvents.Add(ended);
             await db.SaveChangesAsync();
             await slots.ExpireEffectsAsync(userId, feature);
+            await PlanNotifications.ForSeekerEndAsync(db, ended, feature, userId);
+            await db.SaveChangesAsync();
             await tx.CommitAsync();
         }
         catch

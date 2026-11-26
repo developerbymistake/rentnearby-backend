@@ -17,7 +17,7 @@ public static class UserReportHandlers
     public static async Task<IResult> Report(
         Guid userId, ReportPersonRequest request, IValidator<ReportPersonRequest> validator, ClaimsPrincipal principal,
         UserReportService reports, IUserBlockService blocks, IHubContext<ChatHub> hub, IRateLimitService limiter, HttpContext http,
-        CancellationToken ct)
+        RentNearBy.Infrastructure.Services.Social.SocialReportService socialReports, CancellationToken ct)
     {
         if (!BuddyHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request, ct);
@@ -28,6 +28,8 @@ public static class UserReportHandlers
         {
             if (await reports.ReportAsync(me, userId, request.ReasonId, request.Note, request.Context, ct) == ReportFiled.InvalidReason)
                 return BuddyHttp.Error(BuddyErrorTypes.InvalidReason);
+            // A person reported from a chat: the newest messages of their direct room go with the report (contract 2.7).
+            if (request.Context == UserReportContexts.Chat) await socialReports.AttachChatSnapshotAsync(me, userId, ct);
             if (request.AlsoBlock)
             {
                 var outcome = await blocks.BlockAsync(me, userId, ct);

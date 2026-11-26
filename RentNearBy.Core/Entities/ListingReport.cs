@@ -4,7 +4,7 @@ public class ListingReport
 {
     public Guid Id { get; set; }
     public Guid ListingId { get; set; }
-    public string ListingType { get; set; } = string.Empty; // "Stay" | "Taxi" | "TripEnquiry" | "User"
+    public string ListingType { get; set; } = string.Empty; // "Stay" | "Taxi" | "TripEnquiry" | "User" | "TripPost" | "Message"
 
     public Guid ReporterUserId { get; set; }
     public string ReporterName { get; set; } = string.Empty;
@@ -30,4 +30,6 @@ public class ListingReport
 
     public string? ReportedUsername { get; set; }
     public string? Context { get; set; }
+    // ListingType Message: the reported message's seq in the room (ListingId = room id).
+    public long? MessageSeq { get; set; }
 }

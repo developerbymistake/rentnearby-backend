@@ -82,6 +82,10 @@ public class BuddyItemDto
     public bool IsNew { get; set; }
     public DateTime Since { get; set; }
     public string? TripState { get; set; }
+    // Male / Female / Other (public profile gender), trips we are both on, people I follow who follow him (capped 99).
+    public string? Gender { get; set; }
+    public int TripsTogether { get; set; }
+    public int MutualCount { get; set; }
 }
 
 public class CountedPageDto<T>

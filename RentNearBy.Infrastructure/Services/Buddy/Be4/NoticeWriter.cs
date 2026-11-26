@@ -147,17 +147,22 @@ public sealed class NoticeWriter(ApplicationDbContext db, IOutboxSignal? signal 
             new NpgsqlParameter("exchange", NpgsqlDbType.Varchar) { Value = OutboxTargets.PushExchange },
             new NpgsqlParameter("routing", NpgsqlDbType.Varchar) { Value = OutboxTargets.PushRoutingKey },
             new NpgsqlParameter("keys", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = rows.Select(r => r.Key).ToArray() },
-            new NpgsqlParameter("payloads", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = rows.Select(Payload).ToArray() },
+            new NpgsqlParameter("payloads", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = rows.Select(r => Payload(r)).ToArray() },
             new NpgsqlParameter("delays", NpgsqlDbType.Array | NpgsqlDbType.Double) { Value = rows.Select(r => Math.Max(0, (r.Delay ?? TimeSpan.Zero).TotalSeconds)).ToArray() },
         ], ct);
     }
 
     public void Wake() => signal?.Wake();
 
-    public static string Payload(PushSpec p)
+    public static string Payload(PushSpec p) => Payload(p, DateTime.UtcNow);
+
+    public static string Payload(PushSpec p, DateTime utcNow)
         => JsonSerializer.Serialize(new OutboxPushPayload(
-            p.Key, p.UserId, null, p.Title, p.Body, p.Route, p.ArgsJson, p.Tag, 0, p.PushKind, null,
+            p.Key, p.UserId, null, p.Title, p.Body, p.Route, p.ArgsJson, p.Tag, 0, p.PushKind, ExpiresAt(p, utcNow),
             CollapsingKinds.Contains(p.PushKind) ? CollapsingData : MustArriveData), Json);
+
+    public static DateTime? ExpiresAt(PushSpec p, DateTime utcNow)
+        => p.Expires is { } life ? DateTime.SpecifyKind(utcNow + (p.Delay ?? TimeSpan.Zero) + life, DateTimeKind.Utc) : null;
 
     internal static List<NoticeUpsert> Distinct(IReadOnlyCollection<NoticeUpsert> notices)
         => notices.GroupBy(n => (n.UserId, n.Kind, n.TripId)).Select(g => g.Last()).ToList();
