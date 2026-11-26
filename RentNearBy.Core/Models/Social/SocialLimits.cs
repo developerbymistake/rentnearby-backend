@@ -50,6 +50,8 @@ public static class SocialLimits
     public const int ChatPurgeBatches = 10;
     public const int IdentityReasonMax = 200;
     public const int NameMax = 100;
+    // Spec 23.9: a user may change his name once every 14 days (like Instagram).
+    public const int NameChangeDays = 14;
     public const int RoomFacesMax = 3;
 
     public static readonly TimeSpan MessageLife = TimeSpan.FromHours(24);

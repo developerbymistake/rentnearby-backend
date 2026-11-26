@@ -92,6 +92,24 @@ public class SocialModelTests
         Assert.NotNull(Entity<ListingReport>(m).FindProperty("MessageSeq"));
     }
 
+    // Spec 23.9: the name rule column (nullable: null = never changed since onboarding) and the admin name audit.
+    [Fact]
+    public void Profile_carries_the_name_changed_at_column_and_the_audit_the_name()
+    {
+        var m = Model();
+        var changedAt = Entity<UserProfile>(m).FindProperty(nameof(UserProfile.NameChangedAt));
+        Assert.NotNull(changedAt);
+        Assert.True(changedAt!.IsNullable);
+        Assert.Null(changedAt.GetDefaultValueSql());
+        var audit = Entity<ProfileIdentityAudit>(m);
+        foreach (var c in new[] { nameof(ProfileIdentityAudit.OldName), nameof(ProfileIdentityAudit.NewName) })
+        {
+            var p = audit.FindProperty(c)!;
+            Assert.True(p.IsNullable);
+            Assert.Equal(RentNearBy.Core.Models.Social.SocialLimits.NameMax, p.GetMaxLength());
+        }
+    }
+
     [Fact]
     public void Profile_and_follows_cascade_with_the_user()
     {

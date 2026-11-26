@@ -35,6 +35,7 @@ public static class DataSeeder
         await SeedQuestionTemplatesAsync(db);
         await SeedPlansAsync(db);
         await SeedSeekerPlansAsync(db);
+        await SyncSeekerPlusNewChatsAsync(db);
         await SeedDistrictsAsync(db);
         await SeedCitiesAsync(db, logger);
         await SeedAppFeatureFlagsAsync(db);
@@ -219,7 +220,7 @@ public static class DataSeeder
     }
 
     // Bakhli Plus (social contract 4): the Seeker Free (default) and Plus plans, also added when listing plans already exist.
-    private static async Task SeedSeekerPlansAsync(ApplicationDbContext db)
+    internal static async Task SeedSeekerPlansAsync(ApplicationDbContext db)
     {
         if (await db.Plans.AnyAsync(p => p.FeatureKey == PlanFeatures.Seeker)) return;
         var now = DateTime.UtcNow;
@@ -243,6 +244,19 @@ public static class DataSeeder
         plus.Prices.Add(new PlanPrice { Id = SeekerPlanSeed.Price3mId, CycleMonths = 3, PriceInr = SeekerPlanSeed.Price3m, IsEnabled = true, PlayBasePlanId = "cycle-3m" });
         plus.Prices.Add(new PlanPrice { Id = SeekerPlanSeed.Price12mId, CycleMonths = 12, PriceInr = SeekerPlanSeed.Price12m, IsEnabled = true, PlayBasePlanId = "cycle-12m" });
         db.Plans.AddRange(free, plus);
+        await db.SaveChangesAsync();
+    }
+
+    // Owner order 2026-11-27 (spec 23.2): Bakhli Plus = 10 new chats a month. A seeded Plus plan that still holds the old seed
+    // value (15) moves to the new default on an existing database; an admin edit to any other value is left alone.
+    public const int OldSeekerPlusNewChatsSeed = 15;
+
+    internal static async Task SyncSeekerPlusNewChatsAsync(ApplicationDbContext db)
+    {
+        var row = await db.PlanFeatures.FirstOrDefaultAsync(f => f.PlanId == SeekerPlanSeed.PlusPlanId
+            && f.Key == SeekerPlanKeys.NewChatsPerMonth && f.Value == OldSeekerPlusNewChatsSeed);
+        if (row == null) return;
+        row.Value = SeekerPlanKeys.PlusDefault(SeekerPlanKeys.NewChatsPerMonth);
         await db.SaveChangesAsync();
     }
 

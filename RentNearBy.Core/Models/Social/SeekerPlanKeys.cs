@@ -17,7 +17,7 @@ public static class SeekerPlanKeys
         [ActiveTrips] = (1, 10),
         [PublicTrips] = (1, 3),
         [JoinRequestsPerMonth] = (1, 5),
-        [NewChatsPerMonth] = (3, 15),
+        [NewChatsPerMonth] = (3, 10), // spec 23.2 (2026-11-27): Plus 10 a month, was 15
         [GenderOnlyTrips] = (0, 1),
         [NearMe] = (0, 1),
     };

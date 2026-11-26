@@ -22,12 +22,12 @@ public static class PublicTripHandlers
         if (!BuddyHttp.TryKeyset(cursor, out var key)) return BuddyHttp.BadCursor();
         var query = string.IsNullOrWhiteSpace(q) ? null : q.Trim();
         if (query is { Length: < SocialLimits.FeedQueryMin or > SocialLimits.FeedQueryMax }) return BadRequestResponse("Search between 2 and 40 characters.");
-        if (who is not (null or "any" or "mine")) return BadRequestResponse("Who must be any or mine.");
+        if (!JoinGenders.TryWhoFilter(who, out var whoJoinGender)) return BadRequestResponse("Who must be any, anyone, women or men.");
         if (near && (lat is not (>= -90 and <= 90) || lng is not (>= -180 and <= 180))) return BadRequestResponse("Location is required.");
         return await SocialHttp.ReadAsync(principal, limiter, http, async me =>
         {
             if (near && !(await seekerLimits.GetAsync(me, ct)).NearMe) return SocialHttp.Error(SocialErrorTypes.PlusRequired);
-            return OkResponse(await reader.FeedAsync(me, key, SocialSql.Clamp(limit), query, who == "mine",
+            return OkResponse(await reader.FeedAsync(me, key, SocialSql.Clamp(limit), query, whoJoinGender,
                 near ? (lat!.Value, lng!.Value) : null, ct));
         });
     }

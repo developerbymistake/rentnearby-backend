@@ -22,7 +22,7 @@ namespace RentNearBy.Tests.Social;
 public class SeekerPlanIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
 {
     private static readonly SeekerLimits Free = new(false, true, 1, 1, 1, 3, false, false);
-    private static readonly SeekerLimits Plus = new(true, false, 10, 3, 5, 15, true, true);
+    private static readonly SeekerLimits Plus = new(true, false, 10, 3, 5, 10, true, true);
 
     private sealed class SwitchLimits(SeekerLimits start) : ISeekerLimits
     {

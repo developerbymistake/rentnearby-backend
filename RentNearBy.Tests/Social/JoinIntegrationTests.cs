@@ -120,8 +120,22 @@ public class JoinIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         var woman = await SeekerAsync(SocialGenders.Female);
         var trip = await PostAsync(owner, JoinGenders.Women);
         await using var ctx = CreateContext();
-        Assert.Equal(SocialErrorTypes.TripNotOpen, (await Joins(ctx).SendAsync(man, trip, Ask())).ErrorType);
+        var refused = await Joins(ctx).SendAsync(man, trip, Ask());
+        Assert.Equal(SocialErrorTypes.TripGenderMismatch, refused.ErrorType);
+        Assert.Equal(403, SocialErrorTypes.StatusOf(refused.ErrorType!));
         Assert.True((await Joins(ctx).SendAsync(woman, trip, Ask())).Ok);
+    }
+
+    [IntegrationFact]
+    public async Task Men_only_post_by_a_woman_takes_only_men()
+    {
+        var owner = await SeekerAsync(SocialGenders.Female);
+        var man = await SeekerAsync(SocialGenders.Male);
+        var woman = await SeekerAsync(SocialGenders.Female);
+        var trip = await PostAsync(owner, JoinGenders.Men);
+        await using var ctx = CreateContext();
+        Assert.Equal(SocialErrorTypes.TripGenderMismatch, (await Joins(ctx).SendAsync(woman, trip, Ask())).ErrorType);
+        Assert.True((await Joins(ctx).SendAsync(man, trip, Ask())).Ok);
     }
 
     [IntegrationFact]

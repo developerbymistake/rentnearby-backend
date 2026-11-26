@@ -23,4 +23,6 @@ public class UserProfile
     public int FollowingCount { get; set; }
     public DateTime CompletedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    // Spec 23.9: last name change by the user (null = never since onboarding; the onboarding name and admin changes do not set it).
+    public DateTime? NameChangedAt { get; set; }
 }

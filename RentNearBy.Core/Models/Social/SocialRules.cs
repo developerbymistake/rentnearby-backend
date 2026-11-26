@@ -2,7 +2,7 @@ namespace RentNearBy.Core.Models.Social;
 
 public sealed record WhenValue(string Kind, int Value);
 
-// Pure rules of the social feature (18+, gender visibility, month-only projection, seats, join tier, names).
+// Pure rules of the social feature (18+, join gender, month-only projection, seats, join tier, names).
 public static class SocialRules
 {
     public const string WhenWithin = "within";
@@ -31,14 +31,13 @@ public static class SocialRules
         _ => null,
     };
 
-    public static bool CanSeePost(string joinGender, string? viewerGender, bool isOwner)
-        => isOwner || joinGender == JoinGenders.Anyone || (GenderCode(viewerGender) is { } code && code == joinGender);
+    // Spec 22: every public trip is visible to everyone; only the JOIN is gender-checked (Women only = women, Men only = men,
+    // Other or no profile = Anyone posts only). The poster may pick any value whatever his own gender.
+    public static bool CanJoin(string joinGender, string? viewerGender)
+        => joinGender == JoinGenders.Anyone || (GenderCode(viewerGender) is { } code && code == joinGender);
 
-    // A poster may pick Anyone or his own gender only (Other: Anyone only).
-    public static bool IsAllowedJoinGender(string joinGender, string posterGender)
-        => joinGender == JoinGenders.Anyone || (GenderCode(posterGender) is { } code && code == joinGender);
-
-    public static bool NeedsPlus(string joinGender) => joinGender != JoinGenders.Anyone;
+    // Spec 22: only Women only needs Plus; Anyone and Men only are free.
+    public static bool NeedsPlus(string joinGender) => joinGender == JoinGenders.Women;
 
     public static bool IsValidSeats(int seats) => SocialLimits.SeatChoices.Contains(seats);
 
@@ -63,6 +62,17 @@ public static class SocialRules
         }
         return new WhenValue(WhenWithin, Math.Max(1, months));
     }
+
+    // Spec 23.9: when the user may change his name again; null = now (never changed since onboarding, or 14 days passed).
+    public static DateTime? NameChangeAllowedAt(DateTime? nameChangedAt, DateTime nowUtc)
+    {
+        if (nameChangedAt is not { } last) return null;
+        var next = last.AddDays(SocialLimits.NameChangeDays);
+        return next > nowUtc ? next : null;
+    }
+
+    // Only a different name is a change (a save that sends the same name again never locks or refuses).
+    public static bool IsNameChange(string? currentName, string newName) => !string.Equals(currentName?.Trim(), newName, StringComparison.Ordinal);
 
     public static string Initial(string? name)
     {

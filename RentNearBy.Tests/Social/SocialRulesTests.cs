@@ -13,6 +13,35 @@ public class SocialRulesTests
     public void Adult_from_216_months(int year, int month, bool adult)
         => Assert.Equal(adult, SocialRules.IsAdult(year, month, new DateOnly(2026, 11, 26)));
 
+    // Spec 23.9: name change once every 14 days; null = may change now.
+    [Fact]
+    public void Name_change_allowed_at_is_14_days_after_the_last_change()
+    {
+        var now = new DateTime(2026, 11, 27, 6, 0, 0, DateTimeKind.Utc);
+        Assert.Null(SocialRules.NameChangeAllowedAt(null, now));
+        Assert.Equal(now.AddDays(13), SocialRules.NameChangeAllowedAt(now.AddDays(-1), now));
+        Assert.Equal(now.AddSeconds(1), SocialRules.NameChangeAllowedAt(now.AddDays(-14).AddSeconds(1), now));
+        Assert.Null(SocialRules.NameChangeAllowedAt(now.AddDays(-14), now));
+        Assert.Null(SocialRules.NameChangeAllowedAt(now.AddDays(-30), now));
+        Assert.Equal(14, SocialLimits.NameChangeDays);
+    }
+
+    [Theory]
+    [InlineData("Asha", "Asha", false)]
+    [InlineData(" Asha ", "Asha", false)]
+    [InlineData("Asha", "asha", true)]
+    [InlineData("Asha", "Asha Rawat", true)]
+    [InlineData(null, "Asha", true)]
+    public void Only_a_different_name_is_a_change(string? current, string next, bool change)
+        => Assert.Equal(change, SocialRules.IsNameChange(current, next));
+
+    [Fact]
+    public void Name_change_too_soon_is_a_409()
+    {
+        Assert.Equal(409, SocialErrorTypes.StatusOf(SocialErrorTypes.NameChangeTooSoon));
+        Assert.Equal("You can change your name once every 14 days.", SocialErrorTypes.MessageOf(SocialErrorTypes.NameChangeTooSoon));
+    }
+
     [Fact]
     public void Live_post_twin_of_the_sql_rule()
     {
@@ -33,29 +62,41 @@ public class SocialRulesTests
     [InlineData(null, null)]
     public void Gender_code(string? gender, string? code) => Assert.Equal(code, SocialRules.GenderCode(gender));
 
-    [Theory]
-    [InlineData("A", "Other", false, true)]
-    [InlineData("F", "Female", false, true)]
-    [InlineData("F", "Male", false, false)]
-    [InlineData("M", "Other", false, false)]
-    [InlineData("M", "Female", true, true)]
-    [InlineData("F", null, false, false)]
-    public void Women_only_posts_only_reach_women_and_men_only_men(string joinGender, string? viewer, bool isOwner, bool visible)
-        => Assert.Equal(visible, SocialRules.CanSeePost(joinGender, viewer, isOwner));
-
+    // Spec 22: every post is visible to everyone; only the join request is gender-checked.
     [Theory]
     [InlineData("A", "Other", true)]
+    [InlineData("A", "Male", true)]
+    [InlineData("A", null, true)]
     [InlineData("F", "Female", true)]
+    [InlineData("F", "Male", false)]
+    [InlineData("F", "Other", false)]
+    [InlineData("F", null, false)]
+    [InlineData("M", "Male", true)]
     [InlineData("M", "Female", false)]
     [InlineData("M", "Other", false)]
-    public void Poster_picks_anyone_or_his_own_gender(string joinGender, string poster, bool allowed)
-        => Assert.Equal(allowed, SocialRules.IsAllowedJoinGender(joinGender, poster));
+    public void Women_only_takes_only_women_and_men_only_only_men(string joinGender, string? viewer, bool canJoin)
+        => Assert.Equal(canJoin, SocialRules.CanJoin(joinGender, viewer));
 
     [Fact]
-    public void Same_gender_only_needs_plus()
+    public void Only_women_only_needs_plus()
     {
-        Assert.False(SocialRules.NeedsPlus("A"));
-        Assert.True(SocialRules.NeedsPlus("F"));
+        Assert.False(SocialRules.NeedsPlus(JoinGenders.Anyone));
+        Assert.False(SocialRules.NeedsPlus(JoinGenders.Men));
+        Assert.True(SocialRules.NeedsPlus(JoinGenders.Women));
+    }
+
+    [Theory]
+    [InlineData(null, true, null)]
+    [InlineData("any", true, null)]
+    [InlineData("anyone", true, "A")]
+    [InlineData("women", true, "F")]
+    [InlineData("men", true, "M")]
+    [InlineData("mine", false, null)]
+    [InlineData("Women", false, null)]
+    public void Feed_who_filter_maps_to_a_join_rule(string? who, bool valid, string? code)
+    {
+        Assert.Equal(valid, JoinGenders.TryWhoFilter(who, out var got));
+        Assert.Equal(code, got);
     }
 
     [Fact]

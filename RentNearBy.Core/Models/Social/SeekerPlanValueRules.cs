@@ -16,7 +16,7 @@ public static class SeekerPlanValueRules
         SeekerPlanKeys.PublicTrips => "Public trips",
         SeekerPlanKeys.JoinRequestsPerMonth => "Join requests a month",
         SeekerPlanKeys.NewChatsPerMonth => "New people messaged a month",
-        SeekerPlanKeys.GenderOnlyTrips => "Same-gender-only trips",
+        SeekerPlanKeys.GenderOnlyTrips => "Women-only trips",
         SeekerPlanKeys.NearMe => "Near me filter",
         _ => key,
     };

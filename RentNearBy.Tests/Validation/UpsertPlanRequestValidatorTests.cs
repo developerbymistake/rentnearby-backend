@@ -213,7 +213,7 @@ public class UpsertPlanRequestValidatorTests
     public void Seeker_plan_takes_the_seeker_keys()
         => Validate(Seeker(
                 new PlanFeatureInput(SeekerPlanKeys.ActiveTrips, 10), new PlanFeatureInput(SeekerPlanKeys.PublicTrips, 3),
-                new PlanFeatureInput(SeekerPlanKeys.JoinRequestsPerMonth, 5), new PlanFeatureInput(SeekerPlanKeys.NewChatsPerMonth, 15),
+                new PlanFeatureInput(SeekerPlanKeys.JoinRequestsPerMonth, 5), new PlanFeatureInput(SeekerPlanKeys.NewChatsPerMonth, 10),
                 new PlanFeatureInput(SeekerPlanKeys.GenderOnlyTrips, 1), new PlanFeatureInput(SeekerPlanKeys.NearMe, 1)))
             .ShouldNotHaveAnyValidationErrors();
 

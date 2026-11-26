@@ -9,18 +9,18 @@ using static RentNearBy.Infrastructure.Services.Social.SocialSql;
 
 namespace RentNearBy.Infrastructure.Services.Social;
 
-// Reads of public trips (contract 2.4) with the month-only projection and the server-side gender rule. One statement per
-// list plus one grouped mutuals statement.
+// Reads of public trips (contract 2.4) with the month-only projection. Spec 22: every live public trip is visible to every
+// viewer whatever its join gender; notOpen only tells him he cannot request it (wrong gender). One statement per list plus
+// one grouped mutuals statement.
 public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock)
 {
     // A live post (contract 1.5). Needs @today (IST date). The owner side (active seeker with a profile) is the joins of SelectSql.
     public static string LivePost(string t) =>
         $"""{t}."IsPublic" AND {t}."Status" IN ('{TripStatuses.Draft}', '{TripStatuses.Planned}') AND ({t}."StartDate" IS NULL OR {t}."StartDate" >= @today) AND ({t}."PostWindowMonths" IS NULL OR {t}."PublishedAt" + make_interval(months => {t}."PostWindowMonths"::int) >= now())""";
 
-    // What a non-owner viewer may see: live, not his, right gender, no block, private owner only when he follows.
+    // What a non-owner viewer may see: live, not his, no block, private owner only when he follows (any join gender).
     private static readonly string ViewerFilter = $"""
         {LivePost("t")} AND t."OwnerUserId" <> @me
-        AND (t."JoinGender" = '{JoinGenders.Anyone}' OR t."JoinGender" = @vcode)
         AND NOT {BlockedEitherWay("@me", "t.\"OwnerUserId\"")}
         AND (NOT op."IsPrivate" OR {AcceptedFollow("@me", "t.\"OwnerUserId\"")})
         """;
@@ -52,7 +52,8 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
          AND (@q = '' OR EXISTS (SELECT 1 FROM unnest(t."PostCityNames") c WHERE lower(c) LIKE @q) OR lower(COALESCE(t."PostStateName", '')) LIKE @q)
         """;
 
-    private const string WhoMine = """ AND t."JoinGender" = @vcode""";
+    // Feed filter 'Who can join' (who=anyone|women|men): only posts with exactly that join rule.
+    private const string WhoFilter = """ AND t."JoinGender" = @who""";
 
     private static readonly string NearMe = $"""
          AND ST_DWithin(ST_SetSRID(ST_MakePoint(t."CityLongitude", t."CityLatitude"), 4326)::geography,
@@ -68,7 +69,7 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
 
     private static readonly string MineFilter = $"""{LivePost("t")} AND t."OwnerUserId" = @me""";
 
-    private static readonly string OwnerFilter = $"""{LivePost("t")} AND t."OwnerUserId" = @owner AND (t."OwnerUserId" = @me OR t."JoinGender" = '{JoinGenders.Anyone}' OR t."JoinGender" = @vcode)""";
+    private static readonly string OwnerFilter = $"""{LivePost("t")} AND t."OwnerUserId" = @owner""";
 
     private const string ByIdFilter = """t."Id" = @trip""";
 
@@ -77,14 +78,15 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
     public async Task<string?> ViewerGenderAsync(Guid me, CancellationToken ct)
         => (await db.Database.SqlQueryRaw<string>(ViewerGenderSql, Uuid("me", me)).ToListAsync(ct)).FirstOrDefault();
 
-    public async Task<TripFeedDto> FeedAsync(Guid me, (DateTime At, Guid Id)? cursor, int limit, string? q, bool whoMine,
+    // whoJoinGender: null = every post, else one JoinGenders value (A / M / F) picked in the feed filter.
+    public async Task<TripFeedDto> FeedAsync(Guid me, (DateTime At, Guid Id)? cursor, int limit, string? q, string? whoJoinGender,
         (double Lat, double Lng)? near, CancellationToken ct)
     {
         var gender = await ViewerGenderAsync(me, ct);
-        var vcode = SocialRules.GenderCode(gender) ?? string.Empty;
-        var where = ViewerFilter + FeedQuery + (whoMine ? WhoMine : string.Empty) + (near is null ? string.Empty : NearMe) + (cursor is null ? string.Empty : Keyset);
-        var ps = Base(me, vcode, limit + 1);
+        var where = ViewerFilter + FeedQuery + (whoJoinGender is null ? string.Empty : WhoFilter) + (near is null ? string.Empty : NearMe) + (cursor is null ? string.Empty : Keyset);
+        var ps = Base(me, limit + 1);
         ps.Add(Text("q", string.IsNullOrWhiteSpace(q) ? string.Empty : LikeContains(q)));
+        if (whoJoinGender is not null) ps.Add(Text("who", whoJoinGender));
         if (near is { } n)
         {
             ps.Add(Double("lat", n.Lat));
@@ -96,64 +98,66 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
             ps.Add(Uuid("id", c.Id));
         }
         var rows = await db.Database.SqlQueryRaw<Row>(SelectSql(where), ps.ToArray()).ToListAsync(ct);
-        List<Row> mine = cursor is null ? await db.Database.SqlQueryRaw<Row>(SelectSql(MineFilter), Base(me, vcode, SocialLimits.PageMax).ToArray()).ToListAsync(ct) : [];
+        List<Row> mine = cursor is null ? await db.Database.SqlQueryRaw<Row>(SelectSql(MineFilter), Base(me, SocialLimits.PageMax).ToArray()).ToListAsync(ct) : [];
         var page = rows.Take(limit).ToList();
         var mutuals = await MutualsAsync(db, me, page.Select(r => r.OwnerUserId).ToList(), ct);
         var now = Now();
         return new TripFeedDto
         {
-            Mine = mine.Select(r => ToDto(r, me, now, null, false)).ToList(),
-            Items = page.Select(r => ToDto(r, me, now, mutuals.GetValueOrDefault(r.OwnerUserId), false)).ToList(),
+            Mine = mine.Select(r => ToDto(r, me, now, null, gender)).ToList(),
+            Items = page.Select(r => ToDto(r, me, now, mutuals.GetValueOrDefault(r.OwnerUserId), gender)).ToList(),
             NextCursor = KeysetCursor.EncodeLast(page, rows.Count > limit, r => r.PublishedAt ?? DateTime.MinValue, r => r.TripId),
         };
     }
 
     public async Task<TripRailDto> RailAsync(Guid me, CancellationToken ct)
     {
-        var vcode = SocialRules.GenderCode(await ViewerGenderAsync(me, ct)) ?? string.Empty;
-        var rows = await db.Database.SqlQueryRaw<Row>(SelectSql(RailFilter), Base(me, vcode, SocialLimits.RailMax).ToArray()).ToListAsync(ct);
+        var gender = await ViewerGenderAsync(me, ct);
+        var rows = await db.Database.SqlQueryRaw<Row>(SelectSql(RailFilter), Base(me, SocialLimits.RailMax).ToArray()).ToListAsync(ct);
         if (rows.Count == 0) return new TripRailDto { Items = SocialSamples.Rail() };
         var mutuals = await MutualsAsync(db, me, rows.Select(r => r.OwnerUserId).ToList(), ct);
         var now = Now();
-        return new TripRailDto { Items = rows.Select(r => ToDto(r, me, now, mutuals.GetValueOrDefault(r.OwnerUserId), false)).ToList() };
+        return new TripRailDto { Items = rows.Select(r => ToDto(r, me, now, mutuals.GetValueOrDefault(r.OwnerUserId), gender)).ToList() };
     }
 
-    // null = 404 TripPostNotFound (not public, not live, blocked, private owner not followed). Wrong gender = notOpen.
+    // null = 404 TripPostNotFound (not public, not live, blocked, private owner not followed). Wrong gender = the full post with notOpen.
     public async Task<PublicTripDto?> ByIdAsync(Guid me, Guid tripId, CancellationToken ct)
     {
         var gender = await ViewerGenderAsync(me, ct);
-        var ps = Base(me, SocialRules.GenderCode(gender) ?? string.Empty, 1);
+        var ps = Base(me, 1);
         ps.Add(Uuid("trip", tripId));
         var r = (await db.Database.SqlQueryRaw<Row>(SelectSql(ByIdFilter), ps.ToArray()).ToListAsync(ct)).FirstOrDefault();
         if (r is null || !r.IsPublic) return null;
         var isMine = r.OwnerUserId == me;
         if (!isMine && (!r.Live || r.Blocked || (r.OwnerPrivate && !r.IFollowOwner))) return null;
-        var notOpen = !isMine && !SocialRules.CanSeePost(r.JoinGender, gender, false);
-        var mutuals = notOpen ? null : (await MutualsAsync(db, me, [r.OwnerUserId], ct)).GetValueOrDefault(r.OwnerUserId);
-        return ToDto(r, me, Now(), mutuals, notOpen);
+        var mutuals = (await MutualsAsync(db, me, [r.OwnerUserId], ct)).GetValueOrDefault(r.OwnerUserId);
+        return ToDto(r, me, Now(), mutuals, gender);
     }
 
     // Live posts of one owner as the viewer may see them (profile screens).
     public async Task<List<PublicTripDto>> OfOwnerAsync(Guid me, Guid owner, CancellationToken ct)
     {
-        var vcode = SocialRules.GenderCode(await ViewerGenderAsync(me, ct)) ?? string.Empty;
-        var ps = Base(me, vcode, SocialLimits.PageMax);
+        var gender = await ViewerGenderAsync(me, ct);
+        var ps = Base(me, SocialLimits.PageMax);
         ps.Add(Uuid("owner", owner));
         var rows = await db.Database.SqlQueryRaw<Row>(SelectSql(OwnerFilter), ps.ToArray()).ToListAsync(ct);
         var now = Now();
-        return rows.Select(r => ToDto(r, me, now, null, false)).ToList();
+        return rows.Select(r => ToDto(r, me, now, null, gender)).ToList();
     }
 
     private DateTime Now() => clock.GetUtcNow().UtcDateTime;
 
-    private List<NpgsqlParameter> Base(Guid me, string vcode, int take) =>
+    private List<NpgsqlParameter> Base(Guid me, int take) =>
     [
-        Uuid("me", me), Text("vcode", vcode), Int("take", take), Date("today", IstTime.TodayIst(Now())),
+        Uuid("me", me), Int("take", take), Date("today", IstTime.TodayIst(Now())),
     ];
 
-    public static PublicTripDto ToDto(Row r, Guid me, DateTime nowUtc, MutualsDto? mutuals, bool notOpen)
+    // viewerGender = the viewer's profile gender (null without a profile). notOpen = not his post and his gender may not
+    // request it (spec 22); nothing of the post is blanked.
+    public static PublicTripDto ToDto(Row r, Guid me, DateTime nowUtc, MutualsDto? mutuals, string? viewerGender)
     {
         var isMine = r.OwnerUserId == me;
+        var notOpen = !isMine && !SocialRules.CanJoin(r.JoinGender, viewerGender);
         var when = SocialRules.When(r.StartDate, r.PostStartMonth, r.PostWindowMonths, r.PublishedAt, nowUtc);
         var seats = r.Seats ?? 0;
         var dto = new PublicTripDto
@@ -180,15 +184,6 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
             Mutuals = mutuals is { Count: > 0 } ? mutuals : null,
             NotOpen = notOpen,
         };
-        if (notOpen)
-        {
-            dto.Text = string.Empty;
-            dto.When = new WhenDto { Kind = SocialRules.WhenWithin, Months = 0 };
-            dto.Days = 0;
-            dto.Seats = 0;
-            dto.SeatsLeft = 0;
-            dto.MyJoin = MyJoinStates.None;
-        }
         return dto;
     }
 

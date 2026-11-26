@@ -26,7 +26,7 @@ public sealed class RecordingSocialRealtime : ISocialRealtime
 public static class SocialTestSeams
 {
     public static ISeekerLimits Limits(int activeTrips, bool plus = false) => new FixedSeekerLimits(plus
-        ? new SeekerLimits(true, false, activeTrips, 3, 5, 15, true, true)
+        ? new SeekerLimits(true, false, activeTrips, 3, 5, 10, true, true)
         : new SeekerLimits(false, true, activeTrips, 1, 1, 3, false, false));
 
     public static SocialAfterCommit AfterCommit(ApplicationDbContext ctx, RecordingSocialRealtime? realtime = null, RecordingLiveHints? hints = null)

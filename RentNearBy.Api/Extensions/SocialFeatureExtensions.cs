@@ -18,6 +18,7 @@ public static class SocialFeatureExtensions
         services.AddScoped<PublicTripReader>();
         services.AddScoped<PublicTripService>();
         services.AddScoped<SocialProfileService>();
+        services.AddScoped<INameChangeGate, NameChangeGate>();
         services.AddScoped<FollowService>();
         services.AddScoped<MyBuddyService>();
         services.AddScoped<JoinRequestService>();

@@ -1331,6 +1331,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     NewBirthMonth = table.Column<short>(type: "smallint", nullable: false),
                     OldBirthYear = table.Column<short>(type: "smallint", nullable: false),
                     NewBirthYear = table.Column<short>(type: "smallint", nullable: false),
+                    OldName = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    NewName = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     AdminId = table.Column<Guid>(type: "uuid", nullable: false),
                     Reason = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
@@ -1731,7 +1733,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     FollowerCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     FollowingCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     CompletedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    NameChangedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {

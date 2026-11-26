@@ -30,7 +30,7 @@ public class SeekerLimitsTests
     public void Plus_seeker_gets_the_plus_numbers()
     {
         var l = SeekerLimitsService.Compute([Free, Plus], SeekerPlanSeed.PlusPlanId, paymentOn: true, held: false);
-        Assert.Equal((10, 3, 5, 15, true, true), (l.ActiveTrips, l.PublicTrips, l.JoinRequestsPerMonth, l.NewChatsPerMonth, l.GenderOnlyTrips, l.NearMe));
+        Assert.Equal((10, 3, 5, 10, true, true), (l.ActiveTrips, l.PublicTrips, l.JoinRequestsPerMonth, l.NewChatsPerMonth, l.GenderOnlyTrips, l.NearMe));
         Assert.True(l.IsPlus);
         Assert.False(l.CanUpgrade);
     }
@@ -39,7 +39,7 @@ public class SeekerLimitsTests
     public void Payment_off_gives_every_seeker_the_plus_numbers_without_plus()
     {
         var l = SeekerLimitsService.Compute([Free, Plus], null, paymentOn: false, held: false);
-        Assert.Equal((10, 3, 5, 15, true, true), (l.ActiveTrips, l.PublicTrips, l.JoinRequestsPerMonth, l.NewChatsPerMonth, l.GenderOnlyTrips, l.NearMe));
+        Assert.Equal((10, 3, 5, 10, true, true), (l.ActiveTrips, l.PublicTrips, l.JoinRequestsPerMonth, l.NewChatsPerMonth, l.GenderOnlyTrips, l.NearMe));
         Assert.False(l.IsPlus);
         Assert.False(l.CanUpgrade);
     }
@@ -77,7 +77,7 @@ public class SeekerLimitsTests
         Assert.Equal(10, SeekerPlanKeys.PlusDefault(SeekerPlanKeys.ActiveTrips));
         Assert.Equal(3, SeekerPlanKeys.PlusDefault(SeekerPlanKeys.PublicTrips));
         Assert.Equal(5, SeekerPlanKeys.PlusDefault(SeekerPlanKeys.JoinRequestsPerMonth));
-        Assert.Equal(15, SeekerPlanKeys.PlusDefault(SeekerPlanKeys.NewChatsPerMonth));
+        Assert.Equal(10, SeekerPlanKeys.PlusDefault(SeekerPlanKeys.NewChatsPerMonth));
         Assert.Equal((200, 500, 1800), (SeekerPlanSeed.Price1m, SeekerPlanSeed.Price3m, SeekerPlanSeed.Price12m));
         Assert.Equal("seeker_plus", SeekerPlanSeed.PlayProductId);
         Assert.Equal(PlanFeatures.Seeker, UserRoles.PlanFeatureOf(UserRoles.SeekerId));

@@ -11,6 +11,8 @@ using RentNearBy.Api.Handlers;
 using RentNearBy.Api.Validators;
 using RentNearBy.Core.DTOs.Requests;
 using RentNearBy.Core.DTOs.Responses;
+using RentNearBy.Core.Interfaces.Social;
+using RentNearBy.Core.Models.Social;
 using RentNearBy.Infrastructure.Migrations;
 using RentNearBy.Infrastructure.Services;
 using RentNearBy.Tests.TaxiRequests;
@@ -64,12 +66,56 @@ public class UsernameWiringTests
         var (w, cache, principal, user) = Signed("Bakhli#48291736");
 
         var dto = Body(await UsersHandlers.UpdateName(new UpdateNameRequest { Name = "Asha Rawat" }, principal,
-            new UpdateNameRequestValidator(), w.Uow, cache, w.Service("Bakhli#11111111")));
+            new UpdateNameRequestValidator(), w.Uow, cache, w.Service("Bakhli#11111111"), new GateStub(null)));
 
         Assert.Equal("Asha Rawat", dto.Name);
         Assert.Equal("Bakhli#48291736", dto.Username);
         Assert.Equal("Bakhli#48291736", user.Username);
         Assert.Equal(0, w.Repo.SetCalls);
+    }
+
+    // Spec 23.9: the legacy name route keeps the 14-day rule of an account with a traveller profile.
+    private sealed class GateStub(DateTime? next) : INameChangeGate
+    {
+        public int Calls { get; private set; }
+
+        public Task<DateTime?> TryStampAsync(Guid userId, CancellationToken ct = default)
+        {
+            Calls++;
+            return Task.FromResult(next);
+        }
+    }
+
+    [Fact]
+    public async Task Name_update_inside_the_14_days_is_name_change_too_soon_and_keeps_the_old_name()
+    {
+        var (w, cache, principal, user) = Signed("Bakhli#48291736");
+        var next = new DateTime(2026, 12, 11, 6, 0, 0, DateTimeKind.Utc);
+        var gate = new GateStub(next);
+
+        var result = await UsersHandlers.UpdateName(new UpdateNameRequest { Name = "Asha Rawat" }, principal,
+            new UpdateNameRequestValidator(), w.Uow, cache, w.Service("Bakhli#11111111"), gate);
+
+        Assert.Equal(409, ((IStatusCodeHttpResult)result).StatusCode);
+        var body = (ApiResponse<object>)((IValueHttpResult)result).Value!;
+        Assert.Equal(SocialErrorTypes.NameChangeTooSoon, body.Error!.Type);
+        using var data = JsonDocument.Parse(JsonSerializer.Serialize(body.Data, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        Assert.Equal(next, data.RootElement.GetProperty("nextAllowedAt").GetDateTime().ToUniversalTime());
+        Assert.Equal("Asha", user.Name);
+        Assert.Equal(1, gate.Calls);
+    }
+
+    [Fact]
+    public async Task Saving_the_same_name_never_asks_the_gate()
+    {
+        var (w, cache, principal, _) = Signed("Bakhli#48291736");
+        var gate = new GateStub(new DateTime(2026, 12, 11, 6, 0, 0, DateTimeKind.Utc));
+
+        var dto = Body(await UsersHandlers.UpdateName(new UpdateNameRequest { Name = "Asha" }, principal,
+            new UpdateNameRequestValidator(), w.Uow, cache, w.Service("Bakhli#11111111"), gate));
+
+        Assert.Equal("Asha", dto.Name);
+        Assert.Equal(0, gate.Calls);
     }
 
     [Fact]

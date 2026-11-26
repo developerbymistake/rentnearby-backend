@@ -82,7 +82,7 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
     }
 
     [IntegrationFact]
-    public async Task Same_gender_only_needs_plus_and_hides_from_the_other_gender()
+    public async Task Women_only_needs_plus_and_every_viewer_sees_it()
     {
         var woman = await SeekerAsync(SocialGenders.Female);
         var man = await SeekerAsync(SocialGenders.Male);
@@ -97,11 +97,45 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         }
         await using var read = CreateContext();
         var reader = new PublicTripReader(read, TimeProvider.System);
-        Assert.DoesNotContain((await reader.FeedAsync(man, null, 20, null, false, null, default)).Items, p => p.TripId == tripId);
-        Assert.Contains((await reader.FeedAsync(otherWoman, null, 20, null, false, null, default)).Items, p => p.TripId == tripId);
+        var forMan = Assert.Single((await reader.FeedAsync(man, null, 20, null, null, null, default)).Items, p => p.TripId == tripId);
+        Assert.True(forMan.NotOpen);
+        Assert.NotEqual(string.Empty, forMan.Text);
+        var forWoman = Assert.Single((await reader.FeedAsync(otherWoman, null, 20, null, null, null, default)).Items, p => p.TripId == tripId);
+        Assert.False(forWoman.NotOpen);
+        Assert.Contains(await reader.OfOwnerAsync(man, woman, default), p => p.TripId == tripId);
         var byId = await reader.ByIdAsync(man, tripId, default);
         Assert.True(byId!.NotOpen);
-        Assert.Equal(string.Empty, byId.Text);
+        Assert.NotEqual(string.Empty, byId.Text);
+        Assert.True(byId.Seats > 0);
+    }
+
+    [IntegrationFact]
+    public async Task Any_poster_may_pick_men_only_for_free()
+    {
+        var woman = await SeekerAsync(SocialGenders.Female);
+        await using var ctx = CreateContext();
+        var created = await Posts(ctx, SocialTestSeams.Limits(10)).CreateAsync(woman, Post(JoinGenders.Men));
+        Assert.True(created.Ok, created.ErrorType);
+        Assert.Equal(JoinGenders.Men, created.Value!.JoinGender);
+    }
+
+    [IntegrationFact]
+    public async Task Feed_who_filter_keeps_only_that_join_rule()
+    {
+        var poster = await SeekerAsync(SocialGenders.Male);
+        var viewer = await SeekerAsync(SocialGenders.Male);
+        Guid men;
+        await using (var ctx = CreateContext())
+        {
+            var created = await Posts(ctx, SocialTestSeams.Limits(10, plus: true)).CreateAsync(poster, Post(JoinGenders.Men));
+            Assert.True(created.Ok, created.ErrorType);
+            men = created.Value!.TripId;
+        }
+        await using var read = CreateContext();
+        var reader = new PublicTripReader(read, TimeProvider.System);
+        Assert.Contains((await reader.FeedAsync(viewer, null, 20, null, JoinGenders.Men, null, default)).Items, p => p.TripId == men);
+        Assert.DoesNotContain((await reader.FeedAsync(viewer, null, 20, null, JoinGenders.Women, null, default)).Items, p => p.TripId == men);
+        Assert.DoesNotContain((await reader.FeedAsync(viewer, null, 20, null, JoinGenders.Anyone, null, default)).Items, p => p.TripId == men);
     }
 
     [IntegrationFact]

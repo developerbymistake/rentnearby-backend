@@ -60,8 +60,7 @@ public sealed class PublicTripService(
         if (FieldError(f, IstTime.TodayIst(Now)) is { } field) return BuddyResult<(string, string)>.Fail(SocialErrorTypes.InvalidPost, new { field });
         var gender = await reader.ViewerGenderAsync(me, ct);
         if (gender is null) return BuddyResult<(string, string)>.Fail(SocialErrorTypes.ProfileRequired);
-        if (!SocialRules.IsAllowedJoinGender(f.JoinGender, gender))
-            return BuddyResult<(string, string)>.Fail(SocialErrorTypes.InvalidPost, new { field = "joinGender" });
+        // Spec 22: any poster may pick Anyone, Men only or Women only (no check on his own gender); only Women only needs Plus.
         if (SocialRules.NeedsPlus(f.JoinGender) && !limits.GenderOnlyTrips) return BuddyResult<(string, string)>.Fail(SocialErrorTypes.PlusRequired);
         var (masked, hit) = ContactMask.Apply(f.Text.Trim());
         if (hit && ContactMask.IsOnlyMarks(masked)) return BuddyResult<(string, string)>.Fail(SocialErrorTypes.TextNotAllowed, new { field = "text" });

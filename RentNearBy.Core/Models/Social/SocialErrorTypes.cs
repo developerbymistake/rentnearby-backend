@@ -19,7 +19,8 @@ public static class SocialErrorTypes
     public const string RequestGone = "RequestGone";
     public const string NotFollower = "NotFollower";
     public const string TripPostNotFound = "TripPostNotFound";
-    public const string TripNotOpen = "TripNotOpen";
+    // Spec 22: a join request to a Women only / Men only trip from the other gender (403, data {joinGender}).
+    public const string TripGenderMismatch = "TripGenderMismatch";
     public const string TripNotPostable = "TripNotPostable";
     public const string PlusRequired = "PlusRequired";
     public const string PublicTripLimit = "PublicTripLimit";
@@ -41,6 +42,8 @@ public static class SocialErrorTypes
     // PLAN_STATES_SOCIAL 3: a write to a trip kept inactive after Plus ended (409, data {limit}).
     public const string TripInactiveByPlan = "TripInactiveByPlan";
     public const string SeekerOnly = "SeekerOnly";
+    // Spec 23.9: a second name change inside 14 days (409, data {nextAllowedAt}).
+    public const string NameChangeTooSoon = "NameChangeTooSoon";
 
     public const string PersonNotFound = BuddyErrorTypes.PersonNotFound;
     public const string TripNotFound = BuddyErrorTypes.TripNotFound;
@@ -63,7 +66,7 @@ public static class SocialErrorTypes
         [RequestGone] = (404, "This request is no longer open."),
         [NotFollower] = (409, "You can add only people who follow you."),
         [TripPostNotFound] = (404, "This trip is not available."),
-        [TripNotOpen] = (403, "This trip is not open to you."),
+        [TripGenderMismatch] = (403, "This trip is for one gender only."),
         [TripNotPostable] = (409, "This trip is complete."),
         [PlusRequired] = (403, "This is a Bakhli Plus feature."),
         [PublicTripLimit] = (429, "You have reached your public trips limit."),
@@ -82,6 +85,7 @@ public static class SocialErrorTypes
         [NotAllowed] = (409, "This cannot be done here."),
         [TripInactiveByPlan] = (409, "This trip is inactive on the Free plan. Buy Plus to use it again."),
         [SeekerOnly] = (403, AuthPolicies.SeekerOnlyMessage),
+        [NameChangeTooSoon] = (409, "You can change your name once every 14 days."),
     };
 
     public static IReadOnlyCollection<string> All => Table.Keys;

@@ -105,6 +105,8 @@ public class AdminIdentityRequestValidator : AbstractValidator<AdminIdentityRequ
         RuleFor(x => x.BirthMonth).InclusiveBetween(1, 12).When(x => x.BirthMonth != null).WithMessage("Invalid birth month.");
         RuleFor(x => x.BirthYear).InclusiveBetween(SocialLimits.BirthYearMin, SocialLimits.BirthYearMax).When(x => x.BirthYear != null)
             .WithMessage("Invalid birth year.");
-        RuleFor(x => x).Must(x => x.Gender != null || x.BirthMonth != null || x.BirthYear != null).WithMessage("Nothing to change.");
+        RuleFor(x => x.Name).Must(n => n is null || (n.Trim().Length > 0 && n.Trim().Length <= SocialLimits.NameMax))
+            .WithMessage("Name must be 1 to 100 characters.");
+        RuleFor(x => x).Must(x => x.Name != null || x.Gender != null || x.BirthMonth != null || x.BirthYear != null).WithMessage("Nothing to change.");
     }
 }

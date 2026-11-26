@@ -54,6 +54,8 @@ public static class SocialFeatureModel
             e.Property(x => x.NewBirthMonth).HasColumnType("smallint");
             e.Property(x => x.OldBirthYear).HasColumnType("smallint");
             e.Property(x => x.NewBirthYear).HasColumnType("smallint");
+            e.Property(x => x.OldName).HasMaxLength(SocialLimits.NameMax);
+            e.Property(x => x.NewName).HasMaxLength(SocialLimits.NameMax);
             e.Property(x => x.Reason).HasMaxLength(SocialLimits.IdentityReasonMax).IsRequired();
             e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);

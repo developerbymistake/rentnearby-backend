@@ -3829,6 +3829,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(6)
                         .HasColumnType("character varying(6)");
 
+                    b.Property<string>("NewName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<short>("OldBirthMonth")
                         .HasColumnType("smallint");
 
@@ -3839,6 +3843,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(6)
                         .HasColumnType("character varying(6)");
+
+                    b.Property<string>("OldName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Reason")
                         .IsRequired()
@@ -3986,6 +3994,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)")
                         .HasDefaultValue("Everyone");
+
+                    b.Property<DateTime?>("NameChangedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("NotifyFollowedTrips")
                         .ValueGeneratedOnAdd()

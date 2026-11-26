@@ -24,6 +24,25 @@ public static class JoinGenders
 
     public static readonly IReadOnlyList<string> All = [Anyone, Men, Women];
     public static readonly string SqlList = SocialSqlList.List(All);
+
+    // Feed filter `who` (spec 22): any (default, every post) | anyone | women | men.
+    public const string WhoAny = "any";
+    public const string WhoAnyone = "anyone";
+    public const string WhoWomen = "women";
+    public const string WhoMen = "men";
+
+    // true = a known value; code = the join rule to match, null = every post.
+    public static bool TryWhoFilter(string? who, out string? code)
+    {
+        code = who switch
+        {
+            WhoAnyone => Anyone,
+            WhoWomen => Women,
+            WhoMen => Men,
+            _ => null,
+        };
+        return who is null or WhoAny || code is not null;
+    }
 }
 
 public static class FollowStatuses

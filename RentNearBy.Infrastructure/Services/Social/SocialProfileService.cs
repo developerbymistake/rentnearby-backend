@@ -89,7 +89,7 @@ public sealed class SocialProfileService(
                u."CompletedTripsCount", p."UserId" IS NOT NULL AS "HasProfile",
                p."Gender", p."BirthMonth", p."BirthYear", p."About", p."Interests", p."Skills", p."Places", p."HomeCityName", p."HomeStateName",
                p."IsPrivate", p."MessagePolicy", p."NotifyMessages", p."NotifyFollows", p."NotifyFollowedTrips",
-               p."FollowerCount", p."FollowingCount",
+               p."FollowerCount", p."FollowingCount", p."NameChangedAt",
                (SELECT count(*) FROM "Buddies" b JOIN "Users" bu ON bu."Id" = b."BuddyUserId" AND {ActiveSeeker("bu")} WHERE b."UserId" = @me)::int AS "Buddies",
                (SELECT count(*) FROM "UserBlocks" ub WHERE ub."BlockerId" = @me)::int AS "Blocked"
         FROM "Users" u LEFT JOIN "UserProfiles" p ON p."UserId" = u."Id"
@@ -145,6 +145,7 @@ public sealed class SocialProfileService(
         return new MyProfileDto
         {
             UserId = row.UserId, Name = row.Name, Username = row.Username, PhotoUrl = Face(row.PhotoUrl), Initial = SocialRules.Initial(row.Name),
+            NameChangeAllowedAt = SocialRules.NameChangeAllowedAt(row.NameChangedAt, Now),
             Gender = row.Gender ?? string.Empty, BirthMonth = row.BirthMonth ?? 0, BirthYear = row.BirthYear ?? 0,
             HomeCity = row.HomeCityName, HomeState = row.HomeStateName, About = row.About ?? string.Empty,
             Interests = (row.Interests ?? []).ToList(), Skills = (row.Skills ?? []).ToList(), Places = (row.Places ?? []).ToList(),
@@ -261,14 +262,26 @@ public sealed class SocialProfileService(
             profile.HomeStateName = c.Value;
         }
         var now = Now;
-        if (name != null)
+        var user = name != null ? await db.Users.FirstAsync(u => u.Id == me, ct) : null;
+        // Spec 23.9: only a different name counts; the stamp and the save commit together (a refused change writes nothing).
+        var renamed = user != null && SocialRules.IsNameChange(user.Name, name!);
+        await using (var tx = renamed ? await db.Database.BeginTransactionAsync(ct) : null)
         {
-            var user = await db.Users.FirstAsync(u => u.Id == me, ct);
-            user.Name = name;
-            user.UpdatedAt = now;
+            if (renamed)
+            {
+                var stamp = await NameChangeStamp.TryAsync(db, me, now, ct);
+                if (stamp.Outcome == NameStamp.TooSoon)
+                {
+                    db.ChangeTracker.Clear();
+                    return BuddyResult<MyProfileDto>.Fail(SocialErrorTypes.NameChangeTooSoon, new { nextAllowedAt = stamp.NextAllowedAt });
+                }
+                user!.Name = name;
+                user.UpdatedAt = now;
+            }
+            profile.UpdatedAt = now;
+            await db.SaveChangesAsync(ct);
+            if (tx != null) await tx.CommitAsync(ct);
         }
-        profile.UpdatedAt = now;
-        await db.SaveChangesAsync(ct);
         return BuddyResult<MyProfileDto>.Success((await MyProfileAsync(me, ct))!);
 
         static BuddyResult<MyProfileDto> Fail(string field) => BuddyResult<MyProfileDto>.Fail(SocialErrorTypes.InvalidProfile, new { field });
@@ -377,30 +390,13 @@ public sealed class SocialProfileService(
         };
     }
 
-    // A gender correction unpublishes the user's live posts whose join rule his new gender may not use (PublicTripService rule:
-    // Anyone or his own gender), ending their waiting requests like the unpublish statement does.
-    private static readonly string GenderUnpublishSql = $"""
-        WITH t AS (
-          UPDATE "Trips" SET "IsPublic" = FALSE, "PausedByPlan" = FALSE
-          WHERE "OwnerUserId" = @u AND "IsPublic" AND "JoinGender" <> '{JoinGenders.Anyone}' AND "JoinGender" IS DISTINCT FROM @code
-          RETURNING "Id"),
-        r AS (
-          UPDATE "TripJoinRequests" SET "Status" = '{JoinRequestStatuses.Expired}', "EndedAt" = now()
-          WHERE "TripId" IN (SELECT "Id" FROM t) AND "Status" = '{JoinRequestStatuses.Waiting}'
-          RETURNING "Id", "RequesterId"),
-        n AS (DELETE FROM "UserNotices" WHERE "Kind" = '{NoticeKinds.JoinRequest}' AND "TripId" IN (SELECT "Id" FROM r))
-        SELECT (SELECT count(*) FROM t)::int AS "Trips", ARRAY(SELECT r."RequesterId" FROM r) AS "Requesters"
-        """;
-
-    // PUT /admin/users/{id}/identity: the only path that changes gender / birth, audited in the same transaction.
+    // PUT /admin/users/{id}/identity: the only path that changes gender / birth, audited in the same transaction. It may also
+    // change the name (spec 23.9: any time, and it never sets NameChangedAt, so the user is not locked by it).
     // ProfileRequired = no social profile (404); Under18 = the corrected birth month is under 18 or in the future (400).
     public async Task<BuddyResult<AdminIdentityDto>> AdminSetIdentityAsync(Guid adminId, Guid userId, AdminIdentityRequest r, CancellationToken ct = default)
     {
-        Guid[] requesters = [];
-        var unpublished = 0;
-        var result = await PgRetry.OnceAsync(db, async c =>
+        return await PgRetry.OnceAsync(db, async c =>
         {
-            afterCommit.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(c);
             var p = (await db.Set<UserProfile>().FromSqlRaw("""SELECT * FROM "UserProfiles" WHERE "UserId" = @u FOR UPDATE""", Uuid("u", userId))
                 .ToListAsync(c)).FirstOrDefault();
@@ -408,45 +404,36 @@ public sealed class SocialProfileService(
             var year = r.BirthYear ?? p.BirthYear;
             var month = r.BirthMonth ?? p.BirthMonth;
             if (!SocialRules.IsAdult(year, month, IstTime.TodayIst(Now))) return BuddyResult<AdminIdentityDto>.Fail(SocialErrorTypes.Under18);
-            var genderChanged = r.Gender != null && r.Gender != p.Gender;
+            var user = await db.Users.FirstAsync(u => u.Id == userId, c);
+            var newName = r.Name is null ? null : ContactMask.StripInvisible(r.Name).Trim();
+            if (newName is { Length: 0 } || newName?.Length > SocialLimits.NameMax)
+                return BuddyResult<AdminIdentityDto>.Fail(SocialErrorTypes.InvalidProfile, new { field = "name" });
+            var oldName = user.Name;
             db.Set<ProfileIdentityAudit>().Add(new ProfileIdentityAudit
             {
                 UserId = userId, OldGender = p.Gender, OldBirthMonth = p.BirthMonth, OldBirthYear = p.BirthYear,
                 NewGender = r.Gender ?? p.Gender, NewBirthMonth = (short)month, NewBirthYear = (short)year,
+                OldName = newName != null ? oldName : null, NewName = newName,
                 AdminId = adminId, Reason = r.Reason.Trim(), CreatedAt = Now,
             });
+            if (newName != null)
+            {
+                user.Name = newName;
+                user.UpdatedAt = Now;
+            }
             if (r.Gender != null) p.Gender = r.Gender;
             p.BirthMonth = (short)month;
             p.BirthYear = (short)year;
             p.UpdatedAt = Now;
+            // Spec 22: the poster's own gender no longer limits his posts' join rule, so a correction leaves his posts as they are.
             await db.SaveChangesAsync(c);
-            requesters = [];
-            unpublished = 0;
-            if (genderChanged)
-            {
-                var gone = (await db.Database.SqlQueryRaw<GenderUnpublishRow>(GenderUnpublishSql, Uuid("u", userId),
-                    NullText("code", SocialRules.GenderCode(p.Gender))).ToListAsync(c)).First();
-                unpublished = gone.Trips;
-                requesters = gone.Requesters ?? [];
-            }
             await tx.CommitAsync(c);
             logger.LogInformation("admin.action {Action} {AdminId} {TargetId}", "social.identity", adminId, userId);
-            return BuddyResult<AdminIdentityDto>.Success(new AdminIdentityDto { Gender = p.Gender, BirthMonth = p.BirthMonth, BirthYear = p.BirthYear });
+            return BuddyResult<AdminIdentityDto>.Success(new AdminIdentityDto
+            {
+                Name = user.Name ?? string.Empty, Gender = p.Gender, BirthMonth = p.BirthMonth, BirthYear = p.BirthYear,
+            });
         }, ct, logger);
-        if (result.Ok && unpublished > 0)
-        {
-            afterCommit.Hint(SocialLiveScopes.Posts, userId);
-            afterCommit.Hint(SocialLiveScopes.JoinRequests, userId);
-            if (requesters.Length > 0) afterCommit.Hint(SocialLiveScopes.MyJoinRequests, requesters);
-            await afterCommit.FlushAsync(ct);
-        }
-        return result;
-    }
-
-    private sealed class GenderUnpublishRow
-    {
-        public int Trips { get; set; }
-        public Guid[]? Requesters { get; set; }
     }
 
     private sealed class MeRow
@@ -473,6 +460,7 @@ public sealed class SocialProfileService(
         public bool? NotifyFollowedTrips { get; set; }
         public int? FollowerCount { get; set; }
         public int? FollowingCount { get; set; }
+        public DateTime? NameChangedAt { get; set; }
         public int Buddies { get; set; }
         public int Blocked { get; set; }
     }

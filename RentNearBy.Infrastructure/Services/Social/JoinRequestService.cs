@@ -81,7 +81,8 @@ public sealed class JoinRequestService(
                 Date("today", IstTime.TodayIst(Now)), At("month", SocialMonth.StartUtc(Now))).ToListAsync(c)).FirstOrDefault();
             if (s is null || !s.OwnerOk || s.Blocked || (s.PrivateLocked && s.OwnerUserId != me)) return Fail(SocialErrorTypes.TripPostNotFound);
             if (s.OwnerUserId == me || !s.Live) return Fail(SocialErrorTypes.JoinClosed);
-            if (!SocialRules.CanSeePost(s.JoinGender, s.MyGender, false)) return Fail(SocialErrorTypes.TripNotOpen);
+            // Spec 22: everyone sees the post, only the right gender may ask (Women only = women, Men only = men).
+            if (!SocialRules.CanJoin(s.JoinGender, s.MyGender)) return Fail(SocialErrorTypes.TripGenderMismatch, new { joinGender = s.JoinGender });
             if (s.Member) return Fail(SocialErrorTypes.AlreadyMember);
             if (s.Waiting) return Fail(SocialErrorTypes.AlreadyRequested);
             if (s.Declined) return Fail(SocialErrorTypes.AskAgainLater);
@@ -223,7 +224,7 @@ public sealed class JoinRequestService(
             var s = (await db.Database.SqlQueryRaw<AcceptCheck>(AcceptCheckSql, Uuid("me", me), Uuid("him", him), Uuid("trip", tripId)).ToListAsync(c)).First();
             var seats = Math.Min((int)(s.Seats ?? 0), BuddyLimits.MaxViewers);
             if (s.Joined >= seats) return Fail(SocialErrorTypes.TripFull, new { seatsLeft = 0 });
-            if (s.Blocked || !s.HisOk || s.TripStatus == TripStatuses.Completed || !SocialRules.CanSeePost(s.JoinGender, s.HisGender, false))
+            if (s.Blocked || !s.HisOk || s.TripStatus == TripStatuses.Completed || !SocialRules.CanJoin(s.JoinGender, s.HisGender))
                 return Fail(SocialErrorTypes.CouldNotAdd);
             var slots = await TripSlots.ReadAsync(db, him, hisLimit, c);
             if (TripSlotRules.IsFull(slots.Count, hisLimit)) return Fail(SocialErrorTypes.CouldNotAdd);

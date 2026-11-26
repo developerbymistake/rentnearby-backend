@@ -16,9 +16,19 @@ namespace RentNearBy.Tests.Social;
 // Needs RENTNEARBY_TEST_DB; skipped without it.
 public class ProfileIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
 {
-    private static SocialProfileService Profiles(ApplicationDbContext ctx)
+    private static SocialProfileService Profiles(ApplicationDbContext ctx, TimeProvider? clock = null)
         => new(ctx, SocialTestSeams.Limits(10), new PublicTripReader(ctx, TimeProvider.System), SocialTestSeams.AfterCommit(ctx),
-            TimeProvider.System, NullLogger<SocialProfileService>.Instance);
+            clock ?? TimeProvider.System, NullLogger<SocialProfileService>.Instance);
+
+    // Spec 23.9 tests move the clock across the 14 days; whole seconds so the timestamptz round trip compares exactly.
+    private sealed class MovableClock : TimeProvider
+    {
+        public DateTime Utc { get; set; } = DateTime.SpecifyKind(DateTime.UtcNow.Date.AddHours(6), DateTimeKind.Utc);
+
+        public override DateTimeOffset GetUtcNow() => new(Utc);
+    }
+
+    private static DateTime? NextAllowed(object? data) => (DateTime?)data?.GetType().GetProperty("nextAllowedAt")?.GetValue(data);
 
     private static SocialOnboardingRequest Onboarding(int birthYear = 1995) => new()
     {
@@ -167,5 +177,121 @@ public class ProfileIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         await using var check = CreateContext();
         Assert.Null((await check.Set<UserProfile>().AsNoTracking().SingleAsync(p => p.UserId == me)).HomeCityName);
         Assert.False(await check.Set<UserProfile>().AnyAsync(p => p.UserId == other));
+    }
+
+    [IntegrationFact]
+    public async Task Name_changes_once_every_14_days_and_the_onboarding_name_does_not_count()
+    {
+        var me = await AccountAsync();
+        var clock = new MovableClock();
+        var t0 = clock.Utc;
+        await using (var ctx = CreateContext())
+        {
+            Assert.True((await Profiles(ctx, clock).OnboardAsync(me, Onboarding())).Ok);
+            Assert.Null((await Profiles(ctx, clock).GetMeAsync(me)).Profile!.NameChangeAllowedAt);
+        }
+        await using (var ctx = CreateContext())
+        {
+            var first = await Profiles(ctx, clock).UpdateProfileAsync(me, new UpdateSocialProfileRequest { Name = "Asha One" });
+            Assert.True(first.Ok, first.ErrorType);
+            Assert.Equal(t0.AddDays(14), first.Value!.NameChangeAllowedAt);
+        }
+        clock.Utc = t0.AddDays(3);
+        await using (var ctx = CreateContext())
+        {
+            var me1 = await Profiles(ctx, clock).GetMeAsync(me);
+            Assert.Equal(t0.AddDays(14), me1.Profile!.NameChangeAllowedAt);
+            var early = await Profiles(ctx, clock).UpdateProfileAsync(me,
+                new UpdateSocialProfileRequest { Name = "Asha Two", About = "Changed together with the name." });
+            Assert.Equal(SocialErrorTypes.NameChangeTooSoon, early.ErrorType);
+            Assert.Equal(409, SocialErrorTypes.StatusOf(early.ErrorType!));
+            Assert.Equal(t0.AddDays(14), NextAllowed(early.ErrorData));
+        }
+        await using (var check = CreateContext())
+        {
+            Assert.Equal("Asha One", await check.Users.AsNoTracking().Where(u => u.Id == me).Select(u => u.Name).SingleAsync());
+            var row = await check.Set<UserProfile>().AsNoTracking().SingleAsync(p => p.UserId == me);
+            Assert.Equal(Onboarding().About, row.About);
+            Assert.Equal(t0, row.NameChangedAt);
+        }
+        await using (var ctx = CreateContext())
+        {
+            // The same name again (the Edit profile save sends it every time) is not a change.
+            var same = await Profiles(ctx, clock).UpdateProfileAsync(me, new UpdateSocialProfileRequest { Name = "Asha One", About = "Only the about." });
+            Assert.True(same.Ok, same.ErrorType);
+            Assert.Equal("Only the about.", same.Value!.About);
+            Assert.Equal(t0.AddDays(14), same.Value.NameChangeAllowedAt);
+        }
+        clock.Utc = t0.AddDays(14);
+        await using (var ctx = CreateContext())
+        {
+            var later = await Profiles(ctx, clock).UpdateProfileAsync(me, new UpdateSocialProfileRequest { Name = "Asha Two" });
+            Assert.True(later.Ok, later.ErrorType);
+            Assert.Equal(t0.AddDays(28), later.Value!.NameChangeAllowedAt);
+        }
+        await using var after = CreateContext();
+        Assert.Equal("Asha Two", await after.Users.AsNoTracking().Where(u => u.Id == me).Select(u => u.Name).SingleAsync());
+    }
+
+    [IntegrationFact]
+    public async Task Admin_name_change_works_inside_the_lock_and_never_locks_the_user()
+    {
+        var me = await AccountAsync();
+        var admin = Guid.NewGuid();
+        var clock = new MovableClock();
+        var t0 = clock.Utc;
+        await using (var ctx = CreateContext())
+        {
+            Assert.True((await Profiles(ctx, clock).OnboardAsync(me, Onboarding())).Ok);
+            var byAdmin = await Profiles(ctx, clock).AdminSetIdentityAsync(admin, me, new AdminIdentityRequest { Name = "  Fixed By Support ", Reason = "Fake name" });
+            Assert.True(byAdmin.Ok, byAdmin.ErrorType);
+            Assert.Equal("Fixed By Support", byAdmin.Value!.Name);
+            Assert.Equal(SocialGenders.Female, byAdmin.Value.Gender);
+        }
+        await using (var check = CreateContext())
+        {
+            Assert.Null((await check.Set<UserProfile>().AsNoTracking().SingleAsync(p => p.UserId == me)).NameChangedAt);
+            var audit = await check.Set<ProfileIdentityAudit>().AsNoTracking().SingleAsync(a => a.UserId == me);
+            Assert.Equal("Fixed By Support", audit.NewName);
+            Assert.Equal((SocialGenders.Female, SocialGenders.Female), (audit.OldGender, audit.NewGender));
+        }
+        await using (var ctx = CreateContext())
+        {
+            Assert.Null((await Profiles(ctx, clock).GetMeAsync(me)).Profile!.NameChangeAllowedAt);
+            var own = await Profiles(ctx, clock).UpdateProfileAsync(me, new UpdateSocialProfileRequest { Name = "Asha Own" });
+            Assert.True(own.Ok, own.ErrorType);
+        }
+        clock.Utc = t0.AddDays(2);
+        await using (var ctx = CreateContext())
+        {
+            var again = await Profiles(ctx, clock).AdminSetIdentityAsync(admin, me, new AdminIdentityRequest { Name = "Second Fix", Reason = "Fake name again" });
+            Assert.True(again.Ok, again.ErrorType);
+            var blank = await Profiles(ctx, clock).AdminSetIdentityAsync(admin, me, new AdminIdentityRequest { Name = "\u200B ", Reason = "blank" });
+            Assert.Equal(SocialErrorTypes.InvalidProfile, blank.ErrorType);
+        }
+        await using var final = CreateContext();
+        Assert.Equal("Second Fix", await final.Users.AsNoTracking().Where(u => u.Id == me).Select(u => u.Name).SingleAsync());
+        Assert.Equal(t0, (await final.Set<UserProfile>().AsNoTracking().SingleAsync(p => p.UserId == me)).NameChangedAt);
+        Assert.Equal(2, await final.Set<ProfileIdentityAudit>().CountAsync(a => a.UserId == me));
+    }
+
+    [IntegrationFact]
+    public async Task Legacy_name_route_gate_keeps_the_rule_only_for_a_traveller_profile()
+    {
+        var clock = new MovableClock();
+        var withProfile = await AccountAsync();
+        var noProfile = await AccountAsync();
+        await using (var ctx = CreateContext())
+            Assert.True((await Profiles(ctx, clock).OnboardAsync(withProfile, Onboarding())).Ok);
+        await using (var ctx = CreateContext())
+        {
+            var gate = new NameChangeGate(ctx, clock);
+            Assert.Null(await gate.TryStampAsync(noProfile));
+            Assert.Null(await gate.TryStampAsync(noProfile));
+            Assert.Null(await gate.TryStampAsync(withProfile));
+            Assert.Equal(clock.Utc.AddDays(14), await gate.TryStampAsync(withProfile));
+        }
+        await using var check = CreateContext();
+        Assert.Equal(clock.Utc, (await check.Set<UserProfile>().AsNoTracking().SingleAsync(p => p.UserId == withProfile)).NameChangedAt);
     }
 }

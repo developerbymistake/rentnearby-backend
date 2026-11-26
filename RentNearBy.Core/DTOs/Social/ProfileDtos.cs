@@ -86,6 +86,8 @@ public class MyProfileDto
 {
     public Guid UserId { get; set; }
     public string Name { get; set; } = string.Empty;
+    // Spec 23.9: when the name may change again (UTC); null = it may change now. Edit profile locks the field until then.
+    public DateTime? NameChangeAllowedAt { get; set; }
     public string? Username { get; set; }
     public string? PhotoUrl { get; set; }
     public string Initial { get; set; } = string.Empty;
@@ -169,7 +171,7 @@ public class SocialOnboardingRequest
     public string? HomeStateName { get; set; }
 }
 
-// Absent = keep. Gender / birth present = 409 IdentityLocked.
+// Absent = keep. Gender / birth present = 409 IdentityLocked. A different name inside 14 days of the last change = 409 NameChangeTooSoon.
 public class UpdateSocialProfileRequest
 {
     public string? Name { get; set; }
@@ -195,6 +197,8 @@ public class UpdatePrivacyRequest
 
 public class AdminIdentityRequest
 {
+    // Spec 23.9: the admin may change the name at any time; it never starts the user's 14-day name lock.
+    public string? Name { get; set; }
     public string? Gender { get; set; }
     public int? BirthMonth { get; set; }
     public int? BirthYear { get; set; }
@@ -204,6 +208,7 @@ public class AdminIdentityRequest
 // Admin-only answer of PUT /admin/users/{id}/identity.
 public class AdminIdentityDto
 {
+    public string Name { get; set; } = string.Empty;
     public string Gender { get; set; } = string.Empty;
     public int BirthMonth { get; set; }
     public int BirthYear { get; set; }
