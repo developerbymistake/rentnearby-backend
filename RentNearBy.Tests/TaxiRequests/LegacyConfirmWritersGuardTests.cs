@@ -22,7 +22,13 @@ public class LegacyConfirmWritersGuardTests
     public void Writer_pattern_sees_assignments_only(string code, bool isWrite) => Assert.Equal(isWrite, ConfirmedWrite.IsMatch(code));
 
     // Plain variables holding the constant for a read query are not writers.
-    private static readonly Regex ReadAlias = new(@"var\s+\w+\s*=\s*TripEnquiryStatuses\.ConfirmedByBoth;", RegexOptions.Compiled);
+    private static readonly Regex ReadAlias = new(@"(?:var|const\s+string)\s+\w+\s*=\s*TripEnquiryStatuses\.ConfirmedByBoth;", RegexOptions.Compiled);
+
+    [Theory]
+    [InlineData("var both = TripEnquiryStatuses.ConfirmedByBoth;", true)]
+    [InlineData("const string confirmed = TripEnquiryStatuses.ConfirmedByBoth;", true)]
+    [InlineData("e.Status = TripEnquiryStatuses.ConfirmedByBoth;", false)]
+    public void Read_alias_pattern_sees_named_copies_only(string code, bool isAlias) => Assert.Equal(isAlias, ReadAlias.IsMatch(code));
 
     [Fact]
     public void Confirmed_by_both_is_assigned_in_exactly_two_known_places()

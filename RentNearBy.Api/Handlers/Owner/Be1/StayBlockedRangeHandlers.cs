@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using FluentValidation;
+using Microsoft.AspNetCore.Mvc;
 using RentNearBy.Core.DTOs.Owner;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
@@ -32,7 +33,7 @@ public static class StayBlockedRangeHandlers
 
     public static async Task<IResult> Create(
         StayBlockedRangeRequest request, bool? confirm, IValidator<StayBlockedRangeRequest> validator, ClaimsPrincipal principal,
-        OwnerCalendarReader reader, BlockedRangeService blocks, IRateLimitService limiter, HttpContext http, IConnectionMultiplexer? redis, CancellationToken ct)
+        OwnerCalendarReader reader, BlockedRangeService blocks, IRateLimitService limiter, HttpContext http, [FromServices] IConnectionMultiplexer? redis, CancellationToken ct)
     {
         if (!OwnerCalendarHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request, ct);
@@ -48,7 +49,7 @@ public static class StayBlockedRangeHandlers
 
     public static async Task<IResult> Update(
         Guid id, StayBlockedRangeRequest request, bool? confirm, IValidator<StayBlockedRangeRequest> validator, ClaimsPrincipal principal,
-        OwnerCalendarReader reader, BlockedRangeService blocks, IRateLimitService limiter, HttpContext http, IConnectionMultiplexer? redis, CancellationToken ct)
+        OwnerCalendarReader reader, BlockedRangeService blocks, IRateLimitService limiter, HttpContext http, [FromServices] IConnectionMultiplexer? redis, CancellationToken ct)
     {
         if (!OwnerCalendarHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request, ct);
@@ -64,7 +65,7 @@ public static class StayBlockedRangeHandlers
 
     public static async Task<IResult> Delete(
         Guid id, ClaimsPrincipal principal, OwnerCalendarReader reader, BlockedRangeService blocks, IRateLimitService limiter, HttpContext http,
-        IConnectionMultiplexer? redis, CancellationToken ct)
+        [FromServices] IConnectionMultiplexer? redis, CancellationToken ct)
     {
         if (!OwnerCalendarHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         return await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(me), async () =>

@@ -14,6 +14,12 @@ public static class ListingCacheKeys
     public static string TaxiGen(Guid districtId) => $"taxis:gen:{districtId:N}";
     public const string TaxiSearchGen = "taxis:search:gen";
 
+    // Taxi availability by date: bumped by a day-off save and every booking move; stamps the dated taxi lists and popular routes.
+    public const string TaxiAvailGen = "taxis:avail:gen";
+    // Admin popular route edits.
+    public const string TaxiPopularGen = "taxis:popular:gen";
+    public static string TaxiPopular(DateOnly day) => "taxis:popular:" + day.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture);
+
     // Stay nearby/nearest without a district (distance only): one generation for every stay change anywhere.
     public const string StayAllGen = "stays:gen:all";
 

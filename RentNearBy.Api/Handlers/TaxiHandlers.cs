@@ -62,6 +62,10 @@ public static class TaxiCache
 
     public static string GenKey(Guid districtId) => ListingCacheKeys.TaxiGen(districtId);
     public const string SearchGenKey = ListingCacheKeys.TaxiSearchGen;
+    public const string AvailGenKey = ListingCacheKeys.TaxiAvailGen;
+
+    // Browse and search keys end in :d{yyyyMMdd}; only the Home feed slot keeps the undated key.
+    public static string DayPart(DateOnly? day) => day is { } d ? TaxiSearchDate.KeyPart(d) : "";
 
     public static async Task InvalidateAsync(IConnectionMultiplexer? redis, Guid? districtId)
     {
@@ -158,9 +162,10 @@ public static class TaxiHandlers
     private static string? NormalizeCategory(string? category) =>
         category != null && TaxiVehicleCategories.All.Contains(category) ? category : null;
 
-    private static async Task<(TaxiPage? Page, long? Generation)> ReadPageCacheAsync(IConnectionMultiplexer? redis, string key, string genKey)
+    // Dated entries are stamped with their own generation plus the availability generation (sum, one MGET).
+    private static async Task<(TaxiPage? Page, long? Generation)> ReadPageCacheAsync(IConnectionMultiplexer? redis, string key, IReadOnlyList<string> genKeys)
     {
-        var (cached, generation) = await FeedCache.ReadAsync(redis, key, genKey);
+        var (cached, generation) = await FeedCache.ReadManyAsync(redis, key, genKeys);
         if (cached == null) return (null, generation);
         try { return (JsonSerializer.Deserialize<TaxiPage>(cached), generation); }
         catch (JsonException) { return (null, generation); }
@@ -177,24 +182,27 @@ public static class TaxiHandlers
     public static async Task<IResult> GetBrowse(
         Guid? districtId, Guid? cityId, string? category, long? cityKey,
         IUnitOfWork unitOfWork, ICityResolver resolver, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize, bool cityOnly = false,
-        bool localRate = false, int? people = null, int? dayKm = null, double? lat = null, double? lng = null, double? radiusKm = null)
+        bool localRate = false, int? people = null, int? dayKm = null, double? lat = null, double? lng = null, double? radiusKm = null,
+        string? date = null)
     {
         if (cityKey == null && (districtId is null || districtId == Guid.Empty)) return BadRequestResponse("District is required");
+        var resolved = TaxiSearchDate.Resolve(date, TaxiFeedHandlers.TodayIst(sp.GetService<TimeProvider>()));
+        if (!resolved.Ok) return TaxiFeedHandlers.InvalidDate();
+        var day = resolved.Day;
         if (TaxiLocalNeedRules.Error(people, dayKm, lat, lng, cityKey != null ? null : radiusKm) is { } needError)
             return BadRequestResponse(needError);
         var need = TaxiLocalNeedRules.Build(people, dayKm, lat, lng, cityKey != null ? null : radiusKm);
         var (pageNo, size) = ClampPaging(page, pageSize);
-        if (cityKey != null) return await BrowseCityAsync(cityKey.Value, category, localRate, need, pageNo, size, unitOfWork, resolver, sp);
+        if (cityKey != null) return await BrowseCityAsync(cityKey.Value, category, localRate, need, pageNo, size, unitOfWork, resolver, sp, day);
         var districtGuid = districtId!.Value;
         var categoryFilter = NormalizeCategory(category);
         var cityOnlyFilter = cityOnly && cityId.HasValue;
         var redis = pageNo == 1 ? sp.GetService<IConnectionMultiplexer>() : null;
-        var cacheKey = TaxiCache.LocalKey(districtGuid, cityId, categoryFilter, size, cityOnlyFilter, localRate, need);
-
-        var (result, generation) = await ReadPageCacheAsync(redis, cacheKey, TaxiCache.GenKey(districtGuid));
+        var cacheKey = TaxiCache.LocalKey(districtGuid, cityId, categoryFilter, size, cityOnlyFilter, localRate, need) + TaxiCache.DayPart(day);
+        var (result, generation) = await ReadPageCacheAsync(redis, cacheKey, [TaxiCache.GenKey(districtGuid), TaxiCache.AvailGenKey]);
         if (result == null)
         {
-            var (items, hasMore) = await unitOfWork.Taxis.BrowseLocalPagedAsync(districtGuid, cityId, categoryFilter, pageNo, size, cityOnlyFilter, localRate, need);
+            var (items, hasMore) = await unitOfWork.Taxis.BrowseLocalPagedAsync(districtGuid, cityId, categoryFilter, pageNo, size, cityOnlyFilter, localRate, need, day);
             result = new TaxiPage(items.ToList(), hasMore);
             await WritePageCacheAsync(redis, cacheKey, generation, result, TaxiCache.LocalTtl);
         }
@@ -204,15 +212,15 @@ public static class TaxiHandlers
 
     private static async Task<IResult> BrowseCityAsync(
         long cityKey, string? category, bool localRate, TaxiLocalNeed? need, int pageNo, int size,
-        IUnitOfWork unitOfWork, ICityResolver resolver, IServiceProvider sp)
+        IUnitOfWork unitOfWork, ICityResolver resolver, IServiceProvider sp, DateOnly day)
     {
         var pin = await resolver.FindAsync(cityKey);
         if (!pin.Available) return ErrorResponse(503, "Cities are not available right now", TripErrorTypes.CitiesUnavailable);
         if (pin.City is not { } city) return OkResponse(new { items = new List<TaxiBrowseDto>(), hasMore = false });
 
         var redis = sp.GetService<IConnectionMultiplexer>();
-        var cacheKey = TaxiCache.CityKey(cityKey, localRate);
-        var (cached, generation) = await FeedCache.ReadAsync(redis, cacheKey, RentNearBy.Infrastructure.Services.TripSupplyCache.AllGenKey);
+        var cacheKey = TaxiCache.CityKey(cityKey, localRate) + TaxiCache.DayPart(day);
+        var (cached, generation) = await FeedCache.ReadManyAsync(redis, cacheKey, [RentNearBy.Infrastructure.Services.TripSupplyCache.AllGenKey, TaxiCache.AvailGenKey]);
         List<TaxiAt>? all = null;
         if (cached != null)
         {
@@ -221,7 +229,7 @@ public static class TaxiHandlers
         }
         if (all == null)
         {
-            var fetch = await CityListings.TaxisAsync(unitOfWork.Taxis, resolver, city, localRate);
+            var fetch = await CityListings.TaxisAsync(unitOfWork.Taxis, resolver, city, localRate, day);
             if (fetch.Capped)
                 sp.GetService<ILoggerFactory>()?.CreateLogger("TaxiCity").LogWarning("taxis.city.capped {CityKey} {Max}", cityKey, CityListings.MaxCityFetch);
             all = fetch.Items.ToList();
@@ -235,22 +243,24 @@ public static class TaxiHandlers
     // Route search: both ends within TaxiLimits.MatchRadiusMeters of a stored route (either direction).
     public static async Task<IResult> GetSearch(
         double? fromLat, double? fromLng, double? toLat, double? toLng, string? category,
-        IUnitOfWork unitOfWork, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize)
+        IUnitOfWork unitOfWork, IServiceProvider sp, int page = 1, int pageSize = DefaultPageSize, string? date = null)
     {
         if (fromLat is not (>= -90 and <= 90) || toLat is not (>= -90 and <= 90)
             || fromLng is not (>= -180 and <= 180) || toLng is not (>= -180 and <= 180))
             return BadRequestResponse("Invalid coordinates");
+        var day = TaxiSearchDate.Resolve(date, TaxiFeedHandlers.TodayIst(sp.GetService<TimeProvider>()));
+        if (!day.Ok) return TaxiFeedHandlers.InvalidDate();
 
         var (pageNo, size) = ClampPaging(page, pageSize);
         var categoryFilter = NormalizeCategory(category);
         var redis = pageNo == 1 ? sp.GetService<IConnectionMultiplexer>() : null;
-        var cacheKey = TaxiCache.SearchKey(categoryFilter, fromLat.Value, fromLng.Value, toLat.Value, toLng.Value, size);
+        var cacheKey = TaxiCache.SearchKey(categoryFilter, fromLat.Value, fromLng.Value, toLat.Value, toLng.Value, size) + TaxiCache.DayPart(day.Day);
 
-        var (result, generation) = await ReadPageCacheAsync(redis, cacheKey, TaxiCache.SearchGenKey);
+        var (result, generation) = await ReadPageCacheAsync(redis, cacheKey, [TaxiCache.SearchGenKey, TaxiCache.AvailGenKey]);
         if (result == null)
         {
             var (items, hasMore) = await unitOfWork.Taxis.SearchByRoutePagedAsync(
-                fromLat.Value, fromLng.Value, toLat.Value, toLng.Value, categoryFilter, pageNo, size);
+                fromLat.Value, fromLng.Value, toLat.Value, toLng.Value, categoryFilter, pageNo, size, day.Day);
             result = new TaxiPage(items.ToList(), hasMore);
             await WritePageCacheAsync(redis, cacheKey, generation, result, TaxiCache.SearchTtl);
         }

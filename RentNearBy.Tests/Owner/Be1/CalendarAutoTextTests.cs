@@ -188,6 +188,31 @@ public class CalendarAutoTextTests
     public void Booking_states_map_to_present_or_cancelled(string status, bool confirmed)
         => Assert.Equal(confirmed, CalendarAutoText.ForBooking(Booking(status)).Confirmed);
 
+    // D = 2026-12-20, DateTo = D + 4. CompletedAt is UTC; the end is its IST day.
+    [Theory]
+    [InlineData(2026, 12, 21, 20, 0, 2026, 12, 22)]
+    [InlineData(2026, 12, 20, 10, 0, 2026, 12, 20)]
+    [InlineData(2026, 12, 19, 10, 0, 2026, 12, 20)]
+    [InlineData(2026, 12, 24, 18, 35, 2026, 12, 24)]
+    public void Completed_booking_ends_on_the_ist_day_it_ended_never_before_its_first_day_never_after_its_last(
+        int y, int mo, int d, int h, int mi, int ey, int em, int ed)
+    {
+        var facts = Booking(BookingStates.Completed);
+        facts.CompletedAt = new DateTime(y, mo, d, h, mi, 0, DateTimeKind.Utc);
+        var plan = CalendarAutoText.ForBooking(facts);
+        Assert.True(plan.Confirmed);
+        Assert.Equal((D, new DateOnly(ey, em, ed)), (plan.DateFrom, plan.DateTo));
+    }
+
+    [Fact]
+    public void Live_booking_and_completed_booking_without_a_time_keep_the_whole_range()
+    {
+        var live = Booking(BookingStates.InProgress);
+        live.CompletedAt = new DateTime(2026, 12, 21, 4, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(D.AddDays(4), CalendarAutoText.ForBooking(live).DateTo);
+        Assert.Equal(D.AddDays(4), CalendarAutoText.ForBooking(Booking(BookingStates.Completed)).DateTo);
+    }
+
     [Theory]
     [InlineData(BookingCancelledBy.Traveller, CalendarCancelledBy.Traveller)]
     [InlineData(BookingCancelledBy.Driver, CalendarCancelledBy.Driver)]

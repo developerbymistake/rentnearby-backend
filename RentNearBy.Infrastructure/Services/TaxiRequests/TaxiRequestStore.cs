@@ -39,8 +39,16 @@ public sealed class TaxiRequestStore(
     IMatcherSignal matcherSignal,
     ITaxiRequestEvents events,
     ILogger<TaxiRequestStore> logger,
-    RentNearBy.Infrastructure.Services.Owner.IOwnerCalendarSync? calendar = null)
+    RentNearBy.Infrastructure.Services.Owner.IOwnerCalendarSync? calendar = null,
+    StackExchange.Redis.IConnectionMultiplexer? redis = null)
 {
+    // Scoped store: set when this unit moved a booking (confirm, start, complete, cancel, end with a booking).
+    private bool _availabilityMoved;
+
+    public bool AvailabilityMoved => _availabilityMoved;
+
+    public void MarkAvailabilityMoved() => _availabilityMoved = true;
+
     public Task LockTripAsync(ApplicationDbContext db, Guid tripId, CancellationToken ct = default)
         => db.Database.ExecuteSqlRawAsync(TaxiRequestStoreSql.LockTrip, [Uuid("id", tripId)], ct);
 
@@ -60,7 +68,9 @@ public sealed class TaxiRequestStore(
         var sql = TaxiRequestStoreSql.MoveRequest(from, to);
         var rows = await db.Database.SqlQueryRaw<RequestMoveRow>(sql,
             Uuid("id", requestId), Text("endReason", endReason), Text("chip", chip)).ToListAsync(ct);
-        return rows.Count == 0 ? null : rows[0].ToMove();
+        if (rows.Count == 0) return null;
+        if (to == RequestStates.Booked) _availabilityMoved = true;
+        return rows[0].ToMove();
     }
 
     public Task<TaxiOfferMove?> TryMoveOfferAsync(ApplicationDbContext db, Guid offerId, IReadOnlyCollection<string> from, string to,
@@ -72,6 +82,7 @@ public sealed class TaxiRequestStore(
         string? cancelledBy = null, string? chip = null, string? completedBy = null, CancellationToken ct = default)
     {
         var moved = await MoveBookingCoreAsync(db, bookingId, from, to, cancelledBy, chip, completedBy, bumpVersion: true, ct);
+        if (moved is not null) _availabilityMoved = true;
         if (moved is not null && calendar is not null) await calendar.SyncTaxiBookingAsync(db, moved.BookingId, ct);
         return moved;
     }
@@ -101,6 +112,7 @@ public sealed class TaxiRequestStore(
         var bookingRows = await db.Database.SqlQueryRaw<CancelledBookingRow>(TaxiRequestStoreSql.CancelActiveBookings,
             Uuid("id", requestId), Text("cancelledBy", cancelledBy ?? BookingCancelledBy.System), Text("chip", chip)).ToListAsync(ct);
         var booking = bookingRows.Count == 0 ? null : new TaxiCancelledBooking(bookingRows[0].Id, bookingRows[0].DriverListingId, bookingRows[0].DriverUserId);
+        if (booking is not null) _availabilityMoved = true;
         if (booking is not null && calendar is not null) await calendar.SyncTaxiBookingAsync(db, booking.BookingId, ct);
 
         return await FinishEndAsync(pushes, scheduler, db, move, closed, booking, cancelledBy, endReason, ct);
@@ -162,6 +174,13 @@ public sealed class TaxiRequestStore(
         Safe(() => dueSignal.Wake(), "due actions wake");
         foreach (var city in result.CityKeys.Distinct()) Safe(() => matcherSignal.MarkDirty(city), "matcher mark dirty");
         foreach (var driver in result.FreedDriverListingIds.Distinct()) Safe(() => matcherSignal.MarkDriverFreed(driver), "matcher driver freed");
+        // Only a booking move changes which taxis are free on a date (dated lists, popular routes).
+        if (_availabilityMoved)
+        {
+            _availabilityMoved = false;
+            try { await FeedCache.BumpAsync(redis, [ListingCacheKeys.TaxiAvailGen]); }
+            catch (Exception ex) { logger.LogWarning(ex, "taxi.request.after_commit failed: {Step}", "availability gen"); }
+        }
         foreach (var c in result.Changes)
         {
             try

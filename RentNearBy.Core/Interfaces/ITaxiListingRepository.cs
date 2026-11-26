@@ -26,12 +26,19 @@ public interface ITaxiListingRepository : IRepository<TaxiListing>
         Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly = false, bool localRateOnly = false);
     // need: a trip day's group, km and start point (TaxiLocalRanking); null keeps the plain order.
     Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
-        Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly, bool localRateOnly, RentNearBy.Core.Models.TaxiLocalNeed? need);
+        Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly, bool localRateOnly, RentNearBy.Core.Models.TaxiLocalNeed? need,
+        DateOnly? day = null);
     // Taxis with a base pin inside the box of radiusKm around the point, any district, ranked; the caller cuts them by its own rule.
     Task<IReadOnlyList<(TaxiBrowseDto Item, double Lat, double Lng)>> BrowseLocalNearAsync(
-        double lat, double lng, double radiusKm, bool localRateOnly, int take, int skip = 0);
+        double lat, double lng, double radiusKm, bool localRateOnly, int take, int skip = 0, DateOnly? day = null);
+    // day: the availability rule of that IST day (null = no date rule); cheapest: fare order instead of rank order.
     Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> SearchByRoutePagedAsync(
-        double fromLat, double fromLng, double toLat, double toLng, string? category, int page, int pageSize);
+        double fromLat, double fromLng, double toLat, double toLng, string? category, int page, int pageSize,
+        DateOnly? day = null, bool cheapest = false, RentNearBy.Core.Models.TaxiRouteCityPair? cities = null);
+    // Distinct free taxis of the whole route match for the day plus extraIds (one statement).
+    Task<int> CountRouteFreeAsync(
+        double fromLat, double fromLng, double toLat, double toLng, string? category, DateOnly? day, IReadOnlyCollection<Guid> extraIds,
+        RentNearBy.Core.Models.TaxiRouteCityPair? cities = null);
     // status: one of TaxiStatuses.All, or "All" for every non-deleted row.
     Task<(IReadOnlyList<TaxiListing> Items, bool HasMore)> GetAdminPagedAsync(string status, int page, int pageSize);
 }

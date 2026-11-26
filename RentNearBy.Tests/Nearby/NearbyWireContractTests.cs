@@ -56,7 +56,7 @@ public class NearbyWireContractTests
     public void Taxi_tier_and_route_feed_keys()
     {
         Assert.Equal(new[] { "key", "headerKey", "header", "items", "hasMore", "nextToken", "collapsed" }.ToHashSet(), Keys(new TaxiTierDto()));
-        Assert.Equal(new[] { "header", "tiers" }.ToHashSet(), Keys(new TaxiRouteFeedDto()));
+        Assert.Equal(new[] { "header", "tiers", "date", "freeCount" }.ToHashSet(), Keys(new TaxiRouteFeedDto()));
     }
 
     [Fact]

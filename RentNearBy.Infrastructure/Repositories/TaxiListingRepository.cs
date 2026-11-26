@@ -99,11 +99,13 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
     // need: a trip day's group, km and start point; null or empty keeps the plain order (rank, city, rate).
     public async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> BrowseLocalPagedAsync(
         Guid districtId, Guid? cityId, string? category, int page, int pageSize, bool cityOnly, bool localRateOnly,
-        TaxiLocalNeed? need)
+        TaxiLocalNeed? need, DateOnly? day = null)
     {
         var query = _dbSet
             .AsNoTracking()
             .Where(t => t.Status == TaxiStatuses.Approved && t.IsAvailable && !t.IsDeleted && t.DistrictId == districtId);
+        if (day is { } d)
+            query = query.Where(RentNearBy.Infrastructure.Services.TaxiAvailability.FreeOn(context, d));
         if (category != null)
             query = query.Where(t => t.VehicleType != null && t.VehicleType.Category == category);
         if (cityOnly && cityId.HasValue)
@@ -169,7 +171,7 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
     }
 
     public async Task<IReadOnlyList<(TaxiBrowseDto Item, double Lat, double Lng)>> BrowseLocalNearAsync(
-        double lat, double lng, double radiusKm, bool localRateOnly, int take, int skip = 0)
+        double lat, double lng, double radiusKm, bool localRateOnly, int take, int skip = 0, DateOnly? day = null)
     {
         const double R = 6371.0;
         var dLat = (decimal)(radiusKm / R * (180.0 / Math.PI));
@@ -183,6 +185,8 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
                 && t.Latitude != null && t.Longitude != null
                 && t.Latitude >= minLat && t.Latitude <= maxLat && t.Longitude >= minLng && t.Longitude <= maxLng);
         if (localRateOnly) query = query.Where(t => t.LocalDayRate != null);
+        if (day is { } d)
+            query = query.Where(RentNearBy.Infrastructure.Services.TaxiAvailability.FreeOn(context, d));
 
         var ordered = query.OrderByDescending(t => t.PriorityRank);
         var rows = await (localRateOnly ? ordered.ThenBy(t => t.LocalDayRate) : ordered.ThenBy(t => t.MinFare))
@@ -305,68 +309,136 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
     // Route match runs first over TaxiRoutes (the two GiST indexes drive the ST_DWithin pairs), one
     // row per taxi via DISTINCT ON (direct before reverse, then cheapest), then the public filter and
     // paging, paid rank first. A reversed match swaps the stored names so they follow the traveller's direction.
-    public async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> SearchByRoutePagedAsync(
-        double fromLat, double fromLng, double toLat, double toLng, string? category, int page, int pageSize)
-    {
-        var radius = TaxiLimits.MatchRadiusMeters;
-        var offset = (page - 1) * pageSize;
-        var take = pageSize + 1;
+    // day: the availability rule of that IST day (TaxiAvailabilitySql); cheapest: fare first (contract R12).
+    private static string RouteMatchCte(bool byCity) => byCity ? CityMatchCte : PinMatchCte;
 
+    // Popular route mode: the city-key pair of PopularRouteReader.Sql (ix_taxiroutes_to_from_city), so the card count and this list agree.
+    private const string CityMatchCte = """
+        WITH matched AS (
+            SELECT r."TaxiListingId", r."Fare", r."TripType",
+                   CASE WHEN m.direct THEN r."FromName" ELSE r."ToName"   END AS "FromName",
+                   CASE WHEN m.direct THEN r."ToName"   ELSE r."FromName" END AS "ToName",
+                   NOT m.direct AS "Reversed"
+            FROM "TaxiRoutes" r
+            CROSS JOIN LATERAL (
+                SELECT (r."FromCityKey" = @fromCity AND r."ToCityKey" = @toCity) AS direct
+            ) m
+            WHERE NOT r."HiddenByPlan" AND r."ToCityKey" IS NOT NULL AND r."FromCityKey" IS NOT NULL
+              AND ((r."ToCityKey" = @toCity AND r."FromCityKey" = @fromCity)
+                OR (r."ToCityKey" = @fromCity AND r."FromCityKey" = @toCity))
+        ),
+        best AS (
+            SELECT DISTINCT ON ("TaxiListingId") *
+            FROM matched
+            ORDER BY "TaxiListingId", "Reversed", "Fare"
+        )
+        """;
+
+    private const string PinMatchCte = """
+        WITH q AS (
+            SELECT ST_MakePoint(@fromLng, @fromLat)::geography AS f,
+                   ST_MakePoint(@toLng, @toLat)::geography     AS t
+        ),
+        matched AS (
+            SELECT r."TaxiListingId", r."Fare", r."TripType",
+                   CASE WHEN m.direct THEN r."FromName" ELSE r."ToName"   END AS "FromName",
+                   CASE WHEN m.direct THEN r."ToName"   ELSE r."FromName" END AS "ToName",
+                   NOT m.direct AS "Reversed"
+            FROM "TaxiRoutes" r
+            CROSS JOIN q
+            CROSS JOIN LATERAL (
+                SELECT (ST_DWithin(r."FromPoint", q.f, @radius) AND ST_DWithin(r."ToPoint", q.t, @radius)) AS direct
+            ) m
+            WHERE NOT r."HiddenByPlan"
+              AND ((ST_DWithin(r."FromPoint", q.f, @radius) AND ST_DWithin(r."ToPoint", q.t, @radius))
+               OR (ST_DWithin(r."FromPoint", q.t, @radius) AND ST_DWithin(r."ToPoint", q.f, @radius)))
+        ),
+        best AS (
+            SELECT DISTINCT ON ("TaxiListingId") *
+            FROM matched
+            ORDER BY "TaxiListingId", "Reversed", "Fare"
+        )
+        """;
+
+    private static string RoutePublicJoin(bool withDay) =>
+        """JOIN "TaxiListings" t ON t."Id" = b."TaxiListingId" AND t."Status" = 'Approved' AND t."IsAvailable" = TRUE AND t."IsDeleted" = FALSE"""
+        + (withDay ? " AND " + RentNearBy.Infrastructure.Services.TaxiAvailabilitySql.FreeOn("t", RentNearBy.Infrastructure.Services.TaxiAvailabilitySql.DayParameter) : "");
+
+    internal static string RouteSearchSql(bool withDay, bool cheapest, bool byCity = false) => RouteMatchCte(byCity) + $"""
+        SELECT t."Id",
+               u."Name"      AS "DriverName",
+               v."Name"      AS "VehicleTypeName",
+               v."Category"  AS "VehicleCategory",
+               t."Seats",
+               t."NumberPlate",
+               c."Name"      AS "CityName",
+               d."Name"      AS "DistrictName",
+               t."MinFare",
+               t."CreatedAt",
+               (SELECT COUNT(*) FROM "TaxiRoutes" rc WHERE rc."TaxiListingId" = t."Id" AND NOT rc."HiddenByPlan") AS "RouteCount",
+               b."Fare"      AS "MatchedFare",
+               b."FromName"  AS "MatchedFromName",
+               b."ToName"    AS "MatchedToName",
+               b."TripType"  AS "MatchedTripType",
+               b."Reversed"  AS "MatchReversed",
+               t."PriorityRank",
+               t."IsFeatured",
+               t."DisplayPhotoUrl"
+        FROM best b
+        {RoutePublicJoin(withDay)}
+        JOIN "Users" u ON u."Id" = t."UserId"
+        JOIN "TaxiVehicleTypes" v ON v."Id" = t."VehicleTypeId"
+        LEFT JOIN "Cities" c ON c."Id" = t."CityId"
+        LEFT JOIN "Districts" d ON d."Id" = t."DistrictId"
+        WHERE (@category::text IS NULL OR v."Category" = @category::text)
+        ORDER BY {(cheapest ? "b.\"Fare\", b.\"Reversed\", t.\"PriorityRank\" DESC, t.\"Id\"" : "t.\"PriorityRank\" DESC, b.\"Reversed\", b.\"Fare\", t.\"Id\"")}
+        OFFSET @offset LIMIT @take
+        """;
+
+    // freeCount (contract R12): distinct taxis of the whole onRoute set for the day plus the given (already filtered) passing ids.
+    internal static string RouteFreeCountSql(bool withDay, bool byCity = false) => RouteMatchCte(byCity) + $"""
+        SELECT count(*)::int AS "Value" FROM (
+            SELECT t."Id"
+            FROM best b
+            {RoutePublicJoin(withDay)}
+            JOIN "TaxiVehicleTypes" v ON v."Id" = t."VehicleTypeId"
+            WHERE (@category::text IS NULL OR v."Category" = @category::text)
+            UNION
+            SELECT x FROM unnest(@extra) AS x
+        ) ids
+        """;
+
+    internal static List<Npgsql.NpgsqlParameter> RouteParameters(
+        double fromLat, double fromLng, double toLat, double toLng, string? category, DateOnly? day, TaxiRouteCityPair? cities = null)
+    {
+        var ps = new List<Npgsql.NpgsqlParameter>();
+        if (cities != null)
+        {
+            ps.Add(new("fromCity", NpgsqlTypes.NpgsqlDbType.Bigint) { Value = cities.FromCityKey });
+            ps.Add(new("toCity", NpgsqlTypes.NpgsqlDbType.Bigint) { Value = cities.ToCityKey });
+        }
+        else
+        {
+            ps.Add(new("fromLat", NpgsqlTypes.NpgsqlDbType.Double) { Value = fromLat });
+            ps.Add(new("fromLng", NpgsqlTypes.NpgsqlDbType.Double) { Value = fromLng });
+            ps.Add(new("toLat", NpgsqlTypes.NpgsqlDbType.Double) { Value = toLat });
+            ps.Add(new("toLng", NpgsqlTypes.NpgsqlDbType.Double) { Value = toLng });
+            ps.Add(new("radius", NpgsqlTypes.NpgsqlDbType.Double) { Value = TaxiLimits.MatchRadiusMeters });
+        }
+        ps.Add(new("category", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)category ?? DBNull.Value });
+        if (day is { } d) ps.Add(RentNearBy.Infrastructure.Services.TaxiAvailabilitySql.Day(d));
+        return ps;
+    }
+
+    public async Task<(IReadOnlyList<TaxiBrowseDto> Items, bool HasMore)> SearchByRoutePagedAsync(
+        double fromLat, double fromLng, double toLat, double toLng, string? category, int page, int pageSize,
+        DateOnly? day = null, bool cheapest = false, TaxiRouteCityPair? cities = null)
+    {
+        var ps = RouteParameters(fromLat, fromLng, toLat, toLng, category, day, cities);
+        ps.Add(new Npgsql.NpgsqlParameter("offset", NpgsqlTypes.NpgsqlDbType.Integer) { Value = Math.Max(0, (page - 1) * pageSize) });
+        ps.Add(new Npgsql.NpgsqlParameter("take", NpgsqlTypes.NpgsqlDbType.Integer) { Value = pageSize + 1 });
         var rows = await context.Database
-            .SqlQuery<SearchRow>($"""
-                WITH q AS (
-                    SELECT ST_MakePoint({fromLng}::float8, {fromLat}::float8)::geography AS f,
-                           ST_MakePoint({toLng}::float8, {toLat}::float8)::geography     AS t
-                ),
-                matched AS (
-                    SELECT r."TaxiListingId", r."Fare", r."TripType",
-                           CASE WHEN m.direct THEN r."FromName" ELSE r."ToName"   END AS "FromName",
-                           CASE WHEN m.direct THEN r."ToName"   ELSE r."FromName" END AS "ToName",
-                           NOT m.direct AS "Reversed"
-                    FROM "TaxiRoutes" r
-                    CROSS JOIN q
-                    CROSS JOIN LATERAL (
-                        SELECT (ST_DWithin(r."FromPoint", q.f, {radius}::float8) AND ST_DWithin(r."ToPoint", q.t, {radius}::float8)) AS direct
-                    ) m
-                    WHERE NOT r."HiddenByPlan"
-                      AND ((ST_DWithin(r."FromPoint", q.f, {radius}::float8) AND ST_DWithin(r."ToPoint", q.t, {radius}::float8))
-                       OR (ST_DWithin(r."FromPoint", q.t, {radius}::float8) AND ST_DWithin(r."ToPoint", q.f, {radius}::float8)))
-                ),
-                best AS (
-                    SELECT DISTINCT ON ("TaxiListingId") *
-                    FROM matched
-                    ORDER BY "TaxiListingId", "Reversed", "Fare"
-                )
-                SELECT t."Id",
-                       u."Name"      AS "DriverName",
-                       v."Name"      AS "VehicleTypeName",
-                       v."Category"  AS "VehicleCategory",
-                       t."Seats",
-                       t."NumberPlate",
-                       c."Name"      AS "CityName",
-                       d."Name"      AS "DistrictName",
-                       t."MinFare",
-                       t."CreatedAt",
-                       (SELECT COUNT(*) FROM "TaxiRoutes" rc WHERE rc."TaxiListingId" = t."Id" AND NOT rc."HiddenByPlan") AS "RouteCount",
-                       b."Fare"      AS "MatchedFare",
-                       b."FromName"  AS "MatchedFromName",
-                       b."ToName"    AS "MatchedToName",
-                       b."TripType"  AS "MatchedTripType",
-                       b."Reversed"  AS "MatchReversed",
-                       t."PriorityRank",
-                       t."IsFeatured",
-                       t."DisplayPhotoUrl"
-                FROM best b
-                JOIN "TaxiListings" t ON t."Id" = b."TaxiListingId"
-                  AND t."Status" = 'Approved' AND t."IsAvailable" = TRUE AND t."IsDeleted" = FALSE
-                JOIN "Users" u ON u."Id" = t."UserId"
-                JOIN "TaxiVehicleTypes" v ON v."Id" = t."VehicleTypeId"
-                LEFT JOIN "Cities" c ON c."Id" = t."CityId"
-                LEFT JOIN "Districts" d ON d."Id" = t."DistrictId"
-                WHERE ({category}::text IS NULL OR v."Category" = {category}::text)
-                ORDER BY t."PriorityRank" DESC, b."Reversed", b."Fare", t."Id"
-                OFFSET {offset} LIMIT {take}
-                """)
+            .SqlQueryRaw<SearchRow>(RouteSearchSql(day != null, cheapest, cities != null), ps.Cast<object>().ToArray())
             .ToListAsync();
 
         var hasMore = rows.Count > pageSize;
@@ -393,6 +465,16 @@ public class TaxiListingRepository(ApplicationDbContext context) : Repository<Ta
             CreatedAt = r.CreatedAt,
         }).ToList();
         return (items, hasMore);
+    }
+
+    public async Task<int> CountRouteFreeAsync(
+        double fromLat, double fromLng, double toLat, double toLng, string? category, DateOnly? day, IReadOnlyCollection<Guid> extraIds,
+        TaxiRouteCityPair? cities = null)
+    {
+        var ps = RouteParameters(fromLat, fromLng, toLat, toLng, category, day, cities);
+        ps.Add(new Npgsql.NpgsqlParameter("extra", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Uuid) { Value = extraIds.Distinct().ToArray() });
+        var rows = await context.Database.SqlQueryRaw<int>(RouteFreeCountSql(day != null, cities != null), ps.Cast<object>().ToArray()).ToListAsync();
+        return rows.Count == 0 ? 0 : rows[0];
     }
 
     public async Task<(IReadOnlyList<TaxiListing> Items, bool HasMore)> GetAdminPagedAsync(

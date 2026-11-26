@@ -95,6 +95,23 @@ public static class OwnerFeatureModel
             e.HasIndex(x => x.DateTo, "ix_stayblockedranges_dateto");
         });
 
+        modelBuilder.Entity<TaxiDayOff>(e =>
+        {
+            e.ToTable("TaxiDayOffs", t =>
+                t.HasCheckConstraint("ck_taxidayoffs_reason",
+                    $"\"Reason\" IS NULL OR char_length(\"Reason\") BETWEEN 1 AND {OwnerLimits.TaxiDayOffReasonMax}"));
+            e.HasKey(x => new { x.TaxiListingId, x.Date });
+            e.Property(x => x.Date).HasColumnType("date");
+            e.Property(x => x.Reason).HasMaxLength(OwnerLimits.TaxiDayOffReasonMax);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
+
+            e.HasOne<TaxiListing>().WithMany().HasForeignKey(x => x.TaxiListingId).OnDelete(DeleteBehavior.Cascade);
+
+            // Retention order and the "all days off of date D" side of the list anti-joins.
+            e.HasIndex(x => new { x.Date, x.TaxiListingId }, "ix_taxidayoffs_date");
+        });
+
         modelBuilder.Entity<StaySpecialPrice>(e =>
         {
             e.ToTable("StaySpecialPrices", t =>

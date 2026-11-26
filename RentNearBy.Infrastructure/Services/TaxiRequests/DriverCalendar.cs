@@ -31,6 +31,7 @@ public interface IDriverCalendarSql
     Task<TaxiDateRange?> FindOverlapAsync(Guid driverListingId, TaxiDateRange range, Guid? exceptEnquiryId, CancellationToken ct);
 }
 
+// A driver's day off inside the range is a clash too (SPEC 4.3): confirm answers DatesAlreadyBooked and the banner shows.
 // MASTER_PLAN P1 and B2-6: every writer that can book a driver opens a READ COMMITTED transaction, locks the driver's
 // TaxiListings row FOR UPDATE and only then sends a fresh overlap query over active TaxiBookings and confirmed legacy
 // local taxi rows. Under READ COMMITTED each statement takes a new snapshot, so the query sees every booking committed
@@ -54,8 +55,12 @@ public static class DriverCalendar
             : new DriverCheck(DriverCheckOutcome.Free, driver, null);
     }
 
-    // Read side (datesConflict on Selected offers): same query, no lock, no transaction needed.
+    // Accept (D3) and select (T7): bookings only. A day off is refused at confirm alone (contract 1.8, R16).
     public static Task<TaxiDateRange?> ConflictForAsync(ApplicationDbContext db, Guid driverListingId, DateOnly from, DateOnly to, CancellationToken ct = default)
+        => new EfDriverCalendarSql(db).FindBookingOverlapAsync(driverListingId, new TaxiDateRange(from, to), ct);
+
+    // Read side (datesConflict on Selected offers): the confirm query, so the banner shows what confirm will refuse.
+    public static Task<TaxiDateRange?> SelectedConflictForAsync(ApplicationDbContext db, Guid driverListingId, DateOnly from, DateOnly to, CancellationToken ct = default)
         => new EfDriverCalendarSql(db).FindOverlapAsync(driverListingId, new TaxiDateRange(from, to), null, ct);
 
     public static bool Overlaps(TaxiDateRange a, TaxiDateRange b) => a.Overlaps(b);
@@ -72,8 +77,7 @@ public static class DriverCalendar
         SELECT "Id", "UserId", "Status", "IsDeleted", "EverApproved" FROM "TaxiListings" WHERE "Id" = @driver FOR UPDATE
         """;
 
-    public static readonly string OverlapSql = $"""
-        SELECT x."From", x."To" FROM (
+    private static readonly string BookingRows = $"""
             SELECT b."DateFrom" AS "From", b."DateTo" AS "To"
             FROM "TaxiBookings" b
             WHERE b."DriverListingId" = @driver AND b."Status" IN ({BookingStates.ActiveSqlList})
@@ -85,10 +89,27 @@ public static class DriverCalendar
               AND e."Status" = '{TripEnquiryStatuses.ConfirmedByBoth}' AND e."CheckIn" IS NOT NULL
               AND e."CheckIn" <= @to AND COALESCE(e."CheckOut", e."CheckIn" + 1) > @from
               AND (@exceptEnquiry IS NULL OR e."Id" <> @exceptEnquiry)
+        """;
+
+    private const string DayOffRows = """
+            SELECT d."Date" AS "From", d."Date" AS "To"
+            FROM "TaxiDayOffs" d
+            WHERE d."TaxiListingId" = @driver AND d."Date" BETWEEN @from AND @to
+        """;
+
+    private static string FirstClash(string rows) => $"""
+        SELECT x."From", x."To" FROM (
+        {rows}
         ) x
         ORDER BY x."From", x."To"
         LIMIT 1
         """;
+
+    // Confirm (P1 lock) and the Selected banner: bookings, confirmed legacy rows and days off.
+    public static readonly string OverlapSql = FirstClash(BookingRows + "\n    UNION ALL\n" + DayOffRows);
+
+    // Accept and select: bookings and confirmed legacy rows only.
+    public static readonly string BookingOverlapSql = FirstClash(BookingRows);
 }
 
 public sealed class EfDriverCalendarSql(ApplicationDbContext db) : IDriverCalendarSql
@@ -107,6 +128,17 @@ public sealed class EfDriverCalendarSql(ApplicationDbContext db) : IDriverCalend
             new NpgsqlParameter("from", NpgsqlDbType.Date) { Value = range.From },
             new NpgsqlParameter("to", NpgsqlDbType.Date) { Value = range.To },
             new NpgsqlParameter("exceptEnquiry", NpgsqlDbType.Uuid) { Value = (object?)exceptEnquiryId ?? DBNull.Value })
+            .ToListAsync(ct);
+        return rows.Count == 0 ? null : new TaxiDateRange(rows[0].From, rows[0].To);
+    }
+
+    public async Task<TaxiDateRange?> FindBookingOverlapAsync(Guid driverListingId, TaxiDateRange range, CancellationToken ct)
+    {
+        var rows = await db.Database.SqlQueryRaw<RangeRow>(DriverCalendar.BookingOverlapSql,
+            new NpgsqlParameter("driver", NpgsqlDbType.Uuid) { Value = driverListingId },
+            new NpgsqlParameter("from", NpgsqlDbType.Date) { Value = range.From },
+            new NpgsqlParameter("to", NpgsqlDbType.Date) { Value = range.To },
+            new NpgsqlParameter("exceptEnquiry", NpgsqlDbType.Uuid) { Value = DBNull.Value })
             .ToListAsync(ct);
         return rows.Count == 0 ? null : new TaxiDateRange(rows[0].From, rows[0].To);
     }

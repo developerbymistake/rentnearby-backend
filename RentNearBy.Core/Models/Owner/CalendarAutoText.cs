@@ -42,6 +42,7 @@ public sealed class BookingFacts
     public string? CancelledBy { get; set; }
     public DateTime? CancelledAt { get; set; }
     public DateTime BookedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
     public string PickupCityName { get; set; } = string.Empty;
     public short Seats { get; set; }
     public string TravellerName { get; set; } = string.Empty;
@@ -197,6 +198,12 @@ public static class CalendarAutoText
         var to = b.DropSameAsPickup == true ? Cut(FirstText(b.DropCityName, b.PickupCityName), OwnerLimits.PlaceMax) : Cut(FirstText(b.DropCityName), OwnerLimits.PlaceMax);
         var places = PlacesOf(snapshot, b.SightseeingDaysJson);
         var dateTo = b.DateTo >= b.DateFrom ? b.DateTo : b.DateFrom;
+        // A trip ended early (End trip) frees the days after the IST day it ended.
+        if (b.Status == BookingStates.Completed && b.CompletedAt is { } completedAt)
+        {
+            var endedOn = IstTime.TodayIst(completedAt);
+            if (endedOn < dateTo) dateTo = endedOn < b.DateFrom ? b.DateFrom : endedOn;
+        }
         return new AutoEntryPlan(CalendarSourceTypes.TaxiBooking, b.Id, confirmed, b.DriverUserId, ListingKinds.Taxi, b.DriverListingId, b.TravellerUserId,
             b.DateFrom, dateTo, from, to, Cut(b.TravellerName, OwnerLimits.LabelMax) ?? string.Empty,
             b.Seats > 0 ? SeatsText(b.Seats) : null, null, null,

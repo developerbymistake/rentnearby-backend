@@ -122,8 +122,14 @@ public static class OwnerCalendarSql
         SELECT ({ActiveManualCount}) AS "Active",
                (SELECT count(*) FROM "CalendarEntries" m
                 WHERE m."ListingKind" = @k AND m."ListingId" = @l AND m."Kind" = 'Manual' AND m."DateTo" >= @keptFrom) AS "Total",
-               (SELECT row_to_json(x)::text FROM (SELECT {Columns()} FROM "CalendarEntries" c WHERE c."Id" = @id) x) AS "Existing"
+               (SELECT row_to_json(x)::text FROM (SELECT {Columns()} FROM "CalendarEntries" c WHERE c."Id" = @id) x) AS "Existing",
+               (@k = 'Taxi' AND {TaxiDayOffOn("@from")}) AS "DayOff"
         """;
+
+    // A taxi trip is one day: the driver's day off on that day (SPEC 4.3, contract 1.8).
+    public static string TaxiDayOffOn(string day) => $"""EXISTS (SELECT 1 FROM "TaxiDayOffs" x WHERE x."TaxiListingId" = @l AND x."Date" = {day})""";
+
+    public static readonly string DayOffOne = $"""SELECT {TaxiDayOffOn("@from")} AS "Value" """;
 
     public static readonly string Insert = $"""
         INSERT INTO "CalendarEntries" AS c ("Id", "OwnerUserId", "ListingKind", "ListingId", "Kind", "DateFrom", "DateTo", "TimeOfDay",
@@ -140,6 +146,7 @@ public static class OwnerCalendarSql
         WHERE c."Id" = @id AND c."ListingKind" = @k AND c."ListingId" = @l AND c."Kind" = 'Manual' AND c."Version" = @v
           AND c."DateTo" >= @today
           AND (@fromOk OR c."DateFrom" = @from) AND (@toOk OR c."DateTo" = @to)
+          AND (c."ListingKind" <> 'Taxi' OR c."DateFrom" = @from OR NOT {TaxiDayOffOn("@from")})
           AND {Visible()}
         RETURNING {Columns()}
         """;
@@ -301,6 +308,7 @@ public sealed class CalendarCreateCheckRow
     public long Active { get; set; }
     public long Total { get; set; }
     public string? Existing { get; set; }
+    public bool DayOff { get; set; }
 }
 
 public sealed class CalendarDeleteRow

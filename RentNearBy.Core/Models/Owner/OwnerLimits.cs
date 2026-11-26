@@ -7,6 +7,10 @@ public static class OwnerLimits
     public const int NoteMax = 200;
     public const int PlaceMax = 80;
     public const int ReasonMax = 60;
+    // Taxi day off: private reason (code points) and retention (rows dated before yesterday go).
+    public const int TaxiDayOffReasonMax = 200;
+    public const int TaxiDayOffKeepDays = 1;
+    public const int TaxiDayOffChangesMax = 250;
     public const int DetailMax = 120;
     public const int RoomNamesMax = 80;
     public const int FestivalNameMax = 40;

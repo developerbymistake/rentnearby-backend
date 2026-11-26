@@ -1652,6 +1652,21 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         TaxiWaysModel.Configure(modelBuilder);
         TaxiRequestModel.Configure(modelBuilder);
         BuddyFeatureModel.Configure(modelBuilder);
+        modelBuilder.Entity<PopularRoute>(e =>
+        {
+            e.ToTable("PopularRoutes", t => t.HasCheckConstraint("ck_popularroutes_pair", "\"FromCityKey\" <> \"ToCityKey\""));
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(x => x.FromCityName).HasMaxLength(PopularRouteLimits.CityNameMax).IsRequired();
+            e.Property(x => x.ToCityName).HasMaxLength(PopularRouteLimits.CityNameMax).IsRequired();
+            e.Property(x => x.IsActive).HasDefaultValue(true).HasSentinel(true);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
+            // The ordered pair is unique: a duplicate is refused by the database (race safe).
+            e.HasIndex(x => new { x.FromCityKey, x.ToCityKey }, "ux_popularroutes_pair").IsUnique();
+            e.HasIndex(x => new { x.SortOrder, x.Id }, "ix_popularroutes_order");
+        });
+
         OwnerFeatureModel.Configure(modelBuilder);
 
     }

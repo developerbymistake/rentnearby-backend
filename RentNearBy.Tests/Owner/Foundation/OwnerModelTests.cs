@@ -40,6 +40,8 @@ public class OwnerModelTests
     [InlineData("FestivalReminderSent", "UserId,FestivalDateId,FestivalDateTo,SentAt")]
     [InlineData("OwnerReminderRuns", "RunDate,ListingKind,StartedAt,FinishedAt,LastListingId,Sent")]
     [InlineData("OwnerWeeklyStats", "ListingKind,ListingId,Day,Shown,RequestsNoRoute")]
+    [InlineData("TaxiDayOffs", "TaxiListingId,Date,Reason,CreatedAt,UpdatedAt")]
+    [InlineData("PopularRoutes", "Id,FromCityKey,ToCityKey,FromCityName,ToCityName,SortOrder,IsActive,CreatedAt,UpdatedAt")]
     public void New_tables_have_exactly_their_columns(string table, string columns)
         => Assert.Equal(columns.Split(',').OrderBy(c => c), Table(table).Columns.Select(c => c.Name).OrderBy(c => c));
 
@@ -93,6 +95,8 @@ public class OwnerModelTests
     [InlineData("TaxiListings", "ck_taxilistings_ringweight", "\"RingWeight\" BETWEEN 1 AND 5")]
     [InlineData("TripEnquiries", "ck_tripenquiries_listedstaytotal", "\"ListedStayTotal\" IS NULL OR (\"Kind\" = 'Stay' AND \"ListedStayTotal\" >= 100)")]
     [InlineData("StayListings", "ck_staylistings_pendingeditresult", "\"PendingEditResult\" IS NULL OR \"PendingEditResult\" IN ('Approved', 'Rejected')")]
+    [InlineData("TaxiDayOffs", "ck_taxidayoffs_reason", "\"Reason\" IS NULL OR char_length(\"Reason\") BETWEEN 1 AND 200")]
+    [InlineData("PopularRoutes", "ck_popularroutes_pair", "\"FromCityKey\" <> \"ToCityKey\"")]
     public void Check_constraints_are_exact(string table, string name, string sql)
         => Assert.Equal(sql, Check(table, name));
 
@@ -137,6 +141,9 @@ public class OwnerModelTests
     [InlineData("StayListings", "ix_staylistings_pendingedit", "PendingEditAt,Id", false, "\"PendingEditJson\" IS NOT NULL AND \"IsDeleted\" = false")]
     [InlineData("TaxiRequests", "ix_taxirequests_created", "CreatedAt", false, null)]
     [InlineData("TaxiRoutes", "ix_taxiroutes_to_from_city", "ToCityKey,FromCityKey", false, "\"ToCityKey\" IS NOT NULL AND \"FromCityKey\" IS NOT NULL AND NOT \"HiddenByPlan\"")]
+    [InlineData("TaxiDayOffs", "ix_taxidayoffs_date", "Date,TaxiListingId", false, null)]
+    [InlineData("PopularRoutes", "ux_popularroutes_pair", "FromCityKey,ToCityKey", true, null)]
+    [InlineData("PopularRoutes", "ix_popularroutes_order", "SortOrder,Id", false, null)]
     public void Indexes_are_exact(string table, string name, string columns, bool unique, string? filter)
     {
         var ix = Index(table, name);
@@ -170,6 +177,21 @@ public class OwnerModelTests
         Assert.Empty(model.FindEntityType(typeof(StaySpecialPrice))!.GetForeignKeys().Where(f => f.Properties[0].Name == "FestivalDateId"));
         Assert.Equal(DeleteBehavior.Cascade, model.FindEntityType(typeof(StayBlockedRange))!.GetForeignKeys().Single().DeleteBehavior);
         Assert.Equal(2, model.FindEntityType(typeof(FestivalReminderSent))!.GetForeignKeys().Count(f => f.DeleteBehavior == DeleteBehavior.Cascade));
+
+        var dayOff = model.FindEntityType(typeof(TaxiDayOff))!;
+        Assert.Equal(["TaxiListingId", "Date"], dayOff.FindPrimaryKey()!.Properties.Select(p => p.Name));
+        var dayOffFk = Assert.Single(dayOff.GetForeignKeys());
+        Assert.Equal("TaxiListingId", Assert.Single(dayOffFk.Properties).Name);
+        Assert.Equal(typeof(RentNearBy.Core.Entities.TaxiListing), dayOffFk.PrincipalEntityType.ClrType);
+        Assert.Equal(DeleteBehavior.Cascade, dayOffFk.DeleteBehavior);
+        Assert.Equal("date", Table("TaxiDayOffs").FindColumn("Date")!.StoreType);
+        Assert.Equal("character varying(200)", Table("TaxiDayOffs").FindColumn("Reason")!.StoreType);
+
+        var popular = model.FindEntityType(typeof(RentNearBy.Core.Entities.PopularRoute))!;
+        Assert.Equal(["Id"], popular.FindPrimaryKey()!.Properties.Select(p => p.Name));
+        Assert.Empty(popular.GetForeignKeys());
+        Assert.Equal("character varying(120)", Table("PopularRoutes").FindColumn("FromCityName")!.StoreType);
+        Assert.Equal("character varying(120)", Table("PopularRoutes").FindColumn("ToCityName")!.StoreType);
     }
 
     [Fact]
@@ -206,7 +228,7 @@ public class OwnerModelTests
         Assert.EndsWith("_InitialCreate", id);
         var snapshot = assembly.ModelSnapshot!.Model;
         var tables = snapshot.GetEntityTypes().Select(e => e.GetTableName()).ToHashSet();
-        Assert.All(new[] { "CalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalDates", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats" },
+        Assert.All(new[] { "CalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalDates", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats", "TaxiDayOffs", "PopularRoutes" },
             t => Assert.Contains(t, tables));
     }
 }

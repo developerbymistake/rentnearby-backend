@@ -22,6 +22,8 @@ public sealed class OwnerRetentionRules : IRetentionRuleSource
             """t."RunDate" < @cutoffDate""", "RunDate", OwnerLimits.ReminderRunDays, KeyColumns: ["RunDate", "ListingKind"]),
         new("OwnerWeeklyStats", RetentionGroups.OwnerCalendar, "OwnerWeeklyStats", "ListingKind",
             """t."Day" < @cutoffDate""", "Day", OwnerLimits.StatsKeepDays, KeyColumns: ["ListingKind", "ListingId", "Day"]),
+        new("TaxiDayOffs", RetentionGroups.OwnerCalendar, "TaxiDayOffs", "TaxiListingId",
+            """t."Date" < @cutoffDate""", "Date", OwnerLimits.TaxiDayOffKeepDays, GuardExempt: true, KeyColumns: ["TaxiListingId", "Date"]),
     ];
 
     public IEnumerable<IRetentionRule> Create() => Definitions.Select(d => new DeclarativeRetentionRule(d));

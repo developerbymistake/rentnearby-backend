@@ -27,7 +27,7 @@ public sealed class OwnerCalendarSync : IOwnerCalendarSync
 
     public const string BookingFactsSql = """
         SELECT b."Id", b."Status", b."DriverListingId", b."DriverUserId", b."TravellerUserId", b."DateFrom", b."DateTo", b."CancelledBy",
-               b."CancelledAt", b."BookedAt", b."PickupCityName", b."Seats", b."TravellerName",
+               b."CancelledAt", b."BookedAt", b."CompletedAt", b."PickupCityName", b."Seats", b."TravellerName",
                r."DropCityName", r."DropSameAsPickup", r."Travellers", r."TripSnapshotJson"::text AS "TripSnapshotJson",
                r."SightseeingDaysJson"::text AS "SightseeingDaysJson"
         FROM "TaxiBookings" b

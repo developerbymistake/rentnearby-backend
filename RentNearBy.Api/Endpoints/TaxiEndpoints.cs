@@ -12,6 +12,7 @@ public static class TaxiEndpoints
         group.MapGet("/search", TaxiHandlers.GetSearch);
         group.MapGet("/feed", TaxiFeedHandlers.GetFeed);
         group.MapGet("/route-feed", TaxiFeedHandlers.GetRouteFeed).RequireAuthorization();
+        group.MapGet("/popular-routes", PopularRouteHandlers.Get);
         group.MapGet("/by-slug/{slug}", TaxiHandlers.GetBySlug);
         group.MapTaxiWaysEndpoints();
 

@@ -35,9 +35,11 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
             if (!OwnerCalendarRules.InsideWindow(ctx.Window, input.DateFrom, input.DateTo)) return Be1Error.Of(OwnerErrorTypes.CalendarOutsideWindow);
 
             var check = (await db.Database.SqlQueryRaw<CalendarCreateCheckRow>(CreateCheck,
-                [.. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("keptFrom", ctx.Window.PastFrom), Uuid("id", id)]).ToListAsync(c))[0];
+                [.. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("keptFrom", ctx.Window.PastFrom), Uuid("id", id),
+                 Date("from", input.DateFrom)]).ToListAsync(c))[0];
             if (CalendarEntryView.ParseRow(check.Existing) is { } existing)
                 return await ReplayAsync(ctx, existing, check.Active, tx, c);
+            if (check.DayOff) return DayIsOff(input.DateFrom);
             if (check.Total >= OwnerLimits.ManualRowsCeiling)
                 return new Be1Error(OwnerErrorTypes.CalendarEntryLimit, OwnerErrorTypes.LimitMessage(OwnerErrorTypes.CalendarEntryLimit, OwnerLimits.ManualRowsCeiling, false),
                     new PlanLimitRefusalDto(PlanFeatureKeys.CalendarEntries, OwnerLimits.ManualRowsCeiling, (int)check.Total, false));
@@ -86,6 +88,8 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
             if (await OwnerCalendarReader.ReadVisibleAsync(db, ctx, id, ct) == null) return Be1Error.Of(OwnerErrorTypes.PlanRowInactive);
             if (OwnerCalendarRules.SameManual(current, input)) saved = current;
             else if (current.Version != v) return Stale(current);
+            else if (ctx.Kind == ListingKinds.Taxi && current.DateFrom != input.DateFrom && await IsDayOffAsync(ctx, input.DateFrom, ct))
+                return DayIsOff(input.DateFrom);
             else return Be1Error.Of(OwnerErrorTypes.CalendarOutsideWindow);
         }
         var overlap = await OverlapAsync(ctx, saved, ct);
@@ -108,6 +112,11 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
     }
 
     public static Be1Error NotFound() => new(Be1ErrorTypes.NotFound, "Entry not found.");
+
+    public static Be1Error DayIsOff(DateOnly date) => Be1Error.Of(OwnerErrorTypes.DayIsOff, new { date = TaxiSearchDate.Text(date) });
+
+    private async Task<bool> IsDayOffAsync(OwnerContext ctx, DateOnly date, CancellationToken ct)
+        => (await db.Database.SqlQueryRaw<bool>(DayOffOne, Uuid("l", ctx.ListingId), Date("from", date)).ToListAsync(ct)).FirstOrDefault();
 
     public static Be1Error Stale(CalendarEntryRow current) => new(OwnerErrorTypes.StaleEdit, OwnerErrorTypes.MessageOf(OwnerErrorTypes.StaleEdit), null, current);
 

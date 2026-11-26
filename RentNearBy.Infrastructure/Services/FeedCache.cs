@@ -22,6 +22,27 @@ public static class FeedCache
         }
     }
 
+    // Several generations stamp one entry: the stamp is their sum (each only grows, so any bump changes it). One MGET.
+    public static async Task<(string? Payload, long? Generation)> ReadManyAsync(IConnectionMultiplexer? redis, string key, IReadOnlyList<string> genKeys)
+    {
+        if (redis == null) return (null, null);
+        try
+        {
+            var keys = new RedisKey[genKeys.Count + 1];
+            keys[0] = key;
+            for (var i = 0; i < genKeys.Count; i++) keys[i + 1] = genKeys[i];
+            var values = await redis.GetDatabase().StringGetAsync(keys);
+            var generation = SumStamp(values.Skip(1).Select(v => (string?)v));
+            return (CacheStamp.Unwrap(values[0], generation), generation);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
+    public static long SumStamp(IEnumerable<string?> generations) => generations.Sum(CacheStamp.Generation);
+
     public static async Task WriteAsync(IConnectionMultiplexer? redis, string key, long? generation, string payload, TimeSpan ttl)
     {
         if (redis == null || generation is not { } g) return;

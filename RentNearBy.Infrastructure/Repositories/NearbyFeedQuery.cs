@@ -70,6 +70,11 @@ public sealed class NearbyFeedQuery(ApplicationDbContext context) : INearbyFeedQ
                     sql.Append(" AND EXISTS (SELECT 1 FROM \"TaxiVehicleTypes\" v WHERE v.\"Id\" = t.\"VehicleTypeId\" AND v.\"Category\" = @category)");
                     ps.Add(new NpgsqlParameter("category", f.Category));
                 }
+                if (f.Day is { } day)
+                {
+                    sql.Append(" AND ").Append(RentNearBy.Infrastructure.Services.TaxiAvailabilitySql.FreeOn("t", RentNearBy.Infrastructure.Services.TaxiAvailabilitySql.DayParameter));
+                    ps.Add(RentNearBy.Infrastructure.Services.TaxiAvailabilitySql.Day(day));
+                }
                 break;
             case NearbyKind.StayJob:
                 if (f.DepartmentId is { } dep)

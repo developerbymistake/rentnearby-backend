@@ -97,6 +97,6 @@ public enum NearbyKind { Stay, Taxi, StayJob }
 
 public sealed record NearbyFilter(Guid? StayTypeId = null, string? Meals = null, string? Category = null,
     Guid? DepartmentId = null, int? MinExperience = null, int? MaxExperience = null, int? MinSalary = null,
-    IReadOnlyCollection<Guid>? ExcludeIds = null);
+    IReadOnlyCollection<Guid>? ExcludeIds = null, DateOnly? Day = null);
 
 public sealed record NearbyCity(long CityKey, string Name, string StateName, string DistrictName, double Lat, double Lng, double DistanceKm);

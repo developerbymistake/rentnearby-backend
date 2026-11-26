@@ -45,4 +45,8 @@ public class TaxiRouteFeedDto
 {
     public NearbyHeaderDto Header { get; set; } = new();
     public List<TaxiTierDto> Tiers { get; set; } = [];
+    // The IST day the lists were filtered for (yyyy-MM-dd).
+    public string? Date { get; set; }
+    // First call only: distinct free taxis of onRoute plus passing; null on tier pages.
+    public int? FreeCount { get; set; }
 }

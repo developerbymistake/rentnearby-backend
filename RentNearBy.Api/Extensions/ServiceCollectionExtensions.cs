@@ -31,10 +31,14 @@ public static class ServiceCollectionExtensions
         // The owner calendar sync interceptor is a singleton on the pooled options (contract 8.1). The HiddenByPlan query filter on
         // TaxiRoutes makes EF warn about the required TaxiRouteGeometry end; geometry rows are read by route id only.
         services.AddSingleton<OwnerCalendarSyncInterceptor>();
+        services.AddSingleton(sp => new TaxiAvailabilityBumpInterceptor(sp.GetService<IConnectionMultiplexer>()));
         services.AddDbContextPool<ApplicationDbContext>((sp, options) =>
+        {
+            var availability = sp.GetRequiredService<TaxiAvailabilityBumpInterceptor>();
             options.UseNpgsql(connectionString, o => o.UseNetTopologySuite())
-                .AddInterceptors(sp.GetRequiredService<OwnerCalendarSyncInterceptor>())
-                .ConfigureWarnings(w => w.Ignore(CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning)));
+                .AddInterceptors(sp.GetRequiredService<OwnerCalendarSyncInterceptor>(), availability, availability.Commits)
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning));
+        });
 
         services.AddMemoryCache();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
