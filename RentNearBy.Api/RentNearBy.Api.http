@@ -456,3 +456,11 @@ Accept: application/json
 GET {{baseUrl}}/api/v1/admin/deleted-accounts/{{deletedAccountId}}
 Authorization: Bearer {{adminToken}}
 Accept: application/json
+
+### Seeker-only gate: a Stay Owner or Taxi Driver token on a traveller route answers 403 error.type SeekerOnly
+### ("These features are for travellers. Use a seeker account."); /trips/leads/driver and /trips/cities/{key}/spots/{id} stay open.
+@stayOwnerToken = <stay-owner-jwt>
+
+GET {{baseUrl}}/api/v1/trips
+Authorization: Bearer {{stayOwnerToken}}
+Accept: application/json

@@ -254,11 +254,15 @@ public sealed class JourneyHarness : IAsyncDisposable
             s.Uow, s.Db, s.Journeys, Chat, Notifier, RateLimit, Loggers, s.Http, new RentNearBy.Infrastructure.Repositories.OutboxWriter(s.Db));
     }
 
+    // Either side cancels here, so the principal carries the caller's live role claim, as token validation writes it.
     public async Task<IResult> CancelAsync(Guid enquiryId, Guid callerId, string? reason = null)
     {
         await using var s = NewScope();
+        var principal = Principal(callerId);
+        RentNearBy.Api.Extensions.RoleClaimSync.Apply(principal,
+            await s.Db.Users.AsNoTracking().Where(u => u.Id == callerId).Select(u => u.RoleId).SingleAsync());
         return await TripEnquiryHandlers.Cancel(enquiryId, new CancelTripEnquiryRequest { Reason = reason },
-            new CancelTripEnquiryRequestValidator(), Principal(callerId), s.Uow, s.Db, Chat, Notifier, RateLimit, Loggers, s.Http);
+            new CancelTripEnquiryRequestValidator(), principal, s.Uow, s.Db, Chat, Notifier, RateLimit, Loggers, s.Http);
     }
 
     public async Task<IResult> SendOfferAsync(Guid enquiryId, Guid ownerId, SendTripOfferRequest request)

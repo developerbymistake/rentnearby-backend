@@ -63,10 +63,11 @@ public class ProfilePhotoGuardTests
     }
 
     // Each reader reads the photo in the statement that already reads the person: the Users join count is today's count.
+    // BuddyListService: 6 + 3 seeker-role joins of the buddy counts (seeker-only contract section 3), none reads a photo.
     [Theory]
     [InlineData("RentNearBy.Infrastructure/Services/Buddy/TripAccess.cs", 3, 2)]
     [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be1/BuddyFindService.cs", 1, 1)]
-    [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be1/BuddyListService.cs", 6, 5)]
+    [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be1/BuddyListService.cs", 9, 5)]
     [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be1/BuddyRequestService.cs", 4, 2)]
     [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be2/Be2Sql.cs", 3, 1)]
     [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be2/TripMemberService.cs", 3, 2)]

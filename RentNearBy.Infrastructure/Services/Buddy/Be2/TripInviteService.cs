@@ -15,8 +15,8 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be2;
 public sealed class TripInviteService(
     ApplicationDbContext db, INoticeWriter notices, IBuddyLiveHints hints, TimeProvider clock, ILogger<TripInviteService> logger)
 {
-    private static readonly string CandidatesSql = $"""
-        SELECT x.id AS "UserId", (u."Id" IS NOT NULL) AS "Exists", COALESCE(u."IsActive", FALSE) AS "IsActive",
+    internal static readonly string CandidatesSql = $"""
+        SELECT x.id AS "UserId", (u."Id" IS NOT NULL) AS "Exists", COALESCE(u."IsActive" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}, FALSE) AS "IsActive",
                EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @owner AND b."BuddyUserId" = x.id) AS "IsBuddy",
                EXISTS (SELECT 1 FROM "UserBlocks" k
                        WHERE (k."BlockerId" = @owner AND k."BlockedId" = x.id)

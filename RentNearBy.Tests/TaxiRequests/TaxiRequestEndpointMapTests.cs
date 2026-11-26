@@ -17,26 +17,26 @@ using RentNearBy.Core.Models;
 
 namespace RentNearBy.Tests.TaxiRequests;
 
-// Contract sections 5, 6, 7 and 11 as mapped by Program.cs (app.MapTaxiRequests): each route once, its auth, its policy and
+// Contract sections 5, 6, 7 and 11 as mapped by ApiRouteMap (app.MapTaxiRequests); T1-T10 are seeker-only (seeker-only contract 1.3, 1.4): each route once, its auth, its policy and
 // its gates. The services are the real registrations, so a handler parameter the container cannot supply fails the build.
 public class TaxiRequestEndpointMapTests
 {
-    private enum Auth { User, Taxi, Anonymous, Admin }
+    private enum Auth { User, Seeker, Taxi, Anonymous, Admin }
 
     private sealed record Route(string Id, string Method, string Template, bool Gated, Auth Auth, bool PlannerGate = false);
 
     private static readonly Route[] Contract =
     [
-        new("T1", "GET", "/api/v1/trips/{tripId:guid}/taxi-request/pickup-places", false, Auth.User, true),
-        new("T2", "POST", "/api/v1/trips/{tripId:guid}/taxi-request", true, Auth.User, true),
-        new("T3", "GET", "/api/v1/trips/{tripId:guid}/taxi-request", false, Auth.User, true),
-        new("T4", "GET", "/api/v1/taxi-requests/{requestId:guid}", false, Auth.User),
-        new("T5", "POST", "/api/v1/taxi-requests/{requestId:guid}/cancel", false, Auth.User),
-        new("T6", "POST", "/api/v1/taxi-requests/{requestId:guid}/ask-more", true, Auth.User),
-        new("T7", "POST", "/api/v1/taxi-requests/{requestId:guid}/offers/{offerId:guid}/select", true, Auth.User),
-        new("T8", "POST", "/api/v1/taxi-requests/{requestId:guid}/offers/{offerId:guid}/not-agreed", false, Auth.User),
-        new("T9", "POST", "/api/v1/taxi-requests/{requestId:guid}/end", false, Auth.User),
-        new("T10", "POST", "/api/v1/taxi-requests/{requestId:guid}/rating", false, Auth.User),
+        new("T1", "GET", "/api/v1/trips/{tripId:guid}/taxi-request/pickup-places", false, Auth.Seeker, true),
+        new("T2", "POST", "/api/v1/trips/{tripId:guid}/taxi-request", true, Auth.Seeker, true),
+        new("T3", "GET", "/api/v1/trips/{tripId:guid}/taxi-request", false, Auth.Seeker, true),
+        new("T4", "GET", "/api/v1/taxi-requests/{requestId:guid}", false, Auth.Seeker),
+        new("T5", "POST", "/api/v1/taxi-requests/{requestId:guid}/cancel", false, Auth.Seeker),
+        new("T6", "POST", "/api/v1/taxi-requests/{requestId:guid}/ask-more", true, Auth.Seeker),
+        new("T7", "POST", "/api/v1/taxi-requests/{requestId:guid}/offers/{offerId:guid}/select", true, Auth.Seeker),
+        new("T8", "POST", "/api/v1/taxi-requests/{requestId:guid}/offers/{offerId:guid}/not-agreed", false, Auth.Seeker),
+        new("T9", "POST", "/api/v1/taxi-requests/{requestId:guid}/end", false, Auth.Seeker),
+        new("T10", "POST", "/api/v1/taxi-requests/{requestId:guid}/rating", false, Auth.Seeker),
 
         new("D1", "GET", "/api/v1/taxi-requests/driver/offers", false, Auth.Taxi),
         new("D2", "GET", "/api/v1/taxi-requests/driver/offers/{offerId:guid}", false, Auth.Taxi),
@@ -157,8 +157,8 @@ public class TaxiRequestEndpointMapTests
                         && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
             .ToDictionary(f => f, File.ReadAllText);
 
-        var program = sources[Path.Combine(api, "Program.cs")];
-        Assert.Single(Regex.Matches(program, @"\bMapTaxiRequests\(\)"));
+        var routeMap = sources[Path.Combine(api, "Extensions", "ApiRouteMap.cs")];
+        Assert.Single(Regex.Matches(routeMap, @"\bMapTaxiRequests\(\)"));
         Assert.Single(sources.Values.SelectMany(s => Regex.Matches(s, @"\.MapTaxiRequests\(\)")));
 
         var extension = Path.Combine(api, "Extensions", "TaxiRequestServiceCollectionExtensions.cs");
@@ -227,6 +227,10 @@ public class TaxiRequestEndpointMapTests
                     Assert.All(policies, Assert.Null);
                     Assert.False(e.AllowAnonymous);
                     break;
+                case Auth.Seeker:
+                    Assert.Equal([AuthPolicies.SeekerOnly], policies);
+                    Assert.False(e.AllowAnonymous);
+                    break;
                 case Auth.Admin:
                     Assert.NotEmpty(policies);
                     Assert.All(policies, p => Assert.Equal("AdminOnly", p));
@@ -237,7 +241,7 @@ public class TaxiRequestEndpointMapTests
     }
 
     [Fact]
-    public async Task Invite_route_is_mapped_once_with_user_auth_and_no_execution_gate()
+    public async Task Invite_route_is_mapped_once_seeker_only_and_no_execution_gate()
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -267,10 +271,9 @@ public class TaxiRequestEndpointMapTests
         var endpointCount = ((IEndpointRouteBuilder)app).DataSources.SelectMany(s => s.Endpoints).Count();
         Assert.Equal(endpointCount, built.Count);
 
-        var invite = Find(built, new Route("INVITE", "GET", "/api/v1/trips/{id:guid}/invite", false, Auth.User, true));
+        var invite = Find(built, new Route("INVITE", "GET", "/api/v1/trips/{id:guid}/invite", false, Auth.Seeker, true));
         Assert.Equal(nameof(RentNearBy.Api.Handlers.TripHandlers.GetInvite), invite.Handler.Name);
-        Assert.NotEmpty(invite.Authorize);
-        Assert.All(invite.Authorize, a => Assert.Null(a.Policy));
+        Assert.Equal([AuthPolicies.SeekerOnly], invite.Authorize.Select(a => a.Policy).ToList());
         Assert.False(invite.AllowAnonymous);
 
         Assert.Equal("handler", await RunFiltersAsync(app, invite, executionOn: false, plannerOn: true));

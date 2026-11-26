@@ -83,7 +83,7 @@ public static class ChatHandlers
         foreach (var c in conversations)
             dtos.Add(await BuildConversationDtoAsync(c, callerId, db, otherPartyNames, listingInfo, otherPartyPhotos));
 
-        await AttachTripEnquiriesAsync(dtos, callerId, unitOfWork);
+        await AttachTripEnquiriesAsync(dtos, callerId, principal, unitOfWork);
         await AttachHasChatAsync(dtos, db);
 
         return OkResponse(new { items = dtos, hasMore, nextCursor });
@@ -132,7 +132,7 @@ public static class ChatHandlers
         }
 
         var dto = await BuildConversationDtoAsync(result.Conversation, callerId, db);
-        await AttachTripEnquiriesAsync([dto], callerId, unitOfWork);
+        await AttachTripEnquiriesAsync([dto], callerId, principal, unitOfWork);
 
         return result.Created
             ? CreatedResponse(dto, $"/api/v1/chat/conversations/{result.Conversation.Id}")
@@ -1115,7 +1115,9 @@ public static class ChatHandlers
         string.IsNullOrWhiteSpace(text) ? fallback : text.Length > 140 ? text[..140] : text;
 
     // Latest trip enquiry per Stay conversation: 3 batched queries for the whole page, none when no Stay row is present.
-    private static async Task AttachTripEnquiriesAsync(IReadOnlyList<ConversationDto> dtos, Guid callerId, IUnitOfWork unitOfWork)
+    // The guest side card is left out while the caller's account is not a seeker (TripEnquiryAuth.VisibleTo).
+    private static async Task AttachTripEnquiriesAsync(
+        IReadOnlyList<ConversationDto> dtos, Guid callerId, ClaimsPrincipal principal, IUnitOfWork unitOfWork)
     {
         var stayIds = dtos.Where(d => d.ListingType == ListingKinds.Stay).Select(d => d.Id).ToList();
         if (stayIds.Count == 0) return;
@@ -1123,9 +1125,10 @@ public static class ChatHandlers
         try
         {
             var latest = await unitOfWork.TripEnquiries.GetLatestByConversationsAsync(stayIds);
-            if (latest.Count == 0) return;
+            var visible = latest.Values.Where(e => TripEnquiryAuth.VisibleTo(e, callerId, principal)).ToList();
+            if (visible.Count == 0) return;
 
-            var built = await TripEnquiryViews.BuildAsync(unitOfWork, latest.Values.ToList(), callerId);
+            var built = await TripEnquiryViews.BuildAsync(unitOfWork, visible, callerId);
             foreach (var dto in dtos)
                 if (latest.TryGetValue(dto.Id, out var e) && built.TryGetValue(e.Id, out var view))
                     dto.TripEnquiry = view;

@@ -45,4 +45,11 @@ public class SessionRepository(ApplicationDbContext context) : Repository<Sessio
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == sessionId && s.IsActive && s.ExpiresAt > DateTime.UtcNow);
     }
+
+    public async Task<Guid?> GetActiveSessionRoleAsync(Guid sessionId)
+        => await _context.Sessions
+            .AsNoTracking()
+            .Where(s => s.Id == sessionId && s.IsActive && s.ExpiresAt > DateTime.UtcNow)
+            .Select(s => (Guid?)s.User.RoleId)
+            .FirstOrDefaultAsync();
 }

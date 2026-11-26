@@ -30,6 +30,9 @@ public interface IPushDeliveryStore
 
     // Ring offers among the ids that are no longer Ringing (answered, closed or gone).
     Task<IReadOnlySet<Guid>> GetEndedRingOffersAsync(IReadOnlyCollection<Guid> offerIds, CancellationToken ct);
+
+    // The users among the ids whose live role is SEEKER.
+    Task<IReadOnlySet<Guid>> GetSeekersAsync(IReadOnlyCollection<Guid> userIds, CancellationToken ct);
 }
 
 public sealed class PushDeliveryStore(IServiceScopeFactory scopeFactory) : IPushDeliveryStore
@@ -65,9 +68,21 @@ public sealed class PushDeliveryStore(IServiceScopeFactory scopeFactory) : IPush
             .Where(o => ids.Contains(o.Id) && o.Status == OfferStates.Ringing).Select(o => o.Id).ToListAsync(ct);
         return ids.Except(ringing).ToHashSet();
     }
+
+    public async Task<IReadOnlySet<Guid>> GetSeekersAsync(IReadOnlyCollection<Guid> userIds, CancellationToken ct)
+    {
+        if (userIds.Count == 0) return new HashSet<Guid>();
+        var ids = userIds.ToArray();
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var seekers = await db.Users.AsNoTracking()
+            .Where(u => ids.Contains(u.Id) && u.RoleId == UserRoles.SeekerId).Select(u => u.Id).ToListAsync(ct);
+        return seekers.ToHashSet();
+    }
 }
 
-// One batch: one token query, one NotificationEvent query, FCM in chunks of 500, one UPDATE for dead tokens.
+// One batch: one token query, one NotificationEvent query, one role query (only when it holds a traveller push), FCM in chunks
+// of 500, one UPDATE for dead tokens.
 // A message is delivered when any of its tokens took it; only an all-transient failure retries (so a three-device user never gets duplicates).
 // A payload past its ExpiresAtUtc is acked and counted, never sent.
 // Ring and ring end data carry no key (contract 10); a ring's expiresAt is the payload expiry, which FcmService turns into the TTL,
@@ -119,19 +134,27 @@ public static class PushBatchProcessor
         var tokens = tokenRows.ToLookup(r => r.UserId, r => r.Token);
         var types = await store.GetNotificationTypesAsync(eventIds, ct);
 
+        // A traveller push reaches only an account whose live role is SEEKER; the inbox row stays (hidden from other roles).
+        var travellerUsers = live.Select(i => batch[i].Payload!)
+            .Where(p => HasType(p, types) && TravellerOnly.IsTravellerPush(TypeOf(p, types), p.Route))
+            .Select(p => p.UserId).Distinct().ToList();
+        IReadOnlySet<Guid> seekers = travellerUsers.Count == 0 ? new HashSet<Guid>() : await store.GetSeekersAsync(travellerUsers, ct);
+        var notSeeker = 0;
+
         var specs = new List<FcmMessageSpec>();
         var owner = new List<int>();
         foreach (var i in live)
         {
             var p = batch[i].Payload!;
-            if (p.NotificationId is { } nid && !types.ContainsKey(nid)) { verdicts[i] = PushVerdict.Ack; continue; }
+            if (!HasType(p, types)) { verdicts[i] = PushVerdict.Ack; continue; }
+            var type = TypeOf(p, types);
+            if (TravellerOnly.IsTravellerPush(type, p.Route) && !seekers.Contains(p.UserId)) { verdicts[i] = PushVerdict.Ack; notSeeker++; continue; }
             var userTokens = PushTargets.Tokens(p, tokens[p.UserId]);
             if (userTokens.Count == 0) { verdicts[i] = PushVerdict.Ack; continue; }
             var data = new Dictionary<string, string>();
             if (p.Data != null)
                 foreach (var kv in p.Data)
                     if (kv.Value != null) data[kv.Key] = kv.Value;
-            var type = TypeOf(p, types);
             data["notification_type"] = NotificationTypes.ToWireValue(type);
             if (type == NotificationTypes.TaxiRequestRing)
             {
@@ -150,6 +173,7 @@ public static class PushBatchProcessor
                 owner.Add(i);
             }
         }
+        if (notSeeker > 0) logger.LogInformation("Dropped {Count} traveller pushes to accounts that are not seekers", notSeeker);
         if (specs.Count == 0) return verdicts;
 
         IReadOnlyList<FcmSendOutcome> outcomes;
@@ -191,6 +215,10 @@ public static class PushBatchProcessor
     public static Guid? RingOfferId(OutboxPushPayload payload)
         => payload.Kind == NotificationTypes.TaxiRequestRing && payload.NotificationId is null
             && payload.Data?.GetValueOrDefault("offerId") is { } raw && Guid.TryParse(raw, out var id) && id != Guid.Empty ? id : null;
+
+    // A push of an inbox row that is gone (deleted or rolled back) is acked, never sent.
+    private static bool HasType(OutboxPushPayload p, IReadOnlyDictionary<Guid, string> types)
+        => p.NotificationId is not { } id || types.ContainsKey(id);
 
     private static string TypeOf(OutboxPushPayload p, IReadOnlyDictionary<Guid, string> types)
         => p.NotificationId is { } id ? types[id]

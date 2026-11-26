@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Mapster;
+using RentNearBy.Api.Extensions;
 using RentNearBy.Core.DTOs.Responses;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
@@ -10,7 +11,8 @@ namespace RentNearBy.Api.Handlers;
 
 // Consumer-facing notification inbox — separate from NotificationHandlers.cs, which only owns
 // FCM device-token register/unregister. Every method here resolves the caller from their own JWT
-// via UsersHandlers.TryGetUserId — never a client-supplied user id.
+// via UsersHandlers.TryGetUserId — never a client-supplied user id. An account that is no longer a seeker does not see
+// the traveller types (TravellerOnly.NotificationTypes); the rows stay.
 public static class NotificationInboxHandlers
 {
     public static async Task<IResult> GetMyNotifications(
@@ -31,9 +33,10 @@ public static class NotificationInboxHandlers
             afterAt = at;
             afterId = id;
         }
+        var seeker = SeekerGate.IsSeeker(principal);
         var (items, hasMore) = afterAt == null && page > 1
-            ? await unitOfWork.Notifications.GetPagedForUserAsync(userId, page, pageSize)
-            : await unitOfWork.Notifications.GetForUserAfterCursorAsync(userId, afterAt, afterId, pageSize);
+            ? await unitOfWork.Notifications.GetPagedForUserAsync(userId, seeker, page, pageSize)
+            : await unitOfWork.Notifications.GetForUserAfterCursorAsync(userId, seeker, afterAt, afterId, pageSize);
         var nextCursor = KeysetCursor.EncodeLast(items, hasMore, i => i.Notification.CreatedAt, i => i.Notification.Id);
         var dtos = items.Select(i =>
         {
@@ -50,8 +53,9 @@ public static class NotificationInboxHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        var count = await unitOfWork.Notifications.GetUnreadCountAsync(userId);
-        var noticeCount = await notices.UnreadCountAsync(userId);
+        var seeker = SeekerGate.IsSeeker(principal);
+        var count = await unitOfWork.Notifications.GetUnreadCountAsync(userId, seeker);
+        var noticeCount = await notices.UnreadCountAsync(userId, seeker);
         return OkResponse(new { count, notices = noticeCount, total = count + noticeCount });
     }
 
@@ -72,8 +76,9 @@ public static class NotificationInboxHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId))
             return UnauthorizedResponse();
 
-        await unitOfWork.Notifications.MarkAllReadAsync(userId);
-        await notices.MarkAllReadAsync(userId);
+        var seeker = SeekerGate.IsSeeker(principal);
+        await unitOfWork.Notifications.MarkAllReadAsync(userId, seeker);
+        await notices.MarkAllReadAsync(userId, seeker);
         return OkResponse(new { message = "All marked read" });
     }
 }

@@ -32,6 +32,9 @@ public class PushExpiryTests
             => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
 
         public Task MarkInvalidAsync(IReadOnlyCollection<string> t, CancellationToken ct) => Task.CompletedTask;
+
+        public Task<IReadOnlySet<Guid>> GetSeekersAsync(IReadOnlyCollection<Guid> userIds, CancellationToken ct)
+            => Task.FromResult<IReadOnlySet<Guid>>(userIds.ToHashSet());
     }
 
     private sealed class FakeFcm(FcmSendOutcome outcome = FcmSendOutcome.Sent) : IFcmService

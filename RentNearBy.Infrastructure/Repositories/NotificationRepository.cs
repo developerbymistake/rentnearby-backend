@@ -10,17 +10,24 @@ namespace RentNearBy.Infrastructure.Repositories;
 public class NotificationRepository(ApplicationDbContext context)
     : Repository<NotificationEvent>(context), INotificationRepository
 {
+    private static readonly string[] TravellerTypes = [.. TravellerOnly.NotificationTypes];
+
+    private IQueryable<NotificationEvent> ForUser(Guid userId, bool seeker)
+    {
+        var query = _context.NotificationEvents.AsNoTracking().Where(n => n.TargetUserId == userId);
+        return seeker ? query : query.Where(n => !TravellerTypes.Contains(n.Type));
+    }
+
     public Task<(IReadOnlyList<NotificationListItem> Items, bool HasMore)> GetPagedForUserAsync(
-        Guid userId, int page, int pageSize)
-        => PageAsync(_context.NotificationEvents.AsNoTracking().Where(n => n.TargetUserId == userId),
-            userId, (page - 1) * pageSize, pageSize);
+        Guid userId, bool seeker, int page, int pageSize)
+        => PageAsync(ForUser(userId, seeker), userId, (page - 1) * pageSize, pageSize);
 
     // Seek page on (CreatedAt DESC, Id DESC): rows strictly after the cursor, so new rows at the head never
     // repeat a row on a later page.
     public Task<(IReadOnlyList<NotificationListItem> Items, bool HasMore)> GetForUserAfterCursorAsync(
-        Guid userId, DateTime? afterAt, Guid? afterId, int pageSize)
+        Guid userId, bool seeker, DateTime? afterAt, Guid? afterId, int pageSize)
     {
-        var query = _context.NotificationEvents.AsNoTracking().Where(n => n.TargetUserId == userId);
+        var query = ForUser(userId, seeker);
         if (afterAt is { } at && afterId is { } id)
             query = query.Where(n => n.CreatedAt <= at && (n.CreatedAt < at || n.Id.CompareTo(id) < 0));
         return PageAsync(query, userId, 0, pageSize);
@@ -47,10 +54,10 @@ public class NotificationRepository(ApplicationDbContext context)
     }
 
     // Range scan of (TargetUserId, CreatedAt) bounded to the tail after the watermark, not every row ever sent.
-    public async Task<int> GetUnreadCountAsync(Guid userId)
+    public async Task<int> GetUnreadCountAsync(Guid userId, bool seeker)
     {
         var readUpTo = await ReadUpToAsync(userId);
-        var query = _context.NotificationEvents.AsNoTracking().Where(n => n.TargetUserId == userId);
+        var query = ForUser(userId, seeker);
         if (readUpTo is { } w) query = query.Where(n => n.CreatedAt > w);
         return await query.CountAsync(n => !_context.NotificationReads.Any(r => r.NotificationId == n.Id && r.UserId == userId));
     }
@@ -71,7 +78,10 @@ public class NotificationRepository(ApplicationDbContext context)
 
     // NotificationWatermark in one statement on the database clock: the watermark moves to now() - SettleSeconds (never
     // back) and the rows this statement sees newer than it get their own read row (a short tail, not the whole inbox).
-    public async Task<int> MarkAllReadAsync(Guid userId)
+    public async Task<int> MarkAllReadAsync(Guid userId, bool seeker)
+        => seeker ? await MarkAllReadSeekerAsync(userId) : await MarkVisibleReadAsync(userId);
+
+    private async Task<int> MarkAllReadSeekerAsync(Guid userId)
         => await _context.Database.ExecuteSqlInterpolatedAsync($"""
             WITH w AS (SELECT now() - make_interval(secs => {NotificationWatermark.SettleSeconds}) AS at),
             tail AS (
@@ -84,6 +94,19 @@ public class NotificationRepository(ApplicationDbContext context)
             UPDATE "Users" u SET "NotificationsReadUpTo" = w.at
             FROM w
             WHERE u."Id" = {userId} AND (u."NotificationsReadUpTo" IS NULL OR u."NotificationsReadUpTo" < w.at)
+            """);
+
+    // Not a seeker: the watermark would also mark the hidden traveller rows read, so only the visible rows newer than the
+    // current watermark get a read row (the same unread tail the count reads).
+    private async Task<int> MarkVisibleReadAsync(Guid userId)
+        => await _context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "NotificationReads" ("UserId", "NotificationId", "ReadAt")
+            SELECT {userId}, n."Id", now()
+            FROM "NotificationEvents" n
+            JOIN "Users" u ON u."Id" = {userId}
+            WHERE n."TargetUserId" = {userId} AND n."Type" <> ALL({TravellerTypes})
+              AND (u."NotificationsReadUpTo" IS NULL OR n."CreatedAt" > u."NotificationsReadUpTo")
+            ON CONFLICT ("UserId", "NotificationId") DO NOTHING
             """);
 
     // A repeating alert keeps one inbox row: older rows of this type for this enquiry go (their reads cascade).

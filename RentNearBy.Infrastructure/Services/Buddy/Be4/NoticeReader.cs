@@ -16,7 +16,7 @@ public sealed class NoticeReader(ApplicationDbContext db)
     private static string PageSql(string keyset) => $"""
         WITH p AS (
           SELECT n.* FROM "UserNotices" n
-          WHERE n."UserId" = @user{keyset}
+          WHERE n."UserId" = @user AND n."Kind" = ANY(@kinds){keyset}
           ORDER BY n."UpdatedAt" DESC, n."Id" DESC
           LIMIT @take),
         j AS (
@@ -51,7 +51,7 @@ public sealed class NoticeReader(ApplicationDbContext db)
         """.TrimEnd());
 
     internal const string UnreadSql = """
-        SELECT count(*)::int AS "Value" FROM "UserNotices" WHERE "UserId" = @user AND "ReadAt" IS NULL
+        SELECT count(*)::int AS "Value" FROM "UserNotices" WHERE "UserId" = @user AND "ReadAt" IS NULL AND "Kind" = ANY(@kinds)
         """;
 
     internal const string MarkReadSql = """
@@ -59,7 +59,7 @@ public sealed class NoticeReader(ApplicationDbContext db)
         """;
 
     internal const string MarkAllReadSql = """
-        UPDATE "UserNotices" SET "ReadAt" = now() WHERE "UserId" = @user AND "ReadAt" IS NULL
+        UPDATE "UserNotices" SET "ReadAt" = now() WHERE "UserId" = @user AND "ReadAt" IS NULL AND "Kind" = ANY(@kinds)
         """;
 
     internal const string RemindedTodaySql = """
@@ -67,19 +67,22 @@ public sealed class NoticeReader(ApplicationDbContext db)
         WHERE "TripId" = @trip AND "Kind" = 'SettleReminder' AND "UpdatedAt" >= @since
         """;
 
+    // An account that is no longer a seeker sees only the owner kinds; the other rows stay and come back when he is a seeker again.
+    internal static IReadOnlyList<string> KindsFor(bool seeker) => seeker ? NoticeKinds.All : NoticeKinds.Owner;
+
     // 2 statements: page, unread count.
-    public async Task<NoticePageDto> PageAsync(Guid userId, (DateTime At, Guid Id)? after, int limit, CancellationToken ct = default)
+    public async Task<NoticePageDto> PageAsync(Guid userId, bool seeker, (DateTime At, Guid Id)? after, int limit, CancellationToken ct = default)
     {
         var user = User(userId);
         var take = new NpgsqlParameter("take", NpgsqlDbType.Integer) { Value = limit + 1 };
         var rows = after is { } k
-            ? await db.Database.SqlQueryRaw<Row>(NextPageSql, user, take,
+            ? await db.Database.SqlQueryRaw<Row>(NextPageSql, user, Kinds(seeker), take,
                 new NpgsqlParameter("at", NpgsqlDbType.TimestampTz) { Value = DateTime.SpecifyKind(k.At, DateTimeKind.Utc) },
                 new NpgsqlParameter("id", NpgsqlDbType.Uuid) { Value = k.Id }).ToListAsync(ct)
-            : await db.Database.SqlQueryRaw<Row>(FirstPageSql, user, take).ToListAsync(ct);
+            : await db.Database.SqlQueryRaw<Row>(FirstPageSql, user, Kinds(seeker), take).ToListAsync(ct);
         var hasMore = rows.Count > limit;
         var page = rows.Take(limit).Select(ToDto).ToList();
-        var unread = await UnreadCountAsync(userId, ct);
+        var unread = await UnreadCountAsync(userId, seeker, ct);
         return new NoticePageDto
         {
             Items = page,
@@ -88,14 +91,14 @@ public sealed class NoticeReader(ApplicationDbContext db)
         };
     }
 
-    public async Task<int> UnreadCountAsync(Guid userId, CancellationToken ct = default)
-        => (await db.Database.SqlQueryRaw<int>(UnreadSql, User(userId)).ToListAsync(ct)).FirstOrDefault();
+    public async Task<int> UnreadCountAsync(Guid userId, bool seeker, CancellationToken ct = default)
+        => (await db.Database.SqlQueryRaw<int>(UnreadSql, User(userId), Kinds(seeker)).ToListAsync(ct)).FirstOrDefault();
 
     public Task MarkReadAsync(Guid id, Guid userId, CancellationToken ct = default)
         => db.Database.ExecuteSqlRawAsync(MarkReadSql, [new NpgsqlParameter("id", NpgsqlDbType.Uuid) { Value = id }, User(userId)], ct);
 
-    public Task MarkAllReadAsync(Guid userId, CancellationToken ct = default)
-        => db.Database.ExecuteSqlRawAsync(MarkAllReadSql, [User(userId)], ct);
+    public Task MarkAllReadAsync(Guid userId, bool seeker, CancellationToken ct = default)
+        => db.Database.ExecuteSqlRawAsync(MarkAllReadSql, [User(userId), Kinds(seeker)], ct);
 
     // Payers of the trip whose SettleReminder was written since the given instant (start of the IST day).
     public async Task<IReadOnlySet<Guid>> RemindedSinceAsync(Guid tripId, DateTime sinceUtc, CancellationToken ct = default)
@@ -133,6 +136,8 @@ public sealed class NoticeReader(ApplicationDbContext db)
     }
 
     private static NpgsqlParameter User(Guid userId) => new("user", NpgsqlDbType.Uuid) { Value = userId };
+
+    private static NpgsqlParameter Kinds(bool seeker) => new("kinds", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = KindsFor(seeker).ToArray() };
 
     // The owner kinds route by the viewer's listing kind; a Seeker or an unknown role routes as a stay (never throws).
     public static string? ViewerKind(Guid? roleId)

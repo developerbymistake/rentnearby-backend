@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
+using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
@@ -55,9 +56,9 @@ public sealed class TripMemberService(
         SELECT count(*)::int AS "Value" FROM "TripExpenseShares" WHERE "TripId" = @trip AND "UserId" = @user
         """;
 
-    private const string IsBuddySql = """
+    internal const string IsBuddySql = $"""
         SELECT EXISTS (SELECT 1 FROM "Buddies" b JOIN "Users" u ON u."Id" = b."BuddyUserId"
-                       WHERE b."UserId" = @me AND b."BuddyUserId" = @user AND u."IsActive") AS "Value"
+                       WHERE b."UserId" = @me AND b."BuddyUserId" = @user AND u."IsActive" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}) AS "Value"
         """;
 
     private static readonly string OptionsSql = $"""

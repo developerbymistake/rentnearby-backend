@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;
+using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Infrastructure.Data;
 
@@ -74,10 +75,12 @@ internal static class Be2Sql
                t."Title", t."StartDate", t."EndDate", t."DayCount",
         """;
 
-    private const string InviteRest = """
-               EXISTS (SELECT 1 FROM "UserBlocks" k
-                       WHERE (k."BlockerId" = m."UserId" AND k."BlockedId" = t."OwnerUserId")
-                          OR (k."BlockerId" = t."OwnerUserId" AND k."BlockedId" = m."UserId")) AS "Blocked",
+    // A trip owner whose account is no longer a seeker reads like a block: the invite has ended, nothing about him is shown.
+    internal const string InviteRest = $"""
+               (EXISTS (SELECT 1 FROM "UserBlocks" k
+                        WHERE (k."BlockerId" = m."UserId" AND k."BlockedId" = t."OwnerUserId")
+                           OR (k."BlockerId" = t."OwnerUserId" AND k."BlockedId" = m."UserId"))
+                OR o."RoleId" <> {TravellerOnly.SeekerRoleSql}) AS "Blocked",
                (SELECT count(*)::int FROM "TripMembers" j WHERE j."TripId" = m."TripId" AND j."Status" = 'Joined') AS "JoinedViewers"
         FROM "TripMembers" m
         JOIN "Trips" t ON t."Id" = m."TripId"

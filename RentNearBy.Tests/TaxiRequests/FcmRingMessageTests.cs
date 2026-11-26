@@ -23,6 +23,9 @@ public class FcmRingMessageTests
 
         public Task<IReadOnlySet<Guid>> GetEndedRingOffersAsync(IReadOnlyCollection<Guid> offerIds, CancellationToken ct)
             => Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());
+
+        public Task<IReadOnlySet<Guid>> GetSeekersAsync(IReadOnlyCollection<Guid> userIds, CancellationToken ct)
+            => Task.FromResult<IReadOnlySet<Guid>>(userIds.ToHashSet());
     }
 
     private sealed class FakeFcm : IFcmService
