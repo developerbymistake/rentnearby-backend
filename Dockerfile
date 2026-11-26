@@ -2,6 +2,12 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
+# The build host's IPv6 route to nuget.org stalls (4.5 MB of 17 MB in 20 s while IPv4 takes 0.2 s), which made
+# dotnet restore hit "no data received for 60000ms". Build stage only; the runtime image is unchanged.
+# TEMPORARY (owner order 2026-11-26): REMOVE this line (and this comment) in the NEXT build once the NuGet IPv6
+# route is healthy again (test: the curl -6 download of a nupkg from api.nuget.org finishes in under a second).
+ENV DOTNET_SYSTEM_NET_DISABLEIPV6=1
+
 # Copy project files first
 COPY RentNearBy.Api/*.csproj RentNearBy.Api/
 COPY RentNearBy.Core/*.csproj RentNearBy.Core/
