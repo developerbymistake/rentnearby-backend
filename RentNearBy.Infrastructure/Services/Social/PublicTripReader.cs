@@ -30,7 +30,7 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
                o."ProfilePhotoUrl" AS "OwnerPhoto", op."HomeCityName" AS "OwnerHomeCity", op."Gender" AS "OwnerGender", op."Interests" AS "OwnerInterests",
                op."IsPrivate" AS "OwnerPrivate", t."CityKey", t."PostCityNames" AS "CityNames", t."PostStateName" AS "StateName",
                t."StartDate", t."PostStartMonth", t."PostWindowMonths", t."PublishedAt", t."PostDays", t."JoinGender", t."Seats",
-               COALESCE(t."PostText", '') AS "PostText", t."IsPublic",
+               t."PostTravelMode" AS "TravelMode", COALESCE(t."PostText", '') AS "PostText", t."IsPublic",
                (SELECT count(*) FROM "TripMembers" m WHERE m."TripId" = t."Id" AND m."Status" = '{TripMemberStatuses.Joined}')::int AS "Joined",
                EXISTS (SELECT 1 FROM "TripMembers" m WHERE m."TripId" = t."Id" AND m."UserId" = @me AND m."Status" = '{TripMemberStatuses.Joined}') AS "MyMember",
                EXISTS (SELECT 1 FROM "TripJoinRequests" r WHERE r."TripId" = t."Id" AND r."RequesterId" = @me AND r."Status" = '{JoinRequestStatuses.Waiting}') AS "MyWaiting",
@@ -59,6 +59,9 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
     // Feed filter 'Who can join' (who=anyone|women|men): only posts with exactly that join rule.
     private const string WhoFilter = """ AND t."JoinGender" = @who""";
 
+    // Feed filter 'Travel by' (travel=public|bike|car|taxi): only posts with exactly that travel mode (not set never matches).
+    private const string TravelFilter = """ AND t."PostTravelMode" = @travel""";
+
     private static readonly string NearMe = $"""
          AND ST_DWithin(ST_SetSRID(ST_MakePoint(t."CityLongitude", t."CityLatitude"), 4326)::geography,
                         ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography, {SocialLimits.NearMeKm * 1000})
@@ -83,14 +86,17 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
         => (await db.Database.SqlQueryRaw<string>(ViewerGenderSql, Uuid("me", me)).ToListAsync(ct)).FirstOrDefault();
 
     // whoJoinGender: null = every post, else one JoinGenders value (A / M / F) picked in the feed filter.
+    // travelMode: null = every post, else one PostTravelModes value picked in the feed filter.
     public async Task<TripFeedDto> FeedAsync(Guid me, (DateTime At, Guid Id)? cursor, int limit, string? q, string? whoJoinGender,
-        (double Lat, double Lng)? near, CancellationToken ct)
+        (double Lat, double Lng)? near, string? travelMode, CancellationToken ct)
     {
         var gender = await ViewerGenderAsync(me, ct);
-        var where = ViewerFilter + FeedQuery + (whoJoinGender is null ? string.Empty : WhoFilter) + (near is null ? string.Empty : NearMe) + (cursor is null ? string.Empty : Keyset);
+        var where = ViewerFilter + FeedQuery + (whoJoinGender is null ? string.Empty : WhoFilter) + (travelMode is null ? string.Empty : TravelFilter)
+            + (near is null ? string.Empty : NearMe) + (cursor is null ? string.Empty : Keyset);
         var ps = Base(me, limit + 1);
         ps.Add(Text("q", string.IsNullOrWhiteSpace(q) ? string.Empty : LikeContains(q)));
         if (whoJoinGender is not null) ps.Add(Text("who", whoJoinGender));
+        if (travelMode is not null) ps.Add(Text("travel", travelMode));
         if (near is { } n)
         {
             ps.Add(Double("lat", n.Lat));
@@ -178,6 +184,7 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
                 : new WhenDto { Kind = SocialRules.WhenWithin, Months = when.Value },
             Days = r.PostDays ?? 0,
             JoinGender = r.JoinGender,
+            TravelMode = r.TravelMode,
             Seats = seats,
             SeatsLeft = SocialRules.SeatsLeft(seats, r.Joined),
             Text = r.PostText,
@@ -222,6 +229,7 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
         public short? PostDays { get; set; }
         public string JoinGender { get; set; } = JoinGenders.Anyone;
         public short? Seats { get; set; }
+        public string? TravelMode { get; set; }
         public string PostText { get; set; } = string.Empty;
         public bool IsPublic { get; set; }
         public int Joined { get; set; }

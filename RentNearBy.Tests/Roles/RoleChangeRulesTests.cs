@@ -70,4 +70,34 @@ public class RoleChangeRulesTests
     [InlineData(null, true, "Approved", false)]
     public void IsLocked_PerKindAndState_Expected(string? kind, bool everApproved, string? status, bool expected)
         => Assert.Equal(expected, RoleChangeRules.IsLocked(kind, everApproved, status));
+
+    // Social next item 2: only a Traveller is refused; owners keep their role request.
+    [Fact]
+    public void CanRequestChange_SeekerRefused_OwnersAllowed()
+    {
+        Assert.False(RoleChangeRules.CanRequestChange(UserRoles.SeekerId));
+        Assert.True(RoleChangeRules.CanRequestChange(UserRoles.StayOwnerId));
+        Assert.True(RoleChangeRules.CanRequestChange(UserRoles.TaxiDriverId));
+    }
+
+    // R4: the Traveller refusal lives only in the role request; the first role choice and the one-time correction keep their rules.
+    [Fact]
+    public void CanRequestChange_GuardsOnlyTheRoleRequest()
+    {
+        var root = RentNearBy.Tests.Buddy.Foundation.BuddySources.Root();
+        var src = File.ReadAllText(Path.Combine(root, "RentNearBy.Api", "Handlers", "RoleHandlers.cs"));
+        var request = src.IndexOf("public static async Task<IResult> CreateRoleRequest(", StringComparison.Ordinal);
+        var next = src.IndexOf("private static async Task PublishRoleRequestedAsync(", StringComparison.Ordinal);
+        Assert.True(request > 0 && next > request);
+        var guard = src.IndexOf("RoleChangeRules.CanRequestChange(", StringComparison.Ordinal);
+        Assert.InRange(guard, request, next);
+        Assert.Equal(guard, src.LastIndexOf("RoleChangeRules.CanRequestChange(", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NotAllowed_IsATypedCalmAnswer()
+    {
+        Assert.Equal("RoleChangeNotAllowed", RoleChangeRules.NotAllowedErrorType);
+        Assert.Equal("Traveller accounts cannot change role.", RoleChangeRules.NotAllowedMessage);
+    }
 }

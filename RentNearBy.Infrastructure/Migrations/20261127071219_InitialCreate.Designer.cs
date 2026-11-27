@@ -14,10 +14,14 @@ namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
 <<<<<<<< HEAD:RentNearBy.Infrastructure/Migrations/20261127071219_InitialCreate.Designer.cs
+<<<<<<<< HEAD:RentNearBy.Infrastructure/Migrations/20261127071219_InitialCreate.Designer.cs
     [Migration("20261127071219_InitialCreate")]
 ========
     [Migration("20261127070600_InitialCreate")]
 >>>>>>>> feature/stay-enquiry-ring:RentNearBy.Infrastructure/Migrations/20261127070600_InitialCreate.Designer.cs
+========
+    [Migration("20261127092420_InitialCreate")]
+>>>>>>>> feature/social-next:RentNearBy.Infrastructure/Migrations/20261127092420_InitialCreate.Designer.cs
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -5816,6 +5820,10 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("PostTravelMode")
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)");
+
                     b.Property<short?>("PostWindowMonths")
                         .HasColumnType("smallint");
 
@@ -5888,6 +5896,8 @@ namespace RentNearBy.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_trips_joingender", "\"JoinGender\" IN ('A', 'M', 'F')");
 
                             t.HasCheckConstraint("ck_trips_postdays", "\"PostDays\" IS NULL OR \"PostDays\" BETWEEN 1 AND 11");
+
+                            t.HasCheckConstraint("ck_trips_posttravelmode", "\"PostTravelMode\" IS NULL OR \"PostTravelMode\" IN ('public', 'bike', 'car', 'taxi')");
 
                             t.HasCheckConstraint("ck_trips_postwindow", "\"PostWindowMonths\" IS NULL OR \"PostWindowMonths\" BETWEEN 1 AND 6");
 

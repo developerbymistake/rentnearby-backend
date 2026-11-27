@@ -42,6 +42,8 @@ public class Trip
     public short? Seats { get; set; }
     public string[] PostCityNames { get; set; } = [];
     public string? PostStateName { get; set; }
+    // PostTravelModes value, null = not set.
+    public string? PostTravelMode { get; set; }
     // Seeker plan states (PLAN_STATES_SOCIAL 1), written by SeekerPlanReconcile only. InactiveByPlan: kept read-only after Plus
     // ends (beyond the Free active-trips limit). PausedByPlan: the post was taken off by the plan and comes back with Plus.
     public bool InactiveByPlan { get; set; }

@@ -28,11 +28,20 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
             SocialTestSeams.AfterCommit(ctx), new RentNearBy.Infrastructure.Services.Buddy.Be4.NoticeWriter(ctx), TimeProvider.System,
             NullLogger<PublicTripService>.Instance);
 
-    private static CreatePublicTripRequest Post(string joinGender = JoinGenders.Anyone) => new()
+    private static CreatePublicTripRequest Post(string joinGender = JoinGenders.Anyone, string? travelMode = null) => new()
     {
         ClientTripId = Guid.NewGuid(), CityKeys = [FakeCityCatalog.Nainital, FakeCityCatalog.Almora], WhenKind = SocialRules.WhenKindWithin,
         WithinMonths = 2, Days = 4, JoinGender = joinGender, Seats = 2, Text = "Looking for two easy-going trekkers. Call 9876543210",
+        TravelMode = travelMode,
     };
+
+    private static UpdatePublicPostRequest Edit(string? travelMode) => new()
+    {
+        WhenKind = SocialRules.WhenKindWithin, WithinMonths = 2, Days = 4, JoinGender = JoinGenders.Anyone, Seats = 2,
+        Text = "Looking for two easy-going trekkers.", TravelMode = travelMode,
+    };
+
+    private static string? Field(object? data) => (string?)data?.GetType().GetProperty("field")?.GetValue(data);
 
     private async Task<Guid> SeekerAsync(string gender)
     {
@@ -98,10 +107,10 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         }
         await using var read = CreateContext();
         var reader = new PublicTripReader(read, TimeProvider.System);
-        var forMan = Assert.Single((await reader.FeedAsync(man, null, 20, null, null, null, default)).Items, p => p.TripId == tripId);
+        var forMan = Assert.Single((await reader.FeedAsync(man, null, 20, null, null, null, null, default)).Items, p => p.TripId == tripId);
         Assert.True(forMan.NotOpen);
         Assert.NotEqual(string.Empty, forMan.Text);
-        var forWoman = Assert.Single((await reader.FeedAsync(otherWoman, null, 20, null, null, null, default)).Items, p => p.TripId == tripId);
+        var forWoman = Assert.Single((await reader.FeedAsync(otherWoman, null, 20, null, null, null, null, default)).Items, p => p.TripId == tripId);
         Assert.False(forWoman.NotOpen);
         Assert.Contains(await reader.OfOwnerAsync(man, woman, default), p => p.TripId == tripId);
         var byId = await reader.ByIdAsync(man, tripId, default);
@@ -134,9 +143,9 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         }
         await using var read = CreateContext();
         var reader = new PublicTripReader(read, TimeProvider.System);
-        Assert.Contains((await reader.FeedAsync(viewer, null, 20, null, JoinGenders.Men, null, default)).Items, p => p.TripId == men);
-        Assert.DoesNotContain((await reader.FeedAsync(viewer, null, 20, null, JoinGenders.Women, null, default)).Items, p => p.TripId == men);
-        Assert.DoesNotContain((await reader.FeedAsync(viewer, null, 20, null, JoinGenders.Anyone, null, default)).Items, p => p.TripId == men);
+        Assert.Contains((await reader.FeedAsync(viewer, null, 20, null, JoinGenders.Men, null, null, default)).Items, p => p.TripId == men);
+        Assert.DoesNotContain((await reader.FeedAsync(viewer, null, 20, null, JoinGenders.Women, null, null, default)).Items, p => p.TripId == men);
+        Assert.DoesNotContain((await reader.FeedAsync(viewer, null, 20, null, JoinGenders.Anyone, null, null, default)).Items, p => p.TripId == men);
     }
 
     [IntegrationFact]
@@ -153,6 +162,109 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         Assert.DoesNotContain("startDate", json);
         Assert.DoesNotContain("endDate", json);
         Assert.Contains("\"kind\":\"within\"", json);
+    }
+
+    // T1 + T2: not set stays null (no chip); a picked mode is stored and shown on the post, the feed, the rail and the profile list.
+    [IntegrationFact]
+    public async Task Travel_mode_is_optional_and_shown_everywhere_the_post_is_read()
+    {
+        var owner = await SeekerAsync(SocialGenders.Male);
+        var viewer = await SeekerAsync(SocialGenders.Male);
+        Guid plain, bike;
+        await using (var ctx = CreateContext())
+        {
+            var posts = Posts(ctx, SocialTestSeams.Limits(10, plus: true));
+            var a = await posts.CreateAsync(owner, Post());
+            Assert.True(a.Ok, a.ErrorType);
+            Assert.Null(a.Value!.TravelMode);
+            plain = a.Value.TripId;
+            var b = await posts.CreateAsync(owner, Post(travelMode: PostTravelModes.Bike));
+            Assert.True(b.Ok, b.ErrorType);
+            Assert.Equal(PostTravelModes.Bike, b.Value!.TravelMode);
+            bike = b.Value.TripId;
+        }
+        await using (var check = CreateContext())
+        {
+            Assert.Null(await check.Trips.AsNoTracking().Where(t => t.Id == plain).Select(t => t.PostTravelMode).SingleAsync());
+            Assert.Equal(PostTravelModes.Bike, await check.Trips.AsNoTracking().Where(t => t.Id == bike).Select(t => t.PostTravelMode).SingleAsync());
+        }
+        await using var read = CreateContext();
+        var reader = new PublicTripReader(read, TimeProvider.System);
+        Assert.Equal(PostTravelModes.Bike, (await reader.ByIdAsync(viewer, bike, default))!.TravelMode);
+        Assert.Null((await reader.ByIdAsync(viewer, plain, default))!.TravelMode);
+        var feed = (await reader.FeedAsync(viewer, null, 20, null, null, null, null, default)).Items;
+        Assert.Equal(PostTravelModes.Bike, Assert.Single(feed, p => p.TripId == bike).TravelMode);
+        Assert.Null(Assert.Single(feed, p => p.TripId == plain).TravelMode);
+        Assert.Equal(PostTravelModes.Bike, Assert.Single((await reader.RailAsync(viewer, default)).Items, p => p.TripId == bike).TravelMode);
+        Assert.Equal(PostTravelModes.Bike, Assert.Single(await reader.OfOwnerAsync(viewer, owner, default), p => p.TripId == bike).TravelMode);
+        var json = JsonSerializer.Serialize(await reader.ByIdAsync(viewer, bike, default), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Contains("\"travelMode\":\"bike\"", json);
+    }
+
+    // T4: unknown values never reach the column (create and edit).
+    [IntegrationFact]
+    public async Task Unknown_travel_mode_is_refused_with_the_field()
+    {
+        var owner = await SeekerAsync(SocialGenders.Female);
+        await using var ctx = CreateContext();
+        var posts = Posts(ctx, SocialTestSeams.Limits(10, plus: true));
+        foreach (var bad in new[] { "plane", "", "Bike", "bike,car" })
+        {
+            var refused = await posts.CreateAsync(owner, Post(travelMode: bad));
+            Assert.Equal(SocialErrorTypes.InvalidPost, refused.ErrorType);
+            Assert.Equal("travelMode", Field(refused.ErrorData));
+        }
+        var created = await posts.CreateAsync(owner, Post(travelMode: PostTravelModes.Car));
+        Assert.True(created.Ok, created.ErrorType);
+        var tripId = created.Value!.TripId;
+        var edit = await posts.PutPostAsync(owner, tripId, Edit("rocket"));
+        Assert.Equal(SocialErrorTypes.InvalidPost, edit.ErrorType);
+        Assert.Equal("travelMode", Field(edit.ErrorData));
+        await using var check = CreateContext();
+        Assert.Equal(PostTravelModes.Car, await check.Trips.AsNoTracking().Where(t => t.Id == tripId).Select(t => t.PostTravelMode).SingleAsync());
+    }
+
+    // T5: the owner changes the mode later; PUT replaces the stored value (null = not set again).
+    [IntegrationFact]
+    public async Task Edit_changes_or_clears_the_travel_mode()
+    {
+        var owner = await SeekerAsync(SocialGenders.Male);
+        await using var ctx = CreateContext();
+        var posts = Posts(ctx, SocialTestSeams.Limits(10, plus: true));
+        var created = await posts.CreateAsync(owner, Post(travelMode: PostTravelModes.Public));
+        Assert.True(created.Ok, created.ErrorType);
+        var tripId = created.Value!.TripId;
+        var taxi = await posts.PutPostAsync(owner, tripId, Edit(PostTravelModes.Taxi));
+        Assert.True(taxi.Ok, taxi.ErrorType);
+        Assert.Equal(PostTravelModes.Taxi, taxi.Value!.TravelMode);
+        var cleared = await posts.PutPostAsync(owner, tripId, Edit(null));
+        Assert.True(cleared.Ok, cleared.ErrorType);
+        Assert.Null(cleared.Value!.TravelMode);
+    }
+
+    // T3: the feed filter keeps only posts with exactly that mode; posts without a mode match only 'any'.
+    [IntegrationFact]
+    public async Task Feed_travel_filter_keeps_only_that_mode()
+    {
+        var poster = await SeekerAsync(SocialGenders.Male);
+        var viewer = await SeekerAsync(SocialGenders.Male);
+        Guid bike, plain;
+        await using (var ctx = CreateContext())
+        {
+            var posts = Posts(ctx, SocialTestSeams.Limits(10, plus: true));
+            bike = (await posts.CreateAsync(poster, Post(travelMode: PostTravelModes.Bike))).Value!.TripId;
+            plain = (await posts.CreateAsync(poster, Post())).Value!.TripId;
+        }
+        await using var read = CreateContext();
+        var reader = new PublicTripReader(read, TimeProvider.System);
+        var bikes = (await reader.FeedAsync(viewer, null, 20, null, null, null, PostTravelModes.Bike, default)).Items;
+        Assert.Contains(bikes, p => p.TripId == bike);
+        Assert.DoesNotContain(bikes, p => p.TripId == plain);
+        var cars = (await reader.FeedAsync(viewer, null, 20, null, null, null, PostTravelModes.Car, default)).Items;
+        Assert.DoesNotContain(cars, p => p.TripId == bike || p.TripId == plain);
+        var any = (await reader.FeedAsync(viewer, null, 20, null, null, null, null, default)).Items;
+        Assert.Contains(any, p => p.TripId == bike);
+        Assert.Contains(any, p => p.TripId == plain);
     }
 
     [IntegrationFact]

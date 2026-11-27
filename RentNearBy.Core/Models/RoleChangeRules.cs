@@ -9,6 +9,13 @@ public static class RoleChangeRules
 
     public const string LiveListingErrorType = "RoleChangeBlockedByLiveListing";
 
+    // Owner order 2026-11-27: a Traveller (Seeker) never asks to change role; only Stay Owners and Taxi Drivers may.
+    // The one-time onboarding correction is a different route and keeps its own rules.
+    public const string NotAllowedErrorType = "RoleChangeNotAllowed";
+    public const string NotAllowedMessage = "Traveller accounts cannot change role.";
+
+    public static bool CanRequestChange(Guid fromRoleId) => fromRoleId != UserRoles.SeekerId;
+
     public static string LiveListingBlockedMessage(string listingKind) => listingKind switch
     {
         ListingKinds.Stay => "A stay that was approved or is under review blocks this role change.",
