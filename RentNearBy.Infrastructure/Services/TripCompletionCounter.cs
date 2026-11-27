@@ -18,11 +18,14 @@ namespace RentNearBy.Infrastructure.Services;
 // the KEY SHARE locks of the owner calendar writers. A rare deadlock with an account deletion is resolved by the
 // deletion's single retry.
 //
+// Spec C: only the seeker statement (TripSql) returns the new count; when it reaches a travel level, LevelUpNotice writes the
+// congratulation in the same transaction. The two host/driver counters (CompletedBookingsCount) never send one.
+//
 // Nothing else changes the counters: trip delete, retention clean-up, role change, leaving a trip and the deletion of
 // another account keep them (guarded by CompletionCounterGuardTests).
 public static class TripCompletionCounter
 {
-    // Seeker counter (D-03, D-04). Returns 1 when the trip was counted now, else 0.
+    // Seeker counter (D-03, D-04). Returns the counted owner with the new count (no row = not counted now).
     internal const string TripSql = """
         WITH c AS (
           UPDATE "Trips" t SET "CompletionCountedAt" = now()
@@ -32,9 +35,12 @@ public static class TripCompletionCounter
             AND ( EXISTS (SELECT 1 FROM "TripEnquiries" e WHERE e."TripId" = t."Id" AND e."Status" = @confirmed)
                OR EXISTS (SELECT 1 FROM "TaxiBookings" b WHERE b."TripId" = t."Id" AND b."TravellerUserId" = t."OwnerUserId"
                           AND b."Status" IN (@booked, @inProgress, @bookingCompleted)) )
-          RETURNING t."OwnerUserId")
-        UPDATE "Users" u SET "CompletedTripsCount" = u."CompletedTripsCount" + 1
-        FROM c WHERE u."Id" = c."OwnerUserId"
+          RETURNING t."OwnerUserId"),
+        n AS (
+          UPDATE "Users" u SET "CompletedTripsCount" = u."CompletedTripsCount" + 1
+          FROM c WHERE u."Id" = c."OwnerUserId"
+          RETURNING u."Id", u."CompletedTripsCount", u."Name", u."IsActive", u."RoleId")
+        SELECT n."Id" AS "UserId", n."CompletedTripsCount" AS "NewCount", n."Name", n."IsActive", n."RoleId" FROM n
         """;
 
     // Stay Owner counter, plus a driver's confirmed taxi lead (D-05): one statement for every host of the trip.
@@ -68,13 +74,29 @@ public static class TripCompletionCounter
         await CountHostsInTxAsync(db, tripId, todayIst, ct);
     }
 
-    public static Task<int> CountTripInTxAsync(ApplicationDbContext db, Guid tripId, DateOnly todayIst, CancellationToken ct = default)
-        => db.Database.ExecuteSqlRawAsync(TripSql,
-            [
-                Uuid("trip", tripId), Date("today", todayIst), Text("completed", TripStatuses.Completed),
-                Text("confirmed", TripEnquiryStatuses.ConfirmedByBoth), Text("booked", BookingStates.Booked),
-                Text("inProgress", BookingStates.InProgress), Text("bookingCompleted", BookingStates.Completed),
-            ], ct);
+    // Returns 1 when the trip was counted now, else 0. The +1 returns the new count: when it is the first number of a travel
+    // level (spec C), the level-up congratulation (inbox row + push, once per level) is written in the same transaction.
+    public static async Task<int> CountTripInTxAsync(ApplicationDbContext db, Guid tripId, DateOnly todayIst, CancellationToken ct = default)
+    {
+        var rows = await db.Database.SqlQueryRaw<CountedRow>(TripSql,
+            Uuid("trip", tripId), Date("today", todayIst), Text("completed", TripStatuses.Completed),
+            Text("confirmed", TripEnquiryStatuses.ConfirmedByBoth), Text("booked", BookingStates.Booked),
+            Text("inProgress", BookingStates.InProgress), Text("bookingCompleted", BookingStates.Completed)).ToListAsync(ct);
+        // One trip has one owner: at most one row.
+        if (rows.FirstOrDefault() is { } r
+            && LevelUpNotice.CopyFor(r.UserId, r.NewCount, r.Name, r.IsActive && r.RoleId == UserRoles.SeekerId) is { } copy)
+            await LevelUpNotice.WriteInTxAsync(db, r.UserId, copy, ct);
+        return rows.Count;
+    }
+
+    private sealed class CountedRow
+    {
+        public Guid UserId { get; set; }
+        public int NewCount { get; set; }
+        public string? Name { get; set; }
+        public bool IsActive { get; set; }
+        public Guid RoleId { get; set; }
+    }
 
     public static Task<int> CountHostsInTxAsync(ApplicationDbContext db, Guid tripId, DateOnly todayIst, CancellationToken ct = default)
         => db.Database.ExecuteSqlRawAsync(HostsSql,

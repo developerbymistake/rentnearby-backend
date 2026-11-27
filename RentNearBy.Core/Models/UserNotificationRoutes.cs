@@ -57,6 +57,8 @@ public static class UserNotificationRoutes
     public const string DmRoom = "/dm-room";
     // Bakhli Plus screen (the end notice of PLAN_STATES_SOCIAL 2).
     public const string SeekerPlus = "/seeker-plus";
+    // Travel levels page (the level-up congratulation, spec C). No arguments.
+    public const string TravelLevels = "/travel-levels";
 
     public static readonly IReadOnlyList<string> TaxiDriverRoutes = [TaxiRequestRing, TaxiRequests, TaxiRequestDetail, TaxiBookings, TaxiRating, TaxiReady];
     public static readonly IReadOnlyList<string> TravellerTaxiRoutes = [TripName, TripCustomize, TripOverview, TripTaxiRequest, TripTaxiStatus];

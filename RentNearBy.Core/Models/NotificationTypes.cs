@@ -103,6 +103,8 @@ public static class NotificationTypes
     public const string SocialTripPosted = "SocialTripPosted";
     public const string SocialNearbyTrips = "SocialNearbyTrips";
     public const string SocialJoinRequestsFull = "SocialJoinRequestsFull";
+    // Travel levels (spec C): Notifications inbox row + outbox push, once per reached level (key levelup:{user}:{level}).
+    public const string TravelLevelUp = "TravelLevelUp";
     // Owner roles (contract 5.3, R-0): outbox pushes with NotificationId null; the stored ones live in UserNotices.
     public const string StayEditApproved = "StayEditApproved";
     public const string StayEditRejected = "StayEditRejected";
@@ -224,6 +226,7 @@ public static class NotificationTypes
         [SocialTripPosted] = "social_trip_posted",
         [SocialNearbyTrips] = "social_nearby_trips",
         [SocialJoinRequestsFull] = "social_join_requests_full",
+        [TravelLevelUp] = "travel_level_up",
         [StayEditApproved] = "stay_edit_approved",
         [StayEditRejected] = "stay_edit_rejected",
         [FestivalReminder] = "festival_reminder",
