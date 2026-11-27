@@ -165,6 +165,9 @@ public class TripViewerDto
     public int ProgressPercent { get; set; }
     public TripExpenseCardDto Expenses { get; set; } = new();
     public DateTime UpdatedAt { get; set; }
+    // Trip compaction: always present; an archived trip sends Legs and Days empty and the kept summary (null otherwise).
+    public bool Archived { get; set; }
+    public RentNearBy.Core.Models.TripArchiveSummary? Summary { get; set; }
 }
 
 public class TripViewerLegDto
@@ -258,6 +261,8 @@ public class TripSharedItemDto
     public string PlanState { get; set; } = "Saved";
     public DateTime? JoinedAt { get; set; }
     public TripSharedMoneyDto Expenses { get; set; } = new();
+    // Trip compaction: always present; LegCities then come from the kept summary.
+    public bool Archived { get; set; }
 }
 
 public class TripSharedMoneyDto

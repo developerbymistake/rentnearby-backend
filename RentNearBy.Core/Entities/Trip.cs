@@ -57,6 +57,10 @@ public class Trip
     // 72-hour post lock (PostLockRules): set on EVERY owner publish (first publish and each re-publish). PublishedAt cannot be
     // used because bump protection keeps it for 7 days. Null on rows published before the column existed (PublishedAt is used).
     public DateTime? LastPublishedAt { get; set; }
+    // Trip compaction (TripCompactionRule): set once, 90 days after EndDate. PlanJson is then "{}" and SummaryJson holds the
+    // small TripArchiveSummary (jsonb). Never cleared; CompletionCountedAt and Users.CompletedTripsCount are never touched by it.
+    public DateTime? ArchivedAt { get; set; }
+    public string? SummaryJson { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

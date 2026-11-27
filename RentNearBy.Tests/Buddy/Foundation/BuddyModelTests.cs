@@ -204,6 +204,8 @@ public class BuddyModelTests
             "LastPublishedAt",
             // post_notify SPEC: the poster's "Notify travellers near me" toggle and the 07:00 digest pick-up stamp.
             "NearbyNotifiedAt", "NotifiedAt", "NotifyNearby",
+            // Trip compaction (Buddy_resume/trip_compaction/SPEC.md): the archive stamp and the small summary kept after the plan is cleared.
+            "ArchivedAt", "SummaryJson",
         ];
         Assert.Equal(expected.OrderBy(n => n, StringComparer.Ordinal), columns);
     }

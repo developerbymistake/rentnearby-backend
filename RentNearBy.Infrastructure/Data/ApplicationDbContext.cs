@@ -1321,6 +1321,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.HasIndex(t => t.InviteCode, "ux_trips_invite_code").IsUnique();
             e.Property(t => t.Status).HasMaxLength(16).HasDefaultValue(TripStatuses.Draft);
             e.Property(t => t.PlanJson).HasColumnType("jsonb");
+            e.Property(t => t.SummaryJson).HasColumnType("jsonb");
+            e.Property(t => t.ArchivedAt);
             e.HasIndex(t => new { t.OwnerUserId, t.UpdatedAt }).HasDatabaseName("ix_trips_owner_updated");
             e.Property(t => t.StartDate).HasColumnType("date");
             e.Property(t => t.EndDate).HasColumnType("date");

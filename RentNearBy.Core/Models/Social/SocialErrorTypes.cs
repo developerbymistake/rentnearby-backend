@@ -22,6 +22,8 @@ public static class SocialErrorTypes
     // Spec 22: a join request to a Women only / Men only trip from the other gender (403, data {joinGender}).
     public const string TripGenderMismatch = "TripGenderMismatch";
     public const string TripNotPostable = "TripNotPostable";
+    // Trip compaction: the trip's plan was removed after it ended (same code as TripErrorTypes.TripArchived).
+    public const string TripArchived = RentNearBy.Core.Models.TripErrorTypes.TripArchived;
     public const string PlusRequired = "PlusRequired";
     public const string PublicTripLimit = "PublicTripLimit";
     public const string JoinClosed = "JoinClosed";
@@ -81,6 +83,7 @@ public static class SocialErrorTypes
         [TripPostNotFound] = (404, "This trip is not available."),
         [TripGenderMismatch] = (403, "This trip is for one gender only."),
         [TripNotPostable] = (409, "This trip is complete."),
+        [TripArchived] = (409, RentNearBy.Core.Models.TripArchive.ArchivedMessage),
         [PlusRequired] = (403, "This is a Bakhli Plus feature."),
         [PublicTripLimit] = (429, "You have reached your public trips limit."),
         [JoinClosed] = (409, "This trip is not taking requests."),

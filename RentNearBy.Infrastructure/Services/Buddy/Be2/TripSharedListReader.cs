@@ -28,6 +28,7 @@ public sealed class TripSharedListReader(ApplicationDbContext db, ITripMoneyCard
         SELECT m."Id" AS "MemberId", m."JoinedAt", t."Id" AS "TripId", t."OwnerUserId", t."Title", t."Status",
                t."CityKey", t."CityName", t."CityLatitude", t."CityLongitude", t."DistrictId", t."PlanJson"::text AS "PlanJson",
                t."DayCount", t."SpotCount", t."StartDate", t."EndDate", t."CreatedAt", t."UpdatedAt",
+               t."ArchivedAt", t."SummaryJson"::text AS "SummaryJson",
                COALESCE(o."Name", '') AS "OwnerName",
                (SELECT count(*)::int FROM "TripMembers" j WHERE j."TripId" = t."Id" AND j."Status" = 'Joined') AS "ViewerCount"
         FROM "TripMembers" m
@@ -139,7 +140,7 @@ public sealed class TripSharedListReader(ApplicationDbContext db, ITripMoneyCard
                 Title = trip.Title,
                 Role = TripSharingRoles.Viewer,
                 OwnerName = row.OwnerName,
-                LegCities = plan.Legs is { Count: > 0 } ? plan.LegCities : [trip.CityName],
+                LegCities = TripArchive.LegCities(trip, plan, TripArchive.IsArchived(trip) ? TripArchive.Read(trip.SummaryJson) : null),
                 DayCount = trip.DayCount,
                 SpotCount = trip.SpotCount,
                 StartDate = trip.StartDate,
@@ -151,6 +152,7 @@ public sealed class TripSharedListReader(ApplicationDbContext db, ITripMoneyCard
                 PlanState = "Saved",
                 JoinedAt = row.JoinedAt,
                 Expenses = TripViewerProjection.SharedCard(cards.GetValueOrDefault(trip.Id)),
+                Archived = TripArchive.IsArchived(trip),
             };
         }).ToList();
     }
@@ -198,6 +200,8 @@ public sealed class TripSharedListReader(ApplicationDbContext db, ITripMoneyCard
         public DateOnly? EndDate { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+        public DateTime? ArchivedAt { get; set; }
+        public string? SummaryJson { get; set; }
         public string OwnerName { get; set; } = string.Empty;
         public int ViewerCount { get; set; }
 
@@ -207,6 +211,7 @@ public sealed class TripSharedListReader(ApplicationDbContext db, ITripMoneyCard
             Id = TripId, OwnerUserId = OwnerUserId, Title = Title, Status = Status, CityKey = CityKey, CityName = CityName,
             CityLatitude = CityLatitude, CityLongitude = CityLongitude, DistrictId = DistrictId, PlanJson = PlanJson,
             DayCount = DayCount, SpotCount = SpotCount, StartDate = StartDate, EndDate = EndDate, CreatedAt = CreatedAt, UpdatedAt = UpdatedAt,
+            ArchivedAt = ArchivedAt, SummaryJson = SummaryJson,
         };
     }
 

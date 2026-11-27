@@ -355,6 +355,8 @@ public static class TripLifecycleHandlers
 
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(tripId, userId);
         if (trip == null) return TripNotFound();
+        // Trip compaction: the day-by-day record needs the removed plan; the kept summary rides on GET /trips/{id}.
+        if (TripArchive.IsArchived(trip)) return TripHandlers.TripArchivedResponse();
 
         var now = DateTime.UtcNow;
         var raw = await unitOfWork.TripEnquiries.GetByTripAsync(trip.Id);

@@ -49,6 +49,8 @@ public static class TripErrorTypes
     public const string TripChanged = "TripChanged";
     public const string SpotNotFound = "SpotNotFound";
     public const string UndoWindowOver = "UndoWindowOver";
+    // 409: the trip was compacted (plan removed, summary kept); only reads, mute, complete and delete still work.
+    public const string TripArchived = "TripArchived";
 }
 
 public static class TripSpotLimits

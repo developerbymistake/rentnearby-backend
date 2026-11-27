@@ -246,6 +246,11 @@ public sealed class PublicTripService(
         var fields = new PostFields(r.WhenKind, r.WithinMonths, r.StartDate, r.Days, r.JoinGender, r.Seats, r.Text, r.TravelMode);
         var trip = await db.Trips.FirstOrDefaultAsync(t => t.Id == tripId && t.OwnerUserId == me, ct);
         if (trip is null) return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.TripNotFound);
+        if (trip.ArchivedAt != null)
+        {
+            db.Entry(trip).State = EntityState.Detached;
+            return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.TripArchived);
+        }
         if (trip.Status == TripStatuses.Completed) return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.TripNotPostable);
         var limits = await seekerLimits.GetAsync(me, ct);
         // PLAN_STATES_SOCIAL 3: a trip kept inactive after Plus ended is read-only.

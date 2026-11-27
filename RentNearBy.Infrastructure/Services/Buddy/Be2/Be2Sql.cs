@@ -158,6 +158,7 @@ internal static class Be2Sql
             Id = t.Id, OwnerUserId = t.OwnerUserId, Title = t.Title, Status = t.Status, CityKey = t.CityKey, CityName = t.CityName,
             CityLatitude = t.CityLatitude, CityLongitude = t.CityLongitude, DistrictId = t.DistrictId, PlanJson = t.PlanJson,
             DayCount = t.DayCount, SpotCount = t.SpotCount, StartDate = t.StartDate, EndDate = t.EndDate, CreatedAt = t.CreatedAt, UpdatedAt = t.UpdatedAt,
+            ArchivedAt = t.ArchivedAt, SummaryJson = t.SummaryJson,
         });
 
     public static List<string> LegCities(string planJson, string cityName)

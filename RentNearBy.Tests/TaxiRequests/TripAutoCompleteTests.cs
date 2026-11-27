@@ -114,4 +114,9 @@ public class TripAutoCompleteTests
         Assert.Contains("e.\"Status\" IN ('Asked', 'Offered', 'Countered', 'FareSent')", sql);
         Assert.DoesNotContain("Advance", sql);
     }
+
+    // Trip compaction: an archived trip's plan is "{}", so the auto-complete pass never picks it up.
+    [Fact]
+    public void Candidate_sql_skips_archived_trips()
+        => Assert.Contains("t.\"ArchivedAt\" IS NULL", TripRepository.AutoCompleteCandidatesSql);
 }

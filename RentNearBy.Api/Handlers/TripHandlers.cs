@@ -54,6 +54,9 @@ public static class TripHandlers
 
     private static IResult TripNotFound() => ErrorResponse(404, "Trip not found", TripErrorTypes.TripNotFound);
 
+    // Trip compaction: a request that needs the removed plan is refused (409 TripArchived); reads, mute, complete and delete still work.
+    public static IResult TripArchivedResponse() => ConflictResponse(TripArchive.ArchivedMessage, TripErrorTypes.TripArchived);
+
     private static IResult CityNotFound() => ErrorResponse(404, "City not found", TripErrorTypes.CityNotFound);
 
     private static IResult CitiesUnavailable()
@@ -717,6 +720,7 @@ public static class TripHandlers
 
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
         if (trip == null) return TripNotFound();
+        if (TripArchive.IsArchived(trip)) return TripArchivedResponse();
 
         var stored = ReadPlan(trip);
         if (TripPlanCompat.NeedsUpdate(StoredPlanVersion(trip)))
@@ -948,6 +952,7 @@ public static class TripHandlers
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         var trip = await unitOfWork.Trips.GetByIdForOwnerAsync(id, userId);
         if (trip == null) return TripNotFound();
+        if (TripArchive.IsArchived(trip)) return TripArchivedResponse();
         if (TripPlanCompat.NeedsUpdate(StoredPlanVersion(trip)))
             return ConflictResponse("Update the app to edit this trip.", TripEnquiryErrorTypes.TripNeedsUpdate);
         if (trip.Status == TripStatuses.Completed)
@@ -1200,6 +1205,9 @@ public static class TripHandlers
     {
         var rows = enquiries ?? Array.Empty<TripEnquiry>();
         var linked = journeys ?? Array.Empty<SavedJourney>();
+        var archived = TripArchive.IsArchived(trip);
+        var summary = archived ? TripArchive.Read(trip.SummaryJson) : null;
+        var legCities = TripArchive.LegCities(trip, plan, summary);
         return new TripDto
         {
             Id = trip.Id,
@@ -1211,8 +1219,8 @@ public static class TripHandlers
             CityLatitude = trip.CityLatitude,
             CityLongitude = trip.CityLongitude,
             DistrictId = trip.DistrictId,
-            LegCount = plan.Legs is { Count: > 0 } legs ? legs.Count : 1,
-            LegCities = plan.Legs is { Count: > 0 } ? plan.LegCities : [trip.CityName],
+            LegCount = archived ? legCities.Count : plan.Legs is { Count: > 0 } legs ? legs.Count : 1,
+            LegCities = legCities,
             DayCount = trip.DayCount,
             SpotCount = trip.SpotCount,
             StartDate = trip.StartDate,
@@ -1231,6 +1239,9 @@ public static class TripHandlers
             CompletedAt = trip.CompletedAt,
             CreatedAt = trip.CreatedAt,
             UpdatedAt = trip.UpdatedAt,
+            Archived = archived,
+            ArchivedAt = trip.ArchivedAt,
+            Summary = summary,
         };
     }
 
@@ -1270,14 +1281,16 @@ public static class TripHandlers
     {
         var plan = ReadPlan(trip);
         var rows = TripEasyRows.Build(trip, plan, enquiries, journeys, revisedPending, taxiRequest);
+        var archived = TripArchive.IsArchived(trip);
+        var legCities = TripArchive.LegCities(trip, plan, archived ? TripArchive.Read(trip.SummaryJson) : null);
         return new TripSummaryDto
         {
             Id = trip.Id,
             Title = trip.Title,
             Status = trip.Status,
             CityName = trip.CityName,
-            LegCount = plan.Legs?.Count ?? 1,
-            LegCities = plan.LegCities,
+            LegCount = archived ? legCities.Count : plan.Legs?.Count ?? 1,
+            LegCities = legCities,
             DayCount = trip.DayCount,
             SpotCount = trip.SpotCount,
             StartDate = trip.StartDate,
@@ -1296,6 +1309,8 @@ public static class TripHandlers
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,
             UpdatedAt = trip.UpdatedAt,
+            Archived = archived,
+            ArchivedAt = trip.ArchivedAt,
         };
     }
 }

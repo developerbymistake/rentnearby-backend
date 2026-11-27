@@ -1657,10 +1657,15 @@ namespace RentNearBy.Infrastructure.Migrations
                     PostTravelMode = table.Column<string>(type: "character varying(6)", maxLength: 6, nullable: true),
                     InactiveByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     PausedByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+<<<<<<<< HEAD:RentNearBy.Infrastructure/Migrations/20261127071219_InitialCreate.cs
                     NotifiedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     NotifyNearby = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     NearbyNotifiedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     LastPublishedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+========
+                    ArchivedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    SummaryJson = table.Column<string>(type: "jsonb", nullable: true),
+>>>>>>>> feature/trip-compaction:RentNearBy.Infrastructure/Migrations/20261127095608_InitialCreate.cs
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)

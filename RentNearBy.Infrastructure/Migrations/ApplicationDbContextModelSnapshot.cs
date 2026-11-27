@@ -5697,6 +5697,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<DateTime?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<long>("CityKey")
                         .HasColumnType("bigint");
 
@@ -5834,6 +5837,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)")
                         .HasDefaultValue("Draft");
+
+                    b.Property<string>("SummaryJson")
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("Title")
                         .IsRequired()
