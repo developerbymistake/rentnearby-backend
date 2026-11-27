@@ -200,6 +200,8 @@ public class BuddyModelTests
             // CONTRACT_SOCIAL D1: a public post is the Trips row (post columns); PLAN_STATES_SOCIAL: the plan pause flags.
             "InactiveByPlan", "IsPublic", "JoinGender", "PausedByPlan", "PostCityNames", "PostDays", "PostStartMonth", "PostStateName",
             "PostText", "PostWindowMonths", "PublishedAt", "Seats",
+            // Trip compaction (Buddy_resume/trip_compaction/SPEC.md): the archive stamp and the small summary kept after the plan is cleared.
+            "ArchivedAt", "SummaryJson",
         ];
         Assert.Equal(expected.OrderBy(n => n, StringComparer.Ordinal), columns);
     }

@@ -321,12 +321,17 @@ public class TripCompactionRuleTests
         Assert.Contains("ORDER BY t.\"EndDate\"", TripCompactionStore.NextBatchSql);
         Assert.Contains("LIMIT @n", TripCompactionStore.NextBatchSql);
         Assert.Contains("\"DraftsWithoutEnd\"", TripCompactionStore.CountSql);
-        // Only the allowed retention parameters (plus the batch seams @skip and @trip).
-        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-                     sql + TripCompactionStore.NextBatchSql + TripCompactionStore.LockSql + TripCompactionStore.CountSql, @"@\w+"))
-            Assert.True(RetentionParams.Allowed.Contains(m.Value) || m.Value is "@skip" or "@trip", m.Value);
-        // SqlQueryRaw formats the SQL: no brace may reach it.
-        Assert.DoesNotContain("{", sql + TripCompactionStore.NextBatchSql + TripCompactionStore.LockSql + TripCompactionStore.CountSql);
+        // Each statement is scanned on its own: joined end to end, NextBatchSql's closing "@n" ran into LockSql's "SELECT" and
+        // the regex read one parameter "@nSELECT" that no statement contains.
+        string[] statements = [sql, TripCompactionStore.NextBatchSql, TripCompactionStore.LockSql, TripCompactionStore.CountSql, TripCompactionStore.CappedCountSql(10)];
+        foreach (var statement in statements)
+        {
+            // Only the allowed retention parameters (plus the batch seams @skip and @trip).
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(statement, @"@\w+"))
+                Assert.True(RetentionParams.Allowed.Contains(m.Value) || m.Value is "@skip" or "@trip", m.Value);
+            // SqlQueryRaw formats the SQL: no brace may reach it.
+            Assert.DoesNotContain("{", statement);
+        }
     }
 
     [Fact]

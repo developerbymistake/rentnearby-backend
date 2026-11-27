@@ -1655,6 +1655,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     PostStateName = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: true),
                     InactiveByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     PausedByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    ArchivedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    SummaryJson = table.Column<string>(type: "jsonb", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
