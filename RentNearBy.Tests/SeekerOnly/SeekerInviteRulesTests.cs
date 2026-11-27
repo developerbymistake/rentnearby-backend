@@ -138,7 +138,8 @@ public class SeekerInviteRulesTests
         NotificationTypes.TripPaymentNotReceived,
         NotificationTypes.SocialFollowRequest, NotificationTypes.SocialNewFollower, NotificationTypes.SocialFollowAccepted,
         NotificationTypes.SocialJoinRequest, NotificationTypes.SocialJoinAccepted, NotificationTypes.SocialChatMessage,
-        NotificationTypes.SocialTripChatMessage,
+        NotificationTypes.SocialTripChatMessage, NotificationTypes.SocialTripPosted, NotificationTypes.SocialNearbyTrips,
+        NotificationTypes.SocialJoinRequestsFull,
     ];
 
     // Sent to hosts, drivers, admins or any role (TripReminder and TaxiTripEnded reach both sides).

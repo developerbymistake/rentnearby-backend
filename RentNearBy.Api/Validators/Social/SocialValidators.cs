@@ -39,6 +39,14 @@ public class UpdatePrivacyRequestValidator : AbstractValidator<UpdatePrivacyRequ
     }
 }
 
+public class UpdateAreaRequestValidator : AbstractValidator<UpdateAreaRequest>
+{
+    public UpdateAreaRequestValidator()
+    {
+        RuleFor(x => x.DistrictId).NotEqual(Guid.Empty).WithMessage("Pick a district from the list.");
+    }
+}
+
 public class CreatePublicTripRequestValidator : AbstractValidator<CreatePublicTripRequest>
 {
     public CreatePublicTripRequestValidator()

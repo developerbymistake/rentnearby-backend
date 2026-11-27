@@ -51,7 +51,8 @@ public class SocialReportIntegrationTests(TestDatabase db) : IntegrationTestBase
 
     private static PublicTripService Posts(ApplicationDbContext ctx) =>
         new(ctx, new UnitOfWork(ctx), new FakeCityCatalog(), SocialTestSeams.Limits(10), new PublicTripReader(ctx, TimeProvider.System),
-            SocialTestSeams.AfterCommit(ctx), TimeProvider.System, NullLogger<PublicTripService>.Instance);
+            SocialTestSeams.AfterCommit(ctx), new RentNearBy.Infrastructure.Services.Buddy.Be4.NoticeWriter(ctx), TimeProvider.System,
+            NullLogger<PublicTripService>.Instance);
 
     // The admin seam of the reject route: no admin id claim, so the resolver column stays empty (no Admins row needed).
     private static Task<Microsoft.AspNetCore.Http.IResult> RejectAsync(ApplicationDbContext ctx, Guid reportId)
@@ -136,7 +137,7 @@ public class SocialReportIntegrationTests(TestDatabase db) : IntegrationTestBase
         await using (var ctx = CreateContext())
         {
             Assert.Equal(1, await ctx.ListingReports.CountAsync(r => r.ListingId == tripId && r.Status == "Pending"));
-            Assert.True(await Posts(ctx).UnpublishAsync(null, tripId));
+            Assert.True((await Posts(ctx).UnpublishAsync(null, tripId)).Ok); // admin removal right after posting: never locked
             Assert.False((await ctx.Trips.AsNoTracking().SingleAsync(t => t.Id == tripId)).IsPublic);
             Assert.Equal(200, StatusOf(await RejectAsync(ctx, reportId)));
             Assert.Equal(400, StatusOf(await RejectAsync(ctx, reportId)));

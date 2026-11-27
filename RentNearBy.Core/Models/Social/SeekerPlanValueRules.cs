@@ -2,13 +2,13 @@ using RentNearBy.Core.Models.Owner;
 
 namespace RentNearBy.Core.Models.Social;
 
-// Admin edit of a Seeker plan (/admin/plans with featureKey Seeker): only the six Seeker keys, each inside its range,
+// Admin edit of a Seeker plan (/admin/plans with featureKey Seeker): only the seven Seeker keys, each inside its range,
 // switches 0 or 1, and a paid plan never below the Free plan on any key.
 public static class SeekerPlanValueRules
 {
     public const int CountMax = 1000;
 
-    public static readonly IReadOnlyList<string> Switches = [SeekerPlanKeys.GenderOnlyTrips, SeekerPlanKeys.NearMe];
+    public static readonly IReadOnlyList<string> Switches = [SeekerPlanKeys.GenderOnlyTrips, SeekerPlanKeys.NearMe, SeekerPlanKeys.GroupChat];
 
     public static string Label(string key) => key switch
     {
@@ -18,12 +18,13 @@ public static class SeekerPlanValueRules
         SeekerPlanKeys.NewChatsPerMonth => "New people messaged a month",
         SeekerPlanKeys.GenderOnlyTrips => "Women-only trips",
         SeekerPlanKeys.NearMe => "Near me filter",
+        SeekerPlanKeys.GroupChat => "Trip group chat",
         _ => key,
     };
 
     public static (int Min, int Max) Range(string key) => key switch
     {
-        SeekerPlanKeys.GenderOnlyTrips or SeekerPlanKeys.NearMe => (0, 1),
+        SeekerPlanKeys.GenderOnlyTrips or SeekerPlanKeys.NearMe or SeekerPlanKeys.GroupChat => (0, 1),
         SeekerPlanKeys.ActiveTrips => (1, CountMax),
         _ => (0, CountMax),
     };

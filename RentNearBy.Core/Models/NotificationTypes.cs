@@ -98,6 +98,11 @@ public static class NotificationTypes
     public const string SocialJoinAccepted = "SocialJoinAccepted";
     public const string SocialChatMessage = "SocialChatMessage";
     public const string SocialTripChatMessage = "SocialTripChatMessage";
+    // Post notify (owner 2026-11-27): a followed traveller posted a trip (immediate), the 07:00 IST nearby digest, and the one
+    // push to a host whose post reached 50 waiting requests.
+    public const string SocialTripPosted = "SocialTripPosted";
+    public const string SocialNearbyTrips = "SocialNearbyTrips";
+    public const string SocialJoinRequestsFull = "SocialJoinRequestsFull";
     // Owner roles (contract 5.3, R-0): outbox pushes with NotificationId null; the stored ones live in UserNotices.
     public const string StayEditApproved = "StayEditApproved";
     public const string StayEditRejected = "StayEditRejected";
@@ -119,7 +124,7 @@ public static class NotificationTypes
         TripDeletedForViewer, TripExpensesUpdated, TripSettleReminder, TripPaymentSaidPaid, TripPaymentReceived,
         TripPaymentWithdrawn, TripPaymentNotReceived,
         SocialFollowRequest, SocialNewFollower, SocialFollowAccepted, SocialJoinRequest, SocialJoinAccepted, SocialChatMessage,
-        SocialTripChatMessage,
+        SocialTripChatMessage, SocialTripPosted, SocialNearbyTrips, SocialJoinRequestsFull,
     ];
 
     // The lowercase-snake value sent as the FCM data payload's "notification_type" key — kept
@@ -211,6 +216,9 @@ public static class NotificationTypes
         [SocialJoinAccepted] = "social_join_accepted",
         [SocialChatMessage] = "social_chat_message",
         [SocialTripChatMessage] = "social_trip_chat_message",
+        [SocialTripPosted] = "social_trip_posted",
+        [SocialNearbyTrips] = "social_nearby_trips",
+        [SocialJoinRequestsFull] = "social_join_requests_full",
         [StayEditApproved] = "stay_edit_approved",
         [StayEditRejected] = "stay_edit_rejected",
         [FestivalReminder] = "festival_reminder",

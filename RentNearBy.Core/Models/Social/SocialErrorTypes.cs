@@ -46,6 +46,17 @@ public static class SocialErrorTypes
     public const string GuidelinesNotAccepted = "GuidelinesNotAccepted";
     // Spec 23.9: a second name change inside 14 days (409, data {nextAllowedAt}).
     public const string NameChangeTooSoon = "NameChangeTooSoon";
+    // Post notify (owner 2026-11-27): a post already has 50 waiting requests (409); the host removed this member (409);
+    // a 5th publish inside 7 days (429, data {limit, used, nextAllowedAt}); an unknown district on PUT /social/me/area (400).
+    public const string TripRequestsFull = "TripRequestsFull";
+    public const string CannotRejoin = "CannotRejoin";
+    public const string PublishLimit = "PublishLimit";
+    public const string InvalidArea = "InvalidArea";
+    // 72-hour post lock (owner 2026-11-27): delete or make private inside 72 h of the latest publish (409, data {unlocksAt});
+    // delete of an ever-published trip while other travellers are still joined (409, data {count}).
+    public const string PostLocked = "PostLocked";
+    public const string RemoveMembersFirst = "RemoveMembersFirst";
+    public const string TripDatesLocked = "TripDatesLocked";
 
     public const string PersonNotFound = BuddyErrorTypes.PersonNotFound;
     public const string TripNotFound = BuddyErrorTypes.TripNotFound;
@@ -89,6 +100,13 @@ public static class SocialErrorTypes
         [SeekerOnly] = (403, AuthPolicies.SeekerOnlyMessage),
         [GuidelinesNotAccepted] = (403, "Read and accept the chat guidelines first."),
         [NameChangeTooSoon] = (409, "You can change your name once every 14 days."),
+        [TripRequestsFull] = (409, "This trip has enough requests for now."),
+        [CannotRejoin] = (409, "You can no longer join this trip."),
+        [PublishLimit] = (429, "You have posted a lot this week. Try again later."),
+        [InvalidArea] = (400, "Pick a district from the list."),
+        [PostLocked] = (409, "You can remove this post 3 days after posting it."),
+        [RemoveMembersFirst] = (409, "Remove the other travellers first."),
+        [TripDatesLocked] = (409, "Travellers have joined this trip. Its dates cannot move into the past."),
     };
 
     public static IReadOnlyCollection<string> All => Table.Keys;

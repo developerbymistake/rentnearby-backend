@@ -9,8 +9,11 @@ public static class SeekerPlanKeys
     public const string NewChatsPerMonth = "SeekerNewChatsPerMonth";
     public const string GenderOnlyTrips = "SeekerGenderOnlyTrips";
     public const string NearMe = "SeekerNearMe";
+    // Owner 2026-11-27: sending in a trip group chat needs this switch (Free 0, Plus 1); reading, membership and pushes do not.
+    public const string GroupChat = "SeekerGroupChat";
 
-    public static readonly IReadOnlyList<string> All = [ActiveTrips, PublicTrips, JoinRequestsPerMonth, NewChatsPerMonth, GenderOnlyTrips, NearMe];
+    public static readonly IReadOnlyList<string> All =
+        [ActiveTrips, PublicTrips, JoinRequestsPerMonth, NewChatsPerMonth, GenderOnlyTrips, NearMe, GroupChat];
 
     private static readonly Dictionary<string, (int Free, int Plus)> Seeds = new()
     {
@@ -20,6 +23,7 @@ public static class SeekerPlanKeys
         [NewChatsPerMonth] = (3, 10), // spec 23.2 (2026-11-27): Plus 10 a month, was 15
         [GenderOnlyTrips] = (0, 1),
         [NearMe] = (0, 1),
+        [GroupChat] = (0, 1),
     };
 
     public static int FreeDefault(string key) => Seeds.TryGetValue(key, out var v) ? v.Free : 0;

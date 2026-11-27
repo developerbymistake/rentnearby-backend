@@ -48,6 +48,18 @@ public static class ProfileHandlers
             async me => SocialHttp.From(await profiles.UpdatePrivacyAsync(me, request, ct)), ct);
     }
 
+    // Owner 2026-11-27: PUT /social/me/area, the district the app is in (id only). Throttled per user; no social hold (it touches
+    // nobody). The app ignores every error (the nearby digest simply skips a stale area).
+    public static async Task<IResult> UpdateArea(
+        UpdateAreaRequest request, IValidator<UpdateAreaRequest> validator, ClaimsPrincipal principal,
+        SocialProfileService profiles, ApplicationDbContext db, IRateLimitService limiter, HttpContext http, CancellationToken ct)
+    {
+        var validation = await validator.ValidateAsync(request, ct);
+        if (!validation.IsValid) return SocialHttp.Error(SocialErrorTypes.InvalidArea, new { field = "districtId" });
+        return await SocialHttp.WriteAsync(principal, db, limiter, http, SocialRateLimits.Area(BuddyCaller(principal)), false,
+            async me => SocialHttp.From(await profiles.SetAreaAsync(me, request.DistrictId, ct)), ct);
+    }
+
     // Spec 25: accept the community guidelines (idempotent).
     public static Task<IResult> AcceptGuidelines(
         ClaimsPrincipal principal, SocialProfileService profiles, ApplicationDbContext db, IRateLimitService limiter, HttpContext http, CancellationToken ct)

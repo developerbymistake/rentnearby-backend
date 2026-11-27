@@ -27,7 +27,8 @@ public class JoinIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
 {
     private static PublicTripService Posts(ApplicationDbContext ctx) =>
         new(ctx, new UnitOfWork(ctx), new FakeCityCatalog(), SocialTestSeams.Limits(10, plus: true), new PublicTripReader(ctx, TimeProvider.System),
-            SocialTestSeams.AfterCommit(ctx), TimeProvider.System, NullLogger<PublicTripService>.Instance);
+            SocialTestSeams.AfterCommit(ctx), new RentNearBy.Infrastructure.Services.Buddy.Be4.NoticeWriter(ctx), TimeProvider.System,
+            NullLogger<PublicTripService>.Instance);
 
     private static JoinRequestService Joins(ApplicationDbContext ctx, ISeekerLimits? limits = null)
     {
@@ -238,6 +239,20 @@ public class JoinIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         }
         await using var check = CreateContext();
         Assert.Equal(1, await check.Set<TripMember>().CountAsync(m => m.TripId == trip && m.Status == TripMemberStatuses.Joined));
+    }
+
+    // Abuse guard 5 (owner 2026-11-27): the monthly join request count is of requests sent, so cancelling one never refunds it.
+    [IntegrationFact]
+    public async Task Cancelling_a_request_never_refunds_the_monthly_join_request()
+    {
+        var me = await SeekerAsync();
+        var first = await PostAsync(await SeekerAsync());
+        var second = await PostAsync(await SeekerAsync());
+        await using var ctx = CreateContext();
+        Assert.True((await Joins(ctx).SendAsync(me, first, Ask())).Ok);              // Free: 1 per month
+        await Joins(ctx).CancelMineAsync(me, first);
+        Assert.Equal(SocialErrorTypes.JoinRequestLimit, (await Joins(ctx).SendAsync(me, second, Ask())).ErrorType);
+        Assert.Equal(SocialErrorTypes.JoinRequestLimit, (await Joins(ctx).SendAsync(me, first, Ask())).ErrorType);
     }
 
     [IntegrationFact]

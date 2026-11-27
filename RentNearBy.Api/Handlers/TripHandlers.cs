@@ -729,6 +729,10 @@ public static class TripHandlers
 
         var plan = request.Plan!;
         plan.Normalize();
+        if (trip.PublishedAt is not null
+            && await RentNearBy.Infrastructure.Services.Social.PostLockReads.ReadAsync(db, trip.Id, userId, lockRow: false) is { } datesLock
+            && RentNearBy.Core.Models.Social.PostLockRules.DateMoveRefusal(datesLock.State, datesLock.OtherMembers, plan.Settings.StartDate, plan.EndDate, DateTime.UtcNow) is { } datesRefusal)
+            return ErrorResponse(409, RentNearBy.Core.Models.Social.SocialErrorTypes.MessageOf(datesRefusal.ErrorType), datesRefusal.ErrorType, datesRefusal.Data);
         var planLock = await TripPlanLockReader.ReadAsync(db, trip.Id);
         if (TripPlanLock.UpdateRefusal(planLock.Reason, planLock.RequestId, stored, plan, planLock.EnquiryId) is { } lockedEarly) return LockRefusal(lockedEarly);
 
@@ -1041,6 +1045,14 @@ public static class TripHandlers
         try
         {
             await TripGuards.LockTripAsync(db, trip.Id);
+            // 72-hour post lock (PostLockRules): an ever-published trip that is not over is deleted only 72 h after its latest
+            // publish and only when the host is the only joined traveller (PostLocked {unlocksAt} / RemoveMembersFirst {count}).
+            if (await RentNearBy.Infrastructure.Services.Social.PostLockReads.ReadAsync(db, trip.Id, userId, lockRow: false) is { } postLock
+                && RentNearBy.Core.Models.Social.PostLockRules.DeleteRefusal(postLock.State, postLock.OtherMembers, DateTime.UtcNow) is { } postRefusal)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return ErrorResponse(409, RentNearBy.Core.Models.Social.SocialErrorTypes.MessageOf(postRefusal.ErrorType), postRefusal.ErrorType, postRefusal.Data);
+            }
             var planLock = await TripPlanLockReader.ReadAsync(db, trip.Id);
             if (TripPlanLock.DeleteRefusal(planLock.Reason, planLock.RequestId, planLock.EnquiryId) is { } locked)
             {
@@ -1213,6 +1225,8 @@ public static class TripHandlers
             InactiveByPlan = trip.InactiveByPlan,
             IsPublic = RentNearBy.Core.Models.Social.SocialRules.IsLivePost(trip.IsPublic, trip.Status, trip.StartDate, trip.PostWindowMonths,
                 trip.PublishedAt, DateTime.UtcNow),
+            PostUnlocksAt = RentNearBy.Core.Models.Social.PostLockRules.UnlocksAt(RentNearBy.Core.Models.Social.PostLockRules.Of(trip), DateTime.UtcNow),
+            DeleteNeedsAlone = RentNearBy.Core.Models.Social.PostLockRules.DeleteNeedsAlone(RentNearBy.Core.Models.Social.PostLockRules.Of(trip), DateTime.UtcNow),
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,
             CreatedAt = trip.CreatedAt,
@@ -1277,6 +1291,8 @@ public static class TripHandlers
             Progress = TripEasyRows.Progress(trip.SpotCount, rows, enquiries.Count == 0 ? null : enquiries.Max(e => e.UpdatedAt), TripEasyRows.GuideStepOf(plan)),
             AgreedTotal = TripEasyRows.AgreedTotal(enquiries),
             InactiveByPlan = trip.InactiveByPlan,
+            PostUnlocksAt = RentNearBy.Core.Models.Social.PostLockRules.UnlocksAt(RentNearBy.Core.Models.Social.PostLockRules.Of(trip), DateTime.UtcNow),
+            DeleteNeedsAlone = RentNearBy.Core.Models.Social.PostLockRules.DeleteNeedsAlone(RentNearBy.Core.Models.Social.PostLockRules.Of(trip), DateTime.UtcNow),
             MutedAt = trip.MutedAt,
             CompletedAt = trip.CompletedAt,
             UpdatedAt = trip.UpdatedAt,

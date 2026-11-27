@@ -64,5 +64,7 @@ public static class PublicTripHandlers
         Guid tripId, ClaimsPrincipal principal, PublicTripService posts, ApplicationDbContext db, IRateLimitService limiter, HttpContext http,
         CancellationToken ct)
         => SocialHttp.WriteAsync(principal, db, limiter, http, SocialRateLimits.Write(ProfileHandlers.BuddyCaller(principal)), false,
-            async me => await posts.UnpublishAsync(me, tripId, ct) ? SocialHttp.Empty() : SocialHttp.Error(SocialErrorTypes.TripNotFound), ct);
+            async me => await posts.UnpublishAsync(me, tripId, ct) is { Ok: false } refused
+                ? SocialHttp.Error(refused.ErrorType!, refused.ErrorData)
+                : SocialHttp.Empty(), ct);
 }

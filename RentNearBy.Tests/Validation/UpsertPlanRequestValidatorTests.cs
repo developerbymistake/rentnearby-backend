@@ -214,7 +214,8 @@ public class UpsertPlanRequestValidatorTests
         => Validate(Seeker(
                 new PlanFeatureInput(SeekerPlanKeys.ActiveTrips, 10), new PlanFeatureInput(SeekerPlanKeys.PublicTrips, 3),
                 new PlanFeatureInput(SeekerPlanKeys.JoinRequestsPerMonth, 5), new PlanFeatureInput(SeekerPlanKeys.NewChatsPerMonth, 10),
-                new PlanFeatureInput(SeekerPlanKeys.GenderOnlyTrips, 1), new PlanFeatureInput(SeekerPlanKeys.NearMe, 1)))
+                new PlanFeatureInput(SeekerPlanKeys.GenderOnlyTrips, 1), new PlanFeatureInput(SeekerPlanKeys.NearMe, 1),
+                new PlanFeatureInput(SeekerPlanKeys.GroupChat, 1)))
             .ShouldNotHaveAnyValidationErrors();
 
     [Fact]
@@ -228,6 +229,8 @@ public class UpsertPlanRequestValidatorTests
     [Theory]
     [InlineData(SeekerPlanKeys.GenderOnlyTrips, 2, false)]
     [InlineData(SeekerPlanKeys.NearMe, 0, true)]
+    [InlineData(SeekerPlanKeys.GroupChat, 1, true)]
+    [InlineData(SeekerPlanKeys.GroupChat, 2, false)]
     [InlineData(SeekerPlanKeys.ActiveTrips, 0, false)]
     [InlineData(SeekerPlanKeys.NewChatsPerMonth, SeekerPlanValueRules.CountMax, true)]
     [InlineData(SeekerPlanKeys.NewChatsPerMonth, SeekerPlanValueRules.CountMax + 1, false)]

@@ -36,6 +36,7 @@ public static class DataSeeder
         await SeedPlansAsync(db);
         await SeedSeekerPlansAsync(db);
         await SyncSeekerPlusNewChatsAsync(db);
+        await SyncSeekerGroupChatAsync(db);
         await SeedDistrictsAsync(db);
         await SeedCitiesAsync(db, logger);
         await SeedAppFeatureFlagsAsync(db);
@@ -257,6 +258,22 @@ public static class DataSeeder
             && f.Key == SeekerPlanKeys.NewChatsPerMonth && f.Value == OldSeekerPlusNewChatsSeed);
         if (row == null) return;
         row.Value = SeekerPlanKeys.PlusDefault(SeekerPlanKeys.NewChatsPerMonth);
+        await db.SaveChangesAsync();
+    }
+
+    // Owner order 2026-11-27: trip group chat needs Plus. An existing database gets the new SeekerGroupChat key on every Seeker plan
+    // that lacks it (the seeded default: Free 0, any paid plan 1); a plan that already has it (an admin value) is left alone.
+    internal static async Task SyncSeekerGroupChatAsync(ApplicationDbContext db)
+    {
+        var plans = await db.Plans.Where(p => p.FeatureKey == PlanFeatures.Seeker
+                && !db.PlanFeatures.Any(f => f.PlanId == p.Id && f.Key == SeekerPlanKeys.GroupChat))
+            .Select(p => new { p.Id, p.IsDefault }).ToListAsync();
+        if (plans.Count == 0) return;
+        db.PlanFeatures.AddRange(plans.Select(p => new PlanFeature
+        {
+            Id = Guid.NewGuid(), PlanId = p.Id, Key = SeekerPlanKeys.GroupChat,
+            Value = p.IsDefault ? SeekerPlanKeys.FreeDefault(SeekerPlanKeys.GroupChat) : SeekerPlanKeys.PlusDefault(SeekerPlanKeys.GroupChat),
+        }));
         await db.SaveChangesAsync();
     }
 

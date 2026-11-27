@@ -200,6 +200,10 @@ public class BuddyModelTests
             // CONTRACT_SOCIAL D1: a public post is the Trips row (post columns); PLAN_STATES_SOCIAL: the plan pause flags.
             "InactiveByPlan", "IsPublic", "JoinGender", "PausedByPlan", "PostCityNames", "PostDays", "PostStartMonth", "PostStateName",
             "PostText", "PostWindowMonths", "PublishedAt", "Seats",
+            // post_notify SPEC "72-HOUR POST LOCK": the latest publish starts the lock window (PublishedAt keeps the feed place).
+            "LastPublishedAt",
+            // post_notify SPEC: the poster's "Notify travellers near me" toggle and the 07:00 digest pick-up stamp.
+            "NearbyNotifiedAt", "NotifiedAt", "NotifyNearby",
         ];
         Assert.Equal(expected.OrderBy(n => n, StringComparer.Ordinal), columns);
     }

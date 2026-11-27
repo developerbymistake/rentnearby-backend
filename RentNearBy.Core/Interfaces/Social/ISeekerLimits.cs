@@ -1,6 +1,8 @@
 namespace RentNearBy.Core.Interfaces.Social;
 
-public sealed record SeekerLimits(bool IsPlus, bool CanUpgrade, int ActiveTrips, int PublicTrips, int JoinRequestsPerMonth, int NewChatsPerMonth, bool GenderOnlyTrips, bool NearMe);
+// GroupChat (owner 2026-11-27): may send in trip group chats (SeekerGroupChat switch).
+public sealed record SeekerLimits(bool IsPlus, bool CanUpgrade, int ActiveTrips, int PublicTrips, int JoinRequestsPerMonth, int NewChatsPerMonth, bool GenderOnlyTrips, bool NearMe,
+    bool GroupChat);
 
 // The seeker's plan numbers (contract 4), read from the Seeker plans of the catalog.
 public interface ISeekerLimits

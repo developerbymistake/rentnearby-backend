@@ -237,12 +237,13 @@ public static class SeekerRouteTable
         "PUT /api/v1/taxis/journeys/{id:guid}/status",
     ];
 
-    // 35 routes: Bakhli social (CONTRACT_SOCIAL section 2), every one SeekerOnly
+    // 36 routes: Bakhli social (CONTRACT_SOCIAL section 2), every one SeekerOnly
     public static readonly string[] Social =
     [
         "GET /api/v1/social/me",
         "PUT /api/v1/social/me/profile",
         "PUT /api/v1/social/me/privacy",
+        "PUT /api/v1/social/me/area",
         "POST /api/v1/social/me/guidelines",
         "GET /api/v1/social/travellers/{userId:guid}",
         "PUT /api/v1/social/travellers/{userId:guid}/follow",

@@ -34,9 +34,13 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
                (SELECT count(*) FROM "TripMembers" m WHERE m."TripId" = t."Id" AND m."Status" = '{TripMemberStatuses.Joined}')::int AS "Joined",
                EXISTS (SELECT 1 FROM "TripMembers" m WHERE m."TripId" = t."Id" AND m."UserId" = @me AND m."Status" = '{TripMemberStatuses.Joined}') AS "MyMember",
                EXISTS (SELECT 1 FROM "TripJoinRequests" r WHERE r."TripId" = t."Id" AND r."RequesterId" = @me AND r."Status" = '{JoinRequestStatuses.Waiting}') AS "MyWaiting",
+               EXISTS (SELECT 1 FROM "TripMembers" m WHERE m."TripId" = t."Id" AND m."UserId" = @me AND m."Status" = '{TripMemberStatuses.Removed}') AS "MyRemoved",
+               t."NotifyNearby", t."NearbyNotifiedAt", t."LastPublishedAt", t."EndDate", t."Status" AS "TripStatus",
                EXISTS (SELECT 1 FROM "TripJoinRequests" r WHERE r."TripId" = t."Id" AND r."RequesterId" = @me AND r."Status" = '{JoinRequestStatuses.Declined}'
                        AND r."DecidedAt" > now() - {Interval(SocialLimits.AskAgainAfter)}) AS "MyDeclined",
                CASE WHEN t."OwnerUserId" = @me THEN (SELECT count(*) FROM "TripJoinRequests" r WHERE r."TripId" = t."Id" AND r."Status" = '{JoinRequestStatuses.Waiting}')::int END AS "Waiting",
+               ((SELECT count(*) FROM "TripJoinRequests" r WHERE r."TripId" = t."Id" AND r."Status" = '{JoinRequestStatuses.Waiting}')
+                  >= {SocialLimits.PendingRequestsMax}) AS "RequestsFull",
                {AcceptedFollow("@me", "t.\"OwnerUserId\"")} AS "IFollowOwner",
                {BlockedEitherWay("@me", "t.\"OwnerUserId\"")} AS "Blocked",
                ({LivePost("t")}) AS "Live"
@@ -178,11 +182,21 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
             SeatsLeft = SocialRules.SeatsLeft(seats, r.Joined),
             Text = r.PostText,
             PublishedAt = Utc(r.PublishedAt ?? DateTime.MinValue),
-            MyJoin = r.MyMember ? MyJoinStates.Member : r.MyWaiting ? MyJoinStates.Requested : r.MyDeclined ? MyJoinStates.Declined : MyJoinStates.None,
+            MyJoin = r.MyMember ? MyJoinStates.Member : r.MyWaiting ? MyJoinStates.Requested : r.MyRemoved ? MyJoinStates.Removed
+                : r.MyDeclined ? MyJoinStates.Declined : MyJoinStates.None,
             WaitingRequests = isMine ? r.Waiting ?? 0 : null,
             IFollowOwner = r.IFollowOwner,
             Mutuals = mutuals is { Count: > 0 } ? mutuals : null,
             NotOpen = notOpen,
+            RequestsFull = r.RequestsFull,
+            // The poster's own post page: "Nearby travellers will be told tomorrow morning" until the 07:00 digest ran.
+            NotifyNearby = isMine ? r.NotifyNearby : null,
+            NearbyNotifiedAt = isMine && r.NearbyNotifiedAt is { } told ? Utc(told) : null,
+            // The poster's own post: "You can remove this post on <date>" while the 72-hour lock runs (PostLockRules).
+            UnlocksAt = isMine && r.IsPublic
+                ? PostLockRules.UnlocksAt(new PostLockState(r.IsPublic, r.PublishedAt, r.LastPublishedAt, r.TripStatus, r.StartDate, r.EndDate,
+                    r.PostWindowMonths), nowUtc)
+                : null,
         };
         return dto;
     }
@@ -213,8 +227,15 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
         public int Joined { get; set; }
         public bool MyMember { get; set; }
         public bool MyWaiting { get; set; }
+        public bool MyRemoved { get; set; }
+        public bool NotifyNearby { get; set; }
+        public DateTime? NearbyNotifiedAt { get; set; }
+        public DateTime? LastPublishedAt { get; set; }
+        public DateOnly? EndDate { get; set; }
+        public string TripStatus { get; set; } = TripStatuses.Draft;
         public bool MyDeclined { get; set; }
         public int? Waiting { get; set; }
+        public bool RequestsFull { get; set; }
         public bool IFollowOwner { get; set; }
         public bool Blocked { get; set; }
         public bool Live { get; set; }

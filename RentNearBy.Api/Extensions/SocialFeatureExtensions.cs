@@ -30,6 +30,7 @@ public static class SocialFeatureExtensions
         services.AddScoped<IAccountDeletionParticipant, SocialDeletionParticipant>();
         services.AddScoped<IBuddyFeatureJob, ChatExpiryPurgeJob>();
         services.AddScoped<IBuddyFeatureJob, JoinRequestExpiryJob>();
+        services.AddScoped<IBuddyFeatureJob, NearbyDigestJob>();
 
         services.AddSingleton<HubConnectionRegistry>();
         services.AddSingleton<ISocialRealtime, SocialHubEvents>();

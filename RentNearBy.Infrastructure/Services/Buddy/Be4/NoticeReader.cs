@@ -27,7 +27,8 @@ public sealed class NoticeReader(ApplicationDbContext db)
             AND m."TripId" IN (SELECT p."TripId" FROM p WHERE p."Kind" = '{NoticeKinds.TripJoined}')
           GROUP BY m."TripId")
         SELECT n."Id", n."Kind", n."TripId", COALESCE(t."Title", jt."Title") AS "TripTitle",
-               CASE WHEN n."Kind" IN ('{NoticeKinds.JoinRequest}', '{NoticeKinds.JoinAccepted}', '{NoticeKinds.JoinDeclined}', '{NoticeKinds.FollowedPosted}')
+               CASE WHEN n."Kind" IN ('{NoticeKinds.JoinRequest}', '{NoticeKinds.JoinAccepted}', '{NoticeKinds.JoinDeclined}', '{NoticeKinds.FollowedPosted}',
+                                   '{NoticeKinds.NearbyPosted}')
                     THEN COALESCE(NULLIF((COALESCE(jt."PostCityNames", t."PostCityNames"))[1], ''), NULLIF(COALESCE(jt."CityName", t."CityName"), '')) END AS "TripCity",
                n."ActorUserId", a."Name" AS "ActorName",
                a."ProfilePhotoUrl" AS "ActorPhotoUrl", a."Username" AS "ActorUsername", left(jr."Note", {SocialLimits.JoinNoticePreviewMax}) AS "Preview",

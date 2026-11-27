@@ -209,7 +209,7 @@ public static class AdminPlanHandlers
         return PlanValueRules.BelowFree(featureKey, snapshot.DefaultValues(featureKey), values) is { } below ? Refusal(below) : null;
     }
 
-    // Seeker plans: the same rule on the six Seeker keys, from the raw catalog features (SeekerPlanValueRules).
+    // Seeker plans: the same rule on the seven Seeker keys, from the raw catalog features (SeekerPlanValueRules).
     private static IResult? SeekerBelowFreeRefusal(bool isDefault, IReadOnlyDictionary<string, int> raw, PlanCatalogSnapshot snapshot, Guid? planId)
     {
         var plans = snapshot.PlansOf(PlanFeatures.Seeker);

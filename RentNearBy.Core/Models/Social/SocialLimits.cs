@@ -55,6 +55,18 @@ public static class SocialLimits
     public const int RoomFacesMax = 3;
     // Spec 25: bump to show the community guidelines sheet to everyone again.
     public const int GuidelinesVersion = 1;
+    // Post notifications and abuse caps (owner 2026-11-27, PostNotifyRules): notified posts and publishes per rolling 7 days,
+    // pending join requests per post, nearby digest reach.
+    public const int NotifiedPostsPerWeek = 2;
+    public const int NotifiedPostsFirstDay = 1;
+    public const int PublishesPerWeek = 4;
+    public const int PendingRequestsMax = 50;
+    public const int NearbyPerPostMax = 200;
+    public const int NearbyStartWithinDays = 60;
+    // 72-hour post lock (owner 2026-11-27, PostLockRules): a published post cannot be deleted or made private for 72 hours.
+    public const int PostLockHours = 72;
+    // New follows per rolling 24 hours (SocialRateLimits.Follow, 429 TooManyRequests); unfollow never refunds.
+    public const int FollowsPerDay = 50;
 
     public static readonly TimeSpan MessageLife = TimeSpan.FromHours(24);
     public static readonly TimeSpan RequestFirstMessageLife = TimeSpan.FromDays(7);

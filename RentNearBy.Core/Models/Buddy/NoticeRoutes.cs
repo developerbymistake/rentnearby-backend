@@ -35,7 +35,7 @@ public static class NoticeRoutes
             NoticeKinds.JoinRequest => new(UserNotificationRoutes.JoinRequests, Args(("tripId", refId?.ToString() ?? string.Empty))),
             NoticeKinds.JoinAccepted => new(UserNotificationRoutes.TripView, Args(("tripId", trip))),
             NoticeKinds.JoinDeclined => new(UserNotificationRoutes.TravelBuddies, Args()),
-            NoticeKinds.FollowedPosted => new(UserNotificationRoutes.TripPost, Args(("tripId", trip))),
+            NoticeKinds.FollowedPosted or NoticeKinds.NearbyPosted => new(UserNotificationRoutes.TripPost, Args(("tripId", trip))),
             _ => new(UserNotificationRoutes.Notifications, Args()),
         };
     }
