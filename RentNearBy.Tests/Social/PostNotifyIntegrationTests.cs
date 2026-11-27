@@ -425,7 +425,7 @@ public class PostNotifyIntegrationTests(TestDatabase db) : IntegrationTestBase(d
             Assert.Equal(SocialErrorTypes.TripRequestsFull, refused.ErrorType);
             var seen = await new PublicTripReader(ctx, TimeProvider.System).ByIdAsync(late, post.TripId, default);
             Assert.True(seen!.RequestsFull);
-            var feed = await new PublicTripReader(ctx, TimeProvider.System).FeedAsync(late, null, 50, null, null, null, default);
+            var feed = await new PublicTripReader(ctx, TimeProvider.System).FeedAsync(late, null, 50, null, null, null, null, default);
             Assert.All(feed.Items.Where(i => i.TripId == post.TripId), i => Assert.True(i.RequestsFull));
         }
         await using (var ctx = CreateContext()) Assert.True((await Joins(ctx).DeclineAsync(host, first)).Ok); // host actions unaffected

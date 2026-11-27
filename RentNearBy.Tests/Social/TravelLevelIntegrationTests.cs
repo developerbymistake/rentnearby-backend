@@ -26,7 +26,7 @@ public class TravelLevelIntegrationTests(TestDatabase db) : IntegrationTestBase(
 
     private static PublicTripService Posts(ApplicationDbContext ctx) =>
         new(ctx, new UnitOfWork(ctx), new FakeCityCatalog(), SocialTestSeams.Limits(10, plus: true), new PublicTripReader(ctx, TimeProvider.System),
-            SocialTestSeams.AfterCommit(ctx), TimeProvider.System, NullLogger<PublicTripService>.Instance);
+            SocialTestSeams.AfterCommit(ctx), new NoticeWriter(ctx), TimeProvider.System, NullLogger<PublicTripService>.Instance);
 
     private static JoinRequestService Joins(ApplicationDbContext ctx, ISeekerLimits? limits = null)
     {
@@ -117,7 +117,7 @@ public class TravelLevelIntegrationTests(TestDatabase db) : IntegrationTestBase(
         Assert.Equal((int?)30, post.Owner.CompletedTrips);
         Assert.Equal((int?)3, post.Owner.Level);
 
-        var feed = await reader.FeedAsync(viewer, null, 50, null, null, null, default);
+        var feed = await reader.FeedAsync(viewer, null, 50, null, null, null, null, default);
         var item = feed.Items.Single(i => i.TripId == tripId);
         Assert.Equal((int?)30, item.Owner.CompletedTrips);
         Assert.Equal((int?)3, item.Owner.Level);
@@ -126,7 +126,7 @@ public class TravelLevelIntegrationTests(TestDatabase db) : IntegrationTestBase(
         var card = rail.Items.FirstOrDefault(i => i.TripId == tripId);
         if (card != null) Assert.Equal((int?)3, card.Owner.Level);
 
-        var mine = (await reader.FeedAsync(owner, null, 50, null, null, null, default)).Mine.Single(i => i.TripId == tripId);
+        var mine = (await reader.FeedAsync(owner, null, 50, null, null, null, null, default)).Mine.Single(i => i.TripId == tripId);
         Assert.Equal((int?)3, mine.Owner.Level);
     }
 

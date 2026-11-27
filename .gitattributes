@@ -1,0 +1,2 @@
+# The quotation terms text is hashed byte for byte (server constant + app asset): never convert line endings.
+RentNearBy.Tests/Stays/Quotation/Fixtures/quote_terms_v1.txt text eol=lf

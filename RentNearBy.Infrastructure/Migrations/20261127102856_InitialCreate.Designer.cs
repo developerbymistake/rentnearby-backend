@@ -13,23 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-<<<<<<<< HEAD:RentNearBy.Infrastructure/Migrations/20261127071219_InitialCreate.Designer.cs
-<<<<<<<< HEAD:RentNearBy.Infrastructure/Migrations/20261127071219_InitialCreate.Designer.cs
-<<<<<<<< HEAD:RentNearBy.Infrastructure/Migrations/20261127071219_InitialCreate.Designer.cs
-<<<<<<<< HEAD:RentNearBy.Infrastructure/Migrations/20261127071219_InitialCreate.Designer.cs
-    [Migration("20261127071219_InitialCreate")]
-========
-    [Migration("20261127070600_InitialCreate")]
->>>>>>>> feature/stay-enquiry-ring:RentNearBy.Infrastructure/Migrations/20261127070600_InitialCreate.Designer.cs
-========
-    [Migration("20261127092420_InitialCreate")]
->>>>>>>> feature/social-next:RentNearBy.Infrastructure/Migrations/20261127092420_InitialCreate.Designer.cs
-========
-    [Migration("20261127095608_InitialCreate")]
->>>>>>>> feature/trip-compaction:RentNearBy.Infrastructure/Migrations/20261127095608_InitialCreate.Designer.cs
-========
-    [Migration("20261127091931_InitialCreate")]
->>>>>>>> feature/stay-quotation:RentNearBy.Infrastructure/Migrations/20261127091931_InitialCreate.Designer.cs
+    [Migration("20261127102856_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
