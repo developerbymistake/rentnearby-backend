@@ -299,17 +299,16 @@ app.MapGet("/delete-account", () => Results.Content("""
 <div class="card">
 <strong>Steps to delete your account in the app:</strong><br><br>
 <div class="step"><div class="num">1</div><span>Open the Bakhli app and sign in</span></div>
-<div class="step"><div class="num">2</div><span>If you have an active subscription, cancel it in Google Play first, and close any open bookings, enquiries or shared-trip settlements</span></div>
-<div class="step"><div class="num">3</div><span>Travellers: go to <strong>Settings</strong>. Stay Owners and Taxi Drivers: go to <strong>Profile</strong> (bottom navigation)</span></div>
-<div class="step"><div class="num">4</div><span>Scroll down and tap <strong>"Delete Account"</strong></span></div>
-<div class="step"><div class="num">5</div><span>Type <strong>DELETE</strong> to confirm</span></div>
-<div class="step"><div class="num">6</div><span>Tap <strong>Delete Account</strong> to submit your request</span></div>
+<div class="step"><div class="num">2</div><span>Go to <strong>Profile</strong> (bottom navigation)</span></div>
+<div class="step"><div class="num">3</div><span>Scroll down and tap <strong>"Delete Account"</strong></span></div>
+<div class="step"><div class="num">4</div><span>Type <strong>DELETE</strong> to confirm</span></div>
+<div class="step"><div class="num">5</div><span>Tap <strong>Delete Account</strong> to submit your request</span></div>
 </div>
 <div class="warn">
 <strong>Please note:</strong> Account deletion may not be reversible. We process deletion requests in line with our Privacy Policy and applicable law. We may delete, anonymise or retain certain information, for example where required by law or to prevent fraud, resolve disputes and keep records. Messages, enquiries and reports shared with other users may remain available to them.
 </div>
 <div class="warn">
-<strong>Subscriptions:</strong> An active subscription must be cancelled in Google Play before you can delete your account. Subscriptions are managed in Google Play (Play Store &gt; Payments and subscriptions &gt; Subscriptions). Deleting your account does not entitle you to a refund of any payment already made.
+<strong>Subscriptions:</strong> Subscriptions are managed in Google Play (Play Store &gt; Payments and subscriptions &gt; Subscriptions). Deleting your account does not entitle you to a refund of any payment already made.
 </div>
 <p>If you are unable to access the app, contact us at <a href="mailto:supportbakhli@gmail.com">supportbakhli@gmail.com</a> with subject <em>"Account Deletion Request"</em>.</p>
 <p><a href="https://developerbymistake.github.io/bakhli-privacy-policy/">Privacy Policy</a></p>
