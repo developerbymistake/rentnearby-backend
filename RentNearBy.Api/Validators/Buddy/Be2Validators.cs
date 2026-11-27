@@ -12,9 +12,9 @@ public class TripInviteRequestValidator : AbstractValidator<TripInviteRequest>
         RuleFor(x => x.ClientRequestId).NotEmpty().WithErrorCode(BuddyErrorTypes.BadRequest).WithMessage("clientRequestId is required");
         RuleFor(x => x.UserIds).NotNull().WithErrorCode(BuddyErrorTypes.BadRequest)
             .Must(ids => ids is { Count: >= 1 and <= BuddyLimits.InviteIdsMax }).WithErrorCode(BuddyErrorTypes.BadRequest)
-            .WithMessage($"Pick 1 to {BuddyLimits.InviteIdsMax} buddies")
+            .WithMessage($"Pick 1 to {BuddyLimits.InviteIdsMax} people")
             .Must(ids => ids == null || ids.Distinct().Count() == ids.Count).WithErrorCode(BuddyErrorTypes.BadRequest)
-            .WithMessage("Each buddy once")
+            .WithMessage("Each person once")
             .Must(ids => ids == null || ids.All(id => id != Guid.Empty)).WithErrorCode(BuddyErrorTypes.BadRequest)
             .WithMessage("Invalid buddy id");
     }

@@ -456,40 +456,48 @@ public class TripRequestValidatorsTests
         var request = Save();
         request.Plan.Settings.Adults = 0;
 
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Adults must be 1 to 30");
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Add at least 1 adult");
     }
 
     [Fact]
-    public void Save_Adults30_Valid()
+    public void Save_KidsNegative_Invalid()
     {
         var request = Save();
-        request.Plan.Settings.Adults = 30;
+        request.Plan.Settings.Adults = 2;
+        request.Plan.Settings.Kids = -1;
 
-        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Kids cannot be below 0");
     }
 
-    [Fact]
-    public void Save_Adults31_Invalid()
-    {
-        var request = Save();
-        request.Plan.Settings.Adults = 31;
-
-        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Adults must be 1 to 30");
-    }
-
+    // I-7 (owner 2026-11-28): adults + kids together at most 12.
     [Theory]
-    [InlineData(-1, false)]
-    [InlineData(0, true)]
-    [InlineData(20, true)]
-    [InlineData(21, false)]
-    public void Save_Kids(int kids, bool valid)
+    [InlineData(12, 0, true)]
+    [InlineData(11, 1, true)]
+    [InlineData(1, 11, true)]
+    [InlineData(12, 1, false)]
+    [InlineData(13, 0, false)]
+    [InlineData(1, 12, false)]
+    [InlineData(int.MaxValue, int.MaxValue, false)]
+    public void Save_People_total(int adults, int kids, bool valid)
     {
         var request = Save();
+        request.Plan.Settings.Adults = adults;
         request.Plan.Settings.Kids = kids;
 
         var result = SaveValidator.Validate(request);
         Assert.Equal(valid, result.IsValid);
-        if (!valid) ValidationAssert.HasMessage(result, "Kids must be 0 to 20");
+        if (!valid) ValidationAssert.HasMessage(result, "Up to 12 people (adults and kids)");
+    }
+
+    [Fact]
+    public void Save_People_kids_only_counts_one_adult()
+    {
+        var request = Save();
+        request.Plan.Settings.Adults = null;
+        request.Plan.Settings.Kids = 11;
+        SaveValidator.TestValidate(request).ShouldNotHaveAnyValidationErrors();
+        request.Plan.Settings.Kids = 12;
+        ValidationAssert.HasMessage(SaveValidator.Validate(request), "Up to 12 people (adults and kids)");
     }
 
     [Theory]

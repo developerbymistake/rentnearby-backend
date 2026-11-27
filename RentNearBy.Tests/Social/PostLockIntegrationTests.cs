@@ -26,8 +26,8 @@ using static RentNearBy.Tests.Integration.Journeys.JourneyHarness;
 
 namespace RentNearBy.Tests.Social;
 
-// 72-hour post lock + "remove the others first" delete rule (owner 2026-11-27, Buddy_resume/post_notify/SPEC.md use cases 39-44)
-// end to end: the owner delete route (TripHandlers.Delete), the owner unpublish, edit, members, pending requests and exemptions.
+// Owner order 2026-11-28 (I-3): no post lock, and the "remove the others first" delete rule for EVERY trip end to end (over or
+// not): the owner delete route (TripHandlers.Delete), edit, members and pending requests.
 // Needs RENTNEARBY_TEST_DB (PostGIS); skipped without it.
 public class PostLockIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
 {
@@ -82,15 +82,6 @@ public class PostLockIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         return created.Value!.TripId;
     }
 
-    // Moves the lock start back (the feed time PublishedAt is never touched).
-    private async Task AgeLockAsync(Guid tripId, TimeSpan age)
-    {
-        await using var ctx = CreateContext();
-        await ctx.Trips.Where(t => t.Id == tripId).ExecuteUpdateAsync(s => s.SetProperty(t => t.LastPublishedAt, DateTime.UtcNow - age));
-    }
-
-    private Task PassLockAsync(Guid tripId) => AgeLockAsync(tripId, PostLockRules.Lock + TimeSpan.FromMinutes(1));
-
     private async Task<Guid> JoinedAsync(Guid owner, Guid tripId)
     {
         var member = await SeekerAsync();
@@ -133,42 +124,19 @@ public class PostLockIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
 
     private sealed record Trip0(bool IsPublic, DateTime? PublishedAt, DateTime? LastPublishedAt);
 
-    // ------------------------------------------------------------------ 39, 40, 41, 42
+    // ------------------------------------------------------------------ no lock (owner 2026-11-28, I-3)
 
     [IntegrationFact]
-    public async Task Delete_inside_72_hours_is_refused_with_unlocks_at_and_the_post_stays()
+    public async Task Delete_right_after_posting_works_when_the_host_is_alone()
     {
         var owner = await SeekerAsync();
         var trip = await PostAsync(owner);
-        var stored = await TripAsync(trip);
-        Assert.NotNull(stored.LastPublishedAt);
-
-        var (status, type, data) = Refusal(await DeleteAsync(trip, owner));
-        Assert.Equal((409, SocialErrorTypes.PostLocked), (status, type));
-        var unlocksAt = data.GetProperty("unlocksAt").GetDateTime().ToUniversalTime();
-        Assert.Equal(stored.LastPublishedAt!.Value.ToUniversalTime() + PostLockRules.Lock, unlocksAt, TimeSpan.FromSeconds(1));
-        Assert.True(await ExistsAsync(trip));
-        Assert.True((await TripAsync(trip)).IsPublic);
+        Assert.Equal(200, StatusOf(await DeleteAsync(trip, owner)));
+        Assert.False(await ExistsAsync(trip));
     }
 
     [IntegrationFact]
-    public async Task Make_private_inside_72_hours_is_refused_and_the_post_stays_public()
-    {
-        var owner = await SeekerAsync();
-        var trip = await PostAsync(owner);
-        await AgeLockAsync(trip, PostLockRules.Lock - TimeSpan.FromMinutes(1));   // 71:59 after posting: still locked
-        await using (var ctx = CreateContext())
-        {
-            var refused = await Posts(ctx).UnpublishAsync(owner, trip);
-            Assert.Equal(SocialErrorTypes.PostLocked, refused.ErrorType);
-            Assert.NotNull(JsonSerializer.SerializeToElement(refused.ErrorData, Web).GetProperty("unlocksAt").GetDateTime());
-            Assert.Equal(SocialErrorTypes.TripNotFound, (await Posts(ctx).UnpublishAsync(await SeekerAsync(), trip)).ErrorType); // not his
-        }
-        Assert.True((await TripAsync(trip)).IsPublic);
-    }
-
-    [IntegrationFact]
-    public async Task Edit_inside_72_hours_works_and_does_not_restart_the_lock()
+    public async Task Edit_right_after_posting_works_and_carries_no_unlock_time()
     {
         var owner = await SeekerAsync();
         var trip = await PostAsync(owner);
@@ -178,45 +146,15 @@ public class PostLockIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
             var edited = await Posts(ctx).PutPostAsync(owner, trip, Edit("New plan: lakes first, then the hills."));
             Assert.True(edited.Ok, edited.ErrorType);
             Assert.Equal(3, edited.Value!.Seats);
-            Assert.NotNull(edited.Value.UnlocksAt);                                       // the poster sees when it unlocks
+            Assert.Null(edited.Value.UnlocksAt);
         }
-        var after = await TripAsync(trip);
-        Assert.Equal(before.LastPublishedAt, after.LastPublishedAt);
-        Assert.Equal(before.PublishedAt, after.PublishedAt);
+        Assert.Equal(before.PublishedAt, (await TripAsync(trip)).PublishedAt);
     }
 
-    [IntegrationFact]
-    public async Task After_72_hours_make_private_and_delete_work()
-    {
-        var owner = await SeekerAsync();
-        var a = await PostAsync(owner);
-        await PassLockAsync(a);
-        Assert.Equal(200, StatusOf(await DeleteAsync(a, owner)));
-        Assert.False(await ExistsAsync(a));
-
-        var b = await PostAsync(owner);
-        await PassLockAsync(b);
-        await using (var ctx = CreateContext()) Assert.True((await Posts(ctx).UnpublishAsync(owner, b)).Ok);
-        Assert.False((await TripAsync(b)).IsPublic);
-    }
+    // ------------------------------------------------------------------ remove the others first (every trip)
 
     [IntegrationFact]
-    public async Task A_re_publish_starts_a_new_72_hour_window()
-    {
-        var owner = await SeekerAsync();
-        var trip = await PostAsync(owner);
-        await PassLockAsync(trip);
-        await using (var ctx = CreateContext()) Assert.True((await Posts(ctx).UnpublishAsync(owner, trip)).Ok);
-        await using (var ctx = CreateContext()) Assert.True((await Posts(ctx).PutPostAsync(owner, trip, Edit())).Ok);   // publish again
-        await using (var ctx = CreateContext())
-            Assert.Equal(SocialErrorTypes.PostLocked, (await Posts(ctx).UnpublishAsync(owner, trip)).ErrorType);
-        Assert.Equal(SocialErrorTypes.PostLocked, Refusal(await DeleteAsync(trip, owner)).Type);
-    }
-
-    // ------------------------------------------------------------------ 43
-
-    [IntegrationFact]
-    public async Task Delete_needs_the_host_alone_and_removing_or_leaving_during_the_lock_works()
+    public async Task Delete_of_a_post_needs_the_host_alone_and_removing_or_leaving_works()
     {
         var owner = await SeekerAsync();
         var trip = await PostAsync(owner);
@@ -224,11 +162,9 @@ public class PostLockIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         var removed = await JoinedAsync(owner, trip);
         var leaver = await JoinedAsync(owner, trip);
 
-        // During the lock: the host removes one, another leaves on his own.
         await using (var ctx = CreateContext()) Assert.True((await Members(ctx).RemoveAsync(trip, owner, removed)).Ok);
         await using (var ctx = CreateContext()) Assert.True((await Members(ctx).LeaveAsync(trip, leaver)).Ok);
 
-        await PassLockAsync(trip);
         var (status, type, data) = Refusal(await DeleteAsync(trip, owner));
         Assert.Equal((409, SocialErrorTypes.RemoveMembersFirst), (status, type));
         Assert.Equal(1, data.GetProperty("count").GetInt32());
@@ -240,17 +176,23 @@ public class PostLockIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
     }
 
     [IntegrationFact]
-    public async Task Make_private_then_delete_cannot_get_round_the_alone_rule()
+    public async Task A_normal_trip_with_joined_buddies_needs_them_removed_first_too()
     {
         var owner = await SeekerAsync();
-        var trip = await PostAsync(owner);
-        await JoinedAsync(owner, trip);
-        await PassLockAsync(trip);
-        await using (var ctx = CreateContext()) Assert.True((await Posts(ctx).UnpublishAsync(owner, trip)).Ok);   // members stay
-        var (status, type, data) = Refusal(await DeleteAsync(trip, owner));
+        var buddy = await SeekerAsync();
+        Guid plain;
+        await using (var ctx = CreateContext())
+        {
+            plain = await BuddySeed.TripAsync(ctx, owner, title: "Own plan");
+            await BuddySeed.MembersAsync(ctx, plain, owner, [buddy]);
+        }
+        var (status, type, data) = Refusal(await DeleteAsync(plain, owner));
         Assert.Equal((409, SocialErrorTypes.RemoveMembersFirst, 1), (status, type, data.GetProperty("count").GetInt32()));
-        await using var check = CreateContext();
-        Assert.Equal(1, await check.Set<TripMember>().CountAsync(m => m.TripId == trip && m.Status == TripMemberStatuses.Joined));
+        Assert.True(await ExistsAsync(plain));
+
+        await using (var ctx = CreateContext()) Assert.True((await Members(ctx).LeaveAsync(plain, buddy)).Ok);
+        Assert.Equal(200, StatusOf(await DeleteAsync(plain, owner)));
+        Assert.False(await ExistsAsync(plain));
     }
 
     [IntegrationFact]
@@ -261,8 +203,7 @@ public class PostLockIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         var trip = await PostAsync(owner);
         await using (var ctx = CreateContext())
             Assert.True((await Joins(ctx).SendAsync(asker, trip, new SendJoinRequest { ClientRequestId = Guid.NewGuid() })).Ok);
-        await PassLockAsync(trip);                       // a waiting requester is not a member: the host is alone
-        Assert.Equal(200, StatusOf(await DeleteAsync(trip, owner)));
+        Assert.Equal(200, StatusOf(await DeleteAsync(trip, owner)));    // a waiting requester is not a member: the host is alone
 
         await using var check = CreateContext();
         Assert.False(await check.Set<TripJoinRequest>().AnyAsync(r => r.TripId == trip));
@@ -270,59 +211,47 @@ public class PostLockIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.Equal(owner, notice.ActorUserId);
     }
 
-    // ------------------------------------------------------------------ 44 exemptions
+    // ------------------------------------------------------------------ no exemption: the trip is over
 
     [IntegrationFact]
-    public async Task A_trip_that_is_over_is_deleted_with_members_once_the_72_hours_passed()
+    public async Task A_trip_that_is_over_still_needs_its_members_removed_first()
     {
         var owner = await SeekerAsync();
         var trip = await PostAsync(owner);
-        await JoinedAsync(owner, trip);
-        // Completing an undated post does not end it (the owner could do that at any time): still locked.
+        var member = await JoinedAsync(owner, trip);
+        // Completing an undated post does not end it (the owner could do that at any time).
         await using (var ctx = CreateContext())
             await ctx.Trips.Where(t => t.Id == trip).ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TripStatuses.Completed));
-        Assert.Equal(SocialErrorTypes.PostLocked, Refusal(await DeleteAsync(trip, owner)).Type);
-        // The last day passed. Safety review 2: the dates are owner-editable, so inside the 72 hours this is still PostLocked
-        // (post -> move the dates into the past -> delete at once is refused) ...
+        Assert.Equal(SocialErrorTypes.RemoveMembersFirst, Refusal(await DeleteAsync(trip, owner)).Type);
+        // The last day passed: the trip is over, and still refused while a member is inside.
         var today = IstTime.TodayIst(DateTime.UtcNow);
         await using (var ctx = CreateContext())
             await ctx.Trips.Where(t => t.Id == trip).ExecuteUpdateAsync(s => s
                 .SetProperty(t => t.StartDate, today.AddDays(-3)).SetProperty(t => t.EndDate, today.AddDays(-1)));
-        Assert.Equal(SocialErrorTypes.PostLocked, Refusal(await DeleteAsync(trip, owner)).Type);
-        Assert.True(await ExistsAsync(trip));
-        // ... and once the 72 hours passed an over trip is deleted with a member still inside (no RemoveMembersFirst).
-        await PassLockAsync(trip);
+        Assert.Equal(SocialErrorTypes.RemoveMembersFirst, Refusal(await DeleteAsync(trip, owner)).Type);
+        await using (var ctx = CreateContext()) Assert.True((await Members(ctx).LeaveAsync(trip, member)).Ok);
         Assert.Equal(200, StatusOf(await DeleteAsync(trip, owner)));
         Assert.False(await ExistsAsync(trip));
     }
 
     [IntegrationFact]
-    public async Task Admin_removal_inside_the_lock_works_and_a_never_published_trip_is_never_locked()
+    public async Task Admin_removal_works_at_once()
     {
         var owner = await SeekerAsync();
         var trip = await PostAsync(owner);
         await using (var ctx = CreateContext()) Assert.True((await Posts(ctx).UnpublishAsync(null, trip)).Ok);
         Assert.False((await TripAsync(trip)).IsPublic);
-
-        Guid plain;
-        await using (var ctx = CreateContext()) plain = await BuddySeed.TripAsync(ctx, owner, title: "Own plan");
-        Assert.Equal(200, StatusOf(await DeleteAsync(plain, owner)));
     }
 
-    // ------------------------------------------------------------------ owner read fields
-
     [IntegrationFact]
-    public async Task Only_the_owner_reads_when_the_post_unlocks()
+    public async Task No_reader_gets_an_unlock_time()
     {
         var owner = await SeekerAsync();
         var viewer = await SeekerAsync();
         var trip = await PostAsync(owner);
         await using var ctx = CreateContext();
         var reader = new PublicTripReader(ctx, TimeProvider.System);
-        Assert.NotNull((await reader.ByIdAsync(owner, trip, default))!.UnlocksAt);
-        Assert.Null((await reader.ByIdAsync(viewer, trip, default))!.UnlocksAt);
-        await ctx.Trips.Where(t => t.Id == trip)
-            .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastPublishedAt, DateTime.UtcNow - PostLockRules.Lock - TimeSpan.FromMinutes(1)));
         Assert.Null((await reader.ByIdAsync(owner, trip, default))!.UnlocksAt);
+        Assert.Null((await reader.ByIdAsync(viewer, trip, default))!.UnlocksAt);
     }
 }

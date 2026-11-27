@@ -6,7 +6,8 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Api.Filters;
 
-// PLAN_STATES_SOCIAL 3: a trip kept inactive after Plus ended is read-only on every /trips route (owner and travellers alike).
+// PLAN_STATES_SOCIAL 3: a trip kept inactive after Plus ended, or a post paused by the plan (PausedByPlan, owner 2026-11-28), is
+// read-only on every /trips route (owner and travellers alike); a resubscribe brings both back.
 // Reads, delete, leave, member removal and the money settling pass (SeekerPlanStates.WriteAllowed); any other write answers
 // 409 TripInactiveByPlan {limit}. One primary-key read, only for writes that name a trip id.
 // Its services are resolved only for a write that names a trip id, so reads never touch the database.
@@ -25,7 +26,7 @@ public class TripPlanPauseFilter : IEndpointFilter
 
         var db = http.RequestServices.GetRequiredService<ApplicationDbContext>();
         var owner = await db.Trips.AsNoTracking()
-            .Where(t => t.Id == id && t.InactiveByPlan)
+            .Where(t => t.Id == id && (t.InactiveByPlan || t.PausedByPlan))
             .Select(t => (Guid?)t.OwnerUserId)
             .FirstOrDefaultAsync(http.RequestAborted);
         if (owner is not { } ownerId) return await next(context);

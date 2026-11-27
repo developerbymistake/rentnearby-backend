@@ -110,7 +110,7 @@ public sealed class TripSharingHooks(
         var viewers = await ReadViewersAsync(tripId, ownerId, ct);
         await notices.DeleteForTripAsync(tripId, KeepOnDelete, ct);
         _requestersOfDeleted = await db.Database.SqlQueryRaw<Guid>(JoinRequestsGoneSql, Id("trip", tripId)).ToListAsync(ct);
-        // 72-hour post lock rule (owner 2026-11-27): waiting join requests end as declined, with the same calm bell row as a
+        // Owner 2026-11-27: waiting join requests end as declined, with the same calm bell row as a
         // host decline (no push), so the requester sees an answer instead of a request that vanished. The rows go with the trip.
         if (_requestersOfDeleted.Count > 0)
             await notices.UpsertAsync(_requestersOfDeleted.Select(r => new NoticeUpsert(r, NoticeKinds.JoinDeclined, tripId, ownerId)).ToList(), ct);

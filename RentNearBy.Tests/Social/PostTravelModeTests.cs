@@ -15,14 +15,14 @@ public class PostTravelModeTests
 
     [Fact]
     public void Known_modes_are_the_four_options()
-        => Assert.Equal(new[] { "public", "bike", "car", "taxi" }, PostTravelModes.All);
+        => Assert.Equal(new[] { "taxi", "bike", "bus", "train" }, PostTravelModes.All);
 
     [Theory]
     [InlineData(null)]
-    [InlineData("public")]
-    [InlineData("bike")]
-    [InlineData("car")]
     [InlineData("taxi")]
+    [InlineData("bike")]
+    [InlineData("bus")]
+    [InlineData("train")]
     public void Not_set_or_a_known_mode_passes(string? mode)
         => Assert.Null(PublicTripService.FieldError(Fields(mode), Today));
 
@@ -31,7 +31,9 @@ public class PostTravelModeTests
     [InlineData(" ")]
     [InlineData("plane")]
     [InlineData("Bike")]
-    [InlineData("public,bike")]
+    [InlineData("public")]
+    [InlineData("car")]
+    [InlineData("bike,bus")]
     [InlineData("any")]
     public void Unknown_mode_is_refused_on_the_travel_mode_field(string mode)
         => Assert.Equal("travelMode", PublicTripService.FieldError(Fields(mode), Today));
@@ -43,10 +45,12 @@ public class PostTravelModeTests
     [Theory]
     [InlineData(null, true, null)]
     [InlineData("any", true, null)]
-    [InlineData("public", true, "public")]
-    [InlineData("bike", true, "bike")]
-    [InlineData("car", true, "car")]
     [InlineData("taxi", true, "taxi")]
+    [InlineData("bike", true, "bike")]
+    [InlineData("bus", true, "bus")]
+    [InlineData("train", true, "train")]
+    [InlineData("public", false, null)]
+    [InlineData("car", false, null)]
     [InlineData("plane", false, null)]
     [InlineData("Taxi", false, null)]
     [InlineData("", false, null)]
@@ -78,10 +82,10 @@ public class PostTravelModeTests
         var row = new PublicTripReader.Row
         {
             TripId = Guid.NewGuid(), OwnerUserId = Guid.NewGuid(), OwnerName = "Riya Sharma", PostText = "Easy treks.", PostDays = 3, Seats = 2,
-            PublishedAt = now.AddDays(-1), PostWindowMonths = 2, CityNames = ["Manali"], IsPublic = true, Live = true, TravelMode = PostTravelModes.Car,
+            PublishedAt = now.AddDays(-1), PostWindowMonths = 2, CityNames = ["Manali"], IsPublic = true, Live = true, TravelMode = PostTravelModes.Train,
         };
         var me = Guid.NewGuid();
-        Assert.Equal(PostTravelModes.Car, PublicTripReader.ToDto(row, me, now, null, SocialGenders.Male).TravelMode);
+        Assert.Equal(PostTravelModes.Train, PublicTripReader.ToDto(row, me, now, null, SocialGenders.Male).TravelMode);
         row.TravelMode = null;
         Assert.Null(PublicTripReader.ToDto(row, me, now, null, SocialGenders.Male).TravelMode);
     }

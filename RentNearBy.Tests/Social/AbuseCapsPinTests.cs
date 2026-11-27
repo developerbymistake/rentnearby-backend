@@ -13,9 +13,8 @@ public class AbuseCapsPinTests
     public void All_caps_are_named_in_SocialLimits()
     {
         Assert.Equal(
-            (2, 1, 4, 50, 72, 50),
-            (SocialLimits.NotifiedPostsPerWeek, SocialLimits.NotifiedPostsFirstDay, SocialLimits.PublishesPerWeek, SocialLimits.PendingRequestsMax,
-                SocialLimits.PostLockHours, SocialLimits.FollowsPerDay));
+            (4, 50, 50),
+            (SocialLimits.PublishesPerWeek, SocialLimits.PendingRequestsMax, SocialLimits.FollowsPerDay));
     }
 
     [Fact]
@@ -52,11 +51,12 @@ public class AbuseCapsPinTests
     }
 
     [Fact]
-    public void Publish_and_notify_history_lives_on_the_profile_so_a_deleted_post_never_refunds()
+    public void Publish_history_lives_on_the_profile_so_a_deleted_post_never_refunds()
     {
         var notifier = Src("RentNearBy.Infrastructure", "Services", "Social", "PostNotifier.cs");
         Assert.Contains("PublishTimes", notifier);
-        Assert.Contains("NotifiedPostTimes", notifier);
+        // I-2 (owner 2026-11-28): no weekly notified-post cap any more.
+        Assert.DoesNotContain("NotifiedPostTimes", notifier);
         Assert.DoesNotContain("FROM \"Trips\" t WHERE t.\"OwnerUserId\" = @me AND t.\"PublishedAt\" >", notifier);
     }
 }

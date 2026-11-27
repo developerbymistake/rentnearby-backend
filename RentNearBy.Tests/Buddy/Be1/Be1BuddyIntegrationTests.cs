@@ -112,6 +112,26 @@ public class Be1BuddyIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.Equal(BuddyRelations.Self, (await find.FindAsync(p[0], await UsernameAsync(p[0]))).Person!.Relation);
     }
 
+    // I-12 (owner 2026-11-28): the People search shows a Follow action, so find tells whether the caller follows the person.
+    [IntegrationFact]
+    public async Task Find_tells_the_follow_state()
+    {
+        var p = await PeopleAsync(3);
+        await using (var ctx = CreateContext())
+        {
+            ctx.Set<RentNearBy.Core.Entities.Social.Follow>().AddRange(
+                new RentNearBy.Core.Entities.Social.Follow { FollowerId = p[0], FolloweeId = p[1], Status = "A", CreatedAt = DateTime.UtcNow },
+                new RentNearBy.Core.Entities.Social.Follow { FollowerId = p[0], FolloweeId = p[2], Status = "R", CreatedAt = DateTime.UtcNow },
+                new RentNearBy.Core.Entities.Social.Follow { FollowerId = p[2], FolloweeId = p[0], Status = "A", CreatedAt = DateTime.UtcNow });
+            await ctx.SaveChangesAsync();
+        }
+        await using var c = CreateContext();
+        var find = new Be1Kit(c).Find;
+        Assert.Equal("following", (await find.FindAsync(p[0], await UsernameAsync(p[1]))).Person!.FollowState);
+        Assert.Equal("requested", (await find.FindAsync(p[0], await UsernameAsync(p[2]))).Person!.FollowState);
+        Assert.Equal("none", (await find.FindAsync(p[1], await UsernameAsync(p[0]))).Person!.FollowState);
+    }
+
     // ---------- B2 ----------
 
     [IntegrationFact]

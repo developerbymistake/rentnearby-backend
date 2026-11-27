@@ -1788,7 +1788,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.CheckConstraint("ck_trips_citykey_positive", "\"CityKey\" > 0");
                     table.CheckConstraint("ck_trips_joingender", "\"JoinGender\" IN ('A', 'M', 'F')");
                     table.CheckConstraint("ck_trips_postdays", "\"PostDays\" IS NULL OR \"PostDays\" BETWEEN 1 AND 11");
-                    table.CheckConstraint("ck_trips_posttravelmode", "\"PostTravelMode\" IS NULL OR \"PostTravelMode\" IN ('public', 'bike', 'car', 'taxi')");
+                    table.CheckConstraint("ck_trips_posttravelmode", "\"PostTravelMode\" IS NULL OR \"PostTravelMode\" IN ('taxi', 'bike', 'bus', 'train')");
                     table.CheckConstraint("ck_trips_postwindow", "\"PostWindowMonths\" IS NULL OR \"PostWindowMonths\" BETWEEN 1 AND 6");
                     table.CheckConstraint("ck_trips_public_fields", "NOT \"IsPublic\" OR (\"PublishedAt\" IS NOT NULL AND \"Seats\" IS NOT NULL AND \"PostDays\" IS NOT NULL)");
                     table.CheckConstraint("ck_trips_seats", "\"Seats\" IS NULL OR \"Seats\" BETWEEN 1 AND 11");
@@ -2713,6 +2713,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     ListBucket = table.Column<string>(type: "char(1)", nullable: false),
                     ClearedUpToSeq = table.Column<long>(type: "bigint", nullable: false, defaultValue: 0L),
                     JoinedSeq = table.Column<long>(type: "bigint", nullable: false, defaultValue: 0L),
+                    SentCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     LeftAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     SortAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
                 },
@@ -2720,6 +2721,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_ChatRoomMembers", x => new { x.RoomId, x.UserId });
                     table.CheckConstraint("ck_chatmembers_bucket", "\"ListBucket\" IN ('P', 'T', 'R', 'X')");
+                    table.CheckConstraint("ck_chatmembers_sent", "\"SentCount\" >= 0");
                     table.CheckConstraint("ck_chatmembers_unread", "\"UnreadCount\" >= 0");
                     table.ForeignKey(
                         name: "FK_ChatRoomMembers_ChatRooms_RoomId",

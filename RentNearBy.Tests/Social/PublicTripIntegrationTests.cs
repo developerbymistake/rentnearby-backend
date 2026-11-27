@@ -30,7 +30,7 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
 
     private static CreatePublicTripRequest Post(string joinGender = JoinGenders.Anyone, string? travelMode = null) => new()
     {
-        ClientTripId = Guid.NewGuid(), CityKeys = [FakeCityCatalog.Nainital, FakeCityCatalog.Almora], WhenKind = SocialRules.WhenKindWithin,
+        ClientTripId = Guid.NewGuid(), CityKeys = [FakeCityCatalog.Nainital], WhenKind = SocialRules.WhenKindWithin,
         WithinMonths = 2, Days = 4, JoinGender = joinGender, Seats = 2, Text = "Looking for two easy-going trekkers. Call 9876543210",
         TravelMode = travelMode,
     };
@@ -62,7 +62,7 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
             Assert.True(created.Ok, created.ErrorType);
             tripId = created.Value!.TripId;
             Assert.DoesNotContain("9876543210", created.Value.Text);
-            Assert.Equal(["Nainital", "Almora"], created.Value.CityNames);
+            Assert.Equal(["Nainital"], created.Value.CityNames);
         }
 
         await using var h = new JourneyHarness(Db);
@@ -89,6 +89,38 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         Assert.True((await posts.CreateAsync(owner, Post())).Ok);
         var second = await posts.CreateAsync(owner, Post());
         Assert.Equal(SocialErrorTypes.PublicTripLimit, second.ErrorType);
+    }
+
+    // I-3 (owner 2026-11-28): a post never checks the Active trips slot (limit 0 here); only the live posts cap.
+    [IntegrationFact]
+    public async Task Post_ignores_the_active_trips_slot()
+    {
+        var owner = await SeekerAsync(SocialGenders.Male);
+        await using var ctx = CreateContext();
+        var posts = Posts(ctx, SocialTestSeams.Limits(0));
+        var created = await posts.CreateAsync(owner, Post());
+        Assert.True(created.Ok, created.ErrorType);
+        Assert.Equal(SocialErrorTypes.PublicTripLimit, (await posts.CreateAsync(owner, Post())).ErrorType);
+    }
+
+    // I-6 (owner 2026-11-28): a new post has exactly one city and lasts at most 4 days.
+    [IntegrationFact]
+    public async Task New_post_takes_one_city_and_up_to_four_days()
+    {
+        var owner = await SeekerAsync(SocialGenders.Male);
+        await using var ctx = CreateContext();
+        var posts = Posts(ctx, SocialTestSeams.Limits(10, plus: true));
+        var twoCities = Post();
+        twoCities.CityKeys = [FakeCityCatalog.Nainital, FakeCityCatalog.Almora];
+        Assert.Equal(SocialErrorTypes.InvalidCities, (await posts.CreateAsync(owner, twoCities)).ErrorType);
+        var fiveDays = Post();
+        fiveDays.Days = 5;
+        var refused = await posts.CreateAsync(owner, fiveDays);
+        Assert.Equal(SocialErrorTypes.InvalidPost, refused.ErrorType);
+        Assert.Equal("days", Field(refused.ErrorData));
+        var fourDays = Post();
+        fourDays.Days = 4;
+        Assert.True((await posts.CreateAsync(owner, fourDays)).Ok);
     }
 
     [IntegrationFact]
@@ -208,20 +240,20 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         var owner = await SeekerAsync(SocialGenders.Female);
         await using var ctx = CreateContext();
         var posts = Posts(ctx, SocialTestSeams.Limits(10, plus: true));
-        foreach (var bad in new[] { "plane", "", "Bike", "bike,car" })
+        foreach (var bad in new[] { "plane", "", "Bike", "bike,bus", "car", "public" })
         {
             var refused = await posts.CreateAsync(owner, Post(travelMode: bad));
             Assert.Equal(SocialErrorTypes.InvalidPost, refused.ErrorType);
             Assert.Equal("travelMode", Field(refused.ErrorData));
         }
-        var created = await posts.CreateAsync(owner, Post(travelMode: PostTravelModes.Car));
+        var created = await posts.CreateAsync(owner, Post(travelMode: PostTravelModes.Train));
         Assert.True(created.Ok, created.ErrorType);
         var tripId = created.Value!.TripId;
         var edit = await posts.PutPostAsync(owner, tripId, Edit("rocket"));
         Assert.Equal(SocialErrorTypes.InvalidPost, edit.ErrorType);
         Assert.Equal("travelMode", Field(edit.ErrorData));
         await using var check = CreateContext();
-        Assert.Equal(PostTravelModes.Car, await check.Trips.AsNoTracking().Where(t => t.Id == tripId).Select(t => t.PostTravelMode).SingleAsync());
+        Assert.Equal(PostTravelModes.Train, await check.Trips.AsNoTracking().Where(t => t.Id == tripId).Select(t => t.PostTravelMode).SingleAsync());
     }
 
     // T5: the owner changes the mode later; PUT replaces the stored value (null = not set again).
@@ -231,7 +263,7 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         var owner = await SeekerAsync(SocialGenders.Male);
         await using var ctx = CreateContext();
         var posts = Posts(ctx, SocialTestSeams.Limits(10, plus: true));
-        var created = await posts.CreateAsync(owner, Post(travelMode: PostTravelModes.Public));
+        var created = await posts.CreateAsync(owner, Post(travelMode: PostTravelModes.Bus));
         Assert.True(created.Ok, created.ErrorType);
         var tripId = created.Value!.TripId;
         var taxi = await posts.PutPostAsync(owner, tripId, Edit(PostTravelModes.Taxi));
@@ -260,8 +292,8 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         var bikes = (await reader.FeedAsync(viewer, null, 20, null, null, null, PostTravelModes.Bike, default)).Items;
         Assert.Contains(bikes, p => p.TripId == bike);
         Assert.DoesNotContain(bikes, p => p.TripId == plain);
-        var cars = (await reader.FeedAsync(viewer, null, 20, null, null, null, PostTravelModes.Car, default)).Items;
-        Assert.DoesNotContain(cars, p => p.TripId == bike || p.TripId == plain);
+        var trains = (await reader.FeedAsync(viewer, null, 20, null, null, null, PostTravelModes.Train, default)).Items;
+        Assert.DoesNotContain(trains, p => p.TripId == bike || p.TripId == plain);
         var any = (await reader.FeedAsync(viewer, null, 20, null, null, null, null, default)).Items;
         Assert.Contains(any, p => p.TripId == bike);
         Assert.Contains(any, p => p.TripId == plain);
@@ -282,9 +314,7 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
                 new RecordingLiveHints(), SocialTestSeams.GroupChat(ctx, ac), new PublicTripReader(ctx, TimeProvider.System), ac, TimeProvider.System,
                 NullLogger<JoinRequestService>.Instance);
             Assert.True((await joins.SendAsync(asker, tripId, new SendJoinRequest { ClientRequestId = Guid.NewGuid() })).Ok);
-            // The 72-hour post lock (PostLockRules) is over: age the lock, then the owner makes the post private.
-            await ctx.Trips.Where(t => t.Id == tripId)
-                .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastPublishedAt, DateTime.UtcNow - PostLockRules.Lock - TimeSpan.FromMinutes(1)));
+            // No post lock any more (owner 2026-11-28, I-3): the owner makes the post private at once.
             Assert.True((await Posts(ctx, SocialTestSeams.Limits(10)).UnpublishAsync(owner, tripId)).Ok);
         }
         await using var check = CreateContext();

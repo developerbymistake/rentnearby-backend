@@ -117,7 +117,7 @@ public static class SocialRules
         return clean.All(catalog.Contains) ? clean : null;
     }
 
-    // Places: 1..20 items, each 2..40 characters, no 7+ digit run, never masked (a masked place is refused).
+    // Places: 1..3 items, each 2..40 characters, no 7+ digit run, never masked (a masked place is refused).
     // null = invalid shape; TextNotAllowed is told apart by the caller through PlaceHasContact.
     public static string[]? Places(IReadOnlyList<string>? values)
     {

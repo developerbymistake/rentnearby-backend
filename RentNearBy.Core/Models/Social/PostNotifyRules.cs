@@ -8,10 +8,6 @@ public static class PostNotifyRules
     // written at publish and the push joins the next 07:00 IST digest. One flag, no other code change.
     public static readonly bool FollowersImmediate = true;
 
-    // A post that pushed anyone (followers and/or the nearby toggle) is a "notified post": at most 2 per rolling 7 days, 1 while
-    // the account is younger than 24 hours. Later posts in the window publish silently. Deleting a post never refunds.
-    public const int NotifiedPostsPerWeek = SocialLimits.NotifiedPostsPerWeek;
-    public const int NotifiedPostsFirstDay = SocialLimits.NotifiedPostsFirstDay;
 
     // First publish or re-publish of a post: at most 4 per rolling 7 days per user (any plan); never refunded.
     public const int PublishesPerWeek = SocialLimits.PublishesPerWeek;
@@ -26,7 +22,6 @@ public static class PostNotifyRules
     public const int PushBatch = 1000;
 
     public static readonly TimeSpan Window = TimeSpan.FromDays(7);
-    public static readonly TimeSpan NewAccount = TimeSpan.FromHours(24);
     public static readonly TimeSpan BumpAfter = TimeSpan.FromDays(7);
     public static readonly TimeSpan AreaStaleAfter = TimeSpan.FromDays(30);
     public static readonly TimeSpan AreaRefreshAfter = TimeSpan.FromHours(6);
@@ -36,9 +31,6 @@ public static class PostNotifyRules
     public static readonly TimeOnly DigestAtIst = new(7, 0);
     public static readonly TimeOnly DigestLastIst = new(21, 0);
 
-    // The notified-post limit of this account now.
-    public static int NotifyLimit(DateTime accountCreatedUtc, DateTime nowUtc)
-        => nowUtc - accountCreatedUtc < NewAccount ? NotifiedPostsFirstDay : NotifiedPostsPerWeek;
 
     // The times still inside the rolling window, oldest first.
     public static DateTime[] InWindow(IEnumerable<DateTime>? times, DateTime nowUtc)
@@ -59,13 +51,13 @@ public static class PostNotifyRules
     public static bool StartsSoonEnough(DateOnly? startDate, DateOnly todayIst)
         => startDate is not { } d || d <= todayIst.AddDays(NearbyStartWithinDays);
 
-    // The answer to the poster's "Notify travellers near me" toggle at the publish that notifies.
-    public static string NearbyState(bool requested, bool canNotify, bool posterPrivate, DateOnly? startDate, DateOnly todayIst)
+    // The answer to the poster's "Notify travellers near me" toggle at the publish that notifies (no weekly cap, owner 2026-11-28).
+    public static string NearbyState(bool requested, bool posterPrivate, DateOnly? startDate, DateOnly todayIst)
     {
         if (!requested) return PostNotifyStates.Off;
         if (posterPrivate) return PostNotifyStates.Private;
         if (!StartsSoonEnough(startDate, todayIst)) return PostNotifyStates.TooFar;
-        return canNotify ? PostNotifyStates.Queued : PostNotifyStates.WeekLimit;
+        return PostNotifyStates.Queued;
     }
 
     // Safety (review 2026-11-27): a Men only / Women only post reaches nearby strangers only when the poster is of that gender
@@ -103,7 +95,6 @@ public static class PostNotifyStates
     public const string Sent = "sent";
     public const string NoFollowers = "none";
     // both
-    public const string WeekLimit = "weekLimit";
     public const string AlreadySent = "alreadySent";
     // nearby
     public const string Off = "off";

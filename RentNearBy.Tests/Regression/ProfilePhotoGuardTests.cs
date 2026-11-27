@@ -67,7 +67,7 @@ public class ProfilePhotoGuardTests
     [Theory]
     [InlineData("RentNearBy.Infrastructure/Services/Buddy/TripAccess.cs", 3, 2)]
     [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be1/BuddyFindService.cs", 1, 1)]
-    [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be1/BuddyListService.cs", 9, 5)]
+    [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be1/BuddyListService.cs", 10, 6)]   // + invite candidates (I-13)
     [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be1/BuddyRequestService.cs", 4, 2)]
     [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be2/Be2Sql.cs", 3, 1)]
     [InlineData("RentNearBy.Infrastructure/Services/Buddy/Be2/TripMemberService.cs", 3, 2)]

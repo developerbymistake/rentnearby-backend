@@ -187,6 +187,7 @@ public static class SocialFeatureModel
             {
                 t.HasCheckConstraint("ck_chatmembers_bucket", $"\"ListBucket\" IN ({ChatBuckets.SqlList})");
                 t.HasCheckConstraint("ck_chatmembers_unread", "\"UnreadCount\" >= 0");
+                t.HasCheckConstraint("ck_chatmembers_sent", "\"SentCount\" >= 0");
             });
             e.HasKey(x => new { x.RoomId, x.UserId });
             e.Property(x => x.LastReadSeq).HasDefaultValue(0L);
@@ -194,6 +195,7 @@ public static class SocialFeatureModel
             e.Property(x => x.ListBucket).HasColumnType("char(1)").IsRequired();
             e.Property(x => x.ClearedUpToSeq).HasDefaultValue(0L);
             e.Property(x => x.JoinedSeq).HasDefaultValue(0L);
+            e.Property(x => x.SentCount).HasDefaultValue(0);
             e.Property(x => x.SortAt).HasDefaultValueSql("now()");
             e.HasOne<ChatRoom>().WithMany().HasForeignKey(x => x.RoomId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);

@@ -16,12 +16,11 @@ namespace RentNearBy.Infrastructure.Services.Social;
 // trip-slots lock (every publish path holds it, so the rolling caps on the profile row are exact).
 // - followers: bell row + immediate push (PostNotifyRules.FollowersImmediate), max 2,000, gender rule, switch, blocks;
 // - nearby: the toggle is only recorded here (Trips.NotifyNearby); NearbyDigestJob tells at 07:00 IST;
-// - caps: 2 notified posts / 7 days (1 on a new account's first day), 4 publishes / 7 days; deleting a post never refunds.
+// - caps: 4 publishes / 7 days, never refunded; a post notifies only once (NotifiedAt). No weekly notified-post cap (owner 2026-11-28).
 public static class PostNotifier
 {
     internal const string PosterSql = """
-        SELECT COALESCE(u."Name", '') AS "Name", u."CreatedAt" AS "AccountCreatedAt", p."IsPrivate", p."Gender",
-               p."NotifiedPostTimes", p."PublishTimes"
+        SELECT COALESCE(u."Name", '') AS "Name", p."IsPrivate", p."Gender", p."PublishTimes"
         FROM "Users" u JOIN "UserProfiles" p ON p."UserId" = u."Id"
         WHERE u."Id" = @me
         """;
@@ -29,10 +28,8 @@ public static class PostNotifier
     public sealed class Poster
     {
         public string Name { get; set; } = string.Empty;
-        public DateTime AccountCreatedAt { get; set; }
         public bool IsPrivate { get; set; }
         public string? Gender { get; set; }
-        public DateTime[] NotifiedPostTimes { get; set; } = [];
         public DateTime[] PublishTimes { get; set; } = [];
     }
 
@@ -73,7 +70,7 @@ public static class PostNotifier
         """;
 
     internal const string SaveCapsSql = """
-        UPDATE "UserProfiles" SET "PublishTimes" = @publishes, "NotifiedPostTimes" = @notified WHERE "UserId" = @me
+        UPDATE "UserProfiles" SET "PublishTimes" = @publishes WHERE "UserId" = @me
         """;
 
     // Bell rows for the followers, then (FollowersImmediate) one push each in the same transaction. Returns the followers told.
@@ -87,14 +84,12 @@ public static class PostNotifier
     }
 
     // Called once per publishing call after the trip row is saved (create, or PUT /post on a trip that was not public). Sets
-    // trip.NotifiedAt / trip.NotifyNearby (the caller saves the trip) and writes the rolling caps on the profile row.
+    // trip.NotifiedAt / trip.NotifyNearby (the caller saves the trip) and writes the rolling publish cap on the profile row.
     public static async Task<PostNotifyDto> OnPublishAsync(
         ApplicationDbContext db, INoticeWriter notices, Guid me, Poster poster, Trip trip, bool nearbyRequested, DateTime nowUtc, CancellationToken ct)
     {
         var publishes = PostNotifyRules.Append(poster.PublishTimes, nowUtc);
-        var notified = PostNotifyRules.InWindow(poster.NotifiedPostTimes, nowUtc);
-        var limit = PostNotifyRules.NotifyLimit(poster.AccountCreatedAt, nowUtc);
-        var dto = new PostNotifyDto { Limit = limit };
+        var dto = new PostNotifyDto();
         if (trip.NotifiedAt is not null)
         {
             dto.Followers = PostNotifyStates.AlreadySent;
@@ -102,26 +97,16 @@ public static class PostNotifier
         }
         else
         {
-            var canNotify = notified.Length < limit;
-            var nearby = PostNotifyRules.NearbyState(nearbyRequested, canNotify, poster.IsPrivate, trip.StartDate, IstTime.TodayIst(nowUtc));
+            var nearby = PostNotifyRules.NearbyState(nearbyRequested, poster.IsPrivate, trip.StartDate, IstTime.TodayIst(nowUtc));
             if (nearby == PostNotifyStates.Queued && !PostNotifyRules.PosterFitsAudience(trip.JoinGender, poster.Gender))
                 nearby = PostNotifyStates.Gender;
-            var told = canNotify ? await TellFollowersAsync(db, notices, me, poster.Name, trip.Id, trip.JoinGender, nowUtc, ct) : 0;
-            dto.Followers = !canNotify ? PostNotifyStates.WeekLimit : told > 0 ? PostNotifyStates.Sent : PostNotifyStates.NoFollowers;
+            var told = await TellFollowersAsync(db, notices, me, poster.Name, trip.Id, trip.JoinGender, nowUtc, ct);
+            dto.Followers = told > 0 ? PostNotifyStates.Sent : PostNotifyStates.NoFollowers;
             dto.Nearby = nearby;
             trip.NotifyNearby = nearby == PostNotifyStates.Queued;
-            if (told > 0 || trip.NotifyNearby)
-            {
-                trip.NotifiedAt = nowUtc;
-                notified = [.. notified, nowUtc];
-            }
+            if (told > 0 || trip.NotifyNearby) trip.NotifiedAt = nowUtc;
         }
-        dto.Used = notified.Length;
-        dto.NextAllowedAt = PostNotifyRules.NextAllowedAt(notified, limit);
-        await db.Database.ExecuteSqlRawAsync(SaveCapsSql,
-        [
-            Uuid("me", me), Times("publishes", publishes), Times("notified", notified),
-        ], ct);
+        await db.Database.ExecuteSqlRawAsync(SaveCapsSql, [Uuid("me", me), Times("publishes", publishes)], ct);
         return dto;
     }
 

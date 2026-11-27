@@ -4,7 +4,7 @@ using RentNearBy.Api.Handlers.Buddy.Be2;
 namespace RentNearBy.Api.Endpoints;
 
 // Trip sharing S1 to S17 on the /api/v1/trips group (TripPlannerGateFilter on the group). Literal segments "shared",
-// "invites" and "invite-options" do not clash with /{id:guid}.
+// "invites" and "invite-options" do not clash with /{id:guid}; "invite-candidates" sits under /{id:guid}.
 public static class TripSharingEndpoints
 {
     public static RouteGroupBuilder MapTripSharingEndpoints(this RouteGroupBuilder group)
@@ -18,6 +18,7 @@ public static class TripSharingEndpoints
         group.MapGet("/{id:guid}/members", TripSharingHandlers.Members).SeekerOnly();
         group.MapDelete("/{id:guid}/members/{userId:guid}", TripSharingHandlers.Remove).SeekerOnly();
         group.MapGet("/{id:guid}/members/{userId:guid}/expense-count", TripSharingHandlers.ExpenseCount).SeekerOnly();
+        group.MapGet("/{id:guid}/invite-candidates", RentNearBy.Api.Handlers.Buddy.Be1.BuddyHandlers.GetInviteCandidates).SeekerOnly();
         group.MapPost("/{id:guid}/invites", TripSharingHandlers.Invite).SeekerOnly();
         group.MapDelete("/{id:guid}/invites/{userId:guid}", TripSharingHandlers.CancelInvite).SeekerOnly();
         group.MapPost("/{id:guid}/leave", TripSharingHandlers.Leave).SeekerOnly();

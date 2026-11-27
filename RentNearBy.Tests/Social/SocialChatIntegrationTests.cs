@@ -28,21 +28,41 @@ public class SocialChatIntegrationTests(TestDatabase db) : IntegrationTestBase(d
     }
 
     [IntegrationFact]
-    public async Task One_message_until_reply_then_the_receiver_replies_free_and_activates()
+    // I-9 (owner 2026-11-28): a Free user sends ONE message in each chat, then the Plus lock; a reply never unlocks it.
+    public async Task Free_sends_one_message_per_chat_and_a_reply_never_unlocks()
     {
         var p = await PeopleAsync(2);
         await using var ctx = CreateContext();
+        var pre = (await Chat(ctx).WithUserAsync(p[0], p[1])).Value!;
+        Assert.Equal(ChatLocks.None, pre.Lock);                       // never locked before the first message
         var started = await Chat(ctx).StartAsync(p[0], p[1], Guid.NewGuid(), "Hi, going to Manali too?");
         Assert.True(started.Ok, started.ErrorType);
         var room = started.Value!.Room.RoomId;
-        Assert.Equal(ChatRoomStatuses.Request, started.Value.Room.Status);
-        Assert.Equal(SocialErrorTypes.AwaitingReply, (await Chat(ctx).SendAsync(p[0], room, Guid.NewGuid(), "hello?")).ErrorType);
+        Assert.Equal((ChatRoomStatuses.Request, ChatLocks.Plus), (started.Value.Room.Status, started.Value.Room.Lock));
+        Assert.Equal(SocialErrorTypes.PlusRequired, (await Chat(ctx).SendAsync(p[0], room, Guid.NewGuid(), "hello?")).ErrorType);
+        Assert.Equal(ChatLocks.None, (await Chat(ctx).RoomAsync(p[1], room))!.Lock);   // the receiver may still send his one
 
         var reply = await Chat(ctx).SendAsync(p[1], room, Guid.NewGuid(), "Yes!");
         Assert.True(reply.Ok, reply.ErrorType);
         Assert.Equal(2, reply.Value!.Seq);
-        Assert.Equal(ChatRoomStatuses.Active, (await Chat(ctx).RoomAsync(p[0], room))!.Status);
-        Assert.True((await Chat(ctx).SendAsync(p[0], room, Guid.NewGuid(), "Great")).Ok);
+        var starterView = (await Chat(ctx).RoomAsync(p[0], room))!;
+        Assert.Equal((ChatRoomStatuses.Active, ChatLocks.Plus, false), (starterView.Status, starterView.Lock, starterView.CanSend));
+        Assert.Equal(SocialErrorTypes.PlusRequired, (await Chat(ctx).SendAsync(p[0], room, Guid.NewGuid(), "Great")).ErrorType);
+        Assert.Equal(SocialErrorTypes.PlusRequired, (await Chat(ctx).SendAsync(p[1], room, Guid.NewGuid(), "Plan?")).ErrorType);
+        // Plus sends freely in the same room.
+        Assert.True((await Chat(ctx, plus: true).SendAsync(p[0], room, Guid.NewGuid(), "Great")).Ok);
+        Assert.Equal(ChatLocks.None, (await Chat(ctx, plus: true).RoomAsync(p[0], room))!.Lock);
+        Assert.Equal(1, (await ctx.Set<ChatRoomMember>().AsNoTracking().SingleAsync(m => m.RoomId == room && m.UserId == p[1])).SentCount);
+    }
+
+    [IntegrationFact]
+    public async Task A_plus_starter_keeps_sending_while_the_request_waits()
+    {
+        var p = await PeopleAsync(2);
+        await using var ctx = CreateContext();
+        var room = (await Chat(ctx, plus: true).StartAsync(p[0], p[1], Guid.NewGuid(), "Hi, going to Manali too?")).Value!.Room.RoomId;
+        Assert.True((await Chat(ctx, plus: true).SendAsync(p[0], room, Guid.NewGuid(), "hello?")).Ok);
+        Assert.Equal(ChatLocks.None, (await Chat(ctx, plus: true).RoomAsync(p[0], room))!.Lock);
     }
 
     [IntegrationFact]
@@ -64,9 +84,11 @@ public class SocialChatIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         Assert.False(hisView.CanSend);
         Assert.NotEqual(ChatLocks.None, hisView.Lock);
 
+        // The starter never learns of the decline: a Free starter sees the same Plus lock as before, a Plus starter waits.
         var starter = (await Chat(ctx).RoomAsync(p[0], room))!;
         Assert.Equal(ChatRoomStatuses.Request, starter.Status);
-        Assert.Equal(ChatLocks.AwaitingReply, starter.Lock);
+        Assert.Equal(ChatLocks.Plus, starter.Lock);
+        Assert.Equal(ChatLocks.AwaitingReply, (await Chat(ctx, plus: true).RoomAsync(p[0], room))!.Lock);
     }
 
     [IntegrationFact]
@@ -77,8 +99,8 @@ public class SocialChatIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         var room = (await Chat(ctx).StartAsync(p[0], p[1], Guid.NewGuid(), "hi")).Value!.Room.RoomId;
         await Chat(ctx).SendAsync(p[1], room, Guid.NewGuid(), "hello");
         var client = Guid.NewGuid();
-        var first = await Chat(ctx).SendAsync(p[0], room, client, "call 9876543210");
-        var again = await Chat(ctx).SendAsync(p[0], room, client, "call 9876543210");
+        var first = await Chat(ctx, plus: true).SendAsync(p[0], room, client, "call 9876543210");
+        var again = await Chat(ctx, plus: true).SendAsync(p[0], room, client, "call 9876543210");
         Assert.Equal(first.Value!.Seq, again.Value!.Seq);
         Assert.True(first.Value.Masked);
         var stored = await ctx.Set<ChatMessage>().AsNoTracking().SingleAsync(m => m.RoomId == room && m.Seq == first.Value.Seq);
@@ -92,6 +114,7 @@ public class SocialChatIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         await using var ctx = CreateContext();
         for (var i = 1; i <= 3; i++) // batch-loop: three new people, the free monthly cap
             Assert.True((await Chat(ctx).StartAsync(p[0], p[i], Guid.NewGuid(), "hi")).Ok);
+        Assert.Equal(ChatLocks.Limit, (await Chat(ctx).WithUserAsync(p[0], p[4])).Value!.Lock);   // only the used-up cap locks a new chat
         Assert.Equal(SocialErrorTypes.NewChatLimit, (await Chat(ctx).StartAsync(p[0], p[4], Guid.NewGuid(), "hi")).ErrorType);
 
         var room = (await Chat(ctx).WithUserAsync(p[1], p[0])).Value!.Room!.RoomId;

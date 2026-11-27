@@ -45,8 +45,8 @@ public class SocialReportIntegrationTests(TestDatabase db) : IntegrationTestBase
     private static SocialReportService Reports(ApplicationDbContext ctx, IUserBlockService? blocks = null)
         => new(ctx, new PublicTripReader(ctx, TimeProvider.System), blocks ?? new RecordingBlocks(), NullLogger<SocialReportService>.Instance);
 
-    private static SocialChatService Chat(ApplicationDbContext ctx)
-        => new(ctx, SocialTestSeams.Limits(10), new NoticeWriter(ctx), SocialTestSeams.AfterCommit(ctx), TimeProvider.System,
+    private static SocialChatService Chat(ApplicationDbContext ctx, bool plus = false)
+        => new(ctx, SocialTestSeams.Limits(10, plus), new NoticeWriter(ctx), SocialTestSeams.AfterCommit(ctx), TimeProvider.System,
             NullLogger<SocialChatService>.Instance);
 
     private static PublicTripService Posts(ApplicationDbContext ctx) =>
@@ -87,7 +87,7 @@ public class SocialReportIntegrationTests(TestDatabase db) : IntegrationTestBase
         {
             room = (await Chat(ctx).StartAsync(p[0], p[1], Guid.NewGuid(), "Hi, going to Manali?")).Value!.Room.RoomId;
             Assert.True((await Chat(ctx).SendAsync(p[1], room, Guid.NewGuid(), "Send me money first")).Ok);
-            Assert.True((await Chat(ctx).SendAsync(p[0], room, Guid.NewGuid(), "No thanks")).Ok);
+            Assert.True((await Chat(ctx, plus: true).SendAsync(p[0], room, Guid.NewGuid(), "No thanks")).Ok);
             Assert.Equal(SocialErrorTypes.MessageGone,
                 (await Reports(ctx).ReportAsync(p[0], new SocialReportRequest { Scope = SocialReportTypes.Message, RoomId = room, Seq = 3, ReasonId = RudeReason })).ErrorType);
             var blocks = new RecordingBlocks();

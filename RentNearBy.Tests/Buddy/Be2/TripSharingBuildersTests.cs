@@ -109,6 +109,17 @@ public class TripSharingBuildersTests
         Assert.False(v.Validate(new TripInviteRequest { UserIds = [Aman] }).IsValid);
     }
 
+    // B8: invites go to buddies or people I follow, so the copy says "people".
+    [Fact]
+    public void Invite_validator_messages_say_people()
+    {
+        var v = new TripInviteRequestValidator();
+        var none = v.Validate(new TripInviteRequest { ClientRequestId = Guid.NewGuid(), UserIds = [] });
+        Assert.Contains(none.Errors, e => e.ErrorMessage == $"Pick 1 to {BuddyLimits.InviteIdsMax} people");
+        var twice = v.Validate(new TripInviteRequest { ClientRequestId = Guid.NewGuid(), UserIds = [Aman, Aman] });
+        Assert.Contains(twice.Errors, e => e.ErrorMessage == "Each person once");
+    }
+
     [Fact]
     public void Retention_rule_deletes_only_ended_invites_after_90_days()
     {

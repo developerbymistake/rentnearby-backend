@@ -76,7 +76,7 @@ public class SocialModelTests
         AssertChecks(Entity<Follow>(m), "ck_follows_not_self", "ck_follows_status");
         AssertChecks(Entity<TripJoinRequest>(m), "ck_tripjoinrequests_not_self", "ck_tripjoinrequests_status");
         AssertChecks(Entity<ChatRoom>(m), "ck_chatrooms_kind", "ck_chatrooms_status", "ck_chatrooms_pair");
-        AssertChecks(Entity<ChatRoomMember>(m), "ck_chatmembers_bucket", "ck_chatmembers_unread");
+        AssertChecks(Entity<ChatRoomMember>(m), "ck_chatmembers_bucket", "ck_chatmembers_unread", "ck_chatmembers_sent");
         AssertChecks(Entity<Trip>(m), "ck_trips_joingender", "ck_trips_public_fields", "ck_trips_posttravelmode");
         AssertChecks(Entity<TripMember>(m), "ck_tripmembers_joinedvia");
     }
@@ -102,7 +102,7 @@ public class SocialModelTests
         Assert.Equal(RentNearBy.Core.Models.Social.PostTravelModes.MaxLength, p.GetMaxLength());
         Assert.Null(p.GetDefaultValueSql());
         var check = trip.GetCheckConstraints().Single(c => c.Name == "ck_trips_posttravelmode").Sql;
-        Assert.Equal("\"PostTravelMode\" IS NULL OR \"PostTravelMode\" IN ('public', 'bike', 'car', 'taxi')", check);
+        Assert.Equal("\"PostTravelMode\" IS NULL OR \"PostTravelMode\" IN ('taxi', 'bike', 'bus', 'train')", check);
     }
 
     // Spec 23.9: the name rule column (nullable: null = never changed since onboarding) and the admin name audit.

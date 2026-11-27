@@ -97,7 +97,7 @@ public sealed class PublicTripService(
             Settings = new TripSettings
             {
                 StartDate = r.WhenKind == SocialRules.WhenKindExact ? r.StartDate : null,
-                MaxDays = r.Days <= TripLimits.MaxDays && r.Days < SocialLimits.DaysTenPlus ? r.Days : null,
+                MaxDays = r.Days <= TripLimits.MaxDays ? r.Days : null,
             },
         };
         plan.Normalize();
@@ -120,13 +120,8 @@ public sealed class PublicTripService(
         try
         {
             afterCommit.Clear();
+            // Owner 2026-11-28 (I-3): a post never checks the Active trips slot, only the live posts cap and the publish cap.
             await BuddyLocks.LockTripSlotsAsync(db, me, ct);
-            var slots = await TripSlots.ReadAsync(db, me, limits.ActiveTrips, ct);
-            if (TripSlotRules.IsFull(slots.Count, limits.ActiveTrips))
-            {
-                await unitOfWork.RollbackTransactionAsync();
-                return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.TripLimitReached, slots);
-            }
             var live = await LivePostsAsync(me, ct);
             if (live >= limits.PublicTrips)
             {
@@ -177,10 +172,10 @@ public sealed class PublicTripService(
         return BuddyResult<PublicTripDto>.Success(dto);
     }
 
-    // 1..4 Atlas cities in order: the first Ready, all in the first city's state, no duplicate (contract 2.4). Catalog snapshot wins.
+    // A new post has exactly one Ready Atlas city (owner 2026-11-28, I-6). Catalog snapshot wins.
     private async Task<(List<TripCityLeg> Legs, string? State, string? Error)> ResolveCitiesAsync(IReadOnlyList<long> keys, CancellationToken ct)
     {
-        if (keys.Count is 0 or > SocialLimits.PostCitiesMax || keys.Distinct().Count() != keys.Count || keys.Any(k => k <= 0))
+        if (keys.Count is 0 or > SocialLimits.PostCreateCitiesMax || keys.Distinct().Count() != keys.Count || keys.Any(k => k <= 0))
             return ([], null, SocialErrorTypes.InvalidCities);
         var legs = new List<TripCityLeg>();
         string? state = null;
@@ -210,7 +205,7 @@ public sealed class PublicTripService(
         trip.PausedByPlan = false;
         // A re-publish keeps the first PublishedAt for 7 days (unpublish / publish never bumps the post up the feed).
         if (firstPublish || trip.PublishedAt is null) trip.PublishedAt = PostNotifyRules.PublishedAtFor(trip.PublishedAt, nowUtc);
-        // The 72-hour lock always starts at the latest publish (PostLockRules), even when bump protection kept PublishedAt.
+        // The latest publish time, even when bump protection kept PublishedAt (the nearby digest reads it).
         if (firstPublish) trip.LastPublishedAt = nowUtc;
         trip.PostText = maskedText;
         trip.PostDays = (short)f.Days;
@@ -340,7 +335,7 @@ public sealed class PublicTripService(
         return await AnswerAsync(me, trip.Id, ct, notify);
     }
 
-    // ------------------------------------------------------------------ DELETE post (owner) and admin unpublish
+    // ------------------------------------------------------------------ unpublish (admin removal)
 
     private static readonly string UnpublishSql = $"""
         WITH t AS (
@@ -355,29 +350,14 @@ public sealed class PublicTripService(
         SELECT (SELECT t."OwnerUserId" FROM t) AS "OwnerUserId", ARRAY(SELECT r."RequesterId" FROM r) AS "Requesters"
         """;
 
-    // ownerId null = the admin route (removal after a report: never locked). The owner route ("Make private") is refused with
-    // PostLocked {unlocksAt} inside 72 hours of the latest publish (PostLockRules); the check and the update run under the trip
-    // row lock. Fail TripNotFound = no such trip (of that owner).
+    // ownerId null = the admin route (removal after a report). The owner route was removed (owner 2026-11-28, I-3): a post goes
+    // away only by deleting the trip; ownerId scopes the update to that owner. Fail TripNotFound = no such trip (of that owner).
     public async Task<BuddyResult<bool>> UnpublishAsync(Guid? ownerId, Guid tripId, CancellationToken ct = default)
     {
         UnpublishRow row;
         await unitOfWork.BeginTransactionAsync();
         try
         {
-            if (ownerId is not null)
-            {
-                var read = await PostLockReads.ReadAsync(db, tripId, ownerId, lockRow: true, ct);
-                if (read is not { } found)
-                {
-                    await unitOfWork.RollbackTransactionAsync();
-                    return BuddyResult<bool>.Fail(SocialErrorTypes.TripNotFound);
-                }
-                if (PostLockRules.UnpublishRefusal(found.State, Now) is { } locked)
-                {
-                    await unitOfWork.RollbackTransactionAsync();
-                    return BuddyResult<bool>.Fail(locked.ErrorType, locked.Data);
-                }
-            }
             row = (await db.Database.SqlQueryRaw<UnpublishRow>(UnpublishSql, Uuid("trip", tripId), NullUuid("owner", ownerId)).ToListAsync(ct)).First();
             await unitOfWork.CommitTransactionAsync();
         }

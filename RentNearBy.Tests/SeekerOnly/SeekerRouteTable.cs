@@ -142,7 +142,7 @@ public static class SeekerRouteTable
         "GET /api/v1/trips/{tripId:guid}/summary",
     ];
 
-    // 13 routes
+    // 14 routes
     public static readonly string[] Sharing =
     [
         "GET /api/v1/trips/shared",
@@ -154,6 +154,7 @@ public static class SeekerRouteTable
         "GET /api/v1/trips/{id:guid}/members",
         "DELETE /api/v1/trips/{id:guid}/members/{userId:guid}",
         "GET /api/v1/trips/{id:guid}/members/{userId:guid}/expense-count",
+        "GET /api/v1/trips/{id:guid}/invite-candidates",
         "POST /api/v1/trips/{id:guid}/invites",
         "DELETE /api/v1/trips/{id:guid}/invites/{userId:guid}",
         "POST /api/v1/trips/{id:guid}/leave",
@@ -237,7 +238,7 @@ public static class SeekerRouteTable
         "PUT /api/v1/taxis/journeys/{id:guid}/status",
     ];
 
-    // 36 routes: Bakhli social (CONTRACT_SOCIAL section 2), every one SeekerOnly
+    // 35 routes: Bakhli social (CONTRACT_SOCIAL section 2), every one SeekerOnly
     public static readonly string[] Social =
     [
         "GET /api/v1/social/me",
@@ -260,7 +261,6 @@ public static class SeekerRouteTable
         "GET /api/v1/social/trips/{tripId:guid}",
         "POST /api/v1/social/trips",
         "PUT /api/v1/social/trips/{tripId:guid}/post",
-        "DELETE /api/v1/social/trips/{tripId:guid}/post",
         "POST /api/v1/social/trips/{tripId:guid}/join-requests",
         "DELETE /api/v1/social/trips/{tripId:guid}/join-requests/mine",
         "GET /api/v1/social/trips/{tripId:guid}/join-requests",

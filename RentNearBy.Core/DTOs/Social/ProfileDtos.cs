@@ -69,8 +69,8 @@ public class SocialLimitsDto
     // with Plus). The two never count the same trip.
     public int InactiveTrips { get; set; }
     public int PausedPosts { get; set; }
-    // Post notify (owner 2026-11-27), every plan, rolling 7 days, never refunded: posts that notified anyone (2; 1 on the first
-    // day of a new account) and publishes (4). *NextAt = when one more is allowed (null = now).
+    // Publishes per rolling 7 days (4), every plan, never refunded; PublishNextAt = when one more is allowed (null = now).
+    // NotifyPosts / NotifyNextAt stay for the wire only: the weekly notified-post cap is gone (owner 2026-11-28), always 0/0 and null.
     public LimitUseDto NotifyPosts { get; set; } = new();
     public DateTime? NotifyNextAt { get; set; }
     public LimitUseDto Publishes { get; set; } = new();

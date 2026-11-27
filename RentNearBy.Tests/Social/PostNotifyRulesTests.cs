@@ -23,8 +23,8 @@ public class PostNotifyRulesTests
     public void The_caps_are_the_owner_numbers_and_live_in_social_limits()
     {
         Assert.True(PostNotifyRules.FollowersImmediate);
-        Assert.Equal((2, 1, 4, 50, 200, 60), (SocialLimits.NotifiedPostsPerWeek, SocialLimits.NotifiedPostsFirstDay, SocialLimits.PublishesPerWeek,
-            SocialLimits.PendingRequestsMax, SocialLimits.NearbyPerPostMax, SocialLimits.NearbyStartWithinDays));
+        Assert.Equal((4, 50, 50, 60), (SocialLimits.PublishesPerWeek, SocialLimits.PendingRequestsMax, SocialLimits.NearbyPerPostMax,
+            SocialLimits.NearbyStartWithinDays));
         Assert.Equal(150, PostNotifyRules.NearbyKm);
         Assert.Equal(2000, SocialLimits.FollowedPostedMax);
         Assert.Equal(TimeSpan.FromDays(7), PostNotifyRules.Window);
@@ -34,14 +34,6 @@ public class PostNotifyRulesTests
     }
 
     // ------------------------------------------------------------------ rolling 7-day caps (use cases 3, 25-27, 31)
-
-    [Fact]
-    public void A_new_account_may_notify_once_on_its_first_day_then_twice_a_week()
-    {
-        Assert.Equal(1, PostNotifyRules.NotifyLimit(Now.AddHours(-23), Now));
-        Assert.Equal(2, PostNotifyRules.NotifyLimit(Now.AddHours(-24), Now));
-        Assert.Equal(2, PostNotifyRules.NotifyLimit(Now.AddDays(-400), Now));
-    }
 
     [Fact]
     public void The_window_is_rolling_and_keeps_only_recent_times_oldest_first()
@@ -68,15 +60,13 @@ public class PostNotifyRulesTests
     // ------------------------------------------------------------------ nearby toggle (use cases 1-3, 8)
 
     [Theory]
-    [InlineData(false, true, false, null, PostNotifyStates.Off)]
-    [InlineData(true, true, false, null, PostNotifyStates.Queued)]
-    [InlineData(true, false, false, null, PostNotifyStates.WeekLimit)]
-    [InlineData(true, true, true, null, PostNotifyStates.Private)]
-    [InlineData(true, false, true, null, PostNotifyStates.Private)]
-    [InlineData(true, true, false, 60, PostNotifyStates.Queued)]
-    [InlineData(true, true, false, 61, PostNotifyStates.TooFar)]
-    public void The_nearby_toggle_answer(bool requested, bool canNotify, bool posterPrivate, int? startInDays, string expected)
-        => Assert.Equal(expected, PostNotifyRules.NearbyState(requested, canNotify, posterPrivate,
+    [InlineData(false, false, null, PostNotifyStates.Off)]
+    [InlineData(true, false, null, PostNotifyStates.Queued)]
+    [InlineData(true, true, null, PostNotifyStates.Private)]
+    [InlineData(true, false, 60, PostNotifyStates.Queued)]
+    [InlineData(true, false, 61, PostNotifyStates.TooFar)]
+    public void The_nearby_toggle_answer(bool requested, bool posterPrivate, int? startInDays, string expected)
+        => Assert.Equal(expected, PostNotifyRules.NearbyState(requested, posterPrivate,
             startInDays is { } d ? Today.AddDays(d) : null, Today));
 
     [Fact]

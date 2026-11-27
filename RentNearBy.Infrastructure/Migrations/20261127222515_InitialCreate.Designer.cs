@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261127102856_InitialCreate")]
+    [Migration("20261127222515_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -3691,6 +3691,11 @@ namespace RentNearBy.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("char(1)");
 
+                    b.Property<int>("SentCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<DateTime>("SortAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -3714,6 +3719,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("ChatRoomMembers", null, t =>
                         {
                             t.HasCheckConstraint("ck_chatmembers_bucket", "\"ListBucket\" IN ('P', 'T', 'R', 'X')");
+
+                            t.HasCheckConstraint("ck_chatmembers_sent", "\"SentCount\" >= 0");
 
                             t.HasCheckConstraint("ck_chatmembers_unread", "\"UnreadCount\" >= 0");
                         });
@@ -6095,7 +6102,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_trips_postdays", "\"PostDays\" IS NULL OR \"PostDays\" BETWEEN 1 AND 11");
 
-                            t.HasCheckConstraint("ck_trips_posttravelmode", "\"PostTravelMode\" IS NULL OR \"PostTravelMode\" IN ('public', 'bike', 'car', 'taxi')");
+                            t.HasCheckConstraint("ck_trips_posttravelmode", "\"PostTravelMode\" IS NULL OR \"PostTravelMode\" IN ('taxi', 'bike', 'bus', 'train')");
 
                             t.HasCheckConstraint("ck_trips_postwindow", "\"PostWindowMonths\" IS NULL OR \"PostWindowMonths\" BETWEEN 1 AND 6");
 

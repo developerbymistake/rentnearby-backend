@@ -184,12 +184,14 @@ public class SocialRulesTests
     }
 
     [Fact]
-    public void Free_starter_waits_for_a_reply_and_a_plus_starter_does_not()
+    public void Free_sends_one_message_per_room_and_a_plus_starter_is_not_locked()
     {
-        Assert.Equal(ChatLocks.AwaitingReply, SocialChatServiceProbe.Lock("D", "Request", true, 1, false, false));
-        Assert.Equal(ChatLocks.None, SocialChatServiceProbe.Lock("D", "Request", true, 1, false, true));
-        Assert.Equal(ChatLocks.None, SocialChatServiceProbe.Lock("D", "Request", false, 1, false, false));
-        Assert.Equal(ChatLocks.AwaitingReply, SocialChatServiceProbe.Lock("D", "Declined", true, 1, false, true));
+        Assert.Equal(ChatLocks.Plus, SocialChatServiceProbe.Lock("D", "Request", true, 1, false, false, sentCount: 1));
+        Assert.Equal(ChatLocks.Plus, SocialChatServiceProbe.Lock("D", "Active", true, 2, false, false, sentCount: 1)); // a reply never unlocks
+        Assert.Equal(ChatLocks.None, SocialChatServiceProbe.Lock("D", "Request", true, 1, false, true, sentCount: 1));
+        Assert.Equal(ChatLocks.None, SocialChatServiceProbe.Lock("D", "Request", false, 1, false, false, sentCount: 0));
+        Assert.Equal(ChatLocks.Plus, SocialChatServiceProbe.Lock("D", "Declined", true, 1, false, false, sentCount: 1)); // no leak
+        Assert.Equal(ChatLocks.AwaitingReply, SocialChatServiceProbe.Lock("D", "Declined", true, 1, false, true, sentCount: 1));
         Assert.Equal(ChatLocks.Left, SocialChatServiceProbe.Lock("T", "Active", false, 9, true, false));
         // The decliner of a direct request can never send there (contract 2.6).
         Assert.Equal(ChatLocks.Left, SocialChatServiceProbe.Lock("D", "Declined", false, 1, false, true));
@@ -200,7 +202,7 @@ public class SocialRulesTests
         public static bool Allows(string policy, bool heFollowsMe, bool inHisBuddies)
             => RentNearBy.Infrastructure.Services.Social.SocialChatService.PolicyAllows(policy, heFollowsMe, inHisBuddies);
 
-        public static string Lock(string kind, string status, bool iStarted, long lastSeq, bool left, bool isPlus)
-            => RentNearBy.Infrastructure.Services.Social.SocialChatService.LockOf(kind, status, iStarted, lastSeq, left, isPlus);
+        public static string Lock(string kind, string status, bool iStarted, long lastSeq, bool left, bool isPlus, int sentCount = 0)
+            => RentNearBy.Infrastructure.Services.Social.SocialChatService.LockOf(kind, status, iStarted, lastSeq, left, isPlus, true, sentCount);
     }
 }

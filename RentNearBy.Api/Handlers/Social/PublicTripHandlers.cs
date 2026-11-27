@@ -23,7 +23,7 @@ public static class PublicTripHandlers
         var query = string.IsNullOrWhiteSpace(q) ? null : q.Trim();
         if (query is { Length: < SocialLimits.FeedQueryMin or > SocialLimits.FeedQueryMax }) return BadRequestResponse("Search between 2 and 40 characters.");
         if (!JoinGenders.TryWhoFilter(who, out var whoJoinGender)) return BadRequestResponse("Who must be any, anyone, women or men.");
-        if (!PostTravelModes.TryFilter(travel, out var travelMode)) return BadRequestResponse("Travel must be any, public, bike, car or taxi.");
+        if (!PostTravelModes.TryFilter(travel, out var travelMode)) return BadRequestResponse("Travel must be any, taxi, bike, bus or train.");
         if (near && (lat is not (>= -90 and <= 90) || lng is not (>= -180 and <= 180))) return BadRequestResponse("Location is required.");
         return await SocialHttp.ReadAsync(principal, limiter, http, async me =>
         {
@@ -60,12 +60,4 @@ public static class PublicTripHandlers
         return await SocialHttp.WriteAsync(principal, db, limiter, http, SocialRateLimits.Publish(ProfileHandlers.BuddyCaller(principal)), true,
             async me => SocialHttp.From(await posts.PutPostAsync(me, tripId, request, ct)), ct);
     }
-
-    public static Task<IResult> DeletePost(
-        Guid tripId, ClaimsPrincipal principal, PublicTripService posts, ApplicationDbContext db, IRateLimitService limiter, HttpContext http,
-        CancellationToken ct)
-        => SocialHttp.WriteAsync(principal, db, limiter, http, SocialRateLimits.Write(ProfileHandlers.BuddyCaller(principal)), false,
-            async me => await posts.UnpublishAsync(me, tripId, ct) is { Ok: false } refused
-                ? SocialHttp.Error(refused.ErrorType!, refused.ErrorData)
-                : SocialHttp.Empty(), ct);
 }

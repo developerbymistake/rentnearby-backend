@@ -50,6 +50,10 @@ public class TripLimitRulesTests
         // Active trips only (social contract 2.4): owned Draft/Planned, joined on trips not Completed.
         Assert.Contains("t.\"Status\" IN ('Draft', 'Planned')", sql);
         Assert.Contains("t.\"Status\" <> 'Completed'", sql);
+        // I-3: only a fresh post (live, or paused by the plan) is left out; an expired one counts again.
+        Assert.Contains("AND NOT (" + RentNearBy.Infrastructure.Services.Social.PublicTripReader.HeldPost("t") + ")", sql);
+        Assert.Contains("\"StartDate\" >= @today", sql);
+        Assert.Contains("make_interval(months => t.\"PostWindowMonths\"::int) >= now()", sql);
     }
 
     private static string Source(params string[] parts)

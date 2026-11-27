@@ -14,8 +14,9 @@ using RentNearBy.Tests.Support.Social;
 
 namespace RentNearBy.Tests.Social;
 
-// Owner decision 2026-11-27 (SPEC "TRIP GROUP CHAT NEEDS SEEKER PLUS", use cases 33-38): sending in a trip group room needs the
-// SeekerGroupChat switch (Free 0, Plus 1, payment off = allowed); reading, membership, system lines and pushes do not.
+// Owner decision 2026-11-27, changed 2026-11-28 (I-9): sending freely in a trip group room needs the SeekerGroupChat switch
+// (Free 0, Plus 1, payment off = allowed); without it a member sends ONE message, then the Plus lock. Reading, membership,
+// system lines and pushes are never locked.
 public class TripGroupChatPlusRulesTests
 {
     private static CatalogPlan Plan(Guid id, bool isDefault, Func<string, int> value)
@@ -51,13 +52,17 @@ public class TripGroupChatPlusRulesTests
     }
 
     [Fact]
-    public void A_trip_room_without_the_switch_reads_only_and_left_still_wins()
+    public void A_trip_room_without_the_switch_allows_one_message_and_left_still_wins()
     {
-        Assert.Equal(ChatLocks.Plus, SocialChatService.LockOf(ChatKinds.Trip, ChatRoomStatuses.Active, false, 5, false, false, groupChat: false));
-        Assert.Equal(ChatLocks.None, SocialChatService.LockOf(ChatKinds.Trip, ChatRoomStatuses.Active, false, 5, false, false, groupChat: true));
-        Assert.Equal(ChatLocks.Left, SocialChatService.LockOf(ChatKinds.Trip, ChatRoomStatuses.Active, false, 5, true, false, groupChat: false));
-        // Direct rooms keep their own rules (1-to-1 chat is unchanged).
-        Assert.Equal(ChatLocks.None, SocialChatService.LockOf(ChatKinds.Direct, ChatRoomStatuses.Active, true, 5, false, false, groupChat: false));
+        Assert.Equal(ChatLocks.None, SocialChatService.LockOf(ChatKinds.Trip, ChatRoomStatuses.Active, false, 5, false, false, groupChat: false, sentCount: 0));
+        Assert.Equal(ChatLocks.Plus, SocialChatService.LockOf(ChatKinds.Trip, ChatRoomStatuses.Active, false, 5, false, false, groupChat: false, sentCount: 1));
+        Assert.Equal(ChatLocks.None, SocialChatService.LockOf(ChatKinds.Trip, ChatRoomStatuses.Active, false, 5, false, false, groupChat: true, sentCount: 9));
+        // A Plus account without the switch (admin turned it off) is still one message in a trip room.
+        Assert.Equal(ChatLocks.Plus, SocialChatService.LockOf(ChatKinds.Trip, ChatRoomStatuses.Active, false, 5, false, true, groupChat: false, sentCount: 1));
+        Assert.Equal(ChatLocks.Left, SocialChatService.LockOf(ChatKinds.Trip, ChatRoomStatuses.Active, false, 5, true, false, groupChat: false, sentCount: 1));
+        // Direct rooms go by the plan, not by the switch.
+        Assert.Equal(ChatLocks.None, SocialChatService.LockOf(ChatKinds.Direct, ChatRoomStatuses.Active, true, 5, false, true, groupChat: false, sentCount: 9));
+        Assert.Equal(ChatLocks.Plus, SocialChatService.LockOf(ChatKinds.Direct, ChatRoomStatuses.Active, true, 5, false, false, groupChat: true, sentCount: 1));
     }
 }
 
@@ -119,22 +124,29 @@ public class TripGroupChatPlusIntegrationTests(TestDatabase db) : IntegrationTes
     }
 
     [IntegrationFact]
-    public async Task Free_member_reads_the_room_sees_system_lines_and_a_send_is_refused_with_nothing_stored()
+    public async Task Free_member_sends_one_message_then_the_plus_lock_and_a_second_send_stores_nothing()
     {
         var (owner, member, room) = await RoomAsync();
         await using var ctx = CreateContext();
         var dto = await Chat(ctx, plus: false).RoomAsync(member, room);
-        Assert.Equal((ChatLocks.Plus, false), (dto!.Lock, dto.CanSend));
+        Assert.Equal((ChatLocks.None, true), (dto!.Lock, dto.CanSend));
         var page = await Chat(ctx, plus: false).MessagesAsync(member, room, null, null, null);
         Assert.True(page.Ok, page.ErrorType);
         Assert.Contains(page.Value!.Items, m => m.System == ChatSystemKinds.Joined);
 
-        var refused = await Chat(ctx, plus: false).SendAsync(member, room, Guid.NewGuid(), "Hello all");
+        Assert.True((await Chat(ctx, plus: false).SendAsync(member, room, Guid.NewGuid(), "Hello all")).Ok);
+        var after = await Chat(ctx, plus: false).RoomAsync(member, room);
+        Assert.Equal((ChatLocks.Plus, false), (after!.Lock, after.CanSend));
+        var refused = await Chat(ctx, plus: false).SendAsync(member, room, Guid.NewGuid(), "Anyone?");
         Assert.Equal(SocialErrorTypes.PlusRequired, refused.ErrorType);
         Assert.Equal(403, SocialErrorTypes.StatusOf(refused.ErrorType!));
-        Assert.Equal(0, await ctx.Set<ChatMessage>().CountAsync(m => m.RoomId == room && m.SenderId == member));
-        // A free host follows the same rule.
-        Assert.Equal(SocialErrorTypes.PlusRequired, (await Chat(ctx, plus: false).SendAsync(owner, room, Guid.NewGuid(), "Hi")).ErrorType);
+        Assert.Equal(1, await ctx.Set<ChatMessage>().CountAsync(m => m.RoomId == room && m.SenderId == member));
+        // A free host follows the same rule, counted on his own.
+        Assert.True((await Chat(ctx, plus: false).SendAsync(owner, room, Guid.NewGuid(), "Hi")).Ok);
+        Assert.Equal(SocialErrorTypes.PlusRequired, (await Chat(ctx, plus: false).SendAsync(owner, room, Guid.NewGuid(), "Hi again")).ErrorType);
+        // The purge of old messages never gives the message back.
+        await ctx.Set<ChatMessage>().Where(m => m.RoomId == room && m.SenderId == member).ExecuteDeleteAsync();
+        Assert.Equal(SocialErrorTypes.PlusRequired, (await Chat(ctx, plus: false).SendAsync(member, room, Guid.NewGuid(), "Again")).ErrorType);
     }
 
     [IntegrationFact]

@@ -54,8 +54,8 @@ public static class SocialErrorTypes
     public const string CannotRejoin = "CannotRejoin";
     public const string PublishLimit = "PublishLimit";
     public const string InvalidArea = "InvalidArea";
-    // 72-hour post lock (owner 2026-11-27): delete or make private inside 72 h of the latest publish (409, data {unlocksAt});
-    // delete of an ever-published trip while other travellers are still joined (409, data {count}).
+    // PostLocked: no longer returned (the post lock was removed, owner 2026-11-28, I-3). RemoveMembersFirst: delete of a trip while
+    // other travellers are still joined (409, data {count}).
     public const string PostLocked = "PostLocked";
     public const string RemoveMembersFirst = "RemoveMembersFirst";
     public const string TripDatesLocked = "TripDatesLocked";

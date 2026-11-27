@@ -90,7 +90,7 @@ public class JoinIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
         var owner = await SeekerAsync();
         var me = await SeekerAsync();
         var trip = await PostAsync(owner);
-        await PostAsync(me); // his one own Draft trip fills the free slot
+        await using (var seed = CreateContext()) await BuddySeed.TripAsync(seed, me); // his one normal trip fills the free slot (a post never does)
         await using var ctx = CreateContext();
         var refused = await Joins(ctx, SocialTestSeams.Limits(1)).SendAsync(me, trip, Ask());
         Assert.Equal(SocialErrorTypes.TripLimitReached, refused.ErrorType);
