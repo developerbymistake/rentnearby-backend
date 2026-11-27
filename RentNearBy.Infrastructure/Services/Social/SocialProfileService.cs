@@ -129,7 +129,7 @@ public sealed class SocialProfileService(
                 AboutExamples = SocialCatalog.AboutExamples, PostChips = SocialCatalog.PostChips,
             },
         };
-        if (row is { HasProfile: true }) dto.Profile = await MyProfileAsync(me, row, usage.PublicTrips, ct);
+        if (row is { HasProfile: true }) dto.Profile = await MyProfileAsync(me, row, ct);
         return dto;
     }
 
@@ -137,10 +137,10 @@ public sealed class SocialProfileService(
     {
         var row = (await db.Database.SqlQueryRaw<MeRow>(MeSql, Uuid("me", me)).ToListAsync(ct)).FirstOrDefault();
         if (row is not { HasProfile: true }) return null;
-        return await MyProfileAsync(me, row, null, ct);
+        return await MyProfileAsync(me, row, ct);
     }
 
-    private async Task<MyProfileDto> MyProfileAsync(Guid me, MeRow row, int? livePosts, CancellationToken ct)
+    private async Task<MyProfileDto> MyProfileAsync(Guid me, MeRow row, CancellationToken ct)
     {
         var posts = await trips.OfOwnerAsync(me, me, ct);
         return new MyProfileDto
@@ -154,9 +154,11 @@ public sealed class SocialProfileService(
             NotifyMessages = row.NotifyMessages ?? true, NotifyFollows = row.NotifyFollows ?? true, NotifyFollowedTrips = row.NotifyFollowedTrips ?? true,
             Counters = new MyCountersDto
             {
-                Trips = row.CompletedTripsCount + (livePosts ?? posts.Count), Followers = row.FollowerCount ?? 0,
+                Trips = row.CompletedTripsCount, Followers = row.FollowerCount ?? 0,
                 Following = row.FollowingCount ?? 0, Buddies = row.Buddies,
             },
+            CompletedTrips = row.CompletedTripsCount,
+            Level = TravelLevels.Level(row.CompletedTripsCount),
             PublicTrips = posts,
         };
     }
@@ -384,13 +386,13 @@ public sealed class SocialProfileService(
         var mutuals = self ? null : (await MutualsAsync(db, me, [him], ct)).GetValueOrDefault(him);
         return new TravellerProfileDto
         {
-            Person = Person(r.UserId, r.Name, r.Username, r.PhotoUrl, locked ? null : r.HomeCityName, r.Gender),
+            Person = WithLevel(Person(r.UserId, r.Name, r.Username, r.PhotoUrl, locked ? null : r.HomeCityName, r.Gender), r.CompletedTripsCount),
             Gender = r.Gender,
             About = locked ? string.Empty : r.About,
             Interests = locked ? [] : r.Interests.ToList(),
             Skills = locked ? [] : r.Skills.ToList(),
             Places = locked ? [] : r.Places.ToList(),
-            Counters = new TravellerCountersDto { Trips = r.CompletedTripsCount + posts.Count, Followers = r.FollowerCount, Following = r.FollowingCount },
+            Counters = new TravellerCountersDto { Trips = r.CompletedTripsCount, Followers = r.FollowerCount, Following = r.FollowingCount },
             Relation = new TravellerRelationDto
             {
                 IFollow = r.IFollow, FollowRequested = r.FollowRequested, FollowsMe = r.FollowsMe, IsBuddy = r.IsBuddy,

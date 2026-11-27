@@ -201,6 +201,14 @@ public static class SocialSql
         PhotoUrl = Face(photoUrl), HomeCity = homeCity, Gender = gender,
     };
 
+    // Travel level of a person block (spec B): the completed trips count and its level, computed here, never stored.
+    public static T WithLevel<T>(T person, int completedTrips) where T : SocialPersonDto
+    {
+        person.CompletedTrips = Math.Max(0, completedTrips);
+        person.Level = TravelLevels.Level(completedTrips);
+        return person;
+    }
+
     // Deletes one follow row with its counters and the buddy row it allowed (contract 1.3): returns the deleted status or null.
     internal static readonly string DeleteFollowSql = $"""
         WITH d AS (DELETE FROM "Follows" WHERE "FollowerId" = @a AND "FolloweeId" = @b RETURNING "Status"),

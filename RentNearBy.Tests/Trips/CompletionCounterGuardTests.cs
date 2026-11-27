@@ -89,15 +89,26 @@ public class CompletionCounterGuardTests
         Assert.True(status > 0 && count > status && commit > count);
     }
 
+    private static List<string> DtosExposing(params string[] names) => typeof(AdminUserDto).Assembly.GetTypes()
+        .Where(t => t.Namespace != null && t.Namespace.StartsWith("RentNearBy.Core.DTOs", StringComparison.Ordinal))
+        .Where(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Any(p => names.Contains(p.Name)))
+        .Select(t => t.Name)
+        .Order(StringComparer.Ordinal)
+        .ToList();
+
     [Fact]
-    public void Only_the_admin_user_dto_exposes_the_counters()
+    public void Only_the_admin_user_dto_exposes_the_bookings_counter_and_the_raw_columns()
+        => Assert.Equal([nameof(AdminUserDto)], DtosExposing("CompletedBookings", "CompletedTripsCount", "CompletedBookingsCount"));
+
+    // Travel levels (spec B): the seeker's completed trips are public as a count + level on the social person and own profile.
+    [Fact]
+    public void Completed_trips_are_exposed_only_by_the_admin_dto_and_the_social_level_blocks()
     {
-        string[] names = ["CompletedTrips", "CompletedBookings", "CompletedTripsCount", "CompletedBookingsCount"];
-        var exposing = typeof(AdminUserDto).Assembly.GetTypes()
-            .Where(t => t.Namespace != null && t.Namespace.StartsWith("RentNearBy.Core.DTOs", StringComparison.Ordinal))
-            .Where(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance).Any(p => names.Contains(p.Name)))
-            .Select(t => t.Name)
-            .ToList();
-        Assert.Equal([nameof(AdminUserDto)], exposing);
+        string[] expected =
+        [
+            nameof(AdminUserDto), nameof(RentNearBy.Core.DTOs.Social.FollowRequestRowDto), nameof(RentNearBy.Core.DTOs.Social.MyProfileDto),
+            nameof(RentNearBy.Core.DTOs.Social.PersonRowDto), nameof(RentNearBy.Core.DTOs.Social.SocialPersonDto),
+        ];
+        Assert.Equal(expected.Order(StringComparer.Ordinal), DtosExposing("CompletedTrips"));
     }
 }

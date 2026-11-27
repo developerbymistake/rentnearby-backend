@@ -137,7 +137,7 @@ public sealed class JoinRequestService(
     }
 
     private static readonly string ListSql = $"""
-        SELECT r."Id", r."RequesterId", r."Tier", r."Note", r."CreatedAt", p."Interests"
+        SELECT r."Id", r."RequesterId", r."Tier", r."Note", r."CreatedAt", p."Interests", u."CompletedTripsCount" AS "CompletedTrips"
         FROM "TripJoinRequests" r
         JOIN "Users" u ON u."Id" = r."RequesterId" AND {ActiveSeeker("u")}
         LEFT JOIN "UserProfiles" p ON p."UserId" = r."RequesterId"
@@ -160,7 +160,7 @@ public sealed class JoinRequestService(
             Trip = trip,
             Items = rows.Where(r => people.ContainsKey(r.RequesterId)).Select(r => new JoinRequestItemDto
             {
-                Id = r.Id, Person = people[r.RequesterId], Tier = r.Tier, Note = r.Note,
+                Id = r.Id, Person = WithLevel(people[r.RequesterId], r.CompletedTrips), Tier = r.Tier, Note = r.Note,
                 Interests = (r.Interests ?? []).Take(SocialLimits.OwnerInterestsShown).ToList(), CreatedAt = Utc(r.CreatedAt),
             }).ToList(),
         };
@@ -319,6 +319,7 @@ public sealed class JoinRequestService(
         public string? Note { get; set; }
         public DateTime CreatedAt { get; set; }
         public string[]? Interests { get; set; }
+        public int CompletedTrips { get; set; }
     }
 
     private sealed class RequestRow

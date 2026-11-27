@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.Entities.TaxiRequests;
+using RentNearBy.Core.Models.Social;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
@@ -231,6 +232,95 @@ public class CompletedCountersJourneyTests(TestDatabase db) : IntegrationTestBas
             await s.Db.SaveChangesAsync();
         }
         Assert.Equal((1, 0), await CountersAsync(seeker));
+    }
+
+    // ---------- Spec C: level-up congratulation (travel levels) ----------
+
+    private async Task SetTripsAsync(Guid userId, int count)
+    {
+        await using var c = CreateContext();
+        await c.Database.ExecuteSqlInterpolatedAsync($"UPDATE \"Users\" SET \"CompletedTripsCount\" = {count} WHERE \"Id\" = {userId}");
+    }
+
+    private async Task<(int Inbox, int Push)> LevelUpRowsAsync(Guid userId)
+    {
+        await using var read = CreateContext();
+        var inbox = await read.NotificationEvents.AsNoTracking()
+            .CountAsync(n => n.TargetUserId == userId && n.Type == NotificationTypes.TravelLevelUp && n.ActionRoute == LevelUpPushCopy.Route);
+        var prefix = $"levelup:{userId:N}:";
+        var push = await read.OutboxMessages.AsNoTracking().CountAsync(o => o.Key.StartsWith(prefix));
+        return (inbox, push);
+    }
+
+    private async Task<Guid> CompletedTripAsync(JourneyHarness h, Guid seeker, Guid host, Guid stay)
+    {
+        var trip = await PlannedTripAsync(h, seeker, Today.AddDays(-2));
+        await EnquiryAsync(h, trip, seeker, host, stay, TripEnquiryStatuses.ConfirmedByBoth, Today.AddDays(-2));
+        Assert.Equal(200, JourneyHarness.StatusOf(await h.CompleteAsync(trip, seeker)));
+        return trip;
+    }
+
+    [IntegrationFact]
+    public async Task Reaching_ten_trips_writes_one_congratulation_inbox_row_and_push()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seeker = await h.AddSeekerAsync();
+        var host = await h.AddStayOwnerAsync();
+        var stay = await h.AddStayAsync(host);
+        await SetTripsAsync(seeker, 9);
+
+        var trip = await CompletedTripAsync(h, seeker, host, stay);
+        Assert.Equal((10, 0), await CountersAsync(seeker));
+        Assert.Equal((1, 1), await LevelUpRowsAsync(seeker));
+        await using (var read = CreateContext())
+        {
+            var n = await read.NotificationEvents.AsNoTracking().SingleAsync(x => x.TargetUserId == seeker && x.Type == NotificationTypes.TravelLevelUp);
+            Assert.Equal("New level reached", n.Title);
+            Assert.Contains("You are now a Wanderer with 10 trips completed.", n.Body);
+            Assert.True(await read.OutboxMessages.AsNoTracking().AnyAsync(o => o.Key == LevelUpPushCopy.Key(seeker, 2)));
+        }
+
+        // A second complete of the same trip counts nothing and sends nothing.
+        Assert.Equal(200, JourneyHarness.StatusOf(await h.CompleteAsync(trip, seeker)));
+        Assert.Equal((1, 1), await LevelUpRowsAsync(seeker));
+        // The host's counter (CompletedBookingsCount) never sends a congratulation.
+        Assert.Equal((0, 0), await LevelUpRowsAsync(host));
+    }
+
+    [IntegrationFact]
+    public async Task A_count_inside_a_level_sends_nothing_and_the_first_trip_sends_level_one()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seeker = await h.AddSeekerAsync();
+        var host = await h.AddStayOwnerAsync();
+        var stay = await h.AddStayAsync(host);
+
+        await CompletedTripAsync(h, seeker, host, stay);
+        Assert.Equal((1, 1), await LevelUpRowsAsync(seeker));
+        await using (var read = CreateContext())
+            Assert.Equal("Your first trip is done", (await read.NotificationEvents.AsNoTracking()
+                .SingleAsync(x => x.TargetUserId == seeker && x.Type == NotificationTypes.TravelLevelUp)).Title);
+
+        await SetTripsAsync(seeker, 3);
+        await CompletedTripAsync(h, seeker, host, stay);
+        Assert.Equal((4, 0), await CountersAsync(seeker));
+        Assert.Equal((1, 1), await LevelUpRowsAsync(seeker));
+    }
+
+    [IntegrationFact]
+    public async Task The_same_level_key_twice_writes_one_inbox_row_and_one_push()
+    {
+        await using var h = new JourneyHarness(Db);
+        var seeker = await h.AddSeekerAsync();
+        var copy = LevelUpPushCopy.For(seeker, 3, 30, "Asha");
+        for (var i = 0; i < 2; i++) // batch-loop: the retry under test
+        {
+            await using var ctx = CreateContext();
+            await using var tx = await ctx.Database.BeginTransactionAsync();
+            await LevelUpNotice.WriteInTxAsync(ctx, seeker, copy);
+            await tx.CommitAsync();
+        }
+        Assert.Equal((1, 1), await LevelUpRowsAsync(seeker));
     }
 
     // ---------- JT-B-CNT-2: Stay Owner ----------

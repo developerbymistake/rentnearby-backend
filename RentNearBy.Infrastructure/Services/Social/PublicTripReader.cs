@@ -28,6 +28,7 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
     private static string SelectSql(string where, string order = """ORDER BY t."PublishedAt" DESC, t."Id" DESC""") => $"""
         SELECT t."Id" AS "TripId", t."OwnerUserId", COALESCE(o."Name", '') AS "OwnerName", o."Username" AS "OwnerUsername",
                o."ProfilePhotoUrl" AS "OwnerPhoto", op."HomeCityName" AS "OwnerHomeCity", op."Gender" AS "OwnerGender", op."Interests" AS "OwnerInterests",
+               o."CompletedTripsCount" AS "OwnerCompletedTrips",
                op."IsPrivate" AS "OwnerPrivate", t."CityKey", t."PostCityNames" AS "CityNames", t."PostStateName" AS "StateName",
                t."StartDate", t."PostStartMonth", t."PostWindowMonths", t."PublishedAt", t."PostDays", t."JoinGender", t."Seats",
                COALESCE(t."PostText", '') AS "PostText", t."IsPublic",
@@ -163,7 +164,8 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
         var dto = new PublicTripDto
         {
             TripId = r.TripId,
-            Owner = Person(r.OwnerUserId, r.OwnerName, r.OwnerUsername, r.OwnerPhoto, r.OwnerPrivate && !r.IFollowOwner && !isMine ? null : r.OwnerHomeCity, r.OwnerGender),
+            Owner = WithLevel(Person(r.OwnerUserId, r.OwnerName, r.OwnerUsername, r.OwnerPhoto,
+                r.OwnerPrivate && !r.IFollowOwner && !isMine ? null : r.OwnerHomeCity, r.OwnerGender), r.OwnerCompletedTrips),
             OwnerInterests = (r.OwnerInterests ?? []).Take(SocialLimits.OwnerInterestsShown).ToList(),
             IsMine = isMine,
             CityKey = r.CityKey,
@@ -197,6 +199,7 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
         public string? OwnerHomeCity { get; set; }
         public string? OwnerGender { get; set; }
         public string[]? OwnerInterests { get; set; }
+        public int OwnerCompletedTrips { get; set; }
         public bool OwnerPrivate { get; set; }
         public long CityKey { get; set; }
         public string[]? CityNames { get; set; }

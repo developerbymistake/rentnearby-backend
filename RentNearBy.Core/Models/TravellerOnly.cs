@@ -38,6 +38,7 @@ public static class TravellerOnly
         global::RentNearBy.Core.Models.NotificationTypes.TaxiRateDriver,
         global::RentNearBy.Core.Models.NotificationTypes.TaxiChooseDriver,
         .. global::RentNearBy.Core.Models.NotificationTypes.BuddyPushKinds,
+        global::RentNearBy.Core.Models.NotificationTypes.TravelLevelUp,
     ];
 
     // Push action routes that open a traveller page (trips, trip taxi, buddies, sharing, money, journeys).
@@ -51,7 +52,7 @@ public static class TravellerOnly
         JourneyNotifications.Route,
         UserNotificationRoutes.People, UserNotificationRoutes.Traveller, UserNotificationRoutes.JoinRequests,
         UserNotificationRoutes.TripPost, UserNotificationRoutes.TravelBuddies, UserNotificationRoutes.DmRoom,
-        UserNotificationRoutes.SeekerPlus,
+        UserNotificationRoutes.SeekerPlus, UserNotificationRoutes.TravelLevels,
     };
 
     private static readonly HashSet<string> PushTypes = new(NotificationTypes, StringComparer.Ordinal);

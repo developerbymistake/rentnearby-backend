@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace RentNearBy.Core.DTOs.Social;
 
 // Contract 2.1 Person. photoUrl is always the 160 face thumb. Never a phone, email or birth field.
@@ -11,6 +13,15 @@ public class SocialPersonDto
     public string? HomeCity { get; set; }
     // Male / Female / Other (the profile gender, already public on the traveller profile); drives the row's gender glyph.
     public string? Gender { get; set; }
+
+    // Travel level (spec B): filled only on the trip post / feed / rail owner, the join request requester and the traveller
+    // profile person; left out everywhere else. completedTrips = Users.CompletedTripsCount, level = TravelLevels.Level of it
+    // (0..6, computed, never stored). Only the count and the level, never places or dates.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? CompletedTrips { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Level { get; set; }
 }
 
 public class PersonRowDto : SocialPersonDto
@@ -68,6 +79,7 @@ public class ChatUnreadDto
 
 public class MyCountersDto
 {
+    // Completed trips only (Users.CompletedTripsCount); live posts are not counted.
     public int Trips { get; set; }
     public int Followers { get; set; }
     public int Following { get; set; }
@@ -76,6 +88,7 @@ public class MyCountersDto
 
 public class TravellerCountersDto
 {
+    // Completed trips only (Users.CompletedTripsCount); live posts are not counted.
     public int Trips { get; set; }
     public int Followers { get; set; }
     public int Following { get; set; }
@@ -106,6 +119,9 @@ public class MyProfileDto
     public bool NotifyFollows { get; set; }
     public bool NotifyFollowedTrips { get; set; }
     public MyCountersDto Counters { get; set; } = new();
+    // Travel level (spec B): Users.CompletedTripsCount and its level 0..6 (TravelLevels, computed, never stored).
+    public int CompletedTrips { get; set; }
+    public int Level { get; set; }
     public List<PublicTripDto> PublicTrips { get; set; } = [];
 }
 
