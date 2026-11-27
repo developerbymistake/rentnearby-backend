@@ -299,7 +299,7 @@ app.MapGet("/delete-account", () => Results.Content("""
 <div class="card">
 <strong>Steps to delete your account in the app:</strong><br><br>
 <div class="step"><div class="num">1</div><span>Open the Bakhli app and sign in</span></div>
-<div class="step"><div class="num">2</div><span>Go to <strong>Profile</strong> (bottom navigation)</span></div>
+<div class="step"><div class="num">2</div><span>Go to <strong>Settings</strong> (travellers) or <strong>Profile</strong> (owners and drivers)</span></div>
 <div class="step"><div class="num">3</div><span>Scroll down and tap <strong>"Delete Account"</strong></span></div>
 <div class="step"><div class="num">4</div><span>Type <strong>DELETE</strong> to confirm</span></div>
 <div class="step"><div class="num">5</div><span>Tap <strong>Delete Account</strong> to submit your request</span></div>
