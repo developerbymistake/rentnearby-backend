@@ -4241,6 +4241,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<Guid?>("DistrictId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("EnquiryRingOn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<bool>("EverApproved")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")

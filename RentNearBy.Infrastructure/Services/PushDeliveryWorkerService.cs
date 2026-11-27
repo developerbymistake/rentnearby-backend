@@ -12,6 +12,7 @@ using RentNearBy.Core.Entities;
 using RentNearBy.Core.Entities.TaxiRequests;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.StayRing;
 using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Repositories;
@@ -33,6 +34,11 @@ public interface IPushDeliveryStore
 
     // The users among the ids whose live role is SEEKER.
     Task<IReadOnlySet<Guid>> GetSeekersAsync(IReadOnlyCollection<Guid> userIds, CancellationToken ct);
+
+    // Stay rings: the enquiries among the ids that may no longer ring (no longer Asked, the stay not live, the owner not a Stay Owner,
+    // or his ring switch off). Default: none, so a store without stay rings keeps its behaviour.
+    Task<IReadOnlySet<Guid>> GetEndedStayRingsAsync(IReadOnlyCollection<Guid> enquiryIds, CancellationToken ct)
+        => Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());
 }
 
 public sealed class PushDeliveryStore(IServiceScopeFactory scopeFactory) : IPushDeliveryStore
@@ -78,6 +84,20 @@ public sealed class PushDeliveryStore(IServiceScopeFactory scopeFactory) : IPush
         var seekers = await db.Users.AsNoTracking()
             .Where(u => ids.Contains(u.Id) && u.RoleId == UserRoles.SeekerId).Select(u => u.Id).ToListAsync(ct);
         return seekers.ToHashSet();
+    }
+
+    public async Task<IReadOnlySet<Guid>> GetEndedStayRingsAsync(IReadOnlyCollection<Guid> enquiryIds, CancellationToken ct)
+    {
+        if (enquiryIds.Count == 0) return new HashSet<Guid>();
+        var ids = enquiryIds.ToArray();
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var ringing = await db.TripEnquiries.AsNoTracking()
+            .Where(e => ids.Contains(e.Id) && e.Kind == TripEnquiryKinds.Stay && e.Status == TripEnquiryStatuses.Asked
+                && db.StayListings.Any(s => s.Id == e.ListingId && s.UserId == e.OwnerUserId && s.Status == StayStatuses.Approved && !s.IsDeleted
+                    && s.EnquiryRingOn && s.User.RoleId == UserRoles.StayOwnerId))
+            .Select(e => e.Id).ToListAsync(ct);
+        return ids.Except(ringing).ToHashSet();
     }
 }
 
@@ -128,6 +148,25 @@ public static class PushBatchProcessor
             }
         }
 
+        // A stay ring or missed ring whose enquiry was answered or closed (or whose owner may no longer be rung) is acked, never sent.
+        var stayRings = live.Select(i => StayRingEnquiryId(batch[i].Payload!)).Where(id => id != null).Select(id => id!.Value).Distinct().ToList();
+        if (stayRings.Count > 0)
+        {
+            var ended = await store.GetEndedStayRingsAsync(stayRings, ct);
+            if (ended.Count > 0)
+            {
+                var before = live.Count;
+                live.RemoveAll(i =>
+                {
+                    if (StayRingEnquiryId(batch[i].Payload!) is not { } id || !ended.Contains(id)) return false;
+                    verdicts[i] = PushVerdict.Ack;
+                    return true;
+                });
+                logger.LogInformation("Dropped {Count} stay rings of enquiries no longer ringing", before - live.Count);
+                if (live.Count == 0) return verdicts;
+            }
+        }
+
         var userIds = live.Select(i => batch[i].Payload!.UserId).Distinct().ToList();
         var eventIds = live.Select(i => batch[i].Payload!.NotificationId).Where(id => id != null).Select(id => id!.Value).Distinct().ToList();
         var tokenRows = await store.GetTokensAsync(userIds, ct);
@@ -156,13 +195,13 @@ public static class PushBatchProcessor
                 foreach (var kv in p.Data)
                     if (kv.Value != null) data[kv.Key] = kv.Value;
             data["notification_type"] = NotificationTypes.ToWireValue(type);
-            if (type == NotificationTypes.TaxiRequestRing)
+            if (RingPushTypes.IsRing(type))
             {
                 data.Remove("key");
                 if (p.ExpiresAtUtc is { } expires) data["expiresAt"] = TaxiRingPayload.Instant(expires);
                 data["sentAt"] = TaxiRingPayload.Instant(utcNow);
             }
-            else if (type == NotificationTypes.TaxiRequestRingEnded) data.Remove("key");
+            else if (RingPushTypes.IsRingEnd(type)) data.Remove("key");
             else data["key"] = p.Key;
             if (p.Route != null) data["action_route"] = p.Route;
             if (p.ArgsJson != null) data["action_args_json"] = p.ArgsJson;
@@ -215,6 +254,11 @@ public static class PushBatchProcessor
     public static Guid? RingOfferId(OutboxPushPayload payload)
         => payload.Kind == NotificationTypes.TaxiRequestRing && payload.NotificationId is null
             && payload.Data?.GetValueOrDefault("offerId") is { } raw && Guid.TryParse(raw, out var id) && id != Guid.Empty ? id : null;
+
+    // The enquiry of a real stay ring or missed ring; a stay test ring (empty enquiryId) and every other push have none.
+    public static Guid? StayRingEnquiryId(OutboxPushPayload payload)
+        => payload.Kind is NotificationTypes.StayEnquiryRing or NotificationTypes.StayEnquiryRingMissed && payload.NotificationId is null
+            && payload.Data?.GetValueOrDefault("enquiryId") is { } raw && Guid.TryParse(raw, out var id) && id != Guid.Empty ? id : null;
 
     // A push of an inbox row that is gone (deleted or rolled back) is acked, never sent.
     private static bool HasType(OutboxPushPayload p, IReadOnlyDictionary<Guid, string> types)

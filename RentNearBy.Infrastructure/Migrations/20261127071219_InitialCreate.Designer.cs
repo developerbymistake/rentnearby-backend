@@ -13,7 +13,11 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
+<<<<<<<< HEAD:RentNearBy.Infrastructure/Migrations/20261127071219_InitialCreate.Designer.cs
     [Migration("20261127071219_InitialCreate")]
+========
+    [Migration("20261127070600_InitialCreate")]
+>>>>>>>> feature/stay-enquiry-ring:RentNearBy.Infrastructure/Migrations/20261127070600_InitialCreate.Designer.cs
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -4243,6 +4247,11 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<Guid?>("DistrictId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("EnquiryRingOn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
 
                     b.Property<bool>("EverApproved")
                         .ValueGeneratedOnAdd()

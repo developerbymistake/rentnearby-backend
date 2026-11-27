@@ -71,6 +71,8 @@ public class StayListing
     public DateOnly? PlanVisibleSavesDay { get; set; }
     public short PlanVisibleSavesCount { get; set; }
     public bool RemindersOn { get; set; } = true;
+    // Stay enquiry ring switch "Ring me for new enquiries" (default on), read by the server before every ring.
+    public bool EnquiryRingOn { get; set; } = true;
 
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

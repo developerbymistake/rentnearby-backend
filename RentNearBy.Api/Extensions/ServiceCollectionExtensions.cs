@@ -210,6 +210,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<PushDeliveryWorkerService>();
         services.AddHostedService<PushDeadLetterWorkerService>();
         services.AddHostedService<TripReminderService>();
+        // Every 5 s: a stay enquiry ring ends on every device once its enquiry leaves Asked (contract stay_ring/CONTRACT.md).
+        services.AddHostedService<RentNearBy.Infrastructure.Services.StayRing.StayRingEndWatcherService>();
 
         // Broadcast worker — consumes broadcast.notification queue and sends FCM to all users
         services.AddHostedService<BroadcastWorkerService>();

@@ -55,6 +55,8 @@ public class StayOwnerDto
     public Owner.StayEditResultDto? LastEditResult { get; set; }
     public int ConfirmedBookingCount { get; set; }
     public bool RemindersOn { get; set; }
+    // Stay enquiry ring switch "Ring me for new enquiries" (default on).
+    public bool EnquiryRingOn { get; set; } = true;
     public bool PaymentEnabled { get; set; }
     public bool CanUpgrade { get; set; }
     public bool IsFeatured { get; set; }

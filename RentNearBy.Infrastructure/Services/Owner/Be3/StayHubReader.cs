@@ -132,6 +132,7 @@ public sealed class StayHubReader(ApplicationDbContext db, IPlanEntitlementServi
         dto.CanUpgrade = limits.CanUpgrade;
         dto.ConfirmedBookingCount = confirmedBookings;
         dto.RemindersOn = stay.RemindersOn;
+        dto.EnquiryRingOn = stay.EnquiryRingOn;
         dto.IsFeatured = stay.IsFeatured;
         dto.ReportCount = dto.PendingReportCount;
         dto.PendingEdit = PendingOf(stay);

@@ -363,7 +363,7 @@ public static class SeekerRouteTable
         "PUT /api/v1/social/me/onboarding",
     ];
 
-    // 42 routes
+    // 46 routes
     public static readonly string[] OwnerStay =
     [
         "PUT /api/v1/stays/me/basic",
@@ -408,6 +408,10 @@ public static class SeekerRouteTable
         "PUT /api/v1/stays/me/special-prices/{id:guid}/live",
         "GET /api/v1/stays/me",
         "PUT /api/v1/stays/me/plan-visible",
+        "GET /api/v1/stays/me/enquiry-ring",
+        "PUT /api/v1/stays/me/enquiry-ring",
+        "POST /api/v1/stays/me/enquiry-ring/test",
+        "POST /api/v1/stays/me/enquiry-ring/{enquiryId:guid}/answer",
     ];
 
     // 39 routes

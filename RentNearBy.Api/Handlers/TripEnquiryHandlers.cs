@@ -17,6 +17,7 @@ using RentNearBy.Core.Models.TaxiRequests;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services;
 using RentNearBy.Infrastructure.Services.Owner.Be2;
+using RentNearBy.Infrastructure.Services.StayRing;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using static RentNearBy.Api.Extensions.ApiResults;
 
@@ -414,6 +415,7 @@ public static class TripEnquiryHandlers
 
                 // One SaveChanges for every new row; a parallel send that took a night answers with that row.
                 var lost = await TripBulk.SaveRowsAsync(db, newRows.Select(x => x.Row).ToList(), IsOpenUniqueViolation);
+                var rings = new List<StayRingRequest>();
                 foreach (var (e, stay, conversation) in newRows)
                 {
                     if (lost.Contains(e))
@@ -430,7 +432,10 @@ public static class TripEnquiryHandlers
                     items.Add(e);
                     var pushContext = new TripPushContext(stay.UserId, travellerName, e.ListingName, StayChatArgs(e, stay, conversation, travellerName));
                     TripBulk.StagePush(db, outbox, TripNotifications.TripEnquiryReceived(e, pushContext), e.Id, now, live);
+                    rings.Add(new StayRingRequest(e, travellerName, context.Adults, context.Kids, context.Rooms));
                 }
+                // Stay enquiry ring: outbox rows of this same transaction, next to the "new enquiry" push (which is unchanged).
+                await StayRingWriter.StageRingsAsync(db, rings, now);
 
                 var sentIds = newRows.Where(x => created.Contains(x.Row.Id)).Select(x => x.Stay.Id).ToList();
                 if (sentIds.Count > 0)

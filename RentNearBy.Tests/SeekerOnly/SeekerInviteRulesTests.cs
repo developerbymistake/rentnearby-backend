@@ -161,6 +161,7 @@ public class SeekerInviteRulesTests
         NotificationTypes.TaxiRequestRing, NotificationTypes.TaxiRequestRingEnded, NotificationTypes.StayEditApproved,
         NotificationTypes.StayEditRejected, NotificationTypes.FestivalReminder, NotificationTypes.PlanLimitsChanged,
         NotificationTypes.OwnerMorningReminder, NotificationTypes.PlansStarting, NotificationTypes.OwnerBookingTomorrow,
+        NotificationTypes.StayEnquiryRing, NotificationTypes.StayEnquiryRingEnded, NotificationTypes.StayEnquiryRingMissed,
     ];
 
     [Fact]
