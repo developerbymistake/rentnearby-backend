@@ -27,6 +27,8 @@ public class PublicTripDto
     public WhenDto When { get; set; } = new();
     public int Days { get; set; }
     public string JoinGender { get; set; } = "A";
+    // "public" | "bike" | "car" | "taxi" (PostTravelModes); null = not set, the app shows no chip.
+    public string? TravelMode { get; set; }
     public int Seats { get; set; }
     public int SeatsLeft { get; set; }
     public string Text { get; set; } = string.Empty;
@@ -60,6 +62,8 @@ public class CreatePublicTripRequest
     public DateOnly? StartDate { get; set; }
     public int Days { get; set; }
     public string JoinGender { get; set; } = "A";
+    // Optional: "public" | "bike" | "car" | "taxi"; null or absent = not set. PUT replaces the stored value.
+    public string? TravelMode { get; set; }
     public int Seats { get; set; }
     public string Text { get; set; } = string.Empty;
 }
@@ -71,6 +75,8 @@ public class UpdatePublicPostRequest
     public DateOnly? StartDate { get; set; }
     public int Days { get; set; }
     public string JoinGender { get; set; } = "A";
+    // Optional: "public" | "bike" | "car" | "taxi"; null or absent = not set. PUT replaces the stored value.
+    public string? TravelMode { get; set; }
     public int Seats { get; set; }
     public string Text { get; set; } = string.Empty;
 }

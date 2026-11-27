@@ -94,6 +94,7 @@ public static class SocialFeatureModel
                 t.HasCheckConstraint("ck_trips_seats", "\"Seats\" IS NULL OR \"Seats\" BETWEEN 1 AND 11");
                 t.HasCheckConstraint("ck_trips_postdays", "\"PostDays\" IS NULL OR \"PostDays\" BETWEEN 1 AND 11");
                 t.HasCheckConstraint("ck_trips_postwindow", "\"PostWindowMonths\" IS NULL OR \"PostWindowMonths\" BETWEEN 1 AND 6");
+                t.HasCheckConstraint("ck_trips_posttravelmode", $"\"PostTravelMode\" IS NULL OR \"PostTravelMode\" IN ({PostTravelModes.SqlList})");
                 t.HasCheckConstraint("ck_trips_public_fields",
                     "NOT \"IsPublic\" OR (\"PublishedAt\" IS NOT NULL AND \"Seats\" IS NOT NULL AND \"PostDays\" IS NOT NULL)");
             });
@@ -105,6 +106,7 @@ public static class SocialFeatureModel
             e.Property(x => x.Seats).HasColumnType("smallint");
             e.Property(x => x.PostCityNames).HasColumnType("text[]").HasDefaultValueSql("'{}'::text[]").IsRequired();
             e.Property(x => x.PostStateName).HasMaxLength(SocialLimits.HomeStateMax);
+            e.Property(x => x.PostTravelMode).HasMaxLength(PostTravelModes.MaxLength);
             e.Property(x => x.InactiveByPlan).HasDefaultValue(false);
             e.Property(x => x.PausedByPlan).HasDefaultValue(false);
             e.HasIndex(x => new { x.PublishedAt, x.Id }, "ix_trips_public").IsDescending(true, true).HasFilter("\"IsPublic\"");

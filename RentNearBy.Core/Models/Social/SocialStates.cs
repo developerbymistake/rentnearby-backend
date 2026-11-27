@@ -45,6 +45,32 @@ public static class JoinGenders
     }
 }
 
+// Trips.PostTravelMode: how the poster plans to travel, one value per post (owner 2026-11-27). Null = not set (posts made
+// before the field, or by an older app): the app shows no chip.
+public static class PostTravelModes
+{
+    public const string Public = "public";
+    public const string Bike = "bike";
+    public const string Car = "car";
+    public const string Taxi = "taxi";
+    public const int MaxLength = 6;
+
+    public static readonly IReadOnlyList<string> All = [Public, Bike, Car, Taxi];
+    public static readonly string SqlList = SocialSqlList.List(All);
+
+    // Feed filter `travel`: any (default, every post) | public | bike | car | taxi.
+    public const string FilterAny = "any";
+
+    public static bool IsValid(string? mode) => mode is null || All.Contains(mode);
+
+    // true = a known value; code = the travel mode to match, null = every post.
+    public static bool TryFilter(string? travel, out string? code)
+    {
+        code = travel is not null && All.Contains(travel) ? travel : null;
+        return travel is null or FilterAny || code is not null;
+    }
+}
+
 public static class FollowStatuses
 {
     public const string Accepted = "A";

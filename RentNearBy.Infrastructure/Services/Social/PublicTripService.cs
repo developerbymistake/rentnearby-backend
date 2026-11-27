@@ -16,7 +16,9 @@ using static RentNearBy.Infrastructure.Services.Social.SocialSql;
 
 namespace RentNearBy.Infrastructure.Services.Social;
 
-public sealed record PostFields(string WhenKind, int? WithinMonths, DateOnly? StartDate, int Days, string JoinGender, int Seats, string Text);
+// TravelMode: a PostTravelModes value or null (not set).
+public sealed record PostFields(
+    string WhenKind, int? WithinMonths, DateOnly? StartDate, int Days, string JoinGender, int Seats, string Text, string? TravelMode);
 
 // Contract 2.4: a public post IS a Trip row. Create (a Draft trip with zero days), publish / edit an own trip, unpublish.
 public sealed class PublicTripService(
@@ -40,6 +42,7 @@ public sealed class PublicTripService(
         if (f.Days is < 1 or > SocialLimits.PostDaysMax) return "days";
         if (!JoinGenders.All.Contains(f.JoinGender)) return "joinGender";
         if (!SocialRules.IsValidSeats(f.Seats)) return "seats";
+        if (!PostTravelModes.IsValid(f.TravelMode)) return "travelMode";
         var text = (f.Text ?? string.Empty).Trim();
         if (text.Length is 0 or > SocialLimits.PostTextMax) return "text";
         return null;
@@ -76,7 +79,7 @@ public sealed class PublicTripService(
                 .FirstOrDefaultAsync(ct) is { } replayId)
             return await AnswerAsync(me, replayId, ct);
 
-        var fields = new PostFields(r.WhenKind, r.WithinMonths, r.StartDate, r.Days, r.JoinGender, r.Seats, r.Text);
+        var fields = new PostFields(r.WhenKind, r.WithinMonths, r.StartDate, r.Days, r.JoinGender, r.Seats, r.Text, r.TravelMode);
         var limits = await seekerLimits.GetAsync(me, ct);
         var checkd = await CheckAsync(me, fields, limits, ct);
         if (!checkd.Ok) return BuddyResult<PublicTripDto>.Fail(checkd.ErrorType!, checkd.ErrorData);
@@ -193,6 +196,7 @@ public sealed class PublicTripService(
         trip.PostDays = (short)f.Days;
         trip.JoinGender = f.JoinGender;
         trip.Seats = (short)f.Seats;
+        trip.PostTravelMode = f.TravelMode;
         if (f.WhenKind == SocialRules.WhenKindExact)
         {
             trip.PostWindowMonths = null;
@@ -234,7 +238,7 @@ public sealed class PublicTripService(
 
     public async Task<BuddyResult<PublicTripDto>> PutPostAsync(Guid me, Guid tripId, UpdatePublicPostRequest r, CancellationToken ct = default)
     {
-        var fields = new PostFields(r.WhenKind, r.WithinMonths, r.StartDate, r.Days, r.JoinGender, r.Seats, r.Text);
+        var fields = new PostFields(r.WhenKind, r.WithinMonths, r.StartDate, r.Days, r.JoinGender, r.Seats, r.Text, r.TravelMode);
         var trip = await db.Trips.FirstOrDefaultAsync(t => t.Id == tripId && t.OwnerUserId == me, ct);
         if (trip is null) return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.TripNotFound);
         if (trip.Status == TripStatuses.Completed) return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.TripNotPostable);

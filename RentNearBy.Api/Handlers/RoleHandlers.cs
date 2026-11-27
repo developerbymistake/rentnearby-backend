@@ -318,6 +318,10 @@ public static class RoleHandlers
         if (user.RoleConfirmedAt == null)
             return BadRequestResponse("Select your role first.", "RoleNotConfirmed");
 
+        // An old app or a direct call cannot bypass the removed Change role row of a Traveller.
+        if (!RoleChangeRules.CanRequestChange(user.RoleId))
+            return ForbiddenResponse(RoleChangeRules.NotAllowedMessage, RoleChangeRules.NotAllowedErrorType);
+
         var role = await FindActiveRoleAsync(request.Role, unitOfWork, cache);
         if (role == null)
             return BadRequestResponse("Unknown or inactive role.", "InvalidRole");

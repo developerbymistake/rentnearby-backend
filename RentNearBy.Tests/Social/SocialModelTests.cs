@@ -77,7 +77,7 @@ public class SocialModelTests
         AssertChecks(Entity<TripJoinRequest>(m), "ck_tripjoinrequests_not_self", "ck_tripjoinrequests_status");
         AssertChecks(Entity<ChatRoom>(m), "ck_chatrooms_kind", "ck_chatrooms_status", "ck_chatrooms_pair");
         AssertChecks(Entity<ChatRoomMember>(m), "ck_chatmembers_bucket", "ck_chatmembers_unread");
-        AssertChecks(Entity<Trip>(m), "ck_trips_joingender", "ck_trips_public_fields");
+        AssertChecks(Entity<Trip>(m), "ck_trips_joingender", "ck_trips_public_fields", "ck_trips_posttravelmode");
         AssertChecks(Entity<TripMember>(m), "ck_tripmembers_joinedvia");
     }
 
@@ -86,10 +86,23 @@ public class SocialModelTests
     {
         var m = Model();
         var trip = Entity<Trip>(m);
-        foreach (var c in new[] { "IsPublic", "PublishedAt", "PostText", "PostDays", "PostWindowMonths", "PostStartMonth", "JoinGender", "Seats", "PostCityNames", "PostStateName" })
+        foreach (var c in new[] { "IsPublic", "PublishedAt", "PostText", "PostDays", "PostWindowMonths", "PostStartMonth", "JoinGender", "Seats", "PostCityNames", "PostStateName", "PostTravelMode" })
             Assert.NotNull(trip.FindProperty(c));
         Assert.NotNull(Entity<TripMember>(m).FindProperty("JoinedVia"));
         Assert.NotNull(Entity<ListingReport>(m).FindProperty("MessageSeq"));
+    }
+
+    // Social next 1: one optional travel mode per post, a short code held to the four known values.
+    [Fact]
+    public void Trip_travel_mode_is_an_optional_checked_short_code()
+    {
+        var trip = Entity<Trip>(Model());
+        var p = trip.FindProperty(nameof(Trip.PostTravelMode))!;
+        Assert.True(p.IsNullable);
+        Assert.Equal(RentNearBy.Core.Models.Social.PostTravelModes.MaxLength, p.GetMaxLength());
+        Assert.Null(p.GetDefaultValueSql());
+        var check = trip.GetCheckConstraints().Single(c => c.Name == "ck_trips_posttravelmode").Sql;
+        Assert.Equal("\"PostTravelMode\" IS NULL OR \"PostTravelMode\" IN ('public', 'bike', 'car', 'taxi')", check);
     }
 
     // Spec 23.9: the name rule column (nullable: null = never changed since onboarding) and the admin name audit.

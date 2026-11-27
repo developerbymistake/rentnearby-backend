@@ -199,7 +199,7 @@ public class BuddyModelTests
             "StartDate", "Status", "Title", "UpdatedAt", "xmin",
             // CONTRACT_SOCIAL D1: a public post is the Trips row (post columns); PLAN_STATES_SOCIAL: the plan pause flags.
             "InactiveByPlan", "IsPublic", "JoinGender", "PausedByPlan", "PostCityNames", "PostDays", "PostStartMonth", "PostStateName",
-            "PostText", "PostWindowMonths", "PublishedAt", "Seats",
+            "PostText", "PostTravelMode", "PostWindowMonths", "PublishedAt", "Seats",
         ];
         Assert.Equal(expected.OrderBy(n => n, StringComparer.Ordinal), columns);
     }

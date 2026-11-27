@@ -1653,6 +1653,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     Seats = table.Column<short>(type: "smallint", nullable: true),
                     PostCityNames = table.Column<string[]>(type: "text[]", nullable: false, defaultValueSql: "'{}'::text[]"),
                     PostStateName = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: true),
+                    PostTravelMode = table.Column<string>(type: "character varying(6)", maxLength: 6, nullable: true),
                     InactiveByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     PausedByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
@@ -1665,6 +1666,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.CheckConstraint("ck_trips_citykey_positive", "\"CityKey\" > 0");
                     table.CheckConstraint("ck_trips_joingender", "\"JoinGender\" IN ('A', 'M', 'F')");
                     table.CheckConstraint("ck_trips_postdays", "\"PostDays\" IS NULL OR \"PostDays\" BETWEEN 1 AND 11");
+                    table.CheckConstraint("ck_trips_posttravelmode", "\"PostTravelMode\" IS NULL OR \"PostTravelMode\" IN ('public', 'bike', 'car', 'taxi')");
                     table.CheckConstraint("ck_trips_postwindow", "\"PostWindowMonths\" IS NULL OR \"PostWindowMonths\" BETWEEN 1 AND 6");
                     table.CheckConstraint("ck_trips_public_fields", "NOT \"IsPublic\" OR (\"PublishedAt\" IS NOT NULL AND \"Seats\" IS NOT NULL AND \"PostDays\" IS NOT NULL)");
                     table.CheckConstraint("ck_trips_seats", "\"Seats\" IS NULL OR \"Seats\" BETWEEN 1 AND 11");

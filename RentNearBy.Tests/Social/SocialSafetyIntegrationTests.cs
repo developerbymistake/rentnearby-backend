@@ -334,12 +334,12 @@ public class SocialSafetyIntegrationTests(TestDatabase db) : IntegrationTestBase
             Assert.Equal(FollowStates.Requested, (await Follows(ctx).FollowAsync(viewer, owner)).Value!.State);
         }
         await using (var read = CreateContext())
-            Assert.DoesNotContain((await new PublicTripReader(read, TimeProvider.System).FeedAsync(viewer, null, 20, null, null, null, default)).Items,
+            Assert.DoesNotContain((await new PublicTripReader(read, TimeProvider.System).FeedAsync(viewer, null, 20, null, null, null, null, default)).Items,
                 x => x.TripId == trip);
         await using (var ctx = CreateContext())
             Assert.True((await Follows(ctx).AcceptRequestAsync(owner, viewer)).Ok);
         await using (var read = CreateContext())
-            Assert.Contains((await new PublicTripReader(read, TimeProvider.System).FeedAsync(viewer, null, 20, null, null, null, default)).Items,
+            Assert.Contains((await new PublicTripReader(read, TimeProvider.System).FeedAsync(viewer, null, 20, null, null, null, null, default)).Items,
                 x => x.TripId == trip);
     }
 
