@@ -87,6 +87,8 @@ public class TripViewerProjectionTests
             "FirstTravellers", "Legs", "Days", "Stay", "Taxi", "ProgressPercent", "Expenses", "UpdatedAt",
             // CONTRACT_SOCIAL 2.5: a member who joined by request sees stay, taxi and money only from the start date.
             "DetailsLocked",
+            // Trip compaction (Buddy_resume/trip_compaction/CONTRACT.md): archived flag and the kept summary.
+            "Archived", "Summary",
         ];
         Assert.Equal(expected.OrderBy(x => x), typeof(TripViewerDto).GetProperties().Select(p => p.Name).OrderBy(x => x));
         Assert.Equal(["Name", "PhotoUrl", "Username"], typeof(TripOwnerRefDto).GetProperties().Select(p => p.Name).OrderBy(x => x));

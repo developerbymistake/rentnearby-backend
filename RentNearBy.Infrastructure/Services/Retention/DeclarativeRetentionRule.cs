@@ -8,7 +8,12 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Services.Retention;
 
 // Lives in Infrastructure (not Core) because it names ApplicationDbContext.
-public sealed record RetentionContext(ApplicationDbContext Db, DateTime NowUtc, DateTime CutoffUtc, DateOnly TodayIst, DateOnly CutoffDate, int Days);
+// DryRun and Log are set by the executor (DryRun only for an IDryRunRetentionRule).
+public sealed record RetentionContext(ApplicationDbContext Db, DateTime NowUtc, DateTime CutoffUtc, DateOnly TodayIst, DateOnly CutoffDate, int Days)
+{
+    public bool DryRun { get; init; }
+    public Microsoft.Extensions.Logging.ILogger? Log { get; init; }
+}
 
 public interface IRetentionRule
 {
@@ -25,6 +30,12 @@ public interface IRetentionRule
 }
 
 public interface IRetentionRuleSource { IEnumerable<IRetentionRule> Create(); }
+
+// A rule that can run as a dry run (counts only, writes nothing). Retention:Rules:{Name}:DryRun overrides DefaultDryRun.
+public interface IDryRunRetentionRule : IRetentionRule
+{
+    bool DefaultDryRun { get; }
+}
 
 public static class RetentionSqlParams
 {

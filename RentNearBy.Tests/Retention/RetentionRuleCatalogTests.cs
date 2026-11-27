@@ -16,6 +16,8 @@ public class RetentionRuleCatalogTests
         "BuddyRequests", "UserNotices", "TripPaymentsEnded", "TripMemberInvites",
         "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats", "TaxiDayOffs",
         "TripJoinRequests", "MessageSnapshots", "DirectChatRooms",
+        // Trip compaction (an UPDATE of old finished trips, not a delete; dry run by default).
+        "TripCompaction",
     };
 
     // Never auto-deleted (owner list), so no declarative rule may name them as its table.

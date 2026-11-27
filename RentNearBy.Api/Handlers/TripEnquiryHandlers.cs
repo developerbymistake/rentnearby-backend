@@ -118,6 +118,7 @@ public static class TripEnquiryHandlers
         ITripNotifier notifier, IRateLimitService rateLimiter, IMemoryCache cache, ILoggerFactory loggers, HttpContext http,
         IOutboxWriter outbox)
     {
+        if (TripArchive.IsArchived(trip)) return TripHandlers.TripArchivedResponse();
         if (trip.Status == TripStatuses.Completed)
             return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
 

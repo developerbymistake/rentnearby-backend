@@ -159,6 +159,11 @@ public class TripDto
     public DateTime? CompletedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    // Trip compaction (CONTRACT.md): always present. Archived = the plan was removed 90 days after the end; Plan is then the
+    // empty default plan, Summary carries what is kept and LegCities come from Summary.Cities.
+    public bool Archived { get; set; }
+    public DateTime? ArchivedAt { get; set; }
+    public TripArchiveSummary? Summary { get; set; }
 }
 
 // A saved journey as the trip shows it (Getting there / Coming back).
@@ -238,6 +243,9 @@ public class TripSummaryDto
     public DateTime? MutedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    // Trip compaction: always present; no summary object in the list (pages stay small), LegCities come from the summary.
+    public bool Archived { get; set; }
+    public DateTime? ArchivedAt { get; set; }
 }
 
 public class TripCitySupplyDto

@@ -132,9 +132,11 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
 
     // Trips with an open row (TripBookingStates.IsOpenForCompletion), an active taxi request (partial index
     // ux_taxirequests_active_trip, same IN list) or an active taxi booking never reach the page, so they cannot pin it.
+    // An archived trip (trip compaction) never auto-completes: its plan is "{}", so the untouched check would read a fake plan.
     public static readonly string AutoCompleteCandidatesSql = $"""
         SELECT t."Id" AS "Value" FROM "Trips" t
         WHERE t."Status" = @planned AND t."EndDate" IS NOT NULL AND t."EndDate" <= @endBefore
+          AND t."ArchivedAt" IS NULL
           AND (@after::uuid IS NULL OR t."Id" > @after::uuid)
           AND NOT EXISTS (SELECT 1 FROM "TripEnquiries" e
                           WHERE e."TripId" = t."Id"
@@ -176,7 +178,7 @@ public class TripRepository(ApplicationDbContext context) : Repository<Trip>(con
 
     private async Task<int> CompleteIfNothingOpenAsync(Guid id, DateTime nowUtc)
         => await _dbSet
-            .Where(t => t.Id == id && t.Status == TripStatuses.Planned)
+            .Where(t => t.Id == id && t.Status == TripStatuses.Planned && t.ArchivedAt == null)
             .Where(t => !_context.Set<TaxiRequest>().Any(r => r.TripId == t.Id
                 && (r.Status == RequestStates.Open || r.Status == RequestStates.Collecting || r.Status == RequestStates.Selected
                     || r.Status == RequestStates.Booked || r.Status == RequestStates.InProgress)))

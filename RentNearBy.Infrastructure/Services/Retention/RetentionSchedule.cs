@@ -25,6 +25,8 @@ public static class RetentionSchedule
         "NotificationEvents", "UserNotices", "NotificationLogs", "TripPushLogs",
         "OutboxMessages", "TripReminderRuns", "TripShortlistItems",
         "BuddyRequests", "TripMemberInvites", "TripPaymentsEnded",
+        // Trip compaction (UPDATE of old finished trips) runs after the quick housekeeping deletes above.
+        "TripCompaction",
         "Sessions", "AdminSessions", "StayJobs", "BannerDismissals",
         "DeviceTokens", "AdminDeviceTokens",
         "DueActions", "TaxiRequests",

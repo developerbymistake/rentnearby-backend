@@ -14,14 +14,18 @@ public static class TripGuards
 
     // ---------- trip not completed ----------
 
-    public static IResult? TripNotCompleted(Trip trip) => trip.Status == TripStatuses.Completed ? CompletedError() : null;
+    // An archived (compacted) trip answers TripArchived first: its plan is gone, so no forward move can work on it.
+    public static IResult? TripNotCompleted(Trip trip)
+        => TripArchive.IsArchived(trip) ? TripHandlers.TripArchivedResponse()
+            : trip.Status == TripStatuses.Completed ? CompletedError() : null;
 
     // One query by trip id; a null trip id (trip-less row) is not blocked.
     public static async Task<IResult?> TripNotCompletedAsync(ApplicationDbContext db, Guid? tripId)
     {
         if (tripId is not { } id) return null;
-        var status = await db.Trips.AsNoTracking().Where(t => t.Id == id).Select(t => t.Status).FirstOrDefaultAsync();
-        return status == TripStatuses.Completed ? CompletedError() : null;
+        var row = await db.Trips.AsNoTracking().Where(t => t.Id == id).Select(t => new { t.Status, t.ArchivedAt }).FirstOrDefaultAsync();
+        if (row?.ArchivedAt != null) return TripHandlers.TripArchivedResponse();
+        return row?.Status == TripStatuses.Completed ? CompletedError() : null;
     }
 
     private static IResult CompletedError()

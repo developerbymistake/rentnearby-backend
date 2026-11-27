@@ -50,7 +50,7 @@ public static class AccountDeletionCoverage
         new("RoleChangeRequests", DeletionModes.Cascade, "Users cascade."),
         new("SavedJourneys", DeletionModes.Cascade, "Users cascade."),
         new("UserPlans", DeletionModes.Cascade, "Active rows are cancelled first, then the Users cascade deletes them."),
-        new("Trips", DeletionModes.Cascade, "His own trips close (owners are told) and go with the Users cascade."),
+        new("Trips", DeletionModes.Cascade, "His own trips close (owners are told) and go with the Users cascade; an archived trip's SummaryJson (title, cities, place and stay names, counts) goes with its row."),
         new("TaxiRequests", DeletionModes.Cascade, "Users cascade on TravellerUserId; open requests are blockers before that."),
         new("Buddies", DeletionModes.Cascade | DeletionModes.Participant, "Users cascade on both ends; BuddyAccountDeletion runs first."),
         new("BuddyRequests", DeletionModes.Cascade | DeletionModes.Participant, "Users cascade on both ends; BuddyAccountDeletion runs first."),

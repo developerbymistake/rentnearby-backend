@@ -94,6 +94,8 @@ public static class TaxiRequestHandlers
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
         if (await CheckTripOwnerAsync(db, tripId, userId, ct) is { } denied) return denied;
+        // Trip compaction: a new request needs the plan, which an archived trip no longer has.
+        if (await db.Trips.AsNoTracking().AnyAsync(t => t.Id == tripId && t.ArchivedAt != null, ct)) return TripHandlers.TripArchivedResponse();
         if (await ValidateAsync(validator, body) is { } invalid) return invalid;
         return await RespondAsync(await service.CreateAsync(tripId, userId, body, ct), views, http, ct);
     }

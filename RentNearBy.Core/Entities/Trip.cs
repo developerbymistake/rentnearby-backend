@@ -46,6 +46,10 @@ public class Trip
     // ends (beyond the Free active-trips limit). PausedByPlan: the post was taken off by the plan and comes back with Plus.
     public bool InactiveByPlan { get; set; }
     public bool PausedByPlan { get; set; }
+    // Trip compaction (TripCompactionRule): set once, 90 days after EndDate. PlanJson is then "{}" and SummaryJson holds the
+    // small TripArchiveSummary (jsonb). Never cleared; CompletionCountedAt and Users.CompletedTripsCount are never touched by it.
+    public DateTime? ArchivedAt { get; set; }
+    public string? SummaryJson { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

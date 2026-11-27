@@ -42,6 +42,9 @@ public static class TripViewerProjection
     {
         var trip = s.Trip;
         var plan = s.Plan;
+        // Trip compaction: the plan is gone, so no legs or days; the route line and the summary come from SummaryJson.
+        var archived = TripArchive.IsArchived(trip);
+        var summary = archived ? TripArchive.Read(trip.SummaryJson) : null;
         return new TripViewerDto
         {
             TripId = trip.Id,
@@ -49,20 +52,22 @@ public static class TripViewerProjection
             Status = trip.Status,
             Role = s.Role,
             Owner = new TripOwnerRefDto { Name = s.OwnerName, Username = s.OwnerUsername, PhotoUrl = s.OwnerPhotoUrl },
-            LegCities = plan.Legs is { Count: > 0 } ? plan.LegCities : [trip.CityName],
+            LegCities = TripArchive.LegCities(trip, plan, summary),
             DayCount = trip.DayCount,
             SpotCount = trip.SpotCount,
             StartDate = trip.StartDate,
             EndDate = trip.EndDate,
             TravellerCount = s.TravellerCount,
             FirstTravellers = s.FirstTravellers.Take(3).Select(c => new TravellerChipDto { UserId = c.UserId, Initial = c.Initial, Name = c.Name, PhotoUrl = c.PhotoUrl }).ToList(),
-            Legs = Legs(trip, plan),
-            Days = Days(trip, plan),
+            Legs = archived ? [] : Legs(trip, plan),
+            Days = archived ? [] : Days(trip, plan),
             Stay = Stay(plan, trip, s.Enquiries),
             Taxi = Taxi(s.Enquiries, s.TaxiRequest),
             ProgressPercent = Progress(trip, plan, s.Enquiries, s.TaxiRequest),
             Expenses = Card(s.Money, trip.StartDate, trip.DayCount, s.TodayIst),
             UpdatedAt = trip.UpdatedAt,
+            Archived = archived,
+            Summary = summary,
         };
     }
 

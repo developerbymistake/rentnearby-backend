@@ -37,12 +37,13 @@ public sealed class RetentionOptions
     }
 
     // Config entry over the code defaults of the rule. A missing entry means enabled with DefaultDays.
-    public RetentionRuleSettings Resolve(string ruleName, int defaultDays, bool defaultEnabled)
+    // DryRun: only rules that support it read it (IDryRunRetentionRule); a missing value keeps the rule's own default.
+    public RetentionRuleSettings Resolve(string ruleName, int defaultDays, bool defaultEnabled, bool defaultDryRun = false)
     {
         Rules.TryGetValue(ruleName, out var o);
         var enabled = Enabled && (o?.Enabled ?? defaultEnabled);
         var days = Math.Max(1, o?.Days ?? defaultDays);
-        return new RetentionRuleSettings(enabled, days, o?.AllowLargeBacklog ?? false);
+        return new RetentionRuleSettings(enabled, days, o?.AllowLargeBacklog ?? false) { DryRun = o?.DryRun ?? defaultDryRun };
     }
 }
 
@@ -51,9 +52,14 @@ public sealed class RetentionRuleOptions
     public bool? Enabled { get; set; }
     public int? Days { get; set; }
     public bool AllowLargeBacklog { get; set; }
+    // Counts only, writes nothing (trip compaction; null = the rule's default, which is true for TripCompaction).
+    public bool? DryRun { get; set; }
 }
 
-public readonly record struct RetentionRuleSettings(bool Enabled, int Days, bool AllowLargeBacklog);
+public readonly record struct RetentionRuleSettings(bool Enabled, int Days, bool AllowLargeBacklog)
+{
+    public bool DryRun { get; init; }
+}
 
 public static class RetentionGroups
 {

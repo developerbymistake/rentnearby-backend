@@ -101,6 +101,7 @@ public static class TripShortlistHandlers
 
         var (trip, error) = await LoadTripAsync(tripId, callerId, unitOfWork, db);
         if (error != null) return error;
+        if (TripArchive.IsArchived(trip!)) return TripHandlers.TripArchivedResponse();
         if (trip!.Status == TripStatuses.Completed)
             return ConflictResponse("This trip is complete. Plan changes are off.", TripEnquiryErrorTypes.TripCompleted);
 

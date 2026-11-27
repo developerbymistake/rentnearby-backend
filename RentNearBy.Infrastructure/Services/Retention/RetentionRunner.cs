@@ -25,7 +25,8 @@ public sealed class RetentionRuleExecutor(RetentionOptions options, RetentionEnv
     public async Task<RetentionRuleResult> RunAsync(IRetentionRule rule, Func<int, RetentionContext> contextFactory, DateTime slotEndUtc, CancellationToken ct)
     {
         var started = env.UtcNow();
-        var settings = options.Resolve(rule.Name, rule.DefaultDays, rule.DefaultEnabled);
+        var dryRunRule = rule as IDryRunRetentionRule;
+        var settings = options.Resolve(rule.Name, rule.DefaultDays, rule.DefaultEnabled, dryRunRule?.DefaultDryRun ?? false);
         long deleted = 0;
         var batches = 0;
         var cutoff = started.AddDays(-settings.Days);
@@ -35,10 +36,12 @@ public sealed class RetentionRuleExecutor(RetentionOptions options, RetentionEnv
             if (!settings.Enabled) return Done(RetentionStatus.Disabled);
             if (started >= slotEndUtc) return Done(RetentionStatus.SlotEnd);
 
-            var ctx = contextFactory(settings.Days);
+            var ctx = contextFactory(settings.Days) with { DryRun = dryRunRule != null && settings.DryRun, Log = log };
             cutoff = ctx.CutoffUtc;
 
-            if (!rule.GuardExempt && !settings.AllowLargeBacklog)
+            // A dry run writes nothing, so the backlog guard (which protects against mass writes) does not stop it: the owner
+            // must see the real eligible count before switching the rule on.
+            if (!rule.GuardExempt && !settings.AllowLargeBacklog && !ctx.DryRun)
             {
                 var rows = await rule.EstimateTableRowsAsync(ctx, ct);
                 if (RetentionSafetyGuard.Applies(rows, options.GuardMinRows, rule.GuardExempt, settings.AllowLargeBacklog))
