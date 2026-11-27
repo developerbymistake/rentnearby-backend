@@ -15,7 +15,6 @@ public class PostNotifyReview2Tests
     {
         var poster = new PostNotifier.Poster
         {
-            AccountCreatedAt = Now.AddDays(-100),
             PublishTimes = [Now.AddDays(-1), Now.AddHours(-2), Now.AddHours(3), Now.AddHours(5)],
         };
         Assert.NotNull(PostNotifier.PublishRefusal(poster, Now));

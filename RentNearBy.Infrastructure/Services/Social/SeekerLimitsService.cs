@@ -36,20 +36,21 @@ public sealed class SeekerLimitsService(ApplicationDbContext db, IPlanCatalogCac
     }
 
     // Payment ON: the active plan's values, else the default plan's. Payment OFF: every key = max over the enabled Seeker
-    // plans, not Plus, no upgrade. A held account gets the Free numbers. A missing key reads its Free default.
+    // plans, not Plus, no upgrade. A held account gets the Free numbers; a held Plus member is never asked to buy Plus. A missing
+    // key reads its Free default.
     public static SeekerLimits Compute(IReadOnlyList<CatalogPlan> plans, Guid? activePlanId, bool paymentOn, bool held)
     {
         var defaultPlan = plans.FirstOrDefault(p => p.IsDefault);
         var canBuy = plans.Any(p => p.IsEnabled && !p.IsDefault);
-        if (held) return From(k => Value(defaultPlan, k), false, paymentOn && canBuy);
+        var active = activePlanId is { } id ? plans.FirstOrDefault(p => p.Id == id) : null;
+        var isPlus = active is { IsDefault: false };
+        if (held) return From(k => Value(defaultPlan, k), false, paymentOn && canBuy && !isPlus);
         if (!paymentOn)
         {
             var enabled = plans.Where(p => p.IsEnabled).ToList();
             return From(k => enabled.Count == 0 ? SeekerPlanKeys.FreeDefault(k) : enabled.Max(p => Value(p, k)), false, false);
         }
-        var active = activePlanId is { } id ? plans.FirstOrDefault(p => p.Id == id) : null;
         var plan = active ?? defaultPlan;
-        var isPlus = active is { IsDefault: false };
         return From(k => Value(plan, k), isPlus, !isPlus && canBuy);
     }
 

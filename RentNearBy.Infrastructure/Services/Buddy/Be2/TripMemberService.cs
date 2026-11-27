@@ -58,9 +58,14 @@ public sealed class TripMemberService(
         SELECT count(*)::int AS "Value" FROM "TripExpenseShares" WHERE "TripId" = @trip AND "UserId" = @user
         """;
 
-    internal const string IsBuddySql = $"""
-        SELECT EXISTS (SELECT 1 FROM "Buddies" b JOIN "Users" u ON u."Id" = b."BuddyUserId"
-                       WHERE b."UserId" = @me AND b."BuddyUserId" = @user AND u."IsActive" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}) AS "Value"
+    // Profile "Invite to trip" (S17): the same rule as TripInviteService.CandidatesSql: an active seeker who is my buddy or whom I
+    // follow (accepted), no block either way.
+    internal static readonly string CanInviteSql = $"""
+        SELECT EXISTS (SELECT 1 FROM "Users" u
+                       WHERE u."Id" = @user AND u."IsActive" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}
+                         AND (EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = @user)
+                              OR {SocialSql.AcceptedFollow("@me", "@user")})
+                         AND NOT {SocialSql.BlockedEitherWay("@me", "@user")}) AS "Value"
         """;
 
     private static readonly string OptionsSql = $"""
@@ -208,9 +213,9 @@ public sealed class TripMemberService(
     // S17 (2 statements).
     public async Task<SharingResult<List<TripInviteOptionDto>>> InviteOptionsAsync(Guid callerId, Guid userId, CancellationToken ct = default)
     {
-        var isBuddy = callerId != userId
-            && (await db.Database.SqlQueryRaw<bool>(IsBuddySql, Id("me", callerId), Id("user", userId)).ToListAsync(ct)).FirstOrDefault();
-        if (!isBuddy) return SharingResult<List<TripInviteOptionDto>>.Fail(BuddyErrorTypes.PersonNotFound);
+        var canInvite = callerId != userId
+            && (await db.Database.SqlQueryRaw<bool>(CanInviteSql, Id("me", callerId), Id("user", userId)).ToListAsync(ct)).FirstOrDefault();
+        if (!canInvite) return SharingResult<List<TripInviteOptionDto>>.Fail(BuddyErrorTypes.PersonNotFound);
         var now = Now;
         var rows = await db.Database.SqlQueryRaw<OptionRow>(OptionsSql,
             Id("me", callerId), Id("user", userId), Date("today", TripSharingRules.TodayIst(now))).ToListAsync(ct);

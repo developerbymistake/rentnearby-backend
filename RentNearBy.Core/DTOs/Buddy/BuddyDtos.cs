@@ -16,6 +16,8 @@ public class FoundPersonDto
     public string Relation { get; set; } = string.Empty;
     public Guid? RequestId { get; set; }
     public DateTime? ExpiresAt { get; set; }
+    // Does the caller follow this person: following | requested | none (FollowStates; I-12, the People search shows Follow).
+    public string FollowState { get; set; } = "none";
 }
 
 public class FindBuddyResponse
@@ -86,6 +88,8 @@ public class BuddyItemDto
     public string? Gender { get; set; }
     public int TripsTogether { get; set; }
     public int MutualCount { get; set; }
+    // Set only by GET /trips/{id}/invite-candidates (I-13): this person is one of my buddies (starred). False elsewhere.
+    public bool IsBuddy { get; set; }
 }
 
 public class CountedPageDto<T>

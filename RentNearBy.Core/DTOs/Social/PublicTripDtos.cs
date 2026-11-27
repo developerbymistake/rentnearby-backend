@@ -27,7 +27,7 @@ public class PublicTripDto
     public WhenDto When { get; set; } = new();
     public int Days { get; set; }
     public string JoinGender { get; set; } = "A";
-    // "public" | "bike" | "car" | "taxi" (PostTravelModes); null = not set, the app shows no chip.
+    // "taxi" | "bike" | "bus" | "train" (PostTravelModes); null = not set, the app shows no chip.
     public string? TravelMode { get; set; }
     public int Seats { get; set; }
     public int SeatsLeft { get; set; }
@@ -46,8 +46,7 @@ public class PublicTripDto
     public bool? NotifyNearby { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? NearbyNotifiedAt { get; set; }
-    // Owner's own post only (absent for others and when unlocked): the 72-hour post lock ends at this time (UTC); until then the
-    // post cannot be made private or deleted (409 PostLocked).
+    // Always absent: the post lock was removed (owner 2026-11-28, I-3); kept for old builds.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? UnlocksAt { get; set; }
     // Only on the answer of the create / publish call to the poster: what his followers and nearby travellers are told.
@@ -55,9 +54,9 @@ public class PublicTripDto
     public PostNotifyDto? Notify { get; set; }
 }
 
-// followers: sent | none (no follower wants trip news) | weekLimit (publishes silently) | alreadySent (edit or re-publish).
-// nearby: off | queued (told at the next 07:00 IST) | weekLimit | tooFar (starts after 60 days) | private (private profile) |
-// alreadySent. used / limit: notified posts in the rolling 7 days after this call; nextAllowedAt: when one more may notify.
+// followers: sent | none (no follower wants trip news) | alreadySent (edit or re-publish).
+// nearby: off | queued (told at the next 07:00 IST) | tooFar (starts after 60 days) | private (private profile) | gender |
+// alreadySent. used / limit / nextAllowedAt stay for the wire only (no weekly cap since 2026-11-28): always 0, 0, null.
 public class PostNotifyDto
 {
     public string Followers { get; set; } = "none";
@@ -88,7 +87,7 @@ public class CreatePublicTripRequest
     public DateOnly? StartDate { get; set; }
     public int Days { get; set; }
     public string JoinGender { get; set; } = "A";
-    // Optional: "public" | "bike" | "car" | "taxi"; null or absent = not set. PUT replaces the stored value.
+    // Optional: "taxi" | "bike" | "bus" | "train"; null or absent = not set. PUT replaces the stored value.
     public string? TravelMode { get; set; }
     public int Seats { get; set; }
     public string Text { get; set; } = string.Empty;
@@ -103,7 +102,7 @@ public class UpdatePublicPostRequest
     public DateOnly? StartDate { get; set; }
     public int Days { get; set; }
     public string JoinGender { get; set; } = "A";
-    // Optional: "public" | "bike" | "car" | "taxi"; null or absent = not set. PUT replaces the stored value.
+    // Optional: "taxi" | "bike" | "bus" | "train"; null or absent = not set. PUT replaces the stored value.
     public string? TravelMode { get; set; }
     public int Seats { get; set; }
     public string Text { get; set; } = string.Empty;

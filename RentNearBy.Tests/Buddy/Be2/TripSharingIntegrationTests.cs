@@ -330,6 +330,25 @@ public class TripSharingIntegrationTests(TestDatabase db) : IntegrationTestBase(
         Assert.Equal(InviteOptions.InviteSent, Assert.Single(invitee.Value!).Option);
     }
 
+    // B7: profile "Invite to trip" uses the TripInviteService rule: a buddy OR someone I follow (accepted), active seeker.
+    [IntegrationFact]
+    public async Task S17_options_for_someone_I_follow_and_PersonNotFound_for_a_pending_follow()
+    {
+        await using var ctx = CreateContext();
+        await SeedSharedTripAsync(ctx, 3);
+        var people = await BuddySeed.UsersAsync(ctx, 2);
+        ctx.Set<RentNearBy.Core.Entities.Social.Follow>().AddRange(
+            new RentNearBy.Core.Entities.Social.Follow
+                { FollowerId = _owner, FolloweeId = people[0], Status = RentNearBy.Core.Models.Social.FollowStatuses.Accepted, CreatedAt = DateTime.UtcNow },
+            new RentNearBy.Core.Entities.Social.Follow
+                { FollowerId = _owner, FolloweeId = people[1], Status = RentNearBy.Core.Models.Social.FollowStatuses.Requested, CreatedAt = DateTime.UtcNow });
+        await ctx.SaveChangesAsync();
+        var followed = await Members(ctx).InviteOptionsAsync(_owner, people[0]);
+        Assert.True(followed.Ok, followed.ErrorType);
+        Assert.NotEmpty(followed.Value!);
+        Assert.Equal(BuddyErrorTypes.PersonNotFound, (await Members(ctx).InviteOptionsAsync(_owner, people[1])).ErrorType);
+    }
+
     [IntegrationFact]
     public async Task Block_participant_cancels_waiting_invites_both_ways_and_keeps_joined()
     {

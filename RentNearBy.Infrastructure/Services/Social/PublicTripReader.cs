@@ -14,9 +14,18 @@ namespace RentNearBy.Infrastructure.Services.Social;
 // one grouped mutuals statement.
 public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock)
 {
+    // A post still fresh: not started (IST day, needs @today) and inside its "within N months" window.
+    public static string FreshPost(string t) =>
+        $"""({t}."StartDate" IS NULL OR {t}."StartDate" >= @today) AND ({t}."PostWindowMonths" IS NULL OR {t}."PublishedAt" + make_interval(months => {t}."PostWindowMonths"::int) >= now())""";
+
     // A live post (contract 1.5). Needs @today (IST date). The owner side (active seeker with a profile) is the joins of SelectSql.
     public static string LivePost(string t) =>
-        $"""{t}."IsPublic" AND {t}."Status" IN ('{TripStatuses.Draft}', '{TripStatuses.Planned}') AND ({t}."StartDate" IS NULL OR {t}."StartDate" >= @today) AND ({t}."PostWindowMonths" IS NULL OR {t}."PublishedAt" + make_interval(months => {t}."PostWindowMonths"::int) >= now())""";
+        $"""{t}."IsPublic" AND {t}."Status" IN ('{TripStatuses.Draft}', '{TripStatuses.Planned}') AND {FreshPost(t)}""";
+
+    // A post for the Active trips count (owner 2026-11-28, I-3): live, or paused by the plan and still fresh (SeekerPlanChoice.IsPost).
+    // An expired or stale-paused post is a normal trip again. Needs @today.
+    public static string HeldPost(string t) =>
+        $"""({t}."IsPublic" OR {t}."PausedByPlan") AND {t}."Status" IN ('{TripStatuses.Draft}', '{TripStatuses.Planned}') AND {FreshPost(t)}""";
 
     // What a non-owner viewer may see: live, not his, no block, private owner only when he follows (any join gender).
     private static readonly string ViewerFilter = $"""
@@ -201,7 +210,7 @@ public sealed class PublicTripReader(ApplicationDbContext db, TimeProvider clock
             // The poster's own post page: "Nearby travellers will be told tomorrow morning" until the 07:00 digest ran.
             NotifyNearby = isMine ? r.NotifyNearby : null,
             NearbyNotifiedAt = isMine && r.NearbyNotifiedAt is { } told ? Utc(told) : null,
-            // The poster's own post: "You can remove this post on <date>" while the 72-hour lock runs (PostLockRules).
+            // Always null: no post lock any more (PostLockRules.UnlocksAt); kept for old builds.
             UnlocksAt = isMine && r.IsPublic
                 ? PostLockRules.UnlocksAt(new PostLockState(r.IsPublic, r.PublishedAt, r.LastPublishedAt, r.TripStatus, r.StartDate, r.EndDate,
                     r.PostWindowMonths), nowUtc)

@@ -117,6 +117,20 @@ public static class BuddyHandlers
         return page is null ? BuddyHttp.TripNotFound() : OkResponse(page);
     }
 
+    // Owner 2026-11-28 (I-13): GET /trips/{id}/invite-candidates, the people I follow for the trip invite page (buddies first).
+    public static async Task<IResult> GetInviteCandidates(
+        Guid id, ClaimsPrincipal principal, [Microsoft.AspNetCore.Mvc.FromServices] BuddyListService lists, IRateLimitService limiter,
+        HttpContext http, CancellationToken ct, string? cursor = null, int? limit = null)
+    {
+        if (!BuddyHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
+        if (!BuddyHttp.TryNameCursor(cursor, out var key) || (key is { } k && !BuddyListService.TrySplitCandidateCursor(k, out _, out _)))
+            return BuddyHttp.BadCursor();
+        if (await BuddyHttp.ReadLimitAsync(limiter, http, BuddyRateLimitKeys.BuddyRead(me)) is { } denied) return denied;
+        var take = BuddyHttp.ClampLimit(limit, BuddyLimits.BuddiesPageDefault, BuddyLimits.BuddiesPageMax);
+        var page = await lists.InviteCandidatesAsync(me, id, key, take, ct);
+        return page is null ? BuddyHttp.TripNotFound() : OkResponse(page);
+    }
+
     public static async Task<IResult> Seen(
         BuddySeenRequest request, IValidator<BuddySeenRequest> validator, ClaimsPrincipal principal,
         BuddyListService lists, IRateLimitService limiter, HttpContext http, CancellationToken ct)

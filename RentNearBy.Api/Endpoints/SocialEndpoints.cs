@@ -31,7 +31,6 @@ public static class SocialEndpoints
         group.MapGet("/trips/{tripId:guid}", PublicTripHandlers.Get).SeekerOnly();
         group.MapPost("/trips", PublicTripHandlers.Create).SeekerOnly();
         group.MapPut("/trips/{tripId:guid}/post", PublicTripHandlers.PutPost).SeekerOnly();
-        group.MapDelete("/trips/{tripId:guid}/post", PublicTripHandlers.DeletePost).SeekerOnly();
 
         group.MapPost("/trips/{tripId:guid}/join-requests", JoinHandlers.Send).SeekerOnly();
         group.MapDelete("/trips/{tripId:guid}/join-requests/mine", JoinHandlers.CancelMine).SeekerOnly();

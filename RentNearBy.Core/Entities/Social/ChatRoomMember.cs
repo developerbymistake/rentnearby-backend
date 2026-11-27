@@ -10,6 +10,8 @@ public class ChatRoomMember
     public string ListBucket { get; set; } = "P";
     public long ClearedUpToSeq { get; set; }
     public long JoinedSeq { get; set; }
+    // Messages this member sent in the room (never lowered by the 24 h purge); a Free member may send one (owner 2026-11-28).
+    public int SentCount { get; set; }
     public DateTime? LeftAt { get; set; }
     public DateTime SortAt { get; set; }
 }

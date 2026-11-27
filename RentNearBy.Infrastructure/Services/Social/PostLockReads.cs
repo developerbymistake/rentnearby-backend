@@ -6,9 +6,9 @@ using static RentNearBy.Infrastructure.Services.Social.SocialSql;
 
 namespace RentNearBy.Infrastructure.Services.Social;
 
-// 72-hour post lock (PostLockRules): the lock fields of one trip and its other joined travellers (the owner has no member row).
-// Callers hold the trip row lock (TripHandlers.Delete: TripGuards.LockTripAsync; PublicTripService.UnpublishAsync: FOR UPDATE
-// here), and every join (accept, invite accept) takes the same row lock, so the count cannot change under the check.
+// Delete rule (PostLockRules): the rule fields of one trip and its other joined travellers (the owner has no member row).
+// The delete path holds the trip row lock (TripHandlers.Delete: TripGuards.LockTripAsync; lockRow: true takes it here), and
+// every join (accept, invite accept) takes the same row lock, so the count cannot change under the check.
 public static class PostLockReads
 {
     internal static readonly string ReadSql = $"""

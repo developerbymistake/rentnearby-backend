@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Models.Social;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 
@@ -14,7 +15,8 @@ public sealed class BuddyFindService(ApplicationDbContext db)
         SELECT u."Id" AS "UserId", COALESCE(u."Name", '') AS "Name", u."Username", u."ProfilePhotoUrl" AS "PhotoUrl",
                EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = u."Id") AS "IsBuddy",
                r."Id" AS "ReqId", r."Status" AS "ReqStatus", r."CreatedAt" AS "ReqCreatedAt", r."ExpiresAt" AS "ReqExpiresAt",
-               r."BlockedSender" AS "ReqBlockedSender", p."Id" AS "TheirPendingId", now() AS "Now"
+               r."BlockedSender" AS "ReqBlockedSender", p."Id" AS "TheirPendingId", now() AS "Now",
+               (SELECT f."Status" FROM "Follows" f WHERE f."FollowerId" = @me AND f."FolloweeId" = u."Id") AS "FollowStatus"
         FROM "Users" u
         LEFT JOIN LATERAL (
           SELECT x."Id", x."Status", x."CreatedAt", x."ExpiresAt", x."BlockedSender"
@@ -51,6 +53,12 @@ public sealed class BuddyFindService(ApplicationDbContext db)
                 UserId = r.UserId, Name = r.Name, Username = r.Username, Initial = MoneyPeople.Initial(r.Name),
                 PhotoUrl = CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace),
                 Relation = relation.Relation, RequestId = relation.RequestId, ExpiresAt = relation.ExpiresAt,
+                FollowState = r.FollowStatus switch
+                {
+                    FollowStatuses.Accepted => FollowStates.Following,
+                    FollowStatuses.Requested => FollowStates.Requested,
+                    _ => FollowStates.None,
+                },
             },
         };
     }
@@ -69,5 +77,6 @@ public sealed class BuddyFindService(ApplicationDbContext db)
         public bool? ReqBlockedSender { get; set; }
         public Guid? TheirPendingId { get; set; }
         public DateTime Now { get; set; }
+        public string? FollowStatus { get; set; }
     }
 }

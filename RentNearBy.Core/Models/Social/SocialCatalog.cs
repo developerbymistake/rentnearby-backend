@@ -4,7 +4,7 @@ namespace RentNearBy.Core.Models.Social;
 public static class SocialCatalog
 {
     public static readonly IReadOnlyList<string> Interests =
-        ["Mountains", "Treks", "Beaches", "Adventure", "Food", "Culture", "Photography", "Spiritual", "Road trips", "Camping"];
+        ["Mountains", "Treks", "Adventure", "Food", "Culture", "Spiritual", "Road trips", "Camping"];
 
     public static readonly IReadOnlyList<string> Skills =
         ["Photographer", "Driver", "Cook", "Tour guide", "Content creator", "First aid"];

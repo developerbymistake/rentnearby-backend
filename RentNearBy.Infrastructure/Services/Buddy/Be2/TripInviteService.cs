@@ -19,9 +19,12 @@ public sealed class TripInviteService(
     ApplicationDbContext db, INoticeWriter notices, IBuddyLiveHints hints, TimeProvider clock, ILogger<TripInviteService> logger,
     ISeekerLimits seekerLimits, ITripGroupChat groupChat, SocialAfterCommit afterCommit)
 {
+    // Owner 2026-11-28 (I-13): anyone the owner follows (accepted) or has as a buddy may be invited; the column keeps its name,
+    // NotBuddy now means "not someone you follow".
     internal static readonly string CandidatesSql = $"""
         SELECT x.id AS "UserId", (u."Id" IS NOT NULL) AS "Exists", COALESCE(u."IsActive" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}, FALSE) AS "IsActive",
-               EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @owner AND b."BuddyUserId" = x.id) AS "IsBuddy",
+               (EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @owner AND b."BuddyUserId" = x.id)
+                OR {SocialSql.AcceptedFollow("@owner", "x.id")}) AS "IsBuddy",
                EXISTS (SELECT 1 FROM "UserBlocks" k
                        WHERE (k."BlockerId" = @owner AND k."BlockedId" = x.id)
                           OR (k."BlockerId" = x.id AND k."BlockedId" = @owner)) AS "Blocked",
@@ -188,8 +191,8 @@ public sealed class TripInviteService(
             var trip = await LockTripAsync(db, first.TripId, c);
             if (trip is null) return EndedResult<TripJoinedDto>(null);
             // PLAN_STATES_SOCIAL 1: a trip kept inactive after its owner's Plus ended is read-only; joining it is a write (409, the
-            // invite keeps waiting and works again once the owner's trip is active).
-            if (trip.InactiveByPlan)
+            // invite keeps waiting and works again once the owner's trip is active). A post paused by the plan is read-only too.
+            if (trip.InactiveByPlan || trip.PausedByPlan)
                 return SharingResult<TripJoinedDto>.Fail(SocialErrorTypes.TripInactiveByPlan,
                     new { limit = (await seekerLimits.GetAsync(trip.OwnerUserId, c)).ActiveTrips }, SocialErrorTypes.StatusOf(SocialErrorTypes.TripInactiveByPlan));
             var row = await ReadInviteLeanAsync(db, memberId, c);

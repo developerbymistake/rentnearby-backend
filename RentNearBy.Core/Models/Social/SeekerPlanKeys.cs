@@ -17,7 +17,7 @@ public static class SeekerPlanKeys
 
     private static readonly Dictionary<string, (int Free, int Plus)> Seeds = new()
     {
-        [ActiveTrips] = (1, 10),
+        [ActiveTrips] = (1, 6), // owner 2026-11-28 (I-3): posts not counted, Plus 6 (was 10)
         [PublicTrips] = (1, 3),
         [JoinRequestsPerMonth] = (1, 5),
         [NewChatsPerMonth] = (3, 10), // spec 23.2 (2026-11-27): Plus 10 a month, was 15

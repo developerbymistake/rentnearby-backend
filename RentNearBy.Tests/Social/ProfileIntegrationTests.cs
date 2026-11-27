@@ -33,7 +33,7 @@ public class ProfileIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
     private static SocialOnboardingRequest Onboarding(int birthYear = 1995) => new()
     {
         Gender = SocialGenders.Female, BirthMonth = 5, BirthYear = birthYear, Interests = ["Mountains", "Treks", "Food"],
-        Skills = ["Photographer"], Places = ["Manali"], About = "Hills over beaches. Chai at every stop.",
+        Skills = ["Photographer", "Driver"], Places = ["Manali"], About = "Hills over beaches. Chai at every stop.",
     };
 
     private async Task<Guid> AccountAsync()

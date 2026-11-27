@@ -32,7 +32,8 @@ public class TripSharingRouteTests
             "GET /api/v1/trips/shared", "GET /api/v1/trips/slots", "GET /api/v1/trips/invite-options", "GET /api/v1/trips/invites/{memberId:guid}",
             "POST /api/v1/trips/invites/{memberId:guid}/accept", "POST /api/v1/trips/invites/{memberId:guid}/decline",
             "GET /api/v1/trips/{id:guid}/members", "DELETE /api/v1/trips/{id:guid}/members/{userId:guid}",
-            "GET /api/v1/trips/{id:guid}/members/{userId:guid}/expense-count", "POST /api/v1/trips/{id:guid}/invites",
+            "GET /api/v1/trips/{id:guid}/members/{userId:guid}/expense-count", "GET /api/v1/trips/{id:guid}/invite-candidates",
+            "POST /api/v1/trips/{id:guid}/invites",
             "DELETE /api/v1/trips/{id:guid}/invites/{userId:guid}", "POST /api/v1/trips/{id:guid}/leave", "GET /api/v1/trips/{id:guid}/view",
         ];
         var endpoints = Endpoints();

@@ -56,8 +56,7 @@ public sealed class SeekerPlanReconcile(
                                 WHERE up."UserId" = t."OwnerUserId" AND up."FeatureKey" = '{PlanFeatures.Seeker}'
                                   AND NOT pl."IsDefault" AND up."StartsAt" <= t."CreatedAt")) AS "Grandfathered",
                t."InactiveByPlan", t."IsPublic", t."PausedByPlan",
-               ((t."StartDate" IS NULL OR t."StartDate" >= @today)
-                AND (t."PostWindowMonths" IS NULL OR t."PublishedAt" + make_interval(months => t."PostWindowMonths"::int) >= now())) AS "Fresh"
+               ({PublicTripReader.FreshPost("t")}) AS "Fresh"
         FROM "Trips" t LEFT JOIN "UserProfiles" p ON p."UserId" = t."OwnerUserId"
         WHERE t."OwnerUserId" = @me
           AND (t."Status" IN ('{TripStatuses.Draft}', '{TripStatuses.Planned}') OR t."InactiveByPlan" OR t."PausedByPlan")
@@ -93,7 +92,7 @@ public sealed class SeekerPlanReconcile(
         """;
 
     internal static readonly string CountsSql = $"""
-        SELECT count(*) FILTER (WHERE t."Status" IN ('{TripStatuses.Draft}', '{TripStatuses.Planned}') AND NOT t."InactiveByPlan")::int AS "Active",
+        SELECT count(*) FILTER (WHERE t."Status" IN ('{TripStatuses.Draft}', '{TripStatuses.Planned}') AND NOT t."InactiveByPlan" AND NOT t."PausedByPlan")::int AS "Active",
                count(*) FILTER (WHERE t."InactiveByPlan" OR t."PausedByPlan")::int AS "Paused"
         FROM "Trips" t WHERE t."OwnerUserId" = @me
         """;
@@ -174,7 +173,7 @@ public sealed class SeekerPlanReconcile(
         return (rows, SeekerPlanChoice.Choose(rows, limits.ActiveTrips, limits.PublicTrips));
     }
 
-    // Numbers of the end notice: open trips that stay active, trips inactive or with a paused post.
+    // Numbers of the end notice: open trips and live posts that stay active, trips inactive or with a paused post.
     public static async Task<SeekerPlanCounts> CountsAsync(ApplicationDbContext db, Guid userId, CancellationToken ct = default)
     {
         var row = (await db.Database.SqlQueryRaw<CountsRow>(CountsSql, Uuid("me", userId)).ToListAsync(ct))[0];

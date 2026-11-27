@@ -277,6 +277,11 @@ public class TripLimitIntegrationTests(TestDatabase db) : IntegrationTestBase(db
             await BuddySeed.MembersAsync(ctx, trip, me, [viewer]);
             await BuddySeed.ExpensesAsync(ctx, trip, me, 1, [me, viewer]);
         }
+        // I-3: a joined traveller blocks the delete first; once he left, the open balance still does.
+        Assert.Equal(RentNearBy.Core.Models.Social.SocialErrorTypes.RemoveMembersFirst, ErrorOf(await DeleteAsync(h, trip, me)).Type);
+        await using (var ctx = CreateContext())
+            await ctx.Set<TripMember>().Where(m => m.TripId == trip).ExecuteUpdateAsync(x => x
+                .SetProperty(m => m.Status, TripMemberStatuses.Left).SetProperty(m => m.EndedAt, DateTime.UtcNow));
         var refused = await DeleteAsync(h, trip, me);
         Assert.Equal(409, StatusOf(refused));
         Assert.Equal(BuddyErrorTypes.TripHasOpenBalances, ErrorOf(refused).Type);
@@ -338,6 +343,55 @@ public class TripLimitIntegrationTests(TestDatabase db) : IntegrationTestBase(db
         await using var ctx = CreateContext();
         Assert.Equal(1, await ctx.Trips.CountAsync(t => t.OwnerUserId == me && t.ClientTripId == id));
         Assert.Equal(3, await CountAsync(me));
+    }
+
+    // I-3 (owner 2026-11-28): a public post (live or paused by the plan) holds no active-trip slot; a normal trip does.
+    [IntegrationFact]
+    public async Task A_post_holds_no_active_trip_slot()
+    {
+        await using var h = new JourneyHarness(Db);
+        var me = await h.AddSeekerAsync();
+        await FillAsync(me, 2, 0);
+        await using (var ctx = CreateContext())
+        {
+            var posts = await ctx.Trips.Where(t => t.OwnerUserId == me).Select(t => t.Id).ToListAsync();
+            await ctx.Trips.Where(t => t.Id == posts[0]).ExecuteUpdateAsync(x => x
+                .SetProperty(t => t.IsPublic, true).SetProperty(t => t.PublishedAt, DateTime.UtcNow)
+                .SetProperty(t => t.Seats, (short)4).SetProperty(t => t.PostDays, (short)3));
+            await ctx.Trips.Where(t => t.Id == posts[1]).ExecuteUpdateAsync(x => x
+                .SetProperty(t => t.PausedByPlan, true).SetProperty(t => t.PublishedAt, DateTime.UtcNow)
+                .SetProperty(t => t.Seats, (short)4).SetProperty(t => t.PostDays, (short)3));
+        }
+        Assert.Equal(0, await CountAsync(me));
+        Assert.Equal(201, StatusOf(await CreateAsync(h, me)));
+        Assert.Equal(1, await CountAsync(me));
+    }
+
+    // B1: an expired post (start day passed, or its "within N months" window ended) and a stale paused one count as trips again.
+    [IntegrationFact]
+    public async Task An_expired_or_stale_paused_post_holds_a_slot_again()
+    {
+        await using var h = new JourneyHarness(Db);
+        var me = await h.AddSeekerAsync();
+        await FillAsync(me, 3, 0);
+        var today = IstTime.TodayIst(DateTime.UtcNow);
+        await using (var ctx = CreateContext())
+        {
+            var ids = await ctx.Trips.Where(t => t.OwnerUserId == me).Select(t => t.Id).ToListAsync();
+            await ctx.Trips.Where(t => t.Id == ids[0]).ExecuteUpdateAsync(x => x
+                .SetProperty(t => t.IsPublic, true).SetProperty(t => t.PublishedAt, DateTime.UtcNow.AddDays(-20))
+                .SetProperty(t => t.StartDate, today.AddDays(-1)).SetProperty(t => t.PostWindowMonths, (short?)null)
+                .SetProperty(t => t.Seats, (short)4).SetProperty(t => t.PostDays, (short)3));
+            await ctx.Trips.Where(t => t.Id == ids[1]).ExecuteUpdateAsync(x => x
+                .SetProperty(t => t.PausedByPlan, true).SetProperty(t => t.PublishedAt, DateTime.UtcNow.AddMonths(-3))
+                .SetProperty(t => t.StartDate, (DateOnly?)null).SetProperty(t => t.PostWindowMonths, (short?)1)
+                .SetProperty(t => t.Seats, (short)4).SetProperty(t => t.PostDays, (short)3));
+            await ctx.Trips.Where(t => t.Id == ids[2]).ExecuteUpdateAsync(x => x
+                .SetProperty(t => t.IsPublic, true).SetProperty(t => t.PublishedAt, DateTime.UtcNow)
+                .SetProperty(t => t.StartDate, (DateOnly?)null).SetProperty(t => t.PostWindowMonths, (short?)2)
+                .SetProperty(t => t.Seats, (short)4).SetProperty(t => t.PostDays, (short)3));
+        }
+        Assert.Equal(2, await CountAsync(me));   // the fresh live post alone is left out
     }
 
     // Seeds `rows` owned trips (3 or 30): the read is one statement, at most `limit` rows, real total.

@@ -54,8 +54,8 @@ public class Trip
     public DateTime? NotifiedAt { get; set; }
     public bool NotifyNearby { get; set; }
     public DateTime? NearbyNotifiedAt { get; set; }
-    // 72-hour post lock (PostLockRules): set on EVERY owner publish (first publish and each re-publish). PublishedAt cannot be
-    // used because bump protection keeps it for 7 days. Null on rows published before the column existed (PublishedAt is used).
+    // The latest owner publish (first publish and each re-publish), read by the nearby digest. PublishedAt cannot be used because
+    // bump protection keeps it for 7 days. Null on rows published before the column existed (PublishedAt is used).
     public DateTime? LastPublishedAt { get; set; }
     // Trip compaction (TripCompactionRule): set once, 90 days after EndDate. PlanJson is then "{}" and SummaryJson holds the
     // small TripArchiveSummary (jsonb). Never cleared; CompletionCountedAt and Users.CompletedTripsCount are never touched by it.

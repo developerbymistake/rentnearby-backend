@@ -178,11 +178,15 @@ public class SaveTripRequestValidator : AbstractValidator<SaveTripRequest>
         public TripSettingsValidator()
         {
             RuleFor(s => s.Adults)
-                .InclusiveBetween(1, 30).WithMessage("Adults must be 1 to 30")
+                .GreaterThanOrEqualTo(1).WithMessage(TripExecutionValidation.AdultsMessage)
                 .When(s => s.Adults != null);
             RuleFor(s => s.Kids)
-                .InclusiveBetween(0, 20).WithMessage("Kids must be 0 to 20")
+                .GreaterThanOrEqualTo(0).WithMessage(TripExecutionValidation.KidsMessage)
                 .When(s => s.Kids != null);
+            RuleFor(s => s)
+                .Must(s => TripExecutionValidation.PeopleFit(s.Adults, s.Kids)).WithMessage(TripExecutionValidation.PeopleMessage)
+                .OverridePropertyName("Kids")
+                .When(s => s.Adults != null || s.Kids != null);
             RuleFor(s => s.MaxDays)
                 .InclusiveBetween(1, TripLimits.MaxDays).WithMessage(PlanTripRequestValidator.MaxDaysMessage)
                 .When(s => s.MaxDays != null);

@@ -125,11 +125,9 @@ public class PostNotifyIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         return created.Value!;
     }
 
-    // The owner may make a post private only 72 hours after its latest publish (PostLockRules): age the lock, never the feed time.
+    // No post lock any more (owner 2026-11-28, I-3): the owner makes a post private at once.
     private static async Task UnpublishAfterLockAsync(ApplicationDbContext ctx, Guid owner, Guid tripId)
     {
-        await ctx.Trips.Where(t => t.Id == tripId)
-            .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastPublishedAt, DateTime.UtcNow - PostLockRules.Lock - TimeSpan.FromMinutes(1)));
         var done = await Posts(ctx).UnpublishAsync(owner, tripId);
         Assert.True(done.Ok, done.ErrorType);
     }
@@ -222,7 +220,9 @@ public class PostNotifyIntegrationTests(TestDatabase db) : IntegrationTestBase(d
     // ------------------------------------------------------------------ caps (use cases 3, 25, 26, 30, 31)
 
     [IntegrationFact]
-    public async Task Two_notified_posts_a_week_then_silent_posts_and_a_fifth_publish_is_refused_without_refunds()
+    // I-2 (owner 2026-11-28): no weekly notified-post cap; every new post tells followers and may queue nearby. Only the publish
+    // cap (4 per rolling 7 days) stays, never refunded.
+    public async Task Every_post_notifies_and_a_fifth_publish_is_refused_without_refunds()
     {
         var poster = await PersonAsync();
         var fan = await PersonAsync();
@@ -232,14 +232,15 @@ public class PostNotifyIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         var p3 = await CreateAsync(poster, Post(nearby: true));
         Assert.Equal(PostNotifyStates.Sent, p1.Notify!.Followers);
         Assert.Equal(PostNotifyStates.Sent, p2.Notify!.Followers);
-        Assert.Equal((PostNotifyStates.WeekLimit, PostNotifyStates.WeekLimit, 2), (p3.Notify!.Followers, p3.Notify.Nearby, p3.Notify.Used));
-        Assert.NotNull(p3.Notify.NextAllowedAt);
-        Assert.Empty(await NoticedAsync(NoticeKinds.FollowedPosted, p3.TripId)); // the post is live, nobody is told
+        Assert.Equal((PostNotifyStates.Sent, PostNotifyStates.Queued), (p3.Notify!.Followers, p3.Notify.Nearby));
+        Assert.Equal((0, 0), (p3.Notify.Used, p3.Notify.Limit));
+        Assert.Null(p3.Notify.NextAllowedAt);
+        Assert.Equal([fan], await NoticedAsync(NoticeKinds.FollowedPosted, p3.TripId));
 
-        // Taking a post down never refunds a notify or a publish.
+        // Taking a post down never refunds a publish.
         await using (var ctx = CreateContext()) await UnpublishAfterLockAsync(ctx, poster, p1.TripId);
         var p4 = await CreateAsync(poster, Post());
-        Assert.Equal(PostNotifyStates.WeekLimit, p4.Notify!.Followers);
+        Assert.Equal(PostNotifyStates.Sent, p4.Notify!.Followers);
         await using (var ctx = CreateContext()) await UnpublishAfterLockAsync(ctx, poster, p2.TripId);
         await using (var ctx = CreateContext())
         {
@@ -247,20 +248,20 @@ public class PostNotifyIntegrationTests(TestDatabase db) : IntegrationTestBase(d
             Assert.Equal(SocialErrorTypes.PublishLimit, fifth.ErrorType);
             Assert.Equal(429, SocialErrorTypes.StatusOf(fifth.ErrorType!));
             var me = await Profiles(ctx).GetMeAsync(poster);
-            Assert.Equal((2, 2, 4, 4), (me.Limits.NotifyPosts.Limit, me.Limits.NotifyPosts.Used, me.Limits.Publishes.Limit, me.Limits.Publishes.Used));
+            Assert.Equal((0, 0, 4, 4), (me.Limits.NotifyPosts.Limit, me.Limits.NotifyPosts.Used, me.Limits.Publishes.Limit, me.Limits.Publishes.Used));
             Assert.NotNull(me.Limits.PublishNextAt);
         }
     }
 
     [IntegrationFact]
-    public async Task A_new_account_notifies_once_on_its_first_day()
+    public async Task A_new_account_is_not_capped_on_its_first_day()
     {
         var poster = await PersonAsync(oldAccount: false);
         var fan = await PersonAsync();
         await FollowAsync(fan, poster);
         Assert.Equal(PostNotifyStates.Sent, (await CreateAsync(poster, Post())).Notify!.Followers);
         var second = await CreateAsync(poster, Post());
-        Assert.Equal((PostNotifyStates.WeekLimit, 1), (second.Notify!.Followers, second.Notify.Limit));
+        Assert.Equal((PostNotifyStates.Sent, 0), (second.Notify!.Followers, second.Notify.Limit));
     }
 
     // ------------------------------------------------------------------ nearby digest (use cases 2, 4, 5, 6, 7, 8, 11, 13, 14)
@@ -511,7 +512,7 @@ public class PostNotifyIntegrationTests(TestDatabase db) : IntegrationTestBase(d
     }
 
     [IntegrationFact]
-    public async Task A_double_tap_on_publish_charges_one_publish_and_one_notified_post()
+    public async Task A_double_tap_on_publish_charges_one_publish_and_notifies_once()
     {
         var poster = await PersonAsync();
         var post = await CreateAsync(poster, Post());                       // no followers, toggle off: nothing told yet
@@ -525,7 +526,7 @@ public class PostNotifyIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         await using var check = CreateContext();
         var profile = await check.Set<UserProfile>().AsNoTracking().SingleAsync(p => p.UserId == poster);
         Assert.Equal(2, profile.PublishTimes.Length);                       // create + ONE re-publish
-        Assert.Single(profile.NotifiedPostTimes);                           // the nearby toggle counted once
+        Assert.True((await check.Trips.AsNoTracking().SingleAsync(t => t.Id == post.TripId)).NotifyNearby); // queued once
     }
 
     [IntegrationFact]

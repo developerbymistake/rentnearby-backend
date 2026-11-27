@@ -10,6 +10,14 @@ public static class TripExecutionValidation
     public const int MaxNights = TripLimits.MaxDays;
     public const string PhonePattern = @"^[6-9]\d{9}$";
     public const string PhoneMessage = "Enter a 10 digit phone";
+
+    // Owner 2026-11-28 (I-7): adults + kids together at most 12 (the biggest taxi), at least 1 adult.
+    public const int MaxPeople = 12;
+    public const string PeopleMessage = "Up to 12 people (adults and kids)";
+    public const string AdultsMessage = "Add at least 1 adult";
+    public const string KidsMessage = "Kids cannot be below 0";
+
+    public static bool PeopleFit(int? adults, int? kids) => (long)(adults ?? 1) + (kids ?? 0) <= MaxPeople;
 }
 
 public class CreateTripEnquiryRequestValidator : AbstractValidator<CreateTripEnquiryRequest>
@@ -172,8 +180,11 @@ public class ChangeRequestRequestValidator : AbstractValidator<ChangeRequestRequ
             .Must(x => x.CheckOut.DayNumber - x.CheckIn.DayNumber <= TripExecutionValidation.MaxNights)
             .WithMessage($"Nights must be at most {TripExecutionValidation.MaxNights}")
             .OverridePropertyName("CheckOut");
-        RuleFor(x => x.Adults).InclusiveBetween(1, 30).WithMessage("Adults must be 1 to 30");
-        RuleFor(x => x.Kids).InclusiveBetween(0, 20).WithMessage("Kids must be 0 to 20");
+        RuleFor(x => x.Adults).GreaterThanOrEqualTo(1).WithMessage(TripExecutionValidation.AdultsMessage);
+        RuleFor(x => x.Kids).GreaterThanOrEqualTo(0).WithMessage(TripExecutionValidation.KidsMessage);
+        RuleFor(x => x)
+            .Must(x => TripExecutionValidation.PeopleFit(x.Adults, x.Kids)).WithMessage(TripExecutionValidation.PeopleMessage)
+            .OverridePropertyName("Kids");
         RuleFor(x => x.Rooms).InclusiveBetween(1, 15).WithMessage("Rooms must be 1 to 15");
         RuleFor(x => x.Note)
             .Must(v => v == null || v.Length <= TripExecutionRules.NoteMax)

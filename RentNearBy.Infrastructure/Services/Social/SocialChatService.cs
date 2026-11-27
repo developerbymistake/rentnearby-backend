@@ -73,7 +73,7 @@ public sealed class SocialChatService(
 
     private static readonly string RoomSelect = $"""
         SELECT r."Id" AS "RoomId", r."Kind", r."Status", r."RequestedByUserId", r."LastSeq", r."LastPreview", r."LastMessageAt", r."TripId",
-               r."BlockedAt", mm."LastReadSeq", mm."UnreadCount", mm."SortAt", mm."LeftAt",
+               r."BlockedAt", mm."LastReadSeq", mm."UnreadCount", mm."SortAt", mm."LeftAt", mm."SentCount",
                peer."Id" AS "PeerId", COALESCE(peer."Name", '') AS "PeerName", peer."Username" AS "PeerUsername",
                peer."ProfilePhotoUrl" AS "PeerPhoto", pp."HomeCityName" AS "PeerHomeCity", pp."Gender" AS "PeerGender", pm."LastReadSeq" AS "PeerLastReadSeq",
                (peer."Id" IS NOT NULL AND {AcceptedFollow("peer.\"Id\"", "@me")}) AS "PeerFollowsMe",
@@ -112,7 +112,7 @@ public sealed class SocialChatService(
         var limits = await seekerLimits.GetAsync(me, ct);
         return new RoomsPageDto
         {
-            Items = page.Select(r => ToRoom(r, me, limits.IsPlus, limits.GroupChat)).ToList(),
+            Items = page.Select(r => ToRoom(r, me, limits.IsPlus, TripFree(limits), DirectFree(limits))).ToList(),
             NextCursor = KeysetCursor.EncodeLast(page, rows.Count > limit, r => r.SortAt, r => r.RoomId),
             Unread = await UnreadAsync(db, me, ct),
         };
@@ -123,23 +123,24 @@ public sealed class SocialChatService(
         var r = (await db.Database.SqlQueryRaw<RoomRow>(RoomSelect + ByIdFilter, Uuid("me", me), Uuid("room", roomId)).ToListAsync(ct)).FirstOrDefault();
         if (r is null) return null;
         var limits = await seekerLimits.GetAsync(me, ct);
-        return ToRoom(r, me, limits.IsPlus, limits.GroupChat);
+        return ToRoom(r, me, limits.IsPlus, TripFree(limits), DirectFree(limits));
     }
 
     public async Task<ChatRoomDto?> TripRoomAsync(Guid me, Guid tripId, CancellationToken ct = default)
     {
         var r = (await db.Database.SqlQueryRaw<RoomRow>(RoomSelect + ByTripFilter, Uuid("me", me), Uuid("trip", tripId)).ToListAsync(ct)).FirstOrDefault();
         if (r is null) return null;
-        return ToRoom(r, me, false, (await seekerLimits.GetAsync(me, ct)).GroupChat);
+        var limits = await seekerLimits.GetAsync(me, ct);
+        return ToRoom(r, me, limits.IsPlus, TripFree(limits), DirectFree(limits));
     }
 
-    internal static ChatRoomDto ToRoom(RoomRow r, Guid me, bool isPlus, bool groupChat = true)
+    internal static ChatRoomDto ToRoom(RoomRow r, Guid me, bool isPlus, bool groupChat = true, bool? directFree = null)
     {
         var direct = r.Kind == ChatKinds.Direct;
         var iStarted = direct && r.RequestedByUserId == me;
         // A starter never learns of a decline: he keeps seeing his request.
         var status = r.Status == ChatRoomStatuses.Declined ? ChatRoomStatuses.Request : r.Status;
-        var locked = LockOf(r.Kind, r.Status, iStarted, r.LastSeq, r.LeftAt != null, isPlus, groupChat);
+        var locked = LockOf(r.Kind, r.Status, iStarted, r.LastSeq, r.LeftAt != null, isPlus, groupChat, r.SentCount, directFree);
         return new ChatRoomDto
         {
             RoomId = r.RoomId,
@@ -166,19 +167,31 @@ public sealed class SocialChatService(
         };
     }
 
-    // awaitingReply: a FREE starter of a Request room after his first message (a Plus starter is not locked); left: trip room left,
-    // or a Direct room the caller declined (contract 2.6: the decliner cannot message for 30 days; the starter never learns of it).
-    // plus (owner 2026-11-27): a trip room member without the SeekerGroupChat switch reads only (Plus prompt in place of the composer).
-    public static string LockOf(string kind, string status, bool iStarted, long lastSeq, bool left, bool isPlus, bool groupChat = true)
+    // left: trip room left, or a Direct room the caller declined (contract 2.6: the decliner cannot message for 30 days; the starter
+    // never learns of it). plus (owner 2026-11-28, I-9): a Free member sent his one message in this room (Direct: not Plus; Trip: no
+    // SeekerGroupChat switch); a reply never unlocks it. awaitingReply: a starter of a Direct request after his first message
+    // (not Plus), or of a declined one (no leak); it holds even when Plus cannot be bought. directFree (default isPlus) decides
+    // only the plus lock: DirectFree(limits).
+    public static string LockOf(string kind, string status, bool iStarted, long lastSeq, bool left, bool isPlus, bool groupChat = true, int sentCount = 0,
+        bool? directFree = null)
     {
         if (left) return ChatLocks.Left;
-        if (kind == ChatKinds.Trip && !groupChat) return ChatLocks.Plus;
         if (kind == ChatKinds.Direct && status == ChatRoomStatuses.Declined && !iStarted) return ChatLocks.Left;
+        if (!SendsFreely(kind, directFree ?? isPlus, groupChat) && sentCount >= SocialLimits.FreeMessagesPerRoom) return ChatLocks.Plus;
         if (kind == ChatKinds.Direct && iStarted && lastSeq >= 1
             && (status == ChatRoomStatuses.Declined || (status == ChatRoomStatuses.Request && !isPlus)))
             return ChatLocks.AwaitingReply;
         return ChatLocks.None;
     }
+
+    // Plus sends freely: a Direct room by the plan, a trip group room by the SeekerGroupChat switch. Everyone else sends one message.
+    public static bool SendsFreely(string kind, bool isPlus, bool groupChat) => kind == ChatKinds.Trip ? groupChat : isPlus;
+
+    // Direct rooms send freely on Plus, and also when Plus cannot be bought (payment off or no plan), so the lock is never a dead end.
+    public static bool DirectFree(SeekerLimits limits) => limits.IsPlus || !limits.CanUpgrade;
+
+    // Trip group rooms the same way: the SeekerGroupChat switch, or Plus cannot be bought.
+    public static bool TripFree(SeekerLimits limits) => limits.GroupChat || !limits.CanUpgrade;
 
     // ------------------------------------------------------------------ start (POST /chat/rooms) and preflight
 
@@ -284,7 +297,7 @@ public sealed class SocialChatService(
             if (roomId == Guid.Empty) return (Room: (Guid?)null, Error: (BuddyResult<ChatMessageDto>?)null);
             await db.Database.ExecuteSqlRawAsync(InsertPairMembersSql,
                 [Uuid("room", roomId), Uuid("me", me), Uuid("him", him), Text("hisBucket", free ? ChatBuckets.People : ChatBuckets.Requests)], c);
-            var sent = await SendInTxAsync(me, roomId, clientMessageId, clean, myName, limits.IsPlus, limits.GroupChat, c);
+            var sent = await SendInTxAsync(me, roomId, clientMessageId, clean, myName, limits.IsPlus, DirectFree(limits), TripFree(limits), c);
             if (!sent.Ok) return (Room: (Guid?)roomId, Error: sent);
             await tx.CommitAsync(c);
             return (Room: (Guid?)roomId, Error: sent);
@@ -346,6 +359,13 @@ public sealed class SocialChatService(
         WHERE r."Id" = @room AND {MemberOf("r.\"Id\"")}
         """;
 
+    // Under the room row lock taken by BumpSql. No row = a Free member already sent his one message here.
+    private static readonly string CountSendSql = $"""
+        UPDATE "ChatRoomMembers" m SET "SentCount" = m."SentCount" + 1
+        WHERE m."RoomId" = @room AND m."UserId" = @me AND m."LeftAt" IS NULL AND (@unlimited OR m."SentCount" < {SocialLimits.FreeMessagesPerRoom})
+        RETURNING m."SentCount" AS "Value"
+        """;
+
     private static readonly string InsertMessageSql = $"""
         INSERT INTO "ChatMessages" ("RoomId", "Seq", "SenderId", "ClientMessageId", "Body", "Masked", "CreatedAt", "ExpiresAt")
         SELECT @room, @seq, @me, @client, @body, @masked, now(), now() + make_interval(secs => @life)
@@ -390,14 +410,13 @@ public sealed class SocialChatService(
         var replay = await ReplayAsync(me, roomId, clientMessageId, ct);
         if (replay != null) return BuddyResult<ChatMessageDto>.Success(replay);
         var limits = await seekerLimits.GetAsync(me, ct);
-        var isPlus = limits.IsPlus;
         var myName = await MyNameAsync(me, ct);
         var result = await PgRetry.OnceAsync(db, async c =>
         {
             afterCommit.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(c);
             await db.Database.ExecuteSqlRawAsync("SET LOCAL lock_timeout = '3s'", c);
-            var sent = await SendInTxAsync(me, roomId, clientMessageId, clean, myName, isPlus, limits.GroupChat, c);
+            var sent = await SendInTxAsync(me, roomId, clientMessageId, clean, myName, limits.IsPlus, DirectFree(limits), TripFree(limits), c);
             if (sent.Ok) await tx.CommitAsync(c);
             return sent;
         }, ct, logger);
@@ -423,16 +442,16 @@ public sealed class SocialChatService(
         return r is null ? null : ToMessage(r);
     }
 
-    // Inside the caller's transaction. Hub events, unread counts and the wake go to SocialAfterCommit.
+    // Inside the caller's transaction. Hub events, unread counts and the wake go to SocialAfterCommit. isPlus = the real plan (the
+    // one-message-until-reply Request rule); directFree / groupChat = sends freely (DirectFree / TripFree).
     private async Task<BuddyResult<ChatMessageDto>> SendInTxAsync(
-        Guid me, Guid roomId, Guid clientMessageId, string clean, string myName, bool isPlus, bool groupChat, CancellationToken c)
+        Guid me, Guid roomId, Guid clientMessageId, string clean, string myName, bool isPlus, bool directFree, bool groupChat, CancellationToken c)
     {
         var (body, masked) = ContactMask.Apply(clean);
         if (body.Length > SocialLimits.ChatTextMax) body = body[..SocialLimits.ChatTextMax];
         var kind = (await db.Database.SqlQueryRaw<StateRow>(StateSql, Uuid("me", me), Uuid("room", roomId)).ToListAsync(c)).FirstOrDefault();
         if (kind is null) return BuddyResult<ChatMessageDto>.Fail(SocialErrorTypes.RoomNotFound);
-        // Owner 2026-11-27: a trip group line needs the SeekerGroupChat switch (Plus); refused before anything is stored.
-        if (kind.Kind == ChatKinds.Trip && !groupChat) return BuddyResult<ChatMessageDto>.Fail(SocialErrorTypes.PlusRequired);
+        var unlimited = SendsFreely(kind.Kind, directFree, groupChat);
         var preview = SocialRules.Preview(body, kind.Kind == ChatKinds.Trip ? SocialRules.FirstName(myName) : null);
 
         var bumped = (await db.Database.SqlQueryRaw<BumpRow>(BumpSql, Uuid("me", me), Uuid("room", roomId), Text("preview", preview), Bool("plus", isPlus))
@@ -441,10 +460,14 @@ public sealed class SocialChatService(
         {
             // One re-read tells the cases apart: not a member (or no longer a seeker) vs a starter waiting for a reply.
             var state = (await db.Database.SqlQueryRaw<StateRow>(StateSql, Uuid("me", me), Uuid("room", roomId)).ToListAsync(c)).FirstOrDefault();
-            return state is not null && state.RequestedByUserId == me && state.Status is ChatRoomStatuses.Request or ChatRoomStatuses.Declined
-                ? BuddyResult<ChatMessageDto>.Fail(SocialErrorTypes.AwaitingReply)
-                : BuddyResult<ChatMessageDto>.Fail(SocialErrorTypes.RoomNotFound);
+            if (state is null || state.RequestedByUserId != me || state.Status is not (ChatRoomStatuses.Request or ChatRoomStatuses.Declined))
+                return BuddyResult<ChatMessageDto>.Fail(SocialErrorTypes.RoomNotFound);
+            return BuddyResult<ChatMessageDto>.Fail(unlimited ? SocialErrorTypes.AwaitingReply : SocialErrorTypes.PlusRequired);
         }
+        // Owner 2026-11-28 (I-9): a Free member sends one message per room; nothing is stored past it (the transaction rolls back).
+        var sentCount = (await db.Database.SqlQueryRaw<int>(CountSendSql, Uuid("me", me), Uuid("room", roomId), Bool("unlimited", unlimited))
+            .ToListAsync(c)).FirstOrDefault();
+        if (sentCount == 0) return BuddyResult<ChatMessageDto>.Fail(SocialErrorTypes.PlusRequired);
 
         var activated = bumped.OldStatus == ChatRoomStatuses.Request && bumped.Status == ChatRoomStatuses.Active;
         var life = bumped.Status == ChatRoomStatuses.Request ? SocialLimits.RequestFirstMessageLife : SocialLimits.MessageLife;
@@ -482,9 +505,18 @@ public sealed class SocialChatService(
         var roomStatus = bumped.Status;
         afterCommit.AddRange(members.Select(u => new SocialHubEvent(u, SocialHubEventNames.DmMessage,
             new { roomId, kind = bumped.Kind, roomStatus, message })));
+        var myLock = !unlimited && sentCount >= SocialLimits.FreeMessagesPerRoom ? ChatLocks.Plus : ChatLocks.None;
         if (activated)
-            afterCommit.AddRange(members.Select(u => new SocialHubEvent(u, SocialHubEventNames.DmRoomChanged,
-                new { roomId, status = roomStatus, @lock = ChatLocks.None })));
+        {
+            // A reply never unlocks a Free starter (he already sent his one message).
+            foreach (var u in members)
+            {
+                var uLock = u == me ? myLock : DirectFree(await seekerLimits.GetAsync(u, c)) ? ChatLocks.None : ChatLocks.Plus; // batch-loop: a Direct room has 2 members
+                afterCommit.Add(new SocialHubEvent(u, SocialHubEventNames.DmRoomChanged, new { roomId, status = roomStatus, @lock = uLock }));
+            }
+        }
+        else if (myLock == ChatLocks.Plus)
+            afterCommit.Add(new SocialHubEvent(me, SocialHubEventNames.DmRoomChanged, new { roomId, status = roomStatus, @lock = myLock }));
         afterCommit.UnreadFor(receivers);
         return BuddyResult<ChatMessageDto>.Success(message);
     }
@@ -631,6 +663,7 @@ public sealed class SocialChatService(
         public int UnreadCount { get; set; }
         public DateTime SortAt { get; set; }
         public DateTime? LeftAt { get; set; }
+        public int SentCount { get; set; }
         public Guid? PeerId { get; set; }
         public string PeerName { get; set; } = string.Empty;
         public string? PeerUsername { get; set; }

@@ -52,7 +52,7 @@ public class CreatePublicTripRequestValidator : AbstractValidator<CreatePublicTr
     public CreatePublicTripRequestValidator()
     {
         RuleFor(x => x.ClientTripId).NotEqual(Guid.Empty).WithMessage("Invalid client trip id.");
-        RuleFor(x => x.CityKeys).NotNull().Must(k => k is { Count: >= 1 and <= SocialLimits.PostCitiesMax }).WithMessage("Pick 1 to 4 cities.");
+        RuleFor(x => x.CityKeys).NotNull().Must(k => k is { Count: SocialLimits.PostCreateCitiesMax }).WithMessage("Pick one city.");
         RuleFor(x => x.Text).MaximumLength(2000).WithMessage("Text is too long.");
     }
 }

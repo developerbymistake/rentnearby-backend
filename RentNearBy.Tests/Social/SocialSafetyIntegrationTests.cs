@@ -43,7 +43,7 @@ public class SocialSafetyIntegrationTests(TestDatabase db) : IntegrationTestBase
 
     private static CreatePublicTripRequest Post() => new()
     {
-        ClientTripId = Guid.NewGuid(), CityKeys = [FakeCityCatalog.Nainital, FakeCityCatalog.Almora], WhenKind = SocialRules.WhenKindWithin,
+        ClientTripId = Guid.NewGuid(), CityKeys = [FakeCityCatalog.Nainital], WhenKind = SocialRules.WhenKindWithin,
         WithinMonths = 2, Days = 4, JoinGender = JoinGenders.Anyone, Seats = 2, Text = "Looking for two easy-going trekkers.",
     };
 
@@ -394,7 +394,7 @@ public class SocialSafetyIntegrationTests(TestDatabase db) : IntegrationTestBase
             await new SocialBlockParticipant(ctx).OnBlockedAsync(p[0], p[1]);
         }
         await using (var ctx = CreateContext())
-            Assert.True((await Chat(ctx).SendAsync(p[1], room, Guid.NewGuid(), "Are you there?")).Ok);
+            Assert.True((await Chat(ctx, plus: true).SendAsync(p[1], room, Guid.NewGuid(), "Are you there?")).Ok);
         await using var check = CreateContext();
         Assert.NotNull((await check.Set<ChatRoom>().AsNoTracking().SingleAsync(r => r.Id == room)).BlockedAt);
         Assert.Equal(0, (await check.Set<ChatRoomMember>().AsNoTracking().SingleAsync(m => m.RoomId == room && m.UserId == p[0])).UnreadCount);

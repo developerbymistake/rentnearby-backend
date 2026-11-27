@@ -22,7 +22,7 @@ namespace RentNearBy.Tests.Social;
 public class SeekerPlanIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
 {
     private static readonly SeekerLimits Free = new(false, true, 1, 1, 1, 3, false, false, false);
-    private static readonly SeekerLimits Plus = new(true, false, 10, 3, 5, 10, true, true, true);
+    private static readonly SeekerLimits Plus = new(true, false, 6, 3, 5, 10, true, true, true);
 
     private sealed class SwitchLimits(SeekerLimits start) : ISeekerLimits
     {
@@ -142,8 +142,9 @@ public class SeekerPlanIntegrationTests(TestDatabase db) : IntegrationTestBase(d
             await ApplyAsync(ctx, new SwitchLimits(Free), owner);
         var after = await StateAsync(owner);
         Assert.True(after[posted[2]].Public);
-        Assert.Equal((true, false, true), after[posted[0]]);
-        Assert.Equal((true, false, true), after[posted[1]]);
+        // I-3: a post never goes inactive by the active-trip limit; the public cap pauses the older ones.
+        Assert.Equal((false, false, true), after[posted[0]]);
+        Assert.Equal((false, false, true), after[posted[1]]);
         await using (var check = CreateContext())
             Assert.Equal(JoinRequestStatuses.Expired, await check.Set<TripJoinRequest>().Where(r => r.TripId == posted[0]).Select(r => r.Status).SingleAsync());
 
@@ -237,6 +238,49 @@ public class SeekerPlanIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         Assert.Contains(hints.SocialChanged, h => h.Scope == SocialLiveScopes.Limits);
     }
 
+    // I-3 (owner 2026-11-28): a post does not take the trip place. Free: 1 trip + 1 post at once; Plus ends with 2 trips and
+    // 2 posts: the newest trip and the newest post stay, nothing else is lost; a resubscribe restores all.
+    [IntegrationFact]
+    public async Task A_post_and_a_trip_live_together_on_free_and_survive_expiry_and_resubscribe()
+    {
+        var owner = await SeekerAsync();
+        var free = new SwitchLimits(Free);
+        var trips = await TripsAsync(owner, 1);
+        Guid post;
+        await using (var ctx = CreateContext())
+        {
+            var made = await Posts(ctx, free).CreateAsync(owner, Post());
+            Assert.True(made.Ok, made.ErrorType);
+            post = made.Value!.TripId;
+            Assert.Equal(1, (await TripSlots.ReadAsync(ctx, owner, 1)).Count);          // the post holds no slot
+            Assert.False((await ApplyAsync(ctx, free, owner)).Changed);
+        }
+
+        var plus = new SwitchLimits(Plus);
+        trips.AddRange(await TripsAsync(owner, 1));
+        Guid post2;
+        await using (var ctx = CreateContext())
+        {
+            await ctx.Trips.Where(t => t.Id == trips[1]).ExecuteUpdateAsync(x => x.SetProperty(t => t.CreatedAt, t => t.CreatedAt.AddMinutes(10)));
+            var made = await Posts(ctx, plus).CreateAsync(owner, Post());
+            Assert.True(made.Ok, made.ErrorType);
+            post2 = made.Value!.TripId;
+            Assert.False((await ApplyAsync(ctx, plus, owner)).Changed);
+            var ended = await ApplyAsync(ctx, free, owner);
+            Assert.Equal(2, ended.Lost);
+            Assert.Equal(1, (await TripSlots.ReadAsync(ctx, owner, 1)).Count);
+        }
+        var after = await StateAsync(owner);
+        Assert.True(after[trips[0]].Inactive);
+        Assert.False(after[trips[1]].Inactive);
+        Assert.Equal((false, false, true), after[post]);
+        Assert.Equal((false, true, false), after[post2]);
+
+        await using (var ctx = CreateContext())
+            Assert.True((await ApplyAsync(ctx, plus, owner)).Changed);
+        Assert.All((await StateAsync(owner)).Values, x => Assert.False(x.Inactive || x.Paused));
+    }
+
     // REFUND (PLAN_STATES_SOCIAL 4): a refunded Plus ends at once and takes the rows back exactly like an expiry; buying again restores.
     [IntegrationFact]
     public async Task Refund_mid_plus_takes_the_rows_back_like_an_expiry_and_a_new_purchase_restores_them()
@@ -255,8 +299,9 @@ public class SeekerPlanIntegrationTests(TestDatabase db) : IntegrationTestBase(d
             Assert.Equal(new SeekerPlanCounts(1, 1), await SeekerPlanReconcile.CountsAsync(ctx, owner));
         }
         var after = await StateAsync(owner);
-        Assert.Equal(1, after.Values.Count(s => s.Inactive));
-        Assert.False(after[posted[1]].Inactive);
+        Assert.Equal(0, after.Values.Count(s => s.Inactive));
+        Assert.Equal((false, false, true), after[posted[0]]);
+        Assert.True(after[posted[1]].Public);
 
         await using (var ctx = CreateContext())
             Assert.True((await ApplyAsync(ctx, plus, owner)).Changed);
@@ -273,7 +318,7 @@ public class SeekerPlanIntegrationTests(TestDatabase db) : IntegrationTestBase(d
         await using var b = CreateContext();
         var results = await Task.WhenAll(Posts(a, free).CreateAsync(owner, Post()), Posts(b, free).CreateAsync(owner, Post()));
         Assert.Single(results, r => r.Ok);
-        Assert.Single(results, r => r.ErrorType is SocialErrorTypes.TripLimitReached or SocialErrorTypes.PublicTripLimit);
+        Assert.Single(results, r => r.ErrorType == SocialErrorTypes.PublicTripLimit);
         await using var check = CreateContext();
         Assert.Equal(1, await check.Trips.CountAsync(t => t.OwnerUserId == owner));
     }

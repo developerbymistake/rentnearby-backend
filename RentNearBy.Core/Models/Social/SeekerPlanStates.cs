@@ -14,16 +14,16 @@ public sealed record SeekerPlanTargets(
     public bool Changed => Inactivate.Count + Activate.Count + PausePosts.Count + RestorePosts.Count + DropPaused.Count > 0;
 }
 
-// PLAN_STATES_SOCIAL 1 (AFTER and RESUBSCRIBE) as a pure choice. The newest activeLimit open trips stay active, older ones are
-// inactive (kept, read-only); grandfathered trips are never made inactive and do not use a place. Among the active trips with a
-// fresh post (public or paused by the plan) the newest publicLimit stay public, the others are paused; a resubscribe brings
-// them back in the same order. Nothing is deleted.
+// PLAN_STATES_SOCIAL 1 (AFTER and RESUBSCRIBE) as a pure choice. The newest activeLimit open trips that are not a post stay
+// active, older ones are inactive (kept, read-only); grandfathered trips are never made inactive and do not use a place. Posts
+// (public, or a fresh one paused by the plan) never use an active place (owner 2026-11-28, I-3, same rule as TripSlots): the
+// newest publicLimit stay public, the others are paused; a resubscribe brings them back in the same order. Nothing is deleted.
 public static class SeekerPlanChoice
 {
     public static SeekerPlanTargets Choose(IReadOnlyList<SeekerPlanRow> rows, int activeLimit, int publicLimit, bool grandfather = SeekerPlanStates.Grandfathering)
     {
         var ranked = rows
-            .Where(r => r.Open && !(grandfather && r.Grandfathered))
+            .Where(r => r.Open && !(grandfather && r.Grandfathered) && !IsPost(r))
             .OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id)
             .ToList();
         var keep = ranked.Take(Math.Max(0, activeLimit)).Select(r => r.Id).ToHashSet();
@@ -48,6 +48,10 @@ public static class SeekerPlanChoice
         return new SeekerPlanTargets(inactivate, activate, pause, restore, drop,
             rows.Count(Inactive), posts.Count(r => !shown.Contains(r.Id)));
     }
+
+    // A post (the C# twin of PublicTripReader.HeldPost): public or paused by the plan, open and still fresh. An expired or stale-paused
+    // post is a trip again and takes an active place.
+    private static bool IsPost(SeekerPlanRow r) => (r.IsPublic || r.PausedByPlan) && r.Open && r.Fresh;
 }
 
 public static class SeekerPlanStates
@@ -55,7 +59,7 @@ public static class SeekerPlanStates
     // Owner decision (default, may be overruled): trips made before the first social release stay active after Plus ends.
     public const bool Grandfathering = true;
 
-    // Writes still allowed on an inactive trip: read verbs, delete the trip, leave it, remove or uninvite a member, cancel the post
+    // Writes still allowed on an inactive trip or a paused post: read verbs, delete the trip, leave it, remove or uninvite a member
     // and the money settling between travellers. Everything else is refused with TripInactiveByPlan.
     public static bool WriteAllowed(string method, string? routePattern)
     {
@@ -64,8 +68,7 @@ public static class SeekerPlanStates
         var delete = string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase);
         if (delete && (p.EndsWith("/trips/{id:guid}", StringComparison.Ordinal)
                        || p.EndsWith("/members/{userId:guid}", StringComparison.Ordinal)
-                       || p.EndsWith("/invites/{userId:guid}", StringComparison.Ordinal)
-                       || p.EndsWith("/post", StringComparison.Ordinal)))
+                       || p.EndsWith("/invites/{userId:guid}", StringComparison.Ordinal)))
             return true;
         return p.EndsWith("/leave", StringComparison.Ordinal) || p.Contains("/payments/", StringComparison.Ordinal);
     }

@@ -4,6 +4,7 @@ using RentNearBy.Core.DTOs.Buddy;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
+using RentNearBy.Core.Models.Social;
 using RentNearBy.Core.Utils;
 using RentNearBy.Infrastructure.Data;
 using RentNearBy.Infrastructure.Services.Social;
@@ -70,6 +71,44 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         """;
 
     private const string NameCursorFilter = """AND (lower(COALESCE(u."Name", '')), b."BuddyUserId") > (@name, @id)""";
+
+    // Owner 2026-11-28 (I-13), GET /trips/{id}/invite-candidates: the people I follow (accepted, active seekers, no block either
+    // way), my buddies first (Bucket 0) then by name; keyset on (Bucket, lower name, id).
+    internal static readonly string CandidatesSql = $"""
+        WITH c AS (
+          SELECT f."FolloweeId" AS "UserId", COALESCE(u."Name", '') AS "Name", lower(COALESCE(u."Name", '')) AS "LowerName",
+                 u."Username", u."ProfilePhotoUrl" AS "PhotoUrl", f."CreatedAt" AS "Since",
+                 CASE WHEN EXISTS (SELECT 1 FROM "Buddies" b WHERE b."UserId" = @me AND b."BuddyUserId" = f."FolloweeId") THEN 0 ELSE 1 END AS "Bucket"
+          FROM "Follows" f
+          JOIN "Users" u ON u."Id" = f."FolloweeId" AND u."IsActive" AND u."RoleId" = {TravellerOnly.SeekerRoleSql}
+          WHERE f."FollowerId" = @me AND f."Status" = '{FollowStatuses.Accepted}' AND f."FolloweeId" <> @me
+            AND NOT {SocialSql.BlockedEitherWay("@me", "f.\"FolloweeId\"")}),
+        page AS (
+          SELECT c.*, (SELECT count(*) FROM c)::int AS "Total" FROM c
+          WHERE TRUE /*cursor*/
+          ORDER BY c."Bucket", c."LowerName", c."UserId"
+          LIMIT @take)
+        SELECT page.*, m."Status" AS "MemberStatus", m."InviteExpiresAt", m."RespondedAt", now() AS "Now", gp."Gender"
+        FROM page
+        LEFT JOIN "TripMembers" m ON m."TripId" = @trip AND m."UserId" = page."UserId"
+        LEFT JOIN "UserProfiles" gp ON gp."UserId" = page."UserId"
+        ORDER BY page."Bucket", page."LowerName", page."UserId"
+        """;
+
+    private const string CandidateCursorFilter = """AND (c."Bucket", c."LowerName", c."UserId") > (@bucket, @name, @id)""";
+
+    // The candidate cursor reuses the name cursor; its name part starts with the bucket digit.
+    public static string CandidateCursorName(int bucket, string lowerName) => $"{bucket}{lowerName}";
+
+    public static bool TrySplitCandidateCursor((string LowerName, Guid Id) key, out int bucket, out string lowerName)
+    {
+        bucket = 0;
+        lowerName = string.Empty;
+        if (key.LowerName.Length == 0 || key.LowerName[0] is not ('0' or '1')) return false;
+        bucket = key.LowerName[0] - '0';
+        lowerName = key.LowerName[1..];
+        return true;
+    }
 
     private const string OwnsTripSql = """SELECT EXISTS (SELECT 1 FROM "Trips" t WHERE t."Id" = @trip AND t."OwnerUserId" = @me) AS "Value" """;
 
@@ -204,6 +243,41 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         };
     }
 
+    // null = the caller does not own the trip, or a bad cursor shape (404 TripNotFound; the handler checks the cursor first).
+    public async Task<CountedPageDto<BuddyItemDto>?> InviteCandidatesAsync(
+        Guid me, Guid tripId, (string LowerName, Guid Id)? cursor, int limit, CancellationToken ct = default)
+    {
+        var owns = await db.Database.SqlQueryRaw<bool>(OwnsTripSql, Be1Sql.Uuid("trip", tripId), Be1Sql.Uuid("me", me)).ToListAsync(ct);
+        if (!owns.FirstOrDefault()) return null;
+        var ps = new List<object> { Be1Sql.Uuid("me", me), Be1Sql.Uuid("trip", tripId), Be1Sql.Int("take", limit + 1) };
+        string? filter = null;
+        if (cursor is { } c)
+        {
+            if (!TrySplitCandidateCursor(c, out var bucket, out var name)) return null;
+            filter = CandidateCursorFilter;
+            ps.Add(Be1Sql.Int("bucket", bucket));
+            ps.Add(Be1Sql.Text("name", name));
+            ps.Add(Be1Sql.Uuid("id", c.Id));
+        }
+        var rows = await db.Database.SqlQueryRaw<CandidateRow>(WithCursor(CandidatesSql, filter), ps.ToArray()).ToListAsync(ct);
+        var page = rows.Take(limit).ToList();
+        var last = page.LastOrDefault();
+        return new CountedPageDto<BuddyItemDto>
+        {
+            Items = page.Select(r => new BuddyItemDto
+            {
+                UserId = r.UserId, Name = r.Name, Username = r.Username, Initial = MoneyPeople.Initial(r.Name),
+                PhotoUrl = CloudinaryThumb.Apply(r.PhotoUrl, CloudinaryThumb.PersonFace),
+                Since = r.Since, Gender = r.Gender, IsBuddy = r.Bucket == 0,
+                TripState = BuddyRules.TripState(r.MemberStatus, r.InviteExpiresAt, r.RespondedAt, r.Now),
+            }).ToList(),
+            Count = rows.Count > 0 ? rows[0].Total : 0,
+            NextCursor = rows.Count > limit && last is not null
+                ? BuddyCursors.EncodeName(CandidateCursorName(last.Bucket, last.LowerName), last.UserId)
+                : null,
+        };
+    }
+
     public async Task SeenAsync(Guid me, IReadOnlyCollection<Guid> userIds, CancellationToken ct = default)
     {
         if (userIds.Count == 0) return;
@@ -310,6 +384,23 @@ public sealed class BuddyListService(ApplicationDbContext db, IBuddyLiveHints hi
         public DateTime Now { get; set; }
         public string? Gender { get; set; }
         public int TripsTogether { get; set; }
+    }
+
+    private sealed class CandidateRow
+    {
+        public Guid UserId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string LowerName { get; set; } = string.Empty;
+        public string? Username { get; set; }
+        public string? PhotoUrl { get; set; }
+        public DateTime Since { get; set; }
+        public int Bucket { get; set; }
+        public int Total { get; set; }
+        public string? MemberStatus { get; set; }
+        public DateTime? InviteExpiresAt { get; set; }
+        public DateTime? RespondedAt { get; set; }
+        public DateTime Now { get; set; }
+        public string? Gender { get; set; }
     }
 
     private sealed class BlockRow

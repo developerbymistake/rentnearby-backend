@@ -8,6 +8,7 @@ using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
 using RentNearBy.Core.Models.Social;
 using RentNearBy.Infrastructure.Data;
+using RentNearBy.Infrastructure.Services.Buddy.Be2;
 using RentNearBy.Infrastructure.Services.TaxiRequests;
 using static RentNearBy.Infrastructure.Services.Social.SocialSql;
 
@@ -97,19 +98,14 @@ public sealed class SocialProfileService(
         """;
 
     private static readonly string UsageSql = $"""
-        SELECT (SELECT count(*) FROM "Trips" t WHERE t."OwnerUserId" = @me AND t."Status" IN ('{TripStatuses.Draft}', '{TripStatuses.Planned}') AND NOT t."InactiveByPlan")::int
-               + (SELECT count(*) FROM "TripMembers" m JOIN "Trips" t ON t."Id" = m."TripId"
-                  WHERE m."UserId" = @me AND m."Status" = '{TripMemberStatuses.Joined}' AND t."Status" <> '{TripStatuses.Completed}')::int AS "ActiveTrips",
-               (SELECT count(*) FROM "Trips" t WHERE t."OwnerUserId" = @me AND {PublicTripReader.LivePost("t")})::int AS "PublicTrips",
+        SELECT (SELECT count(*) FROM "Trips" t WHERE t."OwnerUserId" = @me AND {PublicTripReader.LivePost("t")})::int AS "PublicTrips",
                (SELECT count(*) FROM "TripJoinRequests" r WHERE r."RequesterId" = @me AND r."CreatedAt" >= @month)::int AS "JoinRequests",
                (SELECT count(*) FROM "ChatRooms" c WHERE c."RequestedByUserId" = @me AND c."ChargedAt" >= @month)::int AS "NewChats",
                (SELECT count(*) FROM "Follows" f JOIN "Users" fu ON fu."Id" = f."FollowerId" AND {ActiveSeeker("fu")}
                 WHERE f."FolloweeId" = @me AND f."Status" = '{FollowStatuses.Requested}')::int AS "FollowRequests",
                (SELECT count(*) FROM "Trips" t WHERE t."OwnerUserId" = @me AND t."InactiveByPlan")::int AS "InactiveTrips",
                (SELECT count(*) FROM "Trips" t WHERE t."OwnerUserId" = @me AND t."PausedByPlan" AND NOT t."InactiveByPlan")::int AS "PausedPosts",
-               (SELECT p."NotifiedPostTimes" FROM "UserProfiles" p WHERE p."UserId" = @me) AS "NotifiedPostTimes",
-               (SELECT p."PublishTimes" FROM "UserProfiles" p WHERE p."UserId" = @me) AS "PublishTimes",
-               (SELECT u."CreatedAt" FROM "Users" u WHERE u."Id" = @me) AS "AccountCreatedAt"
+               (SELECT p."PublishTimes" FROM "UserProfiles" p WHERE p."UserId" = @me) AS "PublishTimes"
         """;
 
     public async Task<SocialMeDto> GetMeAsync(Guid me, CancellationToken ct = default)
@@ -173,20 +169,17 @@ public sealed class SocialProfileService(
         var now = Now;
         var usage = (await db.Database.SqlQueryRaw<UsageRow>(UsageSql, Uuid("me", me), At("month", SocialMonth.StartUtc(now)),
             Date("today", IstTime.TodayIst(now))).ToListAsync(ct))[0];
-        var notified = PostNotifyRules.InWindow(usage.NotifiedPostTimes, now);
-        var notifyLimit = PostNotifyRules.NotifyLimit(usage.AccountCreatedAt ?? DateTime.MinValue, now);
         var published = PostNotifyRules.InWindow(usage.PublishTimes, now);
         return (new SocialLimitsDto
         {
             IsPlus = limits.IsPlus, CanUpgrade = limits.CanUpgrade, ResetsAt = SocialMonth.ResetsAtUtc(now),
-            ActiveTrips = new LimitUseDto { Limit = limits.ActiveTrips, Used = usage.ActiveTrips },
+            // The same count as the trip create check (TripSlots), so the limits screen never disagrees with it.
+            ActiveTrips = new LimitUseDto { Limit = limits.ActiveTrips, Used = (await TripSlots.ReadAsync(db, me, limits.ActiveTrips, ct)).Count },
             PublicTrips = new LimitUseDto { Limit = limits.PublicTrips, Used = usage.PublicTrips },
             JoinRequests = new LimitUseDto { Limit = limits.JoinRequestsPerMonth, Used = usage.JoinRequests },
             NewChats = new LimitUseDto { Limit = limits.NewChatsPerMonth, Used = usage.NewChats },
             GenderOnlyTrips = limits.GenderOnlyTrips, NearMe = limits.NearMe, GroupChat = limits.GroupChat,
             InactiveTrips = usage.InactiveTrips, PausedPosts = usage.PausedPosts,
-            NotifyPosts = new LimitUseDto { Limit = notifyLimit, Used = notified.Length },
-            NotifyNextAt = PostNotifyRules.NextAllowedAt(notified, notifyLimit),
             Publishes = new LimitUseDto { Limit = PostNotifyRules.PublishesPerWeek, Used = published.Length },
             PublishNextAt = PostNotifyRules.NextAllowedAt(published, PostNotifyRules.PublishesPerWeek),
         }, usage);
@@ -530,16 +523,13 @@ public sealed class SocialProfileService(
 
     public sealed class UsageRow
     {
-        public int ActiveTrips { get; set; }
         public int PublicTrips { get; set; }
         public int JoinRequests { get; set; }
         public int NewChats { get; set; }
         public int FollowRequests { get; set; }
         public int InactiveTrips { get; set; }
         public int PausedPosts { get; set; }
-        public DateTime[]? NotifiedPostTimes { get; set; }
         public DateTime[]? PublishTimes { get; set; }
-        public DateTime? AccountCreatedAt { get; set; }
     }
 
     private sealed class TravellerRow

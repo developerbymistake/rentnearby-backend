@@ -155,9 +155,9 @@ public class TripDto
     // Bakhli social: the trip is a LIVE public post now (public, Draft/Planned, not started, inside its window), so the owner
     // overview shows "posted" instead of "Post to find buddies". An expired window reads false (post it again).
     public bool IsPublic { get; set; }
-    // 72-hour post lock (owner answers only, PostLockRules): when Delete / Make private unlock (UTC), null = not locked now.
-    // DeleteNeedsAlone: the trip was ever published and is not over, so Delete needs every other traveller removed first
-    // (Sharing.viewerCount = how many; 409 RemoveMembersFirst {count} otherwise).
+    // PostUnlocksAt: always null since the post lock was removed (owner 2026-11-28, I-3); kept for old builds.
+    // DeleteNeedsAlone: always true: Delete needs every other traveller removed first (every trip, over or not;
+    // Sharing.viewerCount = how many; 409 RemoveMembersFirst {count} otherwise).
     public DateTime? PostUnlocksAt { get; set; }
     public bool DeleteNeedsAlone { get; set; }
     public DateTime? MutedAt { get; set; }
@@ -245,7 +245,7 @@ public class TripSummaryDto
     public TripProgress Progress { get; set; } = new();
     public int AgreedTotal { get; set; }
     public bool InactiveByPlan { get; set; }
-    // 72-hour post lock (PostLockRules): when Delete unlocks (UTC), null = not locked now; DeleteNeedsAlone as on TripDto.
+    // PostUnlocksAt always null (no post lock any more); DeleteNeedsAlone as on TripDto.
     public DateTime? PostUnlocksAt { get; set; }
     public bool DeleteNeedsAlone { get; set; }
     public DateTime? MutedAt { get; set; }

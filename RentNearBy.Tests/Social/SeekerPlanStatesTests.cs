@@ -36,11 +36,13 @@ public class SeekerPlanStatesTests
     }
 
     [Fact]
-    public void During_plus_full_keeps_all_ten_active_and_three_public()
+    public void During_plus_full_keeps_six_trips_active_and_three_posts_public()
     {
-        var rows = Enumerable.Range(1, 10).Select(i => Trip(i, isPublic: i <= 3)).ToList();
-        var t = SeekerPlanChoice.Choose(rows, activeLimit: 10, publicLimit: 3);
+        // I-3: posts do not use an active place, so 6 trips + 3 posts fit Plus (6, 3).
+        var rows = Enumerable.Range(1, 9).Select(i => Trip(i, isPublic: i <= 3)).ToList();
+        var t = SeekerPlanChoice.Choose(rows, activeLimit: 6, publicLimit: 3);
         Assert.False(t.Changed);
+        Assert.Single(SeekerPlanChoice.Choose([.. rows, Trip(10)], activeLimit: 6, publicLimit: 3).Inactivate);
     }
 
     [Fact]
@@ -64,12 +66,48 @@ public class SeekerPlanStatesTests
     }
 
     [Fact]
-    public void An_inactive_trip_never_stays_public()
+    public void A_post_never_uses_an_active_place_and_is_never_made_inactive()
     {
+        // Free (1, 1): one normal trip and one post both stay; the post is handled by the public cap only.
         var rows = new List<SeekerPlanRow> { Trip(1, isPublic: true), Trip(2) };
+        Assert.False(SeekerPlanChoice.Choose(rows, activeLimit: 1, publicLimit: 1).Changed);
+        var paused = new List<SeekerPlanRow> { Trip(1, paused: true), Trip(2), Trip(3) };
+        var t = SeekerPlanChoice.Choose(paused, activeLimit: 1, publicLimit: 0);
+        Assert.Equal([paused[1].Id], t.Inactivate);
+        Assert.DoesNotContain(paused[0].Id, t.Inactivate);
+    }
+
+    [Fact]
+    public void An_older_reconcile_that_made_a_post_inactive_is_undone()
+    {
+        var rows = new List<SeekerPlanRow> { Trip(1, inactive: true, paused: true), Trip(2) };
         var t = SeekerPlanChoice.Choose(rows, activeLimit: 1, publicLimit: 1);
-        Assert.Contains(rows[0].Id, t.Inactivate);
-        Assert.Contains(rows[0].Id, t.PausePosts);
+        Assert.Equal([rows[0].Id], t.Activate);
+        Assert.Equal([rows[0].Id], t.RestorePosts);
+        Assert.Equal(0, t.InactiveAfter);
+    }
+
+    [Fact]
+    public void Before_during_after_and_resubscribe_with_trips_and_posts_mixed()
+    {
+        // Free: 1 trip + 1 post. Plus: up to 6 trips + 3 posts. Expiry keeps the newest trip and the newest post.
+        var rows = new List<SeekerPlanRow>();
+        rows.AddRange(Enumerable.Range(1, 6).Select(i => Trip(i)));
+        rows.AddRange(Enumerable.Range(7, 3).Select(i => Trip(i, isPublic: true)));
+        Assert.False(SeekerPlanChoice.Choose(rows, 6, 3).Changed);                       // during Plus
+
+        var after = Apply(rows, SeekerPlanChoice.Choose(rows, 1, 1));                     // Plus ended
+        Assert.Equal(5, after.InactiveAfter);
+        Assert.Equal(2, after.PausedAfter);
+        Assert.False(rows.Single(r => r.Id == Trip(6).Id).InactiveByPlan);               // newest trip stays
+        Assert.True(rows.Single(r => r.Id == Trip(9).Id).IsPublic);                      // newest post stays
+        Assert.All(rows.Where(r => r.IsPublic || r.PausedByPlan), r => Assert.False(r.InactiveByPlan));
+        Assert.False(SeekerPlanChoice.Choose(rows, 1, 1).Changed);
+
+        Apply(rows, SeekerPlanChoice.Choose(rows, 6, 3));                                // resubscribe
+        Assert.All(rows, r => Assert.False(r.InactiveByPlan || r.PausedByPlan));
+        Assert.Equal(3, rows.Count(r => r.IsPublic));
+        Assert.False(SeekerPlanChoice.Choose(rows, 6, 3).Changed);
     }
 
     [Fact]
@@ -89,7 +127,8 @@ public class SeekerPlanStatesTests
         var rows = new List<SeekerPlanRow> { Trip(1, isPublic: true), Trip(2, isPublic: true), Trip(3) };
         Apply(rows, SeekerPlanChoice.Choose(rows, 1, 1));
         Assert.False(SeekerPlanChoice.Choose(rows, 1, 1).Changed);
-        Assert.Equal([false, true, true], rows.Select(r => r.InactiveByPlan).Reverse().ToList());
+        Assert.All(rows, r => Assert.False(r.InactiveByPlan));                           // the one trip and the posts stay active
+        Assert.Equal([true, false, false], rows.Select(r => r.PausedByPlan).ToList());   // the older post is paused
 
         Apply(rows, SeekerPlanChoice.Choose(rows, 10, 3));
         Assert.All(rows, r => Assert.False(r.InactiveByPlan));
@@ -133,6 +172,16 @@ public class SeekerPlanStatesTests
         Assert.False(SeekerPlanChoice.Choose(rows, 10, 1).Changed);
     }
 
+    // B1: an expired public post is a trip again and takes an active place, same as TripSlots (PublicTripReader.HeldPost).
+    [Fact]
+    public void A_stale_public_post_takes_an_active_place()
+    {
+        var rows = new List<SeekerPlanRow> { Trip(1), Trip(2, isPublic: true, fresh: false) };
+        var t = SeekerPlanChoice.Choose(rows, activeLimit: 1, publicLimit: 1);
+        Assert.Equal([rows[0].Id], t.Inactivate);
+        Assert.Empty(t.PausePosts);
+    }
+
     [Theory]
     [InlineData("GET", "/api/v1/trips/{id:guid}", true)]
     [InlineData("DELETE", "/api/v1/trips/{id:guid}", true)]
@@ -147,6 +196,19 @@ public class SeekerPlanStatesTests
     [InlineData("POST", "/api/v1/trips/{id:guid}/invites", false)]
     public void Inactive_trip_write_rule(string method, string pattern, bool allowed)
         => Assert.Equal(allowed, SeekerPlanStates.WriteAllowed(method, pattern));
+
+    // B6 (owner 2026-11-28): a post paused by the plan is read-only like an inactive trip (same filter, same invite-accept refusal);
+    // delete, leave, members and payments pass by WriteAllowed.
+    [Fact]
+    public void Paused_posts_share_the_inactive_write_gate()
+    {
+        var root = RentNearBy.Tests.Buddy.Foundation.BuddySources.Root();
+        var filter = File.ReadAllText(Path.Combine(root, "RentNearBy.Api", "Filters", "TripPlanPauseFilter.cs"));
+        Assert.Contains("t.Id == id && (t.InactiveByPlan || t.PausedByPlan)", filter);
+        var invite = File.ReadAllText(Path.Combine(root, "RentNearBy.Infrastructure", "Services", "Buddy", "Be2", "TripInviteService.cs"));
+        Assert.Contains("if (trip.InactiveByPlan || trip.PausedByPlan)", invite);
+        Assert.False(SeekerPlanStates.WriteAllowed("DELETE", "/api/v1/social/trips/{tripId:guid}/post"));
+    }
 
     [Fact]
     public void Inactive_write_is_a_typed_409()

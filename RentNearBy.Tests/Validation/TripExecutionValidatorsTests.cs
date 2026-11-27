@@ -586,6 +586,17 @@ public class TripExecutionValidatorsTests
     [Fact]
     public void Change_valid_passes() => Passes(Change, Req<ChangeRequestRequest>(ChangeBody()));
 
+    // I-7 (owner 2026-11-28): adults + kids together at most 12, at least 1 adult.
+    [Fact]
+    public void Change_people_total_is_12()
+    {
+        Passes(Change, Req<ChangeRequestRequest>(ChangeBody(), ("adults", 12), ("kids", 0)));
+        Passes(Change, Req<ChangeRequestRequest>(ChangeBody(), ("adults", 4), ("kids", 8)));
+        Fails(Change, Req<ChangeRequestRequest>(ChangeBody(), ("adults", 12), ("kids", 1)), "Kids");
+        Fails(Change, Req<ChangeRequestRequest>(ChangeBody(), ("adults", 0)), "Adults");
+        Fails(Change, Req<ChangeRequestRequest>(ChangeBody(), ("kids", -1)), "Kids");
+    }
+
     [Fact]
     public void Change_equal_or_reversed_dates_fail()
     {
@@ -616,12 +627,10 @@ public class TripExecutionValidatorsTests
     [Theory]
     [InlineData("adults", 0, false)]
     [InlineData("adults", 1, true)]
-    [InlineData("adults", 30, true)]
-    [InlineData("adults", 31, false)]
+    [InlineData("adults", 12, true)]
     [InlineData("kids", -1, false)]
     [InlineData("kids", 0, true)]
-    [InlineData("kids", 20, true)]
-    [InlineData("kids", 21, false)]
+    [InlineData("kids", 10, true)]
     [InlineData("rooms", 0, false)]
     [InlineData("rooms", 1, true)]
     [InlineData("rooms", 15, true)]
