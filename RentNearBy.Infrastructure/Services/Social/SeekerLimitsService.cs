@@ -59,5 +59,6 @@ public sealed class SeekerLimitsService(ApplicationDbContext db, IPlanCatalogCac
     private static SeekerLimits From(Func<string, int> value, bool isPlus, bool canUpgrade) => new(
         isPlus, canUpgrade,
         value(SeekerPlanKeys.ActiveTrips), value(SeekerPlanKeys.PublicTrips), value(SeekerPlanKeys.JoinRequestsPerMonth),
-        value(SeekerPlanKeys.NewChatsPerMonth), value(SeekerPlanKeys.GenderOnlyTrips) > 0, value(SeekerPlanKeys.NearMe) > 0);
+        value(SeekerPlanKeys.NewChatsPerMonth), value(SeekerPlanKeys.GenderOnlyTrips) > 0, value(SeekerPlanKeys.NearMe) > 0,
+        value(SeekerPlanKeys.GroupChat) > 0);
 }

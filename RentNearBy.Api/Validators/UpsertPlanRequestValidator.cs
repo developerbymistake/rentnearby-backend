@@ -28,7 +28,7 @@ public class UpsertPlanRequestValidator : AbstractValidator<UpsertPlanRequest>
         {
             f.RuleFor(v => v.Value).InclusiveBetween(0, 10_000);
         });
-        // Listing plans take the listing keys; a Seeker plan only the six Seeker keys (SeekerPlanValueRules).
+        // Listing plans take the listing keys; a Seeker plan only the seven Seeker keys (SeekerPlanValueRules).
         RuleFor(x => x).Custom((x, ctx) =>
         {
             var seeker = x.FeatureKey == PlanFeatures.Seeker;

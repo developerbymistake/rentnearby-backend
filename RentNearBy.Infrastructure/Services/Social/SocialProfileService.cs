@@ -89,7 +89,7 @@ public sealed class SocialProfileService(
                u."CompletedTripsCount", p."UserId" IS NOT NULL AS "HasProfile",
                p."Gender", p."BirthMonth", p."BirthYear", p."About", p."Interests", p."Skills", p."Places", p."HomeCityName", p."HomeStateName",
                p."IsPrivate", p."MessagePolicy", p."NotifyMessages", p."NotifyFollows", p."NotifyFollowedTrips",
-               p."FollowerCount", p."FollowingCount", p."NameChangedAt", p."GuidelinesAcceptedAt", p."GuidelinesVersion",
+               p."NotifyNearbyTrips", p."FollowerCount", p."FollowingCount", p."NameChangedAt", p."GuidelinesAcceptedAt", p."GuidelinesVersion",
                (SELECT count(*) FROM "Buddies" b JOIN "Users" bu ON bu."Id" = b."BuddyUserId" AND {ActiveSeeker("bu")} WHERE b."UserId" = @me)::int AS "Buddies",
                (SELECT count(*) FROM "UserBlocks" ub WHERE ub."BlockerId" = @me)::int AS "Blocked"
         FROM "Users" u LEFT JOIN "UserProfiles" p ON p."UserId" = u."Id"
@@ -106,7 +106,10 @@ public sealed class SocialProfileService(
                (SELECT count(*) FROM "Follows" f JOIN "Users" fu ON fu."Id" = f."FollowerId" AND {ActiveSeeker("fu")}
                 WHERE f."FolloweeId" = @me AND f."Status" = '{FollowStatuses.Requested}')::int AS "FollowRequests",
                (SELECT count(*) FROM "Trips" t WHERE t."OwnerUserId" = @me AND t."InactiveByPlan")::int AS "InactiveTrips",
-               (SELECT count(*) FROM "Trips" t WHERE t."OwnerUserId" = @me AND t."PausedByPlan" AND NOT t."InactiveByPlan")::int AS "PausedPosts"
+               (SELECT count(*) FROM "Trips" t WHERE t."OwnerUserId" = @me AND t."PausedByPlan" AND NOT t."InactiveByPlan")::int AS "PausedPosts",
+               (SELECT p."NotifiedPostTimes" FROM "UserProfiles" p WHERE p."UserId" = @me) AS "NotifiedPostTimes",
+               (SELECT p."PublishTimes" FROM "UserProfiles" p WHERE p."UserId" = @me) AS "PublishTimes",
+               (SELECT u."CreatedAt" FROM "Users" u WHERE u."Id" = @me) AS "AccountCreatedAt"
         """;
 
     public async Task<SocialMeDto> GetMeAsync(Guid me, CancellationToken ct = default)
@@ -152,6 +155,7 @@ public sealed class SocialProfileService(
             Interests = (row.Interests ?? []).ToList(), Skills = (row.Skills ?? []).ToList(), Places = (row.Places ?? []).ToList(),
             IsPrivate = row.IsPrivate ?? false, MessagePolicy = row.MessagePolicy ?? MessagePolicies.Everyone,
             NotifyMessages = row.NotifyMessages ?? true, NotifyFollows = row.NotifyFollows ?? true, NotifyFollowedTrips = row.NotifyFollowedTrips ?? true,
+            NotifyNearbyTrips = row.NotifyNearbyTrips ?? true,
             Counters = new MyCountersDto
             {
                 Trips = row.CompletedTripsCount + (livePosts ?? posts.Count), Followers = row.FollowerCount ?? 0,
@@ -167,6 +171,9 @@ public sealed class SocialProfileService(
         var now = Now;
         var usage = (await db.Database.SqlQueryRaw<UsageRow>(UsageSql, Uuid("me", me), At("month", SocialMonth.StartUtc(now)),
             Date("today", IstTime.TodayIst(now))).ToListAsync(ct))[0];
+        var notified = PostNotifyRules.InWindow(usage.NotifiedPostTimes, now);
+        var notifyLimit = PostNotifyRules.NotifyLimit(usage.AccountCreatedAt ?? DateTime.MinValue, now);
+        var published = PostNotifyRules.InWindow(usage.PublishTimes, now);
         return (new SocialLimitsDto
         {
             IsPlus = limits.IsPlus, CanUpgrade = limits.CanUpgrade, ResetsAt = SocialMonth.ResetsAtUtc(now),
@@ -174,8 +181,12 @@ public sealed class SocialProfileService(
             PublicTrips = new LimitUseDto { Limit = limits.PublicTrips, Used = usage.PublicTrips },
             JoinRequests = new LimitUseDto { Limit = limits.JoinRequestsPerMonth, Used = usage.JoinRequests },
             NewChats = new LimitUseDto { Limit = limits.NewChatsPerMonth, Used = usage.NewChats },
-            GenderOnlyTrips = limits.GenderOnlyTrips, NearMe = limits.NearMe,
+            GenderOnlyTrips = limits.GenderOnlyTrips, NearMe = limits.NearMe, GroupChat = limits.GroupChat,
             InactiveTrips = usage.InactiveTrips, PausedPosts = usage.PausedPosts,
+            NotifyPosts = new LimitUseDto { Limit = notifyLimit, Used = notified.Length },
+            NotifyNextAt = PostNotifyRules.NextAllowedAt(notified, notifyLimit),
+            Publishes = new LimitUseDto { Limit = PostNotifyRules.PublishesPerWeek, Used = published.Length },
+            PublishNextAt = PostNotifyRules.NextAllowedAt(published, PostNotifyRules.PublishesPerWeek),
         }, usage);
     }
 
@@ -314,6 +325,37 @@ public sealed class SocialProfileService(
         return rows.Count == 0 ? BuddyResult<bool>.Fail(SocialErrorTypes.ProfileRequired) : BuddyResult<bool>.Success(true);
     }
 
+    // PUT /social/me/area (owner 2026-11-27): the district only, never coordinates. Written when the district changed or the
+    // stored one is 6 hours old (AreaRefreshAfter), so app start / resume calls cost one indexed read. Unknown district = 400.
+    internal static readonly string AreaSql = $"""
+        WITH d AS (SELECT x."Id" FROM "Districts" x WHERE x."Id" = @district),
+        u AS (
+          UPDATE "UserProfiles" p SET "LastDistrictId" = @district, "LastDistrictAt" = now()
+          WHERE p."UserId" = @me AND EXISTS (SELECT 1 FROM d)
+            AND (p."LastDistrictId" IS DISTINCT FROM @district OR p."LastDistrictAt" IS NULL
+                 OR p."LastDistrictAt" < now() - {Interval(PostNotifyRules.AreaRefreshAfter)})
+          RETURNING p."LastDistrictAt")
+        SELECT EXISTS (SELECT 1 FROM d) AS "Known",
+               EXISTS (SELECT 1 FROM "UserProfiles" p WHERE p."UserId" = @me) AS "HasProfile",
+               COALESCE((SELECT u."LastDistrictAt" FROM u),
+                        (SELECT p."LastDistrictAt" FROM "UserProfiles" p WHERE p."UserId" = @me)) AS "At"
+        """;
+
+    public async Task<BuddyResult<AreaDto>> SetAreaAsync(Guid me, Guid districtId, CancellationToken ct = default)
+    {
+        var row = (await db.Database.SqlQueryRaw<AreaRow>(AreaSql, Uuid("me", me), Uuid("district", districtId)).ToListAsync(ct)).First();
+        if (!row.HasProfile) return BuddyResult<AreaDto>.Fail(SocialErrorTypes.ProfileRequired);
+        if (!row.Known) return BuddyResult<AreaDto>.Fail(SocialErrorTypes.InvalidArea, new { field = "districtId" });
+        return BuddyResult<AreaDto>.Success(new AreaDto { DistrictId = districtId, UpdatedAt = Utc(row.At ?? Now) });
+    }
+
+    private sealed class AreaRow
+    {
+        public bool Known { get; set; }
+        public bool HasProfile { get; set; }
+        public DateTime? At { get; set; }
+    }
+
     public async Task<BuddyResult<MyProfileDto>> UpdatePrivacyAsync(Guid me, UpdatePrivacyRequest r, CancellationToken ct = default)
     {
         if (r.MessagePolicy != null && !MessagePolicies.All.Contains(r.MessagePolicy))
@@ -331,6 +373,7 @@ public sealed class SocialProfileService(
             if (r.NotifyMessages is { } nm) profile.NotifyMessages = nm;
             if (r.NotifyFollows is { } nf) profile.NotifyFollows = nf;
             if (r.NotifyFollowedTrips is { } nt) profile.NotifyFollowedTrips = nt;
+            if (r.NotifyNearbyTrips is { } nn) profile.NotifyNearbyTrips = nn;
             profile.UpdatedAt = Now;
             await db.SaveChangesAsync(c);
             List<Guid> accepted = [];
@@ -473,6 +516,7 @@ public sealed class SocialProfileService(
         public bool? NotifyMessages { get; set; }
         public bool? NotifyFollows { get; set; }
         public bool? NotifyFollowedTrips { get; set; }
+        public bool? NotifyNearbyTrips { get; set; }
         public int? FollowerCount { get; set; }
         public int? FollowingCount { get; set; }
         public DateTime? NameChangedAt { get; set; }
@@ -491,6 +535,9 @@ public sealed class SocialProfileService(
         public int FollowRequests { get; set; }
         public int InactiveTrips { get; set; }
         public int PausedPosts { get; set; }
+        public DateTime[]? NotifiedPostTimes { get; set; }
+        public DateTime[]? PublishTimes { get; set; }
+        public DateTime? AccountCreatedAt { get; set; }
     }
 
     private sealed class TravellerRow

@@ -156,8 +156,11 @@ public static class NoticeKinds
     public const string JoinAccepted = "JoinAccepted";
     public const string JoinDeclined = "JoinDeclined";
     public const string FollowedPosted = "FollowedPosted";
+    // Post notify (owner 2026-11-27): one row per (traveller, nearby trip) written by the 07:00 IST digest; ActorUserId = poster.
+    public const string NearbyPosted = "NearbyPosted";
 
-    public static readonly IReadOnlyList<string> Social = [FollowRequest, NewFollower, FollowAccepted, JoinRequest, JoinAccepted, JoinDeclined, FollowedPosted];
+    public static readonly IReadOnlyList<string> Social =
+        [FollowRequest, NewFollower, FollowAccepted, JoinRequest, JoinAccepted, JoinDeclined, FollowedPosted, NearbyPosted];
 
     public static readonly IReadOnlyList<string> Owner = [StayEditApproved, StayEditRejected, FestivalReminder, PlanLimitsChanged, PlansStarting];
 
@@ -166,7 +169,7 @@ public static class NoticeKinds
         BuddyRequest, TripInvite, PaymentSaidPaid, SettleReminder, PaymentNotReceived, ExpensesChanged, TripRemoved, TripDeleted,
         BuddyAccepted, NewBuddy, TripJoined, PlanUpdated, ExpenseAdded, ShareChanged,
         StayEditApproved, StayEditRejected, FestivalReminder, PlanLimitsChanged, PlansStarting,
-        FollowRequest, NewFollower, FollowAccepted, JoinRequest, JoinAccepted, JoinDeclined, FollowedPosted,
+        FollowRequest, NewFollower, FollowAccepted, JoinRequest, JoinAccepted, JoinDeclined, FollowedPosted, NearbyPosted,
     ];
     public static readonly IReadOnlyList<string> WithAmount = [PaymentSaidPaid, SettleReminder, PaymentNotReceived, ExpenseAdded, ShareChanged];
     // Rows of a viewer that go when he is removed from the trip (or leaves, plan rows only).

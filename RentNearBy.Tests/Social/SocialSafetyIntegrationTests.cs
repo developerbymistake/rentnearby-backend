@@ -23,8 +23,8 @@ namespace RentNearBy.Tests.Social;
 // Needs RENTNEARBY_TEST_DB; skipped without it.
 public class SocialSafetyIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
 {
-    private static SocialChatService Chat(ApplicationDbContext ctx)
-        => new(ctx, SocialTestSeams.Limits(10), new NoticeWriter(ctx), SocialTestSeams.AfterCommit(ctx), TimeProvider.System,
+    private static SocialChatService Chat(ApplicationDbContext ctx, bool plus = false)
+        => new(ctx, SocialTestSeams.Limits(10, plus), new NoticeWriter(ctx), SocialTestSeams.AfterCommit(ctx), TimeProvider.System,
             NullLogger<SocialChatService>.Instance);
 
     private static SocialProfileService Profiles(ApplicationDbContext ctx)
@@ -38,7 +38,8 @@ public class SocialSafetyIntegrationTests(TestDatabase db) : IntegrationTestBase
 
     private static PublicTripService Posts(ApplicationDbContext ctx)
         => new(ctx, new UnitOfWork(ctx), new FakeCityCatalog(), SocialTestSeams.Limits(10), new PublicTripReader(ctx, TimeProvider.System),
-            SocialTestSeams.AfterCommit(ctx), TimeProvider.System, NullLogger<PublicTripService>.Instance);
+            SocialTestSeams.AfterCommit(ctx), new RentNearBy.Infrastructure.Services.Buddy.Be4.NoticeWriter(ctx), TimeProvider.System,
+            NullLogger<PublicTripService>.Instance);
 
     private static CreatePublicTripRequest Post() => new()
     {
@@ -199,11 +200,12 @@ public class SocialSafetyIntegrationTests(TestDatabase db) : IntegrationTestBase
 
         await using (var ctx = CreateContext())
         {
-            Assert.Equal(SocialErrorTypes.GuidelinesNotAccepted, (await Chat(ctx).SendAsync(member, room, Guid.NewGuid(), "Hello all")).ErrorType);
+            // Trip group sends need Plus (owner 2026-11-27); the guidelines gate still comes first.
+            Assert.Equal(SocialErrorTypes.GuidelinesNotAccepted, (await Chat(ctx, plus: true).SendAsync(member, room, Guid.NewGuid(), "Hello all")).ErrorType);
             Assert.True((await Chat(ctx).MessagesAsync(member, room, null, null, null)).Ok);
-            Assert.True((await Chat(ctx).SendAsync(owner, room, Guid.NewGuid(), "Welcome")).Ok);
+            Assert.True((await Chat(ctx, plus: true).SendAsync(owner, room, Guid.NewGuid(), "Welcome")).Ok);
             Assert.True((await Profiles(ctx).AcceptGuidelinesAsync(member)).Ok);
-            var sent = await Chat(ctx).SendAsync(member, room, Guid.NewGuid(), "call me 9876543210");
+            var sent = await Chat(ctx, plus: true).SendAsync(member, room, Guid.NewGuid(), "call me 9876543210");
             Assert.True(sent.Ok, sent.ErrorType);
             Assert.True(sent.Value!.Masked);
             Assert.DoesNotContain("9876543210", sent.Value.Text);
@@ -507,7 +509,7 @@ public class SocialSafetyIntegrationTests(TestDatabase db) : IntegrationTestBase
             room = (await ctx.Set<ChatRoom>().AsNoTracking().SingleAsync(r => r.TripId == trip && r.Kind == ChatKinds.Trip)).Id;
         await using (var ctx = CreateContext())
         {
-            var sent = await Chat(ctx).SendAsync(owner, room, Guid.NewGuid(), "Bus leaves at 7");
+            var sent = await Chat(ctx, plus: true).SendAsync(owner, room, Guid.NewGuid(), "Bus leaves at 7");
             Assert.True(sent.Ok, sent.ErrorType);
         }
         Assert.Equal(0, await OutboxAsync($"chat:{N(room)}:{N(quiet)}:"));

@@ -935,7 +935,7 @@ namespace RentNearBy.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_usernotices_count", "\"Count\" >= 1");
 
-                            t.HasCheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged', 'StayEditApproved', 'StayEditRejected', 'FestivalReminder', 'PlanLimitsChanged', 'PlansStarting', 'FollowRequest', 'NewFollower', 'FollowAccepted', 'JoinRequest', 'JoinAccepted', 'JoinDeclined', 'FollowedPosted')");
+                            t.HasCheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged', 'StayEditApproved', 'StayEditRejected', 'FestivalReminder', 'PlanLimitsChanged', 'PlansStarting', 'FollowRequest', 'NewFollower', 'FollowAccepted', 'JoinRequest', 'JoinAccepted', 'JoinDeclined', 'FollowedPosted', 'NearbyPosted')");
                         });
                 });
 
@@ -3996,6 +3996,12 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<DateTime?>("LastDistrictAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LastDistrictId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("MessagePolicy")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -4005,6 +4011,12 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.Property<DateTime?>("NameChangedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.PrimitiveCollection<DateTime[]>("NotifiedPostTimes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone[]")
+                        .HasDefaultValueSql("'{}'::timestamptz[]");
 
                     b.Property<bool>("NotifyFollowedTrips")
                         .ValueGeneratedOnAdd()
@@ -4021,9 +4033,20 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(true);
 
+                    b.Property<bool>("NotifyNearbyTrips")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.PrimitiveCollection<string[]>("Places")
                         .IsRequired()
                         .HasColumnType("text[]");
+
+                    b.PrimitiveCollection<DateTime[]>("PublishTimes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone[]")
+                        .HasDefaultValueSql("'{}'::timestamptz[]");
 
                     b.PrimitiveCollection<string[]>("Skills")
                         .IsRequired()
@@ -4035,6 +4058,9 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasDefaultValueSql("now()");
 
                     b.HasKey("UserId");
+
+                    b.HasIndex(new[] { "LastDistrictId", "LastDistrictAt" }, "ix_userprofiles_nearby")
+                        .HasFilter("\"NotifyNearbyTrips\" AND \"LastDistrictId\" IS NOT NULL");
 
                     b.ToTable("UserProfiles", null, t =>
                         {
@@ -5724,10 +5750,24 @@ namespace RentNearBy.Infrastructure.Migrations
                         .HasColumnType("char(1)")
                         .HasDefaultValue("A");
 
+                    b.Property<DateTime?>("LastPublishedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("MutedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("NameChosen")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime?>("NearbyNotifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NotifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("NotifyNearby")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
@@ -5811,6 +5851,9 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "EndDate" }, "ix_trips_enddate")
                         .HasFilter("\"EndDate\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "PublishedAt" }, "ix_trips_nearby_pending")
+                        .HasFilter("\"NotifyNearby\" AND \"NearbyNotifiedAt\" IS NULL");
 
                     b.HasIndex(new[] { "OwnerUserId", "ClientTripId" }, "ix_trips_owner_client")
                         .IsUnique()

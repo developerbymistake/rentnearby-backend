@@ -5,6 +5,7 @@ using Npgsql;
 using RentNearBy.Core.DTOs.Social;
 using RentNearBy.Core.Entities;
 using RentNearBy.Core.Interfaces;
+using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Interfaces.Social;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Buddy;
@@ -21,7 +22,7 @@ public sealed record PostFields(string WhenKind, int? WithinMonths, DateOnly? St
 // Contract 2.4: a public post IS a Trip row. Create (a Draft trip with zero days), publish / edit an own trip, unpublish.
 public sealed class PublicTripService(
     ApplicationDbContext db, IUnitOfWork unitOfWork, ITripCityCatalog catalog, ISeekerLimits seekerLimits, PublicTripReader reader,
-    SocialAfterCommit afterCommit, TimeProvider clock, ILogger<PublicTripService> logger)
+    SocialAfterCommit afterCommit, INoticeWriter notices, TimeProvider clock, ILogger<PublicTripService> logger)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
 
@@ -111,6 +112,7 @@ public sealed class PublicTripService(
         trip.PostCityNames = plan.LegCities.ToArray();
         trip.PostStateName = legs.State;
 
+        PostNotifyDto? notify = null;
         await unitOfWork.BeginTransactionAsync();
         try
         {
@@ -129,9 +131,21 @@ public sealed class PublicTripService(
                 return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.PublicTripLimit,
                     SocialProfileService.CapData(limits.PublicTrips, live, limits.CanUpgrade, now));
             }
+            var poster = await PostNotifier.ReadAsync(db, me, ct);
+            if (poster is null)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.ProfileRequired);
+            }
+            if (PostNotifier.PublishRefusal(poster, now) is { } refusal)
+            {
+                await unitOfWork.RollbackTransactionAsync();
+                return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.PublishLimit, refusal);
+            }
             db.Trips.Add(trip);
             await db.SaveChangesAsync(ct);
-            await NotifyFollowersAsync(me, trip.Id, trip.JoinGender, ct);
+            notify = await PostNotifier.OnPublishAsync(db, notices, me, poster, trip, r.NotifyNearby, now, ct);
+            await db.SaveChangesAsync(ct);
             await unitOfWork.CommitTransactionAsync();
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "ix_trips_owner_client" })
@@ -148,14 +162,17 @@ public sealed class PublicTripService(
         }
         afterCommit.Hint(SocialLiveScopes.Posts, me);
         afterCommit.Hint(SocialLiveScopes.Limits, me);
+        afterCommit.Wake();
         await afterCommit.FlushAsync(ct);
-        return await AnswerAsync(me, trip.Id, ct);
+        return await AnswerAsync(me, trip.Id, ct, notify);
     }
 
-    private async Task<BuddyResult<PublicTripDto>> AnswerAsync(Guid me, Guid tripId, CancellationToken ct)
-        => await reader.ByIdAsync(me, tripId, ct) is { } dto
-            ? BuddyResult<PublicTripDto>.Success(dto)
-            : BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.TripPostNotFound);
+    private async Task<BuddyResult<PublicTripDto>> AnswerAsync(Guid me, Guid tripId, CancellationToken ct, PostNotifyDto? notify = null)
+    {
+        if (await reader.ByIdAsync(me, tripId, ct) is not { } dto) return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.TripPostNotFound);
+        dto.Notify = notify;
+        return BuddyResult<PublicTripDto>.Success(dto);
+    }
 
     // 1..4 Atlas cities in order: the first Ready, all in the first city's state, no duplicate (contract 2.4). Catalog snapshot wins.
     private async Task<(List<TripCityLeg> Legs, string? State, string? Error)> ResolveCitiesAsync(IReadOnlyList<long> keys, CancellationToken ct)
@@ -188,7 +205,10 @@ public sealed class PublicTripService(
     {
         trip.IsPublic = true;
         trip.PausedByPlan = false;
-        if (firstPublish || trip.PublishedAt is null) trip.PublishedAt = nowUtc;
+        // A re-publish keeps the first PublishedAt for 7 days (unpublish / publish never bumps the post up the feed).
+        if (firstPublish || trip.PublishedAt is null) trip.PublishedAt = PostNotifyRules.PublishedAtFor(trip.PublishedAt, nowUtc);
+        // The 72-hour lock always starts at the latest publish (PostLockRules), even when bump protection kept PublishedAt.
+        if (firstPublish) trip.LastPublishedAt = nowUtc;
         trip.PostText = maskedText;
         trip.PostDays = (short)f.Days;
         trip.JoinGender = f.JoinGender;
@@ -206,29 +226,14 @@ public sealed class PublicTripService(
         }
     }
 
+    // The stored IsPublic, read under the poster's trip-slots lock (the tracked entity still holds the value read before the lock).
+    private Task<bool> PublishedMeanwhileAsync(Guid tripId, CancellationToken ct)
+        => db.Trips.AsNoTracking().Where(t => t.Id == tripId).Select(t => t.IsPublic).FirstOrDefaultAsync(ct);
+
     private async Task<int> LivePostsAsync(Guid me, CancellationToken ct)
         => (await db.Database.SqlQueryRaw<int>(
             $"""SELECT count(*)::int AS "Value" FROM "Trips" t WHERE t."OwnerUserId" = @me AND {PublicTripReader.LivePost("t")}""",
             Uuid("me", me), Date("today", IstTime.TodayIst(Now))).ToListAsync(ct)).First();
-
-    // One INSERT ... SELECT to the poster's followers who want it (max 2,000); a gender-only post reaches only that gender.
-    private static readonly string FollowedPostedSql = $"""
-        INSERT INTO "UserNotices" ("Id", "UserId", "Kind", "TripId", "ActorUserId", "RefId", "Amount", "Count", "CreatedAt", "UpdatedAt")
-        SELECT gen_random_uuid(), x."FollowerId", '{NoticeKinds.FollowedPosted}', @trip, @me, NULL, NULL, 1, now(), now()
-        FROM (
-          SELECT f."FollowerId" FROM "Follows" f
-          JOIN "UserProfiles" p ON p."UserId" = f."FollowerId" AND p."NotifyFollowedTrips"
-          JOIN "Users" u ON u."Id" = f."FollowerId" AND {ActiveSeeker("u")}
-          WHERE f."FolloweeId" = @me AND f."Status" = '{FollowStatuses.Accepted}'
-            AND (@jg = '{JoinGenders.Anyone}' OR (@jg = '{JoinGenders.Men}' AND p."Gender" = '{SocialGenders.Male}')
-                 OR (@jg = '{JoinGenders.Women}' AND p."Gender" = '{SocialGenders.Female}'))
-          ORDER BY f."CreatedAt" DESC
-          LIMIT {SocialLimits.FollowedPostedMax}) x
-        ON CONFLICT ("UserId", "Kind", "TripId") DO NOTHING
-        """;
-
-    private Task NotifyFollowersAsync(Guid me, Guid tripId, string joinGender, CancellationToken ct)
-        => db.Database.ExecuteSqlRawAsync(FollowedPostedSql, [Uuid("me", me), Uuid("trip", tripId), Text("jg", joinGender)], ct);
 
     // ------------------------------------------------------------------ PUT /social/trips/{id}/post
 
@@ -269,13 +274,21 @@ public sealed class PublicTripService(
         }
         ApplyPost(trip, effective, checkd.Value.Text, now, firstPublish);
 
+        PostNotifyDto? notify = null;
         await unitOfWork.BeginTransactionAsync();
         try
         {
             afterCommit.Clear();
+            PostNotifier.Poster? poster = null;
             if (firstPublish)
             {
                 await BuddyLocks.LockTripSlotsAsync(db, me, ct);
+                // Double tap: a parallel call published this trip while this one waited for the lock. This call is then an edit
+                // (no second publish charged, no second notified post, nobody told twice).
+                if (await PublishedMeanwhileAsync(tripId, ct)) firstPublish = false;
+            }
+            if (firstPublish)
+            {
                 var live = await LivePostsAsync(me, ct);
                 if (live >= limits.PublicTrips)
                 {
@@ -284,9 +297,23 @@ public sealed class PublicTripService(
                     return BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.PublicTripLimit,
                         SocialProfileService.CapData(limits.PublicTrips, live, limits.CanUpgrade, now));
                 }
+                poster = await PostNotifier.ReadAsync(db, me, ct);
+                var refusal = poster is null ? null : PostNotifier.PublishRefusal(poster, now);
+                if (poster is null || refusal is not null)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    db.Entry(trip).State = EntityState.Detached;
+                    return poster is null
+                        ? BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.ProfileRequired)
+                        : BuddyResult<PublicTripDto>.Fail(SocialErrorTypes.PublishLimit, refusal);
+                }
             }
             await db.SaveChangesAsync(ct);
-            if (firstPublish) await NotifyFollowersAsync(me, trip.Id, trip.JoinGender, ct);
+            if (poster is not null)
+            {
+                notify = await PostNotifier.OnPublishAsync(db, notices, me, poster, trip, r.NotifyNearby, now, ct);
+                await db.SaveChangesAsync(ct);
+            }
             await unitOfWork.CommitTransactionAsync();
         }
         catch
@@ -295,9 +322,13 @@ public sealed class PublicTripService(
             throw;
         }
         afterCommit.Hint(SocialLiveScopes.Posts, me);
-        if (firstPublish) afterCommit.Hint(SocialLiveScopes.Limits, me);
+        if (firstPublish)
+        {
+            afterCommit.Hint(SocialLiveScopes.Limits, me);
+            afterCommit.Wake();
+        }
         await afterCommit.FlushAsync(ct);
-        return await AnswerAsync(me, trip.Id, ct);
+        return await AnswerAsync(me, trip.Id, ct, notify);
     }
 
     // ------------------------------------------------------------------ DELETE post (owner) and admin unpublish
@@ -315,18 +346,45 @@ public sealed class PublicTripService(
         SELECT (SELECT t."OwnerUserId" FROM t) AS "OwnerUserId", ARRAY(SELECT r."RequesterId" FROM r) AS "Requesters"
         """;
 
-    // ownerId null = the admin route. false = no such trip (of that owner).
-    public async Task<bool> UnpublishAsync(Guid? ownerId, Guid tripId, CancellationToken ct = default)
+    // ownerId null = the admin route (removal after a report: never locked). The owner route ("Make private") is refused with
+    // PostLocked {unlocksAt} inside 72 hours of the latest publish (PostLockRules); the check and the update run under the trip
+    // row lock. Fail TripNotFound = no such trip (of that owner).
+    public async Task<BuddyResult<bool>> UnpublishAsync(Guid? ownerId, Guid tripId, CancellationToken ct = default)
     {
-        var row = (await db.Database.SqlQueryRaw<UnpublishRow>(UnpublishSql, Uuid("trip", tripId), NullUuid("owner", ownerId)).ToListAsync(ct)).First();
-        if (row.OwnerUserId is not { } owner) return false;
+        UnpublishRow row;
+        await unitOfWork.BeginTransactionAsync();
+        try
+        {
+            if (ownerId is not null)
+            {
+                var read = await PostLockReads.ReadAsync(db, tripId, ownerId, lockRow: true, ct);
+                if (read is not { } found)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return BuddyResult<bool>.Fail(SocialErrorTypes.TripNotFound);
+                }
+                if (PostLockRules.UnpublishRefusal(found.State, Now) is { } locked)
+                {
+                    await unitOfWork.RollbackTransactionAsync();
+                    return BuddyResult<bool>.Fail(locked.ErrorType, locked.Data);
+                }
+            }
+            row = (await db.Database.SqlQueryRaw<UnpublishRow>(UnpublishSql, Uuid("trip", tripId), NullUuid("owner", ownerId)).ToListAsync(ct)).First();
+            await unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+        if (row.OwnerUserId is not { } owner) return BuddyResult<bool>.Fail(SocialErrorTypes.TripNotFound);
         afterCommit.Clear();
         afterCommit.Hint(SocialLiveScopes.Posts, owner);
         afterCommit.Hint(SocialLiveScopes.JoinRequests, owner);
         if (row.Requesters is { Length: > 0 } requesters) afterCommit.Hint(SocialLiveScopes.MyJoinRequests, requesters);
         await afterCommit.FlushAsync(ct);
         logger.LogInformation("social.trip.unpublished {TripId} {ByAdmin}", tripId, ownerId is null);
-        return true;
+        return BuddyResult<bool>.Success(true);
     }
 
     private sealed class UnpublishRow

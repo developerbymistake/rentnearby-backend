@@ -46,6 +46,15 @@ public class Trip
     // ends (beyond the Free active-trips limit). PausedByPlan: the post was taken off by the plan and comes back with Plus.
     public bool InactiveByPlan { get; set; }
     public bool PausedByPlan { get; set; }
+    // Post notify (owner 2026-11-27). NotifiedAt: the publish whose followers push / nearby toggle counted as a notified post
+    // (set once; an edit or re-publish never notifies again). NotifyNearby: the poster's "Notify travellers near me" was accepted;
+    // NearbyNotifiedAt: the 07:00 IST digest handled the post.
+    public DateTime? NotifiedAt { get; set; }
+    public bool NotifyNearby { get; set; }
+    public DateTime? NearbyNotifiedAt { get; set; }
+    // 72-hour post lock (PostLockRules): set on EVERY owner publish (first publish and each re-publish). PublishedAt cannot be
+    // used because bump protection keeps it for 7 days. Null on rows published before the column existed (PublishedAt is used).
+    public DateTime? LastPublishedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

@@ -93,6 +93,8 @@ public static class MyJoinStates
     public const string Requested = "requested";
     public const string Member = "member";
     public const string Declined = "declined";
+    // Owner 2026-11-27: the host removed this member; a new request is refused (CannotRejoin).
+    public const string Removed = "removed";
 }
 
 public static class TripJoinedVia
@@ -150,6 +152,8 @@ public static class ChatLocks
     public const string AwaitingReply = "awaitingReply";
     public const string Limit = "limit";
     public const string Left = "left";
+    // Owner 2026-11-27: a trip group room for a member without the SeekerGroupChat switch (read only, Plus prompt).
+    public const string Plus = "plus";
 }
 
 public static class ChatSystemKinds

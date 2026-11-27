@@ -37,6 +37,13 @@ public static class SocialFeatureModel
             e.Property(x => x.NotifyFollows).HasDefaultValue(true).HasSentinel(true);
             e.Property(x => x.NotifyFollowedTrips).HasDefaultValue(true).HasSentinel(true);
             e.Property(x => x.GuidelinesVersion).HasDefaultValue(0);
+            // Post notify (owner 2026-11-27): district id only (never coordinates), the Trips near me switch, the rolling caps.
+            e.Property(x => x.NotifyNearbyTrips).HasDefaultValue(true).HasSentinel(true);
+            e.Property(x => x.NotifiedPostTimes).HasColumnType("timestamp with time zone[]").HasDefaultValueSql("'{}'::timestamptz[]").IsRequired();
+            e.Property(x => x.PublishTimes).HasColumnType("timestamp with time zone[]").HasDefaultValueSql("'{}'::timestamptz[]").IsRequired();
+            // The 07:00 IST nearby digest joins travellers by district (NearbyDigestJob.DigestSql).
+            e.HasIndex(x => new { x.LastDistrictId, x.LastDistrictAt }, "ix_userprofiles_nearby")
+             .HasFilter("\"NotifyNearbyTrips\" AND \"LastDistrictId\" IS NOT NULL");
             e.Property(x => x.FollowerCount).HasDefaultValue(0);
             e.Property(x => x.FollowingCount).HasDefaultValue(0);
             e.Property(x => x.CompletedAt).HasDefaultValueSql("now()");
@@ -107,7 +114,10 @@ public static class SocialFeatureModel
             e.Property(x => x.PostStateName).HasMaxLength(SocialLimits.HomeStateMax);
             e.Property(x => x.InactiveByPlan).HasDefaultValue(false);
             e.Property(x => x.PausedByPlan).HasDefaultValue(false);
+            e.Property(x => x.NotifyNearby).HasDefaultValue(false);
             e.HasIndex(x => new { x.PublishedAt, x.Id }, "ix_trips_public").IsDescending(true, true).HasFilter("\"IsPublic\"");
+            // Posts waiting for the 07:00 IST nearby digest (a handful a day).
+            e.HasIndex(x => x.PublishedAt, "ix_trips_nearby_pending").HasFilter("\"NotifyNearby\" AND \"NearbyNotifiedAt\" IS NULL");
         });
 
         modelBuilder.Entity<TripJoinRequest>(e =>

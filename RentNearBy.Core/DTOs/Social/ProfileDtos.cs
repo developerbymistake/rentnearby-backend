@@ -52,10 +52,18 @@ public class SocialLimitsDto
     public LimitUseDto NewChats { get; set; } = new();
     public bool GenderOnlyTrips { get; set; }
     public bool NearMe { get; set; }
+    // Owner 2026-11-27: may send in trip group chats (Plus; everyone while payment is off).
+    public bool GroupChat { get; set; }
     // PLAN_STATES_SOCIAL 2: trips kept inactive, and posts paused on trips that stay active, after Plus ended (both come back
     // with Plus). The two never count the same trip.
     public int InactiveTrips { get; set; }
     public int PausedPosts { get; set; }
+    // Post notify (owner 2026-11-27), every plan, rolling 7 days, never refunded: posts that notified anyone (2; 1 on the first
+    // day of a new account) and publishes (4). *NextAt = when one more is allowed (null = now).
+    public LimitUseDto NotifyPosts { get; set; } = new();
+    public DateTime? NotifyNextAt { get; set; }
+    public LimitUseDto Publishes { get; set; } = new();
+    public DateTime? PublishNextAt { get; set; }
 }
 
 public class ChatUnreadDto
@@ -105,6 +113,8 @@ public class MyProfileDto
     public bool NotifyMessages { get; set; }
     public bool NotifyFollows { get; set; }
     public bool NotifyFollowedTrips { get; set; }
+    // Settings "Trips near me": the 07:00 IST nearby digest (default on).
+    public bool NotifyNearbyTrips { get; set; } = true;
     public MyCountersDto Counters { get; set; } = new();
     public List<PublicTripDto> PublicTrips { get; set; } = [];
 }
@@ -195,6 +205,19 @@ public class UpdatePrivacyRequest
     public bool? NotifyMessages { get; set; }
     public bool? NotifyFollows { get; set; }
     public bool? NotifyFollowedTrips { get; set; }
+    public bool? NotifyNearbyTrips { get; set; }
+}
+
+// PUT /social/me/area: the district the app is in (id only, never coordinates). Feeds only the nearby digest.
+public class UpdateAreaRequest
+{
+    public Guid DistrictId { get; set; }
+}
+
+public class AreaDto
+{
+    public Guid DistrictId { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }
 
 public class AdminIdentityRequest

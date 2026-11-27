@@ -1655,6 +1655,10 @@ namespace RentNearBy.Infrastructure.Migrations
                     PostStateName = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: true),
                     InactiveByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     PausedByPlan = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    NotifiedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    NotifyNearby = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    NearbyNotifiedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LastPublishedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
@@ -1702,7 +1706,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_UserNotices", x => x.Id);
                     table.CheckConstraint("ck_usernotices_count", "\"Count\" >= 1");
-                    table.CheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged', 'StayEditApproved', 'StayEditRejected', 'FestivalReminder', 'PlanLimitsChanged', 'PlansStarting', 'FollowRequest', 'NewFollower', 'FollowAccepted', 'JoinRequest', 'JoinAccepted', 'JoinDeclined', 'FollowedPosted')");
+                    table.CheckConstraint("ck_usernotices_kind", "\"Kind\" IN ('BuddyRequest', 'TripInvite', 'PaymentSaidPaid', 'SettleReminder', 'PaymentNotReceived', 'ExpensesChanged', 'TripRemoved', 'TripDeleted', 'BuddyAccepted', 'NewBuddy', 'TripJoined', 'PlanUpdated', 'ExpenseAdded', 'ShareChanged', 'StayEditApproved', 'StayEditRejected', 'FestivalReminder', 'PlanLimitsChanged', 'PlansStarting', 'FollowRequest', 'NewFollower', 'FollowAccepted', 'JoinRequest', 'JoinAccepted', 'JoinDeclined', 'FollowedPosted', 'NearbyPosted')");
                     table.ForeignKey(
                         name: "FK_UserNotices_Users_UserId",
                         column: x => x.UserId,
@@ -1736,7 +1740,12 @@ namespace RentNearBy.Infrastructure.Migrations
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     NameChangedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     GuidelinesAcceptedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    GuidelinesVersion = table.Column<int>(type: "integer", nullable: false, defaultValue: 0)
+                    GuidelinesVersion = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    LastDistrictId = table.Column<Guid>(type: "uuid", nullable: true),
+                    LastDistrictAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    NotifyNearbyTrips = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    NotifiedPostTimes = table.Column<DateTime[]>(type: "timestamp with time zone[]", nullable: false, defaultValueSql: "'{}'::timestamptz[]"),
+                    PublishTimes = table.Column<DateTime[]>(type: "timestamp with time zone[]", nullable: false, defaultValueSql: "'{}'::timestamptz[]")
                 },
                 constraints: table =>
                 {
@@ -4669,6 +4678,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"EndDate\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
+                name: "ix_trips_nearby_pending",
+                table: "Trips",
+                column: "PublishedAt",
+                filter: "\"NotifyNearby\" AND \"NearbyNotifiedAt\" IS NULL");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_trips_owner_client",
                 table: "Trips",
                 columns: new[] { "OwnerUserId", "ClientTripId" },
@@ -4830,6 +4845,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 table: "UserPlans",
                 columns: new[] { "UserId", "FeatureKey", "CreatedAt" },
                 descending: new[] { false, false, true });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_userprofiles_nearby",
+                table: "UserProfiles",
+                columns: new[] { "LastDistrictId", "LastDistrictAt" },
+                filter: "\"NotifyNearbyTrips\" AND \"LastDistrictId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_CreatedAt",

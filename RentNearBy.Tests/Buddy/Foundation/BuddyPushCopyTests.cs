@@ -44,6 +44,9 @@ public class BuddyPushCopyTests
         RentNearBy.Core.Models.Social.SocialPushCopy.JoinAccepted(User, Other, Trip, "Rahul"),
         RentNearBy.Core.Models.Social.SocialPushCopy.DirectMessage(User, Other, "Aman", Now),
         RentNearBy.Core.Models.Social.SocialPushCopy.TripMessage(User, Other, Now),
+        RentNearBy.Core.Models.Social.SocialPushCopy.TripPosted(User, Other, Trip, "Kavya", Now),
+        RentNearBy.Core.Models.Social.SocialPushCopy.NearbyDigest(User, 3, Trip, "Kavya", new DateOnly(2026, 5, 20)),
+        RentNearBy.Core.Models.Social.SocialPushCopy.JoinRequestsFull(User, Trip),
     ];
 
     [Fact]

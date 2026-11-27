@@ -21,8 +21,8 @@ namespace RentNearBy.Tests.Social;
 // reconcile through PlanSlotService with these numbers). Needs RENTNEARBY_TEST_DB (PostGIS); skipped without it.
 public class SeekerPlanIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
 {
-    private static readonly SeekerLimits Free = new(false, true, 1, 1, 1, 3, false, false);
-    private static readonly SeekerLimits Plus = new(true, false, 10, 3, 5, 10, true, true);
+    private static readonly SeekerLimits Free = new(false, true, 1, 1, 1, 3, false, false, false);
+    private static readonly SeekerLimits Plus = new(true, false, 10, 3, 5, 10, true, true, true);
 
     private sealed class SwitchLimits(SeekerLimits start) : ISeekerLimits
     {
@@ -36,7 +36,8 @@ public class SeekerPlanIntegrationTests(TestDatabase db) : IntegrationTestBase(d
 
     private static PublicTripService Posts(ApplicationDbContext ctx, ISeekerLimits limits) =>
         new(ctx, new UnitOfWork(ctx), new FakeCityCatalog(), limits, new PublicTripReader(ctx, TimeProvider.System),
-            SocialTestSeams.AfterCommit(ctx), TimeProvider.System, NullLogger<PublicTripService>.Instance);
+            SocialTestSeams.AfterCommit(ctx), new RentNearBy.Infrastructure.Services.Buddy.Be4.NoticeWriter(ctx), TimeProvider.System,
+            NullLogger<PublicTripService>.Instance);
 
     private static JoinRequestService Joins(ApplicationDbContext ctx, ISeekerLimits limits)
     {

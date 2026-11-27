@@ -33,6 +33,8 @@ public sealed class JoinRequestService(
                COALESCE(me."Name", '') AS "MyName",
                (SELECT count(*) FROM "TripMembers" m WHERE m."TripId" = t."Id" AND m."Status" = '{TripMemberStatuses.Joined}')::int AS "Joined",
                EXISTS (SELECT 1 FROM "TripMembers" m WHERE m."TripId" = t."Id" AND m."UserId" = @me AND m."Status" = '{TripMemberStatuses.Joined}') AS "Member",
+               EXISTS (SELECT 1 FROM "TripMembers" m WHERE m."TripId" = t."Id" AND m."UserId" = @me AND m."Status" = '{TripMemberStatuses.Removed}') AS "Removed",
+               (SELECT count(*) FROM "TripJoinRequests" r WHERE r."TripId" = t."Id" AND r."Status" = '{JoinRequestStatuses.Waiting}')::int AS "Pending",
                EXISTS (SELECT 1 FROM "TripJoinRequests" r WHERE r."TripId" = t."Id" AND r."RequesterId" = @me AND r."Status" = '{JoinRequestStatuses.Waiting}') AS "Waiting",
                EXISTS (SELECT 1 FROM "TripJoinRequests" r WHERE r."TripId" = t."Id" AND r."RequesterId" = @me AND r."Status" = '{JoinRequestStatuses.Declined}'
                        AND r."DecidedAt" > now() - {Interval(SocialLimits.AskAgainAfter)}) AS "Declined",
@@ -84,9 +86,13 @@ public sealed class JoinRequestService(
             // Spec 22: everyone sees the post, only the right gender may ask (Women only = women, Men only = men).
             if (!SocialRules.CanJoin(s.JoinGender, s.MyGender)) return Fail(SocialErrorTypes.TripGenderMismatch, new { joinGender = s.JoinGender });
             if (s.Member) return Fail(SocialErrorTypes.AlreadyMember);
+            // Owner 2026-11-27: a member the host removed never asks for the same trip again.
+            if (s.Removed) return Fail(SocialErrorTypes.CannotRejoin);
             if (s.Waiting) return Fail(SocialErrorTypes.AlreadyRequested);
             if (s.Declined) return Fail(SocialErrorTypes.AskAgainLater);
             if (s.Joined >= Math.Min((int)(s.Seats ?? 0), BuddyLimits.MaxViewers)) return Fail(SocialErrorTypes.TripFull);
+            // Owner 2026-11-27: 50 waiting requests per post, counted under the trip row lock (race-safe); a decline frees a slot.
+            if (s.Pending >= SocialLimits.PendingRequestsMax) return Fail(SocialErrorTypes.TripRequestsFull);
             // Unlocked slot read (architecture S21): Accept re-checks under the slot lock; taking it here would break the lock order.
             var slots = await TripSlots.ReadAsync(db, me, limits.ActiveTrips, c);
             if (TripSlotRules.IsFull(slots.Count, limits.ActiveTrips)) return Fail(SocialErrorTypes.TripLimitReached, slots);
@@ -100,7 +106,10 @@ public sealed class JoinRequestService(
                 new NpgsqlParameter("tier", NpgsqlTypes.NpgsqlDbType.Smallint) { Value = tier }).ToListAsync(c)).FirstOrDefault();
             if (id == Guid.Empty) return Fail(SocialErrorTypes.AlreadyRequested);
             await notices.UpsertAsync([new NoticeUpsert(s.OwnerUserId, NoticeKinds.JoinRequest, id, me, tripId)], c);
-            await notices.PushAsync([SocialPushCopy.JoinRequest(s.OwnerUserId, id, tripId, s.MyName)], c);
+            List<PushSpec> pushes = [SocialPushCopy.JoinRequest(s.OwnerUserId, id, tripId, s.MyName)];
+            // The request that fills the post also tells the host once per post (same tag: it replaces the request push on the phone).
+            if (s.Pending + 1 >= SocialLimits.PendingRequestsMax) pushes.Add(SocialPushCopy.JoinRequestsFull(s.OwnerUserId, tripId));
+            await notices.PushAsync(pushes, c);
             await tx.CommitAsync(c);
             owner = s.OwnerUserId;
             return BuddyResult<JoinSentDto>.Success(new JoinSentDto { Id = id, Status = JoinRequestStatuses.Waiting });
@@ -298,6 +307,8 @@ public sealed class JoinRequestService(
         public string MyName { get; set; } = string.Empty;
         public int Joined { get; set; }
         public bool Member { get; set; }
+        public bool Removed { get; set; }
+        public int Pending { get; set; }
         public bool Waiting { get; set; }
         public bool Declined { get; set; }
         public bool InOwnersBuddies { get; set; }

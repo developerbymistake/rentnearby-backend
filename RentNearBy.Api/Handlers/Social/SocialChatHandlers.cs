@@ -82,11 +82,25 @@ public static class SocialChatHandlers
     {
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return SocialHttp.Invalid(validation);
+        if (!BuddyHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         // Spec 25: refused before the per-sender send permit is taken.
-        if (BuddyHttp.TryCaller(principal, out var caller) && !await SocialSql.GuidelinesAcceptedAsync(db, caller, ct))
-            return SocialHttp.Error(SocialErrorTypes.GuidelinesNotAccepted);
-        return await SocialHttp.WriteAsync(principal, db, limiter, http, SocialRateLimits.ChatSend(ProfileHandlers.BuddyCaller(principal)), false,
-            async me => SocialHttp.From(await chat.SendAsync(me, roomId, request.ClientMessageId, request.Text, ct)), ct);
+        if (!await SocialSql.GuidelinesAcceptedAsync(db, me, ct)) return SocialHttp.Error(SocialErrorTypes.GuidelinesNotAccepted);
+        if (await SocialSql.GuardAsync(db, me, false, ct) is { } fail) return SocialHttp.Error(fail.Type, fail.Data);
+        var lease = new RateLimitPermits(limiter);
+        if (await BuddyHttp.TakeAsync(lease, http, SocialRateLimits.ChatSend(me)) is { } denied) return denied;
+        RentNearBy.Core.Models.Buddy.BuddyResult<ChatMessageDto> result;
+        try
+        {
+            result = await chat.SendAsync(me, roomId, request.ClientMessageId, request.Text, ct);
+        }
+        catch
+        {
+            await lease.ReleaseAllAsync();
+            throw;
+        }
+        // Same permit rule as the hub twin: a send that stored nothing gives its permit back (PlusRequired keeps costing).
+        if (!result.Ok && SocialRateLimits.ChatSendGivesBack(result.ErrorType!)) await lease.ReleaseAllAsync();
+        return SocialHttp.From(result);
     }
 
     public static Task<IResult> Read(

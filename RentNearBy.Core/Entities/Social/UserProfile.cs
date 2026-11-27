@@ -28,4 +28,13 @@ public class UserProfile
     // Spec 25: community guidelines accepted (null = never); the version is compared with SocialLimits.GuidelinesVersion.
     public DateTime? GuidelinesAcceptedAt { get; set; }
     public int GuidelinesVersion { get; set; }
+    // Post notify (owner 2026-11-27): the district the app last reported (PUT /social/me/area; id only, never coordinates) and
+    // when; the nearby digest skips an area older than 30 days. NotifyNearbyTrips = Settings "Trips near me".
+    public Guid? LastDistrictId { get; set; }
+    public DateTime? LastDistrictAt { get; set; }
+    public bool NotifyNearbyTrips { get; set; } = true;
+    // Abuse caps (rolling 7 days, never refunded by deleting a post): when this user's posts notified anyone, and every
+    // first publish / re-publish. Only in-window times are kept (a few entries).
+    public DateTime[] NotifiedPostTimes { get; set; } = [];
+    public DateTime[] PublishTimes { get; set; } = [];
 }

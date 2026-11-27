@@ -25,7 +25,8 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
 {
     private static PublicTripService Posts(ApplicationDbContext ctx, ISeekerLimits limits) =>
         new(ctx, new UnitOfWork(ctx), new FakeCityCatalog(), limits, new PublicTripReader(ctx, TimeProvider.System),
-            SocialTestSeams.AfterCommit(ctx), TimeProvider.System, NullLogger<PublicTripService>.Instance);
+            SocialTestSeams.AfterCommit(ctx), new RentNearBy.Infrastructure.Services.Buddy.Be4.NoticeWriter(ctx), TimeProvider.System,
+            NullLogger<PublicTripService>.Instance);
 
     private static CreatePublicTripRequest Post(string joinGender = JoinGenders.Anyone) => new()
     {
@@ -169,7 +170,10 @@ public class PublicTripIntegrationTests(TestDatabase db) : IntegrationTestBase(d
                 new RecordingLiveHints(), SocialTestSeams.GroupChat(ctx, ac), new PublicTripReader(ctx, TimeProvider.System), ac, TimeProvider.System,
                 NullLogger<JoinRequestService>.Instance);
             Assert.True((await joins.SendAsync(asker, tripId, new SendJoinRequest { ClientRequestId = Guid.NewGuid() })).Ok);
-            Assert.True(await Posts(ctx, SocialTestSeams.Limits(10)).UnpublishAsync(owner, tripId));
+            // The 72-hour post lock (PostLockRules) is over: age the lock, then the owner makes the post private.
+            await ctx.Trips.Where(t => t.Id == tripId)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastPublishedAt, DateTime.UtcNow - PostLockRules.Lock - TimeSpan.FromMinutes(1)));
+            Assert.True((await Posts(ctx, SocialTestSeams.Limits(10)).UnpublishAsync(owner, tripId)).Ok);
         }
         await using var check = CreateContext();
         Assert.Equal(JoinRequestStatuses.Expired, await check.Set<RentNearBy.Core.Entities.Social.TripJoinRequest>()
