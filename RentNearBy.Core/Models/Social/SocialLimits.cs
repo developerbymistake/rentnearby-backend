@@ -33,7 +33,7 @@ public static class SocialLimits
     public const int PageDefault = 20;
     public const int PageMax = 50;
     public const int RailMax = 10;
-    public const int NearMeKm = 300;
+    public const int NearMeKm = 150;
     public const int FeedQueryMin = 2;
     public const int FeedQueryMax = 40;
     public const int MutualsSample = 3;
