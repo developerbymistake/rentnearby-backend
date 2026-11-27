@@ -7,4 +7,9 @@ public interface IIdentityCipher
     bool IsConfigured { get; }
     string Protect(string plain);
     string Unprotect(string stored);
+
+    // Purpose = AES-GCM associated data: a blob made for one purpose (e.g. "stay-quote-bank:<userId>") never opens under another,
+    // so a value cannot be moved to another owner or into a licence field. The overloads above use the purpose "taxi-dl".
+    string Protect(string plain, string purpose);
+    string Unprotect(string stored, string purpose);
 }

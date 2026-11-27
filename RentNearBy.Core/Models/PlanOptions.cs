@@ -19,11 +19,12 @@ public static class PlanFeatureKeys
     public const string Reminders = "Reminders";
     public const string SpecialPrices = "SpecialPrices";
     public const string DemandCount = "DemandCount";
+    public const string StayQuotationsPerMonth = "StayQuotationsPerMonth";
 
     public static readonly string[] All =
     [
         ListingLimit, Priority, Featured, JobsPosts, Photos, RoomTypes, Routes, RingWeight, CalendarEntries, BlockedRanges,
-        UpcomingDays, MonthsAhead, MonthSummary, Reminders, SpecialPrices, DemandCount,
+        UpcomingDays, MonthsAhead, MonthSummary, Reminders, SpecialPrices, DemandCount, StayQuotationsPerMonth,
     ];
 
     // Keys that existed before the owner roles work: a missing stored row reads as 0. Newer keys read the Fallback value.

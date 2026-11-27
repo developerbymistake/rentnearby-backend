@@ -20,6 +20,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<StayRoom> StayRooms { get; set; }
     public DbSet<StayPhoto> StayPhotos { get; set; }
     public DbSet<StayJob> StayJobs { get; set; }
+    public DbSet<StayQuoteProfile> StayQuoteProfiles { get; set; }
+    public DbSet<StayQuoteTermsAcceptance> StayQuoteTermsAcceptances { get; set; }
+    public DbSet<StayQuoteCounter> StayQuoteCounters { get; set; }
+    public DbSet<StayQuoteIssue> StayQuoteIssues { get; set; }
     public DbSet<TaxiVehicleType> TaxiVehicleTypes { get; set; }
     public DbSet<TaxiListing> TaxiListings { get; set; }
     public DbSet<TaxiRoute> TaxiRoutes { get; set; }
@@ -1669,6 +1673,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         });
 
         OwnerFeatureModel.Configure(modelBuilder);
+        StayQuoteFeatureModel.Configure(modelBuilder);
 
     }
 

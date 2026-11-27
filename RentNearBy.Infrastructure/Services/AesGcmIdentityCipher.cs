@@ -17,7 +17,7 @@ public sealed class AesGcmIdentityCipher : IIdentityCipher
     private const int KeySize = 32;
     private const int NonceSize = 12;
     private const int TagSize = 16;
-    private static readonly byte[] AssociatedData = Encoding.UTF8.GetBytes("taxi-dl");
+    public const string TaxiDlPurpose = "taxi-dl";
 
     private readonly byte[]? _key;
 
@@ -30,19 +30,25 @@ public sealed class AesGcmIdentityCipher : IIdentityCipher
 
     public bool IsConfigured => _key != null;
 
-    public string Protect(string plain)
+    public string Protect(string plain) => Protect(plain, TaxiDlPurpose);
+
+    public string Unprotect(string stored) => Unprotect(stored, TaxiDlPurpose);
+
+    public string Protect(string plain, string purpose)
     {
+        var associated = Purpose(purpose);
         var key = _key ?? throw new InvalidOperationException("Identity cipher is not configured");
         var nonce = RandomNumberGenerator.GetBytes(NonceSize);
         var plainBytes = Encoding.UTF8.GetBytes(plain);
         var output = new byte[plainBytes.Length + TagSize];
         using var aes = new AesGcm(key, TagSize);
-        aes.Encrypt(nonce, plainBytes, output.AsSpan(0, plainBytes.Length), output.AsSpan(plainBytes.Length), AssociatedData);
+        aes.Encrypt(nonce, plainBytes, output.AsSpan(0, plainBytes.Length), output.AsSpan(plainBytes.Length), associated);
         return $"{Version}.{Convert.ToBase64String(nonce)}.{Convert.ToBase64String(output)}";
     }
 
-    public string Unprotect(string stored)
+    public string Unprotect(string stored, string purpose)
     {
+        var associated = Purpose(purpose);
         var key = _key ?? throw new InvalidOperationException("Identity cipher is not configured");
         var parts = (stored ?? string.Empty).Split('.');
         if (parts.Length != 3 || parts[0] != Version) throw new CryptographicException("Unsupported identity value");
@@ -62,8 +68,14 @@ public sealed class AesGcmIdentityCipher : IIdentityCipher
         var cipherLength = data.Length - TagSize;
         var plain = new byte[cipherLength];
         using var aes = new AesGcm(key, TagSize);
-        aes.Decrypt(nonce, data.AsSpan(0, cipherLength), data.AsSpan(cipherLength), plain, AssociatedData);
+        aes.Decrypt(nonce, data.AsSpan(0, cipherLength), data.AsSpan(cipherLength), plain, associated);
         return Encoding.UTF8.GetString(plain);
+    }
+
+    private static byte[] Purpose(string purpose)
+    {
+        if (string.IsNullOrEmpty(purpose)) throw new ArgumentException("A cipher purpose is required", nameof(purpose));
+        return Encoding.UTF8.GetBytes(purpose);
     }
 
     private static byte[]? ParseKey(string? value)

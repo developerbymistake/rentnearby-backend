@@ -59,4 +59,10 @@ public class MyPlanLimitsDto
     public bool Reminders { get; set; }
     public int SpecialPrices { get; set; }
     public bool DemandCount { get; set; }
+    // Stay quotations: the monthly cap, this IST month's counted downloads (0 when the counter is from an older month) and the reset time.
+    // Named after the plan key (every key has a field here); the wire name is the app contract's "quotationsPerMonth".
+    [System.Text.Json.Serialization.JsonPropertyName("quotationsPerMonth")]
+    public int StayQuotationsPerMonth { get; set; }
+    public int QuotationsUsed { get; set; }
+    public DateTime? QuotationsResetsAt { get; set; }
 }

@@ -47,9 +47,11 @@ public class OwnerRetentionAndPurgeTests
     {
         var rules = RetentionRuleRegistration.Discover(typeof(RetentionRunner).Assembly).OfType<DeclarativeRetentionRule>()
             .Where(r => r.Group == RetentionGroups.OwnerCalendar).ToList();
-        Assert.Equal(Expected.Select(e => e.Name).OrderBy(n => n), rules.Select(r => r.Name).OrderBy(n => n));
+        // Group D = the seven owner calendar rules plus the stay quotation issue purge (its own rule source, last in the slot).
+        string[] groupD = [.. Expected.Select(e => e.Name), "StayQuoteIssues"];
+        Assert.Equal(groupD.OrderBy(n => n), rules.Select(r => r.Name).OrderBy(n => n));
         var ordered = rules.Select(r => r.Name).OrderBy(RetentionSchedule.OrderOf).ToList();
-        Assert.Equal(Expected.Select(e => e.Name), ordered);
+        Assert.Equal(groupD, ordered);
         Assert.True(RetentionSchedule.OrderOf("OwnerCalendarEntries") > RetentionSchedule.OrderOf("Chat"));
         foreach (var rule in rules)
         {

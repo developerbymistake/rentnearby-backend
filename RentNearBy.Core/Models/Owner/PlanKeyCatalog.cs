@@ -58,6 +58,7 @@ public static class PlanKeyCatalog
         new(PlanFeatureKeys.Reminders, PlanKeyKind.Limit, true, 0, 1, Both, "Morning reminder", new(0, 1), new(0, 1)),
         new(PlanFeatureKeys.SpecialPrices, PlanKeyKind.Limit, false, 0, 999, StayOnly, "Special prices, active", new(1, 5), null),
         new(PlanFeatureKeys.DemandCount, PlanKeyKind.Stored, true, 0, 1, StayOnly, "Travellers asked (phase 2)", new(0, 1), null),
+        new(PlanFeatureKeys.StayQuotationsPerMonth, PlanKeyKind.Limit, false, 0, 999, StayOnly, "Quotations a month", new(2, 30), null),
     ];
 
     private static readonly Dictionary<string, PlanKeyInfo> ByKey = All.ToDictionary(k => k.Key);

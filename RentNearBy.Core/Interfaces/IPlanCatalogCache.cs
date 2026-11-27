@@ -24,7 +24,8 @@ public sealed record PlanFeatureValues(
     bool MonthSummary = false,
     bool Reminders = false,
     int SpecialPrices = 1,
-    bool DemandCount = false)
+    bool DemandCount = false,
+    int StayQuotationsPerMonth = 2)
 {
     // Used only if a feature has no default plan row (unseeded database).
     public static readonly PlanFeatureValues Fallback = new(1, 0, false, 1);
@@ -47,6 +48,7 @@ public sealed record PlanFeatureValues(
         PlanFeatureKeys.Reminders => Reminders ? 1 : 0,
         PlanFeatureKeys.SpecialPrices => SpecialPrices,
         PlanFeatureKeys.DemandCount => DemandCount ? 1 : 0,
+        PlanFeatureKeys.StayQuotationsPerMonth => StayQuotationsPerMonth,
         _ => throw new ArgumentOutOfRangeException(nameof(key), key, "Unknown plan feature key"),
     };
 
@@ -66,7 +68,8 @@ public sealed record PlanFeatureValues(
         read(PlanFeatureKeys.MonthSummary) > 0,
         read(PlanFeatureKeys.Reminders) > 0,
         read(PlanFeatureKeys.SpecialPrices),
-        read(PlanFeatureKeys.DemandCount) > 0);
+        read(PlanFeatureKeys.DemandCount) > 0,
+        read(PlanFeatureKeys.StayQuotationsPerMonth));
 
     public static PlanFeatureValues From(IReadOnlyDictionary<string, int> features) => Build(k =>
         features.TryGetValue(k, out var v) ? v : PlanFeatureKeys.Legacy.Contains(k) ? 0 : Fallback.Get(k));

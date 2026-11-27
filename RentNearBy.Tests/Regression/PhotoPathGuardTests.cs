@@ -22,7 +22,7 @@ public class PhotoPathGuardTests
             new HashSet<string>
             {
                 "StayPhoto.FilePath", "TaxiListing.PlatePhotoPath", "TaxiListing.DisplayPhotoPath", "DistrictBanner.ImageFilePath",
-                "User.ProfilePhotoPath",
+                "User.ProfilePhotoPath", "StayQuoteProfile.LogoPath", "StayQuoteProfile.SignaturePath",
             },
             found);
     }
@@ -72,7 +72,7 @@ public class PhotoPathGuardTests
     {
         var src = Src("RentNearBy.Infrastructure", "Services", "PhotoService.cs").Replace("\r\n", "\n");
         var deletes = Regex.Matches(src, @"_cloudinary\.(DestroyAsync|DeleteResourcesAsync)\(").ToList();
-        Assert.Equal(2, deletes.Count);
+        Assert.Equal(3, deletes.Count);
         foreach (var m in deletes)
         {
             var end = src.IndexOf("\n    }", m.Index, StringComparison.Ordinal);

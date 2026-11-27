@@ -16,7 +16,9 @@ public class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorHandling
         catch (Exception ex)
         {
             var id = ShortId(context);
-            if (ex is InvalidPhotoException)
+            if (ex is PhotoBusyException)
+                logger.LogWarning("Photo decode gate busy {CorrelationId} {Method} {Route}", id, context.Request.Method, context.Request.Path.Value);
+            else if (ex is InvalidPhotoException)
                 logger.LogWarning("Invalid photo {CorrelationId} {Method} {Route}", id, context.Request.Method, context.Request.Path.Value);
             else
                 logger.LogError(ex, "Unhandled exception {CorrelationId} {Method} {Route}", id, context.Request.Method,
@@ -38,6 +40,8 @@ public class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorHandling
         {
             // FB-27: framework text (parameter names, values) stays in the log; the body is a fixed line with the reference.
             InvalidPhotoException => (HttpStatusCode.BadRequest, "ValidationException", InvalidPhotoException.UserMessage),
+            // Every upload shares the decode gate: a full gate past its wait answers 503 with Retry-After, never a 500.
+            PhotoBusyException => (HttpStatusCode.ServiceUnavailable, "PhotoBusy", PhotoBusyException.UserMessage),
             ArgumentNullException or ArgumentException => (HttpStatusCode.BadRequest, "ValidationException", $"Invalid request. Ref {id}"),
             UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "UnauthorizedException", exception.Message),
             KeyNotFoundException or FileNotFoundException => (HttpStatusCode.NotFound, "NotFoundException", exception.Message),
@@ -45,6 +49,7 @@ public class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorHandling
                 $"An error occurred while processing your request. Ref {id}")
         };
         context.Response.Headers["X-Correlation-Id"] = id;
+        if (exception is PhotoBusyException) context.Response.Headers.RetryAfter = PhotoBusyException.RetryAfterSeconds.ToString();
 
         var response = new ApiResponse<object>
         {

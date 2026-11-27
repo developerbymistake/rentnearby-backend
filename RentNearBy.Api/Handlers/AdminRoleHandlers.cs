@@ -281,6 +281,8 @@ public static class AdminRoleHandlers
 
             await tripClosure.AfterCommitAsync(tripPushes);
             await listingPurge.DeleteListingPhotosBestEffortAsync(user.Id, purgedListingIds);
+            if (purgeKind == ListingKinds.Stay && sp.GetService<RentNearBy.Infrastructure.Services.Owner.Quote.StayQuoteRoleCleanup>() is { } quoteCleanup)
+                await quoteCleanup.DeleteImagesBestEffortAsync(user.Id);
 
             await AdminHandlers.SendGoLiveNotificationAsync(hubContext, publisher, notification, targetTokens: tokenCopy);
 

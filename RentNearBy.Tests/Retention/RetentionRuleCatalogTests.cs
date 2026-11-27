@@ -16,6 +16,7 @@ public class RetentionRuleCatalogTests
         "BuddyRequests", "UserNotices", "TripPaymentsEnded", "TripMemberInvites",
         "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats", "TaxiDayOffs",
         "TripJoinRequests", "MessageSnapshots", "DirectChatRooms",
+        "StayQuoteIssues",
     };
 
     // Never auto-deleted (owner list), so no declarative rule may name them as its table.

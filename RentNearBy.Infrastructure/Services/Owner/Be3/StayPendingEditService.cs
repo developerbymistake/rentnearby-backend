@@ -76,7 +76,8 @@ public sealed class StayPendingEditService(ApplicationDbContext db, IOwnerNotifi
         var live = new StayReviewValues(r.Name, r.RegistrationTypeId, r.RegistrationTypeName, r.RegistrationOtherName, r.RegistrationNumber,
             r.Gstin, r.Latitude, r.Longitude, r.Address, r.DistrictId, r.DistrictName, r.CityId, r.CityName);
         return new AdminStayPendingEditRowDto(r.Id, r.Name, r.OwnerName, r.At, Fields(live, pending),
-            PinMovedMeters(live, pending.Asked), new StayPinDto(r.Latitude, r.Longitude), new StayPinDto(pending.Asked.Latitude, pending.Asked.Longitude));
+            PinMovedMeters(live, pending.Asked), new StayPinDto(r.Latitude, r.Longitude), new StayPinDto(pending.Asked.Latitude, pending.Asked.Longitude),
+            pending.Note, pending.Fields.Contains(StayReviewFields.Name) && StayNameScript.IsMixed(pending.Asked.Name));
     }
 
     // Old and new value of every changed field (the admin sees the registration number; never the owner or the public).
