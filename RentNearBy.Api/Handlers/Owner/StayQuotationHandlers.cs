@@ -71,7 +71,9 @@ public static class StayQuotationHandlers
         if (!QuoteImageKinds.TryParse(kind, out var parsed)) return NotFoundResponse();
         NoStore(http);
         var result = await service.ReadAsync(me, parsed, ct);
-        return result.Ok ? Results.Bytes(result.Value!, "image/jpeg") : QuoteHttp.Refuse(result);
+        if (result.Ok) return Results.Bytes(result.Value!, "image/jpeg");
+        if (result.ErrorType == QuoteErrors.PhotoBusy) http.Response.Headers.RetryAfter = PhotoBusyException.RetryAfterSeconds.ToString();
+        return QuoteHttp.Refuse(result);
     }
 
     public static async Task<IResult> AcceptTerms(

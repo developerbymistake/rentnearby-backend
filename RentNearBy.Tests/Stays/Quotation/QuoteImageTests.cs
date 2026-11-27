@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Metadata.Profiles.Exif;
 using SixLabors.ImageSharp.PixelFormats;
@@ -106,5 +107,59 @@ public class QuoteImageTests
     {
         Assert.Equal(5, PhotoBusyException.RetryAfterSeconds);
         Assert.Equal(PhotoBusyException.UserMessage, new PhotoBusyException().Message);
+    }
+
+    // I-3: a Cloudinary outage on the image read (transport error, HTTP error status, download timeout) is the typed PhotoBusy
+    // (503 + Retry-After in the handler), never a 500; a cancel of the caller's own request is not turned into an outage.
+    private sealed class FailingReadStore(Exception failure) : RentNearBy.Infrastructure.Services.Owner.Quote.IQuoteImageStore
+    {
+        public Task<string> SaveQuoteImageAsync(Stream input, Guid userId, QuoteImageKind kind) => throw new NotSupportedException();
+        public Task<byte[]?> ReadQuoteImageAsync(string publicId, CancellationToken ct) => Task.FromException<byte[]?>(failure);
+        public Task DeleteQuoteImageAsync(string publicId) => Task.CompletedTask;
+        public Task DeleteAllQuoteImagesAsync(Guid userId) => Task.CompletedTask;
+    }
+
+    private static RentNearBy.Infrastructure.Services.Owner.Quote.StayQuoteImageService ImagesOver(
+        RentNearBy.Infrastructure.Services.Owner.Quote.IQuoteImageStore store, RentNearBy.Infrastructure.Data.ApplicationDbContext db)
+        => new(db, store, TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<RentNearBy.Infrastructure.Services.Owner.Quote.StayQuoteImageService>.Instance);
+
+    private static RentNearBy.Infrastructure.Data.ApplicationDbContext DesignContext() => new(
+        new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<RentNearBy.Infrastructure.Data.ApplicationDbContext>()
+            .UseNpgsql("Host=localhost;Database=design_only", o => o.UseNetTopologySuite()).Options);
+
+    [Theory]
+    [InlineData("http")]
+    [InlineData("timeout")]
+    public async Task A_store_outage_on_read_is_photo_busy(string kind)
+    {
+        Exception failure = kind == "http"
+            ? new HttpRequestException("503 from cloudinary", null, System.Net.HttpStatusCode.ServiceUnavailable)
+            : new TaskCanceledException("download timed out", new TimeoutException());
+        await using var db = DesignContext();
+        var result = await ImagesOver(new FailingReadStore(failure), db).ReadStoredAsync($"bakhli/user_{Guid.NewGuid()}/quote/logo/x", CancellationToken.None);
+        Assert.Equal(QuoteErrors.PhotoBusy, result.ErrorType);
+        Assert.Equal(503, QuoteErrors.StatusOf(QuoteErrors.PhotoBusy));
+    }
+
+    [Fact]
+    public async Task A_cancelled_request_and_a_bad_stored_file_are_not_an_outage()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.False(RentNearBy.Infrastructure.Services.Owner.Quote.StayQuoteImageService.IsStoreOutage(new TaskCanceledException(), cts.Token));
+        Assert.True(RentNearBy.Infrastructure.Services.Owner.Quote.StayQuoteImageService.IsStoreOutage(new TaskCanceledException(), CancellationToken.None));
+        Assert.False(RentNearBy.Infrastructure.Services.Owner.Quote.StayQuoteImageService.IsStoreOutage(new InvalidOperationException(), CancellationToken.None));
+
+        await using var db = DesignContext();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ImagesOver(new FailingReadStore(new InvalidOperationException("too large")), db)
+            .ReadStoredAsync("p", CancellationToken.None));
+    }
+
+    [Fact]
+    public void Image_read_refusal_sets_retry_after()
+    {
+        var src = File.ReadAllText(Path.Combine(RentNearBy.Tests.Trips.CompletionCounterGuardTests.Root(),
+            "RentNearBy.Api", "Handlers", "Owner", "StayQuotationHandlers.cs"));
+        Assert.Contains("if (result.ErrorType == QuoteErrors.PhotoBusy) http.Response.Headers.RetryAfter = PhotoBusyException.RetryAfterSeconds.ToString();", src);
     }
 }

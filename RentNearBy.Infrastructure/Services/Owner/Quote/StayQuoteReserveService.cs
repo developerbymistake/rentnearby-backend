@@ -63,6 +63,8 @@ public sealed class StayQuoteReserveService(
         """;
 
     // S3: decide and write. $1 user, $2 document, $3 kind, $4 month, $5 now, $6 window start (now - 24 h), $7 limit, $8 max free uses.
+    // The month key never moves backwards: a request that read the clock at 23:59:59 IST and then waited on the lock behind a
+    // request of the new month counts in the stored (newer) month instead of resetting it.
     internal const string DecideSql = """
         WITH prior AS (
             SELECT "Number", "IssuedAt", "WindowAt", "FreeUses" FROM "StayQuoteIssues"
@@ -75,14 +77,14 @@ public sealed class StayQuoteReserveService(
             RETURNING i."Number", i."IssuedAt", i."WindowAt", i."FreeUses"
         ), bump AS (
             UPDATE "StayQuoteCounters" c SET
-                "MonthKey" = $4,
-                "Used" = (CASE WHEN c."MonthKey" = $4 THEN c."Used" ELSE 0 END) + 1,
+                "MonthKey" = GREATEST(c."MonthKey", $4),
+                "Used" = (CASE WHEN c."MonthKey" >= $4 THEN c."Used" ELSE 0 END) + 1,
                 "NextQuoteNo" = c."NextQuoteNo" + CASE WHEN $3 = 0 AND NOT EXISTS (SELECT 1 FROM prior) THEN 1 ELSE 0 END,
                 "NextProformaNo" = c."NextProformaNo" + CASE WHEN $3 = 1 AND NOT EXISTS (SELECT 1 FROM prior) THEN 1 ELSE 0 END,
                 "UpdatedAt" = $5
             WHERE c."UserId" = $1
               AND NOT EXISTS (SELECT 1 FROM free)
-              AND (CASE WHEN c."MonthKey" = $4 THEN c."Used" ELSE 0 END) < $7
+              AND (CASE WHEN c."MonthKey" >= $4 THEN c."Used" ELSE 0 END) < $7
             RETURNING c."Used", c."NextQuoteNo", c."NextProformaNo"
         ), ins AS (
             INSERT INTO "StayQuoteIssues" ("UserId", "DocumentId", "Kind", "Number", "IssuedAt", "WindowAt", "Downloads", "FreeUses")
@@ -105,7 +107,7 @@ public sealed class StayQuoteReserveService(
             (SELECT "WindowAt" FROM hit) AS "WindowAt",
             (SELECT "FreeUses" FROM hit) AS "FreeUses",
             COALESCE((SELECT "Used" FROM bump),
-                     (SELECT CASE WHEN "MonthKey" = $4 THEN "Used" ELSE 0 END FROM "StayQuoteCounters" WHERE "UserId" = $1)) AS "Used"
+                     (SELECT CASE WHEN "MonthKey" >= $4 THEN "Used" ELSE 0 END FROM "StayQuoteCounters" WHERE "UserId" = $1)) AS "Used"
         """;
 
     public const string OutcomeFree = "Free";

@@ -10,12 +10,18 @@ public static class QuoteText
     private static readonly Regex Digits = new(@"^\d{9,18}$", RegexOptions.CultureInvariant);
     private static readonly Regex IfscShape = new(@"^[A-Z]{4}0[A-Z0-9]{6}$", RegexOptions.CultureInvariant);
 
-    // U+200B-U+200F, U+202A-U+202E, U+2066-U+2069, U+FEFF.
+    // Bidi, line-separator and invisible format characters (char.IsControl is false for all of them), written as escapes so no editor
+    // or formatter can drop them: U+00AD, U+061C, U+200B-U+200F, U+2028-U+202E, U+2060-U+2064, U+2066-U+2069, U+FEFF.
+    // U+2028 / U+2029 would also break a single-line field and the 4-line address rule.
     public static bool HasBidi(string? value)
     {
         if (value == null) return false;
         foreach (var c in value)
-            if (c is >= '​' and <= '‏' or >= '‪' and <= '‮' or >= '⁦' and <= '⁩' or '﻿') return true;
+            if (c is '\u00AD' or '\u061C' or '\uFEFF'
+                or (>= '\u200B' and <= '\u200F')
+                or (>= '\u2028' and <= '\u202E')
+                or (>= '\u2060' and <= '\u2064')
+                or (>= '\u2066' and <= '\u2069')) return true;
         return false;
     }
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using RentNearBy.Core.DTOs.Responses;
@@ -101,6 +102,168 @@ public class SubscriptionDeletionGuardTests
     }
 }
 
+public class SubscriptionDeletionPreCheckScopeTests
+{
+    // A context that never opens a connection: enough to tell instances apart and to see a disposed one.
+    private static RentNearBy.Infrastructure.Data.ApplicationDbContext DesignContext() => new(
+        new DbContextOptionsBuilder<RentNearBy.Infrastructure.Data.ApplicationDbContext>()
+            .UseNpgsql("Host=localhost;Database=design_only", o => o.UseNetTopologySuite()).Options);
+
+    internal sealed class ScopeProbe : IDisposable
+    {
+        public bool Disposed { get; private set; }
+        public void Dispose() => Disposed = true;
+    }
+
+    internal sealed class SlowRecord
+    {
+        public RentNearBy.Infrastructure.Data.ApplicationDbContext? SeenContext;
+        public bool ProbeDisposedWhenTouched;
+        public readonly TaskCompletionSource Touched = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    // Waits for the test to release it, then touches its own scope's context (as the real sync does after a slow Google call).
+    internal sealed class SlowSync(RentNearBy.Infrastructure.Data.ApplicationDbContext own, ScopeProbe probe, TaskCompletionSource release, SlowRecord record)
+        : IPlayBillingSyncService
+    {
+        public async Task<PlaySyncResult> SyncTokenAsync(PlaySyncRequest request)
+        {
+            await release.Task;
+            record.SeenContext = own;
+            _ = own.ChangeTracker.Entries().Count(); // throws ObjectDisposedException on a disposed context
+            record.ProbeDisposedWhenTouched = probe.Disposed;
+            record.Touched.TrySetResult();
+            return new PlaySyncResult(PlaySyncOutcome.Unchanged, null, null, null, null, null, null, null, null, null);
+        }
+
+        public Task<PlayRtdnOutcome> ProcessRtdnAsync(string messageId, string dataJson, DateTime publishTime) => throw new NotSupportedException();
+        public Task<PlaySyncResult> ApplyVoidedAsync(string purchaseToken, string? orderId, int refundType, string source) => throw new NotSupportedException();
+        public Task<int> RunPendingServerActionsAsync(int batchSize) => throw new NotSupportedException();
+        public Task<int> SyncDueAsync(int batchSize) => throw new NotSupportedException();
+        public Task<int> SyncStaleAsync(int batchSize) => throw new NotSupportedException();
+        public Task<int> ReconcileVoidedAsync() => throw new NotSupportedException();
+        public Task<AdminPurchaseDto> AdminRefundPlayAsync(Guid adminId, Guid purchaseId, string reason) => throw new NotSupportedException();
+    }
+
+    private static SubscriptionDeletionPreCheck PreCheck(RentNearBy.Infrastructure.Data.ApplicationDbContext requestDb, SubscriptionDeletionContext ctx,
+        IServiceProvider root)
+        => new(requestDb, ctx, root.GetRequiredService<IServiceScopeFactory>(), TimeProvider.System, NullLogger<SubscriptionDeletionPreCheck>.Instance);
+
+    // I-1: a sync that outlives the budget runs in its own scope with its own context; the deletion's context is never shared,
+    // the answer is the block with the "just cancelled?" line, and the scope is disposed only after the late sync has ended.
+    [Fact]
+    public async Task A_slow_sync_uses_its_own_scope_and_its_scope_outlives_it()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var record = new SlowRecord();
+        var probes = new List<ScopeProbe>();
+        var services = new ServiceCollection();
+        services.AddScoped(_ => DesignContext());
+        services.AddScoped(_ =>
+        {
+            var p = new ScopeProbe();
+            probes.Add(p);
+            return p;
+        });
+        services.AddScoped<IPlayBillingSyncService>(sp => new SlowSync(
+            sp.GetRequiredService<RentNearBy.Infrastructure.Data.ApplicationDbContext>(), sp.GetRequiredService<ScopeProbe>(), release, record));
+        await using var root = services.BuildServiceProvider();
+
+        await using var requestDb = DesignContext();
+        var ctx = new SubscriptionDeletionContext();
+        var precheck = new SubscriptionDeletionPreCheck(requestDb, ctx, root.GetRequiredService<IServiceScopeFactory>(), TimeProvider.System,
+            NullLogger<SubscriptionDeletionPreCheck>.Instance) { Budget = TimeSpan.FromMilliseconds(100) };
+
+        await precheck.SyncTokensAsync([(Guid.NewGuid(), "tok-a"), (Guid.NewGuid(), "tok-b")], ct);
+
+        // Budget spent on the first token: the second is never started, the answer is "unsure".
+        Assert.True(ctx.SyncUnsure);
+        Assert.Empty(ctx.GoneSubscriptionIds);
+        var probe = Assert.Single(probes);
+        Assert.False(probe.Disposed);
+        Assert.EndsWith(AccountDeletionReasons.JustCancelledHint, SubscriptionDeletionGuard.Block("u", ctx.SyncUnsure).Message);
+
+        // The deletion's own context is free for its transaction while the late sync is still running.
+        Assert.Empty(requestDb.ChangeTracker.Entries());
+
+        release.SetResult();
+        await record.Touched.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+        Assert.False(record.ProbeDisposedWhenTouched);
+        Assert.NotNull(record.SeenContext);
+        Assert.NotSame(requestDb, record.SeenContext);
+
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (!probe.Disposed && DateTime.UtcNow < until) await Task.Delay(10, ct);
+        Assert.True(probe.Disposed);
+    }
+
+    private sealed class AnswerSync(Func<PlaySyncResult> answer) : IPlayBillingSyncService
+    {
+        public int Calls;
+        public Task<PlaySyncResult> SyncTokenAsync(PlaySyncRequest request) { Calls++; return Task.FromResult(answer()); }
+        public Task<PlayRtdnOutcome> ProcessRtdnAsync(string messageId, string dataJson, DateTime publishTime) => throw new NotSupportedException();
+        public Task<PlaySyncResult> ApplyVoidedAsync(string purchaseToken, string? orderId, int refundType, string source) => throw new NotSupportedException();
+        public Task<int> RunPendingServerActionsAsync(int batchSize) => throw new NotSupportedException();
+        public Task<int> SyncDueAsync(int batchSize) => throw new NotSupportedException();
+        public Task<int> SyncStaleAsync(int batchSize) => throw new NotSupportedException();
+        public Task<int> ReconcileVoidedAsync() => throw new NotSupportedException();
+        public Task<AdminPurchaseDto> AdminRefundPlayAsync(Guid adminId, Guid purchaseId, string reason) => throw new NotSupportedException();
+    }
+
+    private static PlaySyncResult Result(PlaySyncOutcome outcome, PlayApiErrorKind? error = null)
+        => new(outcome, null, null, null, null, null, null, error, null, null);
+
+    [Fact]
+    public async Task Each_token_gets_a_fresh_scope_and_outcomes_map_to_gone_or_unsure()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var answers = new Queue<PlaySyncResult>([Result(PlaySyncOutcome.ApiError, PlayApiErrorKind.NotFound), Result(PlaySyncOutcome.Cancelled)]);
+        var sync = new AnswerSync(() => answers.Dequeue());
+        var scopesMade = 0;
+        var services = new ServiceCollection();
+        services.AddScoped<IPlayBillingSyncService>(_ =>
+        {
+            scopesMade++;
+            return sync;
+        });
+        await using var root = services.BuildServiceProvider();
+        await using var requestDb = DesignContext();
+        var ctx = new SubscriptionDeletionContext();
+        var gone = Guid.NewGuid();
+        await PreCheck(requestDb, ctx, root).SyncTokensAsync([(gone, "tok-a"), (Guid.NewGuid(), "tok-b")], ct);
+        Assert.Equal(2, sync.Calls);
+        Assert.Equal(2, scopesMade);
+        Assert.Contains(gone, ctx.GoneSubscriptionIds);
+        Assert.False(ctx.SyncUnsure);
+
+        var transient = new SubscriptionDeletionContext();
+        var other = new ServiceCollection();
+        other.AddScoped<IPlayBillingSyncService>(_ => new AnswerSync(() => Result(PlaySyncOutcome.ApiError, PlayApiErrorKind.Transient)));
+        await using var root2 = other.BuildServiceProvider();
+        await PreCheck(requestDb, transient, root2).SyncTokensAsync([(Guid.NewGuid(), "tok")], ct);
+        Assert.True(transient.SyncUnsure);
+    }
+
+    [Fact]
+    public async Task No_sync_service_means_unsure()
+    {
+        await using var root = new ServiceCollection().BuildServiceProvider();
+        await using var requestDb = DesignContext();
+        var ctx = new SubscriptionDeletionContext();
+        await PreCheck(requestDb, ctx, root).SyncTokensAsync([(Guid.NewGuid(), "tok")], TestContext.Current.CancellationToken);
+        Assert.True(ctx.SyncUnsure);
+    }
+
+    [Theory]
+    [InlineData(PlaySyncOutcome.ApiError, false)]
+    [InlineData(PlaySyncOutcome.Cancelled, true)]
+    [InlineData(PlaySyncOutcome.Renewed, true)]
+    [InlineData(PlaySyncOutcome.Unchanged, true)]
+    public void Only_an_api_error_is_not_a_state_update(PlaySyncOutcome outcome, bool update)
+        => Assert.Equal(update, SubscriptionDeletionPreCheck.IsStateUpdate(Result(outcome)));
+}
+
 public class SubscriptionDeletionGuardIntegrationTests(TestDatabase db) : IntegrationTestBase(db)
 {
     private static readonly DateTime Now = SubscriptionDeletionGuardTests.Now;
@@ -121,9 +284,12 @@ public class SubscriptionDeletionGuardIntegrationTests(TestDatabase db) : Integr
         public Task<AdminPurchaseDto> AdminRefundPlayAsync(Guid adminId, Guid purchaseId, string reason) => throw new NotSupportedException();
     }
 
-    private sealed class Services(object? sync) : IServiceProvider
+    // The pre-check resolves the sync from a NEW scope per token (never the request's context).
+    private static IServiceScopeFactory Services(IPlayBillingSyncService? sync)
     {
-        public object? GetService(Type serviceType) => serviceType == typeof(IPlayBillingSyncService) ? sync : null;
+        var services = new ServiceCollection();
+        if (sync != null) services.AddScoped(_ => sync);
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 
     private static SubscriptionDeletionGuard Guard(RentNearBy.Infrastructure.Data.ApplicationDbContext c, SubscriptionDeletionContext ctx)
@@ -178,7 +344,7 @@ public class SubscriptionDeletionGuardIntegrationTests(TestDatabase db) : Integr
             var ctx = new SubscriptionDeletionContext();
             var sync = new FakeSync(_ => Task.FromResult(new PlaySyncResult(PlaySyncOutcome.ApiError, null, null, null, null, null, null,
                 PlayApiErrorKind.NotFound, null, null)));
-            await new SubscriptionDeletionPreCheck(c, ctx, new Services(sync), TimeProvider.System, NullLogger<SubscriptionDeletionPreCheck>.Instance)
+            await new SubscriptionDeletionPreCheck(c, ctx, Services(sync), TimeProvider.System, NullLogger<SubscriptionDeletionPreCheck>.Instance)
                 .RefreshAsync(user);
             Assert.Equal(1, sync.Calls);
             Assert.Contains(row.Id, ctx.GoneSubscriptionIds);
@@ -189,7 +355,7 @@ public class SubscriptionDeletionGuardIntegrationTests(TestDatabase db) : Integr
         {
             var ctx = new SubscriptionDeletionContext();
             var sync = new FakeSync(_ => throw new HttpRequestException("down"));
-            await new SubscriptionDeletionPreCheck(c, ctx, new Services(sync), TimeProvider.System, NullLogger<SubscriptionDeletionPreCheck>.Instance)
+            await new SubscriptionDeletionPreCheck(c, ctx, Services(sync), TimeProvider.System, NullLogger<SubscriptionDeletionPreCheck>.Instance)
                 .RefreshAsync(user);
             Assert.True(ctx.SyncUnsure);
             var block = Assert.Single(await Guard(c, ctx).CheckAsync(user));
@@ -199,7 +365,7 @@ public class SubscriptionDeletionGuardIntegrationTests(TestDatabase db) : Integr
         await using (var c = CreateContext())
         {
             var ctx = new SubscriptionDeletionContext();
-            await new SubscriptionDeletionPreCheck(c, ctx, new Services(null), TimeProvider.System, NullLogger<SubscriptionDeletionPreCheck>.Instance)
+            await new SubscriptionDeletionPreCheck(c, ctx, Services(null), TimeProvider.System, NullLogger<SubscriptionDeletionPreCheck>.Instance)
                 .RefreshAsync(user);
             Assert.True(ctx.SyncUnsure);
         }
@@ -219,7 +385,7 @@ public class SubscriptionDeletionGuardIntegrationTests(TestDatabase db) : Integr
                 .ExecuteUpdateAsync(u => u.SetProperty(s => s.State, PlayStates.Canceled).SetProperty(s => s.AutoRenewEnabled, false));
             return new PlaySyncResult(PlaySyncOutcome.Cancelled, row.Id, null, null, user, ListingKinds.Stay, null, null, null, Now.AddDays(20));
         });
-        await new SubscriptionDeletionPreCheck(c, ctx, new Services(sync), TimeProvider.System, NullLogger<SubscriptionDeletionPreCheck>.Instance)
+        await new SubscriptionDeletionPreCheck(c, ctx, Services(sync), TimeProvider.System, NullLogger<SubscriptionDeletionPreCheck>.Instance)
             .RefreshAsync(user);
         Assert.False(ctx.SyncUnsure);
         Assert.Empty(await Guard(c, ctx).CheckAsync(user));
@@ -231,7 +397,7 @@ public class SubscriptionDeletionGuardIntegrationTests(TestDatabase db) : Integr
         var user = await UserWithAsync(UserRoles.SeekerId, Row(Guid.Empty, PlayStates.Canceled, false, Now.AddDays(5)));
         await using var c = CreateContext();
         var sync = new FakeSync(_ => throw new InvalidOperationException("must not be called"));
-        await new SubscriptionDeletionPreCheck(c, new SubscriptionDeletionContext(), new Services(sync), TimeProvider.System,
+        await new SubscriptionDeletionPreCheck(c, new SubscriptionDeletionContext(), Services(sync), TimeProvider.System,
             NullLogger<SubscriptionDeletionPreCheck>.Instance).RefreshAsync(user);
         Assert.Equal(0, sync.Calls);
     }

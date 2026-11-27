@@ -72,6 +72,37 @@ public class QuoteProfileValidatorTests
         }
     }
 
+    // M-6: line separators, the Arabic letter mark, the soft hyphen and the invisible operators are refused too (char.IsControl is
+    // false for all of them); U+2028 would otherwise pass a single-line field and the 4-line address rule.
+    [Theory]
+    [InlineData("a\u2028b")]
+    [InlineData("a\u2029b")]
+    [InlineData("a\u061Cb")]
+    [InlineData("a\u00ADb")]
+    [InlineData("a\u2060b")]
+    [InlineData("a\u2064b")]
+    [InlineData("a\u200Bb")]
+    [InlineData("a\u202Eb")]
+    [InlineData("a\u2066b")]
+    [InlineData("a\uFEFFb")]
+    public void Separator_and_invisible_format_characters_are_refused(string value)
+    {
+        Assert.True(QuoteText.HasBidi(value));
+        Assert.False(QuoteText.IsSafe(value, multiLine: true));
+        var request = Valid();
+        request.Slogan = value;
+        ValidationAssert.HasMessage(Validator.Validate(request), QuoteProfileRequestValidator.UnsafeText);
+        var address = Valid();
+        address.Address = "Line one" + value + "Line two";
+        ValidationAssert.HasMessage(Validator.Validate(address), QuoteProfileRequestValidator.UnsafeText);
+    }
+
+    [Theory]
+    [InlineData("Banyan Retreat, Ramnagar")]
+    [InlineData("\u0928\u092E\u0938\u094D\u0924\u0947")]
+    [InlineData("50% advance - 15 days")]
+    public void Plain_text_and_indian_scripts_pass(string value) => Assert.False(QuoteText.HasBidi(value));
+
     [Fact]
     public void New_lines_only_where_multi_line_is_allowed()
     {

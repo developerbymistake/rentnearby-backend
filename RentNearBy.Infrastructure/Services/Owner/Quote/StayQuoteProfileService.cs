@@ -131,7 +131,8 @@ public sealed class StayQuoteProfileService(
         {
             var (summary, unreadable) = Summary(userId, row.BankEnc);
             bankUnreadable = unreadable;
-            profile = new QuoteProfileDto(row.Slogan, row.Address, row.Phone, row.Email, row.Gstin, summary, row.TermsText, row.CancellationText,
+            profile = new QuoteProfileDto(row.Slogan, row.Address, row.Phone, row.Email, QuoteGstinRule.Printable(row.Gstin, row.StayGstin), summary,
+                row.TermsText, row.CancellationText,
                 row.HasLogo, row.HasSignature, row.AssetsVersion, row.ProfileUpdatedAt ?? now);
         }
 
@@ -268,6 +269,8 @@ public sealed class StayQuoteProfileService(
     {
         if (request.Version is not { } version || !QuoteTerms.IsKnown(version))
             return QuoteResult<QuoteTermsAcceptedDto>.Fail(QuoteErrors.TermsVersionUnknown);
+        if (!await db.StayListings.AsNoTracking().AnyAsync(s => s.UserId == userId && !s.IsDeleted, ct))
+            return QuoteResult<QuoteTermsAcceptedDto>.Fail(QuoteErrors.StayNotFound);
         List<DateTime> at;
         try
         {
@@ -281,6 +284,18 @@ public sealed class StayQuoteProfileService(
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
         {
             return QuoteResult<QuoteTermsAcceptedDto>.Fail(UnauthorizedType);
+        }
+        if (at.Count == 0)
+        {
+            // Two taps at once: this one waited on the other's insert and did nothing, and its statement snapshot (taken before the
+            // wait) cannot see the committed row. A new statement can: read the first accepted time once more.
+            var accepted = (short)version;
+            var first = await db.StayQuoteTermsAcceptances.AsNoTracking()
+                .Where(t => t.UserId == userId && t.Version == accepted)
+                .Select(t => (DateTime?)t.AcceptedAt)
+                .FirstOrDefaultAsync(ct);
+            if (first == null) return QuoteResult<QuoteTermsAcceptedDto>.Fail(UnauthorizedType);
+            at = [first.Value];
         }
         return QuoteResult<QuoteTermsAcceptedDto>.Success(new QuoteTermsAcceptedDto(version, DateTime.SpecifyKind(at[0], DateTimeKind.Utc)));
     }
@@ -365,4 +380,8 @@ public static class QuoteGstinRule
     public static bool Allowed(string? quoteGstin, string? stayGstin)
         => quoteGstin == null || stayGstin == null
            || string.Equals(quoteGstin, StayRegistrationRules.NormalizeGstin(stayGstin), StringComparison.Ordinal);
+
+    // D-6 at read time too: a quotation GSTIN saved while the stay had none stops printing once the stay carries a different one
+    // (the app prints the GSTIN the hub gives). The stored value is kept; the owner sees an empty field and can save the right one.
+    public static string? Printable(string? quoteGstin, string? stayGstin) => Allowed(quoteGstin, stayGstin) ? quoteGstin : null;
 }

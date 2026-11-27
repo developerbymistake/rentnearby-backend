@@ -245,4 +245,56 @@ public class QuoteProfileTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.Equal(QuoteErrors.StayNotFound, (await With(s => s.GetHubAsync(user, null, default))).ErrorType);
         Assert.Equal(QuoteErrors.StayNotFound, (await With(s => s.SaveProfileAsync(user, Master(), default))).ErrorType);
     }
+
+    // M-2: two "I agree" taps at the same moment both answer 200 with the one stored time (the second waited on the first insert).
+    [IntegrationFact]
+    public async Task Two_parallel_accepts_both_succeed_with_one_row()
+    {
+        var user = await Owner();
+        var taps = Enumerable.Range(0, 2).Select(_ => With(s => s.AcceptTermsAsync(user, new QuoteTermsAcceptRequest { Version = 1 }, default)));
+        var results = await Task.WhenAll(taps);
+        Assert.All(results, r => Assert.True(r.Ok, r.ErrorType));
+        Assert.Equal(results[0].Value!.AcceptedAt, results[1].Value!.AcceptedAt);
+        await using var c = CreateContext();
+        Assert.Equal(1, await c.StayQuoteTermsAcceptances.CountAsync(a => a.UserId == user));
+    }
+
+    // M-4: no live stay = 404 StayNotFound for the terms too; nothing is stored.
+    [IntegrationFact]
+    public async Task Terms_accept_without_a_stay_is_stay_not_found()
+    {
+        Guid user;
+        await using (var c = CreateContext()) user = await OwnerSeed.UserAsync(c, UserRoles.StayOwnerId);
+        Assert.Equal(QuoteErrors.StayNotFound,
+            (await With(s => s.AcceptTermsAsync(user, new QuoteTermsAcceptRequest { Version = 1 }, default))).ErrorType);
+        await using var check = CreateContext();
+        Assert.False(await check.StayQuoteTermsAcceptances.AnyAsync(a => a.UserId == user));
+    }
+
+    // M-5 / D-6 at read time: a GSTIN saved while the stay had none stops printing once the stay carries a different one.
+    [IntegrationFact]
+    public async Task Hub_hides_a_quotation_gstin_that_no_longer_matches_the_stay()
+    {
+        var user = await Owner();
+        Assert.True((await With(s => s.SaveProfileAsync(user, Master("27AAPFU0939F1ZV"), default))).Ok);
+        Assert.Equal("27AAPFU0939F1ZV", (await With(s => s.GetHubAsync(user, null, default))).Value!.Hub!.Profile!.Gstin);
+
+        await using (var c = CreateContext())
+        {
+            var stay = await c.StayListings.SingleAsync(s => s.UserId == user && !s.IsDeleted);
+            stay.Gstin = "05AAAAA1234A1Z1";
+            stay.UpdatedAt = DateTime.UtcNow;
+            await c.SaveChangesAsync();
+        }
+        Assert.Null((await With(s => s.GetHubAsync(user, null, default))).Value!.Hub!.Profile!.Gstin);
+
+        await using (var c = CreateContext())
+        {
+            var stay = await c.StayListings.SingleAsync(s => s.UserId == user && !s.IsDeleted);
+            stay.Gstin = "27AAPFU0939F1ZV";
+            stay.UpdatedAt = DateTime.UtcNow;
+            await c.SaveChangesAsync();
+        }
+        Assert.Equal("27AAPFU0939F1ZV", (await With(s => s.GetHubAsync(user, null, default))).Value!.Hub!.Profile!.Gstin);
+    }
 }

@@ -62,8 +62,11 @@ public sealed class RecordingQuoteImageStore : IQuoteImageStore
         return path;
     }
 
+    // Set to make every read fail as Cloudinary would (HttpRequestException, TaskCanceledException on the download timeout).
+    public Exception? ReadFailure { get; set; }
+
     public Task<byte[]?> ReadQuoteImageAsync(string publicId, CancellationToken ct)
-        => Task.FromResult(Files.TryGetValue(publicId, out var b) ? b : null);
+        => ReadFailure != null ? Task.FromException<byte[]?>(ReadFailure) : Task.FromResult(Files.TryGetValue(publicId, out var b) ? b : null);
 
     public Task DeleteQuoteImageAsync(string publicId)
     {

@@ -106,4 +106,15 @@ public class QuoteGuardTests
     [Fact]
     public void Image_store_is_the_photo_service()
         => Assert.Contains(typeof(RentNearBy.Infrastructure.Services.Owner.Quote.IQuoteImageStore), typeof(PhotoService).GetInterfaces());
+
+    // M-1: the stored month is current when it is the same OR newer; the key only moves forward (PG proof:
+    // QuoteReserveWindowTests.Month_key_never_moves_backwards_at_the_ist_edge).
+    [Fact]
+    public void Month_key_never_moves_backwards()
+    {
+        var sql = RentNearBy.Infrastructure.Services.Owner.Quote.StayQuoteReserveService.DecideSql;
+        Assert.Contains("\"MonthKey\" = GREATEST(c.\"MonthKey\", $4)", sql);
+        Assert.DoesNotContain("\"MonthKey\" = $4", sql);
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(sql, "\"MonthKey\" >= \\$4").Count);
+    }
 }

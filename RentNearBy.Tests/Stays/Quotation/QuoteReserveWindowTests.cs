@@ -115,4 +115,29 @@ public class QuoteReserveWindowTests(TestDatabase db) : IntegrationTestBase(db)
         await using var c = CreateContext();
         Assert.Equal(SocialMonth.Key(new DateOnly(2026, 12, 1)), (await c.StayQuoteCounters.SingleAsync(x => x.UserId == user)).MonthKey);
     }
+
+    // M-1: a request that read the clock in the old month and waited on the lock behind a request of the new month counts in the
+    // stored (newer) month; the month key never moves backwards and no count is lost at the edge.
+    [IntegrationFact]
+    public async Task Month_key_never_moves_backwards_at_the_ist_edge()
+    {
+        var user = await QuoteKit.ReadyOwnerAsync(CreateContext);
+        var midnight = IstTime.IstMidnightUtc(new DateOnly(2026, 12, 1));
+        var clock = new QuoteClock(midnight.AddSeconds(30));
+        Assert.Equal(1, (await At(clock, user, Guid.NewGuid())).Value!.Usage.Used);
+
+        clock.Set(midnight.AddSeconds(-1));
+        var late = (await At(clock, user, Guid.NewGuid())).Value!;
+        Assert.Equal((true, 2), (late.Counted, late.Usage.Used));
+
+        await using (var c = CreateContext())
+        {
+            var counter = await c.StayQuoteCounters.AsNoTracking().SingleAsync(x => x.UserId == user);
+            Assert.Equal((SocialMonth.Key(new DateOnly(2026, 12, 1)), 2), (counter.MonthKey, (int)counter.Used));
+        }
+
+        clock.Set(midnight.AddMinutes(1));
+        var refused = await At(clock, user, Guid.NewGuid());
+        Assert.Equal(QuoteErrors.MonthLimit, refused.ErrorType);
+    }
 }

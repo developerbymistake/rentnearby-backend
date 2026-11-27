@@ -129,4 +129,48 @@ public class QuoteReservePlanStateTests(TestDatabase db) : IntegrationTestBase(d
         Assert.Contains("\"quotationsUsed\":0", json);
         Assert.Contains("\"quotationsResetsAt\":null", json);
     }
+
+    // I-4 / Q16: Google puts the Plus subscription on hold or pauses it. The applier ends the UserPlans row (Expired, Play link kept)
+    // and the Play row keeps the state: the cap falls back to Free 2 at once with the month's count kept, the hub says the same.
+    [IntegrationTheory]
+    [InlineData(PlayStates.OnHold)]
+    [InlineData(PlayStates.Paused)]
+    public async Task On_hold_and_paused_fall_back_to_two_with_the_count_kept(string state)
+    {
+        var user = await QuoteKit.ReadyOwnerAsync(CreateContext);
+        var now = DateTime.UtcNow;
+        var sub = RentNearBy.Tests.Account.SubscriptionDeletionGuardTests.Row(user, PlayStates.Active, true, now.AddDays(20));
+        await using (var c = CreateContext())
+        {
+            c.PlaySubscriptions.Add(sub);
+            await c.SaveChangesAsync();
+            c.UserPlans.Add(new UserPlan
+            {
+                Id = Guid.NewGuid(), UserId = user, FeatureKey = ListingKinds.Stay, PlanId = OwnerPlanCatalog.StayPlusId,
+                Source = UserPlanSources.Subscription, Status = UserPlanStatuses.Active, StartsAt = now.AddDays(-10), EndsAt = now.AddDays(20),
+                PlaySubscriptionId = sub.Id, CreatedAt = now, UpdatedAt = now,
+            });
+            await c.SaveChangesAsync();
+        }
+        for (var i = 0; i < 3; i++) Assert.Equal(30, (await CapOf(user)).Limit);
+
+        await using (var c = CreateContext())
+        {
+            await c.PlaySubscriptions.Where(s => s.Id == sub.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.State, state)
+                .SetProperty(p => p.ExpiryTime, (DateTime?)now.AddDays(-1))
+                .SetProperty(p => p.PausedAutoResumeAt, state == PlayStates.Paused ? (DateTime?)now.AddDays(20) : null));
+            await c.UserPlans.Where(u => u.UserId == user).ExecuteUpdateAsync(s => s
+                .SetProperty(u => u.Status, UserPlanStatuses.Expired).SetProperty(u => u.EndsAt, now.AddMinutes(-1)));
+        }
+
+        var refused = await Reserve(user);
+        Assert.Equal(QuoteErrors.MonthLimit, refused.ErrorType);
+        var data = Assert.IsType<RentNearBy.Core.DTOs.Owner.Quote.QuoteLimitDataDto>(refused.Data);
+        Assert.Equal((2, 3, true), (data.Limit, data.Used, data.CanUpgrade));
+
+        await using var hubContext = CreateContext();
+        var hub = (await QuoteKit.Profile(hubContext).GetHubAsync(user, null, default)).Value!.Hub!;
+        Assert.Equal((2, 3, true), (hub.Usage.Limit, hub.Usage.Used, hub.Usage.CanUpgrade));
+    }
 }

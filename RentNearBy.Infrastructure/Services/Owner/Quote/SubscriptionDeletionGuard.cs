@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RentNearBy.Core.Entities;
@@ -76,13 +77,19 @@ public sealed class SubscriptionDeletionGuard(
 }
 
 // Freshness before the deletion transaction (ARCHITECTURE 11.3): only when the DB shows a blocking row, each such token is synced
-// with Google OUTSIDE any transaction, 5 s at most. Updated row = the locked check decides; NotFound / Invalid = token gone, never
-// blocks; NotConfigured, timeout, transient or any exception = the DB state stands with the "just cancelled?" line.
+// with Google OUTSIDE any transaction, 5 s in total at most. Every sync runs in its OWN DI scope (own ApplicationDbContext): the sync
+// takes no cancellation token, so a sync that outlives the wait keeps running, and it must never touch the request's context that the
+// deletion transaction uses next. Its scope is disposed only after the sync task has ended. Updated row = the locked check decides;
+// NotFound / Invalid = token gone, never blocks; any other API error, a timeout, Play not configured (the sync throws) or any other
+// exception = the DB state stands with the "just cancelled?" line.
 public sealed class SubscriptionDeletionPreCheck(
-    ApplicationDbContext db, SubscriptionDeletionContext context, IServiceProvider services, TimeProvider clock,
+    ApplicationDbContext db, SubscriptionDeletionContext context, IServiceScopeFactory scopes, TimeProvider clock,
     ILogger<SubscriptionDeletionPreCheck> logger)
 {
     public static readonly TimeSpan SyncTimeout = TimeSpan.FromSeconds(5);
+
+    // The whole pre-check budget (all tokens together). Tests shorten it; production keeps SyncTimeout.
+    public TimeSpan Budget { get; init; } = SyncTimeout;
 
     public async Task RefreshAsync(Guid userId, CancellationToken ct = default)
     {
@@ -92,24 +99,41 @@ public sealed class SubscriptionDeletionPreCheck(
             .Select(s => new { s.Id, s.PurchaseToken })
             .ToListAsync(ct);
         if (rows.Count == 0) return;
+        await SyncTokensAsync(rows.Select(r => (r.Id, r.PurchaseToken)).ToList(), ct);
+        // The sync wrote through the context of its own scope; this one must not hold stale copies for the deletion transaction.
+        db.ChangeTracker.Clear();
+    }
 
-        var sync = services.GetService(typeof(IPlayBillingSyncService)) as IPlayBillingSyncService;
-        if (sync == null)
+    // One Google call per blocking token (normally one), each in a fresh scope, all inside one Budget.
+    public async Task SyncTokensAsync(IReadOnlyList<(Guid Id, string Token)> rows, CancellationToken ct = default)
+    {
+        var deadline = clock.GetUtcNow() + Budget;
+        foreach (var (id, token) in rows) // batch-loop: bounded by the shared deadline
         {
-            context.SyncUnsure = true;
-            return;
-        }
-        foreach (var row in rows) // batch-loop: one Google call per blocking token (normally one)
-        {
+            var left = deadline - clock.GetUtcNow();
+            if (left <= TimeSpan.Zero)
+            {
+                context.SyncUnsure = true;
+                return;
+            }
+            var scope = scopes.CreateAsyncScope();
+            Task<PlaySyncResult>? task = null;
             try
             {
-                var result = await sync.SyncTokenAsync(new PlaySyncRequest(row.PurchaseToken, PurchaseSources.PlayReconcile)).WaitAsync(SyncTimeout, ct);
+                var sync = scope.ServiceProvider.GetService<IPlayBillingSyncService>();
+                if (sync == null)
+                {
+                    context.SyncUnsure = true;
+                    return;
+                }
+                task = sync.SyncTokenAsync(new PlaySyncRequest(token, PurchaseSources.PlayReconcile));
+                var result = await task.WaitAsync(left, clock, ct);
                 if (IsGone(result))
                 {
-                    context.GoneSubscriptionIds.Add(row.Id);
-                    logger.LogInformation("Deletion pre-check: Play token gone for subscription {SubscriptionId}", row.Id);
+                    context.GoneSubscriptionIds.Add(id);
+                    logger.LogInformation("Deletion pre-check: Play token gone for subscription {SubscriptionId}", id);
                 }
-                else if (result.Outcome == PlaySyncOutcome.ApiError)
+                else if (!IsStateUpdate(result))
                 {
                     context.SyncUnsure = true;
                 }
@@ -117,14 +141,36 @@ public sealed class SubscriptionDeletionPreCheck(
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 context.SyncUnsure = true;
-                logger.LogWarning("Deletion pre-check: Play sync failed for subscription {SubscriptionId}: {Error}", row.Id, ex.GetType().Name);
+                logger.LogWarning("Deletion pre-check: Play sync failed for subscription {SubscriptionId}: {Error}", id, ex.GetType().Name);
+                if (ex is TimeoutException) return; // the budget is spent; a sync still running owns its scope until it ends
+            }
+            finally
+            {
+                await ReleaseScopeAsync(scope, task);
             }
         }
-        // The sync wrote through its own context; this one must not hold stale copies for the deletion transaction.
-        db.ChangeTracker.Clear();
+    }
+
+    // A finished (or never started) sync releases its scope now; a running one releases it from its own continuation, so its
+    // context is never disposed under it. Its late fault is observed and logged, never thrown at nobody.
+    private async Task ReleaseScopeAsync(AsyncServiceScope scope, Task<PlaySyncResult>? task)
+    {
+        if (task == null || task.IsCompleted)
+        {
+            await scope.DisposeAsync();
+            return;
+        }
+        _ = task.ContinueWith(async t =>
+        {
+            if (t.IsFaulted) logger.LogWarning("Deletion pre-check: late Play sync failed: {Error}", t.Exception?.GetBaseException().GetType().Name);
+            await scope.DisposeAsync();
+        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
     }
 
     public static bool IsGone(PlaySyncResult result)
         => result.Outcome == PlaySyncOutcome.Invalid
            || (result.Outcome == PlaySyncOutcome.ApiError && result.ApiError is PlayApiErrorKind.NotFound or PlayApiErrorKind.Invalid);
+
+    // An API error wrote no fresh Google state into the row (the gone kinds are handled first): the DB state stands with the hint.
+    public static bool IsStateUpdate(PlaySyncResult result) => result.Outcome != PlaySyncOutcome.ApiError;
 }

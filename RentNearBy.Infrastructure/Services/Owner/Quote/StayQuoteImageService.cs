@@ -46,8 +46,12 @@ public sealed class StayQuoteImageService(ApplicationDbContext db, IQuoteImageSt
         """;
 
     // InvalidPhotoException and PhotoBusyException of the pipeline are left to the caller (400 PhotoInvalid, 503 PhotoBusy).
+    // No live stay = 404 StayNotFound before anything reaches Cloudinary (ARCHITECTURE common refusals), so an account without a stay
+    // never uploads and never gets a profile row.
     public async Task<QuoteResult<QuoteAssetsDto>> PutAsync(Guid userId, QuoteImageKind kind, Stream photo, CancellationToken ct)
     {
+        if (!await db.StayListings.AsNoTracking().AnyAsync(s => s.UserId == userId && !s.IsDeleted, ct))
+            return QuoteResult<QuoteAssetsDto>.Fail(QuoteErrors.StayNotFound);
         var path = await store.SaveQuoteImageAsync(photo, userId, kind);
         var now = clock.GetUtcNow().UtcDateTime;
         List<SwapRow> rows;
@@ -99,9 +103,29 @@ public sealed class StayQuoteImageService(ApplicationDbContext db, IQuoteImageSt
             .FirstOrDefaultAsync(ct);
         var path = kind == QuoteImageKind.Logo ? paths?.LogoPath : paths?.SignaturePath;
         if (!QuoteImagePaths.Belongs(path, userId, kind)) return QuoteResult<byte[]>.Fail(QuoteErrors.ImageMissing);
-        var bytes = await store.ReadQuoteImageAsync(path!, ct);
+        return await ReadStoredAsync(path!, ct);
+    }
+
+    // The bytes of a path already proven to be the caller's own.
+    internal async Task<QuoteResult<byte[]>> ReadStoredAsync(string path, CancellationToken ct)
+    {
+        byte[]? bytes;
+        try
+        {
+            bytes = await store.ReadQuoteImageAsync(path, ct);
+        }
+        catch (Exception ex) when (IsStoreOutage(ex, ct))
+        {
+            // Cloudinary down, slow or refusing: a typed 503 the app retries, never a 500.
+            logger.LogWarning("quote.image.read unavailable: {Error}", ex.GetType().Name);
+            return QuoteResult<byte[]>.Fail(QuoteErrors.PhotoBusy);
+        }
         return bytes is { Length: > 0 } ? QuoteResult<byte[]>.Success(bytes) : QuoteResult<byte[]>.Fail(QuoteErrors.ImageMissing);
     }
+
+    // A transport failure, an HTTP error status or the download timeout; a cancel of the caller's own request is not an outage.
+    internal static bool IsStoreOutage(Exception ex, CancellationToken ct)
+        => ex is HttpRequestException || (ex is OperationCanceledException && !ct.IsCancellationRequested);
 
     private async Task TryDeleteAsync(string? path)
     {

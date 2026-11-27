@@ -89,15 +89,44 @@ public class QuoteImageSwapTests(TestDatabase db) : IntegrationTestBase(db)
         Assert.Equal(QuoteErrors.ImageMissing, (await QuoteKit.Images(check, store).ReadAsync(user, QuoteImageKind.Logo, default)).ErrorType);
     }
 
+    // M-4: an unknown user (and any account without a live stay) is refused BEFORE the upload: 404 StayNotFound, nothing reaches
+    // the store, no profile row. (Corrected from the old expectation "the uploaded file is deleted again": the upload no longer
+    // happens at all; the FK-violation clean-up path still covers an account deleted between the stay check and the swap.)
     [IntegrationFact]
-    public async Task An_unknown_user_gets_the_new_file_deleted()
+    public async Task An_unknown_user_never_uploads()
     {
         var store = new RecordingQuoteImageStore();
         await using var c = CreateContext();
         var r = await QuoteKit.Images(c, store).PutAsync(Guid.NewGuid(), QuoteImageKind.Logo, new MemoryStream(TestImages.SmallJpeg()), default);
-        Assert.False(r.Ok);
-        Assert.Single(store.Deleted);
+        Assert.Equal(QuoteErrors.StayNotFound, r.ErrorType);
+        Assert.Empty(store.Deleted);
         Assert.Empty(store.Files);
+    }
+
+    [IntegrationFact]
+    public async Task A_stay_owner_without_a_stay_never_uploads_and_gets_no_profile_row()
+    {
+        Guid user;
+        await using (var c = CreateContext()) user = await OwnerSeed.UserAsync(c, UserRoles.StayOwnerId);
+        var store = new RecordingQuoteImageStore();
+        await using var check = CreateContext();
+        var r = await QuoteKit.Images(check, store).PutAsync(user, QuoteImageKind.Signature, new MemoryStream(TestImages.SmallJpeg()), default);
+        Assert.Equal(QuoteErrors.StayNotFound, r.ErrorType);
+        Assert.Empty(store.Files);
+        Assert.False(await check.StayQuoteProfiles.AnyAsync(p => p.UserId == user));
+    }
+
+    // I-3: Cloudinary down or slow on the read = typed PhotoBusy (503), never a 500.
+    [IntegrationFact]
+    public async Task A_store_outage_on_read_is_photo_busy()
+    {
+        var user = await Owner();
+        var store = new RecordingQuoteImageStore();
+        await using (var c = CreateContext())
+            await QuoteKit.Images(c, store).PutAsync(user, QuoteImageKind.Logo, new MemoryStream(TestImages.SmallJpeg()), default);
+        store.ReadFailure = new HttpRequestException("cloudinary down");
+        await using var check = CreateContext();
+        Assert.Equal(QuoteErrors.PhotoBusy, (await QuoteKit.Images(check, store).ReadAsync(user, QuoteImageKind.Logo, default)).ErrorType);
     }
 
     [IntegrationFact]

@@ -3,6 +3,16 @@ using System.Text.Json.Serialization;
 
 namespace RentNearBy.Core.Models;
 
+// DELETE /account has its own bucket: with a blocking subscription every call asks Google (up to 5 s). 5 calls per 10 minutes per
+// user, taken before the pre-check and never given back.
+public static class AccountRateLimits
+{
+    public const int DeletesPerWindow = 5;
+    public static readonly TimeSpan DeleteWindow = TimeSpan.FromMinutes(10);
+
+    public static Owner.OwnerRateLimit Delete(Guid userId) => new($"account:delete:{userId}", DeletesPerWindow, DeleteWindow);
+}
+
 // Codes of the 409 AccountHasActiveItems answer of DELETE /account, in the order they are reported.
 public static class AccountDeletionReasons
 {
