@@ -990,7 +990,10 @@ public static class AdminHandlers
 
                 // D-14 / FB-23: the ring-end pushes of this unit keep a copy of his tokens, then the rows are saved (the
                 // closure only adds them) before the tokens go.
-                PushTokenSnapshot.Stamp(db, id, await PushTokenSnapshot.ValidTokensAsync(db, id), k => k.StartsWith("ringend:", StringComparison.Ordinal));
+                // Stay enquiry ring: a ring still live on his phone ends now (use case 16).
+                await RentNearBy.Infrastructure.Services.StayRing.StayRingWriter.EndLiveRingsOfOwnerAsync(db, id, now);
+                PushTokenSnapshot.Stamp(db, id, await PushTokenSnapshot.ValidTokensAsync(db, id),
+                    k => k.StartsWith("ringend:", StringComparison.Ordinal) || RentNearBy.Infrastructure.Services.StayRing.StayRingWriter.IsRingEndKey(k));
                 await db.SaveChangesAsync();
 
                 // Owner contract 6.1: sessions revoked by the server take the device tokens with them.

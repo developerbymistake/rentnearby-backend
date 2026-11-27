@@ -106,6 +106,11 @@ public static class NotificationTypes
     public const string OwnerMorningReminder = "OwnerMorningReminder";
     public const string PlansStarting = "PlansStarting";
     public const string OwnerBookingTomorrow = "OwnerBookingTomorrow";
+    // Stay enquiry ring (owner order 2026-11-27): push-only (outbox, NotificationId null). The enquiry's own TripEnquiryReceived inbox row
+    // and push are unchanged; the ring, its end and the missed ring never write an inbox row and never change the enquiry.
+    public const string StayEnquiryRing = "StayEnquiryRing";
+    public const string StayEnquiryRingEnded = "StayEnquiryRingEnded";
+    public const string StayEnquiryRingMissed = "StayEnquiryRingMissed";
 
     public static readonly IReadOnlyList<string> OwnerPushKinds =
     [
@@ -218,6 +223,9 @@ public static class NotificationTypes
         [OwnerMorningReminder] = "owner_morning_reminder",
         [PlansStarting] = "plans_starting",
         [OwnerBookingTomorrow] = "owner_booking_tomorrow",
+        [StayEnquiryRing] = "stay_enquiry_ring",
+        [StayEnquiryRingEnded] = "stay_enquiry_ring_ended",
+        [StayEnquiryRingMissed] = "stay_enquiry_ring_missed",
     };
 
     public static string ToWireValue(string type) => WireValues.TryGetValue(type, out var wire) ? wire : type;

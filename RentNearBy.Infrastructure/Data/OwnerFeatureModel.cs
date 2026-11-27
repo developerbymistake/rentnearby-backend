@@ -234,6 +234,7 @@ public static class OwnerFeatureModel
             e.Property(x => x.PlanVisibleSavesDay).HasColumnType("date");
             e.Property(x => x.PlanVisibleSavesCount).HasDefaultValue((short)0);
             e.Property(x => x.RemindersOn).HasDefaultValue(true).HasSentinel(true);
+            e.Property(x => x.EnquiryRingOn).HasDefaultValue(true).HasSentinel(true);
             e.ToTable(t => t.HasCheckConstraint("ck_staylistings_pendingeditresult",
                 $"\"PendingEditResult\" IS NULL OR \"PendingEditResult\" IN ({PendingEditResults.SqlList})"));
             e.HasIndex(x => new { x.PendingEditAt, x.Id }, "ix_staylistings_pendingedit")

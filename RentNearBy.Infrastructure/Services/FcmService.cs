@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
+using RentNearBy.Core.Models.StayRing;
 using RentNearBy.Core.Models.TaxiRequests;
 
 namespace RentNearBy.Infrastructure.Services;
@@ -175,8 +176,10 @@ public class FcmService : IFcmService
     public static Message ToMessage(FcmMessageSpec spec, DateTime utcNow)
     {
         spec.Data.TryGetValue("notification_type", out var type);
-        if (type == RingWireType) return RingMessage(spec, utcNow);
+        if (type == RingWireType || type == StayRingWireType) return RingMessage(spec, utcNow);
         if (type == RingEndWireType) return RingEndMessage(spec);
+        if (type == StayRingEndWireType) return RingEndMessage(spec, StayRingPushKinds.UpdatesChannelId, StayRingEndTtl);
+        if (type == StayRingMissedWireType) return RingEndMessage(spec, StayRingPushKinds.UpdatesChannelId, StayRingMissedTtl);
         if (IsHostNudge(spec.Data)) return HostNudgeMessage(spec);
         return LegacyMessage(spec);
     }
@@ -205,6 +208,12 @@ public class FcmService : IFcmService
 
     private static readonly string RingWireType = NotificationTypes.ToWireValue(NotificationTypes.TaxiRequestRing);
     private static readonly string RingEndWireType = NotificationTypes.ToWireValue(NotificationTypes.TaxiRequestRingEnded);
+    // Stay enquiry ring (kind stay): the same ring and ring end shapes, on the stay channels.
+    private static readonly string StayRingWireType = NotificationTypes.ToWireValue(NotificationTypes.StayEnquiryRing);
+    private static readonly string StayRingEndWireType = NotificationTypes.ToWireValue(NotificationTypes.StayEnquiryRingEnded);
+    private static readonly string StayRingMissedWireType = NotificationTypes.ToWireValue(NotificationTypes.StayEnquiryRingMissed);
+    public static readonly TimeSpan StayRingEndTtl = TimeSpan.FromSeconds(StayRingRules.RingEndTtlSeconds);
+    public static readonly TimeSpan StayRingMissedTtl = TimeSpan.FromSeconds(StayRingRules.MissedTtlSeconds);
 
     // Data-only and high priority so the app rings from its background isolate; no collapse key so rings never replace each other in FCM.
     private static Message RingMessage(FcmMessageSpec spec, DateTime utcNow) => new()
@@ -228,7 +237,9 @@ public class FcmService : IFcmService
     }
 
     // Visible, with the ring's tag, so the system replaces the ringing notification even when no app code runs.
-    private static Message RingEndMessage(FcmMessageSpec spec) => new()
+    private static Message RingEndMessage(FcmMessageSpec spec) => RingEndMessage(spec, TaxiPushKinds.UpdatesChannelId, RingEndTtl);
+
+    private static Message RingEndMessage(FcmMessageSpec spec, string channelId, TimeSpan ttl) => new()
     {
         Token = spec.Token,
         Notification = new Notification { Title = spec.Title, Body = spec.Body },
@@ -236,12 +247,12 @@ public class FcmService : IFcmService
         Android = new AndroidConfig
         {
             Priority = Priority.High,
-            TimeToLive = RingEndTtl,
+            TimeToLive = ttl,
             Notification = new AndroidNotification
             {
                 Sound = "default",
                 ClickAction = "FLUTTER_NOTIFICATION_CLICK",
-                ChannelId = TaxiPushKinds.UpdatesChannelId,
+                ChannelId = channelId,
                 Tag = spec.Tag,
             }
         }

@@ -26,6 +26,8 @@ public static class UserNotificationRoutes
     public const string TaxiBookings = "/taxi-bookings";
     public const string TaxiRating = "/taxi-rating";
     public const string TaxiReady = "/taxi-ready";
+    // Stay enquiry ring readiness screen (the test ring opens it).
+    public const string StayRingReady = "/stay-ring-ready";
 
     public const string Buddies = "/buddies";
     public const string TripInvite = "/trip-invite";

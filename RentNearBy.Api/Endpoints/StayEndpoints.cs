@@ -28,6 +28,11 @@ public static class StayEndpoints
         group.MapPut("/me/accepting", StayHandlers.UpdateAccepting).RequireAuthorization("CanListStays").OwnerWriteLimited();
         group.MapPut("/me/share-details", StayHandlers.UpdateShareDetails).RequireAuthorization("CanListStays").OwnerWriteLimited();
         group.MapDelete("/me", StayHandlers.DeleteMine).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        // Stay enquiry ring (contract F:/Dhasu/Buddy_resume/stay_ring/CONTRACT.md): switch, readiness test ring, ring buttons.
+        group.MapGet("/me/enquiry-ring", StayRingHandlers.GetSettings).RequireAuthorization("CanListStays");
+        group.MapPut("/me/enquiry-ring", StayRingHandlers.PutSettings).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapPost("/me/enquiry-ring/test", StayRingHandlers.TestRing).RequireAuthorization("CanListStays").OwnerWriteLimited();
+        group.MapPost("/me/enquiry-ring/{enquiryId:guid}/answer", StayRingHandlers.Answer).RequireAuthorization("CanListStays").OwnerWriteLimited();
 
         group.MapGet("/{id:guid}", StayHandlers.GetById);
         group.MapPost("/{id:guid}/report", StayHandlers.ReportStay).RequireAuthorization();

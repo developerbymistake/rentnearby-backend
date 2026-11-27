@@ -266,9 +266,12 @@ public static class AdminRoleHandlers
             await unitOfWork.SaveChangesAsync();
 
             await unitOfWork.Sessions.RevokeAllUserSessionsAsync(user.Id, SessionRevokeReasons.SessionRoleChanged);
+            // Stay enquiry ring: a ring still live on his phone ends now (use case 16), with the same token copy.
+            await RentNearBy.Infrastructure.Services.StayRing.StayRingWriter.EndLiveRingsOfOwnerAsync(db, user.Id, DateTime.UtcNow);
             // D-14 / FB-23: "Role updated" and any ring end of this unit go to the tokens he had at this moment.
             var tokenCopy = await RentNearBy.Infrastructure.Services.PushTokenSnapshot.ValidTokensAsync(db, user.Id);
-            RentNearBy.Infrastructure.Services.PushTokenSnapshot.Stamp(db, user.Id, tokenCopy, k => k.StartsWith("ringend:", StringComparison.Ordinal));
+            RentNearBy.Infrastructure.Services.PushTokenSnapshot.Stamp(db, user.Id, tokenCopy,
+                k => k.StartsWith("ringend:", StringComparison.Ordinal) || RentNearBy.Infrastructure.Services.StayRing.StayRingWriter.IsRingEndKey(k));
             await unitOfWork.SaveChangesAsync();
             await RentNearBy.Infrastructure.Services.Owner.Be4.DeviceTokenCleanup.DeleteAllAsync(db, user.Id);
 

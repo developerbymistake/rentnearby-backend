@@ -1470,6 +1470,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     PlanVisibleSavesDay = table.Column<DateOnly>(type: "date", nullable: true),
                     PlanVisibleSavesCount = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
                     RemindersOn = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    EnquiryRingOn = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     IsDeleted = table.Column<bool>(type: "boolean", nullable: false),
