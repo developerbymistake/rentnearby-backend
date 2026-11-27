@@ -176,8 +176,8 @@ public class PhotoPipelineTests
     {
         var src = File.ReadAllText(Path.Combine(RentNearBy.Tests.Trips.CompletionCounterGuardTests.Root(),
             "RentNearBy.Infrastructure", "Services", "PhotoService.cs"));
-        var body = src[src.IndexOf("ProcessImageAsync(Stream", StringComparison.Ordinal)..];
-        var gate = body.IndexOf("await Decode.WaitAsync();", StringComparison.Ordinal);
+        var body = src[src.IndexOf("ProcessImageAsync(Stream input, ImageProcessOptions options)", StringComparison.Ordinal)..];
+        var gate = body.IndexOf("await Decode.WaitAsync(DecodeWait)", StringComparison.Ordinal);
         Assert.True(gate >= 0 && gate < body.IndexOf("Image.IdentifyAsync", StringComparison.Ordinal));
         Assert.Contains("using var gate = new DecodeRelease();", body);
         Assert.DoesNotContain("_cloudinary", body);

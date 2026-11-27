@@ -17,7 +17,8 @@ public sealed record StayReviewValues(
     string? CityName);
 
 // PendingEditJson: the changed field names and the full asked values (so a field changed to null is kept apart from "unchanged").
-public sealed record StayPendingEdit(IReadOnlyList<string> Fields, StayReviewValues Asked);
+// Note: the owner's optional reason (quotation name-change sheet); a later save from the edit screen replaces the change and drops it.
+public sealed record StayPendingEdit(IReadOnlyList<string> Fields, StayReviewValues Asked, string? Note = null);
 
 public static class StayEditResults
 {

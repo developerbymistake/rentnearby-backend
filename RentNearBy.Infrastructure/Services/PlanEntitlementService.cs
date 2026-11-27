@@ -45,6 +45,14 @@ public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache c
         return ids.ToDictionary(id => id, id => Compute(snapshot, flag, featureKey, byUser.GetValueOrDefault(id)));
     }
 
+    public async Task<PlanLimits> ComputeFromRowAsync(string featureKey, EntitledPlanRow? row)
+    {
+        var snapshot = await catalog.GetAsync();
+        var flag = await payment.GetAsync();
+        var active = row == null ? null : new ActiveRow(row.Id, Guid.Empty, row.PlanId, row.Source, row.StartsAt, row.EndsAt);
+        return Compute(snapshot, flag, featureKey, active);
+    }
+
     internal static PlanLimits Compute(PlanCatalogSnapshot snapshot, PaymentFeatureState flag, string featureKey, ActiveRow? row)
     {
         var defaultPlan = snapshot.DefaultPlan(featureKey);
@@ -91,7 +99,8 @@ public class PlanEntitlementService(ApplicationDbContext db, IPlanCatalogCache c
             MonthSummary: values.MonthSummary,
             Reminders: values.Reminders,
             SpecialPrices: Clamp(PlanFeatureKeys.SpecialPrices, values.SpecialPrices),
-            DemandCount: values.DemandCount);
+            DemandCount: values.DemandCount,
+            StayQuotationsPerMonth: Clamp(PlanFeatureKeys.StayQuotationsPerMonth, values.StayQuotationsPerMonth));
     }
 
     private static int Clamp(string key, int value) => PlanKeyCatalog.Of(key).Clamp(value);

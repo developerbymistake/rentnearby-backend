@@ -83,7 +83,7 @@ public class RoomsPlotsRemovalGuardTests
     public void PlanFeatureKeys_Unchanged()
     {
         Assert.Equal(new[] { PlanFeatureKeys.ListingLimit, PlanFeatureKeys.Priority, PlanFeatureKeys.Featured, PlanFeatureKeys.JobsPosts }, PlanFeatureKeys.All.Take(4));
-        Assert.Equal(16, PlanFeatureKeys.All.Length);
+        Assert.Equal(17, PlanFeatureKeys.All.Length);
         Assert.DoesNotContain(PlanFeatureKeys.All, k => k.Contains("Room", StringComparison.Ordinal) && k != PlanFeatureKeys.RoomTypes);
         Assert.DoesNotContain(PlanFeatureKeys.All, k => k.Contains("Plot", StringComparison.Ordinal));
     }
@@ -119,7 +119,7 @@ public class RoomsPlotsRemovalGuardTests
     {
         var names = typeof(IPlanEntitlementService).GetMethods().Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal);
 
-        Assert.Equal(new[] { "GetLimitsAsync", "GetLimitsBatchAsync" }, names);
+        Assert.Equal(new[] { "ComputeFromRowAsync", "GetLimitsAsync", "GetLimitsBatchAsync" }, names);
     }
 
     // G5

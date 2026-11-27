@@ -29,7 +29,8 @@ public sealed record PlanLimits(
     bool MonthSummary = false,
     bool Reminders = false,
     int SpecialPrices = 1,
-    bool DemandCount = false)
+    bool DemandCount = false,
+    int StayQuotationsPerMonth = 2)
 {
     // Every limit refusal sends this; false while payment is OFF and for anyone who already holds a plan.
     public bool CanUpgrade => PaymentEnabled && !IsPaid;
@@ -52,9 +53,13 @@ public sealed record PlanLimits(
         PlanFeatureKeys.Reminders => Reminders ? 1 : 0,
         PlanFeatureKeys.SpecialPrices => SpecialPrices,
         PlanFeatureKeys.DemandCount => DemandCount ? 1 : 0,
+        PlanFeatureKeys.StayQuotationsPerMonth => StayQuotationsPerMonth,
         _ => throw new ArgumentOutOfRangeException(nameof(key), key, "Unknown plan feature key"),
     };
 }
+
+// An entitled UserPlans row already read by the caller (e.g. a LATERAL join of a wider query); null = no entitled row.
+public sealed record EntitledPlanRow(Guid Id, Guid PlanId, string Source, DateTime StartsAt, DateTime EndsAt);
 
 // The one seam that reads limits. Callers never compare plan names or codes.
 public interface IPlanEntitlementService
@@ -64,4 +69,7 @@ public interface IPlanEntitlementService
 
     // One query for many users (admin lists).
     Task<IReadOnlyDictionary<Guid, PlanLimits>> GetLimitsBatchAsync(IReadOnlyCollection<Guid> userIds, string featureKey);
+
+    // The same maths over a row the caller already read (cached catalog + cached payment flag, no query).
+    Task<PlanLimits> ComputeFromRowAsync(string featureKey, EntitledPlanRow? row);
 }

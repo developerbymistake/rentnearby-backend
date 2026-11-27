@@ -36,6 +36,9 @@ public class ListingPurgeService(
             new NpgsqlParameter("user", NpgsqlDbType.Uuid) { Value = userId },
             new NpgsqlParameter("kinds", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = NoticeKinds.Owner.ToArray() });
         await context.Database.ExecuteSqlRawAsync(FestivalMarksSql, new NpgsqlParameter("user", NpgsqlDbType.Uuid) { Value = userId });
+        // S11: the quotation master (bank blob included) leaves with the Stay Owner role; its images go after the commit.
+        if (listingKind == ListingKinds.Stay)
+            await context.Database.ExecuteSqlRawAsync(QuoteProfileSql, new NpgsqlParameter("user", NpgsqlDbType.Uuid) { Value = userId });
         return ids;
     }
 
@@ -45,6 +48,10 @@ public class ListingPurgeService(
 
     internal const string FestivalMarksSql = """
         DELETE FROM "FestivalReminderSent" WHERE "UserId" = @user
+        """;
+
+    internal const string QuoteProfileSql = """
+        DELETE FROM "StayQuoteProfiles" WHERE "UserId" = @user
         """;
 
     // After the account deletion commit: a Cloudinary failure only orphans files and is logged, it never surfaces.

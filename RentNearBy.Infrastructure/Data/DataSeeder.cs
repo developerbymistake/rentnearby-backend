@@ -148,23 +148,20 @@ public static class DataSeeder
     // Starting plan catalog (Play Console prices of 2026-11-27, no free trial; admin-editable). Free is the default plan of each
     // feature (no prices); paid plans carry 1/3/12-month prices with a longer-cycle discount. Stable ids:
     // plans b1000000-...-0000000FFNN (FF feature 03 Stay / 04 Taxi, NN 01 free / 02 paid), prices b2000000-...-0000FFCC.
-    private static async Task SeedPlansAsync(ApplicationDbContext db)
+    internal static async Task SeedPlansAsync(ApplicationDbContext db)
     {
         if (await db.Plans.AnyAsync())
         {
             await SyncSeedPlayPricesAsync(db);
             await SyncSeedNoTrialAsync(db);
+            await TopUpSeedPlanKeysAsync(db);
             return;
         }
 
         var now = DateTime.UtcNow;
-        var features = new (int Index, string Kind, string Code)[]
-        {
-            (3, ListingKinds.Stay, "STAY"),
-            (4, ListingKinds.Taxi, "TAXI"),
-        };
+        var features = SeedPlanFeatures;
 
-        static Guid PlanId(int feature, int n) => new($"b1000000-0000-0000-0000-000000000{feature}{n:D2}");
+        static Guid PlanId(int feature, int n) => SeedPlanId(feature, n);
         static Guid PriceId(int feature, int cycle) => new($"b2000000-0000-0000-0000-00000000{feature:D2}{cycle:D2}");
 
         foreach (var (index, kind, code) in features)
@@ -278,6 +275,51 @@ public static class DataSeeder
     }
 
     // Moves seeded plan prices that still hold the first guess to the Play Console price points; an admin edit is left alone.
+    private static readonly (int Index, string Kind, string Code)[] SeedPlanFeatures =
+    [
+        (3, ListingKinds.Stay, "STAY"),
+        (4, ListingKinds.Taxi, "TAXI"),
+    ];
+
+    internal static Guid SeedPlanId(int feature, int n) => new($"b1000000-0000-0000-0000-000000000{feature}{n:D2}");
+
+    // A plan key added after a database was first seeded (StayQuotationsPerMonth, 2026-11-27) reaches the seeded Free and Plus plans
+    // of each kind with its seed value. Only a MISSING row is inserted: a key that already has a row (seeded or admin-edited) is
+    // never touched, and plans an admin created keep reading the catalog fallback for keys they do not carry.
+    internal static async Task TopUpSeedPlanKeysAsync(ApplicationDbContext db)
+    {
+        var ids = SeedPlanFeatures.SelectMany(f => new[] { SeedPlanId(f.Index, 1), SeedPlanId(f.Index, 2) }).ToList();
+        var plans = await db.Plans.AsNoTracking().Where(p => ids.Contains(p.Id)).Select(p => p.Id).ToListAsync();
+        if (plans.Count == 0) return;
+        var have = await db.PlanFeatures.AsNoTracking().Where(f => ids.Contains(f.PlanId)).Select(f => new { f.PlanId, f.Key }).ToListAsync();
+        var missing = MissingSeedPlanKeys(plans, have.Select(h => (h.PlanId, h.Key)));
+        if (missing.Count == 0) return;
+        db.PlanFeatures.AddRange(missing);
+        await db.SaveChangesAsync();
+    }
+
+    // Pure part of the top-up: one new row per (seeded plan that exists, key of its kind) with no row yet.
+    internal static List<PlanFeature> MissingSeedPlanKeys(IEnumerable<Guid> existingPlanIds, IEnumerable<(Guid PlanId, string Key)> existingRows)
+    {
+        var plans = existingPlanIds.ToHashSet();
+        var rows = existingRows.ToHashSet();
+        var missing = new List<PlanFeature>();
+        foreach (var (index, kind, _) in SeedPlanFeatures)
+        {
+            foreach (var (planId, plus) in new[] { (SeedPlanId(index, 1), false), (SeedPlanId(index, 2), true) })
+            {
+                if (!plans.Contains(planId)) continue;
+                foreach (var key in PlanKeyCatalog.For(kind))
+                {
+                    if (rows.Contains((planId, key.Key))) continue;
+                    var seed = key.SeedFor(kind)!;
+                    missing.Add(new PlanFeature { Id = Guid.NewGuid(), PlanId = planId, Key = key.Key, Value = plus ? seed.Plus : seed.Free });
+                }
+            }
+        }
+        return missing;
+    }
+
     private static async Task SyncSeedPlayPricesAsync(ApplicationDbContext db)
     {
         var changes = new (int Feature, int Cycle, int Old, int New)[]

@@ -36,6 +36,8 @@ public class AccountDeletionService(
         catch (Exception ex) when (!_committed && TaxiRequests.PgRetry.IsRetryable(ex))
         {
             await using var scope = services.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope();
+            // What the pre-deletion Play sync learned in this request travels to the retry scope (token gone, sync unsure).
+            scope.ServiceProvider.GetService<Owner.Quote.SubscriptionDeletionContext>()?.CopyFrom(services.GetService<Owner.Quote.SubscriptionDeletionContext>());
             var fresh = scope.ServiceProvider.GetRequiredService<IAccountDeletionService>();
             return fresh is AccountDeletionService again ? await again.DeleteOnceAsync(userId) : await fresh.DeleteAccountAsync(userId);
         }
@@ -67,7 +69,8 @@ public class AccountDeletionService(
         if (blocks.Count > 0)
         {
             await tx.RollbackAsync();
-            return new AccountDeletionResult(blocks);
+            // An auto-renewing subscription is always the first reason (its one step comes before everything else).
+            return new AccountDeletionResult(blocks.OrderBy(b => b.Code == AccountDeletionReasons.ActiveSubscription ? 0 : 1).ToList());
         }
 
         if (user != null)

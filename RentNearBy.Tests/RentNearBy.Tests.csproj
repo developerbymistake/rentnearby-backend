@@ -17,6 +17,7 @@
   <ItemGroup>
     <None Update="TaxiRequests\Samples\*.*" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Owner\Vectors\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Stays\Quotation\Fixtures\*.*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\RentNearBy.Core\RentNearBy.Core.csproj" />

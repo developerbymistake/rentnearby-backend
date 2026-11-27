@@ -43,7 +43,9 @@ public sealed record AdminStayPendingEditRowDto(
     IReadOnlyList<StayPendingFieldDto> Fields,
     int? PinMovedMeters,
     StayPinDto LivePin,
-    StayPinDto AskedPin);
+    StayPinDto AskedPin,
+    string? Note = null,
+    bool NameMixedScript = false);
 
 public sealed record AdminStayPendingEditPageDto(IReadOnlyList<AdminStayPendingEditRowDto> Items, string? NextCursor, int? WaitingCount);
 

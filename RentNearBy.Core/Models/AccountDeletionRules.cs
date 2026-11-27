@@ -3,6 +3,16 @@ using System.Text.Json.Serialization;
 
 namespace RentNearBy.Core.Models;
 
+// DELETE /account has its own bucket: with a blocking subscription every call asks Google (up to 5 s). 5 calls per 10 minutes per
+// user, taken before the pre-check and never given back.
+public static class AccountRateLimits
+{
+    public const int DeletesPerWindow = 5;
+    public static readonly TimeSpan DeleteWindow = TimeSpan.FromMinutes(10);
+
+    public static Owner.OwnerRateLimit Delete(Guid userId) => new($"account:delete:{userId}", DeletesPerWindow, DeleteWindow);
+}
+
 // Codes of the 409 AccountHasActiveItems answer of DELETE /account, in the order they are reported.
 public static class AccountDeletionReasons
 {
@@ -15,6 +25,11 @@ public static class AccountDeletionReasons
     // Reported by the buddy money participant (IAccountDeletionParticipant), not by Blocks(); {0} = trip title.
     public const string SharedTripOpenBalance = "SharedTripOpenBalance";
     public const string SharedTripOpenBalanceMessage = "You have money to settle on {0}.";
+    // Reported first by SubscriptionDeletionGuard (all roles): an auto-renewing store subscription; one step, never a dead end.
+    public const string ActiveSubscription = "ActiveSubscription";
+    public const string ActiveSubscriptionMessage = "You have an active subscription. Cancel it in Google Play first, then delete your account.";
+    public const string ActiveSubscriptionTitle = "Cancel your subscription first";
+    public const string JustCancelledHint = " Just cancelled? Try again in a minute.";
 
     public static readonly IReadOnlyList<string> All =
         [ActiveTaxiBooking, ActiveStayBooking, SelectedTaxiOffer, OpenTaxiRequest, OpenStayEnquiry, LiveListing];
@@ -67,6 +82,8 @@ public static class AccountDeletionActions
     public const string OpenTrip = "OpenTrip";
     public const string GoOffline = "GoOffline";
     public const string SettleUp = "SettleUp";
+    // args { manageUrl }: the exact Google Play subscription screen.
+    public const string ManagePlay = "ManagePlay";
 }
 
 // AU-2: the first item (by CreatedAt, then Id) of one blocking kind and side, with the count of that kind and side.

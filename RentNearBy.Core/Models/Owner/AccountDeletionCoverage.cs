@@ -86,5 +86,12 @@ public static class AccountDeletionCoverage
         new("ChatRoomMembers", DeletionModes.Cascade | DeletionModes.Participant, "Users cascade and the room delete."),
         new("ChatMessages", DeletionModes.Participant, "His direct rooms are deleted with their messages (room cascade); trip room messages expire in 24 hours."),
         new("MessageSnapshots", DeletionModes.Anonymised, "Kept to PurgeAt for the report; ids kept, his name replaced by Deleted account."),
+
+        // Stay quotation (ARCHITECTURE 2, 9.4): no guest data anywhere; images go with the user prefix delete (both delivery types).
+        new("StayQuoteProfiles", DeletionModes.Cascade | DeletionModes.Purge,
+            "Users cascade (bank blob included); the role change away from Stay Owner deletes the row and the quote images."),
+        new("StayQuoteTermsAcceptances", DeletionModes.Cascade, "Users cascade."),
+        new("StayQuoteCounters", DeletionModes.Cascade, "Users cascade; counts and sequences only."),
+        new("StayQuoteIssues", DeletionModes.Cascade, "Users cascade; numbers only, purged 180 days after the first issue."),
     ];
 }

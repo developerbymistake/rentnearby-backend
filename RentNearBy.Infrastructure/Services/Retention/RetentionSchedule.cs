@@ -33,6 +33,7 @@ public static class RetentionSchedule
         "TripOffers", "TripEnquiries", "TripEnquiryOrphans",
         "Chat",
         "OwnerCalendarEntries", "StayBlockedRanges", "StaySpecialPrices", "FestivalReminderSent", "OwnerReminderRuns", "OwnerWeeklyStats", "TaxiDayOffs",
+        "StayQuoteIssues",
     };
 
     public static int OrderOf(string ruleName)

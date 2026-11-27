@@ -28,6 +28,7 @@ public static class OwnerFeatureExtensions
         services.AddOwnerBe2();
         services.AddOwnerBe3();
         services.AddOwnerBe4();
+        services.AddStayQuotation();
         return services;
     }
 
@@ -37,6 +38,7 @@ public static class OwnerFeatureExtensions
         app.MapOwnerBe2();
         app.MapOwnerBe3();
         app.MapOwnerBe4();
+        app.MapStayQuotation();
         return app;
     }
 }

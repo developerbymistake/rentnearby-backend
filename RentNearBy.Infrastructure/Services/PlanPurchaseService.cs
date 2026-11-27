@@ -249,7 +249,14 @@ public class PlanPurchaseService(
             Reminders = limits.Reminders,
             SpecialPrices = limits.SpecialPrices,
             DemandCount = limits.DemandCount,
+            StayQuotationsPerMonth = limits.StayQuotationsPerMonth,
         };
+        if (feature == ListingKinds.Stay)
+        {
+            var usage = await Owner.Quote.StayQuoteUsageReader.ReadAsync(db, userId, DateTime.UtcNow);
+            dto.Limits.QuotationsUsed = usage.Used;
+            dto.Limits.QuotationsResetsAt = usage.ResetsAt;
+        }
         // Owner roles M3: hidden rows, usage and the payment start facts in one statement (existing + 1).
         var today = IstTime.TodayIst(DateTime.UtcNow);
         var rows = await Owner.Be3.OwnerHiddenCounts.ReadAsync(db, userId, feature, today);
@@ -327,12 +334,7 @@ public class PlanPurchaseService(
         return active?.PlaySubscriptionId;
     }
 
-    private string ManageUrl(string productId)
-    {
-        var url = $"https://play.google.com/store/account/subscriptions?sku={Uri.EscapeDataString(productId)}";
-        var package = playOptions.Value.PackageName;
-        return string.IsNullOrEmpty(package) ? url : $"{url}&package={Uri.EscapeDataString(package)}";
-    }
+    private string ManageUrl(string productId) => PlayManageUrls.For(productId, playOptions.Value.PackageName);
 
     // F-19 guard under Play: trial days above 0 and a configured trial offer, no Play subscription of the feature in any state and
     // no backend trial row. Google decides the per-Google-account eligibility on top of this.

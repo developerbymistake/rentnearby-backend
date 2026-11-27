@@ -20,7 +20,7 @@ public class PlanKeyCatalogTests
     public void Catalog_lists_every_key_once_in_the_doc_order()
     {
         Assert.Equal(PlanFeatureKeys.All, PlanKeyCatalog.All.Select(k => k.Key));
-        Assert.Equal(16, PlanKeyCatalog.All.Count);
+        Assert.Equal(17, PlanKeyCatalog.All.Count);
         Assert.All(PlanFeatureKeys.All, k => Assert.Equal(k, PlanKeyCatalog.Of(k).Key));
         Assert.Throws<ArgumentOutOfRangeException>(() => PlanKeyCatalog.Of("Rooms"));
     }
@@ -42,6 +42,7 @@ public class PlanKeyCatalogTests
     [InlineData("Reminders", "Limit", 0, 1, 0, 1, 0, 1)]
     [InlineData("SpecialPrices", "Limit", 1, 5, null, null, 0, 999)]
     [InlineData("DemandCount", "Stored", 0, 1, null, null, 0, 1)]
+    [InlineData("StayQuotationsPerMonth", "Limit", 2, 30, null, null, 0, 999)]
     public void Numbers_equal_the_master_table(string key, string kind, int? stayFree, int? stayPlus, int? taxiFree, int? taxiPlus, int min, int max)
     {
         var info = PlanKeyCatalog.Of(key);
@@ -109,6 +110,7 @@ public class PlanKeyCatalogTests
         Assert.Equal((2, 2, 1, 1), (f.Photos, f.RoomTypes, f.Routes, f.RingWeight));
         Assert.Equal((4, 1, 15, 0, 1), (f.CalendarEntries, f.BlockedRanges, f.UpcomingDays, f.MonthsAhead, f.SpecialPrices));
         Assert.False(f.MonthSummary || f.Reminders || f.DemandCount);
+        Assert.Equal(2, f.StayQuotationsPerMonth);
     }
 
     [Fact]

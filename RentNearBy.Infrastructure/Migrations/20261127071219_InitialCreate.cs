@@ -1523,6 +1523,121 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "StayQuoteCounters",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    MonthKey = table.Column<int>(type: "integer", nullable: false),
+                    Used = table.Column<short>(type: "smallint", nullable: false),
+                    NextQuoteNo = table.Column<int>(type: "integer", nullable: false, defaultValue: 1),
+                    NextProformaNo = table.Column<int>(type: "integer", nullable: false, defaultValue: 1),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayQuoteCounters", x => x.UserId);
+                    table.CheckConstraint("ck_stayquotecounters_proforma", "\"NextProformaNo\" >= 1");
+                    table.CheckConstraint("ck_stayquotecounters_quote", "\"NextQuoteNo\" >= 1");
+                    table.CheckConstraint("ck_stayquotecounters_used", "\"Used\" >= 0");
+                    table.ForeignKey(
+                        name: "FK_StayQuoteCounters_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                })
+                .Annotation("Npgsql:StorageParameter:fillfactor", 90);
+
+            migrationBuilder.CreateTable(
+                name: "StayQuoteIssues",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    DocumentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Kind = table.Column<short>(type: "smallint", nullable: false),
+                    Number = table.Column<int>(type: "integer", nullable: false),
+                    IssuedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    WindowAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    Downloads = table.Column<short>(type: "smallint", nullable: false),
+                    FreeUses = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayQuoteIssues", x => new { x.UserId, x.DocumentId, x.Kind });
+                    table.CheckConstraint("ck_stayquoteissues_counts", "\"Downloads\" >= 1 AND \"FreeUses\" >= 0");
+                    table.CheckConstraint("ck_stayquoteissues_kind", "\"Kind\" IN (0, 1)");
+                    table.CheckConstraint("ck_stayquoteissues_number", "\"Number\" >= 1");
+                    table.ForeignKey(
+                        name: "FK_StayQuoteIssues_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                })
+                .Annotation("Npgsql:StorageParameter:fillfactor", 90);
+
+            migrationBuilder.CreateTable(
+                name: "StayQuoteProfiles",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Slogan = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: true),
+                    Address = table.Column<string>(type: "character varying(240)", maxLength: 240, nullable: true),
+                    Phone = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: true),
+                    Email = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: true),
+                    Gstin = table.Column<string>(type: "character varying(15)", maxLength: 15, nullable: true),
+                    BankEnc = table.Column<string>(type: "text", nullable: true),
+                    HasBank = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    TermsText = table.Column<string>(type: "character varying(1200)", maxLength: 1200, nullable: true),
+                    CancellationText = table.Column<string>(type: "character varying(800)", maxLength: 800, nullable: true),
+                    LogoPath = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    SignaturePath = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    AssetsVersion = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayQuoteProfiles", x => x.UserId);
+                    table.CheckConstraint("ck_stayquoteprofiles_address", "char_length(\"Address\") <= 240");
+                    table.CheckConstraint("ck_stayquoteprofiles_assets", "\"AssetsVersion\" >= 0");
+                    table.CheckConstraint("ck_stayquoteprofiles_bank", "\"HasBank\" = (\"BankEnc\" IS NOT NULL)");
+                    table.CheckConstraint("ck_stayquoteprofiles_cancellation", "char_length(\"CancellationText\") <= 800");
+                    table.CheckConstraint("ck_stayquoteprofiles_email", "char_length(\"Email\") <= 120");
+                    table.CheckConstraint("ck_stayquoteprofiles_gstin", "\"Gstin\" IS NULL OR char_length(\"Gstin\") = 15");
+                    table.CheckConstraint("ck_stayquoteprofiles_phone", "char_length(\"Phone\") <= 20");
+                    table.CheckConstraint("ck_stayquoteprofiles_slogan", "char_length(\"Slogan\") <= 80");
+                    table.CheckConstraint("ck_stayquoteprofiles_terms", "char_length(\"TermsText\") <= 1200");
+                    table.ForeignKey(
+                        name: "FK_StayQuoteProfiles_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "StayQuoteTermsAcceptances",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Version = table.Column<short>(type: "smallint", nullable: false),
+                    AcceptedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    AppVersion = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StayQuoteTermsAcceptances", x => new { x.UserId, x.Version });
+                    table.CheckConstraint("ck_stayquotetermsacceptances_version", "\"Version\" >= 1");
+                    table.ForeignKey(
+                        name: "FK_StayQuoteTermsAcceptances_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "TaxiListings",
                 columns: table => new
                 {
@@ -4075,6 +4190,17 @@ namespace RentNearBy.Infrastructure.Migrations
                 column: "StayListingId");
 
             migrationBuilder.CreateIndex(
+                name: "ix_stayquoteissues_issuedat",
+                table: "StayQuoteIssues",
+                column: "IssuedAt");
+
+            migrationBuilder.CreateIndex(
+                name: "ux_stayquoteissues_number",
+                table: "StayQuoteIssues",
+                columns: new[] { "UserId", "Kind", "Number" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "ix_stayregistrationtypes_code",
                 table: "StayRegistrationTypes",
                 column: "Code",
@@ -5045,6 +5171,18 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "StayPhotos");
+
+            migrationBuilder.DropTable(
+                name: "StayQuoteCounters");
+
+            migrationBuilder.DropTable(
+                name: "StayQuoteIssues");
+
+            migrationBuilder.DropTable(
+                name: "StayQuoteProfiles");
+
+            migrationBuilder.DropTable(
+                name: "StayQuoteTermsAcceptances");
 
             migrationBuilder.DropTable(
                 name: "StayRooms");

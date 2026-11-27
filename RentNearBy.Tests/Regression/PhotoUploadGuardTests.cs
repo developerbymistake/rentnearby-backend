@@ -25,6 +25,8 @@ public class PhotoUploadGuardTests
         ["TaxiHandlers.UploadDisplayPhoto"] = "TaxiEndpoints.cs",
         ["BannerHandlers.AdminCreateBanner"] = "BannerEndpoints.cs",
         ["UserPhotoHandlers.UploadPhoto"] = "UsersEndpoints.cs",
+        ["StayQuotationHandlers.PutLogo"] = "Owner/StayQuotationEndpoints.cs",
+        ["StayQuotationHandlers.PutSignature"] = "Owner/StayQuotationEndpoints.cs",
     };
 
     private static string Method(string src, string name)
@@ -67,6 +69,17 @@ public class PhotoUploadGuardTests
 
         foreach (var (type, method) in handlers)
         {
+            if (type.Name == "StayQuotationHandlers")
+            {
+                // Quotation images refuse with their own typed errors: size, then image sniff, then the one service call that processes and saves.
+                var put = Method(HandlerSource(type), "PutImage");
+                var size = put.IndexOf("PhotoUpload.MaxBytes", StringComparison.Ordinal);
+                var sniff = put.IndexOf("PhotoUpload.IsImage(", StringComparison.Ordinal);
+                var store = put.IndexOf("service.PutAsync(", StringComparison.Ordinal);
+                Assert.True(size > 0 && sniff > size && store > sniff, $"{type.Name}.{method.Name} must check size and image type before it saves");
+                continue;
+            }
+
             var body = Method(HandlerSource(type), method.Name);
             var check = body.IndexOf("PhotoUpload.Check(", StringComparison.Ordinal);
             var save = Regex.Match(body, @"Save(Photo|Banner|ProfilePhoto)Async\(").Index;
@@ -100,10 +113,13 @@ public class PhotoUploadGuardTests
 
         var src = Src("RentNearBy.Infrastructure", "Services", "PhotoService.cs");
         var uploads = Regex.Matches(src, @"_cloudinary\.UploadAsync").Select(m => m.Index).ToList();
-        Assert.Equal(3, uploads.Count);
+        // Listing, banner and profile photos, plus the stay quotation logo / signature (SaveQuoteImageAsync).
+        Assert.Equal(4, uploads.Count);
         foreach (var at in uploads)
         {
-            var methodStart = src.LastIndexOf("public async Task<(string url, string filePath)>", at, StringComparison.Ordinal);
+            var methodStart = Math.Max(
+                src.LastIndexOf("public async Task<(string url, string filePath)>", at, StringComparison.Ordinal),
+                src.LastIndexOf("public async Task<string> SaveQuoteImageAsync(", at, StringComparison.Ordinal));
             var process = src.IndexOf("ProcessImageAsync(", methodStart, StringComparison.Ordinal);
             Assert.True(process > methodStart && process < at);
         }

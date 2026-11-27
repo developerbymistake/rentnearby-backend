@@ -4525,6 +4525,206 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.ToTable("StayPhotos");
                 });
 
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayQuoteCounter", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("MonthKey")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("NextProformaNo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<int>("NextQuoteNo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<short>("Used")
+                        .HasColumnType("smallint");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("StayQuoteCounters", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_stayquotecounters_proforma", "\"NextProformaNo\" >= 1");
+
+                            t.HasCheckConstraint("ck_stayquotecounters_quote", "\"NextQuoteNo\" >= 1");
+
+                            t.HasCheckConstraint("ck_stayquotecounters_used", "\"Used\" >= 0");
+                        });
+
+                    b.HasAnnotation("Npgsql:StorageParameter:fillfactor", 90);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayQuoteIssue", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<short>("Kind")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("Downloads")
+                        .HasColumnType("smallint");
+
+                    b.Property<short>("FreeUses")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0);
+
+                    b.Property<DateTime>("IssuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("WindowAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId", "DocumentId", "Kind");
+
+                    b.HasIndex(new[] { "IssuedAt" }, "ix_stayquoteissues_issuedat");
+
+                    b.HasIndex(new[] { "UserId", "Kind", "Number" }, "ux_stayquoteissues_number")
+                        .IsUnique();
+
+                    b.ToTable("StayQuoteIssues", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_stayquoteissues_counts", "\"Downloads\" >= 1 AND \"FreeUses\" >= 0");
+
+                            t.HasCheckConstraint("ck_stayquoteissues_kind", "\"Kind\" IN (0, 1)");
+
+                            t.HasCheckConstraint("ck_stayquoteissues_number", "\"Number\" >= 1");
+                        });
+
+                    b.HasAnnotation("Npgsql:StorageParameter:fillfactor", 90);
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayQuoteProfile", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(240)
+                        .HasColumnType("character varying(240)");
+
+                    b.Property<int>("AssetsVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("BankEnc")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CancellationText")
+                        .HasMaxLength(800)
+                        .HasColumnType("character varying(800)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Gstin")
+                        .HasMaxLength(15)
+                        .HasColumnType("character varying(15)");
+
+                    b.Property<bool>("HasBank")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("LogoPath")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("SignaturePath")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Slogan")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("TermsText")
+                        .HasMaxLength(1200)
+                        .HasColumnType("character varying(1200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("StayQuoteProfiles", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_stayquoteprofiles_address", "char_length(\"Address\") <= 240");
+
+                            t.HasCheckConstraint("ck_stayquoteprofiles_assets", "\"AssetsVersion\" >= 0");
+
+                            t.HasCheckConstraint("ck_stayquoteprofiles_bank", "\"HasBank\" = (\"BankEnc\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_stayquoteprofiles_cancellation", "char_length(\"CancellationText\") <= 800");
+
+                            t.HasCheckConstraint("ck_stayquoteprofiles_email", "char_length(\"Email\") <= 120");
+
+                            t.HasCheckConstraint("ck_stayquoteprofiles_gstin", "\"Gstin\" IS NULL OR char_length(\"Gstin\") = 15");
+
+                            t.HasCheckConstraint("ck_stayquoteprofiles_phone", "char_length(\"Phone\") <= 20");
+
+                            t.HasCheckConstraint("ck_stayquoteprofiles_slogan", "char_length(\"Slogan\") <= 80");
+
+                            t.HasCheckConstraint("ck_stayquoteprofiles_terms", "char_length(\"TermsText\") <= 1200");
+                        });
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayQuoteTermsAcceptance", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<short>("Version")
+                        .HasColumnType("smallint");
+
+                    b.Property<DateTime>("AcceptedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("AppVersion")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("UserId", "Version");
+
+                    b.ToTable("StayQuoteTermsAcceptances", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_stayquotetermsacceptances_version", "\"Version\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("RentNearBy.Core.Entities.StayRegistrationType", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7449,6 +7649,42 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.HasOne("RentNearBy.Core.Entities.StayListing", null)
                         .WithMany("Photos")
                         .HasForeignKey("StayListingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayQuoteCounter", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithOne()
+                        .HasForeignKey("RentNearBy.Core.Entities.StayQuoteCounter", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayQuoteIssue", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayQuoteProfile", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithOne()
+                        .HasForeignKey("RentNearBy.Core.Entities.StayQuoteProfile", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RentNearBy.Core.Entities.StayQuoteTermsAcceptance", b =>
+                {
+                    b.HasOne("RentNearBy.Core.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

@@ -49,9 +49,10 @@ public class CardPhotoSecurityGuardTests
     public void S3_cloudinary_deletes_invalidate_the_cdn()
     {
         var src = Src("RentNearBy.Infrastructure", "Services", "PhotoService.cs");
-        // One single-file delete and one prefix delete helper (both prefix routes use it); each invalidates.
+        // One single-file delete, one prefix delete helper (both prefix routes use it) and the stay quotation image delete
+        // (authenticated type); each invalidates.
         var deletes = Regex.Matches(src, @"_cloudinary\.(DestroyAsync|DeleteResourcesAsync)\(").Count;
-        Assert.Equal(2, deletes);
+        Assert.Equal(3, deletes);
         Assert.Equal(deletes, Regex.Matches(src, @"Invalidate\s*=\s*true").Count);
         Assert.DoesNotContain("DeleteResourcesByPrefixAsync(", src);
         Assert.Contains("new DeletionParams(filePath) { Invalidate = true }", src);

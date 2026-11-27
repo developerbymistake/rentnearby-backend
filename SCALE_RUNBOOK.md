@@ -124,7 +124,7 @@ their TTL ends:
 | Cache | Where | Invalidation today |
 |---|---|---|
 | App tabs snapshot `config_app_tabs` | `AppTabCache` | write-through on the admin PUT, this process only |
-| Plan catalog `plan_catalog` | `PlanCatalogCache` | version-guarded, admin writes in this process |
+| Plan catalog `plan_catalog` | `PlanCatalogCache` | version-guarded, admin writes in this process; also feeds the stay quotation monthly cap (`StayQuotationsPerMonth`), so on more than one instance an admin change of that key reaches the others only after the TTL |
 | Payment switch `config_payment_feature` (now also the announce date and the switch-on time) | `PaymentFeatureReader` | `Invalidate()` on the admin PUT |
 | Trip bookings switch `config_trip_execution` | `TripExecutionFeatureReader` | write-through on the admin PUT |
 | Festival cache, roles, stay registration types | `FestivalCache`, `config_roles`, `stay_registration_types` | admin writes in this process |

@@ -104,7 +104,8 @@ public static class RoleHandlers
         IMemoryCache cache,
         ITripEnquiryClosure tripClosure,
         IUsernameService usernames,
-        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Core.Interfaces.Social.IHubSessionRevoker? hubSessions = null)
+        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Core.Interfaces.Social.IHubSessionRevoker? hubSessions = null,
+        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Infrastructure.Services.Owner.Quote.StayQuoteRoleCleanup? quoteCleanup = null)
     {
         var validation = await validator.ValidateAsync(request);
         if (!validation.IsValid)
@@ -215,6 +216,7 @@ public static class RoleHandlers
 
         await tripClosure.AfterCommitAsync(tripPushes);
         await listingPurge.DeleteListingPhotosBestEffortAsync(userId, purgedIds);
+        if (leftKind == ListingKinds.Stay && quoteCleanup != null) await quoteCleanup.DeleteImagesBestEffortAsync(userId);
         // Social chat sockets of the old role end after the commit (contract 3.1).
         if (hubSessions != null) await hubSessions.RevokeAsync(userId, "roleChanged");
 

@@ -18,6 +18,7 @@ public class RetentionRuleCatalogTests
         "TripJoinRequests", "MessageSnapshots", "DirectChatRooms",
         // Trip compaction (an UPDATE of old finished trips, not a delete; dry run by default).
         "TripCompaction",
+        "StayQuoteIssues",
     };
 
     // Never auto-deleted (owner list), so no declarative rule may name them as its table.

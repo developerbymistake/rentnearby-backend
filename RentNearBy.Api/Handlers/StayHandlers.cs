@@ -752,24 +752,7 @@ public static class StayHandlers
         stay.Description = request.Description;
         stay.UpdatedAt = now;
 
-        var live = new StayReviewValues(stay.Name, stay.RegistrationTypeId, stay.RegistrationTypeName, stay.RegistrationOtherName,
-            stay.RegistrationNumber, stay.Gstin, stay.Latitude, stay.Longitude, stay.Address, stay.DistrictId, stay.District?.Name,
-            stay.CityId, stay.City?.Name);
-        var current = StayPendingEditJson.Read(stay.PendingEditJson);
-        var outcome = StayReviewFields.Decide(live, asked, current);
-        if (outcome == StayReviewFields.SaveOutcome.ClearPending)
-        {
-            stay.PendingEditJson = null;
-            stay.PendingEditAt = null;
-        }
-        else if (outcome == StayReviewFields.SaveOutcome.NewPending)
-        {
-            stay.PendingEditJson = StayPendingEditJson.Write(new StayPendingEdit(StayReviewFields.Diff(live, asked), asked));
-            stay.PendingEditAt = now;
-            stay.PendingEditResult = null;
-            stay.PendingEditRejectReason = null;
-            stay.PendingEditResultAt = null;
-        }
+        var outcome = StayPendingEditWriter.Apply(stay, asked, now);
 
         await unitOfWork.BeginTransactionAsync();
         try
