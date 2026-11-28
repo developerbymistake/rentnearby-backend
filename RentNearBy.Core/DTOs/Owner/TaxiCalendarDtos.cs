@@ -9,7 +9,7 @@ public sealed record TaxiCalendarEntryDto(
     string Label, string? Detail, string? Note, int? ListedTotal, int? AgreedTotal,
     short? Guests, short? Seats, string? RoomNames, IReadOnlyList<string> Places, string? CancelledBy, DateOnly? CancelledOn,
     int? FinalAmount, int? AdvanceReceived, bool PaidInFull, int Received, int? Balance, string Chip, int ChipAmount,
-    bool Cancelled, int Version, bool InactiveByPlan = false)
+    bool Cancelled, int Version, bool InactiveByPlan = false, bool KeepVisible = false)
 {
     public static TaxiCalendarEntryDto From(CalendarEntryRow r)
     {
@@ -18,7 +18,7 @@ public sealed record TaxiCalendarEntryDto(
             r.DateFrom, r.DateTo, CalendarEntryView.Time(r), r.FromPlace, r.ToPlace, r.Label, r.Detail, r.Note, r.ListedTotal, r.AgreedTotal,
             r.Guests, r.Seats, r.RoomNames, CalendarEntryView.Places(r), r.CancelledBy, r.CancelledOn,
             r.FinalAmount, r.AdvanceReceived, r.PaidInFull, money.Received, money.Balance, money.Chip, money.ChipAmount,
-            r.Cancelled, r.Version, r.InactiveByPlan);
+            r.Cancelled, r.Version, r.InactiveByPlan, r.KeepVisible);
     }
 
     public static List<TaxiCalendarEntryDto> From(IEnumerable<CalendarEntryRow> rows) => rows.Select(From).ToList();
@@ -59,6 +59,8 @@ public sealed class TaxiCalendarEntryRequest
     public int? FinalAmount { get; set; }
     public int? AdvanceReceived { get; set; }
     public bool PaidInFull { get; set; }
+    // I-25: true = still take app bookings this day (a short trip); false (default) = the trip hides the taxi that day.
+    public bool KeepVisible { get; set; }
 }
 
 public sealed class TaxiMoneyNoteRequest

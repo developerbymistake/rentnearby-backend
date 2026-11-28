@@ -21,7 +21,7 @@ public class TaxiAvailabilitySqlTests
     {
         var sql = TaxiAvailabilitySql.FreeOn("t", "@day");
         Assert.Contains("NOT EXISTS (SELECT 1 FROM \"TaxiDayOffs\" dof WHERE dof.\"TaxiListingId\" = t.\"Id\" AND dof.\"Date\" = @day)", sql);
-        Assert.Contains("FROM \"CalendarEntries\" ce WHERE ce.\"ListingKind\" = 'Taxi' AND ce.\"ListingId\" = t.\"Id\" AND ce.\"Kind\" = 'Auto' AND NOT ce.\"Cancelled\"", sql);
+        Assert.Contains("FROM \"CalendarEntries\" ce WHERE ce.\"ListingKind\" = 'Taxi' AND ce.\"ListingId\" = t.\"Id\" AND " + TaxiAvailabilitySql.Hiding("ce"), sql);
         Assert.Contains("ce.\"DateTo\" >= @day AND ce.\"DateFrom\" <= @day", sql);
         Assert.True(TaxiAvailabilityRules.BookingHides);
     }
@@ -51,6 +51,8 @@ public class TaxiAvailabilitySqlTests
         Assert.Contains("\"CalendarEntries\"", sql);
         Assert.Contains("\"Cancelled\"", sql);
         Assert.Contains("'Auto'", sql);
+        Assert.Contains("'Manual'", sql);
+        Assert.Contains("\"KeepVisible\"", sql);
         Assert.Contains("'Taxi'", sql);
         var noBooking = db.TaxiListings.Where(TaxiAvail.FreeOn(db, day, bookingHides: false)).Select(t => t.Id).ToQueryString();
         Assert.DoesNotContain("\"CalendarEntries\"", noBooking);
@@ -100,12 +102,13 @@ public class TaxiAvailabilitySqlTests
         Assert.Contains("WHERE p.\"IsActive\" AND a.\"Taxis\" > 0", PopularRouteReader.Sql);
     }
 
+    // I-25: create and update no longer refuse a day off (the writer clears it); confirm still sees a day off as a clash.
     [Fact]
-    public void Calendar_create_and_update_know_the_day_off_and_confirm_sees_it_as_a_clash()
+    public void Calendar_create_and_update_never_refuse_a_day_off_and_confirm_sees_it_as_a_clash()
     {
-        Assert.Contains("\"TaxiDayOffs\"", OwnerCalendarSql.CreateCheck);
-        Assert.Contains("AS \"DayOff\"", OwnerCalendarSql.CreateCheck);
-        Assert.Contains("(c.\"ListingKind\" <> 'Taxi' OR c.\"DateFrom\" = @from OR NOT EXISTS (SELECT 1 FROM \"TaxiDayOffs\"", OwnerCalendarSql.Update);
+        Assert.DoesNotContain("TaxiDayOffs", OwnerCalendarSql.CreateCheck);
+        Assert.DoesNotContain("TaxiDayOffs", OwnerCalendarSql.Update);
+        Assert.Equal("DELETE FROM \"TaxiDayOffs\" WHERE \"TaxiListingId\" = @l AND \"Date\" BETWEEN @from AND @to", OwnerCalendarSql.ClearTaxiDaysOff);
         Assert.Contains("FROM \"TaxiDayOffs\" d", DriverCalendar.OverlapSql);
         Assert.Contains("d.\"TaxiListingId\" = @driver AND d.\"Date\" BETWEEN @from AND @to", DriverCalendar.OverlapSql);
         Assert.Contains("ORDER BY x.\"From\", x.\"To\"", DriverCalendar.OverlapSql);

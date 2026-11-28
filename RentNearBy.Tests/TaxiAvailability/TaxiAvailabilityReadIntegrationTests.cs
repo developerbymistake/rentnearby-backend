@@ -72,7 +72,8 @@ public class TaxiAvailabilityReadIntegrationTests(TestDatabase db) : Integration
         await c.SaveChangesAsync();
     }
 
-    private sealed record Seeded(Place Place, OwnerSeed.OwnerRow Off, OwnerSeed.OwnerRow Booked, OwnerSeed.OwnerRow Manual, OwnerSeed.OwnerRow Free, OwnerSeed.OwnerRow SwitchedOff, DateOnly Day);
+    private sealed record Seeded(Place Place, OwnerSeed.OwnerRow Off, OwnerSeed.OwnerRow Booked, OwnerSeed.OwnerRow Manual, OwnerSeed.OwnerRow Free, OwnerSeed.OwnerRow SwitchedOff, DateOnly Day,
+        OwnerSeed.OwnerRow Hiding);
 
     private async Task<Seeded> SeedAsync()
     {
@@ -85,10 +86,13 @@ public class TaxiAvailabilityReadIntegrationTests(TestDatabase db) : Integration
         var manual = await RouteTaxiAsync(c, vt, p, 1200);
         var free = await RouteTaxiAsync(c, vt, p, 900);
         var switchedOff = await RouteTaxiAsync(c, vt, p, 800, available: false);
+        var hiding = await RouteTaxiAsync(c, vt, p, 1100);
         await DayOffAsync(c, off.ListingId, d);
         await OwnerSeed.AutoEntryAsync(c, booked, CalendarSourceTypes.TaxiBooking, Guid.NewGuid(), d, d);
-        await OwnerSeed.ManualEntriesAsync(c, manual, 1, d);
-        return new Seeded(p, off, booked, manual, free, switchedOff, d);
+        // I-25: Manual keeps taking app bookings that day (KeepVisible); Hiding is a plain phone booking and hides the taxi.
+        await OwnerSeed.ManualEntriesAsync(c, manual, 1, d, keepVisible: true);
+        await OwnerSeed.ManualEntriesAsync(c, hiding, 1, d);
+        return new Seeded(p, off, booked, manual, free, switchedOff, d, hiding);
     }
 
     [IntegrationFact]
@@ -104,11 +108,13 @@ public class TaxiAvailabilityReadIntegrationTests(TestDatabase db) : Integration
         Assert.DoesNotContain(s.Booked.ListingId, onD);
         Assert.DoesNotContain(s.SwitchedOff.ListingId, onD);
         Assert.Contains(s.Manual.ListingId, onD);
+        Assert.DoesNotContain(s.Hiding.ListingId, onD);
         Assert.Contains(s.Free.ListingId, onD);
 
         var next = (await repo.SearchByRoutePagedAsync(p.FromLat, p.FromLng, p.ToLat, p.ToLng, null, 1, 50, s.Day.AddDays(1))).Items.Select(x => x.Id).ToList();
         Assert.Contains(s.Off.ListingId, next);
         Assert.Contains(s.Booked.ListingId, next);
+        Assert.Contains(s.Hiding.ListingId, next);
         Assert.DoesNotContain(s.SwitchedOff.ListingId, next);
 
         var cheapest = (await repo.SearchByRoutePagedAsync(p.FromLat, p.FromLng, p.ToLat, p.ToLng, null, 1, 50, s.Day.AddDays(1), cheapest: true)).Items;
@@ -131,8 +137,8 @@ public class TaxiAvailabilityReadIntegrationTests(TestDatabase db) : Integration
         Assert.Equal(3, count);
 
         var busy = await TaxiFeedHandlers.BusyAsync(c,
-            [s.Off.ListingId, s.Booked.ListingId, s.Manual.ListingId, s.Free.ListingId, s.SwitchedOff.ListingId], s.Day, CancellationToken.None);
-        Assert.Equal(new[] { s.Off.ListingId, s.Booked.ListingId, s.SwitchedOff.ListingId }.OrderBy(x => x), busy.OrderBy(x => x));
+            [s.Off.ListingId, s.Booked.ListingId, s.Manual.ListingId, s.Free.ListingId, s.SwitchedOff.ListingId, s.Hiding.ListingId], s.Day, CancellationToken.None);
+        Assert.Equal(new[] { s.Off.ListingId, s.Booked.ListingId, s.SwitchedOff.ListingId, s.Hiding.ListingId }.OrderBy(x => x), busy.OrderBy(x => x));
         Assert.Empty(await TaxiFeedHandlers.BusyAsync(c, [s.Off.ListingId, s.Booked.ListingId], s.Day.AddDays(1), CancellationToken.None));
     }
 
@@ -148,6 +154,7 @@ public class TaxiAvailabilityReadIntegrationTests(TestDatabase db) : Integration
         Assert.DoesNotContain(s.Off.ListingId, onD);
         Assert.DoesNotContain(s.Booked.ListingId, onD);
         Assert.Contains(s.Manual.ListingId, onD);
+        Assert.DoesNotContain(s.Hiding.ListingId, onD);
         Assert.Contains(s.Free.ListingId, onD);
 
         var undated = (await repo.BrowseLocalNearAsync(p.FromLat, p.FromLng, 2, false, 50)).Select(x => x.Item.Id).ToList();

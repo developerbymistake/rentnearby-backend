@@ -33,7 +33,7 @@ public class OwnerModelTests
             .SingleOrDefault(c => c.Name == name)?.Sql ?? throw new Xunit.Sdk.XunitException($"No check {name} on {table}");
 
     [Theory]
-    [InlineData("CalendarEntries", "Id,OwnerUserId,ListingKind,ListingId,Kind,SourceType,SourceId,TravellerUserId,DateFrom,DateTo,TimeOfDay,FromPlace,ToPlace,Label,Detail,Note,ListedTotal,AgreedTotal,Guests,Seats,RoomNames,PlacesJson,CancelledBy,CancelledOn,FinalAmount,AdvanceReceived,PaidInFull,Cancelled,Version,CreatedAt,UpdatedAt")]
+    [InlineData("CalendarEntries", "Id,OwnerUserId,ListingKind,ListingId,Kind,SourceType,SourceId,TravellerUserId,DateFrom,DateTo,TimeOfDay,FromPlace,ToPlace,Label,Detail,Note,ListedTotal,AgreedTotal,Guests,Seats,RoomNames,PlacesJson,CancelledBy,CancelledOn,FinalAmount,AdvanceReceived,PaidInFull,Cancelled,KeepVisible,Version,CreatedAt,UpdatedAt")]
     [InlineData("StayBlockedRanges", "Id,StayListingId,DateFrom,DateTo,Reason,Version,CreatedAt,UpdatedAt")]
     [InlineData("StaySpecialPrices", "Id,StayListingId,DateFrom,DateTo,Direction,Percent,FestivalDateId,LabelCopy,IsPaused,PausedByPlan,Version,CreatedAt,UpdatedAt")]
     [InlineData("FestivalDates", "Id,Name,DateFrom,DateTo,StateName,IsActive,CreatedAt,UpdatedAt")]
@@ -70,6 +70,8 @@ public class OwnerModelTests
         Assert.Equal("character varying(200)", e.FindColumn("Note")!.StoreType);
         Assert.Equal("character varying(80)", e.FindColumn("FromPlace")!.StoreType);
         Assert.Equal(1, e.FindColumn("Version")!.DefaultValue);
+        Assert.Equal(false, e.FindColumn("KeepVisible")!.DefaultValue);
+        Assert.False(e.FindColumn("KeepVisible")!.IsNullable);
         Assert.Equal("jsonb", Table("StayListings").FindColumn("PendingEditJson")!.StoreType);
         Assert.Equal("jsonb", Table("TripEnquiries").FindColumn("ListedStayBreakdownJson")!.StoreType);
         Assert.Equal((short)1, Table("TaxiListings").FindColumn("RingWeight")!.DefaultValue);
@@ -87,6 +89,7 @@ public class OwnerModelTests
     [InlineData("CalendarEntries", "ck_calendarentries_time", "\"TimeOfDay\" IS NULL OR (\"ListingKind\" = 'Taxi' AND \"Kind\" = 'Manual')")]
     [InlineData("CalendarEntries", "ck_calendarentries_final", "\"FinalAmount\" IS NULL OR \"FinalAmount\" BETWEEN 1 AND 9900000")]
     [InlineData("CalendarEntries", "ck_calendarentries_paid", "NOT \"PaidInFull\" OR \"FinalAmount\" IS NOT NULL")]
+    [InlineData("CalendarEntries", "ck_calendarentries_keepvisible", "NOT \"KeepVisible\" OR (\"ListingKind\" = 'Taxi' AND \"Kind\" = 'Manual')")]
     [InlineData("StayBlockedRanges", "ck_stayblockedranges_dates", "\"DateTo\" >= \"DateFrom\" AND \"DateTo\" - \"DateFrom\" <= 89")]
     [InlineData("StaySpecialPrices", "ck_stayspecialprices_direction", "\"Direction\" IN ('Lower', 'Higher')")]
     [InlineData("StaySpecialPrices", "ck_stayspecialprices_dates", "\"DateTo\" >= \"DateFrom\" AND \"DateTo\" - \"DateFrom\" <= 59")]
@@ -156,7 +159,7 @@ public class OwnerModelTests
     public void Includes_and_sort_orders()
     {
         var includes = (string[]?)Index("CalendarEntries", "ix_calendarentries_listing_dateto").MappedIndexes.Single()["Npgsql:IndexInclude"];
-        Assert.Equal(["DateFrom", "Kind", "Cancelled"], includes);
+        Assert.Equal(["DateFrom", "Kind", "Cancelled", "KeepVisible"], includes);
         Assert.Equal(["DateFrom"], (string[]?)Index("StayBlockedRanges", "ix_stayblockedranges_stay_dateto").MappedIndexes.Single()["Npgsql:IndexInclude"]);
         Assert.Equal(["MatchFromCityKey", "MatchToCityKey"], (string[]?)Index("TaxiRequests", "ix_taxirequests_created").MappedIndexes.Single()["Npgsql:IndexInclude"]);
         Assert.Equal(["MatchToCityKey", "DropCityKey"], (string[]?)Index("TaxiRequests", "ix_taxirequests_from_created").MappedIndexes.Single()["Npgsql:IndexInclude"]);

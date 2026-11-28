@@ -1091,6 +1091,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     AdvanceReceived = table.Column<int>(type: "integer", nullable: true),
                     PaidInFull = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     Cancelled = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
+                    KeepVisible = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     Version = table.Column<int>(type: "integer", nullable: false, defaultValue: 1),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
@@ -1103,6 +1104,7 @@ namespace RentNearBy.Infrastructure.Migrations
                     table.CheckConstraint("ck_calendarentries_cancelledby", "\"CancelledBy\" IS NULL OR \"CancelledBy\" IN ('Traveller', 'Owner', 'Driver', 'Admin', 'System')");
                     table.CheckConstraint("ck_calendarentries_dates", "\"DateTo\" >= \"DateFrom\"");
                     table.CheckConstraint("ck_calendarentries_final", "\"FinalAmount\" IS NULL OR \"FinalAmount\" BETWEEN 1 AND 9900000");
+                    table.CheckConstraint("ck_calendarentries_keepvisible", "NOT \"KeepVisible\" OR (\"ListingKind\" = 'Taxi' AND \"Kind\" = 'Manual')");
                     table.CheckConstraint("ck_calendarentries_kind", "\"Kind\" IN ('Auto', 'Manual')");
                     table.CheckConstraint("ck_calendarentries_listingkind", "\"ListingKind\" IN ('Stay', 'Taxi')");
                     table.CheckConstraint("ck_calendarentries_manual", "\"Kind\" <> 'Manual' OR (length(btrim(\"Label\")) >= 1 AND NOT \"Cancelled\" AND (\"ListingKind\" <> 'Stay' OR (\"DateTo\" > \"DateFrom\" AND \"DateTo\" - \"DateFrom\" <= 60)) AND (\"ListingKind\" <> 'Taxi' OR \"DateTo\" = \"DateFrom\"))");
@@ -3325,7 +3327,7 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_calendarentries_listing_dateto",
                 table: "CalendarEntries",
                 columns: new[] { "ListingKind", "ListingId", "DateTo", "Id" })
-                .Annotation("Npgsql:IndexInclude", new[] { "DateFrom", "Kind", "Cancelled" });
+                .Annotation("Npgsql:IndexInclude", new[] { "DateFrom", "Kind", "Cancelled", "KeepVisible" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_calendarentries_owner",
