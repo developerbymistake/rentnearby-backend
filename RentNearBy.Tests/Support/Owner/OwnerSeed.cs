@@ -98,7 +98,8 @@ public static class OwnerSeed
     }
 
     public static async Task<List<CalendarEntry>> ManualEntriesAsync(
-        ApplicationDbContext db, OwnerRow owner, int n, DateOnly firstDay, int stepDays = 1, int? finalAmount = null, int? advance = null)
+        ApplicationDbContext db, OwnerRow owner, int n, DateOnly firstDay, int stepDays = 1, int? finalAmount = null, int? advance = null,
+        bool keepVisible = false)
     {
         var now = DateTime.UtcNow;
         var rows = Enumerable.Range(0, n).Select(i =>
@@ -109,6 +110,7 @@ public static class OwnerSeed
                 Id = Guid.NewGuid(), OwnerUserId = owner.UserId, ListingKind = owner.Kind, ListingId = owner.ListingId,
                 Kind = CalendarEntryKinds.Manual, DateFrom = from, DateTo = owner.Kind == ListingKinds.Stay ? from.AddDays(1) : from,
                 Label = $"Phone booking {i + 1}", FinalAmount = finalAmount, AdvanceReceived = advance, CreatedAt = now.AddSeconds(i), UpdatedAt = now,
+                KeepVisible = keepVisible,
             };
         }).ToList();
         db.Set<CalendarEntry>().AddRange(rows);

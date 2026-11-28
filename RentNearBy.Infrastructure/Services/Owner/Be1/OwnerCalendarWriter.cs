@@ -17,10 +17,14 @@ public sealed record CalendarEntryWrite(CalendarEntryRow Entry, IReadOnlyList<Me
 // Edit (D-07, FB-04): an ended entry is read-only except its money note, so no edit can revive a row and edits need no limit
 // check; a date that does not move always passes, a moved date must be inside the manual window; an entry above the plan limit is 409 PlanRowInactive (D-30).
 // Create also stops at the kept-rows ceiling (OwnerLimits.ManualRowsCeiling), so past-dated rows cannot be spammed.
+// I-25 (taxi only): a manual trip may land on a day off; a hiding trip (not KeepVisible) removes that day off on create and edit
+// under the taxi row lock (a taxi edit is one transaction, a refusal rolls back). A KeepVisible trip keeps the day off, the same
+// rule as the day-off save (allowed beside a KeepVisible trip). KeepVisible is taxi-only.
 public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCalendarWriter> logger)
 {
     public async Task<Be1Result<CalendarEntryWrite>> CreateAsync(OwnerContext ctx, Guid id, ManualEntryInput input, CancellationToken ct = default)
     {
+        input = ForKind(ctx.Kind, input);
         if (id == Guid.Empty) return new Be1Error(OwnerErrorTypes.BadRequest, "Missing id.");
         if (OwnerCalendarRules.Validate(ctx.Kind, input) is { } invalid) return new Be1Error(invalid.Type, invalid.Message);
         if (!OwnerCalendarRules.InsideWindow(ctx.Window, input.DateFrom, input.DateTo)) return Be1Error.Of(OwnerErrorTypes.CalendarOutsideWindow);
@@ -35,11 +39,9 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
             if (!OwnerCalendarRules.InsideWindow(ctx.Window, input.DateFrom, input.DateTo)) return Be1Error.Of(OwnerErrorTypes.CalendarOutsideWindow);
 
             var check = (await db.Database.SqlQueryRaw<CalendarCreateCheckRow>(CreateCheck,
-                [.. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("keptFrom", ctx.Window.PastFrom), Uuid("id", id),
-                 Date("from", input.DateFrom)]).ToListAsync(c))[0];
+                [.. Scope(ctx.Kind, ctx.ListingId), Date("today", ctx.Today), Date("keptFrom", ctx.Window.PastFrom), Uuid("id", id)]).ToListAsync(c))[0];
             if (CalendarEntryView.ParseRow(check.Existing) is { } existing)
                 return await ReplayAsync(ctx, existing, check.Active, tx, c);
-            if (check.DayOff) return DayIsOff(input.DateFrom);
             if (check.Total >= OwnerLimits.ManualRowsCeiling)
                 return new Be1Error(OwnerErrorTypes.CalendarEntryLimit, OwnerErrorTypes.LimitMessage(OwnerErrorTypes.CalendarEntryLimit, OwnerLimits.ManualRowsCeiling, false),
                     new PlanLimitRefusalDto(PlanFeatureKeys.CalendarEntries, OwnerLimits.ManualRowsCeiling, (int)check.Total, false));
@@ -57,6 +59,7 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
                 if (raced is not { IsManual: true }) return Be1Error.Of(OwnerErrorTypes.IdTaken);
                 return await ReplayAsync(ctx, raced, check.Active, tx, c);
             }
+            if (ctx.Kind == ListingKinds.Taxi && !inserted[0].KeepVisible) await ClearDaysOffAsync(ctx, inserted[0], c);
             var overlap = await OverlapAsync(ctx, inserted[0], c);
             await tx.CommitAsync(c);
             return Be1Result<CalendarEntryWrite>.Success(new CalendarEntryWrite(inserted[0], OwnerCalendarReader.Meters(ctx, overlap.Active), ToOverlap(overlap)));
@@ -66,32 +69,52 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
     public async Task<Be1Result<CalendarEntryWrite>> UpdateAsync(OwnerContext ctx, Guid id, int? version, ManualEntryInput input, CancellationToken ct = default)
     {
         if (version is not { } v) return new Be1Error(OwnerErrorTypes.BadRequest, "Missing version.");
+        input = ForKind(ctx.Kind, input);
         if (OwnerCalendarRules.Validate(ctx.Kind, input) is { } invalid) return new Be1Error(invalid.Type, invalid.Message);
+        if (ctx.Kind != ListingKinds.Taxi) return (await UpdateRowAsync(ctx, id, v, input, ct)).Result;
 
+        // Taxi: the taxi row lock (the one a day-off save takes), so the edit and the day-off clear commit together; a refusal rolls back.
+        return await PgRetry.OnceAsync<Be1Result<CalendarEntryWrite>>(db, async c =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(c);
+            if (!await OwnerLocks.LockTaxiAsync(db, ctx.ListingId, c)) return Be1Error.Of(OwnerErrorTypes.ListingNotFound);
+            var (result, changed) = await UpdateRowAsync(ctx, id, v, input, c);
+            if (!result.Ok) return result;
+            // Contract item 3: a saved hiding trip ends any day off on its days (a same-content replay writes nothing).
+            if (changed && !result.Value!.Entry.KeepVisible) await ClearDaysOffAsync(ctx, result.Value!.Entry, c);
+            await tx.CommitAsync(c);
+            return result;
+        }, ct, logger);
+    }
+
+    // The version-guarded single statement. Changed = a row was written (not a replay of the same content).
+    private async Task<(Be1Result<CalendarEntryWrite> Result, bool Changed)> UpdateRowAsync(
+        OwnerContext ctx, Guid id, int v, ManualEntryInput input, CancellationToken ct)
+    {
         var rows = await db.Database.SqlQueryRaw<CalendarEntryRow>(Update,
             [.. InsertParameters(ctx, id, input), Int("v", v), Date("today", ctx.Today), Int("limit", ctx.Limits.CalendarEntries),
              Bool("fromOk", OwnerCalendarRules.InWindow(ctx.Window, input.DateFrom)), Bool("toOk", OwnerCalendarRules.InWindow(ctx.Window, input.DateTo))])
             .ToListAsync(ct);
-        CalendarEntryRow saved;
-        if (rows.Count == 1)
-        {
-            saved = rows[0];
-        }
-        else
-        {
-            // The success path is one statement; only a refusal re-reads to choose its answer.
-            var current = await OwnerCalendarReader.ReadOneAsync(db, ctx.Kind, ctx.ListingId, id, ct);
-            if (current == null) return NotFound();
-            if (!current.IsManual) return Be1Error.Of(OwnerErrorTypes.EntryNotManual);
-            if (OwnerCalendarRules.Ended(current.DateTo, ctx.Today))
-                return new Be1Error(OwnerErrorTypes.EntryEnded, OwnerErrorTypes.EntryEndedMessage(ctx.Kind));
-            if (await OwnerCalendarReader.ReadVisibleAsync(db, ctx, id, ct) == null) return Be1Error.Of(OwnerErrorTypes.PlanRowInactive);
-            if (OwnerCalendarRules.SameManual(current, input)) saved = current;
-            else if (current.Version != v) return Stale(current);
-            else if (ctx.Kind == ListingKinds.Taxi && current.DateFrom != input.DateFrom && await IsDayOffAsync(ctx, input.DateFrom, ct))
-                return DayIsOff(input.DateFrom);
-            else return Be1Error.Of(OwnerErrorTypes.CalendarOutsideWindow);
-        }
+        if (rows.Count == 1) return (await WrittenAsync(ctx, rows[0], ct), true);
+        return (await NotUpdatedAsync(ctx, id, v, input, ct), false);
+    }
+
+    // The success path is one statement; only a refusal re-reads to choose its answer.
+    private async Task<Be1Result<CalendarEntryWrite>> NotUpdatedAsync(OwnerContext ctx, Guid id, int v, ManualEntryInput input, CancellationToken ct)
+    {
+        var current = await OwnerCalendarReader.ReadOneAsync(db, ctx.Kind, ctx.ListingId, id, ct);
+        if (current == null) return NotFound();
+        if (!current.IsManual) return Be1Error.Of(OwnerErrorTypes.EntryNotManual);
+        if (OwnerCalendarRules.Ended(current.DateTo, ctx.Today))
+            return new Be1Error(OwnerErrorTypes.EntryEnded, OwnerErrorTypes.EntryEndedMessage(ctx.Kind));
+        if (await OwnerCalendarReader.ReadVisibleAsync(db, ctx, id, ct) == null) return Be1Error.Of(OwnerErrorTypes.PlanRowInactive);
+        if (OwnerCalendarRules.SameManual(current, input)) return await WrittenAsync(ctx, current, ct);
+        if (current.Version != v) return Stale(current);
+        return Be1Error.Of(OwnerErrorTypes.CalendarOutsideWindow);
+    }
+
+    private async Task<Be1Result<CalendarEntryWrite>> WrittenAsync(OwnerContext ctx, CalendarEntryRow saved, CancellationToken ct)
+    {
         var overlap = await OverlapAsync(ctx, saved, ct);
         return Be1Result<CalendarEntryWrite>.Success(new CalendarEntryWrite(saved, OwnerCalendarReader.Meters(ctx, overlap.Active), ToOverlap(overlap)));
     }
@@ -115,8 +138,12 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
 
     public static Be1Error DayIsOff(DateOnly date) => Be1Error.Of(OwnerErrorTypes.DayIsOff, new { date = TaxiSearchDate.Text(date) });
 
-    private async Task<bool> IsDayOffAsync(OwnerContext ctx, DateOnly date, CancellationToken ct)
-        => (await db.Database.SqlQueryRaw<bool>(DayOffOne, Uuid("l", ctx.ListingId), Date("from", date)).ToListAsync(ct)).FirstOrDefault();
+    private Task<int> ClearDaysOffAsync(OwnerContext ctx, CalendarEntryRow row, CancellationToken ct)
+        => db.Database.ExecuteSqlRawAsync(ClearTaxiDaysOff, [Uuid("l", ctx.ListingId), Date("from", row.DateFrom), Date("to", row.DateTo)], ct);
+
+    // KeepVisible belongs to taxi rows only; a stay write never carries it.
+    public static ManualEntryInput ForKind(string kind, ManualEntryInput input)
+        => kind == ListingKinds.Taxi || !input.KeepVisible ? input : input with { KeepVisible = false };
 
     public static Be1Error Stale(CalendarEntryRow current) => new(OwnerErrorTypes.StaleEdit, OwnerErrorTypes.MessageOf(OwnerErrorTypes.StaleEdit), null, current);
 
@@ -142,5 +169,6 @@ public sealed class OwnerCalendarWriter(ApplicationDbContext db, ILogger<OwnerCa
         Date("from", input.DateFrom), Date("to", input.DateTo), Time("time", input.TimeOfDay),
         Text("fromPlace", input.FromPlace), Text("toPlace", input.ToPlace), Text("label", input.Label.Trim()), Text("note", input.Note),
         Int("final", input.Money.FinalAmount), Int("advanceReceived", input.Money.AdvanceReceived), Bool("paid", input.Money.PaidInFull),
+        Bool("keepVisible", input.KeepVisible),
     ];
 }

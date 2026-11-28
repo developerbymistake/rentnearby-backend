@@ -32,6 +32,8 @@ public class CalendarEntry
     public int? AdvanceReceived { get; set; }
     public bool PaidInFull { get; set; }
     public bool Cancelled { get; set; }
+    // Taxi manual rows only: true = the driver still takes app bookings that day (the row does not hide the taxi).
+    public bool KeepVisible { get; set; }
     public int Version { get; set; } = 1;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

@@ -31,7 +31,7 @@ public interface IDriverCalendarSql
     Task<TaxiDateRange?> FindOverlapAsync(Guid driverListingId, TaxiDateRange range, Guid? exceptEnquiryId, CancellationToken ct);
 }
 
-// A driver's day off inside the range is a clash too (SPEC 4.3): confirm answers DatesAlreadyBooked and the banner shows.
+// A driver's day off or hiding manual booking inside the range is a clash too (SPEC 4.3, I-25): confirm answers DatesAlreadyBooked and the banner shows.
 // MASTER_PLAN P1 and B2-6: every writer that can book a driver opens a READ COMMITTED transaction, locks the driver's
 // TaxiListings row FOR UPDATE and only then sends a fresh overlap query over active TaxiBookings and confirmed legacy
 // local taxi rows. Under READ COMMITTED each statement takes a new snapshot, so the query sees every booking committed
@@ -55,7 +55,7 @@ public static class DriverCalendar
             : new DriverCheck(DriverCheckOutcome.Free, driver, null);
     }
 
-    // Accept (D3) and select (T7): bookings only. A day off is refused at confirm alone (contract 1.8, R16).
+    // Accept (D3) and select (T7): bookings only. A day off or a hiding manual row is refused at confirm alone (contract 1.8, R16).
     public static Task<TaxiDateRange?> ConflictForAsync(ApplicationDbContext db, Guid driverListingId, DateOnly from, DateOnly to, CancellationToken ct = default)
         => new EfDriverCalendarSql(db).FindBookingOverlapAsync(driverListingId, new TaxiDateRange(from, to), ct);
 
@@ -97,6 +97,14 @@ public static class DriverCalendar
             WHERE d."TaxiListingId" = @driver AND d."Date" BETWEEN @from AND @to
         """;
 
+    // I-25: a driver's own booking without KeepVisible (a phone booking) makes him busy on its days, like a day off.
+    private static readonly string ManualRows = $"""
+            SELECT c."DateFrom" AS "From", c."DateTo" AS "To"
+            FROM "CalendarEntries" c
+            WHERE c."ListingKind" = '{ListingKinds.Taxi}' AND c."ListingId" = @driver AND {TaxiAvailabilitySql.ManualHiding("c")}
+              AND c."DateFrom" <= @to AND c."DateTo" >= @from
+        """;
+
     private static string FirstClash(string rows) => $"""
         SELECT x."From", x."To" FROM (
         {rows}
@@ -105,8 +113,8 @@ public static class DriverCalendar
         LIMIT 1
         """;
 
-    // Confirm (P1 lock) and the Selected banner: bookings, confirmed legacy rows and days off.
-    public static readonly string OverlapSql = FirstClash(BookingRows + "\n    UNION ALL\n" + DayOffRows);
+    // Confirm (P1 lock) and the Selected banner: bookings, confirmed legacy rows, days off and hiding manual rows.
+    public static readonly string OverlapSql = FirstClash(BookingRows + "\n    UNION ALL\n" + DayOffRows + "\n    UNION ALL\n" + ManualRows);
 
     // Accept and select: bookings and confirmed legacy rows only.
     public static readonly string BookingOverlapSql = FirstClash(BookingRows);

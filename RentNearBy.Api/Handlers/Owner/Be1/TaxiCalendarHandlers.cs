@@ -1,16 +1,20 @@
 using System.Security.Claims;
 using FluentValidation;
+using Microsoft.AspNetCore.Mvc;
 using RentNearBy.Core.DTOs.Owner;
 using RentNearBy.Core.Interfaces;
 using RentNearBy.Core.Models;
 using RentNearBy.Core.Models.Owner;
+using RentNearBy.Infrastructure.Services;
 using RentNearBy.Infrastructure.Services.Owner.Be1;
+using StackExchange.Redis;
 using static RentNearBy.Api.Extensions.ApiResults;
 
 namespace RentNearBy.Api.Handlers.Owner.Be1;
 
 // Taxi Driver calendar C1 to C11 under /api/v1/taxis/me/calendar (contract 2.1). Not tab-gated: the driver's own trips and notes
 // stay usable while the public Taxi tab is off. Thin: caller, rate limit, owner context, service, mapping.
+// I-25: a manual trip hides the taxi on its day (unless KeepVisible), so create, edit and delete bump taxis:avail:gen like a day-off save.
 public static class TaxiCalendarHandlers
 {
     private const string Kind = ListingKinds.Taxi;
@@ -70,49 +74,67 @@ public static class TaxiCalendarHandlers
 
     public static async Task<IResult> Create(
         TaxiCalendarEntryRequest request, IValidator<TaxiCalendarEntryRequest> validator, ClaimsPrincipal principal,
-        OwnerCalendarReader reader, OwnerCalendarWriter writer, IRateLimitService limiter, HttpContext http, CancellationToken ct)
+        OwnerCalendarReader reader, OwnerCalendarWriter writer, IRateLimitService limiter, HttpContext http,
+        [FromServices] IConnectionMultiplexer? redis, CancellationToken ct)
     {
         if (!OwnerCalendarHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return OwnerHttp.Invalid(validation);
         if (!OwnerCalendarHttp.TryTime(request.TimeOfDay, out var time)) return BadRequestResponse(OwnerCalendarHttp.TimeInvalid);
-        return await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(me), async () =>
+        var saved = false;
+        var response = await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(me), async () =>
         {
             var (ctx, fail) = await OwnerCalendarHttp.ContextAsync(me, Kind, reader, ct);
             if (ctx == null) return fail!;
             var result = await writer.CreateAsync(ctx, request.Id, Input(request, time), ct);
-            return result.Ok ? OkResponse(Write(result.Value!)) : OwnerCalendarHttp.Error(result.Error!, TaxiCalendarEntryDto.From);
+            if (!result.Ok) return OwnerCalendarHttp.Error(result.Error!, TaxiCalendarEntryDto.From);
+            saved = true;
+            return OkResponse(Write(result.Value!));
         });
+        if (saved) await BumpAvailabilityAsync(redis);
+        return response;
     }
 
     public static async Task<IResult> Update(
         Guid id, TaxiCalendarEntryRequest request, IValidator<TaxiCalendarEntryRequest> validator, ClaimsPrincipal principal,
-        OwnerCalendarReader reader, OwnerCalendarWriter writer, IRateLimitService limiter, HttpContext http, CancellationToken ct)
+        OwnerCalendarReader reader, OwnerCalendarWriter writer, IRateLimitService limiter, HttpContext http,
+        [FromServices] IConnectionMultiplexer? redis, CancellationToken ct)
     {
         if (!OwnerCalendarHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
         var validation = await validator.ValidateAsync(request, ct);
         if (!validation.IsValid) return OwnerHttp.Invalid(validation);
         if (!OwnerCalendarHttp.TryTime(request.TimeOfDay, out var time)) return BadRequestResponse(OwnerCalendarHttp.TimeInvalid);
-        return await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(me), async () =>
+        var saved = false;
+        var response = await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(me), async () =>
         {
             var (ctx, fail) = await OwnerCalendarHttp.ContextAsync(me, Kind, reader, ct);
             if (ctx == null) return fail!;
             var result = await writer.UpdateAsync(ctx, id, request.Version, Input(request, time), ct);
-            return result.Ok ? OkResponse(Write(result.Value!)) : OwnerCalendarHttp.Error(result.Error!, TaxiCalendarEntryDto.From);
+            if (!result.Ok) return OwnerCalendarHttp.Error(result.Error!, TaxiCalendarEntryDto.From);
+            saved = true;
+            return OkResponse(Write(result.Value!));
         });
+        if (saved) await BumpAvailabilityAsync(redis);
+        return response;
     }
 
     public static async Task<IResult> Delete(
-        Guid id, ClaimsPrincipal principal, OwnerCalendarReader reader, OwnerCalendarWriter writer, IRateLimitService limiter, HttpContext http, CancellationToken ct)
+        Guid id, ClaimsPrincipal principal, OwnerCalendarReader reader, OwnerCalendarWriter writer, IRateLimitService limiter, HttpContext http,
+        [FromServices] IConnectionMultiplexer? redis, CancellationToken ct)
     {
         if (!OwnerCalendarHttp.TryCaller(principal, out var me)) return UnauthorizedResponse();
-        return await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(me), async () =>
+        var saved = false;
+        var response = await OwnerHttp.WriteLimitAsync(limiter, http, OwnerRateLimitKeys.Write(me), async () =>
         {
             var (ctx, fail) = await OwnerCalendarHttp.ContextAsync(me, Kind, reader, ct);
             if (ctx == null) return fail!;
             var error = await writer.DeleteAsync(ctx, id, ct);
-            return error == null ? NoContentResponse() : OwnerCalendarHttp.Error(error, TaxiCalendarEntryDto.From);
+            if (error != null) return OwnerCalendarHttp.Error(error, TaxiCalendarEntryDto.From);
+            saved = true;
+            return NoContentResponse();
         });
+        if (saved) await BumpAvailabilityAsync(redis);
+        return response;
     }
 
     public static async Task<IResult> Money(
@@ -178,7 +200,11 @@ public static class TaxiCalendarHandlers
         OwnerCalendarRules.Clean(r.FromPlace),
         OwnerCalendarRules.Clean(r.ToPlace),
         OwnerCalendarRules.Clean(r.Note),
-        OwnerCalendarHttp.Money(r.FinalAmount, r.AdvanceReceived, r.PaidInFull));
+        OwnerCalendarHttp.Money(r.FinalAmount, r.AdvanceReceived, r.PaidInFull),
+        r.KeepVisible);
+
+    // The keys a day-off save bumps (TaxiDayOffHandlers.Save): every dated taxi browse, search and popular count re-reads.
+    public static Task BumpAvailabilityAsync(IConnectionMultiplexer? redis) => FeedCache.BumpAsync(redis, [ListingCacheKeys.TaxiAvailGen]);
 
     private static TaxiCalendarEntryWriteDto Write(CalendarEntryWrite w) => new(TaxiCalendarEntryDto.From(w.Entry), w.Meters, w.Overlap);
 }

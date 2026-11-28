@@ -36,6 +36,7 @@ public static class OwnerFeatureModel
                     "AND (\"FinalAmount\" IS NULL OR \"AdvanceReceived\" <= \"FinalAmount\"))");
                 t.HasCheckConstraint("ck_calendarentries_paid", "NOT \"PaidInFull\" OR \"FinalAmount\" IS NOT NULL");
                 t.HasCheckConstraint("ck_calendarentries_cancelledby", $"\"CancelledBy\" IS NULL OR \"CancelledBy\" IN ({CalendarCancelledBy.SqlList})");
+                t.HasCheckConstraint("ck_calendarentries_keepvisible", "NOT \"KeepVisible\" OR (\"ListingKind\" = 'Taxi' AND \"Kind\" = 'Manual')");
                 t.HasCheckConstraint("ck_calendarentries_autosnap",
                     "\"Kind\" = 'Auto' OR (\"Guests\" IS NULL AND \"Seats\" IS NULL AND \"RoomNames\" IS NULL AND \"PlacesJson\" IS NULL AND \"CancelledBy\" IS NULL)");
             });
@@ -58,6 +59,7 @@ public static class OwnerFeatureModel
             e.Property(x => x.CancelledOn).HasColumnType("date");
             e.Property(x => x.PaidInFull).HasDefaultValue(false);
             e.Property(x => x.Cancelled).HasDefaultValue(false);
+            e.Property(x => x.KeepVisible).HasDefaultValue(false);
             e.Property(x => x.Version).HasDefaultValue(1).HasSentinel(1);
             e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
@@ -67,7 +69,7 @@ public static class OwnerFeatureModel
 
             e.HasIndex(x => new { x.SourceType, x.SourceId }, "ux_calendarentries_source").IsUnique().HasFilter("\"Kind\" = 'Auto'");
             e.HasIndex(x => new { x.ListingKind, x.ListingId, x.DateTo, x.Id }, "ix_calendarentries_listing_dateto")
-             .IncludeProperties(x => new { x.DateFrom, x.Kind, x.Cancelled });
+             .IncludeProperties(x => new { x.DateFrom, x.Kind, x.Cancelled, x.KeepVisible });
             e.HasIndex(x => new { x.ListingKind, x.ListingId, x.DateFrom, x.Id }, "ix_calendarentries_listing_datefrom");
             // FB-62: ix_calendarentries_manual_active is gone (ix_calendarentries_listing_dateto serves the same scans).
             e.HasIndex(x => x.DateTo, "ix_calendarentries_dateto");

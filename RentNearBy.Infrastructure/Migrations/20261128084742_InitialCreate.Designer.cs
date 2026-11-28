@@ -13,7 +13,7 @@ using RentNearBy.Infrastructure.Data;
 namespace RentNearBy.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261128075836_InitialCreate")]
+    [Migration("20261128084742_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -1966,6 +1966,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     b.Property<short?>("Guests")
                         .HasColumnType("smallint");
 
+                    b.Property<bool>("KeepVisible")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(8)
@@ -2044,7 +2049,7 @@ namespace RentNearBy.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "ListingKind", "ListingId", "DateTo", "Id" }, "ix_calendarentries_listing_dateto");
 
-                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "ListingKind", "ListingId", "DateTo", "Id" }, "ix_calendarentries_listing_dateto"), new[] { "DateFrom", "Kind", "Cancelled" });
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "ListingKind", "ListingId", "DateTo", "Id" }, "ix_calendarentries_listing_dateto"), new[] { "DateFrom", "Kind", "Cancelled", "KeepVisible" });
 
                     b.HasIndex(new[] { "OwnerUserId" }, "ix_calendarentries_owner");
 
@@ -2066,6 +2071,8 @@ namespace RentNearBy.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_calendarentries_dates", "\"DateTo\" >= \"DateFrom\"");
 
                             t.HasCheckConstraint("ck_calendarentries_final", "\"FinalAmount\" IS NULL OR \"FinalAmount\" BETWEEN 1 AND 9900000");
+
+                            t.HasCheckConstraint("ck_calendarentries_keepvisible", "NOT \"KeepVisible\" OR (\"ListingKind\" = 'Taxi' AND \"Kind\" = 'Manual')");
 
                             t.HasCheckConstraint("ck_calendarentries_kind", "\"Kind\" IN ('Auto', 'Manual')");
 

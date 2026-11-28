@@ -33,6 +33,7 @@ public sealed class CalendarEntryRow
     public int? AdvanceReceived { get; set; }
     public bool PaidInFull { get; set; }
     public bool Cancelled { get; set; }
+    public bool KeepVisible { get; set; }
     public string? CancelledBy { get; set; }
     public DateOnly? CancelledOn { get; set; }
     public int Version { get; set; }
@@ -58,7 +59,8 @@ public sealed record ManualEntryInput(
     string? FromPlace,
     string? ToPlace,
     string? Note,
-    MoneyNote Money);
+    MoneyNote Money,
+    bool KeepVisible = false);
 
 public sealed record CalendarRuleError(string Type, string Message);
 
@@ -234,7 +236,8 @@ public static class OwnerCalendarRules
     // Replay test of C6: the stored row already holds what the request asks for.
     public static bool SameManual(CalendarEntryRow row, ManualEntryInput input)
         => row.Label == input.Label.Trim() && row.DateFrom == input.DateFrom && row.DateTo == input.DateTo && row.TimeOfDay == input.TimeOfDay
-           && row.FromPlace == input.FromPlace && row.ToPlace == input.ToPlace && row.Note == input.Note && SameMoney(row, input.Money);
+           && row.FromPlace == input.FromPlace && row.ToPlace == input.ToPlace && row.Note == input.Note && SameMoney(row, input.Money)
+           && row.KeepVisible == input.KeepVisible;
 
     public static bool SameMoney(CalendarEntryRow row, MoneyNote note)
         => row.FinalAmount == note.FinalAmount && row.AdvanceReceived == note.AdvanceReceived && row.PaidInFull == note.PaidInFull;

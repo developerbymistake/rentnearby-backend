@@ -204,6 +204,7 @@ public class TaxiAvailabilityIntegrationTests(TestDatabase db) : IntegrationTest
         }
     }
 
+    // I-25: both orders end with a booked day and no day off: the create clears a day off saved first, a save after the create is refused.
     [IntegrationFact]
     public async Task Save_and_a_manual_create_on_the_same_day_follow_the_lock_order()
     {
@@ -215,12 +216,14 @@ public class TaxiAvailabilityIntegrationTests(TestDatabase db) : IntegrationTest
         var create = new OwnerCalendarWriter(c2, NullLogger<OwnerCalendarWriter>.Instance)
             .CreateAsync(Ctx(owner), Guid.NewGuid(), new ManualEntryInput("Phone booking", d, d, null, null, null, null, default));
         await Task.WhenAll(save, create);
-        Assert.True(save.Result.Ok);
-        if (!create.Result.Ok) Assert.Equal(OwnerErrorTypes.DayIsOff, create.Result.Error!.Type);
+        Assert.True(create.Result.Ok);
+        if (!save.Result.Ok) Assert.Equal(OwnerErrorTypes.DayOffBooked, save.Result.Error!.Type);
+        Assert.Empty(await RowsAsync(owner.ListingId));
     }
 
+    // I-25: a phone booking on a day off is allowed and turns the day into a booked day; an unchanged edit passes.
     [IntegrationFact]
-    public async Task Calendar_create_on_an_off_day_is_refused_and_an_unchanged_edit_passes()
+    public async Task Calendar_create_on_an_off_day_clears_the_day_off_and_an_unchanged_edit_passes()
     {
         var owner = await DriverAsync();
         var d = InMonth();
@@ -228,17 +231,17 @@ public class TaxiAvailabilityIntegrationTests(TestDatabase db) : IntegrationTest
         CalendarEntry trip;
         await using (var c = CreateContext())
             trip = (await OwnerSeed.ManualEntriesAsync(c, owner, 1, other))[0];
-        await using (var c = CreateContext()) await Service(c).SaveAsync(Ctx(owner), Changes([(d, null)]));
+        await using (var c = CreateContext())
+        {
+            c.Set<TaxiDayOff>().Add(new TaxiDayOff { TaxiListingId = owner.ListingId, Date = d, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+            await c.SaveChangesAsync();
+        }
         await using (var c = CreateContext())
         {
             var writer = new OwnerCalendarWriter(c, NullLogger<OwnerCalendarWriter>.Instance);
             var created = await writer.CreateAsync(Ctx(owner), Guid.NewGuid(), new ManualEntryInput("Trip", d, d, null, null, null, null, default));
-            Assert.Equal(OwnerErrorTypes.DayIsOff, created.Error!.Type);
-            if (other != d)
-            {
-                var moved = await writer.UpdateAsync(Ctx(owner), trip.Id, trip.Version, new ManualEntryInput("Trip", d, d, null, null, null, null, default));
-                Assert.Equal(OwnerErrorTypes.DayIsOff, moved.Error!.Type);
-            }
+            Assert.True(created.Ok);
+            Assert.Empty(await RowsAsync(owner.ListingId));
             var renamed = await writer.UpdateAsync(Ctx(owner), trip.Id, trip.Version, new ManualEntryInput("Renamed", other, other, null, null, null, null, default));
             Assert.True(renamed.Ok);
             Assert.Null(await writer.DeleteAsync(Ctx(owner), trip.Id));
@@ -251,11 +254,12 @@ public class TaxiAvailabilityIntegrationTests(TestDatabase db) : IntegrationTest
         var off = await DriverAsync();
         var booked = await DriverAsync();
         var manual = await DriverAsync();
+        var hiding = await DriverAsync();
         var d = TodayIst.AddDays(2);
         // Own random pin, so the shared test database's other taxis never fill the clamped page.
         var lat = Math.Round(10 + Random.Shared.NextDouble() * 5, 4);
         var lng = Math.Round(75 + Random.Shared.NextDouble() * 5, 4);
-        var ids = new[] { off.ListingId, booked.ListingId, manual.ListingId };
+        var ids = new[] { off.ListingId, booked.ListingId, manual.ListingId, hiding.ListingId };
         await using (var c = CreateContext())
         {
             await c.TaxiListings.Where(t => ids.Contains(t.Id)).ExecuteUpdateAsync(s => s
@@ -267,7 +271,9 @@ public class TaxiAvailabilityIntegrationTests(TestDatabase db) : IntegrationTest
             c.Set<TaxiDayOff>().Add(new TaxiDayOff { TaxiListingId = off.ListingId, Date = d, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
             await c.SaveChangesAsync();
             await OwnerSeed.AutoEntryAsync(c, booked, CalendarSourceTypes.TaxiBooking, Guid.NewGuid(), d, d);
-            await OwnerSeed.ManualEntriesAsync(c, manual, 1, d);
+            // I-25: this phone booking keeps taking app bookings (KeepVisible); a plain one hides the taxi like an app booking.
+            await OwnerSeed.ManualEntriesAsync(c, manual, 1, d, keepVisible: true);
+            await OwnerSeed.ManualEntriesAsync(c, hiding, 1, d);
         }
         await using (var c = CreateContext())
         {
@@ -277,6 +283,8 @@ public class TaxiAvailabilityIntegrationTests(TestDatabase db) : IntegrationTest
             Assert.DoesNotContain(off.ListingId, onD);
             Assert.DoesNotContain(booked.ListingId, onD);
             Assert.Contains(manual.ListingId, onD);
+            Assert.DoesNotContain(hiding.ListingId, onD);
+            Assert.Contains(hiding.ListingId, nextDay);
             Assert.Contains(off.ListingId, nextDay);
             Assert.Contains(booked.ListingId, nextDay);
             var featured = await q.FeaturedAsync(NearbyKind.Taxi, lat, lng, 1, 50, new NearbyFilter(Day: d));

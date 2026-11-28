@@ -14,13 +14,14 @@ namespace RentNearBy.Infrastructure.Services.Owner.Be1;
 // Contract 1.3 A1 / A2. Read = the owner context + ONE state statement. Save = one READ COMMITTED transaction under the taxi row lock
 // (the same row booking confirm and the calendar writer lock), the plan re-read under it, one flags statement over the set dates,
 // one upsert, one delete, the state statement. All or nothing; the body is the wanted end state, so a repeat ends the same.
+// I-25: a day covered by an app booking or by a hiding manual booking cannot be set off (DayOffBooked lists those days).
 public sealed class TaxiDayOffService(ApplicationDbContext db, ILogger<TaxiDayOffService> logger)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private static string BookedOn(string day) => $"""
         EXISTS (SELECT 1 FROM "CalendarEntries" c WHERE c."ListingKind" = '{ListingKinds.Taxi}' AND c."ListingId" = @l
-                AND c."Kind" = '{CalendarEntryKinds.Auto}' AND NOT c."Cancelled" AND c."DateFrom" <= {day} AND c."DateTo" >= {day})
+                AND {TaxiAvailabilitySql.Hiding("c")} AND c."DateFrom" <= {day} AND c."DateTo" >= {day})
         """;
 
     public static readonly string StateSql = $"""
@@ -29,7 +30,7 @@ public sealed class TaxiDayOffService(ApplicationDbContext db, ILogger<TaxiDayOf
                COALESCE((SELECT json_agg(DISTINCT g.day::date ORDER BY g.day::date)
                          FROM "CalendarEntries" c
                          CROSS JOIN LATERAL generate_series(GREATEST(c."DateFrom", @today)::timestamp, LEAST(c."DateTo", @to)::timestamp, interval '1 day') g(day)
-                         WHERE c."ListingKind" = '{ListingKinds.Taxi}' AND c."ListingId" = @l AND c."Kind" = '{CalendarEntryKinds.Auto}' AND NOT c."Cancelled"
+                         WHERE c."ListingKind" = '{ListingKinds.Taxi}' AND c."ListingId" = @l AND {TaxiAvailabilitySql.Hiding("c")}
                            AND c."DateTo" >= @today AND c."DateFrom" <= @to), '[]')::text AS "BookedDays",
                (SELECT count(*) FROM "CalendarEntries" c
                 WHERE c."ListingKind" = '{ListingKinds.Taxi}' AND c."ListingId" = @l AND c."Kind" = '{CalendarEntryKinds.Auto}' AND NOT c."Cancelled"

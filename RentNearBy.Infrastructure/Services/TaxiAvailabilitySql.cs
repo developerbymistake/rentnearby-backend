@@ -9,7 +9,8 @@ using RentNearBy.Infrastructure.Data;
 
 namespace RentNearBy.Infrastructure.Services;
 
-// SPEC 9.2: a confirmed From app booking hides the taxi for the days it covers. One switch.
+// SPEC 9.2: a confirmed From app booking hides the taxi for the days it covers; I-25: so does a driver's own booking unless he
+// keeps taking app bookings that day (KeepVisible). One switch.
 public static class TaxiAvailabilityRules
 {
     public static readonly bool BookingHides = true;
@@ -28,9 +29,17 @@ public static class TaxiAvailabilitySql
         var dayOff = $"""NOT EXISTS (SELECT 1 FROM "TaxiDayOffs" dof WHERE dof."TaxiListingId" = {t}."Id" AND dof."Date" = {day})""";
         if (!bookingHides) return dayOff;
         return dayOff + $"""
-             AND NOT EXISTS (SELECT 1 FROM "CalendarEntries" ce WHERE ce."ListingKind" = '{ListingKinds.Taxi}' AND ce."ListingId" = {t}."Id" AND ce."Kind" = '{CalendarEntryKinds.Auto}' AND NOT ce."Cancelled" AND ce."DateTo" >= {day} AND ce."DateFrom" <= {day})
+             AND NOT EXISTS (SELECT 1 FROM "CalendarEntries" ce WHERE ce."ListingKind" = '{ListingKinds.Taxi}' AND ce."ListingId" = {t}."Id" AND {Hiding("ce")} AND ce."DateTo" >= {day} AND ce."DateFrom" <= {day})
             """;
     }
+
+    // A taxi calendar row that hides the taxi on its days: a live app booking, or a driver's own booking without KeepVisible.
+    public static string Hiding(string c)
+        => $"""NOT {c}."Cancelled" AND ({c}."Kind" = '{CalendarEntryKinds.Auto}' OR ({c}."Kind" = '{CalendarEntryKinds.Manual}' AND NOT {c}."KeepVisible"))""";
+
+    // The manual half of Hiding alone (a phone booking without KeepVisible): the confirm overlap reads app bookings from TaxiBookings.
+    public static string ManualHiding(string c)
+        => $"{c}.\"Kind\" = '{CalendarEntryKinds.Manual}' AND NOT {c}.\"KeepVisible\" AND NOT {c}.\"Cancelled\"";
 
     public static string PublicOn(string t, string day)
         => $"""{t}."Status" = '{TaxiStatuses.Approved}' AND {t}."IsAvailable" AND NOT {t}."IsDeleted" AND {FreeOn(t, day)}""";
@@ -49,7 +58,8 @@ public static class TaxiAvailability
         if (!bookingHides)
             return t => !db.Set<TaxiDayOff>().Any(x => x.TaxiListingId == t.Id && x.Date == day);
         return t => !db.Set<TaxiDayOff>().Any(x => x.TaxiListingId == t.Id && x.Date == day)
-            && !db.Set<CalendarEntry>().Any(c => c.ListingKind == ListingKinds.Taxi && c.ListingId == t.Id
-                && c.Kind == CalendarEntryKinds.Auto && !c.Cancelled && c.DateTo >= day && c.DateFrom <= day);
+            && !db.Set<CalendarEntry>().Any(c => c.ListingKind == ListingKinds.Taxi && c.ListingId == t.Id && !c.Cancelled
+                && (c.Kind == CalendarEntryKinds.Auto || (c.Kind == CalendarEntryKinds.Manual && !c.KeepVisible))
+                && c.DateTo >= day && c.DateFrom <= day);
     }
 }
