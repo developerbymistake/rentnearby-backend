@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Memory;
 using RentNearBy.Api.Endpoints;
 using RentNearBy.Api.Hubs;
 using RentNearBy.Core.Interfaces.Buddy;
 using RentNearBy.Core.Interfaces.Social;
 using RentNearBy.Infrastructure.Services.Social;
+using StackExchange.Redis;
 
 namespace RentNearBy.Api.Extensions;
 
@@ -20,6 +22,7 @@ public static class SocialFeatureExtensions
         services.AddScoped<SocialProfileService>();
         services.AddScoped<INameChangeGate, NameChangeGate>();
         services.AddScoped<FollowService>();
+        services.AddSingleton(sp => new FollowGuard(sp.GetService<IConnectionMultiplexer>(), sp.GetRequiredService<IMemoryCache>(), sp.GetRequiredService<ILogger<FollowGuard>>()));
         services.AddScoped<MyBuddyService>();
         services.AddScoped<JoinRequestService>();
         services.AddScoped<SocialChatService>();

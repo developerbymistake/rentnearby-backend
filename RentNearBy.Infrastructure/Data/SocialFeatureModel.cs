@@ -44,6 +44,15 @@ public static class SocialFeatureModel
             // The 07:00 IST nearby digest joins travellers by district (NearbyDigestJob.DigestSql).
             e.HasIndex(x => new { x.LastDistrictId, x.LastDistrictAt }, "ix_userprofiles_nearby")
              .HasFilter("\"NotifyNearbyTrips\" AND \"LastDistrictId\" IS NOT NULL");
+            // Discover (DESIGN 2.1, 8): near-you by district (not tied to the notify switch), same home state, shared tags; the
+            // follow guard's durable copy (DESIGN 4.6).
+            e.HasIndex(x => new { x.LastDistrictId, x.LastDistrictAt }, "ix_userprofiles_district")
+             .IsDescending(false, true)
+             .HasFilter("\"LastDistrictId\" IS NOT NULL");
+            e.HasIndex(x => x.HomeStateName, "ix_userprofiles_state");
+            e.HasIndex(x => x.Interests, "ix_userprofiles_interests").HasMethod("gin");
+            e.Property(x => x.FollowSendTimes).HasColumnType("timestamp with time zone[]").HasDefaultValueSql("'{}'::timestamptz[]").IsRequired();
+            e.Property(x => x.FollowBlockLevel).HasColumnType("smallint").HasDefaultValue((short)0);
             e.Property(x => x.FollowerCount).HasDefaultValue(0);
             e.Property(x => x.FollowingCount).HasDefaultValue(0);
             e.Property(x => x.CompletedAt).HasDefaultValueSql("now()");
@@ -91,6 +100,35 @@ public static class SocialFeatureModel
             e.HasIndex(x => new { x.FolloweeId, x.CreatedAt, x.FollowerId }, "ix_follows_requests")
              .IsDescending(false, true, false)
              .HasFilter($"\"Status\" = '{FollowStatuses.Requested}'");
+            // Follows whose side effects FollowEffectsJob has not done yet (the row is the outbox item).
+            e.HasIndex(x => x.CreatedAt, "ix_follows_effects_pending").HasFilter("\"EffectsAt\" IS NULL");
+        });
+
+        modelBuilder.Entity<DiscoverHide>(e =>
+        {
+            e.ToTable("DiscoverHides", t => t.HasCheckConstraint("ck_discoverhides_not_self", "\"UserId\" <> \"HiddenUserId\""));
+            e.HasKey(x => new { x.UserId, x.HiddenUserId });
+            e.Property(x => x.HiddenAt).HasDefaultValueSql("now()");
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.HiddenUserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.HiddenAt, "ix_discoverhides_at");
+        });
+
+        modelBuilder.Entity<FollowCountDirty>(e =>
+        {
+            e.ToTable("FollowCountDirty");
+            e.HasKey(x => x.UserId);
+            e.Property(x => x.MarkedAt).HasDefaultValueSql("now()");
+            e.HasOne<User>().WithOne().HasForeignKey<FollowCountDirty>(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FollowPushGroup>(e =>
+        {
+            e.ToTable("FollowPushGroups", t => t.HasCheckConstraint("ck_followpushgroups_kind", $"\"Kind\" IN ({FollowStatuses.SqlList})"));
+            e.HasKey(x => new { x.ReceiverId, x.Kind });
+            e.Property(x => x.Kind).HasColumnType("char(1)").IsRequired();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.ReceiverId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.DueAt, "ix_followpushgroups_due").HasFilter("\"DueAt\" IS NOT NULL");
         });
 
         modelBuilder.Entity<Trip>(e =>
@@ -120,6 +158,8 @@ public static class SocialFeatureModel
             e.HasIndex(x => new { x.PublishedAt, x.Id }, "ix_trips_public").IsDescending(true, true).HasFilter("\"IsPublic\"");
             // Posts waiting for the 07:00 IST nearby digest (a handful a day).
             e.HasIndex(x => x.PublishedAt, "ix_trips_nearby_pending").HasFilter("\"NotifyNearby\" AND \"NearbyNotifiedAt\" IS NULL");
+            // Discover sameTrip source: live public posts by city and start date.
+            e.HasIndex(x => new { x.CityKey, x.StartDate }, "ix_trips_public_city").HasFilter("\"IsPublic\"");
         });
 
         modelBuilder.Entity<TripJoinRequest>(e =>

@@ -31,8 +31,8 @@ public class SocialPushExpiryTests
     {
         var specs = new[]
         {
-            SocialPushCopy.FollowRequest(User, Other, "Aman"),
-            SocialPushCopy.NewFollower(User, Other, "Aman", Now),
+            SocialPushCopy.RequestsGrouped(User, 2, "Aman", Now),
+            SocialPushCopy.FollowersGrouped(User, 5, Other, "Aman", Now),
             SocialPushCopy.FollowAccepted(User, Other, "Aman"),
             SocialPushCopy.JoinRequest(User, Other, Room, "Aman"),
             SocialPushCopy.JoinAccepted(User, Other, Room, "Rahul"),

@@ -10,28 +10,32 @@ public class AbuseCapsPinTests
     private static string Src(params string[] parts) => File.ReadAllText(Path.Combine([BuddySources.Root(), .. parts]));
 
     [Fact]
-    public void All_caps_are_named_in_SocialLimits()
+    public void All_caps_are_named_in_SocialLimits_and_FollowGuardRules()
     {
-        Assert.Equal(
-            (4, 50, 50),
-            (SocialLimits.PublishesPerWeek, SocialLimits.PendingRequestsMax, SocialLimits.FollowsPerDay));
+        Assert.Equal((4, 50), (SocialLimits.PublishesPerWeek, SocialLimits.PendingRequestsMax));
+        Assert.Equal((10, 3, 5), (FollowGuardRules.BurstMax, FollowGuardRules.DayMax, FollowGuardRules.WeekMax));
     }
 
+    // Discover DESIGN 1.5 / 4.1: the old 50-per-24h follow cap is gone; the follow route runs the Redis follow guard
+    // (week 5, day 3, burst, blocks) and answers TryLater; unfollow keeps the Write key and never refunds a follow.
     [Fact]
-    public void Follow_cap_is_50_per_rolling_24_hours_and_unfollow_never_refunds_it()
+    public void Follow_uses_the_follow_guard_and_unfollow_never_refunds_it()
     {
-        var me = Guid.NewGuid();
-        var follow = SocialRateLimits.Follow(me);
-        Assert.Equal(SocialLimits.FollowsPerDay, follow.Max);
-        Assert.Equal(TimeSpan.FromHours(24), follow.Window);
-        Assert.NotEqual(follow.Key, SocialRateLimits.Write(me).Key);
+        Assert.Null(typeof(SocialRateLimits).GetMethod("Follow"));
+        Assert.Null(typeof(SocialLimits).GetField("FollowsPerDay"));
         var handlers = Src("RentNearBy.Api", "Handlers", "Social", "FollowHandlers.cs");
-        var followAt = handlers.IndexOf("public static Task<IResult> Follow(", StringComparison.Ordinal);
+        var followAt = handlers.IndexOf("public static async Task<IResult> Follow(", StringComparison.Ordinal);
         var unfollowAt = handlers.IndexOf("public static Task<IResult> Unfollow(", StringComparison.Ordinal);
-        Assert.Contains("SocialRateLimits.Follow(", handlers[followAt..unfollowAt]);
+        Assert.True(followAt >= 0 && unfollowAt > followAt);
+        var follow = handlers[followAt..unfollowAt];
+        Assert.Contains("guard.TryAsync(", follow);
+        Assert.Contains("SocialErrorTypes.TryLater", follow);
+        Assert.DoesNotContain("SocialRateLimits.", follow);
+        Assert.DoesNotContain("ActionLimitAsync", follow);
         var unfollow = handlers[unfollowAt..];
         var unfollowEnd = Math.Min(unfollow.Length, unfollow.IndexOf("=> SocialHttp.WriteAsync", StringComparison.Ordinal) + 200);
         Assert.Contains("SocialRateLimits.Write(", unfollow[..unfollowEnd]);
+        Assert.DoesNotContain("Release", Src("RentNearBy.Infrastructure", "Services", "Social", "FollowService.cs"));
     }
 
     [Theory]

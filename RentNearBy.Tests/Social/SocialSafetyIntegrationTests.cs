@@ -73,6 +73,22 @@ public class SocialSafetyIntegrationTests(TestDatabase db) : IntegrationTestBase
 
     private static string N(Guid id) => id.ToString("N");
 
+    // Follow pushes come grouped from FollowEffectsJob (Discover DESIGN 5.2 / 5.3): claim the new follows, make the groups of
+    // the receivers due now instead of after the gather window, then flush them.
+    private async Task FollowEffectsCycleAsync(params Guid[] receivers)
+    {
+        await using (var ctx = CreateContext())
+            await new FollowEffectsWork(ctx, new NoticeWriter(ctx), SocialTestSeams.AfterCommit(ctx), NullLogger<FollowEffectsWork>.Instance)
+                .RunOnceAsync(CancellationToken.None);
+        await using (var ctx = CreateContext())
+            await ctx.Database.ExecuteSqlRawAsync(
+                """UPDATE "FollowPushGroups" SET "DueAt" = now() - interval '1 second' WHERE "ReceiverId" = ANY(@u) AND "DueAt" IS NOT NULL""",
+                [SocialSql.Uuids("u", receivers)]);
+        await using (var ctx = CreateContext())
+            await new FollowEffectsWork(ctx, new NoticeWriter(ctx), SocialTestSeams.AfterCommit(ctx), NullLogger<FollowEffectsWork>.Instance)
+                .FlushGroupsAsync(CancellationToken.None);
+    }
+
     // ------------------------------------------------------------------ guidelines
 
     [IntegrationFact]
@@ -280,8 +296,10 @@ public class SocialSafetyIntegrationTests(TestDatabase db) : IntegrationTestBase
             Assert.True((await Follows(ctx).FollowAsync(fan, quiet)).Ok);
             Assert.True((await Follows(ctx).FollowAsync(fan, loud)).Ok);
         }
+        Assert.Equal(0, await OutboxAsync($"fol:{N(loud)}:"));
+        await FollowEffectsCycleAsync(quiet, loud);
         Assert.Equal(0, await OutboxAsync($"fol:{N(quiet)}:"));
-        Assert.Equal(1, await OutboxAsync($"fol:{N(loud)}:"));
+        Assert.Equal(1, await OutboxAsync($"fol:{N(loud)}:{FollowStatuses.Accepted}:"));
     }
 
     [IntegrationFact]
@@ -295,8 +313,10 @@ public class SocialSafetyIntegrationTests(TestDatabase db) : IntegrationTestBase
             Assert.Equal(FollowStates.Requested, (await Follows(ctx).FollowAsync(fan, quiet)).Value!.State);
             Assert.Equal(FollowStates.Requested, (await Follows(ctx).FollowAsync(fan, loud)).Value!.State);
         }
-        Assert.Equal(0, await OutboxAsync($"folreq:{N(fan)}:{N(quiet)}"));
-        Assert.Equal(1, await OutboxAsync($"folreq:{N(fan)}:{N(loud)}"));
+        Assert.Equal(0, await OutboxAsync($"fol:{N(loud)}:"));
+        await FollowEffectsCycleAsync(quiet, loud);
+        Assert.Equal(0, await OutboxAsync($"fol:{N(quiet)}:"));
+        Assert.Equal(1, await OutboxAsync($"fol:{N(loud)}:{FollowStatuses.Requested}:"));
     }
 
     [IntegrationFact]

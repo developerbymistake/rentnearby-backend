@@ -86,6 +86,9 @@ public static class AccountDeletionCoverage
         new("ChatRoomMembers", DeletionModes.Cascade | DeletionModes.Participant, "Users cascade and the room delete."),
         new("ChatMessages", DeletionModes.Participant, "His direct rooms are deleted with their messages (room cascade); trip room messages expire in 24 hours."),
         new("MessageSnapshots", DeletionModes.Anonymised, "Kept to PurgeAt for the report; ids kept, his name replaced by Deleted account."),
+        new("DiscoverHides", DeletionModes.Cascade, "Users cascade on both sides (hider and hidden)."),
+        new("FollowCountDirty", DeletionModes.Cascade, "Users cascade."),
+        new("FollowPushGroups", DeletionModes.Cascade, "Users cascade (receiver)."),
 
         // Stay quotation (ARCHITECTURE 2, 9.4): no guest data anywhere; images go with the user prefix delete (both delivery types).
         new("StayQuoteProfiles", DeletionModes.Cascade | DeletionModes.Purge,

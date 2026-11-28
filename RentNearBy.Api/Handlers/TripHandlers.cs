@@ -490,7 +490,8 @@ public static class TripHandlers
         ITripCityCatalog catalog, ISavedJourneyRepository journeys, ILoggerFactory loggers,
         IRateLimitService rateLimiter, HttpContext httpContext, ApplicationDbContext db,
         [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null,
-        [Microsoft.AspNetCore.Mvc.FromServices] ISeekerLimits? seekerLimits = null)
+        [Microsoft.AspNetCore.Mvc.FromServices] ISeekerLimits? seekerLimits = null,
+        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Infrastructure.Services.Social.DiscoverCache? discover = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -583,6 +584,7 @@ public static class TripHandlers
             }
         }
 
+        discover?.Invalidate(userId);
         var created = ToDto(trip, plan);
         if (sharingHooks != null) created.Sharing = await sharingHooks.GetNewTripSharingAsync(trip.Id, userId);
         return CreatedResponse(created, $"/api/v1/trips/{trip.Id}");
@@ -711,7 +713,8 @@ public static class TripHandlers
     public static async Task<IResult> Update(
         Guid id, SaveTripRequest request, IValidator<SaveTripRequest> validator, ClaimsPrincipal principal, IUnitOfWork unitOfWork,
         ApplicationDbContext db, ITripChatService chat, ITripNotifier notifier, ILoggerFactory loggers,
-        ISavedJourneyRepository journeys, ITripCityCatalog catalog, [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null)
+        ISavedJourneyRepository journeys, ITripCityCatalog catalog, [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null,
+        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Infrastructure.Services.Social.DiscoverCache? discover = null)
     {
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
 
@@ -774,6 +777,7 @@ public static class TripHandlers
         trip.Title = name.Title;
         trip.NameChosen = name.NameChosen;
         if (effectiveStatus != null) trip.Status = effectiveStatus;
+        var oldCity = trip.CityKey;
         CopyFirstLeg(trip, plan);
         var oldStart = trip.StartDate;
         var oldEnd = trip.EndDate;
@@ -924,6 +928,7 @@ public static class TripHandlers
         }
 
         await TripEnquiryHandlers.AfterCommitAsync(chat, posts, pushes, unitOfWork, notifier, loggers);
+        if (oldCity != trip.CityKey || oldStart != trip.StartDate || oldEnd != trip.EndDate) discover?.Invalidate(userId);
         if (sharingHooks != null && TripPlanLock.IsStructuralChange(stored, plan, taxiMark: false))
         {
             try
@@ -1036,7 +1041,8 @@ public static class TripHandlers
     public static async Task<IResult> Delete(
         Guid id, ClaimsPrincipal principal, IUnitOfWork unitOfWork, ITripEnquiryClosure closure, ISavedJourneyRepository journeys,
         ApplicationDbContext? db = null, [Microsoft.AspNetCore.Mvc.FromServices] ITripMoneyGuard? moneyGuard = null, [Microsoft.AspNetCore.Mvc.FromServices] ITripSharingHooks? sharingHooks = null,
-        [Microsoft.AspNetCore.Mvc.FromServices] INoticeWriter? noticeWriter = null)
+        [Microsoft.AspNetCore.Mvc.FromServices] INoticeWriter? noticeWriter = null,
+        [Microsoft.AspNetCore.Mvc.FromServices] RentNearBy.Infrastructure.Services.Social.DiscoverCache? discover = null)
     {
         ArgumentNullException.ThrowIfNull(db);
         if (!UsersHandlers.TryGetUserId(principal, out var userId)) return UnauthorizedResponse();
@@ -1095,6 +1101,7 @@ public static class TripHandlers
         await closure.AfterCommitAsync(pushes);
         if (viewersTold > 0) noticeWriter?.Wake();
         if (sharingHooks != null) await sharingHooks.AfterTripDeletedAsync();
+        discover?.Invalidate(userId);
         var ownersTold = pushes.Select(p => p.Notification.TargetUserId).Where(t => t != null).Distinct().Count();
         return OkResponse(new { message = "Trip deleted", ownersTold, viewersTold });
     }

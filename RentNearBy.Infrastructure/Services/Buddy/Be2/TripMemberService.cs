@@ -16,7 +16,8 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be2;
 // S1, S12, S13, S16, S17 (contract 2.2).
 public sealed class TripMemberService(
     ApplicationDbContext db, ITripAccess access, ITripMoneyCards money, INoticeWriter notices, IBuddyLiveHints hints,
-    TimeProvider clock, ILogger<TripMemberService> logger, ITripGroupChat groupChat, SocialAfterCommit afterCommit)
+    TimeProvider clock, ILogger<TripMemberService> logger, ITripGroupChat groupChat, SocialAfterCommit afterCommit,
+    RentNearBy.Infrastructure.Services.Social.DiscoverCache? discover = null)
 {
     // Owner row, Joined rows and (owner caller only) waiting invites, with "is the caller's buddy" per person.
     private static readonly string PeopleSql = $"""
@@ -164,6 +165,7 @@ public sealed class TripMemberService(
             await afterCommit.FlushAsync();
             notices.Wake();
             await hints.TripViewChangedAsync(tripId, [ownerId, userId]);
+            discover?.Invalidate(ownerId, userId);
         }
         return result;
     }
@@ -197,6 +199,7 @@ public sealed class TripMemberService(
 
         await afterCommit.FlushAsync();
         await hints.TripViewChangedAsync(tripId, [ownerId, callerId]);
+        discover?.Invalidate(callerId, ownerId);
         var standing = (await money.GetStandingsAsync([tripId], callerId, ct)).GetValueOrDefault(tripId);
         return SharingResult<TripLeftDto>.Success(new TripLeftDto { Status = TripMemberStatuses.Left, HasShare = standing?.HasShare ?? false });
     }

@@ -17,7 +17,8 @@ namespace RentNearBy.Infrastructure.Services.Buddy.Be2;
 // S2, S3, S7, S8, S9 (contract 2.2). Lock order: trip-slots (S8 only) -> pair locks -> trip row -> TripMembers -> UserNotices -> OutboxMessages.
 public sealed class TripInviteService(
     ApplicationDbContext db, INoticeWriter notices, IBuddyLiveHints hints, TimeProvider clock, ILogger<TripInviteService> logger,
-    ISeekerLimits seekerLimits, ITripGroupChat groupChat, SocialAfterCommit afterCommit)
+    ISeekerLimits seekerLimits, ITripGroupChat groupChat, SocialAfterCommit afterCommit,
+    RentNearBy.Infrastructure.Services.Social.DiscoverCache? discover = null)
 {
     // Owner 2026-11-28 (I-13): anyone the owner follows (accepted) or has as a buddy may be invited; the column keeps its name,
     // NotBuddy now means "not someone you follow".
@@ -227,6 +228,7 @@ public sealed class TripInviteService(
             await afterCommit.FlushAsync();
             notices.Wake();
             await hints.TripViewChangedAsync(first.TripId, [owner, callerId]);
+            discover?.Invalidate(callerId, owner);
         }
         return result;
     }

@@ -9,21 +9,20 @@ using static RentNearBy.Infrastructure.Services.Social.SocialSql;
 
 namespace RentNearBy.Infrastructure.Services.Social;
 
-// Contract 1.10: account deletion. Follow counters of the other side are lowered set-based, waiting join requests end
+// Contract 1.10: account deletion. The other side of every deleted follow is marked for the FollowEffectsJob recount, waiting join requests end
 // Cancelled (owners' lists refresh), direct rooms go, snapshots keep the messages with the name replaced. Profiles, audit,
 // buddy rows, trip-room memberships and the rest go by the Users cascade.
 public sealed class SocialDeletionParticipant(ApplicationDbContext db, IHubSessionRevoker? hubSessions = null) : IAccountDeletionParticipant
 {
     public int Order => 25;
 
-    private static readonly string FollowsSql = $"""
-        WITH d AS (DELETE FROM "Follows" WHERE "FollowerId" = @me OR "FolloweeId" = @me RETURNING "FollowerId", "FolloweeId", "Status"),
-        c1 AS (UPDATE "UserProfiles" p SET "FollowerCount" = GREATEST(0, p."FollowerCount" - x.n)
-               FROM (SELECT d."FolloweeId" AS id, count(*)::int AS n FROM d WHERE d."FollowerId" = @me AND d."Status" = '{FollowStatuses.Accepted}' GROUP BY d."FolloweeId") x
-               WHERE p."UserId" = x.id),
-        c2 AS (UPDATE "UserProfiles" p SET "FollowingCount" = GREATEST(0, p."FollowingCount" - x.n)
-               FROM (SELECT d."FollowerId" AS id, count(*)::int AS n FROM d WHERE d."FolloweeId" = @me AND d."Status" = '{FollowStatuses.Accepted}' GROUP BY d."FollowerId") x
-               WHERE p."UserId" = x.id)
+    private const string FollowsSql = """
+        WITH d AS (DELETE FROM "Follows" WHERE "FollowerId" = @me OR "FolloweeId" = @me RETURNING "FollowerId", "FolloweeId"),
+        dirty AS (INSERT INTO "FollowCountDirty" ("UserId", "MarkedAt")
+                  SELECT o.id, now()
+                  FROM (SELECT DISTINCT CASE WHEN d."FollowerId" = @me THEN d."FolloweeId" ELSE d."FollowerId" END AS id FROM d) o
+                  ORDER BY o.id
+                  ON CONFLICT ("UserId") DO UPDATE SET "MarkedAt" = EXCLUDED."MarkedAt")
         SELECT count(*)::int AS "Value" FROM d
         """;
 

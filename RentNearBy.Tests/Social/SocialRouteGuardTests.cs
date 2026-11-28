@@ -18,7 +18,7 @@ public class SocialRouteGuardTests
     public void Social_routes_are_seeker_only_except_onboarding()
     {
         var social = Routes.Where(r => r.Key.Contains(" /api/v1/social/", StringComparison.Ordinal) || r.Key.EndsWith(" /api/v1/social", StringComparison.Ordinal)).ToList();
-        Assert.Equal(36, social.Count);
+        Assert.Equal(39, social.Count);
         foreach (var (key, route) in social.Where(r => r.Key != Onboarding))
             Assert.True(route.Policies.SequenceEqual([AuthPolicies.SeekerOnly]), key);
         var onboarding = Route(Onboarding);
@@ -28,10 +28,10 @@ public class SocialRouteGuardTests
     }
 
     [Fact]
-    public void Social_list_holds_35_seeker_routes_and_the_gate_total_is_125()
+    public void Social_list_holds_38_seeker_routes_and_the_gate_total_is_128()
     {
-        Assert.Equal(35, SeekerOnly.SeekerRouteTable.Social.Length);
-        Assert.Equal(125, Seeker.Length);
+        Assert.Equal(38, SeekerOnly.SeekerRouteTable.Social.Length);
+        Assert.Equal(128, Seeker.Length);
         Assert.DoesNotContain(Onboarding, SeekerOnly.SeekerRouteTable.Social);
         Assert.Contains(Onboarding, OpenUser);
     }

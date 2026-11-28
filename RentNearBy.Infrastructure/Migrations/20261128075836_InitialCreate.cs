@@ -1146,6 +1146,32 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "DiscoverHides",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    HiddenUserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    HiddenAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_DiscoverHides", x => new { x.UserId, x.HiddenUserId });
+                    table.CheckConstraint("ck_discoverhides_not_self", "\"UserId\" <> \"HiddenUserId\"");
+                    table.ForeignKey(
+                        name: "FK_DiscoverHides_Users_HiddenUserId",
+                        column: x => x.HiddenUserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_DiscoverHides_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "FestivalReminderSent",
                 columns: table => new
                 {
@@ -1172,6 +1198,46 @@ namespace RentNearBy.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "FollowCountDirty",
+                columns: table => new
+                {
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    MarkedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_FollowCountDirty", x => x.UserId);
+                    table.ForeignKey(
+                        name: "FK_FollowCountDirty_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "FollowPushGroups",
+                columns: table => new
+                {
+                    ReceiverId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Kind = table.Column<string>(type: "char(1)", nullable: false),
+                    PendingSince = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    DueAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LastSentAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_FollowPushGroups", x => new { x.ReceiverId, x.Kind });
+                    table.CheckConstraint("ck_followpushgroups_kind", "\"Kind\" IN ('A', 'R')");
+                    table.ForeignKey(
+                        name: "FK_FollowPushGroups_Users_ReceiverId",
+                        column: x => x.ReceiverId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Follows",
                 columns: table => new
                 {
@@ -1179,7 +1245,8 @@ namespace RentNearBy.Infrastructure.Migrations
                     FolloweeId = table.Column<Guid>(type: "uuid", nullable: false),
                     Status = table.Column<string>(type: "char(1)", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    AcceptedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                    AcceptedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    EffectsAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -1865,7 +1932,11 @@ namespace RentNearBy.Infrastructure.Migrations
                     LastDistrictAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     NotifyNearbyTrips = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
                     NotifiedPostTimes = table.Column<DateTime[]>(type: "timestamp with time zone[]", nullable: false, defaultValueSql: "'{}'::timestamptz[]"),
-                    PublishTimes = table.Column<DateTime[]>(type: "timestamp with time zone[]", nullable: false, defaultValueSql: "'{}'::timestamptz[]")
+                    PublishTimes = table.Column<DateTime[]>(type: "timestamp with time zone[]", nullable: false, defaultValueSql: "'{}'::timestamptz[]"),
+                    FollowSendTimes = table.Column<DateTime[]>(type: "timestamp with time zone[]", nullable: false, defaultValueSql: "'{}'::timestamptz[]"),
+                    FollowBlockUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    FollowBlockLevel = table.Column<short>(type: "smallint", nullable: false, defaultValue: (short)0),
+                    FollowBlockLevelAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -3452,6 +3523,16 @@ namespace RentNearBy.Infrastructure.Migrations
                 columns: new[] { "UserId", "IsValid" });
 
             migrationBuilder.CreateIndex(
+                name: "ix_discoverhides_at",
+                table: "DiscoverHides",
+                column: "HiddenAt");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DiscoverHides_HiddenUserId",
+                table: "DiscoverHides",
+                column: "HiddenUserId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_DistrictBanners_DistrictId",
                 table: "DistrictBanners",
                 column: "DistrictId",
@@ -3519,6 +3600,18 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "ix_festivalremindersent_festival",
                 table: "FestivalReminderSent",
                 column: "FestivalDateId");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_followpushgroups_due",
+                table: "FollowPushGroups",
+                column: "DueAt",
+                filter: "\"DueAt\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_follows_effects_pending",
+                table: "Follows",
+                column: "CreatedAt",
+                filter: "\"EffectsAt\" IS NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_follows_followers",
@@ -4836,6 +4929,12 @@ namespace RentNearBy.Infrastructure.Migrations
                 filter: "\"IsPublic\"");
 
             migrationBuilder.CreateIndex(
+                name: "ix_trips_public_city",
+                table: "Trips",
+                columns: new[] { "CityKey", "StartDate" },
+                filter: "\"IsPublic\"");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_trips_startdate",
                 table: "Trips",
                 column: "StartDate",
@@ -4980,10 +5079,28 @@ namespace RentNearBy.Infrastructure.Migrations
                 descending: new[] { false, false, true });
 
             migrationBuilder.CreateIndex(
+                name: "ix_userprofiles_district",
+                table: "UserProfiles",
+                columns: new[] { "LastDistrictId", "LastDistrictAt" },
+                descending: new[] { false, true },
+                filter: "\"LastDistrictId\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_userprofiles_interests",
+                table: "UserProfiles",
+                column: "Interests")
+                .Annotation("Npgsql:IndexMethod", "gin");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_userprofiles_nearby",
                 table: "UserProfiles",
                 columns: new[] { "LastDistrictId", "LastDistrictAt" },
                 filter: "\"NotifyNearbyTrips\" AND \"LastDistrictId\" IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_userprofiles_state",
+                table: "UserProfiles",
+                column: "HomeStateName");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_CreatedAt",
@@ -5106,6 +5223,9 @@ namespace RentNearBy.Infrastructure.Migrations
                 name: "DeviceTokens");
 
             migrationBuilder.DropTable(
+                name: "DiscoverHides");
+
+            migrationBuilder.DropTable(
                 name: "DriverDispatchStates");
 
             migrationBuilder.DropTable(
@@ -5113,6 +5233,12 @@ namespace RentNearBy.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "FestivalReminderSent");
+
+            migrationBuilder.DropTable(
+                name: "FollowCountDirty");
+
+            migrationBuilder.DropTable(
+                name: "FollowPushGroups");
 
             migrationBuilder.DropTable(
                 name: "Follows");
